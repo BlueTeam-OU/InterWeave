@@ -5,7 +5,7 @@ topic: "blueteam-ee-copy-conventions"
 description: "blueteam.ee site English — spelling, email form, error-page shape; read when brand-comms asks a native read of the site"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "control-plane-on-interweave-cli-2026-10-27"
 description: "owner's direction 2026-10-27 — \"control plane on interweave should be implemented on interweave cli\"; control plane (ADR-029) stays on the relay today (ADR-064 rule 12); relayed to fabric-coordinator; InterWeave side = whatever verbs the…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

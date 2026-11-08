@@ -5,7 +5,7 @@ topic: "spike-facts-cite-committed-runs"
 description: "Writing a SPIKE-001 measurement — every fact must rest on a committed run's recorded field or be marked; design runs to isolate each claim"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

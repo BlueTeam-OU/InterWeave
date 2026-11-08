@@ -5,7 +5,7 @@ topic: "tree-checks-red-can-be-a-runner-timeout"
 description: "an InterWeave required check reported \"fail\" by wait-merged or gh pr checks may be a 15-minute job timeout (conclusion cancelled), not a finding; re-run it, the arming survives"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

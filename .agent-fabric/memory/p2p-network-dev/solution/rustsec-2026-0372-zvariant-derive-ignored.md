@@ -5,7 +5,7 @@ topic: "rustsec-2026-0372-zvariant-derive-ignored"
 description: "why deny.toml ignores RUSTSEC-2026-0372 (zvariant_derive unmaintained) and when to drop it; how a new unmaintained advisory turns every PR red"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

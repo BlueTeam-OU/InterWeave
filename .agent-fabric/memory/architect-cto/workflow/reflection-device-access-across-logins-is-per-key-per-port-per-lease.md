@@ -5,7 +5,7 @@ topic: "reflection-device-access-across-logins-is-per-key-per-port-per-lease"
 description: "Phones on wireless adb are shared across logins by three facts: pairing admits one adb key per login (a code consumed in my shell paired MY key, the other lane still needed its own or an earlier pairing), one adb server holds host port…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

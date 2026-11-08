@@ -5,7 +5,7 @@ topic: "ci-red-not-my-change"
 description: "A required CI job red for a reason my PR did not cause (a RustSec advisory published overnight, a corrupt toolchain download, a merge-queue eviction): how to tell, whose it is, and what I do on my PR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

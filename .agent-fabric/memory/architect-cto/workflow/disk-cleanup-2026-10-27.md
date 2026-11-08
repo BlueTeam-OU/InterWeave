@@ -5,7 +5,7 @@ topic: "disk-cleanup-2026-10-27"
 description: "fleet disk cleanup 2026-10-27 (owner's ask via fabric-coordinator broadcast 01a17e45) — what this account removed and what is never removed (the installed InterWeave programs under ~/.local/bin serve the gzcoord units)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

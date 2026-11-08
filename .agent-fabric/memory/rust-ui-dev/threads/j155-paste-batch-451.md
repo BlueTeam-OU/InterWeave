@@ -5,7 +5,7 @@ topic: "j155-paste-batch-451"
 description: "j155 batch on #451 (2026-10-26): #409 P3s, ListOff test, ClipboardUnreadable, bounded Linux clipboard read, desktop-e2e paste case; what is left and owed"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

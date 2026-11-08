@@ -5,7 +5,7 @@ topic: "never-blind-inbox-watch"
 description: "Never start gzcoord-inbox with output to /dev/null or with & disown; it swallows the next delivery"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

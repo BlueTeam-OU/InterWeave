@@ -5,7 +5,7 @@ topic: "reflection-a-figure-from-a-message-is-not-in-the-tree"
 description: "A number or mechanism that arrives in a lane's message is not read in the tree: before it enters a contract sentence, read the constant, timer or buffer it rests on at the branch head and cite that; a measurement nowhere in the repository…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

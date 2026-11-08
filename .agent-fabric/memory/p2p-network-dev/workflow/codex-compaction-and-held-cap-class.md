@@ -5,7 +5,7 @@ topic: "codex-compaction-and-held-cap-class"
 description: "PR #468 (j133) review lessons: Codex fails on compaction over a large range (drop the lenses to fit), a mutation's exit 101 can be a compile error, and a peer-written list's cap must count the book's distinct keys"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

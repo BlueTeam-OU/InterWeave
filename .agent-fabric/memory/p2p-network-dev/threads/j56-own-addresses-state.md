@@ -5,7 +5,7 @@ topic: "j56-own-addresses-state"
 description: "j56 admin.peers.own_addresses (IPC 2.8) + j61 item-13 conformance case on one branch; what is built, proved, owed (2026-10-22)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

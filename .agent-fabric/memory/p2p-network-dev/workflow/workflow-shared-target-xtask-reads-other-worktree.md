@@ -5,7 +5,7 @@ topic: "workflow-shared-target-xtask-reads-other-worktree"
 description: "sharing CARGO_TARGET_DIR between worktrees makes `cargo xtask` check the OTHER worktree's tree"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

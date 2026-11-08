@@ -5,7 +5,7 @@ topic: "host-atspi-registry-empty"
 description: "on develop-qzapp, desktop-e2e human_app cases that read the a11y tree fail because the AT-SPI registry lists nothing (5 on 2026-10-15, 12 on 2026-10-26, 14 on 2026-10-28); a red there is the host, not the change"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

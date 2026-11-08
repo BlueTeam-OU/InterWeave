@@ -5,7 +5,7 @@ topic: "j122-gate-b-closed"
 description: "InterWeave Stage 17 gate (b) eight Platform-tests lines: final mapping sent 2026-10-22 (REPLY 01a16260), what is instrumented, what is record-only, what stays unmeasured"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

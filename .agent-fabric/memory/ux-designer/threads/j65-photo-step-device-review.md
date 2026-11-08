@@ -5,7 +5,7 @@ topic: "j65-photo-step-device-review"
 description: "j65 contact cards 5.2: citation fix afe99571; Pixel review of #449's photo picker waits on rust-ui-dev-01's install (data kept)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -75,6 +75,6 @@ Related: [[j64-photo-subsampling]], [[workflow-carried-2026-10-18]], [[device-ru
 - #462 R4 F4 (LC narrowed a 5.2 condition to screen readers) + F5 pre-existing misquote, fixed 1e5821eb verbatim; R5 clean posted. AUTHORIZES asked of architect-cto-01 (01a17a09-01a8). Pitfall: when dispatching with a short prompt pointing at the brief file, keep the full header incl. "config", or post-review refuses; fix by restoring the rendered brief header (same dispatch_id).
 - 2026-10-26: j70 delivered: #462 merged 919f3073 (3 work, 3 fix), armed on architect-cto AUTHORIZES 01a17a0a. Photo-step findings all closed on main d1367025. Still unchecked: focus/announcements (no a11y tree), TalkBack (person), wide layout, large photo.
 
-*References: device-review-pixel-lease, device-run-check-focus, j64-photo-subsampling*
+*References: device-run-check-focus, j64-photo-subsampling, workflow-carried-2026-10-18*
 
 *Observed 2026-10-26 (ux-designer)*

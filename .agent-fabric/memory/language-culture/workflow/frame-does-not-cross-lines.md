@@ -5,7 +5,7 @@ topic: "frame-does-not-cross-lines"
 description: "a conditional header (\"If you accept, ...\") does not set the tense of the lines listed under it; a bare participle there reads as done"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -23,6 +23,6 @@ In a list of changes shown before a control is pressed, each line is read on its
 
 **How to apply:** do not withdraw a first-pass tense finding because of a frame on another line. Parallel short lines are worth less than a status a reader takes for done. Related: [[workflow-carried-2026-10-10]], [[word-against-the-where-cell]].
 
-*References: cold-read-without-meanings, word-against-the-where-cell*
+*References: word-against-the-where-cell, workflow-carried-2026-10-10*
 
 *Observed 2026-10-25 (language-culture)*

@@ -5,7 +5,7 @@ topic: "derived-notice-rules-must-follow-the-record-literally"
 description: "release_notices.py derivation (#374, merged 65c3e4c7): every lenient reading of ADR-0058 2.ii produced another review round; apply the record's text literally, compare whole licence bodies, never marker fragments"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

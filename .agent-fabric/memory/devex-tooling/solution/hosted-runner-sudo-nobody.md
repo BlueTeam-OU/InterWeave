@@ -5,7 +5,7 @@ topic: "hosted-runner-sudo-nobody"
 description: "need a second uid in an InterWeave CI job? sudo -n -u nobody works on ubuntu-latest, python3 included, TMPDIR=/tmp traversable"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

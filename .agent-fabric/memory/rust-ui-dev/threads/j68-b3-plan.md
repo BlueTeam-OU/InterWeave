@@ -5,7 +5,7 @@ topic: "j68-b3-plan"
 description: "j68 B3 (views over the windowed mode, desktop starts windowed) MERGED as #512 55bcbcef on 2026-10-30; what B4 owes, the rulings that bind it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

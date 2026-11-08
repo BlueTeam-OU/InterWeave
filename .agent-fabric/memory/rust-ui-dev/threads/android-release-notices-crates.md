@@ -5,7 +5,7 @@ topic: "android-release-notices-crates"
 description: "Android release page's {third_party_notice_texts} will carry every native-library crate's notice (ADR-0058); template untouched until the tool lands"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

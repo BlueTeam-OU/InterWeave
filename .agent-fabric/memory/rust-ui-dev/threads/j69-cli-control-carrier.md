@@ -5,7 +5,7 @@ topic: "j69-cli-control-carrier"
 description: "j69 (owner priority): interweave-human as the fabric's control-plane carrier - PR #477, what is built, what is owed, design facts"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

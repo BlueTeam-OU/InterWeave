@@ -5,7 +5,7 @@ topic: "workflow-a-paths-owner-from-its-fabric-role-trailers"
 description: "When a request names the wrong role for a file, or the remit is silent, count the Fabric-Role trailers on the path's history before accepting or routing the work"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

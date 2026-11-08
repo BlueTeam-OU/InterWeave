@@ -5,7 +5,7 @@ topic: "stage-22-several-identities-roadmap-only-2026-10-28"
 description: "2026-10-28 the owner saw Android holds one \"Your card\" and wants one card per EndpointId; that is ADR-0061 / plan §30 Stage 22, unbuilt; the owner's word is roadmap only, do not open or implement; the note is on my docs batch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

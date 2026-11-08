@@ -5,7 +5,7 @@ topic: "stage-18-record-and-close-census-2026-10-25"
 description: "j383 2026-10-25: plan §21 gains its Record (IW #454): every step landed by PR, S7/S8 at #452, and the close census — S12 device rows (owner's phone), S21-06 step cell (p2p-01), C-04 carried-row guard (devex), TM-52..56 cells…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

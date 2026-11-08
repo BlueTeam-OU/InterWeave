@@ -5,7 +5,7 @@ topic: "own-card-row-unverified-own-fields-reader-2026-10-27"
 description: "cards 5.5 own card row after a restart — ruled (a) 2026-10-27: chat-protocol gains an own-fields reader (not Card, unverified, sender's own pending rows only); HUMAN-CHAT.md sentence owed on rust-ui-dev-02's j54-own-card-row branch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

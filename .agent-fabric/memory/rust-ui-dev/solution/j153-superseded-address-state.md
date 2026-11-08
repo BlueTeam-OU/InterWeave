@@ -5,7 +5,7 @@ topic: "j153-superseded-address-state"
 description: "j153 (2026-10-24/25): add-a-peer superseded read-back built from #425 s5.7; branch state, what it proves, what is left (acceptance 10 hook, j157)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

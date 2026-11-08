@@ -5,7 +5,7 @@ topic: "j58-proposal-menu-carried"
 description: "contact-cards proposal menu and photo removal (#435, merged 829dbccc); three items carried to the next contact-cards spec PR"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

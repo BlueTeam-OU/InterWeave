@@ -5,7 +5,7 @@ topic: "gzcoord-fill-the-types-sections"
 description: "gzcoord-compose skeleton sections differ by type (INFO is CONTEXT/NOTES, not INFO:); a fill keyed on the wrong heading sends an empty body silently"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

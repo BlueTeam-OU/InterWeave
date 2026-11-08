@@ -5,7 +5,7 @@ topic: "adr-0052-rule-10-outside-the-view-2026-10-27"
 description: "ADR-0052 rule 10 second case (A 2026-10-27) — a bound private address the platform's view does not hold is on no local network; Pixel gate (e) failed on the first rule-10 build; supply 857c6fc2 for p2p-network-dev-02's j82; hotspot AP =…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

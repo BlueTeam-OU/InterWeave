@@ -5,7 +5,7 @@ topic: "fleet-hold-2026-10-28"
 description: "the owner's fleet hold of 2026-10-28 (fabric-coordinator DECISION 01a182e0-647c-772f-b90a-2dbe6a7b7da1) — finish the active job, start none, no switch/next/unpause, until a DECISION naming that id lifts it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

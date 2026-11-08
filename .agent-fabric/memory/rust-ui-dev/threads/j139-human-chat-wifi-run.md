@@ -5,7 +5,7 @@ topic: "j139-human-chat-wifi-run"
 description: "j139 human_chat Wi-Fi device run — built as cde318b5 on #451, device run waits on the Pixel's address"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

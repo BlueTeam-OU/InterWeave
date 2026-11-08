@@ -5,7 +5,7 @@ topic: "owner-priority-cli-and-mcp-on-prod-host-2026-10-22"
 description: "Owner 2026-10-22: a full command-line client and the Claude MCP bridge must run on the stage/production host by next week (edge-hosting agent moves there); the five REQUESTs and the open risks"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -15,6 +15,7 @@ derived_from:
   - 310587fbb6af499c
   - 32d32e212cbf7e1a
   - cab9d5415bcf3cb2
+  - ff535312ab39361e
 ---
 
 ## Owner 2026-10-22: a full command-line client and the Claude MCP bridge must run on the stage/production host by next week (edge-hosting agent moves there); the five REQUESTs and the open risks
@@ -83,4 +84,8 @@ run when the login answers.
 **j445 (10:50Z):** peer-list 1.2.0 contract text 9d6750c8 on for/p2p-network-dev-02/peer-list-1-2-last-seen from e43afd19: last_seen_ms = retained connection lifetime (their measure accepted, not last-frame/last-establishment), 2.12, null vs absent, 456-row page from 2.12, minor history 12/11/10 (the sentence had missed 2.11). REPLY 01a18207-5259-7eb5-b634-16e97256adf3. Their PR follows their suite.
 **10:41Z (p2p-network-dev-01 REPLY 01a18219-70fb):** j134 delivered: control_plane.rs #478 (79c84b29), two_hosts.rs #475 (cf7089b5)+#478, v0.2.0 release check #499 (04dcace5); RUSTSEC fix 281a8707 on main; carried: tag key placeholder user ID (owner), APK not run, no second machine, no fresh install.
 
-*Observed 2026-10-28 (architect-cto)*
+**2026-11-05 (owner: "unblock 259").** j259 reactivated; REQUEST 01a1aaa9-fb93 to p2p-network-dev-01: try the deploy-account login and run the host procedure, or reply with the refusal and the owner command. Key install not verifiable from my login.
+
+**2026-11-05 08:00Z p2p-network-dev-01 REPLY 01a1aaab-31d3:** no `interweave-deploy` account exists (verified: `id` no such user; /etc/ssh/authorized_keys/ has no deploy file). The key block was never the whole block: ADR-048 operator door (AllowUsers = registry logins, AuthorizedKeysFile /etc/ssh/authorized_keys/%u) and fabric-coordinator refused a cross-uid shell (01a17c3d, 2026-10-27, route 1 ran the second uid in p2p-02 own account, #475). Routes offered: (a) edge-hosting runs DEPLOYING.md from v0.2.0 in its own login, p2p-01 supplies steps + writes record; (b) fabric-coordinator places a deploy login + opens the door; (c) p2p-01 reruns in own uid. Plus: is the stage host this machine? My recommendation (a); taken to the owner; j259 blocked on that decision. Holding REPLY sent.
+
+*Observed 2026-11-05 (architect-cto)*

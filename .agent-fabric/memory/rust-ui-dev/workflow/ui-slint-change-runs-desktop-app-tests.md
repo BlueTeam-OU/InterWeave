@@ -5,7 +5,7 @@ topic: "ui-slint-change-runs-desktop-app-tests"
 description: "A ui-slint or app.slint change must also run apps/human-desktop's own test binaries (window_faults etc.), not only the ui-slint and desktop-e2e suites"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

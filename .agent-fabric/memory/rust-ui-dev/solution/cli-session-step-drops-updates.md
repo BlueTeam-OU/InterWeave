@@ -5,7 +5,7 @@ topic: "cli-session-step-drops-updates"
 description: "In apps/human-cli a Session::step clears what the step before it reported; a verb that steps while a Walk is open must hand each step to Walk::take_arrivals"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

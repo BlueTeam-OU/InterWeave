@@ -5,7 +5,7 @@ topic: "bare-section-ref-names-its-spec"
 description: "in a design spec, a bare \"§N\" means the spec's own section; one that means another spec's must name it; check every new § against its target"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -23,7 +23,7 @@ In an English pass on a design spec, resolve every new "§N" against its target.
 
 **How to apply:** grep the spec's headings for each § in the range. Never put the expected answer in the cold read's definitions: give the sections' titles, not which section a reference means. See [[workflow-carried-2026-10-10]].
 
-*References: cold-read-without-meanings*
+*References: workflow-carried-2026-10-10*
 
 *Anchors: `design/2026-10-21-contact-cards.md::message-swipe §4's release`*
 

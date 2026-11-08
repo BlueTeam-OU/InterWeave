@@ -5,7 +5,7 @@ topic: "j159-stage21-gate-items"
 description: "j159 — architect-cto's five s29 gate items (REQUEST 01a1716e); all five merged in #436 (08ad14be, 2026-10-25); CodeQL alert 95 still open on the owner's choice"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j138-store-answers-pr451"
 description: "InterWeave j138 / PR #451 — Android store screen keyed on the hub's counted start answers; state, evidence, what is left (device rows)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

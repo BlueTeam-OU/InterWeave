@@ -5,7 +5,7 @@ topic: "rewriting-a-parser-in-review-rounds-regresses-earlier-shapes"
 description: "When a review round rewrites a hand-rolled reader (a tokenizer, a scan), run every input an earlier round probed through old and new before committing; #381 lost a handled shape three times"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

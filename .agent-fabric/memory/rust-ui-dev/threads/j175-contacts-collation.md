@@ -5,7 +5,7 @@ topic: "j175-contacts-collation"
 description: "InterWeave j175 (P3-3): contacts ordered by UTS #10 collation (icu_collator) at every site with the route tie; branch, the fold, what architect-cto-01 was told"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

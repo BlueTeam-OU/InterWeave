@@ -5,7 +5,7 @@ topic: "card-shared-at-accepted-and-silent-key-pending-row-2026-10-27"
 description: "Ruling 2026-10-27 (j397): card_shared_at is set at Accepted (cards 5.3); the silent first key also counts an own-card row pending outbound; ADR-0063 decision 1 owes an amendment on rust-ui-dev-02's j54 branch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

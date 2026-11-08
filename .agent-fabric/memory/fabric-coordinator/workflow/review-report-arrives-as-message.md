@@ -5,7 +5,7 @@ topic: "review-report-arrives-as-message"
 description: "a code-review subagent's report comes back as a hand-back message, not in its task output file; post-review needs it copied from there"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

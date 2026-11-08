@@ -5,7 +5,7 @@ topic: "host-rust-floats-rustup-via-fabric-tools"
 description: "develop-qzapp's system rust floats with dnf (1.99.0 on 2026-10-19; pin 1.99.1 since InterWeave #422, 1.98.1 before); fabric-tools --install rustup gives an account the pin, but links only cargo/rustc/rustup"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

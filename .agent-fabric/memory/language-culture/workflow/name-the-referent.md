@@ -5,7 +5,7 @@ topic: "name-the-referent"
 description: "a \"that\"/\"which\"/\"it\" after two clauses, or before text a screen reader reads next, is replaced by the noun it means"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -33,7 +33,7 @@ On 2026-10-25, across three passes on #438, my own fix introduced the new pointi
 
 2026-10-25 (#447, j197): splitting a parenthesis into its own sentence made a new "it" ("which encoder it used": the run or the encoder). A passive ("was used") removes the pointer when the agent does not matter.
 
-*References: cold-read-without-meanings, one-text-read-in-each-place*
+*References: one-text-read-in-each-place, workflow-carried-2026-10-10*
 
 *Anchors: `interweave:design/2026-10-22-add-a-peer.md`, `interweave:crates/human/ui-model/src/labels.rs`*
 

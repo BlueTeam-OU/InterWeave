@@ -5,7 +5,7 @@ topic: "pixel-no-destructive"
 description: "on the shared Pixel 9a, never pm clear, uninstall or reseal the app's profile; the owner withdrew an earlier yes"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

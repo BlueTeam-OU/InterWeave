@@ -5,7 +5,7 @@ topic: "j38-add-peer-trust-unread"
 description: "j38 — add-a-peer note revision on #385 (trust unread on Peers, interim one-line add, Connect lines); state and follow-ups"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "review-placement-against-field-list"
 description: "In a device review, check each element's placement against the spec's field list before passing a row, not only its behaviour"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -25,6 +25,6 @@ second mismatch (PhotoUnusable in the right-hand column) was only a symptom of t
 against them, not only the step's own sentence; never write "not against the spec" without quoting the clause that allows it.
 Related: [[j65-photo-step-device-review]], [[workflow-carried-2026-10-18]].
 
-*References: device-review-pixel-lease, j65-photo-step-device-review*
+*References: j65-photo-step-device-review, workflow-carried-2026-10-18*
 
 *Observed 2026-10-26 (ux-designer)*

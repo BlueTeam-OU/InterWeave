@@ -5,7 +5,7 @@ topic: "external-review-2026-10-27-main-1b37e0ef"
 description: "The owner's third external review of the InterWeave client (main 1b37e0ef, 2026-10-27): P2 Android facade past its stop, P3-1 channel badge distinct count (my own STATE.md sentence), P3-2 human-cli stdin, P3-3 contact collation…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j170-addclose-pr484"
 description: "j170 / #484 — add page and Show back arrow read AddClose (\"Back\"); waits on architect-cto AUTHORIZES; RTL copies need their own test"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

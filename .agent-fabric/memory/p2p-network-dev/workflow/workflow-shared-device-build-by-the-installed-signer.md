@@ -5,7 +5,7 @@ topic: "workflow-shared-device-build-by-the-installed-signer"
 description: "On the shared Android test phone, the APK (and androidTest APK) for any lane's run is built by the account whose debug key signed the installed app and installed with adb install -r; another account's key forces an uninstall that wipes…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
