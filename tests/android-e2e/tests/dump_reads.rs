@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! Every `dumpsys` read in this crate goes through `platform::dump`.
+//! Every `dumpsys` command in this crate is built by
+//! `platform::dump_command`.
 //!
 //! The cases read negatives off a dump ("no notice", "not focused", "not
-//! running"), so a dump cut short reads as one; `platform::dump_ended`
-//! refuses such a dump, and only for a read that went through
-//! `platform::dump_command`. A case that runs `dumpsys` itself (as
-//! `app_lifecycle.rs` once did) bypasses it silently, so this fails on
-//! any `"dumpsys"` command word outside `dump_command`.
+//! running"), so a dump cut short reads as one. `platform::dump_ended`
+//! refuses such a dump by the end marker `dump_command` appends, so the
+//! crate's two readers, `platform::dump` and `Screens::dump` in
+//! `screen.rs`, pass `dump_command`'s output through it. A case that
+//! runs `dumpsys` itself (as `app_lifecycle.rs` once did) has no marker
+//! and bypasses it silently, so this fails on any `"dumpsys"` command
+//! word outside `dump_command`.
 //!
 //! What it does not catch: `dumpsys` inside a longer string (a whole
-//! shell line as one argument) or built at run time; neither shape is
-//! used here.
+//! shell line as one argument) or built at run time; `dump_command`'s
+//! output parsed without `dump_ended`; and, in `platform.rs`, anything
+//! after the first `#[cfg(test)]` line, which is meant to be its test
+//! module. None of these shapes is used here.
 
 #![allow(clippy::expect_used, clippy::panic)]
 #![cfg(target_os = "linux")]
@@ -57,7 +62,7 @@ fn raw_reads(file: &str, text: &str) -> Vec<String> {
 }
 
 #[test]
-fn no_dumpsys_read_bypasses_platform_dump() {
+fn every_dumpsys_command_is_built_by_dump_command() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = Vec::new();
     sources(&root.join("src"), &mut files);
@@ -77,7 +82,7 @@ fn no_dumpsys_read_bypasses_platform_dump() {
     assert!(seen_platform, "control: the walk reached src/platform.rs");
     assert!(
         raw.is_empty(),
-        "dumpsys run outside platform::dump, so a cut dump reads as a negative: {raw:?}"
+        "dumpsys built outside platform::dump_command, so a cut dump reads as a negative: {raw:?}"
     );
 }
 
