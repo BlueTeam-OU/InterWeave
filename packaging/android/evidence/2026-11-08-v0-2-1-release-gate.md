@@ -20,7 +20,7 @@ on the published asset.
 
 | phone | Android | API | adb | lease |
 |---|---|---|---|---|
-| Samsung A40 (SM-A405FN) | 11 | 30 | wireless debugging, 192.168.100.6 | `samsung-a40`, 12:11Z to 13:09Z |
+| Samsung A40 (SM-A405FN) | 11 | 30 | wireless debugging, 192.168.100.6 | `samsung-a40`, per adb call from 12:11Z, held 12:33Z to 13:09Z |
 | Pixel 9a | 17 | 37 | wireless debugging, 192.168.100.62 | `pixel-9a`, 13:09Z to 13:15Z |
 
 Every adb step ran on this login's own adb server; no adb process of
@@ -59,13 +59,11 @@ aligned and signed with a test-only key made for this run
 | `dfd81bbe3f373601…` | `f9f821606c3c4c05…` | `c5062b9e` | 2 | 0.2.0 | no |
 
 Its versionName reads 0.2.0 because the workspace version is the
-cut's to change. It was signed with v1 off and v2 and v3 asked for, as
-the release run signs. `apksigner verify` at the APK's own minimum (30)
-reported v3 true and v2 false, which at that minimum it reports even
-when the v2 block is there (`tools/ci/release_android_apk.sh`); the run
-did not verify at `--min-sdk-version 24`, so whether the v2 block was
-written is not shown. Neither phone needs it: both are API 30 or
-above.
+cut's to change. It is signed v2 and v3 with v1 off, as the release
+run signs (`--v2-signing-enabled true --v3-signing-enabled true`):
+`apksigner verify -v --min-sdk-version 24` on it reports both true; at
+the APK's own minimum, 30, it checks v3 alone and reports v2 false
+(`tools/ci/release_android_apk.sh`, beside its verify).
 
 The recovery phrase is a TEST-ONLY one, minted for this run on the host
 with `transportctl identity backup` in a profile under an isolated
