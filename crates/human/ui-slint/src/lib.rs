@@ -1543,9 +1543,16 @@ impl View {
             // it; on another page what opened that page keeps focus. Asked
             // twice, as of a control just made: a heading whose request
             // sequence was never read before misses the first bump
-            // (measured, the A14 test).
-            if focused_on_it && self.page == Page::Conversation && self.reader.is_none() {
-                let on_chats = self.window.get_narrow() && self.window.get_list_shown();
+            // (measured, the A14 test). The root's Chats still queued is
+            // Chats already: the root hides a screen before it takes its
+            // inputs, so a discard's restart reaches here with the
+            // conversation it is about to close still shown.
+            let chats_queued = self.shared.borrow().inputs.contains(&Input::Chats);
+            if focused_on_it
+                && (chats_queued || self.page == Page::Conversation && self.reader.is_none())
+            {
+                let on_chats =
+                    chats_queued || self.window.get_narrow() && self.window.get_list_shown();
                 let header = self.shown.is_some() && !on_chats;
                 self.focus_key_after_draw(if header { "h" } else { "heading" }.to_owned());
             }

@@ -853,6 +853,25 @@ fn chats_after_a_discard_closes_what_r_covered() {
     view.show_identity(None);
     view.render(&model);
     assert!(!view.window().get_trust_page(), "Trust closed");
+
+    // The Android root's order: it hides R before it takes the queued
+    // Chats, so R goes while the conversation is still shown (#599 F1).
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(!view.window().get_list_shown(), "control: the conversation");
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_chats();
+    view.show_identity(None);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    settle();
+    assert!(view.window().get_list_shown(), "hidden first: Chats");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "hidden first: Chats' heading, not the hidden header"
+    );
 }
 
 /// §13, the accessibility tree: message and connectivity controls carry
