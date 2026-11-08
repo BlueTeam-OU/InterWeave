@@ -899,6 +899,37 @@ impl UiModel {
         }
     }
 
+    /// The page asked for `ask` was never read: no service took the ask,
+    /// as while the start is refused for the person (unlock note §11).
+    /// Nothing failed to load, so no failure row offers a Try again that
+    /// cannot succeed: the edge waits to be reached again, and a gap's
+    /// other side asked meanwhile is not asked, which would only be
+    /// refused the same way.
+    pub fn page_not_read(&mut self, ask: &PageAsk) {
+        let Some(window) = self.windows.open.as_mut() else {
+            return;
+        };
+        if window.conversation != ask.conversation || window.seq != ask.seq {
+            return;
+        }
+        let other = match ask.edge {
+            Edge::GapUpper(id) => Some(Edge::GapLower(id)),
+            Edge::GapLower(id) => Some(Edge::GapUpper(id)),
+            Edge::Top => None,
+        };
+        for edge in std::iter::once(ask.edge).chain(other) {
+            if let Some(side) = window.side(edge)
+                && (edge == ask.edge || side.state == EdgeState::Wanted)
+            {
+                side.state = if side.at {
+                    EdgeState::Spent
+                } else {
+                    EdgeState::Armed
+                };
+            }
+        }
+    }
+
     /// The person reached `edge` with it armed, at the limit, or after Try
     /// again: ask its next page, within the room the session has left --
     /// or, at the session bound with unread rows beyond the edge, show the

@@ -244,6 +244,39 @@ fn no_second_ask_while_one_is_on_its_way() {
     assert!(model.take_page_asks().is_empty());
 }
 
+/// A page no service took -- the start refused for the person, the store
+/// locked (unlock note §11, j98 A17) -- shows no failure row and no
+/// progress row, asks nothing by itself, and is asked again once the edge
+/// is left and reached. Mutation: `page_not_read` marking the edge
+/// failed; leaving it in flight.
+#[test]
+fn a_page_no_service_took_shows_no_failure() {
+    let mut model = started(10);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[990, 1_000], PageEnd::More));
+    reached(&mut model);
+    let next = one_ask(&mut model);
+
+    model.page_not_read(&next);
+    let marks = model.window_marks(&conversation());
+    assert!(
+        marks
+            .iter()
+            .all(|m| !matches!(m.kind, MarkKind::Failed(_) | MarkKind::Loading(_))),
+        "{marks:?}"
+    );
+    assert!(model.take_page_asks().is_empty(), "nothing asked by itself");
+    assert_eq!(model.len(), 2, "the rows stay");
+    left(&mut model);
+    reached(&mut model);
+    assert_eq!(
+        one_ask(&mut model).older_than.map(|m| m.row),
+        Some(RowId::from_stored(990)),
+        "asked again on the next reach"
+    );
+}
+
 /// A page that could not be read shows the failure row; reaching the edge
 /// again does not retry, Try again does (section 5). Mutation: a reach
 /// clearing the failure.
@@ -1375,6 +1408,35 @@ fn a_deferred_side_is_asked_when_the_other_page_settles() {
     model.page_arrived(rows_of(&lower, &[n - 1], Table::Kept, PageEnd::More));
     let again = one_ask(&mut model);
     assert_eq!(again.edge, Edge::GapUpper(id), "the Try again, not dropped");
+}
+
+/// A gap side no service took leaves the other side, asked meanwhile,
+/// unasked: it would be refused the same way, and asked as it settled it
+/// would bounce between the sides. Both wait to be reached again, neither
+/// showing a failure. Mutation: `page_not_read` settling the gap as a
+/// failure does.
+#[test]
+fn a_gap_side_no_service_took_asks_not_the_other() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Kept);
+    reach_both(&mut model, id);
+    let upper = one_ask(&mut model);
+    assert_eq!(upper.edge, Edge::GapUpper(id));
+    model.page_not_read(&upper);
+    assert!(
+        model.take_page_asks().is_empty(),
+        "the other side not asked"
+    );
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .all(|m| !matches!(m.kind, MarkKind::Failed(_))),
+        "no failure row"
+    );
 }
 
 fn card_marks(model: &UiModel) -> usize {
