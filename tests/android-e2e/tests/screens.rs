@@ -3,9 +3,10 @@
 //! The screen driving (`src/screen.rs`) on one phone, through the steps
 //! that write nothing: launch, Peers, Show drawn and closed, the add page
 //! opened and left: the check that the driver reaches every control it
-//! needs on the build at hand, without touching the profile. No row adds
-//! and trusts through the screens yet (`pairing.rs` adds by the binding's
-//! cases); one that does builds on these steps.
+//! needs on the build at hand, without touching the profile. One row adds
+//! through them (`pairing.rs`'s second row on two phones, its step-1 add
+//! on each Add page); none trusts through them yet, every row trusting
+//! by the binding's cases.
 //!
 //! `#[ignore]`d: run with `--ignored` against the debug APK (the trace is
 //! the `ui-trace` feature's), `ANDROID_SERIAL` naming the phone.
