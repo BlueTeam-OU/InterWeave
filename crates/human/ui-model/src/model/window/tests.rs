@@ -169,6 +169,37 @@ fn the_line_counts_the_unread_rows_not_loaded() {
     assert_eq!(earlier_unread(&model), None, "nothing left to count");
 }
 
+/// The opening reported again for the window already open -- a kept
+/// model shown again over a view that forgot its reports, while the store
+/// is locked (unlock note §11, j98 A17) -- keeps its rows and asks
+/// nothing, so no load error takes their place. Mutation: every opening
+/// opening the window anew.
+#[test]
+fn an_opening_reported_again_keeps_the_open_window() {
+    let mut model = started(5);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::More));
+    assert_eq!(model.len(), 2, "control: both rows held");
+
+    model.window_input(WindowInput::Opened(conversation()));
+    assert!(model.take_page_asks().is_empty(), "nothing read again");
+    assert_eq!(model.len(), 2, "both rows still held");
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .all(|m| !matches!(m.kind, MarkKind::Loading(_) | MarkKind::Failed(_))),
+        "{:?}",
+        model.window_marks(&conversation())
+    );
+
+    // Closed between, it opens anew, as any opening does.
+    model.window_input(WindowInput::Closed(conversation()));
+    model.window_input(WindowInput::Opened(conversation()));
+    assert_eq!(one_ask(&mut model).older_than, None);
+}
+
 /// The top edge asks its next page below the oldest loaded row, once each
 /// time it is reached: reached again before it was left asks nothing,
 /// left and reached again asks the next (section 5). Mutation: the edge

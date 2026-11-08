@@ -137,7 +137,8 @@ pub struct PageRows {
 /// What a view reports of the window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowInput {
-    /// The conversation was opened: its first page is asked.
+    /// The conversation was opened: its first page is asked. Reported for
+    /// the conversation whose window is open already, it changes nothing.
     Opened(ConversationKey),
     /// The conversation was closed.
     Closed(ConversationKey),
@@ -536,6 +537,37 @@ impl Windows {
 }
 
 impl UiModel {
+    /// Open `conversation`'s window, closing the one before: its first
+    /// page is asked, at the newest row.
+    pub(super) fn open_window(&mut self, conversation: ConversationKey) {
+        // One conversation is open at a time: the one before is
+        // closed, its stored rows let go.
+        if let Some(before) = self.windows.open.take() {
+            self.let_go(&before.conversation);
+            self.cards.let_go_unread(&before.conversation);
+        }
+        let windows = &mut self.windows;
+        windows.next_seq += 1;
+        windows.open = Some(Window {
+            conversation,
+            seq: windows.next_seq,
+            top: None,
+            top_side: Side::armed(),
+            gaps: BTreeMap::new(),
+            next_gap: 0,
+            marks: HashMap::new(),
+            card_marks: HashMap::new(),
+            show_anyway: false,
+            focused: None,
+            in_view: Vec::new(),
+            runs: BTreeMap::new(),
+            newest_seen: None,
+        });
+        // The opening reads its window at once, not covered by the
+        // limit row (sections 4 and 7.1).
+        windows.ask(Edge::Top, None);
+    }
+
     /// What a view reports of the open conversation's window. Nothing
     /// before the start is applied, nor in the model's own tests that hold
     /// every row (the listed mode), which no client starts.
@@ -545,32 +577,15 @@ impl UiModel {
         }
         match input {
             WindowInput::Opened(conversation) => {
-                // One conversation is open at a time: the one before is
-                // closed, its stored rows let go.
-                if let Some(before) = self.windows.open.take() {
-                    self.let_go(&before.conversation);
-                    self.cards.let_go_unread(&before.conversation);
+                // Reported again for the window this model holds open -- a
+                // model shown again over a view that forgot what it
+                // reported, as the Android root's kept model is while the
+                // start is refused for the person (unlock note §11) -- it
+                // stays as it was: opened anew, its rows would be read
+                // again from a store that may not answer.
+                if self.windows.open_for(&conversation).is_none() {
+                    self.open_window(conversation);
                 }
-                let windows = &mut self.windows;
-                windows.next_seq += 1;
-                windows.open = Some(Window {
-                    conversation,
-                    seq: windows.next_seq,
-                    top: None,
-                    top_side: Side::armed(),
-                    gaps: BTreeMap::new(),
-                    next_gap: 0,
-                    marks: HashMap::new(),
-                    card_marks: HashMap::new(),
-                    show_anyway: false,
-                    focused: None,
-                    in_view: Vec::new(),
-                    runs: BTreeMap::new(),
-                    newest_seen: None,
-                });
-                // The opening reads its window at once, not covered by the
-                // limit row (sections 4 and 7.1).
-                windows.ask(Edge::Top, None);
             }
             WindowInput::Closed(conversation) => {
                 if self.windows.open_for(&conversation).is_some() {
