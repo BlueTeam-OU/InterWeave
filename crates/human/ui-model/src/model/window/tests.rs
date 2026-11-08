@@ -1413,8 +1413,8 @@ fn a_deferred_side_is_asked_when_the_other_page_settles() {
 /// A gap side no service took leaves the other side, asked meanwhile,
 /// unasked: it would be refused the same way, and asked as it settled it
 /// would bounce between the sides. Both wait to be reached again, neither
-/// showing a failure. Mutation: `page_not_read` settling the gap as a
-/// failure does.
+/// showing a failure or progress. Mutations: `page_not_read` settling the
+/// gap as a failure, or leaving the other side wanted.
 #[test]
 fn a_gap_side_no_service_took_asks_not_the_other() {
     use super::HELD_ROW_CAP;
@@ -1434,8 +1434,21 @@ fn a_gap_side_no_service_took_asks_not_the_other() {
         model
             .window_marks(&conversation())
             .iter()
-            .all(|m| !matches!(m.kind, MarkKind::Failed(_))),
-        "no failure row"
+            .all(|m| !matches!(m.kind, MarkKind::Failed(_) | MarkKind::Loading(_))),
+        "no failure row, and no progress row for a side nothing will ask"
+    );
+    model.window_input(WindowInput::Left {
+        conversation: conversation(),
+        edge: Edge::GapLower(id),
+    });
+    model.window_input(WindowInput::Reached {
+        conversation: conversation(),
+        edge: Edge::GapLower(id),
+    });
+    assert_eq!(
+        one_ask(&mut model).edge,
+        Edge::GapLower(id),
+        "the other side left and reached again is asked (#599 F4)"
     );
 }
 
