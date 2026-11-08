@@ -4493,11 +4493,12 @@ export component AppWindow inherits Window {
     in property <string> reader-title;
     // The message the reader shows, by its row's handle.
     in property <int> reader-handle: -1;
-    // The reader's link controls: the first one's row and how many there
-    // are in the formatted form (the source form has none), for the
-    // keyboard's way through them (section 9).
-    in property <int> reader-link-start;
-    in property <int> reader-link-count;
+    // The reader's link controls: each one's row in the formatted form,
+    // in body order (the source form has none), and the first one at or
+    // after a row, by its index or -1, for the keyboard's way through
+    // them (section 9).
+    in property <[int]> reader-link-rows;
+    pure callback reader-link-from(int) -> int;
     // Back or Escape: the reader closes (section 5.4).
     callback reader-close();
     // Show source / Show formatted in the reader: the view builds the
@@ -8556,7 +8557,7 @@ export component AppWindow inherits Window {
                         // (section 9), laid out or not.
                         if (FocusMode.navigates(event) && (event.text == Key.Backtab || event.modifiers.shift)
                             && root.focus-id == "reader-back" && reader-scroll.links > 0) {
-                            reader-scroll.go(root.reader-link-start + reader-scroll.links - 1);
+                            reader-scroll.go(root.reader-link-rows[reader-scroll.links - 1]);
                             return accept;
                         }
                         reject
@@ -8706,7 +8707,7 @@ export component AppWindow inherits Window {
                             // Shift+TAB the reverse, to the scroll area. The
                             // toolkit's own order reaches only the rows laid
                             // out near the view.
-                            property <int> links: root.reader-as-source ? 0 : root.reader-link-count;
+                            property <int> links: root.reader-as-source ? 0 : root.reader-link-rows.length;
                             // The link row TAB goes to, until it is laid out and
                             // focused; -1 for none.
                             property <int> want: -1;
@@ -8733,9 +8734,8 @@ export component AppWindow inherits Window {
                             }
                             function from-top() {
                                 if (self.links == 0) { self.back-control(); return; }
-                                let from = self.top-starts ? self.top-row : self.top-row + 1;
-                                let row = max(from, root.reader-link-start);
-                                self.go(row < root.reader-link-start + self.links ? row : root.reader-link-start);
+                                let from = root.reader-link-from(self.top-starts ? self.top-row : self.top-row + 1);
+                                self.go(root.reader-link-rows[from >= 0 ? from : 0]);
                             }
                             // Once a turn: the rows answer an ask before this runs.
                             Timer {
@@ -8770,13 +8770,13 @@ export component AppWindow inherits Window {
                                         return accept;
                                     }
                                     if (self.focused-link < 0) { return reject; }
-                                    let row = root.reader-link-start + self.focused-link;
-                                    if (!back && self.focused-link + 1 < self.links) {
-                                        self.go(row + 1);
+                                    let k = self.focused-link;
+                                    if (!back && k + 1 < self.links) {
+                                        self.go(root.reader-link-rows[k + 1]);
                                     } else if (!back) {
                                         self.back-control();
-                                    } else if (self.focused-link > 0) {
-                                        self.go(row - 1);
+                                    } else if (k > 0) {
+                                        self.go(root.reader-link-rows[k - 1]);
                                     } else {
                                         self.focus();
                                     }

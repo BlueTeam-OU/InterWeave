@@ -2209,13 +2209,13 @@ impl View {
             forms.formatted.clone()
         });
         self.window.set_reader_as_source(as_source);
-        // The link rows close the formatted form, in body order.
-        let links = forms.links.len();
-        let start = forms.formatted.row_count().saturating_sub(links);
+        let link_rows: Vec<i32> = forms
+            .link_rows
+            .iter()
+            .map(|&row| i32::try_from(row).unwrap_or(i32::MAX))
+            .collect();
         self.window
-            .set_reader_link_start(i32::try_from(start).unwrap_or(i32::MAX));
-        self.window
-            .set_reader_link_count(i32::try_from(links).unwrap_or(i32::MAX));
+            .set_reader_link_rows(ModelRc::new(VecModel::from(link_rows)));
         self.window.set_reader_title(title.into());
         self.window.set_reader_handle(handle);
         self.window.set_reader_open(true);
@@ -3784,6 +3784,20 @@ fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Share
     });
     let s = Rc::clone(shared);
     window.on_reader_close(move || enqueue(&s, Input::ReaderClosed));
+    // The first link control at or after a row of the reader's formatted
+    // form, by its index; -1 for none.
+    let s = Rc::clone(shared);
+    window.on_reader_link_from(move |row| {
+        let shared = s.borrow();
+        let rows = shared
+            .reader
+            .as_ref()
+            .map_or(&[][..], |forms| &forms.link_rows[..]);
+        let row = usize::try_from(row).unwrap_or(0);
+        rows.iter()
+            .position(|&at| at >= row)
+            .map_or(-1, |index| i32::try_from(index).unwrap_or(-1))
+    });
     // The other form at once, built as the reader opened: the scroll
     // is kept at its share right after this returns.
     let (s, weak) = (Rc::clone(shared), swipe::weak(window));

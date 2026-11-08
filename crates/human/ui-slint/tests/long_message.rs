@@ -1506,3 +1506,68 @@ fn tab_from_the_source_form_of_a_reader_goes_to_back() {
     }
     assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
 }
+
+/// 200 paragraphs, every twentieth holding a link.
+fn paragraphs_with_links() -> String {
+    (1..=200)
+        .map(|i| {
+            if i % 20 == 0 {
+                format!(
+                    "Paragraph {i} [link {}](https://e.org/{:02}).",
+                    i / 20 - 1,
+                    i / 20 - 1
+                )
+            } else {
+                format!("Paragraph {i}.")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// In the reader each link's control comes right after the line that
+/// holds it, never gathered after the body's last line (section 5.1 as
+/// ux-designer amended it, e2a1959d6 on #581): a person pressing a link
+/// halfway down a long body finds it there.
+#[test]
+fn a_reader_link_is_drawn_after_its_own_line() {
+    let (view, _model) = reader_on(&paragraphs_with_links());
+    let rows = reader_text(&view);
+    for k in 0..10 {
+        let at = rows
+            .iter()
+            .position(|r| r.contains(&format!("e.org/{k:02}")) && !r.starts_with("Paragraph"))
+            .unwrap_or_else(|| panic!("link {k}'s control"));
+        assert!(
+            rows[at - 1].starts_with(&format!("Paragraph {} link {k}", (k + 1) * 20)),
+            "link {k} follows its line: {:?}",
+            &rows[at - 1..=at]
+        );
+    }
+}
+
+/// With links through the body, TAB from the scroll area goes to the
+/// first one starting at or below the top of the screen, wherever the
+/// person has scrolled to, and on in body order.
+#[test]
+fn tab_from_the_middle_of_a_reader_starts_at_the_screen() {
+    let (mut view, mut model) = reader_on(&paragraphs_with_links());
+    for _ in 0..8 {
+        key(&view, Key::PageDown);
+        let _ = intents(&mut view, &mut model);
+    }
+    let shown: Vec<usize> = (0..10).filter(|i| link_in_view(&view, *i)).collect();
+    let first_shown = *shown.first().expect("a link on the screen");
+    assert!(first_shown > 0, "scrolled past the first link: {shown:?}");
+    let focus = key_settled(&mut view, &mut model, Key::Tab);
+    assert!(
+        focus == format!("reader-link:{first_shown}")
+            || focus == format!("reader-link:{}", first_shown + 1),
+        "TAB from the scroll area at link {first_shown}: {focus}"
+    );
+    let index: usize = focus["reader-link:".len()..].parse().expect("a link");
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Tab),
+        format!("reader-link:{}", index + 1)
+    );
+}
