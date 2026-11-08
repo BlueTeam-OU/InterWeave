@@ -1901,40 +1901,8 @@ impl View {
                 }
                 Input::Undo(id) => out.push(ViewEvent::Undo(id)),
                 Input::Chats => {
-                    self.close_reader();
-                    self.shown = None;
-                    self.shared.borrow_mut().selected = None;
-                    self.window.set_list_shown(true);
-                    self.selection_unrendered = true;
-                    if let Some(snack) = model.snackbar()
-                        && snack.conversation.is_some()
-                        && !out.contains(&ViewEvent::SnackbarClosed(snack.id))
-                    {
-                        out.push(ViewEvent::SnackbarClosed(snack.id));
-                    }
-                    match self.page {
-                        Page::Trust => {
-                            self.page = Page::Conversation;
-                            out.push(ViewEvent::Trust(TrustInput::Cancel));
-                            return out;
-                        }
-                        Page::Peers => {
-                            self.page = Page::Conversation;
-                            if let Some(close) = leaving_peers_closes(model) {
-                                out.push(close);
-                                return out;
-                            }
-                        }
-                        Page::Cards => {
-                            if self.take_cards_input(
-                                model,
-                                cards::CardsInput::CloseOnward,
-                                &mut out,
-                            ) {
-                                return out;
-                            }
-                        }
-                        Page::Conversation | Page::Connect => {}
+                    if self.take_chats(model, &mut out) {
+                        return out;
                     }
                 }
                 Input::Left => {
@@ -2061,6 +2029,13 @@ impl View {
                 }
             }
         }
+        self.take_drained(model, &mut out);
+        out
+    }
+
+    /// The end of a take, once the queue has drained: the selection
+    /// rendered, an off-screen snackbar closed and what is on screen read.
+    fn take_drained(&mut self, model: &UiModel, out: &mut Vec<ViewEvent>) {
         // A selection is shown by the take that resolves it. A root renders
         // and then takes, so a press that yields no intent -- nothing
         // unread, or the window unfocused -- gives the root no reason for
@@ -2109,7 +2084,6 @@ impl View {
                 }
             }
         }
-        out
     }
 
     /// The conversation a person can see now: the one shown, unless the
@@ -2154,6 +2128,43 @@ impl View {
             .find_map(|prefix| id.strip_prefix(prefix))?;
         let key = self.item_handles.key_of(handle(rest)?)?;
         Some(FocusTarget::Item(*key))
+    }
+
+    /// Take the root's Chats ([`View::show_chats`]) into `out`: true when
+    /// the take ends here, as a page it closes hands the root its close.
+    fn take_chats(&mut self, model: &UiModel, out: &mut Vec<ViewEvent>) -> bool {
+        self.close_reader();
+        self.shown = None;
+        self.shared.borrow_mut().selected = None;
+        self.window.set_list_shown(true);
+        self.selection_unrendered = true;
+        if let Some(snack) = model.snackbar()
+            && snack.conversation.is_some()
+            && !out.contains(&ViewEvent::SnackbarClosed(snack.id))
+        {
+            out.push(ViewEvent::SnackbarClosed(snack.id));
+        }
+        match self.page {
+            Page::Trust => {
+                self.page = Page::Conversation;
+                out.push(ViewEvent::Trust(TrustInput::Cancel));
+                return true;
+            }
+            Page::Peers => {
+                self.page = Page::Conversation;
+                if let Some(close) = leaving_peers_closes(model) {
+                    out.push(close);
+                    return true;
+                }
+            }
+            Page::Cards => {
+                if self.take_cards_input(model, cards::CardsInput::CloseOnward, out) {
+                    return true;
+                }
+            }
+            Page::Conversation | Page::Connect => {}
+        }
+        false
     }
 
     /// Take a card input into `out`: true when the take ends here, as a
