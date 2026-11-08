@@ -461,8 +461,14 @@ fn network_denied_is_said_first_and_offers_no_send() {
     assert!(model.sending_offered(), "the control: access by default");
     assert!(model.send_draft(&k).is_some(), "the control: a draft sends");
 
+    assert_eq!(model.connectivity(), Connectivity::Unknown, "control");
     model.network_access(false);
     assert_eq!(model.session_notice(), Some(SessionNotice::NetworkDenied));
+    assert_eq!(
+        model.connectivity(),
+        Connectivity::Offline,
+        "the cause is known: offline, never \"not known\" beside the notice"
+    );
     assert_eq!(
         SessionNotice::NetworkDenied.resolution(),
         Some(Intent::AllowNetwork)
@@ -491,6 +497,7 @@ fn network_denied_is_said_first_and_offers_no_send() {
     model.network_access(true);
     model.daemon_seen(Some(true));
     assert_eq!(model.session_notice(), Some(SessionNotice::Reconnecting));
+    assert_eq!(model.connectivity(), Connectivity::Unknown, "allowed again");
     assert!(model.send_draft(&k).is_some(), "allowed again, it sends");
 }
 

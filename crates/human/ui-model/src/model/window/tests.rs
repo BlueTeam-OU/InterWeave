@@ -169,6 +169,37 @@ fn the_line_counts_the_unread_rows_not_loaded() {
     assert_eq!(earlier_unread(&model), None, "nothing left to count");
 }
 
+/// The opening reported again for the window already open -- a kept
+/// model shown again over a view that forgot its reports, while the store
+/// is locked (unlock note §11, j98 A17) -- keeps its rows and asks
+/// nothing, so no load error takes their place. Mutation: every opening
+/// opening the window anew.
+#[test]
+fn an_opening_reported_again_keeps_the_open_window() {
+    let mut model = started(5);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[999, 1_000], PageEnd::More));
+    assert_eq!(model.len(), 2, "control: both rows held");
+
+    model.window_input(WindowInput::Opened(conversation()));
+    assert!(model.take_page_asks().is_empty(), "nothing read again");
+    assert_eq!(model.len(), 2, "both rows still held");
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .all(|m| !matches!(m.kind, MarkKind::Loading(_) | MarkKind::Failed(_))),
+        "{:?}",
+        model.window_marks(&conversation())
+    );
+
+    // Closed between, it opens anew, as any opening does.
+    model.window_input(WindowInput::Closed(conversation()));
+    model.window_input(WindowInput::Opened(conversation()));
+    assert_eq!(one_ask(&mut model).older_than, None);
+}
+
 /// The top edge asks its next page below the oldest loaded row, once each
 /// time it is reached: reached again before it was left asks nothing,
 /// left and reached again asks the next (section 5). Mutation: the edge
@@ -211,6 +242,39 @@ fn no_second_ask_while_one_is_on_its_way() {
     left(&mut model);
     reached(&mut model);
     assert!(model.take_page_asks().is_empty());
+}
+
+/// A page no service took -- the start refused for the person, the store
+/// locked (unlock note §11, j98 A17) -- shows no failure row and no
+/// progress row, asks nothing by itself, and is asked again once the edge
+/// is left and reached. Mutation: `page_not_read` marking the edge
+/// failed; leaving it in flight.
+#[test]
+fn a_page_no_service_took_shows_no_failure() {
+    let mut model = started(10);
+    model.window_input(WindowInput::Opened(conversation()));
+    let ask = one_ask(&mut model);
+    model.page_arrived(page(&ask, &[990, 1_000], PageEnd::More));
+    reached(&mut model);
+    let next = one_ask(&mut model);
+
+    model.page_not_read(&next);
+    let marks = model.window_marks(&conversation());
+    assert!(
+        marks
+            .iter()
+            .all(|m| !matches!(m.kind, MarkKind::Failed(_) | MarkKind::Loading(_))),
+        "{marks:?}"
+    );
+    assert!(model.take_page_asks().is_empty(), "nothing asked by itself");
+    assert_eq!(model.len(), 2, "the rows stay");
+    left(&mut model);
+    reached(&mut model);
+    assert_eq!(
+        one_ask(&mut model).older_than.map(|m| m.row),
+        Some(RowId::from_stored(990)),
+        "asked again on the next reach"
+    );
 }
 
 /// A page that could not be read shows the failure row; reaching the edge
@@ -1344,6 +1408,48 @@ fn a_deferred_side_is_asked_when_the_other_page_settles() {
     model.page_arrived(rows_of(&lower, &[n - 1], Table::Kept, PageEnd::More));
     let again = one_ask(&mut model);
     assert_eq!(again.edge, Edge::GapUpper(id), "the Try again, not dropped");
+}
+
+/// A gap side no service took leaves the other side, asked meanwhile,
+/// unasked: it would be refused the same way, and asked as it settled it
+/// would bounce between the sides. Both wait to be reached again, neither
+/// showing a failure or progress. Mutations: `page_not_read` settling the
+/// gap as a failure, or leaving the other side wanted.
+#[test]
+fn a_gap_side_no_service_took_asks_not_the_other() {
+    use super::HELD_ROW_CAP;
+    let n = i64::try_from(HELD_ROW_CAP).expect("small") + 4;
+    let mut model = opened_with(n, 10, Table::Kept, PageEnd::Exhausted);
+    let id = gap_id(&model);
+    place(&mut model, n - 5, Table::Kept);
+    reach_both(&mut model, id);
+    let upper = one_ask(&mut model);
+    assert_eq!(upper.edge, Edge::GapUpper(id));
+    model.page_not_read(&upper);
+    assert!(
+        model.take_page_asks().is_empty(),
+        "the other side not asked"
+    );
+    assert!(
+        model
+            .window_marks(&conversation())
+            .iter()
+            .all(|m| !matches!(m.kind, MarkKind::Failed(_) | MarkKind::Loading(_))),
+        "no failure row, and no progress row for a side nothing will ask"
+    );
+    model.window_input(WindowInput::Left {
+        conversation: conversation(),
+        edge: Edge::GapLower(id),
+    });
+    model.window_input(WindowInput::Reached {
+        conversation: conversation(),
+        edge: Edge::GapLower(id),
+    });
+    assert_eq!(
+        one_ask(&mut model).edge,
+        Edge::GapLower(id),
+        "the other side left and reached again is asked (#599 F4)"
+    );
 }
 
 fn card_marks(model: &UiModel) -> usize {

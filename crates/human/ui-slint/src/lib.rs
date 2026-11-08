@@ -258,10 +258,10 @@ fn code_font() -> SharedString {
 /// refuses the NEWEST press and counts it: a refused press does nothing
 /// and can be pressed again, where dropping the oldest could drop an edit
 /// and keep the send after it (agreed, relay seq 10882). Edits, focus
-/// changes, a snackbar's closing and leaving for the list are state, not
-/// presses, and are never refused; with them, and a root that drains the
-/// queue whenever it takes, the queue holds at most six times this plus
-/// nine ([`View::queued_inputs`]). A root that stops between takes breaks
+/// changes, a snackbar's closing, leaving for the list and the root's
+/// Chats are state, not presses, and are never refused; with them, and a
+/// root that drains the queue whenever it takes, the queue holds at most
+/// six times this plus eleven ([`View::queued_inputs`]). A root that stops between takes breaks
 /// that number, not the bound: one more edit can wait per conversation
 /// selected meanwhile, so the queue stays finite.
 pub const INPUT_CAP: usize = 64;
@@ -342,6 +342,8 @@ enum Input {
     Cards(cards::CardsInput),
     /// What the person did on onboarding's Connect.
     Connect(ConnectInput),
+    /// The root's: Chats, with nothing open over it ([`View::show_chats`]).
+    Chats,
 }
 
 /// An input the root applies before the next take, handed over as it
@@ -530,6 +532,7 @@ impl SnackUp {
         match input {
             Input::SnackClosed(id) => *id == self.id,
             Input::Left
+            | Input::Chats
             | Input::TrustPage(true)
             | Input::PeersPage(true)
             | Input::Cards(cards::CardsInput::Open(_)) => self.conversation.is_some(),
@@ -630,6 +633,15 @@ impl Shared {
             }
             return self.wake.clone();
         }
+        // The root's Chats is not a press: a discard's restart that the
+        // cap refused would leave the person in a conversation whose data
+        // is gone. One waits at a time.
+        if let Input::Chats = input {
+            if !self.inputs.contains(&input) {
+                self.inputs.push_back(input);
+            }
+            return self.wake.clone();
+        }
         // Peers' snackbar closing is state, as the conversation's is.
         if let Input::PeersSnackClosed(_) = input {
             if !self.inputs.contains(&input) {
@@ -686,6 +698,7 @@ impl Shared {
                         | Input::PeersSnackClosed(_)
                         | Input::SnackClosed(_)
                         | Input::Left
+                        | Input::Chats
                 )
             })
             .count();
@@ -1232,11 +1245,22 @@ impl View {
     /// events; the debug APK turns it on, the release build has none.
     #[cfg(feature = "ui-trace")]
     pub fn on_trace(&mut self, sink: impl Fn(&str) + 'static) {
-        let sink: Rc<dyn Fn(&str)> = Rc::new(sink);
-        let to = Rc::clone(&sink);
-        self.window
-            .on_focus_traced(move |id| to(&trace::focus_line(&id)));
-        self.trace = Some(trace::Tracer::new(sink));
+        let tracer = trace::Tracer::new(Rc::new(sink));
+        let say = tracer.focus_sayer();
+        self.window.on_focus_traced(move |id| say(&id));
+        self.trace = Some(tracer);
+    }
+
+    /// A credential prompt was answered: say where focus stands once the
+    /// answer has settled, if no move says it first (`trace.rs`).
+    #[cfg(feature = "ui-trace")]
+    pub fn trace_focus_settled(&self) {
+        if let Some(tracer) = self.trace.as_ref() {
+            let window = swipe::weak(&self.window);
+            tracer.focus_settled(Duration::from_millis(200), move || {
+                window.upgrade().map(|w| w.get_focus_id().to_string())
+            });
+        }
     }
 
     /// The identity flow's `screen` is over the window with `page`, or,
@@ -1292,8 +1316,11 @@ impl View {
             model.trust_settings(),
             |p| handles.of(p),
         );
-        if let Some(tracer) = self.trace.as_mut() {
-            tracer.render(now);
+        // A page that came without a focus move -- a conversation opened
+        // from Chats, focus left on its row -- says no focus line of its
+        // own (j98, 3b item 4).
+        if self.trace.as_mut().is_some_and(|tracer| tracer.render(now)) {
+            self.trace_focus_settled();
         }
     }
 
@@ -1379,6 +1406,16 @@ impl View {
         // the person picks it from the list.
         self.window.set_list_shown(false);
         let _ = self.shared.borrow_mut().push(Input::Select(key));
+    }
+
+    /// Show Chats with nothing open over it -- no conversation, reader or
+    /// page -- as a start shows it: after a discard of the store, whose
+    /// restart opens the app as any start does (contact cards section
+    /// 7.3; unlock note section 11, L1), since what was open showed the
+    /// data the discard deleted. Taken as the person's inputs are, in
+    /// their order, so a page it closes hands the root its close.
+    pub fn show_chats(&self) {
+        let _ = self.shared.borrow_mut().push(Input::Chats);
     }
 
     /// Read times from `now` (Unix milliseconds) and the local zone from
@@ -1481,13 +1518,44 @@ impl View {
     /// with `None` (design/2026-10-19-android-identity.md). The page is
     /// rebuilt from the flow by [`identity_page`] after every input.
     pub fn show_identity(&self, page: Option<IdentityPage>) {
+        // An overlay rising or going moves no focus by itself -- R over a
+        // start's refusal, focus left under it -- so the trace states it
+        // (j98, 3b item 4).
+        #[cfg(feature = "ui-trace")]
+        if self.window.get_identity_active() != page.is_some() {
+            self.trace_focus_settled();
+        }
         if let Some(page) = page {
             self.window.set_identity(page);
             self.window.set_identity_active(true);
         } else {
+            let focused_on_it = self.window.get_identity_active()
+                && self.window.get_focus_id().starts_with("identity-");
             self.window.set_identity_active(false);
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
+            // The focused control went with the screen, and Slint moves
+            // focus nowhere then: R's Try again granted lands on Chats with
+            // nothing focused (j98, A14). Chats' heading, as when the
+            // last conversation leaves; an open conversation's header,
+            // never its composer, which would open the keyboard unasked.
+            // A locked notice's ask, taken at the next render, replaces
+            // it; on another page what opened that page keeps focus. Asked
+            // twice, as of a control just made: a heading whose request
+            // sequence was never read before misses the first bump
+            // (measured, the A14 test). The root's Chats still queued is
+            // Chats already: the root hides a screen before it takes its
+            // inputs, so a discard's restart reaches here with the
+            // conversation it is about to close still shown.
+            let chats_queued = self.shared.borrow().inputs.contains(&Input::Chats);
+            if focused_on_it
+                && (chats_queued || self.page == Page::Conversation && self.reader.is_none())
+            {
+                let on_chats =
+                    chats_queued || self.window.get_narrow() && self.window.get_list_shown();
+                let header = self.shown.is_some() && !on_chats;
+                self.focus_key_after_draw(if header { "h" } else { "heading" }.to_owned());
+            }
         }
     }
 
@@ -1712,10 +1780,10 @@ impl View {
     /// Beside them, one Left beside each press plus one, and the closing of
     /// each snackbar shown since the last take, each once -- at most two,
     /// since the model changes a snackbar only through the root, which
-    /// renders and then takes -- each with a focus change beside it: six
-    /// times the cap plus nine in all; a pane shown or hidden waits
-    /// outside the queue
-    /// (`a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine`). A
+    /// renders and then takes -- and one root's Chats, each with a focus
+    /// change beside it: six times the cap plus eleven in all; a pane
+    /// shown or hidden waits outside the queue
+    /// (`a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_eleven`). A
     /// root that stops between takes can leave a selection taken and later
     /// inputs queued, which lets one more edit wait per conversation
     /// selected that way; the queue stays finite, not at that number.
@@ -1839,6 +1907,11 @@ impl View {
                     }
                 }
                 Input::Undo(id) => out.push(ViewEvent::Undo(id)),
+                Input::Chats => {
+                    if self.take_chats(model, &mut out) {
+                        return out;
+                    }
+                }
                 Input::Left => {
                     // A press before it may open a snackbar only once the
                     // root applies its intent: Back waits, first in the
@@ -1963,6 +2036,13 @@ impl View {
                 }
             }
         }
+        self.take_drained(model, &mut out);
+        out
+    }
+
+    /// The end of a take, once the queue has drained: the selection
+    /// rendered, an off-screen snackbar closed and what is on screen read.
+    fn take_drained(&mut self, model: &UiModel, out: &mut Vec<ViewEvent>) {
         // A selection is shown by the take that resolves it. A root renders
         // and then takes, so a press that yields no intent -- nothing
         // unread, or the window unfocused -- gives the root no reason for
@@ -2011,7 +2091,6 @@ impl View {
                 }
             }
         }
-        out
     }
 
     /// The conversation a person can see now: the one shown, unless the
@@ -2056,6 +2135,43 @@ impl View {
             .find_map(|prefix| id.strip_prefix(prefix))?;
         let key = self.item_handles.key_of(handle(rest)?)?;
         Some(FocusTarget::Item(*key))
+    }
+
+    /// Take the root's Chats ([`View::show_chats`]) into `out`: true when
+    /// the take ends here, as a page it closes hands the root its close.
+    fn take_chats(&mut self, model: &UiModel, out: &mut Vec<ViewEvent>) -> bool {
+        self.close_reader();
+        self.shown = None;
+        self.shared.borrow_mut().selected = None;
+        self.window.set_list_shown(true);
+        self.selection_unrendered = true;
+        if let Some(snack) = model.snackbar()
+            && snack.conversation.is_some()
+            && !out.contains(&ViewEvent::SnackbarClosed(snack.id))
+        {
+            out.push(ViewEvent::SnackbarClosed(snack.id));
+        }
+        match self.page {
+            Page::Trust => {
+                self.page = Page::Conversation;
+                out.push(ViewEvent::Trust(TrustInput::Cancel));
+                return true;
+            }
+            Page::Peers => {
+                self.page = Page::Conversation;
+                if let Some(close) = leaving_peers_closes(model) {
+                    out.push(close);
+                    return true;
+                }
+            }
+            Page::Cards => {
+                if self.take_cards_input(model, cards::CardsInput::CloseOnward, out) {
+                    return true;
+                }
+            }
+            Page::Conversation | Page::Connect => {}
+        }
+        false
     }
 
     /// Take a card input into `out`: true when the take ends here, as a
@@ -3571,6 +3687,11 @@ impl View {
                     .any(|i| matches!(i, Input::Draft(k, _) if k == key));
                 if !pending && window.get_draft().as_str() != composer.draft {
                     window.set_draft(composer.draft.as_str().into());
+                    // Slint keeps the caret's offset over a new text, so a
+                    // draft given back to an emptied field had it at the
+                    // start (j98, A17): at its end, as typing left it.
+                    window.set_draft_caret(i32::try_from(composer.draft.len()).unwrap_or(i32::MAX));
+                    window.set_draft_written_seq(window.get_draft_written_seq().wrapping_add(1));
                 }
                 window.set_refused(
                     composer
