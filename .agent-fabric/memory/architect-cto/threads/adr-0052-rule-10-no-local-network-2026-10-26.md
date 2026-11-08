@@ -5,7 +5,7 @@ topic: "adr-0052-rule-10-no-local-network-2026-10-26"
 description: "ADR-0052 rule 10 (A 2026-10-26) — a carrier-assigned private cellular address is not shown, advertised, offered or counted; supply d2d1674a on for/p2p-network-dev-02/adr-0052-no-lan-private; bridge half to rust-ui-dev-01"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

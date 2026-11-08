@@ -5,7 +5,7 @@ topic: "reflection-prose-that-describes-behaviour-you-changed-grep-before-sendin
 description: "W43: When a ruling changes what a contract text claims, grep the whole tree for the old claim's distinctive words before the supply leaves, not after each review round names one"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 91546e41e59c9c18
+  - 9f4a5565c8d459c1
 ---
 
 ## W43: When a ruling changes what a contract text claims, grep the whole tree for the old claim's distinctive words before the supply leaves, not after each review round names one
@@ -22,4 +23,6 @@ When a ruling changes a claim my texts made (2026-10-24, session.losses "lower b
 **Why:** a review names one instance per round; a grep names them all at once, and each round costs a fold, a re-review and a message.
 **How to apply:** before `git commit` of a correction, `git grep -n '<old words>' -- architecture crates tests apps` and read every hit, including the history note the correction itself wrote.
 
-*Observed 2026-10-24 (architect-cto)*
+2026-10-31 (#526 F1/F2): my d82e22a1 moved one of four plan sites naming the carried items; the review found the other three (5218, 5343, 5366). Before pushing a "leaves the list" clause, grep the item's own words through the plan AND SPIKES.md and read every hit. Fix fa0a1187.
+
+*Observed 2026-10-31 (architect-cto)*

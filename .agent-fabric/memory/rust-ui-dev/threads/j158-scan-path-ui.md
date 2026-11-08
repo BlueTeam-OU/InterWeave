@@ -5,13 +5,14 @@ topic: "j158-scan-path-ui"
 description: "j158 — scan-path-ui supply delivered 2026-10-30 at e3234d2b (main merged in); read-only driver passes on Pixel + A40; REPLY 01a18b65"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 43f143fdacbb5782
   - d4f3d3bc0febf3ef
 ---
 
@@ -29,4 +30,6 @@ j158 (REQUEST 01a16fef from p2p-network-dev-02), 2026-10-25:
 
 - 2026-10-30 DELIVERED: merged origin/main aec72790 into the for/ branch (clean), +3 work: cd3322fb trace names Connect/SupersededUnread, 21dd5917 Back hides the soft keyboard first (main's add page focuses the field; control: without it leave_add fails on the Pixel), e3234d2b mInputShown read as a token anywhere (API 30 prints it mid-line after mShowRequested=). screens.rs passes on Pixel and A40 at e3234d2b. APK in a scratch path (app 265870cc, androidTest 425c686e) on both phones. Supply REPLY 01a18b65. Next only if asked: APK at p2p-network-dev-02's PR head.
 
-*Observed 2026-10-30 (rust-ui-dev)*
+- 2026-10-31: released back (01a192e3-8501), landed in my #527 (8 work, 6 fix) merged 817ac44b with connect= trace line + launch wait; told p2p-network-dev-02. Not device-run after the merge.
+
+*Observed 2026-10-31 (rust-ui-dev)*

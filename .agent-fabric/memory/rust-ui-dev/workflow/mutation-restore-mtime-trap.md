@@ -5,7 +5,7 @@ topic: "mutation-restore-mtime-trap"
 description: "A mutation restore can silently be wrong: mv/cp -p keeps the old mtime (cargo runs the mutant), and a sed pattern restore rewrites other lines that match the mutant text"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "cross-repo-job-needs-fresh-session"
 description: "A job in another repository must run in a session started in that clone — fabric-review brief refuses a repository outside the session's clone"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "swipe-actions-j1"
 description: "Status of j1, swipe actions on messages in the Android client — spec merged, build merged; the device review is partial and blocked on the phone link, TalkBack items deferred (IW #297)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -92,6 +92,6 @@ Not yet reported to rust-ui-dev-01.
 Still to run: items 1-11, 15, 16 and the N3 re-check (N3 and the ring are in #295, not this build).
 2026-10-18: architect-cto-01 DECISION 01a14e7d (the owner's word): TalkBack on Android is deferred to the release gate (Slint 1.18.1 has no AccessKit adapter on Android; bridge prototyped, deferred). Swipe spec items 12, 13 and item 21's TalkBack rows stay unmet with that reason, not failed; no wording change. Record: plan §20 "Decided 2026-10-18", IW #297. My look review proceeds on main 400b42b6 once the owner frees the phone.
 
-*References: human-client-message-kinds-and-actions, undo-by-reverse-not-deferral*
+*References: solution-carried-2026-10-24, undo-by-reverse-not-deferral*
 
 *Observed 2026-10-16 (ux-designer)*

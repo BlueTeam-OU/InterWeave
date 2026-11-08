@@ -5,7 +5,7 @@ topic: "workflow-a-namespace-test-names-itself-in-the-ci-userns-step"
 description: "A new test in the rust CI job that enters a user/network namespace adds a line to the userns step's comment in ci.yml (devex-tooling's)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "gzcoord-fill-the-types-sections"
 description: "gzcoord-compose skeleton sections differ by type (INFO is CONTEXT/NOTES, not INFO:); a fill keyed on the wrong heading sends an empty body silently"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
@@ -36,6 +36,6 @@ asserts below only save one refused send.
 
 **Recurred 2026-10-16 (REQUEST 01a14500 to p2p-network-dev-01).** A python `replace("CONTEXT:\n", …)` on a REQUEST skeleton matched nothing, because the skeleton's sections are REQUEST, ACCEPTANCE, DELIVER-TO and REFERENCES. The context paragraph was dropped and the message went out without it. Before filling, print the skeleton's section headings (`grep -n '^[A-Z-]*:$'`), and assert that every replace matched before sending.
 
-*Anchors: `agent-fabric:communication/gzcoord/i18n/en-US.json::the subject alone is not a message`*
+*Anchors: `agent-fabric/communication/gzcoord/i18n/en-US.json::the subject alone is not a message`*
 
 *Observed 2026-10-15 (p2p-network-dev)*

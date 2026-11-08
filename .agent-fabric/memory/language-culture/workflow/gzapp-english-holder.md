@@ -5,7 +5,7 @@ topic: "gzapp-english-holder"
 description: "I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -45,10 +45,10 @@ derived_from:
 - A reason label for a system's ranking says what the system did ("An official stop chosen over the planned one"), never "better" (a ranking cost is not a quality the reader can check). A caller's fact line can overclaim ("for the passengers waiting" was false for drop-offs): read the rule it cites (official_stop_selected, a3d78722c, 2026-10-25).
 - A notice that names a cause must be checked against the code's trigger, not the request's description: "stopped reporting" (eedc30f70) was never the trigger, since stale vehicles stay listed. The fix names the effect only ("no longer in the vehicle list", 72f174c3d, #1164, 2026-10-25). A heading that names a state ("Vehicles reporting") is checked against every row the list keeps.
 - A count key without plural forms gets a count-free label ("Vehicles: {count}"), not "{count} vehicles", which renders "1 vehicles"; a sentence form needs .one/.other keys, which is the caller's change (#1164, 107d2d26e, 2026-10-25).
-Related: [[interweave-copy-conventions]]
+Related: [[solution-carried-2026-10-10]]
 - A histogram label template is checked against the bucket semantics: the schema's [lower, upper) made "{lower}-{upper}" show "1-2" for a one-value count bucket (j37 shadow page, 0b05e161b, 2026-10-26). A caller's meaning for a split ("passed the point") is checked in the code that fills it: the evaluator compared against the requested point, not the chosen one.
 - k-suppression copy: a served zero is 0, so "a count below {k} is never shown" is false. Write "below {k}, other than 0". A partition is withheld for more than its own small part (its parent count, or an intersection), so a cell note points to the rule and does not name a cause (j214, cafc3131a, 2026-10-26).
 
-*References: interweave-copy-conventions*
+*References: solution-carried-2026-10-10*
 
 *Observed 2026-10-26 (language-culture)*

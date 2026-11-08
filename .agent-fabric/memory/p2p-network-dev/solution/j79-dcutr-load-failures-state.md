@@ -5,7 +5,7 @@ topic: "j79-dcutr-load-failures-state"
 description: "j79 state — dcutr load failures were a test race; a reissued punch dial's failure is now the crate's; pairing.rs:183 is dev-01's j133"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

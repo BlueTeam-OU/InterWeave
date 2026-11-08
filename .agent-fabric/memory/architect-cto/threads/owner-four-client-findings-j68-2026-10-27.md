@@ -5,7 +5,7 @@ topic: "owner-four-client-findings-j68-2026-10-27"
 description: "owner's four human-client findings (2026-10-27) judged by rust-ui-dev-02 as j68 — placement in plan records, store v10 ownership, paged start listing vs RETENTION; I owe §29/§20 bullets + STATE.md contacts row on a for/ branch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

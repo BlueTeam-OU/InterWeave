@@ -5,7 +5,7 @@ topic: "j82-rule-10-unviewed-private-state"
 description: "j82 — rule 10 second case: a bound private IP no platform view names is off-local (runtime half); ruling, what is owed, branch; the Pixel failure behind it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "cloudflare-admin-delegation-2026-10-25"
 description: "Owner 2026-10-25: architect-cto holds a full-admin Cloudflare credential and mints scoped API tokens for the other agents; the token model read from Cloudflare's docs, what the owner must give, and the open handover question (another…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

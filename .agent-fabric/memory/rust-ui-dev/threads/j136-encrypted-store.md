@@ -5,7 +5,7 @@ topic: "j136-encrypted-store"
 description: "InterWeave j136 (plan §29 step 3, ADR-0060 encrypted store): branch, agreements, plan, open PR rule"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

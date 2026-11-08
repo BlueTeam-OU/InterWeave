@@ -5,7 +5,7 @@ topic: "accept-carries-shown-context"
 description: "Why Command::AcceptCard carries the ProposalContext the person saw, and what the facade does when the store disagrees (ProposalChanged)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

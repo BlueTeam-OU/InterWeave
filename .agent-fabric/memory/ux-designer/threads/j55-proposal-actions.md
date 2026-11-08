@@ -5,7 +5,7 @@ topic: "j55-proposal-actions"
 description: "contact-cards proposal (s5.4/s5.4.4/s8): actions stacked at every scale; Accept swipe withheld beyond case D asked of the owner (O2)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

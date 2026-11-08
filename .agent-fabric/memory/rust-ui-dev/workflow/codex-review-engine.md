@@ -5,7 +5,7 @@ topic: "codex-review-engine"
 description: "InterWeave's Codex review is an additional review, not required to arm (agent-fabric policies/arming.json); run it with --gateway chatgpt, and judge its findings like any other"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

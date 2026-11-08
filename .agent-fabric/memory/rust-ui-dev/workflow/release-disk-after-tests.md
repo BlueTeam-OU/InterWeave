@@ -5,7 +5,7 @@ topic: "release-disk-after-tests"
 description: "Test-run disk rule (owner, 2026-10-05) — team.md's form: clean target/ when LARGE or after a dep-graph change, not after every run; measure du before/after and report"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j88-peer-list-last-seen-state"
 description: "j88 peer-list 1.2.0 last_seen_ms (IPC 2.12) merged in #503 2c9a045e 2026-10-28; what it is, its known limit, who builds on it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

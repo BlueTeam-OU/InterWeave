@@ -5,7 +5,7 @@ topic: "j66-stage-21-device-rows"
 description: "j66 Stage 21 step 5 device rows on the Wi-Fi harness (added address survives restart; two fresh phones connect after trust): what is needed, branch, what waits (2026-10-24)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

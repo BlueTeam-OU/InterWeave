@@ -5,7 +5,7 @@ topic: "withdrawn-request-check-the-thread-first"
 description: before starting a job from a REQUEST, read its whole thread and the state of what it names (the PR) — a withdrawal or a merge can sit there unread, and the work already written for its siblings must come out too
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

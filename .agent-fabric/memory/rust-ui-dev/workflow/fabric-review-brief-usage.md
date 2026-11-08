@@ -5,7 +5,7 @@ topic: "fabric-review-brief-usage"
 description: "How to render a review brief with fabric-review and post the report with fabric-pr post-review without the refusals hit on first use"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"
@@ -42,6 +42,6 @@ round 1's again is refused: "a re-review of #N starts at its last review's head"
 rendered brief file rather than pasting it; never pass a `$(...)` placeholder in an Agent prompt (it is sent
 literally).
 
-*Anchors: `agent-fabric:tools/fabric/review_brief.py::card_base`*
+*Anchors: `agent-fabric/tools/fabric/review_brief.py::card_base`*
 
 *Observed 2026-10-19 (rust-ui-dev)*

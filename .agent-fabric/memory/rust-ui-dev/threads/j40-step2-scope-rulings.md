@@ -5,7 +5,7 @@ topic: "j40-step2-scope-rulings"
 description: "architect-cto's rulings on plan §29 step 2 scope (j40) — v9 columns, the IDK1 desktop file and custody floor, where the key lives, no Slint/CLI in step 2"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

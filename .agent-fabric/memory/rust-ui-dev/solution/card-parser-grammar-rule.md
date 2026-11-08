@@ -5,7 +5,7 @@ topic: "card-parser-grammar-rule"
 description: "chat-protocol's card classify must decide card-ness by the JSON grammar, not by what serde_json can represent; how (#351)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

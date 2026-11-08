@@ -5,7 +5,7 @@ topic: "j134-step5-inputs"
 description: "plan §29 step 5 (ADR-0062 add/show peer screens) — what the client half waits on and the QR crates that fit the licence list"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

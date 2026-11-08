@@ -5,7 +5,7 @@ topic: "idle-developers-dispatch-2026-10-19"
 description: "2026-10-19 round feeding six idle developers (gzapp five, InterWeave one): what each REQUEST asks, what was verified on main, and the two decisions I owe from it (step-up MFA mechanism; ADR-078 rider-side sign after gzapp#1119)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

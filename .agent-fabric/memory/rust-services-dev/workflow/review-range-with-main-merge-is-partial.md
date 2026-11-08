@@ -5,7 +5,7 @@ topic: "review-range-with-main-merge-is-partial"
 description: "A re-review whose range contains a merge of origin/main counts as partial coverage; review merge-base..head instead"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"
@@ -23,7 +23,7 @@ In InterWeave, `fabric-pr review-status` counts a review as coverage only when i
 
 **How to apply:** after merging origin/main into a PR branch, brief the next review as `mode: review` with range `$(git merge-base HEAD origin/main)..HEAD`: that diff holds only the PR's own paths. Later fix ranges with no merge inside can use `fabric-review next ... --pr N --head <sha>` as usual. See [[workflow-carried-2026-10-24]] for the other PR-shape rule.
 
-*References: interweave-crate-rule-withdraw-test*
+*References: workflow-carried-2026-10-24*
 
 *Anchors: `agent-fabric:tools/fabric/review_brief.py::card_base`*
 

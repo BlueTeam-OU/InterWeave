@@ -5,7 +5,7 @@ topic: "j52-clipboard-unreadable"
 description: "j52 state — add-a-peer s5.5 ClipboardUnreadable line for an unreadable clipboard, PR #413"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

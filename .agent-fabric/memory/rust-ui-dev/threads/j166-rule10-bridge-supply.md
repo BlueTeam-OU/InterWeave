@@ -5,7 +5,7 @@ topic: "j166-rule10-bridge-supply"
 description: "j166 (2026-10-26): ADR-0052 rule 10 bridge half supplied onto p2p-network-dev-02's feat/j76 branch; device row on the Pixel still owed"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

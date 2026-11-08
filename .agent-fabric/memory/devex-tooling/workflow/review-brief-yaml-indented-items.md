@@ -5,7 +5,7 @@ topic: "review-brief-yaml-indented-items"
 description: "fabric-review brief refuses a request whose list items sit at column 0; indent `- item` under its key"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

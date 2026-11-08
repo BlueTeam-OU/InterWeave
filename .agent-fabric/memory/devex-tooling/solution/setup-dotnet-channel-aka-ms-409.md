@@ -5,7 +5,7 @@ topic: "setup-dotnet-channel-aka-ms-409"
 description: "gzapp CI .NET install failing with HTTP 409 from dotnetorigin.blob.core.windows.net; why '10.0.x' breaks and an exact version does not"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

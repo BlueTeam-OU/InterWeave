@@ -5,7 +5,7 @@ topic: "never-list-work-as-contributor-patches"
 description: "When python-devs are idle and the only Python work is on CONTRIBUTOR_NEVER, they write it as a patch the coordinator commits"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

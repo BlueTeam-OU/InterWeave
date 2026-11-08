@@ -5,7 +5,7 @@ topic: "gpg-keyboxd-stale-lock"
 description: "gpg/keyboxd hangs \"waiting for lock (held by N)\" after a hard kill; commit signing times out; how to clear it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

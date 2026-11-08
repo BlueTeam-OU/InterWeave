@@ -5,7 +5,7 @@ topic: "word-against-every-state"
 description: a string shown or spoken beside a message status is read with every state of that status; no tense or verb may claim delivery
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

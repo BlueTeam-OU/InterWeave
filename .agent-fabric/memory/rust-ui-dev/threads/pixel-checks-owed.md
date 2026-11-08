@@ -5,7 +5,7 @@ topic: "pixel-checks-owed"
 description: "Device checks owed on the Pixel once the owner is back (InterWeave, from 2026-10-21)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 3348ec498df5fb9d
+  - 701301d08f1c110c
 ---
 
 ## Device checks owed on the Pixel once the owner is back (InterWeave, from 2026-10-21)
@@ -47,6 +48,8 @@ Evidence a scratch path, rb0/rb2.png; record it in device-runs/ (j131).
 process death, human_chat/paths 6/6 at API 30). Still owed on the Pixel: ux-designer-01's walk
 of F9 step 5, F17, F10, acceptance 23, F4 Details at 200 %/light on afb4466b (installed 03:50 UTC).
 API 37 runs of app_lifecycle need a fresh-profile phone (POST_NOTIFICATIONS grant) — not the Pixel.
+
+2026-10-31 (j183): notification arrival ran on the Pixel at API 37, 3 of 3 (grant given). The rebind's drop half is now in the app's log. Both are recorded in device-runs/2026-10-31-pixel-9a.md, e63313a9, on branch feat/j183 (no PR; REPLY 01a19298). The arrival runs left three test conversations unread in the Pixel's store.
 
 *References: android-relay-front-instance, empty-line-takes-no-room*
 
