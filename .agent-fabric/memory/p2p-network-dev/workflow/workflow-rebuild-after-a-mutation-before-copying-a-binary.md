@@ -5,7 +5,7 @@ topic: "workflow-rebuild-after-a-mutation-before-copying-a-binary"
 description: a test binary copied after a mutation run is the MUTATED build until cargo rebuilds; restoring the source does not
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

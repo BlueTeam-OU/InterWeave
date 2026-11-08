@@ -5,7 +5,7 @@ topic: "device-run-check-focus"
 description: On the shared Pixel, a scripted device run checks which app has focus before every tap and stops if it is not InterWeave; blind tap sequences can hit system settings
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -71,6 +71,6 @@ More lessons:
 
 2026-10-21 (j31, round 4): the Pixel is also the owner's own phone. A Telegram heads-up arrived between the focus check and a tap and took the tap (it opened the notification; nothing sent). Since then every run turns Do Not Disturb on (`cmd notification set_dnd on`) and sets it back as found (`settings get global zen_mode` first). A personal notification caught in a capture is deleted at once. Restore any changed setting (font_scale, uimode night, rotation, DND) inside the run, before `adb disconnect`: an EXIT trap that runs after the disconnect finds no device and restores nothing (font stayed at 2.0 and light theme for a minute).
 
-*References: device-review-pixel-lease*
+*References: workflow-carried-2026-10-18*
 
 *Observed 2026-10-21 (ux-designer)*

@@ -5,7 +5,7 @@ topic: "review-loop-same-invariant-escalate"
 description: "when one invariant fails review round after round, stop patching and ask whether it is a design split; #137's book eviction failed five rounds"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

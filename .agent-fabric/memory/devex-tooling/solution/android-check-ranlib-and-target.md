@@ -5,7 +5,7 @@ topic: "android-check-ranlib-and-target"
 description: "android check fails in make (openssl-src) or with E0463 can't find core? RANLIB_<target>, and the aarch64 target on this account"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

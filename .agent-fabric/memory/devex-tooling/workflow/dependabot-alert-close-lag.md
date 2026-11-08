@@ -5,7 +5,7 @@ topic: "dependabot-alert-close-lag"
 description: a Dependabot alert closes ~30 min after the fix merges, well after the SBOM shows the patched version; poll, never dismiss
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

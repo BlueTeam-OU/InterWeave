@@ -5,7 +5,7 @@ topic: "workflow-subuid-shim-for-sudo-u"
 description: "run a `sudo -n -u <user>` foreign-uid test on a host with no sudo — a user-namespace shim gives a real second kernel uid"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

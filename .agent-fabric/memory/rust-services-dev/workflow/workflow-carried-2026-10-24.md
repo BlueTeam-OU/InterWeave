@@ -5,7 +5,7 @@ topic: "workflow-carried-2026-10-24"
 description: "To keep two open InterWeave PRs off one library crate, withdraw a small self-contained change from your own PR and re-land it after the other merges, instead of asking for an exception"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

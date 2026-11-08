@@ -5,7 +5,7 @@ topic: "j155-connect-screen"
 description: "InterWeave j155 Connect (add-a-peer s5.1) batch: what is built on the branch, the design choices made, what is left"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

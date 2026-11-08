@@ -5,7 +5,7 @@ topic: "drain-run-the-project-tree-checks-first"
 description: "before committing an InterWeave memory drain, run the project's licence-header check on the result; lint.py does not see what the project's CI refuses"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

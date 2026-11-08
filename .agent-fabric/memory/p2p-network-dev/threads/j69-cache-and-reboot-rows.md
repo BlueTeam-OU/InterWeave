@@ -5,7 +5,7 @@ topic: "j69-cache-and-reboot-rows"
 description: "j69 (owner's limits on row 1): cache-on row in 4 variants + reboot row built at 837663a2; device runs wait on rust-ui-dev-01's APK; Scan re-run later (2026-10-24)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: InterWeave
 derived_from:
   - 7aad0e914425128e
+  - d2010a7ba8ef5e0e
 ---
 
 ## j69 (owner's limits on row 1): cache-on row in 4 variants + reboot row built at 837663a2; device runs wait on rust-ui-dev-01's APK; Scan re-run later (2026-10-24)
@@ -75,7 +76,9 @@ stale merge c537a560 of old main dropped, never pushed). Review clean of P1/P2, 
 build; add range 1015-1529 ms, not 1.0-1.3 s) fixed af3cfcd7, re-review clean, both posted. Asked architect-cto for
 AUTHORIZES #448@af3cfcd7 (REPLY 01a173e5); arm with --authorization <id> once checks green. No owner wipe word yet.
 2026-10-25 ~17:05Z: architect-cto AUTHORIZES 01a173e7; #448 armed and MERGED 4ffe79c5. j73 done; told architect-cto (01a173fc). Only Scan row 2 remains of j69, on the owner's wipe word.
+2026-10-31 16:55Z rust-ui-dev-01 asked (QUESTION 01a192e3-4233) to fold scan-path-ui (e3234d2b, 7 commits, their lane) or release it. Released (REPLY 01a192e3-8501): they land it in their own PR off main. Row 2, on the owner's wipe word, branches off a main that has their PR; if still open then, ask them for the range, never fold it unmerged.
+2026-10-31 18:18Z: rust-ui-dev-01's #527 merged 817ac44b (scan-path-ui on main; trace adds connect=<phase>, launch fails naming Connect if onboarding's Connect is owed). Row 2 branches off main at/after it.
 
 *References: j66-stage-21-device-rows, workflow-shared-device-build-by-the-installed-signer*
 
-*Observed 2026-10-25 (p2p-network-dev)*
+*Observed 2026-10-31 (p2p-network-dev)*

@@ -5,7 +5,7 @@ topic: "j83-late-failure-wait-state"
 description: "j83 DONE: #481 merged 6d33a6af after #479 (2026-10-27). — dcutr.rs late-failure test flake was the wait missing a thread push; #481 open, waits on #479 merge and architect-cto-01's AUTHORIZES"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

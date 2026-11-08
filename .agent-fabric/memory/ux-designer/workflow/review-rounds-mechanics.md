@@ -5,7 +5,7 @@ topic: "review-rounds-mechanics"
 description: "how to chain fabric-review rounds and post a subagent's report whole without retyping it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

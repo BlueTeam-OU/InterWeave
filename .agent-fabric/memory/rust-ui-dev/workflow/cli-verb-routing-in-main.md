@@ -5,7 +5,7 @@ topic: "cli-verb-routing-in-main"
 description: "interweave-human verbs routed in main.rs before verbs::run need a binary-level test of each arm, including the endpoint that falls through"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

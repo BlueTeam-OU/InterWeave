@@ -5,7 +5,7 @@ topic: "workflow-to-role-finding-goes-to-the-holder-in-the-crate"
 description: "a TO-ROLE finding when the role has two holders — the one whose unmerged branch is in that crate takes it; check before replying \"mine\""
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: InterWeave
 derived_from:
   - d70a90e46692f9eb
+  - e8153e8f6f5575e5
 ---
 
 ## a TO-ROLE finding when the role has two holders — the one whose unmerged branch is in that crate takes it; check before replying "mine"
@@ -24,4 +25,8 @@ Before replying "mine" or "yours", run `fabric-pr gate --in-flight` and read whi
 **Why:** replying first and checking later has the two holders both take a finding, which costs the reporter and the holders a round of settling messages.
 **How to apply:** for any TO-ROLE finding, check in-flight branches by crate first. Reply with the owner and the branch in the first message.
 
-*Observed 2026-10-18 (p2p-network-dev)*
+Also read the thread before claiming: `fabric-history --thread <id>`. In 2026-W44 (the three once-failed tests, 01a17a43), the other holder proposed a split 16 s before I replied "I take all three". That cost two correction messages, one to the holder and one to the reporter. A per-test split also works when the tests sit in different crates: the dcutr pair went to me, pairing.rs to dev-01. When the finding's test came in through the other holder's merged branch (the relay_client flake, from dev-01's j126 merge), I named that merge in the first message, and dev-01 took it at once.
+
+*Anchors: `.agent-fabric/roles/p2p-network-dev.md::same crate`*
+
+*Observed 2026-10-31 (p2p-network-dev)*

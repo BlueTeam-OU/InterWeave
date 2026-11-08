@@ -5,7 +5,7 @@ topic: "holder-addenda-installed"
 description: "My English-holder charter and brief addenda (agent-fabric ADR-060) live in my store, not the shared charter; edit them through fabric-coordinator"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -33,6 +33,6 @@ a copy set aside by the coordinator, sha256-checked; never write
 settings/roles/ in my store myself.
 Related: [[keep-else-whole]], [[workflow-carried-2026-10-10]]
 
-*References: cold-read-without-meanings, keep-else-whole*
+*References: keep-else-whole, workflow-carried-2026-10-10*
 
 *Observed 2026-10-19 (language-culture)*

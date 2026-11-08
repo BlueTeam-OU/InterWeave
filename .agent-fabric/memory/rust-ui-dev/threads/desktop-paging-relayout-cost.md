@@ -5,7 +5,7 @@ topic: "desktop-paging-relayout-cost"
 description: "The desktop's first draw after a page cost ~7 ms per held row (2-2.8 s at 256-320); cause and fix found in j77 (2026-10-31), ~0.25 ms/held row left"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

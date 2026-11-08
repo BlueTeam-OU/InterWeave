@@ -5,7 +5,7 @@ topic: "contract-text-fold-needs-the-error-matrix"
 description: "Folding contract prose that names an error code into a PR turns `rust` red: tests/transport-contract error_contract_matrix demands a row or PROSE entry per code occurrence in contracts/ENDPOINTS.md and transport/libp2p/DIRECT.md"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

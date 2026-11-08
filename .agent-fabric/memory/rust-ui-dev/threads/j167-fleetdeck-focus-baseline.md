@@ -5,7 +5,7 @@ topic: "j167-fleetdeck-focus-baseline"
 description: "j167 FleetDeck focus-only (REQUEST 01a1797f from fabric-coordinator): code map, baseline numbers measured 2026-10-26 21:50, design direction"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j155-real-scan-418-done"
 description: "#418 camera Scan verified on both phones 2026-10-26 (owner's hands): both directions, trust step, permission re-ask; evidence a scratch path"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

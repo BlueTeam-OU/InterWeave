@@ -5,7 +5,7 @@ topic: "scripted-edit-assert-match"
 description: "a python str.replace edit that matches nothing changes nothing, silently; assert the old text first, and re-match after rustfmt"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

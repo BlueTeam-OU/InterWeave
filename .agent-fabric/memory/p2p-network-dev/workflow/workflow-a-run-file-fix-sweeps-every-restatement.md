@@ -5,7 +5,7 @@ topic: "workflow-a-run-file-fix-sweeps-every-restatement"
 description: A finding that a run file or doc claims more than was measured is fixed across every restatement of that claim (title, bullets, module doc, fn doc, PR body) and every trigger word in one pass, or it costs a round per instance
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

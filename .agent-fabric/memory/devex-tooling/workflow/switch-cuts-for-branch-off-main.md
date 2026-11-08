@@ -5,7 +5,7 @@ topic: "switch-cuts-for-branch-off-main"
 description: "fabric-jobs switch cuts a requested for/ branch off origin/main even when the REQUEST's DELIVER-TO names another base; reset it before the first commit"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

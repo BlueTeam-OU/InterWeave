@@ -5,7 +5,7 @@ topic: "quote-a-condition-verbatim"
 description: "where a record restates a spec's condition, quote it word for word; a clarifying paraphrase narrows it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

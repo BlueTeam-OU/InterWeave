@@ -5,7 +5,7 @@ topic: "rm-a-variable-path-needs-the-colon-guard"
 description: "rm -f $S/*.md is refused by the harness safety check with no prompt; write \"${S:?}\"/*.md"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

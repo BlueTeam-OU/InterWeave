@@ -5,7 +5,7 @@ topic: "merge-target-names-the-section-heading-verbatim-2026-10-24"
 description: "A memory's merge_target is matched against a drained slice's section heading verbatim; a topic's words or a heading's opening do not match, and the memory is then filed as a topic of its own beside the old text (fabric-coordinator's drain…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j157-unasked-read-focus"
 description: "j157 (2026-10-27): focus and Done when an unasked trust read decides a step-2 block; ux answers 01a17cd6/01a17cdb, the view-side move by focus-id"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

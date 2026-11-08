@@ -5,7 +5,7 @@ topic: "j63-wifi-device-run"
 description: "j63 Pixel over Wi-Fi (no adb reverse): branch, what passed, what waits (2026-10-23)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

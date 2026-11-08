@@ -5,7 +5,7 @@ topic: "phones-lan-2026-10-30"
 description: "Where the test phones are since the LAN moved on 2026-10-30, their lease names, and whose adb key the Pixel accepts"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 97c6999e2d9679bd
+  - d0726b46d5bf459e
 ---
 
 ## Where the test phones are since the LAN moved on 2026-10-30, their lease names, and whose adb key the Pixel accepts
@@ -32,6 +33,10 @@ Related: [[pixel-install-r-keeps-data]].
 
 Update 2026-10-30 later: the A40 accepts rust-ui-dev-01's key too (j158 install -r + screens run). The Pixel drops adb now and then: a retry after ~20 s worked.
 
-*References: pixel-install-r-keeps-data*
+2026-10-31: the Pixel was at a private-network address:45649. After j183's Wi-Fi toggle it moved to a private-network address:35475. The A40 was at a private-network address:42654 (the owner's word). The Pixel still accepts rust-ui-dev-01's key.
 
-*Observed 2026-10-30 (rust-ui-dev)*
+2026-11-05 (p2p-network-dev-01 INFO 01a1aba7, owner's word, for their j141): the Pixel's debug app and org.interweave.human.test were UNINSTALLED with their profile; it now runs RELEASE v0.2.0 (signer a7f38b5e), no identity. My debug APK can no longer go over it with install -r: that needs an uninstall, which [[pixel-no-destructive]] says to ask the owner for. Pixel that day at a private-network address:44767. The A40 is untouched.
+
+*References: pixel-install-r-keeps-data, pixel-no-destructive*
+
+*Observed 2026-11-05 (rust-ui-dev)*

@@ -5,7 +5,7 @@ topic: "j64-photo-subsampling"
 description: "j64 contact cards 5.2: chroma subsampling is the encoder's (image crate 0.25.10 writes 4:4:4); figures labelled; PR #447"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "spike-runs-ipc-socket-path-length"
 description: "SPIKE-001 runs with daemons fail \"the daemon never served\" when TMPDIR is the long session scratchpad — SUN_LEN"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

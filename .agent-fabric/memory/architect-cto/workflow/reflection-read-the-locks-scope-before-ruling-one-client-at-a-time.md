@@ -5,7 +5,7 @@ topic: "reflection-read-the-locks-scope-before-ruling-one-client-at-a-time"
 description: "W44 — before ruling that two clients may coexist on one profile, read what the \"one at a time\" exclusion actually locks (a store-wide instance lock vs a per-endpoint lease); the contract's lease rule and the client's lock are different…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

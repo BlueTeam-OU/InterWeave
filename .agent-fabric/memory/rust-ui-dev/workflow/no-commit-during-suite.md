@@ -5,7 +5,7 @@ topic: "no-commit-during-suite"
 description: "Never commit while the workspace suite runs; human-cli's version test pins HEAD, and cargo test stops at the first failing binary without --no-fail-fast"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

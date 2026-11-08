@@ -5,7 +5,7 @@ topic: "domain-android-ui-driving-needs-a-trace"
 description: "driving the Android human client's screens from the host for a device row: no a11y tree, FLAG_SECURE, keys work, a debug trace is the done signal"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

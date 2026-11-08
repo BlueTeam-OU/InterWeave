@@ -5,7 +5,7 @@ topic: "j131-stage17-lane-pr358"
 description: "InterWeave Stage 17 close, rust-ui-dev lane (j131): #358 merged fbca15e6 2026-10-22; what it carried, review lessons, what remains with others"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

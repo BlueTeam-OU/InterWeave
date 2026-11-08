@@ -5,7 +5,7 @@ topic: "recovery-warning-placement"
 description: "Where the Android identity flow's pre-phrase statements go (R1/K1, not R2) and who edits the matrix row that cites their tests"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"
@@ -41,7 +41,7 @@ delivery when a neighbouring key changes (IdActiveElsewhere, 01a16713 →
 01a16717): read the inbox before arming. Item 12 is job j46 after #391
 lands. Related: [[labels-english-supplier]], [[identity-key-rulings-j37]].
 
-*References: identity-key-rulings-j37, labels-keep-is-reserved*
+*References: identity-key-rulings-j37, labels-english-supplier*
 
 *Anchors: `crates/human/ui-model/src/identity_flow.rs::warns_active_elsewhere`, `crates/human/ui-slint/src/identity.rs::IdActiveElsewhere`*
 

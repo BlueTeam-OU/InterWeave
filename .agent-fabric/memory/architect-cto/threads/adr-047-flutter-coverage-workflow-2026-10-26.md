@@ -5,7 +5,7 @@ topic: "adr-047-flutter-coverage-workflow-2026-10-26"
 description: "j386 2026-10-26: gzapp ADR-047 §2.6 A 2026-10-26 names flutter-coverage.yml beside coverage.yml/codeql.yml as a workflow without a push trigger; supplied 85886bf2d onto flutter-dev-02's #1183 head f6e8ca9dd; devex-tooling REQUEST 01a17652"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

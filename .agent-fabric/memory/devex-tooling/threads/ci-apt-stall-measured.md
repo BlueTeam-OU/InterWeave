@@ -5,7 +5,7 @@ topic: "ci-apt-stall-measured"
 description: "CI apt-get install stalls on azure.archive.ubuntu.com (20 kB/s): gzapp driver-flutter 22.9 min, InterWeave 3.4 min; j246/j247 add a .deb cache + Acquire retries"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

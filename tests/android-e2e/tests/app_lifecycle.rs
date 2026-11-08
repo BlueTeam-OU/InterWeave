@@ -120,13 +120,7 @@ async fn a_process_death_restarts_the_service_into_the_same_store() {
     // so a notice after the restart can only be the new process's: a
     // crash runs no cancel, and a notice the platform kept would satisfy
     // the wait below.
-    shell(&[
-        "am",
-        "start",
-        "-W",
-        "-n",
-        &format!("{PACKAGE}/.MainActivity"),
-    ]);
+    launch();
     until(&log, "the window in front again", app_focused);
     until(&log, "the first notice withdrawn", || notice().is_none());
     shell(&["input", "keyevent", "KEYCODE_HOME"]);
@@ -198,6 +192,19 @@ async fn started() -> (AdbDevice, Desktop, Side) {
         WILDCARD,
         Some(&format!("{d_listen}/p2p/{}", d.peer.as_str())),
     ));
+    launch();
+    let mut side = Side::new(d.binding());
+    let log = || format!("D:\n{}\nphone:\n{}", d.log(), phone.log());
+    until(&log, "the app in front", app_focused);
+    side.until(&log, "D's session ready", Side::is_ready).await;
+    (phone, d, side)
+}
+
+/// The activity brought to the front. An `am start -W` behind a secure
+/// keyguard never returns, so the phone is unlocked first, asking the
+/// person if it has to.
+fn launch() {
+    platform::until_unlocked();
     shell(&[
         "am",
         "start",
@@ -205,11 +212,6 @@ async fn started() -> (AdbDevice, Desktop, Side) {
         "-n",
         &format!("{PACKAGE}/.MainActivity"),
     ]);
-    let mut side = Side::new(d.binding());
-    let log = || format!("D:\n{}\nphone:\n{}", d.log(), phone.log());
-    until(&log, "the app in front", app_focused);
-    side.until(&log, "D's session ready", Side::is_ready).await;
-    (phone, d, side)
 }
 
 /// D's person: the desktop client's facade over D's daemon.
