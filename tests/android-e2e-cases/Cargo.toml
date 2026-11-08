@@ -9,9 +9,12 @@
 # builds it for the phone, so its normal dependencies reach no libp2p,
 # test harness, daemon or transport runtime -- src/lib.rs's
 # the_crate_reaches_no_libp2p_harness_daemon_or_runtime fails if one
-# does. TEST-ONLY; that the release APK's graph names it nowhere is the
-# packaging batch's check (DECISION 01a12770): check_human_layering rule
-# 6 and the app's Gradle task verifyReleaseNative.
+# does. TEST-ONLY; that the release APK's graph names it nowhere is
+# DECISION 01a12770's invariant: check_human_layering rule 6 (the Cargo
+# graph), the app's Gradle task verifyReleaseNative (the release native
+# library) and check_apk_classes.py (the case's Java entry, on the
+# release APK's dex: every PR's in the android apk job, the published
+# one in the release workflow).
 [package]
 name = "interweave-android-e2e-cases"
 version.workspace = true
