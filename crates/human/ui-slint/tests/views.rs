@@ -2117,6 +2117,38 @@ fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_eleven() {
     assert!(view.queued_inputs() <= 6 * INPUT_CAP + 11);
 }
 
+/// The root's Chats is not a press: a full queue never refuses it, so a
+/// discard's restart never leaves the person in a conversation whose data
+/// is gone, and asked twice before a take it waits once (#599 F3).
+#[test]
+fn the_roots_chats_is_never_refused_and_waits_once() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    for _ in 0..INPUT_CAP {
+        view.select(key.clone());
+    }
+    view.window().invoke_send();
+    assert_eq!(view.refused_inputs(), 1, "control: the queue is full");
+    let queued = view.queued_inputs();
+    view.show_chats();
+    view.show_chats();
+    assert_eq!(view.refused_inputs(), 1, "Chats is not refused");
+    assert_eq!(view.queued_inputs(), queued + 1, "one Chats waits");
+    while !view.take_events(&model).is_empty() {}
+    assert_eq!(view.queued_inputs(), 0, "drained");
+    assert!(view.window().get_list_shown(), "Chats");
+    assert_eq!(
+        view.window().get_header_title().as_str(),
+        text(UiText::NoConversation),
+        "nothing open"
+    );
+}
+
 /// Review F1: a render that changes nothing about an item keeps focus on
 /// it -- the next Tab continues from it.
 #[test]
