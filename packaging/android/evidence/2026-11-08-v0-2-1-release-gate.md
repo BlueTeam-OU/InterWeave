@@ -1,18 +1,20 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Device run: the v0.2.1 release gate before the cut, 2026-11-08
+# Device run: the v0.3.0 release gate before the cut, 2026-11-08
 
-The device half of plan §22's v0.2.1 gate that can run before the cut:
-the RELEASE build of `main` makes an identity on a fresh install
+The device half of plan §22's gate for the next release, v0.3.0, that
+can run before the cut: the RELEASE build of `main` makes an identity on a fresh install
 (Create) and takes one back from a recovery phrase (Restore), on both
 phones, and the service starts on what each wrote. v0.1.0 and v0.2.0
 cannot do the first (`2026-11-05-pixel-9a-update-and-downgrade.md`).
 Run by p2p-network-dev-01 (j152, step 1 of fabric-coordinator's phone
 order of 2026-11-08), with the owner at the phones, on the owner's word
-to uninstall and clear app data on both.
+to uninstall and clear app data on both. The release was to be v0.2.1
+when the run was taken, which is the name this file keeps; the owner's
+word of the same day made it v0.3.0 (plan §22).
 
 **Result.** Create and Restore are met on the Pixel 9a (API 37) and the
 Samsung A40 (API 30). The update in place from v0.2.0 is **not run**: it
-needs the v0.2.1 APK signed with the release key, which exists only
+needs the v0.3.0 APK signed with the release key, which exists only
 after the cut (architect-cto-01's ruling, option a), and it runs then
 on the published asset.
 
@@ -37,7 +39,8 @@ uninstalled, with their profiles: a release signer does not install
 over another.
 
 The APK is the RELEASE variant of `main` at 4c4cf358, built here with
-the steps of `release.yml`'s build job, in this order: the pinned Skia
+the steps of `release.yml`'s build job, driven by a host-side script
+of this run's own (kept outside the tree), in this order: the pinned Skia
 prebuilt fetched and its SHA-256 checked (`tools/ci/skia_prebuilt.sh
 fetch`); `./gradlew :app:assembleRelease` on the SDK's pinned JDK, which
 ran `verifyReleaseNative` (BUILD SUCCESSFUL); after the build,
@@ -45,8 +48,8 @@ ran `verifyReleaseNative` (BUILD SUCCESSFUL); after the build,
 `release`, which answered "skia-bindings took the pinned archive … (1
 output(s) under target/aarch64-linux-android/release/build)"; then
 `tools/ci/check_apk_classes.py --holds org.interweave.human.MainActivity
---holds-none org.interweave.human.test` (1143 classes, passed). The
-build script's own class-check call lacked those arguments and stopped
+--holds-none org.interweave.human.test` (1143 classes, passed). That
+host-side script's class-check call lacked those arguments and stopped
 on its usage line, so that last check was run by hand with
 `release.yml`'s arguments on the same unsigned APK. The target was this
 clone's, not a clean one; the check found one skia-bindings output in
@@ -58,8 +61,9 @@ aligned and signed with a test-only key made for this run
 |---|---|---|---|---|---|
 | `dfd81bbe3f373601…` | `f9f821606c3c4c05…` | `c5062b9e` | 2 | 0.2.0 | no |
 
-Its versionName reads 0.2.0 because the workspace version is the
-cut's to change. It is signed v2 and v3 with v1 off, as the release
+Its versionName reads 0.2.0 because the workspace version was still
+0.2.0 at 4c4cf358; it was raised to 0.3.0 and versionCode to 3 after
+this run (#597). It is signed v2 and v3 with v1 off, as the release
 run signs (`--v2-signing-enabled true --v3-signing-enabled true`):
 `apksigner verify -v --min-sdk-version 24` on it reports both true; at
 the APK's own minimum, 30, it checks v3 alone and reports v2 false
@@ -156,8 +160,8 @@ succeeded at its Continue.
   signing adds is checked by the release run
   (`tools/ci/release_android_apk.sh`); it changes nothing the native
   library does.
-- The update in place from v0.2.0 onto v0.2.1, and that a phone so
-  updated then onboards: it needs v0.2.1's published APK, after the
+- The update in place from v0.2.0 onto v0.3.0, and that a phone so
+  updated then onboards: it needs v0.3.0's published APK, after the
   cut.
 - That the restored identity is reachable from a peer: the start says
   the runtime is up, not that a host peer dialled the phone and met
