@@ -59,6 +59,9 @@ pub type Step = Map<String, Value>;
 /// The app on one phone, by its `adb -s` serial.
 pub struct Screens {
     serial: String,
+    /// The adb program: `adb` on the PATH, a stand-in in this module's
+    /// tests.
+    program: std::ffi::OsString,
     /// The trace lines read so far since the launch cleared the log.
     seen: Vec<String>,
     /// How many of `seen` a wait has already consumed.
@@ -76,6 +79,7 @@ impl Screens {
     pub fn new(serial: &str) -> Self {
         Self {
             serial: serial.to_owned(),
+            program: "adb".into(),
             seen: Vec::new(),
             read: 0,
             focus: String::new(),
@@ -106,15 +110,8 @@ impl Screens {
         }
         (self.seen, self.read, self.focus, self.app) = (Vec::new(), 0, String::new(), Vec::new());
         let launched = self
-            .adb_ok(&[
-                "shell",
-                "am",
-                "start",
-                "-W",
-                "-n",
-                &format!("{PACKAGE}/.MainActivity"),
-            ])
-            .and_then(|_| self.wait_all(0, &["page=conversations"], patience))
+            .front()
+            .and_then(|()| self.wait_all(0, &["page=conversations"], patience))
             .and_then(|()| {
                 self.wait_until(patience, |seen| match last_of(seen, "connect=") {
                     Some("not-owed" | "settled" | "open") => None,
@@ -338,11 +335,14 @@ impl Screens {
     /// seen: the onboarding pages, where `launch` waits for Conversations.
     pub fn launch_to_identity(&mut self, screen: &str, patience: Duration) -> Step {
         let name = "launch_to_identity";
+        if let Err(why) = self.unlocked() {
+            return step(name, false, why);
+        }
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
         if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
             return step(name, false, why);
         }
-        (self.seen, self.read, self.focus) = (Vec::new(), 0, String::new());
+        (self.seen, self.read, self.focus, self.app) = (Vec::new(), 0, String::new(), Vec::new());
         let want = format!("identity={screen}");
         let launched = self
             .front()
@@ -684,8 +684,17 @@ impl Screens {
     }
 
     /// `am start` of the main activity: launches it, or brings its task
-    /// to the front.
+    /// to the front. Refused behind a keyguard, asking no one: there
+    /// `am start -W` waits with no end (51 minutes on the A40), so a
+    /// step that may ask the person calls [`Self::unlocked`] first, and
+    /// one that must not ([`Self::launch_locked`]) fails here instead.
     fn front(&self) -> Result<(), String> {
+        if crate::platform::keyguard_showing(&self.dump(&["window"])?)? {
+            return Err(format!(
+                "the phone {} is locked: am start -W would wait behind the keyguard with no end",
+                self.serial
+            ));
+        }
         self.adb_ok(&[
             "shell",
             "am",
@@ -702,7 +711,7 @@ impl Screens {
     }
 
     fn adb(&self, args: &[&str]) -> std::io::Result<Output> {
-        Command::new("adb")
+        Command::new(&self.program)
             .args(["-s", &self.serial])
             .args(args)
             .output()
@@ -857,6 +866,69 @@ mod tests {
         for line in ["", "a b", "a%sb", "a;b", "a'b", "a\nb", "a$b", "a&b"] {
             assert!(!typable(line), "{line:?}");
         }
+    }
+
+    /// A stand-in adb in a scratch directory: a `dumpsys window` shows
+    /// the keyguard for its first `locked` calls, logcat holds `trace`,
+    /// and every call is appended to `calls`, one line each.
+    fn stand_in(locked: u32, trace: &str) -> (tempfile::TempDir, Screens) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path().display();
+        let script = format!(
+            r#"#!/bin/sh
+echo "$*" >> {d}/calls
+case "$*" in
+  *dumpsys*)
+    n=$(grep -c dumpsys {d}/calls)
+    if [ "$n" -le {locked} ]; then echo "  isKeyguardShowing=true"; else echo "  isKeyguardShowing=false"; fi
+    echo IW_END=0 ;;
+  *logcat\ -d*) printf '%s\n' "{trace}" ;;
+esac
+"#
+        );
+        let program = dir.path().join("adb");
+        std::fs::write(&program, script).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut screens = Screens::new("stand-in");
+        screens.program = program.into();
+        (dir, screens)
+    }
+
+    fn calls(dir: &tempfile::TempDir) -> Vec<String> {
+        let calls = std::fs::read_to_string(dir.path().join("calls")).unwrap_or_default();
+        calls.lines().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn no_am_start_runs_behind_a_keyguard() {
+        let (dir, mut s) = stand_in(u32::MAX, "ui-trace page=conversations");
+        let why = s.front().unwrap_err();
+        assert!(why.contains("locked"), "{why}");
+        let r = s.bring_back();
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
+        let r = s.launch_locked(Duration::from_millis(50));
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
+        let calls = calls(&dir);
+        assert!(calls.iter().any(|c| c.contains("dumpsys")), "{calls:?}");
+        assert!(!calls.iter().any(|c| c.contains("am start")), "{calls:?}");
+    }
+
+    #[test]
+    fn a_launch_to_identity_waits_for_the_unlock_before_it_starts() {
+        let (dir, mut s) = stand_in(2, "ui-trace identity=w");
+        let r = s.launch_to_identity("w", Duration::from_secs(5));
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::PASS)), "{r:?}");
+        let calls = calls(&dir);
+        let start = calls
+            .iter()
+            .position(|c| c.contains("am start"))
+            .expect("an am start");
+        let dumps = calls[..start]
+            .iter()
+            .filter(|c| c.contains("dumpsys"))
+            .count();
+        assert!(dumps >= 3, "the start after the keyguard went: {calls:?}");
     }
 
     #[test]
