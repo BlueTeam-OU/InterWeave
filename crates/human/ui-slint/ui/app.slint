@@ -1373,6 +1373,8 @@ component ListView inherits Rectangle {
     out property <length> visible-width <=> flick.width;
     out property <length> visible-height <=> flick.height;
     in property <bool> interactive <=> flick.interactive;
+    // The person's own wheel, drag or fling.
+    callback flicked <=> flick.flicked;
     flick := Flickable {
         @children
     }
@@ -8606,7 +8608,17 @@ export component AppWindow inherits Window {
                             property <length> bottom: min(0px, reader-list.visible-height - reader-list.content-height);
                             property <bool> at-end: reader-list.content-y <= self.bottom + 1px;
                             changed at-end => { root.reader-at-end = self.at-end; }
+                            // End holds the list at its end until the next
+                            // scroll: rows laid out as they come near make
+                            // the content taller than first measured, which
+                            // moves the end away from where End put the list
+                            // (tests/long_message.rs).
+                            property <bool> held-at-end;
+                            changed bottom => {
+                                if (self.held-at-end) { reader-list.content-y = self.bottom; }
+                            }
                             function scroll-to(y: length) {
+                                self.held-at-end = false;
                                 reader-list.content-y = max(self.bottom, min(0px, y));
                             }
                             // The other form, at about the same place: the share
@@ -8624,6 +8636,7 @@ export component AppWindow inherits Window {
                                 if (event.text == Key.Home) { self.scroll-to(0px); return accept; }
                                 if (event.text == Key.End) {
                                     self.scroll-to(self.bottom);
+                                    self.held-at-end = true;
                                     root.reader-ended();
                                     return accept;
                                 }
@@ -8634,6 +8647,7 @@ export component AppWindow inherits Window {
                             reader-list := ListView {
                                 width: parent.width;
                                 height: parent.height;
+                                flicked => { reader-scroll.held-at-end = false; }
                                 for r in root.reader-rows: VerticalLayout {
                                     padding-top: r.kind == ReaderRowKind.line && r.line.joined ? 0px : 4px;
                                     padding-right: 12px;

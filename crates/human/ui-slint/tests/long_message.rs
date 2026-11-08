@@ -413,13 +413,13 @@ fn the_reader_shows_the_whole_body_and_escape_returns_to_the_button() {
     );
 }
 
-/// The debug build's trace names the reader's page, and the window says
-/// whether its list stands at its end (`reader-at-end`): what the
+/// The debug build's trace names the reader's page, and End moves its
+/// list to its end, which the window says (`reader-at-end`): what the
 /// device case's End time waits for (A5,
 /// `tests/android-e2e/tests/long_message.rs`). The times themselves need
 /// a renderer that says when it drew, which this backend is not.
 #[test]
-fn the_trace_names_the_reader_and_the_window_whether_it_is_at_its_end() {
+fn the_trace_names_the_reader_and_end_reaches_its_list_end() {
     let mut view = view();
     view.window()
         .window()
@@ -458,6 +458,18 @@ fn the_trace_names_the_reader_and_the_window_whether_it_is_at_its_end() {
         !view.window().get_reader_at_end(),
         "400 paragraphs pass one screen"
     );
+
+    // One End: the rows laid out near the end make the content taller
+    // than first measured, and the list is held at its end through it.
+    key(&view, Key::End);
+    slint::platform::update_timers_and_animations();
+    assert!(
+        view.window().get_reader_at_end(),
+        "End reaches the list's end"
+    );
+    key(&view, Key::Home);
+    slint::platform::update_timers_and_animations();
+    assert!(!view.window().get_reader_at_end(), "Home leaves it");
 
     key(&view, Key::Escape);
     let _ = intents(&mut view, &mut model);
