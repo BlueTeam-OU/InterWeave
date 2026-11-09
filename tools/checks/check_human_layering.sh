@@ -39,8 +39,8 @@
 #      graph names it nowhere (architect-cto's DECISION 01a12770, plan
 #      §20 gate (c)). This is the Rust half; the test-only JNI entry
 #      (org.interweave.human.test.E2eCase) is a Java class this walk
-#      cannot see, checked on the APK once the instrumentation build
-#      exists.
+#      cannot see, checked on the release APK's dex by the android apk
+#      job (tools/ci/check_apk_classes.py).
 #   7. apps/human-cli, the command-line client, reaches no libp2p crate and
 #      no Slint crate: the claim its Cargo.toml makes (the transport is the
 #      shared daemon's, ADR-0040, and it has no display). Walked, as rule 1

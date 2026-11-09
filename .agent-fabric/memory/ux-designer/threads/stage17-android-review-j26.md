@@ -5,7 +5,7 @@ topic: "stage17-android-review-j26"
 description: "j26: plan §20 clause (j) — my on-device look-and-feel review of the Android app is a condition of Stage 17's close; status and what it waits on"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -50,6 +50,6 @@ then §7 re-review of rank 1 on the build they name (commit + APK sha).
 
 2026-10-21: rust-ui-dev-01 (INFO 01a15d44) says F9 step 5 is fixed on the host only, in d9b98c92 on #313. The refused-send line now has no height while empty, and the list strip went from 28 to 53 px at 923x411 with the keyboard up. When the phone is back, check on the device whether 53 px is enough; a bubble's first line can still be cut.
 
-*References: android-look-proposal, device-review-pixel-lease*
+*References: android-look-proposal, workflow-carried-2026-10-18*
 
 *Observed 2026-10-21 (ux-designer)*

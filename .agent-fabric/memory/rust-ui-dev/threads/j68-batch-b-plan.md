@@ -5,7 +5,7 @@ topic: "j68-batch-b-plan"
 description: "j68 start window batch B plan (2026-10-27) - four PRs B1-B4, the conversation_index gap, protocol shape, open questions"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

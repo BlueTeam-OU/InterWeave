@@ -5,7 +5,7 @@ topic: "remote-branch-prune-2026-10-28"
 description: "2026-10-28 the owner had every InterWeave origin branch wholly on main deleted (256 of 266); GitHub delete-on-merge covers PR heads only, so for/ supply branches grow back; proposal to fabric-coordinator that fabric-branches --sweep…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

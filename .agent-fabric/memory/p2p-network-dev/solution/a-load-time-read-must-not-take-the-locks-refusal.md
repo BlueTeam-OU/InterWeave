@@ -5,7 +5,7 @@ topic: "a-load-time-read-must-not-take-the-locks-refusal"
 description: "Adding a state-dir file read to ProfileConfig::load (before the lock) — classify whose failure it is by lstat of the entry, or the read steals the lock's directory refusal and its exit code"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

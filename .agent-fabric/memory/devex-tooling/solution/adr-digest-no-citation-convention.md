@@ -5,7 +5,7 @@ topic: "adr-digest-no-citation-convention"
 description: "why validate_adr_index checks \"entry edited\" not \"amendment cited\" — the digest has no citation convention"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

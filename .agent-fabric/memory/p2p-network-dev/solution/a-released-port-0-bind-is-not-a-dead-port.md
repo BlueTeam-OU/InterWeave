@@ -5,7 +5,7 @@ topic: "a-released-port-0-bind-is-not-a-dead-port"
 description: "A dead-address fixture made by binding port 0 and releasing it races other tests' listeners (CI runs nextest, one process per test); use tests/support's free_port, which answers below the port-0 range under a claim"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

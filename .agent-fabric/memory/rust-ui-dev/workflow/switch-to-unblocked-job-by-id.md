@@ -5,7 +5,7 @@ topic: "switch-to-unblocked-job-by-id"
 description: "fabric-jobs switch without an id resumes the paused job, not a blocked one whose awaited reply just arrived; name the id"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 210df13de0ddb098
+  - 44cd16ec7608083a
 ---
 
 ## fabric-jobs switch without an id resumes the paused job, not a blocked one whose awaited reply just arrived; name the id
@@ -21,6 +22,8 @@ derived_from:
 
 **Why:** a bare switch costs a second pause and a fresh-session hand-off pointing at the wrong job.
 **How to apply:** when a delivery unblocks a job, pause the current one and switch with that job's id.
+
+2026-11-04 (j203 → j204): a bare `fabric-jobs switch` after delivering j203 activated paused j199, which was still blocked (its supply e87e1462 was not on main). The queued, workable j204 was passed over. Leaving j199 again then needed a pause, plus a memory change inside that one-call stint. After delivering, name the next workable job: `fabric-jobs switch --keep-targets <id>`.
 
 *Anchors: `agent-fabric:tools/fabric/jobsparts/verbs.py::def switch_job`*
 

@@ -5,7 +5,7 @@ topic: "admin-call-order-across-connections"
 description: whether an admin set whose answer was lost can land after a later read on another IPC connection
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

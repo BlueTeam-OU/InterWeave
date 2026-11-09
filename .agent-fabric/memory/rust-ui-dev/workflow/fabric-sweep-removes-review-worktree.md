@@ -5,7 +5,7 @@ topic: "fabric-sweep-removes-review-worktree"
 description: "fabric-branches --sweep deletes a running review's pinned fabric-review/ worktree; don't sweep while a review dispatch is in flight"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

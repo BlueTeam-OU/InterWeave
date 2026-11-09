@@ -5,7 +5,7 @@ topic: "supply-on-a-for-branch"
 description: "How a supply to another agent's branch is delivered and closed here — for/ branch off their commit, fabric-jobs deliver, REPLY"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

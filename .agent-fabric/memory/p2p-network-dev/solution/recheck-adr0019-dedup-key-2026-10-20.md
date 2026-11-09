@@ -5,7 +5,7 @@ topic: "recheck-adr0019-dedup-key-2026-10-20"
 description: "InterWeave's ADR-0019 dedup keys on the transport MessageId, not app_message_id; an application re-send under a fresh id escapes it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

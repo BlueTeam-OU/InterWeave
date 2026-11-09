@@ -5,7 +5,7 @@ topic: "review-fixes-open-new-questions"
 description: In a spec review loop, each fix of a rule (a new case, an invariant) breeds a P2/P3 in the paths it did not touch; grep every path that writes the same state before committing the fix
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

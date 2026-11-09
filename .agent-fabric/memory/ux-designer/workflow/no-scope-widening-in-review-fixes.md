@@ -5,7 +5,7 @@ topic: "no-scope-widening-in-review-fixes"
 description: "during a PR's review rounds, fix only what a finding names; never settle a reviewer's \"risk\" by adding a new rule"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

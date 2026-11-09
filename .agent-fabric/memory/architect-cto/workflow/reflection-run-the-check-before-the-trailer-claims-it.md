@@ -5,7 +5,7 @@ topic: "reflection-run-the-check-before-the-trailer-claims-it"
 description: "A Supplier-Review trailer names a check as OK only after the check ran and printed OK in that worktree; a validator that needs installed modules crashes in a fresh worktree and a chained command commits the trailer anyway"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

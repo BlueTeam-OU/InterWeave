@@ -574,7 +574,10 @@ fn at_the_session_bound_the_limit_row_asks_and_asks_again_after_a_reopen() {
     app.side_mut().surface_mut().0.select(direct(&other));
     until(&mut app, "B open", |app| held(app, &direct(&other)) > 0);
     app.side_mut().surface_mut().0.select(key.clone());
-    turn(&mut app);
+    // A reach while the opening's page is on its way asks nothing, and
+    // the page then lands with the top reached (spent): the line is
+    // reached once A's page is held, as at the first opening.
+    until(&mut app, "A's page again", |app| held(app, &key) > 0);
     focus_line(&mut app);
     until(&mut app, "the limit row again", |app| at_limit(app, &key));
     assert!(app.close(Duration::from_secs(5)), "the facade thread ended");

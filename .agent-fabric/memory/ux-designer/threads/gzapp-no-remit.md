@@ -5,7 +5,7 @@ topic: "gzapp-no-remit"
 description: "gzapp asks reach ux-designer-01, but the role has no gzapp remit or working copy; answer provisional and ask fabric-coordinator"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "rereview-reads-posted-review"
 description: "rendering a fabric-review re-review brief for a PR? post the previous review first; previous_findings is refused for a PR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j60-same-name-keys"
 description: "contact-cards 5.4.1 same-name rule became two keys (case key OR shape key); PR #438 with #435's carried items"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "stage-18-outside-suite-shapes-2026-10-25"
 description: "2026-10-25 j368: four adversarial test shapes relayed by fabric-coordinator judged against plan §21; three covered by name, the misbehaving-relay one handed to p2p-network-dev-01 (REQUEST 01a1736a-446d) as test or limit on S21-07"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

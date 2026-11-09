@@ -5,7 +5,7 @@ topic: "j73-own-card-row"
 description: "j73 own card row (contact-cards 5.5) delivered as #469 (merged f2295901); carried risks listed in a PR comment"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

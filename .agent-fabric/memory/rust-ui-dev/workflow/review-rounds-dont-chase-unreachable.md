@@ -5,7 +5,7 @@ topic: "review-rounds-dont-chase-unreachable"
 description: "in a PR's review rounds, a risk on a path no view reaches is carried to the batch that reaches it, not built into the fix range"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

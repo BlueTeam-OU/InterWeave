@@ -663,6 +663,25 @@ check green. `tools/checks/check_yamux_muxer.sh` is the guard, because
 `cargo-deny` structurally cannot be; its `--help` carries the mechanism,
 the advisory id, and why banning the version would not work.
 
+**A THIRD GAP is in the database's own grammar, live since 2026-11-09.**
+A RustSec patched range names crate VERSIONS, and `cargo-deny` matches
+the version in `Cargo.lock` against it; a feature of a patched version
+that compiles a different source tree is invisible to that match.
+RUSTSEC-2026-0459 (SQLite before 3.54.0, uninitialized page-cache memory
+from a `-wal` of another page size) is patched at `libsqlite3-sys >=
+0.39.0`, so devex-tooling's `rusqlite` 0.41 bump (#602, merged
+295cf217a on 2026-11-09) answers it for the check — while the human
+store's `bundled-sqlcipher-vendored-openssl` build of that very version
+compiles `sqlcipher-src` 419.0.6, SQLite 3.53.4, which the advisory
+names as still affected. No check here can see it: the lock names a
+patched version and the advisory is answered. The residual is carried
+by name in the plan's §21 record with its re-check trigger (a
+`sqlcipher-src` whose lock version's build metadata names
+`sqlite-3.54.0` or later; the crate's major is the SQLCipher release,
+not the SQLite one), and the lesson is the rule: when an advisory's
+text names a feature build, read the C source version the graph
+actually compiles, not the crate version the range clears.
+
 ### Licence headers are checked
 
 Every first-party source file carries an `SPDX-License-Identifier:
@@ -776,9 +795,9 @@ read `.claude/settings.json`.
 
 `main` is protected by the `main protection` ruleset: pull request required, direct pushes and force-pushes blocked, branch deletion blocked, **merge commits only** (squash and rebase disabled), and a **merge queue** (`ALLGREEN`, merge method `MERGE`). Required approving reviews are 0 and unresolved review threads do not block — so **the merge is not evidence that anything was reviewed**.
 
->  **CI exists and gates `main`** — `.github/workflows/ci.yml` runs fmt, clippy, the workspace tests, every tree check, and every self-test on `pull_request`, `merge_group`, and pushes to `main`. It reports four required contexts, which are the job `name:` values verbatim: **`rust`**, **`tree checks`**, **`tool self-tests`**, and **`android check (aarch64-linux-android)`** (`cargo check` of the phone's crates for their target with the NDK the host pins, `tools/ci/check_android_target.sh`; Stage 17 §20 step 1 cites it as its build record). All four are in the ruleset's `required_status_checks`, so the queue gates correctness and not merely ordering. `tools/checks/check_required_contexts.sh` keeps this paragraph and the workflow in agreement; the ruleset itself needs admin API access and is checked by hand. The policy is **non-strict**: a branch need not be up to date with `main` to merge, which is why folding `origin/main` in and re-testing locally (Phase 3) is still on you rather than on the platform.
+>  **CI exists and gates `main`** — `.github/workflows/ci.yml` runs fmt, clippy, the workspace tests, every tree check, and every self-test on `pull_request`, `merge_group`, and pushes to `main`. It reports five required contexts, which are the job `name:` values verbatim: **`rust`**, **`tree checks`**, **`tool self-tests`**, **`android check (aarch64-linux-android)`** (`cargo check` of the phone's crates for their target with the NDK the host pins, `tools/ci/check_android_target.sh`; Stage 17 §20 step 1 cites it as its build record), and **`android apk (assembleDebug)`** (the APK with the native library cargo-ndk builds into it, with `lintDebug` and `testDebugUnitTest` after it (#311), then the release APK and the instrumentation's, the release one held to none of the instrumentation's classes, `tools/ci/check_apk_classes.py`). All five are in the ruleset's `required_status_checks`, so the queue gates correctness and not merely ordering. `tools/checks/check_required_contexts.sh` keeps this paragraph and the workflow in agreement; the ruleset itself needs admin API access and is checked by hand. The policy is **non-strict**: a branch need not be up to date with `main` to merge, which is why folding `origin/main` in and re-testing locally (Phase 3) is still on you rather than on the platform.
 >
-> A job can instead be an **advisory context the ruleset does not require**, named in a sentence of that wording here, while its subject is not yet on `main`; `check_required_contexts.sh` holds every job to exactly one of the two lists. One is, until the ruleset gains it: **`android apk (assembleDebug)`**, the APK with the native library cargo-ndk builds into it, with `lintDebug` and `testDebugUnitTest` after it (#311). The Gradle build has been on `main` since Stage 17's first package, so what the job waits for is no longer its subject but the ruleset, which needs admin access: it moves to the required list here and into the ruleset by hand in one change, devex-tooling's on the owner's word.
+> A job can instead be an **advisory context the ruleset does not require**, named in a sentence of that wording here, while its subject is not yet on `main`; `check_required_contexts.sh` holds every job to exactly one of the two lists. None is today. The last, the APK job, was advisory from #311 until the owner's word of 2026-11-08 moved it to the required list here and into the ruleset by hand in one change, devex-tooling's; a job leaves this list the same way, never by the prose alone.
 >
 > A job's `name:` *is* its required-check context, so renaming a job silently un-gates `main` — the ruleset goes on requiring a context nothing reports, and the queue waits forever. Rename a job only together with the ruleset.
 >

@@ -5,7 +5,7 @@ topic: "xtask-checks-spike-locks-slow"
 description: cargo xtask checks in a fresh InterWeave worktree runs past 30 minutes on check_spike_locks; run the relevant checks by name instead
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

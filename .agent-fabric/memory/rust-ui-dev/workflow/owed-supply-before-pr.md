@@ -5,7 +5,7 @@ topic: "owed-supply-before-pr"
 description: "Run fabric-pr owed-supply before opening or arming a PR; a supply handed off by message can sit unfolded for hours"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

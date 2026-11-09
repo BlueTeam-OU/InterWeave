@@ -5,7 +5,7 @@ topic: "batch-5-agree-client-contract-first"
 description: "Before building Stage 14 batch 5 (transport-client facade), agree its client-facing contract with rust-ui-dev-01; charter #79 (2026-10-02)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

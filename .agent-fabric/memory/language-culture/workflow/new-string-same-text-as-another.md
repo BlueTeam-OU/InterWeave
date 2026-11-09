@@ -5,7 +5,7 @@ topic: "new-string-same-text-as-another"
 description: before finalising a new string, grep the strings table for the same text under another key
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

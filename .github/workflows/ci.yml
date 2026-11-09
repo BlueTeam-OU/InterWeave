@@ -21,9 +21,9 @@
 #      job runs, reports, and gates nothing at all until its name is
 #      added to the ruleset's required_status_checks.
 #
-# Contexts reported here: `rust`, `tree checks`, `tool self-tests`,
-# `android check (aarch64-linux-android)`, and the advisory one CLAUDE.md
-# §9 names apart, `android apk (assembleDebug)`.
+# Contexts reported here, every one required: `rust`, `tree checks`,
+# `tool self-tests`, `android check (aarch64-linux-android)` and
+# `android apk (assembleDebug)`.
 #
 # Deliberately NOT conditional-per-surface. The run's wall clock is
 # `rust`'s, ~10 minutes with its cargo cache warm (2026-10-16; the job's
@@ -91,7 +91,7 @@ env:
 # so with the name an image change is an edit to the runs-on lines.
 jobs:
   rust:
-    # CONTEXT NAME: `rust`. Like the two below, this string is what the
+    # CONTEXT NAME: `rust`. Like every job below, this string is what the
     # ruleset requires — see the note above before touching it.
     #
     # Cargo-only on purpose. The tree checks and the self-tests run in
@@ -589,18 +589,26 @@ jobs:
           key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
   android-apk:
-    # CONTEXT NAME: `android apk (assembleDebug)`. ADVISORY (CLAUDE.md §9's
-    # advisory sentence): the APK the Gradle build packages, with the native
-    # library cargo-ndk builds into it, then the debug variant's lint and
-    # JVM unit tests (the name keeps the context the advisory sentence
-    # names). Advisory until the ruleset gains it (devex-tooling, by hand,
-    # on the owner's word): the Gradle project is on main and the run time
-    # is measured below, so nothing else is waited for.
+    # CONTEXT NAME: `android apk (assembleDebug)`. REQUIRED (CLAUDE.md §9;
+    # advisory from #311 until the owner's word of 2026-11-08): the APK the
+    # Gradle build packages, with the native library cargo-ndk builds into
+    # it, then the debug variant's lint and JVM unit tests, then the
+    # release APK and the instrumentation's, the first held to none of the
+    # second's classes. The name predates the release half and stays: it
+    # is the context the ruleset requires. 22 of 22 green on the queue and
+    # main (the merge_group and push runs among `gh run list -w CI -L 60`
+    # on 2026-11-08, each run's jobs read for this one and rust), median 11.9 min against the
+    # rust job's 18.1 (its slowest, 20.3, beside rust's 20.1).
     name: android apk (assembleDebug)
     runs-on: ubuntu-26.04
     # 5m27s on main with no cargo cache (400b42b6, 2026-10-17): 69 s of
     # toolchain install, ~30 s of it compiling cargo-ndk, and 252 s of
-    # assembleDebug, most of it the cargo build. The cap is for a hang.
+    # assembleDebug, most of it the cargo build. With the release APK and
+    # the instrumentation's added, 15m14s on #586 (485a6cb8, 2026-11-07):
+    # 297 s of assembleDebug on a warm cache, 519 s of assembleRelease
+    # assembleDebugAndroidTest with the release profile's builds cold (the
+    # cache had none yet), under the rust job's 19m44s in the same run.
+    # The cap is for a hang.
     timeout-minutes: 60
     env:
       # As the rust job's, for its reason; Gradle's Exec passes the
@@ -690,6 +698,29 @@ jobs:
       # until the first JVM unit test lands, which it then gates.
       - name: ./gradlew testDebugUnitTest
         run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
+
+      # The release APK, unsigned, and the instrumentation's APK beside it.
+      # assembleRelease runs verifyReleaseNative, which the release
+      # workflow alone ran before: the release library names no case
+      # entry and no views' trace, and writes the first-run profile.
+      - name: ./gradlew assembleRelease assembleDebugAndroidTest
+        run: ./gradlew --no-daemon --stacktrace assembleRelease assembleDebugAndroidTest
+
+      # DECISION 01a12770's JNI half: the instrumentation's classes
+      # (org.interweave.human.test, E2eCase the JNI entry's) are the
+      # androidTest APK's alone, never the release APK's. A class in
+      # src/main or src/release would put one there with every other
+      # check green. The release APK's MainActivity and the test APK's
+      # E2eCase are the controls: the dex was read, and a class of that
+      # package is seen where it is.
+      - name: The release APK holds no instrumentation class
+        working-directory: .
+        run: |
+          out=apps/human-android/android/app/build/outputs/apk
+          python3 tools/ci/check_apk_classes.py "$out/release/app-release-unsigned.apk" \
+            --holds org.interweave.human.MainActivity --holds-none org.interweave.human.test
+          python3 tools/ci/check_apk_classes.py "$out/androidTest/debug/app-debug-androidTest.apk" \
+            --holds org.interweave.human.test.E2eCase
 
       - name: What was built
         run: |
@@ -948,6 +979,13 @@ jobs:
       # tree of its release command line with the resolved features.
       - name: No shipped build turns a test-hooks feature on
         run: bash tools/checks/check_shipped_test_hooks.sh
+
+      # ADR-0058: the notices each shipped build owes are written today, by
+      # the release's own tool over the release's own graph, so a bump that
+      # brings a crate the reviewed lists do not cover is red here and not
+      # at the tag (each build read from where the release takes it).
+      - name: Every shipped build's third-party notices can be written
+        run: bash tools/checks/check_release_notices.sh
 
       # Plan §15 / ADR-0052 rule 5: Stage 12 may compose kademlia, the
       # relay client or the authorised-identify opt-ins only while the root

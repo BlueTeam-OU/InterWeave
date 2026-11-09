@@ -5,7 +5,7 @@ topic: "cite-the-normative-reason-dont-restate-it"
 description: a reason restated in a test doc, a README and a contract drifts one copy per review round; keep it in the contract and cite it
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

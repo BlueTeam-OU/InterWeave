@@ -27,10 +27,16 @@ interweave-transport-api = { path = "../../api/transport-api" }
 unicode-normalization = { workspace = true }
 # A Chats preview is cut between whole characters (`preview.rs`).
 unicode-segmentation = { workspace = true }
+# Whether ReplacedCharacter's words start with punctuation, which takes
+# no space before it (long-message note section 6), in any script.
+unicode-general-category = { workspace = true }
 # The one order contacts take everywhere (`order.rs`).
 icu_collator = { workspace = true }
 icu_normalizer = { workspace = true }
 icu_provider = { workspace = true }
+# A wide or emoji character counts two in the long-message figures
+# (`cluster::weight`).
+icu_properties = { workspace = true }
 
 [features]
 # TEST BUILDS ONLY: `UiModel::set_bounds_for_test`, which sets the session

@@ -5,7 +5,7 @@ topic: "e2e-runs-prebuilt-binary"
 description: "desktop-e2e launches target/<profile>/<bin> as last built; reverting source and running one e2e test tests the OLD binary unless the app crate is rebuilt"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

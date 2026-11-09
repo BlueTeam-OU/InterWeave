@@ -5,7 +5,7 @@ topic: "plugin-version-from-workspace"
 description: "How the Claude plugin and claude-channel carry the ADR-0065 release version: build.sh, release archive, --version stamp"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

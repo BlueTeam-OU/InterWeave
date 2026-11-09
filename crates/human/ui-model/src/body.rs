@@ -16,9 +16,12 @@
 //! only that it is an image when the alt text is empty or blank, and
 //! nothing is fetched.
 //!
-//! A line leaves here in pieces no larger than a piece's bound
-//! ([`PIECE_GRAPHEMES`], [`PIECE_LINES`]), which HUMAN-CHAT.md's Bounds
-//! asks of every drawn item. The desktop's software renderer keeps a
+//! A line leaves here in pieces within a piece's count ceiling
+//! ([`PIECE_GRAPHEMES`], [`PIECE_LINES`]). That ceiling does not bound
+//! what a piece draws -- a character's glyph is the font's, and 1,600
+//! emoji draw past 8,000 logical px -- so HUMAN-CHAT.md's item extent
+//! (Bounds, A 2026-11-07) is kept by measure, in the view that lays the
+//! piece out. The desktop's software renderer keeps a
 //! filled rectangle's geometry in 16 bits and panics on one taller than
 //! 32,767 physical pixels, and a line's surfaces -- a code block's fill,
 //! a quote's bar -- are as tall as the line (j92). Its text alone would
@@ -62,8 +65,8 @@ pub enum Kind {
     TableRow,
 }
 
-/// The most characters (grapheme clusters) a link control's label holds
-/// as shown: the whole-body figure, which HUMAN-CHAT.md's Bounds give every
+/// The most characters a link control's label holds as shown, each
+/// weighed by [`crate::cluster::weight`]: the whole-body figure, which HUMAN-CHAT.md's Bounds give every
 /// drawn item (A 2026-11-04 (ii)). A label is never cut, so past it a link
 /// has no control.
 pub const LABEL_GRAPHEMES: usize = 2000;
@@ -87,7 +90,7 @@ pub fn link_label(destination: &str) -> String {
 /// A 2026-11-04 (ii)).
 fn has_control(destination: &str) -> bool {
     let label = link_label(destination);
-    label.graphemes(true).nth(LABEL_GRAPHEMES).is_none() && crate::cluster::fits(&label)
+    crate::cluster::weighted(&label) <= LABEL_GRAPHEMES && crate::cluster::fits(&label)
 }
 
 /// Whether a line is a piece of the line before it, and where it was cut.
@@ -105,11 +108,10 @@ pub enum Join {
     MidLine,
 }
 
-/// The most characters, as a person counts them (grapheme clusters), one
-/// drawn piece holds: the most the conversation's preview of a cut body
-/// holds (design/2026-11-04-long-message.md section 6), so that a piece
-/// is no taller than such a preview, which that note's A4 measures under
-/// the renderer's ceiling at 200 % text.
+/// The most characters one drawn piece holds, each weighed by
+/// [`crate::cluster::weight`]: the most the conversation's preview of a
+/// cut body holds (design/2026-11-04-long-message.md section 6). A count
+/// ceiling only: the drawn extent is the view's to keep, by measure.
 pub const PIECE_GRAPHEMES: usize = 1600;
 
 /// The most lines, as the text breaks them, one drawn piece holds: the
@@ -168,16 +170,44 @@ pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
     pieced(whole(rendered, image))
 }
 
+/// [`flatten`], with each link's place: the index in the body's lines of
+/// the last piece of the line its text is in, after which the reader
+/// draws its control (design/2026-11-04-long-message.md section 5.1).
+pub fn flatten_placed(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> (Body, Vec<usize>) {
+    placed(whole(rendered, image))
+}
+
 /// `whole`'s lines in pieces within the bounds, its links as they are.
 pub(crate) fn pieced(whole: Whole) -> Body {
-    Body {
-        lines: whole
-            .lines
-            .into_iter()
-            .flat_map(Line::into_pieces)
-            .collect(),
-        links: whole.links.into_iter().map(|(_, link)| link).collect(),
+    placed(whole).0
+}
+
+/// [`pieced`], with each link's place as [`flatten_placed`] gives it.
+fn placed(whole: Whole) -> (Body, Vec<usize>) {
+    let mut lines = Vec::new();
+    let mut last_piece = Vec::with_capacity(whole.lines.len());
+    for line in whole.lines {
+        lines.extend(line.into_pieces());
+        last_piece.push(lines.len().saturating_sub(1));
     }
+    let places = whole
+        .links
+        .iter()
+        .map(|(line, _)| {
+            last_piece
+                .get(*line)
+                .copied()
+                .unwrap_or_else(|| lines.len().saturating_sub(1))
+        })
+        .collect();
+    let destinations = whole.links.into_iter().map(|(_, link)| link).collect();
+    (
+        Body {
+            lines,
+            links: destinations,
+        },
+        places,
+    )
 }
 
 /// A body before its lines are cut into pieces: each line whole, each
@@ -272,8 +302,10 @@ pub fn pieces(text: &str) -> Vec<(&str, Join)> {
         let mut beyond = rest.len();
         let mut last_break = None;
         let mut breaks = 0;
-        for (taken, (at, grapheme)) in rest.grapheme_indices(true).enumerate() {
-            if taken == PIECE_GRAPHEMES {
+        let mut taken = 0;
+        for (at, grapheme) in rest.grapheme_indices(true) {
+            taken += crate::cluster::weight(grapheme);
+            if taken > PIECE_GRAPHEMES {
                 cap = Some(at);
                 beyond = at + grapheme.len();
                 break;
@@ -305,6 +337,46 @@ pub fn pieces(text: &str) -> Vec<(&str, Join)> {
         }
         join = next_join;
     }
+}
+
+/// `piece` in two near its middle, as [`crate::cluster::weight`] weighs
+/// it, for a view whose layout measured it past the item extent
+/// (HUMAN-CHAT.md Bounds, A 2026-11-07: split by measure, never by a
+/// count -- the measure says whether to split, this only where): at the
+/// line break nearest the middle, which the cut takes the place of; else
+/// at the last word boundary up to the middle; else at the middle. Never
+/// inside a character, and neither half empty. `None` for a piece of one
+/// character, which no cut makes smaller.
+#[must_use]
+pub fn halves(piece: &str) -> Option<(&str, &str, Join)> {
+    let total = crate::cluster::weighted(piece);
+    let mut weight = 0;
+    let mut middle = None;
+    for (at, grapheme) in piece.grapheme_indices(true) {
+        // Never at the start: a character weighs at least one.
+        if weight * 2 >= total {
+            middle = Some((at, at + grapheme.len()));
+            break;
+        }
+        weight += crate::cluster::weight(grapheme);
+    }
+    let (middle, beyond) = middle?;
+    // A break with something on both sides of it.
+    let nearest_break = piece
+        .grapheme_indices(true)
+        .filter(|&(at, grapheme)| {
+            is_line_break(grapheme) && at > 0 && at + grapheme.len() < piece.len()
+        })
+        .min_by_key(|&(at, _)| at.abs_diff(middle));
+    if let Some((at, grapheme)) = nearest_break {
+        return Some((
+            &piece[..at],
+            &piece[at + grapheme.len()..],
+            Join::AfterBreak,
+        ));
+    }
+    let at = word_cut(&piece[..beyond], middle).unwrap_or(middle);
+    Some((&piece[..at], &piece[at..], Join::MidLine))
 }
 
 /// The last word boundary in `head`, past its start and at most `cap`,
@@ -554,6 +626,28 @@ mod tests {
         assert!(got.links.is_empty(), "no control for an inert link");
     }
 
+    /// Each link's place is the last piece of the line its text is in:
+    /// a line cut into pieces puts it after the last, and a line with two
+    /// links places both there (section 5.1).
+    #[test]
+    fn a_link_is_placed_after_the_last_piece_of_its_line() {
+        let long = "word ".repeat(1_000);
+        let source = format!(
+            "[a](https://e.org/1) first\n\nmiddle\n\n{long}[b](https://e.org/2) and [c](https://e.org/3)\n\nlast"
+        );
+        let (drawn, places) = super::flatten_placed(&render(&source), &|alt| alt.to_owned());
+        assert_eq!(drawn, body(&source), "the same body as flatten");
+        assert_eq!(drawn.links.len(), 3);
+        let long_pieces = drawn.lines.len() - 3;
+        assert!(long_pieces > 1, "the long line is cut: {long_pieces}");
+        assert_eq!(places, [0, 1 + long_pieces, 1 + long_pieces]);
+        assert_eq!(
+            drawn.lines[places[1] + 1].text,
+            "last",
+            "after the long line's last piece"
+        );
+    }
+
     #[test]
     fn an_image_is_a_placeholder_naming_its_alt_and_never_a_link() {
         let got = body("![a cat](https://example.org/cat.png)");
@@ -597,14 +691,70 @@ mod tests {
         assert!(got.links.is_empty());
     }
 
+    mod halves {
+        use super::super::{Join, halves};
+
+        #[test]
+        fn one_character_has_no_halves() {
+            assert_eq!(halves(""), None);
+            assert_eq!(halves("x"), None);
+            assert_eq!(halves("e\u{301}"), None, "one character of two code points");
+        }
+
+        #[test]
+        fn running_text_is_cut_where_a_word_begins_up_to_the_middle() {
+            let (head, tail, join) = halves("one two three four").expect("halves");
+            assert_eq!(
+                (head, tail, join),
+                ("one two ", "three four", Join::MidLine)
+            );
+        }
+
+        #[test]
+        fn a_run_with_no_word_boundary_is_cut_at_its_middle_never_inside_a_character() {
+            assert_eq!(
+                halves(&"x".repeat(10)),
+                Some(("xxxxx", "xxxxx", Join::MidLine))
+            );
+            let run = "e\u{301}".repeat(5);
+            let (head, tail, _) = halves(&run).expect("halves");
+            // Five characters: the head takes the middle one.
+            assert_eq!(head, "e\u{301}".repeat(3), "whole characters");
+            assert_eq!(tail, "e\u{301}".repeat(2));
+        }
+
+        #[test]
+        fn the_middle_is_by_weight() {
+            // Four wide characters weigh as the eight narrow ones after
+            // them, all of one word (Hangul and Latin letters join), so
+            // only the weight places the cut.
+            let text = format!("{}{}", "\u{AC00}".repeat(4), "a".repeat(8));
+            let (head, tail, _) = halves(&text).expect("halves");
+            assert_eq!(head, "\u{AC00}".repeat(4));
+            assert_eq!(tail, "a".repeat(8));
+        }
+
+        #[test]
+        fn the_line_break_nearest_the_middle_is_taken_and_dropped() {
+            let (head, tail, join) = halves("aaaaaaaa\nb\ncccccccc").expect("halves");
+            assert_eq!(
+                (head, tail, join),
+                ("aaaaaaaa\nb", "cccccccc", Join::AfterBreak)
+            );
+            // A break nothing follows divides nothing.
+            assert_eq!(halves("aaaa\n").map(|h| h.2), Some(Join::MidLine));
+        }
+    }
+
     mod pieces {
         use unicode_segmentation::UnicodeSegmentation as _;
 
         use super::super::{Join, Kind, PIECE_GRAPHEMES, PIECE_LINES, pieces};
         use super::body;
 
+        /// Characters as the piece's ceiling counts them: weighed.
         fn graphemes(text: &str) -> usize {
-            text.graphemes(true).count()
+            crate::cluster::weighted(text)
         }
 
         /// The text again, from its pieces: a break where one was cut.
@@ -731,11 +881,15 @@ mod tests {
         fn a_run_with_no_word_boundary_is_cut_between_characters_never_inside_one() {
             // One word of combining sequences, then of a family emoji: a
             // grapheme of several code points, which a cut must not part.
-            for unit in ["e\u{301}", "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"] {
+            // The emoji weighs two, so its run takes twice the pieces.
+            for (unit, n) in [
+                ("e\u{301}", 3),
+                ("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", 5),
+            ] {
                 let text = unit.repeat(PIECE_GRAPHEMES * 2 + 5);
                 let cut = pieces(&text);
                 within_bounds(&cut);
-                assert_eq!(cut.len(), 3);
+                assert_eq!(cut.len(), n, "{unit:?}");
                 assert_eq!(graphemes(cut[0].0), PIECE_GRAPHEMES);
                 assert!(
                     cut.iter().all(|&(piece, _)| piece.starts_with(unit)),
@@ -747,10 +901,11 @@ mod tests {
 
         #[test]
         fn a_script_written_without_spaces_is_cut_between_its_characters() {
+            // Each wide character weighs two: 3,200 of them are 6,400.
             let text = "\u{6f22}\u{5b57}".repeat(PIECE_GRAPHEMES);
             let cut = pieces(&text);
             within_bounds(&cut);
-            assert_eq!(cut.len(), 2);
+            assert_eq!(cut.len(), 4);
             assert_eq!(joined(&cut), text);
         }
 
@@ -834,6 +989,14 @@ mod tests {
         let got = body(&format!("[padded]({hidden})"));
         assert_eq!(got.lines, [line(Kind::Text, 0, false, "", "padded")]);
         assert!(got.links.is_empty(), "counted as shown, not as sent");
+        // Few characters, weighed past the figure: a wide one counts two
+        // (A 2026-11-07). The same path in narrow letters keeps its control.
+        let half = LABEL_GRAPHEMES / 2;
+        let wide = format!("https://e.org/{}", "\u{6F22}".repeat(half));
+        let narrow = format!("https://e.org/{}", "a".repeat(half));
+        assert!(link_label(&wide).chars().count() < LABEL_GRAPHEMES);
+        let got = body(&format!("[wide]({wide}) and [narrow]({narrow})"));
+        assert_eq!(got.links, [narrow], "weighed, the wide label is past");
     }
 
     #[test]

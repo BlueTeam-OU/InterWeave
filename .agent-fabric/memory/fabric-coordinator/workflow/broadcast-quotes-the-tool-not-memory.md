@@ -5,7 +5,7 @@ topic: "broadcast-quotes-the-tool-not-memory"
 description: "before a broadcast tells every agent what a tool keeps or deletes, read the tool's --help and quote it; a paraphrase from memory went to 30 sessions wrong"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

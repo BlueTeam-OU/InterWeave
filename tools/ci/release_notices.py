@@ -19,12 +19,30 @@
 # its files -- because its resolve unifies features across every
 # workspace member, the Android app's included, and so reaches crates
 # these programs do not contain (Skia's bindings among them). Normal
-# dependencies: a build-dependency runs at build time and is not in the
-# program, and a dev-dependency is not built at all; a proc macro is a
+# dependencies: a dev-dependency is not built at all; a proc macro is a
 # normal dependency and is listed, since its expansion is compiled in.
 # Workspace members are this repository's own and are covered by its
 # LICENSE; a vendored crate under third_party/ is NOT a member and is
 # listed like any other.
+#
+# A build-dependency runs at build time, but what it runs can put code
+# in the program: a -src crate carries C sources its dependent's build
+# script compiles in (sqlcipher-src's SQLCipher, openssl-src's OpenSSL).
+# So every build-dependency of a compiled crate, a member's included, is
+# classified in tools/ci/notice_sources.json (NOTICE_SOURCES_JSON names
+# another list), the reason beside each:
+#   tools    by name: it runs and nothing of it is compiled in;
+#   sources  by name and version, so a bump is read again: its sources
+#            are compiled in, and its entry names their licence and the
+#            files inside the crate that are their notices, shipped as
+#            the crate's texts with the crate's own declared expression
+#            beside (its own licence files cover its build code, which
+#            is not compiled in, and are not shipped for it).
+# A build-dependency that is also a normal one of the same crate is
+# listed as that and asks nothing. A sources crate that another crate
+# compiles is one line: its own texts as a compiled crate and its
+# entry's files, the line reading "<expression>; and <licence>, the
+# sources <crate>'s build compiles in".
 #
 # The texts are each crate's own files whose names begin LICENSE, LICENCE,
 # COPYING, NOTICE, COPYRIGHT or UNLICENSE (and the files of a directory so
@@ -75,7 +93,10 @@
 # header case whose header is missing, in another file or counted
 # otherwise, a licence a header names with no text for it, a standard case
 # whose crate has a copyright header after all, a licence file it now
-# publishes (remove the entry), or a standard text that is not its pin.
+# publishes (remove the entry), or a standard text that is not its pin;
+# or when a compiled crate's build-dependency is in neither half of
+# notice_sources.json, a sources entry names another version than the
+# build's, or a file it names is not a file in the crate.
 #
 # Exit codes:
 #   0  written; the counts are printed
@@ -104,6 +125,9 @@ CASES = ("header", "header+text", "standard")
 # with the crate's authors; a text without one gets a copyright line
 # above it.
 TEXTS = Path(__file__).with_name("licence_texts")
+
+# The reviewed classification of build-dependencies (help above).
+SOURCES = Path(__file__).with_name("notice_sources.json")
 STANDARD = {
     "Apache-2.0": ("074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff", None),
     "BSD-3-Clause": ("5a93d5831e1297ab10fe643e1a631e83be392896da14ee2951285a79012df69d", "<year> <owner>"),
@@ -132,8 +156,9 @@ def compiled_set(text: str) -> set:
     return pairs
 
 
-def shipped(metadata: dict, roots: list, compiled: set) -> list:
-    """The third-party packages the build compiles, sorted."""
+def shipped(metadata: dict, roots: list, compiled: set) -> tuple:
+    """The third-party packages the build compiles, sorted, and the ids of
+    every package it compiles, the members among them."""
     packages = {p["id"]: p for p in metadata["packages"]}
     members = set(metadata["workspace_members"])
     nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
@@ -167,7 +192,66 @@ def shipped(metadata: dict, roots: list, compiled: set) -> list:
             + ", ".join(f"{n} {v}" for n, v in stray)
         )
     third = [packages[walked[pair]] for pair in compiled if walked[pair] not in members]
-    return sorted(third, key=lambda p: (p["name"], p["version"]))
+    return sorted(third, key=lambda p: (p["name"], p["version"])), {walked[pair] for pair in compiled}
+
+
+def load_sources(path: Path) -> tuple:
+    """notice_sources.json as (tools by name, sources by name), each entry
+    checked for its shape."""
+    data = json.loads(path.read_text())
+    tools, sources = data["tools"], {}
+    if not isinstance(tools, dict) or not all(isinstance(r, str) and r.strip() for r in tools.values()):
+        raise ValueError(f"{path.name}: tools is not an object of names, each with its reason")
+    for e in data["sources"]:
+        name = e["name"]
+        if name in sources or name in tools:
+            raise ValueError(f"{path.name} classifies {name} twice")
+        files = e["files"]
+        if not (
+            isinstance(files, list)
+            and files
+            and all(isinstance(f, str) and f and not f.startswith("/") and ".." not in Path(f).parts for f in files)
+        ):
+            raise ValueError(f"{path.name}: {name}'s files is not a list of paths inside the crate")
+        if not (isinstance(e.get("licence"), str) and e["licence"].strip()):
+            raise ValueError(f"{path.name}: {name} names no licence for its compiled sources")
+        if not (isinstance(e.get("read"), str) and e["read"].strip()):
+            raise ValueError(f"{path.name}: {name} says nothing of what was read")
+        sources[name] = e
+    return set(tools), sources
+
+
+def built_in(metadata: dict, compiled_ids: set, tools: set, sources: dict) -> list:
+    """The sources entries whose crates a compiled crate's build compiles
+    in, as (package, entry, the compiled crates that build them), sorted;
+    refused when a build-dependency is unclassified or its entry is for
+    another version."""
+    packages = {p["id"]: p for p in metadata["packages"]}
+    nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
+    found = {}
+    for node in sorted(compiled_ids):
+        for dep in nodes[node]["deps"]:
+            kinds = [kind["kind"] for kind in dep["dep_kinds"]]
+            # Also a normal dependency: compiled, so listed as a crate.
+            if "build" not in kinds or None in kinds:
+                continue
+            package, user = packages[dep["pkg"]], packages[node]["name"]
+            name, version = package["name"], package["version"]
+            if name in tools:
+                continue
+            entry = sources.get(name)
+            if entry is None:
+                raise ValueError(
+                    f"{name} {version} is a build-dependency of {user}, which notice_sources.json classifies"
+                    " neither as a tool nor as sources compiled in: read what its build compiles and add it"
+                )
+            if entry["version"] != version:
+                raise ValueError(
+                    f"{name} {version} is a build-dependency of {user}; notice_sources.json's entry is for"
+                    f" {entry['version']}: read the new version's sources and renew the entry"
+                )
+            found.setdefault(dep["pkg"], (package, entry, set()))[2].add(user)
+    return sorted(found.values(), key=lambda f: (f[0]["name"], f[0]["version"]))
 
 
 def load_derived(path: Path) -> dict:
@@ -663,30 +747,65 @@ def licence_files(package: dict) -> list:
     return sorted(files)
 
 
-def render(third: list, derived: dict) -> tuple:
+def crate_notices(package: dict, derived: dict) -> tuple:
+    """A compiled crate's texts and how they were found."""
+    name, version = package["name"], package["version"]
+    expr = package.get("license") or ""
+    files = licence_files(package)
+    entry = derived.get((name, version))
+    if files and entry:
+        raise ValueError(
+            f"{name} {version} publishes a licence file now: remove its entry from notice_derived.json"
+        )
+    if not expr and not files:
+        raise ValueError(f"{name} {version} has no licence expression and no licence file")
+    if not files and not entry:
+        raise ValueError(
+            f"{name} {version} ({expr}) publishes no licence file and notice_derived.json does not"
+            " list it, so its notice cannot be shipped (ADR-0058 decision 3)"
+        )
+    if files:
+        notices = [(path.read_text(errors="replace").strip() + "\n", path.name) for path in files]
+        how = ""
+    else:
+        notices = derived_notices(package, entry)
+        how = f" (derived: {entry['case']})"
+    return notices, how
+
+
+def source_notices(package: dict, entry: dict) -> list:
+    root = Path(package["manifest_path"]).parent
+    notices = []
+    for name in entry["files"]:
+        path = root / name
+        if not path.is_file():
+            raise ValueError(
+                f"{package['name']} {package['version']} has no file {name}, which notice_sources.json names"
+            )
+        notices.append((path.read_text(errors="replace").strip() + "\n", name))
+    return notices
+
+
+def render(third: list, derived: dict, built: list) -> tuple:
     texts, order, lines = {}, [], []
-    for package in third:
+    # One row per crate: a sources crate that is also compiled as a crate
+    # ships its own texts and its entry's files, on one line.
+    rows = {p["id"]: [p, True, None] for p in third}
+    for package, entry, users in built:
+        rows.setdefault(package["id"], [package, False, None])[2] = (entry, users)
+    for package, compiled, source in sorted(rows.values(), key=lambda r: (r[0]["name"], r[0]["version"])):
         name, version = package["name"], package["version"]
         expr = package.get("license") or ""
-        files = licence_files(package)
-        entry = derived.get((name, version))
-        if files and entry:
-            raise ValueError(
-                f"{name} {version} publishes a licence file now: remove its entry from notice_derived.json"
-            )
-        if not expr and not files:
-            raise ValueError(f"{name} {version} has no licence expression and no licence file")
-        if not files and not entry:
-            raise ValueError(
-                f"{name} {version} ({expr}) publishes no licence file and notice_derived.json does not"
-                " list it, so its notice cannot be shipped (ADR-0058 decision 3)"
-            )
-        if files:
-            notices = [(path.read_text(errors="replace").strip() + "\n", path.name) for path in files]
-            how = ""
-        else:
-            notices = derived_notices(package, entry)
-            how = f" (derived: {entry['case']})"
+        notices, how = crate_notices(package, derived) if compiled else ([], "")
+        if source:
+            entry, users = source
+            notices = notices + source_notices(package, entry)
+            compiled_in = f"{entry['licence']}, the sources {', '.join(sorted(users))}'s build compiles in"
+            if compiled:
+                how = f"{how}; and {compiled_in}"
+            else:
+                how = f" (the crate declares {expr})" if expr else ""
+                expr = compiled_in
         refs = []
         for text, what in notices:
             digest = hashlib.sha256(text.encode()).hexdigest()
@@ -696,13 +815,16 @@ def render(third: list, derived: dict) -> tuple:
             texts[digest]["users"].append(f"{name} {version} ({what})")
             refs.append(texts[digest]["label"])
         lines.append(f"- `{name}` {version}: {expr or 'see its licence file'}{how} — text " + ", ".join(refs))
+
     out = [
         "# Third-party notices",
         "",
         "InterWeave's own code is under the Apache License 2.0 (the file",
         "`LICENSE` in its source code). The InterWeave software that comes",
         "with this file also contains the Rust libraries (called crates)",
-        "listed below, each under its own licence. Each line names a crate,",
+        "listed below, and the C libraries some of them compile in from",
+        "the sources a crate carries (each such line says which crate's",
+        "build compiles it), each under its own licence. Each line names a crate,",
         "its version and its licence, and gives the labels of its licence",
         "texts (T1, T2 and so on). The licence texts follow the list, under",
         "the heading \"Licence texts\". A text that several crates share is",
@@ -716,7 +838,7 @@ def render(third: list, derived: dict) -> tuple:
         entry = texts[digest]
         out += ["", f"### {entry['label']}", "", "Used by " + "; ".join(entry["users"]) + ".", "",
                 "```text", entry["text"].rstrip("\n"), "```"]
-    return "\n".join(out) + "\n", len(order)
+    return "\n".join(out) + "\n", len(order), len(rows)
 
 
 def run(argv: list) -> int:
@@ -729,14 +851,16 @@ def run(argv: list) -> int:
     try:
         metadata = json.loads(Path(argv[1]).read_text())
         compiled = compiled_set(Path(argv[2]).read_text())
-        third = shipped(metadata, argv[4:], compiled)
+        third, compiled_ids = shipped(metadata, argv[4:], compiled)
         derived = load_derived(Path(os.environ.get("NOTICE_DERIVED_JSON") or DERIVED))
-        page, distinct = render(third, derived)
+        tools, sources = load_sources(Path(os.environ.get("NOTICE_SOURCES_JSON") or SOURCES))
+        built = built_in(metadata, compiled_ids, tools, sources)
+        page, distinct, listed = render(third, derived, built)
     except (OSError, ValueError, KeyError) as err:
         sys.stderr.write(f"release_notices: {err}\n")
         return 1
     publish(Path(argv[3]), page)
-    print(f"{len(third)} crates, {distinct} distinct licence texts")
+    print(f"{listed} crates, {distinct} distinct licence texts")
     return 0
 
 def publish(path: Path, text: str) -> None:

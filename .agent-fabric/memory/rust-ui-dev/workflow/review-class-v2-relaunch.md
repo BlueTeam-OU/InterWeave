@@ -5,7 +5,7 @@ topic: "review-class-v2-relaunch"
 description: "ADR-065 (agent-fabric #358, 2026-10-24): the review class reads through fabric-review MCP tools; a session from before the upgrade must relaunch before dispatching a review"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

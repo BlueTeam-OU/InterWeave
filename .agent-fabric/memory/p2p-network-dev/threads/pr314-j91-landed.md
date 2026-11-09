@@ -5,7 +5,7 @@ topic: "pr314-j91-landed"
 description: "#314 merged 400011af 2026-10-20 (j91): deny.toml judges aarch64-linux-android; unused allows/exceptions deny; armed on architect-cto's below-minimum word"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

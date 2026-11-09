@@ -5,7 +5,7 @@ topic: "qualifier-is-a-claim"
 description: "adding a qualifier to a noun (\"the size\" -> \"the size in bytes\") picks one meaning; check it against the text's facts before adding it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -25,6 +25,6 @@ A qualifier added to remove an ambiguity chooses one of the readings. If it choo
 
 Applied the same day (j200): "before preparation" was added only after the text settled it (every prepared photo is 256 x 256), and "at 4:4:4" only after card_photo.rs said so (4df2fa26, line 13).
 
-*References: cold-read-without-meanings, keep-else-whole*
+*References: keep-else-whole, workflow-carried-2026-10-10*
 
 *Observed 2026-10-25 (language-culture)*

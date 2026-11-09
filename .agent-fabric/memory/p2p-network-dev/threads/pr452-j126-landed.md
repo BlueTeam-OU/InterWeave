@@ -5,7 +5,7 @@ topic: "pr452-j126-landed"
 description: "#452 (Stage 18 S7/S8 misbehaving relay + AutoNAT server, relayed keepalive) merged e31760d0 2026-10-25; one comment P3 carried to the next relay_driver change"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "release-signing-is-the-owners-hand"
 description: "How an InterWeave release is cut (ADR-0066): the owner signs the tag and approves the release environment; the agent prepares, gives the owner a guarded script, and verifies with one traced script"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

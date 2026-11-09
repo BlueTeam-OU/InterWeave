@@ -57,7 +57,10 @@
 #   - No Gradle or Kotlin build cache is enabled, locally or in CI, so
 #     no cache entry produced elsewhere is read.
 #   - AGP is pinned at 9.4.1, and no 9.4.x stable release after it
-#     existed when checked (9.5.0 was at alpha09). kotlin-gradle-plugin
+#     existed when checked (9.5.0 was at alpha09 on 2026-10-11; on
+#     2026-11-07 9.5.1 was the newest stable, and its sdk-common 32.5.1
+#     pulls the same Guava and Bouncy Castle versions as 9.4.1's
+#     32.4.1). kotlin-gradle-plugin
 #     comes in through AGP and is not declared. rust-ui-dev's j63 bumps
 #     on the next stable release and removes what it clears.
 
@@ -115,28 +118,15 @@ reviewed: 2026-10-11
 
 [[IgnoredVulns]]
 id = "GHSA-9pwp-9qqc-pr26"
-ignoreUntil = 2026-11-10
+ignoreUntil = 2026-12-07
 reason = """
 artefact: org.bouncycastle:bcprov-jdk18on:1.80.2
 configuration: androidLintTool, classpath
 severity: CRITICAL
-why: a name-constraints bypass in certificate path validation; no build step this repository configures hands it a certificate chain an outside party presents. Whether AGP routes its repository TLS through this provider was not read
-changes: bcprov 1.85 on AGP's or lint's classpath, or a build step that validates an outside party's certificate chain with Bouncy Castle
-checked: AGP 9.4.1 2026-10-11
-reviewed: 2026-10-11
-"""
-
-[[IgnoredVulns]]
-id = "GHSA-c3fc-8qff-9hwx"
-ignoreUntil = 2027-01-09
-reason = """
-artefact: org.bouncycastle:bcprov-jdk18on:1.80.2
-configuration: androidLintTool, classpath
-severity: MODERATE
-why: an LDAP injection; the build makes no LDAP query
-changes: bcprov 1.84 or later on AGP's or lint's classpath, or a build step that queries LDAP
-checked: AGP 9.4.1 2026-10-11
-reviewed: 2026-10-11
+why: a name-constraints bypass in certificate path validation; no build step this repository configures hands it a certificate chain an outside party presents. Read in the bytecode of every jar the two lockfiles put on these configurations (2026-11-07): nothing installs Bouncy Castle as a JCA provider (jose4j's helper that would is referenced by no other class), and its one user, sdk-common's KeystoreHelper, builds the debug keystore's self-signed certificate and validates no chain, so repository TLS validates through the JDK's own provider. Gradle's own distribution is not on these lockfiles and was not read
+changes: bcprov 1.85 on AGP's or lint's classpath, a class on them installing Bouncy Castle as a provider, or a build step that validates an outside party's certificate chain with Bouncy Castle
+checked: AGP 9.4.1 2026-11-07
+reviewed: 2026-11-07
 """
 
 [[IgnoredVulns]]
@@ -150,6 +140,19 @@ why: excessive ASN.1 nesting on parsing; the build parses no ASN.1 an outside pa
 changes: bcprov 1.85 on AGP's or lint's classpath, or a build step that parses outside ASN.1
 checked: AGP 9.4.1 2026-10-11
 reviewed: 2026-10-11
+"""
+
+[[IgnoredVulns]]
+id = "GHSA-xxph-c9ww-hj94"
+ignoreUntil = 2027-02-05
+reason = """
+artefact: com.google.guava:guava:33.4.0-jre
+configuration: androidLintTool, classpath
+severity: HIGH
+why: unbounded allocation when Java serialization reads a crafted CompactHashMap, CompactHashSet or MapMakerInternalMap; no build step deserializes an object stream an outside party writes (no Gradle or Kotlin build cache is enabled), and an exhausted heap would fail a local or CI build, not a shipped app
+changes: guava 33.7.2 or later on AGP's or lint's classpath, any build cache being enabled, or a build step that deserializes Java objects from outside the repository
+checked: AGP 9.4.1 2026-11-07
+reviewed: 2026-11-07
 """
 
 [[IgnoredVulns]]

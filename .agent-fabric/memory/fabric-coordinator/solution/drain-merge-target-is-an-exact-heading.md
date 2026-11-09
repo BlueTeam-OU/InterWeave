@@ -5,7 +5,7 @@ topic: "drain-merge-target-is-an-exact-heading"
 description: "a merge_target that paraphrases or names a topic slug matches nothing and is filed as a new topic, silently except for merge_target_unresolved; counts.reflection needs origin exactly \"reflection\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

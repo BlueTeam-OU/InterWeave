@@ -5,7 +5,7 @@ topic: "split-commits-fail-fast"
 description: "When splitting a finished change into per-root-cause commits by script, save the final files, build every stage first, and run the commit chain under set -e"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

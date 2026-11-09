@@ -5,7 +5,7 @@ topic: "new-guard-needs-ci-and-xtask"
 description: wiring a new tools/checks guard? it needs a ci.yml step AND a Task in xtask tree_checks(), or the rust context goes red
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

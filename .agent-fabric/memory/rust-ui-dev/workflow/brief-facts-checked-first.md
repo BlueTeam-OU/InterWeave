@@ -5,7 +5,7 @@ topic: "brief-facts-checked-first"
 description: "A words brief to language-culture states only what the code was checked to do; describe the person's state from the tree, not from intent"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

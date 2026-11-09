@@ -17,7 +17,9 @@
 //! (`a_trace_carries_no_address_peer_or_name`). Compiled under the
 //! `ui-trace` feature alone, which only the debug APK turns on.
 
+use std::cell::Cell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use interweave_human_client_api::Connectivity;
 use interweave_human_ui_model::{
@@ -168,6 +170,9 @@ pub fn prompt_line(prompt: Prompt) -> String {
 /// Where the lines go, and what was last said shown.
 pub(crate) struct Tracer {
     sink: Rc<dyn Fn(&str)>,
+    /// Focus lines said so far, so a statement after a prompt's answer
+    /// is made only when no move said it ([`Self::focus_settled`]).
+    focus_said: Rc<Cell<u64>>,
     before: Shown,
     /// The identity screen last said shown.
     identity: Option<&'static str>,
@@ -180,10 +185,43 @@ impl Tracer {
     pub(crate) fn new(sink: Rc<dyn Fn(&str)>) -> Self {
         Self {
             sink,
+            focus_said: Rc::new(Cell::new(0)),
             before: Shown::default(),
             identity: None,
             warns: false,
         }
+    }
+
+    /// What says focus moved to the focus key it is handed.
+    pub(crate) fn focus_sayer(&self) -> impl Fn(&str) + 'static {
+        let (sink, said) = (Rc::clone(&self.sink), Rc::clone(&self.focus_said));
+        move |id| {
+            said.set(said.get() + 1);
+            sink(&focus_line(id));
+        }
+    }
+
+    /// Say where focus stands once `settle` has passed, read by `focus`,
+    /// unless a move was said meanwhile: a prompt answered with focus
+    /// left where it was -- R's Try again cancelled (A15) -- moves
+    /// nothing, and a driver waiting on a focus line after the answer
+    /// would otherwise read none. `settle` covers the focus requests the
+    /// answer makes, which land a turn or two later.
+    pub(crate) fn focus_settled(
+        &self,
+        settle: std::time::Duration,
+        focus: impl Fn() -> Option<String> + 'static,
+    ) {
+        let (sink, said) = (Rc::clone(&self.sink), Rc::clone(&self.focus_said));
+        let at = said.get();
+        slint::Timer::single_shot(settle, move || {
+            if said.get() == at
+                && let Some(id) = focus()
+            {
+                said.set(at + 1);
+                sink(&focus_line(&id));
+            }
+        });
     }
 
     /// Say the identity screen `screen` is over the window, or, `None`,
@@ -204,12 +242,21 @@ impl Tracer {
         self.warns = warns;
     }
 
-    /// Say how `now` differs from what was last said.
-    pub(crate) fn render(&mut self, now: Shown) {
+    /// Where the lines go, for one said from outside a render: the
+    /// reader's times, said once a frame is drawn.
+    pub(crate) fn sink(&self) -> Rc<dyn Fn(&str)> {
+        Rc::clone(&self.sink)
+    }
+
+    /// Say how `now` differs from what was last said: true when the
+    /// page changed, which owes a statement of focus.
+    pub(crate) fn render(&mut self, now: Shown) -> bool {
         for line in changes(&self.before, &now) {
             (self.sink)(&line);
         }
+        let paged = now.page != self.before.page;
         self.before = now;
+        paged
     }
 }
 
@@ -274,6 +321,26 @@ pub(crate) fn changes(before: &Shown, now: &Shown) -> Vec<String> {
     lines
 }
 
+/// The line for the reader's first frame drawn, `took` after the press
+/// that opened it reached the view (design/2026-11-04-long-message.md
+/// A5: within 0.5 s on the A40).
+pub(crate) fn reader_drawn_line(took: Duration) -> String {
+    format!("{PREFIX} reader=drawn ms={}", took.as_millis())
+}
+
+/// The line for End in the reader showing the source or the formatted
+/// form: `took` from the key to the frame that showed the list at its
+/// end, `frames` drawn in between counting that one, or, `at_end` false,
+/// the frame at which the wait gave up (A5: within 1 s).
+pub(crate) fn reader_end_line(took: Duration, frames: u32, at_end: bool, source: bool) -> String {
+    let at_end = if at_end { "yes" } else { "no" };
+    let form = if source { "source" } else { "formatted" };
+    format!(
+        "{PREFIX} reader=end ms={} frames={frames} at-end={at_end} form={form}",
+        took.as_millis()
+    )
+}
+
 /// The line for the identity screen moving from `before` to `now`.
 fn identity_change(before: Option<&'static str>, now: Option<&'static str>) -> Option<String> {
     (before != now).then(|| format!("{PREFIX} identity={}", now.unwrap_or("closed")))
@@ -310,6 +377,22 @@ fn is_key(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_readers_times_are_numbers_and_kinds() {
+        assert_eq!(
+            reader_drawn_line(Duration::from_micros(412_900)),
+            "ui-trace reader=drawn ms=412"
+        );
+        assert_eq!(
+            reader_end_line(Duration::from_millis(1_250), 4, true, false),
+            "ui-trace reader=end ms=1250 frames=4 at-end=yes form=formatted"
+        );
+        assert_eq!(
+            reader_end_line(Duration::from_secs(3), 180, false, true),
+            "ui-trace reader=end ms=3000 frames=180 at-end=no form=source"
+        );
+    }
 
     #[test]
     fn a_focus_key_is_written_and_anything_else_is_not() {

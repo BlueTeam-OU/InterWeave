@@ -5,7 +5,7 @@ topic: "android-targetsdk-37-hotspot-decision-2026-10-27"
 description: "open owner decision 2026-10-27 — raise the Android app's targetSdk from 36 to 37? The only way the hotspot host's own address reaches the bridge (ENABLE_MATCH_NON_THREAD_LOCAL_NETWORKS, since target 37); costs: compileSdk pin +…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

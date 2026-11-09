@@ -5,7 +5,7 @@ topic: "interweave-glossary-placement"
 description: "Where InterWeave's person-facing glossary lives, how it is shaped and committed, and the platform split for daemon texts"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -30,8 +30,8 @@ derived_from:
 - The store listing: my words, each claim tied to a fact [F#] that the owner
   verifies; architect-cto-01 carries it to the owner; the Play policy quote
   is plan §20 step 10's check, not mine.
-Related: [[interweave-copy-conventions]]
+Related: [[solution-carried-2026-10-10]]
 
-*References: interweave-copy-conventions*
+*References: solution-carried-2026-10-10*
 
 *Observed 2026-10-10 (language-culture)*

@@ -187,6 +187,10 @@ pub struct ServiceHost {
     /// one redelivered to a running client, whose reseal found the profile
     /// held and so says nothing of the record.
     unlock: Mutex<Option<UnlockStatus>>,
+    /// Armed by [`refuse_next_store_open`](Self::refuse_next_store_open):
+    /// the debug build's stand-in for a store that needs recovery.
+    #[cfg(feature = "dev-stand-ins")]
+    refuse_store: std::sync::atomic::AtomicBool,
 }
 
 impl Default for ServiceHost {
@@ -213,7 +217,44 @@ impl ServiceHost {
             network: Mutex::new(NetworkSlot::default()),
             key_refused: Arc::new(Mutex::new(None)),
             unlock: Mutex::new(None),
+            #[cfg(feature = "dev-stand-ins")]
+            refuse_store: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Refuse the next start's store open as one that needs recovery,
+    /// once, leaving the files as they are: the debug build's adb hook
+    /// (unlock note section 8, A16's discard), since a store the phone
+    /// damages on demand does not exist. The recovery screen then plans
+    /// and runs a real discard of the store the files hold, and the
+    /// restart after it opens.
+    #[cfg(feature = "dev-stand-ins")]
+    pub fn refuse_next_store_open(&self) {
+        self.refuse_store
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The profile's store for a start, or the refusal a start answers.
+    #[cfg_attr(
+        not(feature = "dev-stand-ins"),
+        expect(
+            clippy::unused_self,
+            reason = "the dev-stand-ins build reads the armed refusal"
+        )
+    )]
+    fn open_store(
+        &self,
+        paths: &ProfilePaths,
+        cipher: &dyn KeyCipher,
+    ) -> Result<HumanStore, StartRefused> {
+        #[cfg(feature = "dev-stand-ins")]
+        if self
+            .refuse_store
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(StartRefused::StoreNeedsRecovery);
+        }
+        HumanStore::open_profile(paths, cipher, StoreOptions::default()).map_err(|e| classify(&e))
     }
 
     /// The process's host: one per process, because the profile lock is
@@ -592,13 +633,9 @@ impl ServiceHost {
         let Some(endpoint) = human_endpoint(&config) else {
             return refuse(host, StartRefused::NoHumanEndpoint);
         };
-        let store = match HumanStore::open_profile(
-            host.paths(),
-            &*launch.store_cipher,
-            StoreOptions::default(),
-        ) {
+        let store = match self.open_store(host.paths(), &*launch.store_cipher) {
             Ok(store) => store,
-            Err(e) => return refuse(host, classify(&e)),
+            Err(why) => return refuse(host, why),
         };
         let source = KeySource::new(host.paths().clone(), endpoint.clone(), launch.store_cipher);
         let (data, admin) = (data(&host), host.binding());
@@ -673,8 +710,7 @@ impl ServiceHost {
             ProfilePaths::resolve_embedded(profile, boundary).map_err(|e| refused(e.into()))?;
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
-        let store = HumanStore::open_profile(&paths, &*store_cipher, StoreOptions::default())
-            .map_err(|e| classify(&e))?;
+        let store = self.open_store(&paths, &*store_cipher)?;
         let executor = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("interweave-offline")

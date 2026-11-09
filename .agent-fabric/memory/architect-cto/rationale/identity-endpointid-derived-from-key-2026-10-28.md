@@ -5,7 +5,7 @@ topic: "identity-endpointid-derived-from-key-2026-10-28"
 description: "the owner's direction of 2026-10-28: a user identity IS an EndpointId derived from the identity's own key pair as the PeerId is from the node's (same algorithm, same multihash); trust is per identity (EndpointId); no installed user base…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

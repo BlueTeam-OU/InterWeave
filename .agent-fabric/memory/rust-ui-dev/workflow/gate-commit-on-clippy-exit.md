@@ -5,7 +5,7 @@ topic: "gate-commit-on-clippy-exit"
 description: "never chain `cargo clippy ... | grep ...; git commit` -- the pipe hides clippy's exit and the commit lands red"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

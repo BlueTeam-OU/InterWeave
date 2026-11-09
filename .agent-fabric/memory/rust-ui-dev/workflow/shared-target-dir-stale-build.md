@@ -5,7 +5,7 @@ topic: "shared-target-dir-stale-build"
 description: one CARGO_TARGET_DIR shared by two InterWeave worktrees can link a stale workspace crate; a compile error naming a variant that exists in source is the sign
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

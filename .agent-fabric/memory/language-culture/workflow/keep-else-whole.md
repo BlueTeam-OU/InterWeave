@@ -5,7 +5,7 @@ topic: "keep-else-whole"
 description: "In a spec's English pass, never reword an \"else\" branch into a narrower named condition; that changes behaviour"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -30,7 +30,7 @@ whole complement of its "if"; naming it narrows it.
 **How to apply:** when splitting or rewording a conditional, keep "else"
 (or "otherwise") for the remainder; name a case only if the source named
 it. Check each if/else pair for coverage after the edit.
-Related: [[interweave-copy-conventions]]
+Related: [[solution-carried-2026-10-10]]
 
 A second instance, caught before commit, 2026-10-24 (#411, ea187bee): in acceptance 11, "every such identity does" stood for two verbs: it "starts in the missing state and makes no key by itself". My first expansion, "starts in it", dropped the second half. An elided verb ("does", "is", "so does") stands for the whole predicate before it. When you expand one, copy the whole predicate or write "does the same"; never only its first verb.
 
@@ -40,6 +40,6 @@ And a second the same day (#416, review round 4, d04c411d): I reworded "is not t
 
 2026-10-25 (#443, j193): the same holds for "whenever" — it states when something IS so, not that it is not so otherwise. A cold read proposed "only if"; that adds a rule, so it went to the author as a question.
 
-*References: interweave-copy-conventions*
+*References: solution-carried-2026-10-10*
 
 *Observed 2026-10-25 (language-culture)*

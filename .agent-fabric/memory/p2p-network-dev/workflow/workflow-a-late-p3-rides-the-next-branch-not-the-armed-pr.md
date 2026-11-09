@@ -5,7 +5,7 @@ topic: "workflow-a-late-p3-rides-the-next-branch-not-the-armed-pr"
 description: "A P3 doc-wording finding that arrives once a PR is armed (or holds only it back): arm or keep the arming, carry the wording on the next branch or the text owner's own PR, and say so on the thread; a push disarms and costs a re-review"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j134-camera-scan-pr418"
 description: "PR #418 (Android camera Scan) state on 2026-10-24 — reviewed clean at 0605ab68, waits on the owner's word and a real-scan device check"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

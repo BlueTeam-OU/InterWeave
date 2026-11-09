@@ -334,11 +334,7 @@ impl StoredRow {
         id: &str,
     ) -> rusqlite::Result<Vec<Self>> {
         let mut stmt = tx.prepare(&format!("SELECT * FROM {table} WHERE {key} = ?1"))?;
-        let columns: Vec<String> = stmt
-            .column_names()
-            .iter()
-            .map(|c| (*c).to_owned())
-            .collect();
+        let columns: Vec<String> = stmt.column_names().map(str::to_owned).collect();
         let rows = stmt.query_map(params![id], |row| {
             (0..columns.len())
                 .map(|i| row.get::<_, rusqlite::types::Value>(i))

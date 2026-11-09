@@ -5,7 +5,7 @@ topic: "j84-shared-address-space-state"
 description: "j84 — rule 10 for 100.64.0.0/10: a host listener in the shared address space is off-local with or without a view; merged #476 740ed001 (2026-10-27)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

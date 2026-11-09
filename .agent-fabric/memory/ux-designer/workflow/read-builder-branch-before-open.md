@@ -5,7 +5,7 @@ topic: "read-builder-branch-before-open"
 description: "Before a spec says a figure is unmeasured or a question open, read the builder's branch for a record of it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

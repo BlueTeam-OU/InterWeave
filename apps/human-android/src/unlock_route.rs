@@ -17,10 +17,19 @@ pub(crate) enum Route {
     /// Nothing is shown: no window shows, and the Service never prompts
     /// (L4, F13).
     Nothing,
+    /// An Unlock prompt asked before and not yet answered answers this one
+    /// too: its grant runs the start held for it, its cancel focuses the
+    /// notice. A second would be raised over the first's answer (#578
+    /// review 5, risk 1).
+    Asked,
 }
 
 /// The process's state the decision reads.
 #[derive(Debug, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four facts that change apart, every combination one the process can hold"
+)]
 pub(crate) struct UnlockRoute {
     /// An Activity's window shows: between its start and its stop.
     shown: bool,
@@ -32,6 +41,9 @@ pub(crate) struct UnlockRoute {
     /// now answering: R's Try again, a discard's restart, an identity
     /// screen's continue or S2's Done, a network grant (L1).
     person_asked: bool,
+    /// An Unlock prompt was asked of the Activity and is not answered yet:
+    /// raised, or waiting in the asks to be.
+    prompting: bool,
 }
 
 impl UnlockRoute {
@@ -40,6 +52,7 @@ impl UnlockRoute {
             shown: false,
             declined: false,
             person_asked: false,
+            prompting: false,
         }
     }
 
@@ -60,10 +73,23 @@ impl UnlockRoute {
         self.person_asked = true;
     }
 
+    /// An Unlock prompt was asked other than by this decision: the
+    /// person's Unlock, or the presence gate's before a key operation.
+    pub(crate) const fn asked(&mut self) {
+        self.prompting = true;
+    }
+
+    /// The Unlock prompt asked was dropped before the Activity raised it:
+    /// nothing will answer it.
+    pub(crate) const fn unasked(&mut self) {
+        self.prompting = false;
+    }
+
     /// An Unlock prompt was answered: a grant ends a decline, a cancel or
     /// a denial is one.
     pub(crate) const fn prompted(&mut self, granted: bool) {
         self.declined = !granted;
+        self.prompting = false;
     }
 
     /// A start answered anything but a refusal for the person: the
@@ -79,14 +105,17 @@ impl UnlockRoute {
 
     /// A start refused for the person: L1 prompts whatever came before, a
     /// window in front prompts unless a decline holds (L3, L2), and none
-    /// shown shows nothing (L4).
+    /// shown shows nothing (L4). A prompt already asked answers it, the
+    /// person's ask included.
     pub(crate) const fn refused(&mut self) -> Route {
         let asked = self.person_asked;
         self.person_asked = false;
         if !self.shown {
             Route::Nothing
+        } else if self.prompting {
+            Route::Asked
         } else if asked || !self.declined {
-            Route::Prompt
+            self.prompt()
         } else {
             Route::Notice
         }
@@ -94,13 +123,21 @@ impl UnlockRoute {
 
     /// The Activity's own check at its start found the key needs the
     /// person, before any start: a launch, or a return with no decline,
-    /// prompts (L3); a return after one shows the notice (L2).
-    pub(crate) const fn checked(&self) -> Route {
-        if self.declined {
+    /// prompts (L3); a return after one shows the notice (L2). A prompt
+    /// already asked -- a refused start's in this showing -- answers it.
+    pub(crate) const fn checked(&mut self) -> Route {
+        if self.prompting {
+            Route::Asked
+        } else if self.declined {
             Route::Notice
         } else {
-            Route::Prompt
+            self.prompt()
         }
+    }
+
+    const fn prompt(&mut self) -> Route {
+        self.prompting = true;
+        Route::Prompt
     }
 }
 
@@ -193,5 +230,59 @@ mod tests {
         route.person_asked();
         route.answered(false);
         assert_eq!(route.refused(), Route::Notice);
+    }
+
+    /// The Activity's check and a Service start find the lock in one
+    /// showing: one prompt, in either order, the person's ask included
+    /// (#578 review 5, risk 1).
+    #[test]
+    fn one_showing_raises_one_prompt() {
+        let mut route = front();
+        assert_eq!(route.checked(), Route::Prompt);
+        assert_eq!(route.refused(), Route::Asked, "a refusal after the check");
+        route.person_asked();
+        assert_eq!(route.refused(), Route::Asked, "the person's ask too");
+
+        let mut route = front();
+        assert_eq!(route.refused(), Route::Prompt);
+        assert_eq!(route.checked(), Route::Asked, "the check after a refusal");
+    }
+
+    /// The prompt asked other than by a refusal -- the person's Unlock, the
+    /// presence gate -- answers a refusal too.
+    #[test]
+    fn a_prompt_asked_elsewhere_answers_a_refusal() {
+        let mut route = front();
+        route.asked();
+        assert_eq!(route.refused(), Route::Asked);
+        assert_eq!(route.checked(), Route::Asked);
+    }
+
+    /// An answer ends the prompt outstanding, a grant or a cancel, and so
+    /// does an ask dropped unraised: the next refusal is routed by its
+    /// rule again.
+    #[test]
+    fn an_answer_or_a_dropped_ask_ends_the_outstanding_prompt() {
+        let mut route = front();
+        assert_eq!(route.checked(), Route::Prompt);
+        route.prompted(true);
+        assert_eq!(route.refused(), Route::Prompt, "after a grant");
+        route.prompted(false);
+        assert_eq!(route.refused(), Route::Notice, "after a cancel: L2");
+
+        route.person_asked();
+        assert_eq!(route.refused(), Route::Prompt);
+        route.unasked();
+        route.person_asked();
+        assert_eq!(route.refused(), Route::Prompt, "after the ask was dropped");
+    }
+
+    /// With no window, nothing, an outstanding prompt or not (L4).
+    #[test]
+    fn no_window_shows_nothing_with_a_prompt_outstanding() {
+        let mut route = front();
+        route.asked();
+        route.shown(false);
+        assert_eq!(route.refused(), Route::Nothing);
     }
 }

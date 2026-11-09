@@ -36,7 +36,7 @@ export enum Glyph {
     cloud, cloud-off,
     // The statuses (section 6's table).
     clock, check, check-outline, error, crossed, bookmark,
-    // A message's Read the whole message and Copy message source
+    // A message's Open the whole message and Copy message source
     // (design/2026-11-04-long-message.md sections 4.3 and 5.3).
     expand, copy,
 }
@@ -216,6 +216,8 @@ export struct ReaderRow {
     spoken: string,
     // A link's index into the reader's links.
     index: int,
+    // A link's label as drawn: all of it, in pieces by measure.
+    pieces: [string],
 }
 
 // One link of a body: a separate control, activated only by a person,
@@ -224,6 +226,10 @@ export struct ReaderRow {
 export struct LinkRow {
     index: int,
     label: string,
+    // The label as drawn: all of it, never cut, in pieces each the layout
+    // measures within the item extent (HUMAN-CHAT.md Bounds, A 2026-11-07
+    // (ii); `lib.rs` `label_pieces`).
+    pieces: [string],
 }
 
 // What the open conversation's window draws at an edge
@@ -526,6 +532,13 @@ export global FocusMode {
 // text through this as it changes; given by Rust (`cluster::drawable`).
 export global Drawn {
     pure callback drawable(string) -> string;
+    // What a screen reader is given for a text: each U+FFFD as
+    // ReplacedCharacter's words (design/2026-11-04-long-message.md
+    // section 6), so the mark a person sees is never silent. Every
+    // accessible label and description goes through it; a field's value,
+    // which a screen reader writes, does not. Given by Rust
+    // (`cluster::spoken`; tests/long_message.rs and tests/cards.rs).
+    pure callback spoken(string) -> string;
 }
 
 export global Touch {
@@ -538,8 +551,77 @@ export global Touch {
     in property <bool> reduced-motion;
 }
 
+// The most a drawn item spans, in logical px, either way (HUMAN-CHAT.md,
+// Bounds: architect-cto's DECISION 01a1ab12). The desktop's software
+// renderer keeps an item's geometry in 16 bits of physical px, so four
+// times this is under its ceiling and the bound holds to scale 4 by
+// construction; an item that may grow with a body is drawn in pieces.
+// Slint 1.18 scrolls a focused item into view only when the whole of it
+// fits: for one taller than its Flickable it asks the top and the bottom
+// in view at once, finds no such scroll and moves nothing
+// (`Flickable::choose_min_move`). An item that took focus out of view
+// so stays out of it, and the next key event, its own release included,
+// drops the focus of an item it finds not visible
+// (`WindowInner::process_key_input`): TAB from a message taller than the
+// list ended with no focus, and the next TAB began again at the top
+// (tests/long_message.rs, `tab_crosses_messages_taller_than_the_list`,
+// `tab_crosses_a_link_control_taller_than_the_list`).
+// So such an item in the conversation's list is shown from its top as it
+// gains focus, before the toolkit's own scroll, which then has nothing to
+// do. The reader's list lays out only the rows near its view, so a link
+// there wholly out of view is not in the focus chain at all.
+global Reveal {
+    // The scroll that shows an item from its top: the item's top `y`
+    // within the list's view, `h` its height, a view `view` tall over
+    // content `content` tall at scroll `at` (a negative y). Unchanged for
+    // an item that fits the view, which the toolkit reveals. Focus that
+    // came by TAB (`keyed`) is shown from the item's top even when part of
+    // the item is in view, since the person reads on from there; a press
+    // on the part in view leaves the list where it is, so the item does
+    // not move from under the finger
+    // (`tab_onto_a_tall_message_in_view_in_part_shows_its_top`).
+    public pure function tall(at: length, y: length, h: length, view: length, content: length, keyed: bool) -> length {
+        if (h <= view || (!keyed && y < view && y + h > 0px)) { return at; }
+        max(min(0px, view - content), min(0px, at - y))
+    }
+}
+
+export global Tile {
+    out property <length> extent: 8000px;
+    // The most a press's ripple grows from its point. The renderer draws a
+    // round shape by squaring its radius in 32 bits of 1/16 physical px,
+    // which overflows at 4,096 physical px (i-slint-renderer-software
+    // 1.18.1, draw_functions.rs `calculate_xxxx`): 1,000 holds to scale 4
+    // (`a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces`).
+    out property <length> ripple-reach: 1000px;
+}
+
+// A fill drawn as slices no taller than `Tile.extent`, stacked to cover
+// the element, its corners on the first and last slice
+// (`no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent`).
+component Tiled {
+    in property <brush> fill;
+    in property <length> top-left-radius;
+    in property <length> top-right-radius;
+    in property <length> bottom-left-radius;
+    in property <length> bottom-right-radius;
+    property <int> count: max(1, ceil(root.height / Tile.extent));
+    for i in root.count: Rectangle {
+        x: 0px;
+        y: i * Tile.extent;
+        width: root.width;
+        height: min(Tile.extent, root.height - i * Tile.extent);
+        background: root.fill;
+        border-top-left-radius: i == 0 ? root.top-left-radius : 0px;
+        border-top-right-radius: i == 0 ? root.top-right-radius : 0px;
+        border-bottom-left-radius: i == root.count - 1 ? root.bottom-left-radius : 0px;
+        border-bottom-right-radius: i == root.count - 1 ? root.bottom-right-radius : 0px;
+    }
+}
+
 // The pressed state layer, in the control's shape. A ripple grows to twice
-// the control's diagonal; the layer's clip cuts it at that shape.
+// the control's diagonal, or `Tile.ripple-reach`; the layer's clip cuts it
+// at that shape.
 component StateLayer inherits Rectangle {
     in property <length> radius;
     clip: true;
@@ -548,8 +630,9 @@ component StateLayer inherits Rectangle {
     accessible-role: none;
 }
 
-// A ripple: a circle growing from the press point until it covers the
-// control. Only drawn while animations are on.
+// A ripple: a circle growing from the press point to the control's
+// diagonal or `Tile.ripple-reach`, whichever is less, so past that reach
+// it covers the control only in part. Only drawn while animations are on.
 component Ripple inherits Rectangle {
     in property <length> cx;
     in property <length> cy;
@@ -604,16 +687,32 @@ component TapArea inherits TouchArea {
     // 10 %, while a tap is still possible, and over it the ripple from the
     // press point -- unless the system's animations are off, when the flat
     // layer alone shows it (tests/look.rs,
-    // `a_press_ripples_unless_animations_are_off`).
-    if root.pressed && !root.drifted: StateLayer {
+    // `a_press_ripples_unless_animations_are_off`). A control taller than
+    // `Tile.extent` (a link control drawing a long label whole) has the
+    // flat layer alone, in slices: one layer as tall would be a drawn item
+    // past the extent (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)), and the
+    // ripple's clip is that layer.
+    property <length> layer-height: root.height - 2 * root.inset-y;
+    if root.pressed && !root.drifted && root.layer-height <= Tile.extent: StateLayer {
         y: root.inset-y;
-        height: root.height - 2 * root.inset-y;
+        height: root.layer-height;
         radius: root.radius;
         if !Touch.reduced-motion: Ripple {
             cx: root.pressed-x;
             cy: root.pressed-y - root.inset-y;
-            reach: sqrt((root.width / 1px) * (root.width / 1px) + (root.height / 1px) * (root.height / 1px)) * 1px;
+            reach: min(Tile.ripple-reach, sqrt((root.width / 1px) * (root.width / 1px) + (root.height / 1px) * (root.height / 1px)) * 1px);
         }
+    }
+    if root.pressed && !root.drifted && root.layer-height > Tile.extent: Tiled {
+        x: 0px;
+        y: root.inset-y;
+        width: root.width;
+        height: root.layer-height;
+        fill: Palette.on-surface.with-alpha(0.1);
+        top-left-radius: root.radius;
+        top-right-radius: root.radius;
+        bottom-left-radius: root.radius;
+        bottom-right-radius: root.radius;
     }
 }
 
@@ -646,38 +745,6 @@ component FocusRing inherits Rectangle {
     border-radius: root.radius + 5px;
     // Opacity rather than `visible`, so a test reads it.
     opacity: root.shown && FocusMode.keyboard ? 1 : 0;
-}
-
-// The most a drawn item spans, in logical px, either way (HUMAN-CHAT.md,
-// Bounds: architect-cto's DECISION 01a1ab12). The desktop's software
-// renderer keeps an item's geometry in 16 bits of physical px, so four
-// times this is under its ceiling and the bound holds to scale 4 by
-// construction; an item that may grow with a body is drawn in pieces.
-export global Tile {
-    out property <length> extent: 8000px;
-}
-
-// A fill drawn as slices no taller than `Tile.extent`, stacked to cover
-// the element, its corners on the first and last slice
-// (`no_drawn_item_of_a_body_at_the_bound_passes_the_item_extent`).
-component Tiled {
-    in property <brush> fill;
-    in property <length> top-left-radius;
-    in property <length> top-right-radius;
-    in property <length> bottom-left-radius;
-    in property <length> bottom-right-radius;
-    property <int> count: max(1, ceil(root.height / Tile.extent));
-    for i in root.count: Rectangle {
-        x: 0px;
-        y: i * Tile.extent;
-        width: root.width;
-        height: min(Tile.extent, root.height - i * Tile.extent);
-        background: root.fill;
-        border-top-left-radius: i == 0 ? root.top-left-radius : 0px;
-        border-top-right-radius: i == 0 ? root.top-right-radius : 0px;
-        border-bottom-left-radius: i == root.count - 1 ? root.bottom-left-radius : 0px;
-        border-bottom-right-radius: i == root.count - 1 ? root.bottom-right-radius : 0px;
-    }
 }
 
 // A container that draws nothing itself: where a Rectangle would hold a
@@ -760,8 +827,8 @@ component ActionButton inherits FocusScope {
     callback pressed();
     callback focused(string);
     accessible-role: button;
-    accessible-label: text;
-    accessible-description: detail;
+    accessible-label: Drawn.spoken(text);
+    accessible-description: Drawn.spoken(detail);
     accessible-action-default => { root.pressed(); }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
@@ -876,8 +943,8 @@ component FocusHeading inherits FocusScope {
     }
     callback focused(string);
     accessible-role: AccessibleRole.text;
-    accessible-label: root.text;
-    accessible-description: root.description;
+    accessible-label: Drawn.spoken(root.text);
+    accessible-description: Drawn.spoken(root.description);
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
@@ -926,7 +993,7 @@ component MarkLine inherits FocusScope {
     }
     callback focused(string);
     accessible-role: AccessibleRole.text;
-    accessible-label: root.text;
+    accessible-label: Drawn.spoken(root.text);
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
@@ -989,7 +1056,7 @@ component WindowMarkEntry inherits VerticalLayout {
     if root.mark.kind == MarkKindRow.loading: Rectangle {
         height: 40px;
         accessible-role: progress-indicator;
-        accessible-label: root.mark.text;
+        accessible-label: Drawn.spoken(root.mark.text);
         WaitMark {
             width: 24px;
             height: 24px;
@@ -1015,7 +1082,7 @@ component WindowMarkEntry inherits VerticalLayout {
             wrap: word-wrap;
             min-height: self.preferred-height;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
         HorizontalLayout {
             alignment: center;
@@ -1113,7 +1180,7 @@ component FocusNote inherits FocusScope {
     // A note that says a change as it happens, read without focus.
     in property <bool> live;
     accessible-role: AccessibleRole.text;
-    accessible-label: root.text;
+    accessible-label: Drawn.spoken(root.text);
     accessible-live-region: root.live ? AccessibleLiveness.polite : AccessibleLiveness.off;
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
@@ -1158,8 +1225,19 @@ component LinkButton inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        root.gained(reason == FocusReason.tab-navigation);
     }
+    // Focus arrived, before the toolkit scrolls it into view: where the
+    // control's list reveals it if it is taller than the list; `keyed`
+    // when it came by TAB.
+    callback gained(keyed: bool);
+    // The label, whole: what it says and is named by.
     in property <string> text;
+    // The label as drawn: `text` in pieces, each within the item extent,
+    // so a label far taller than a screen is one control still -- one
+    // focus stop, one press, one name -- drawn in items the renderer can
+    // place (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)).
+    in property <[string]> pieces;
     in property <string> focus-key;
     // Its colour: `primary` in a received bubble, the bubble's own text
     // colour in a sent one (section 6).
@@ -1167,7 +1245,7 @@ component LinkButton inherits FocusScope {
     callback pressed();
     callback focused(string);
     accessible-role: button;
-    accessible-label: text;
+    accessible-label: Drawn.spoken(text);
     accessible-action-default => { root.pressed(); }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
@@ -1188,22 +1266,28 @@ component LinkButton inherits FocusScope {
         // A 48 px target, as the link buttons were (section 6).
         min-height: 48px;
         alignment: center;
-        Rectangle {
+        // Holds the label and its press, as tall as the label: drawing
+        // nothing itself, so its height is no drawn item's; the press's
+        // feedback is `TapArea`'s, in slices past the extent.
+        Plain {
             VerticalLayout {
                 padding-top: 4px;
                 padding-bottom: 4px;
                 spacing: 1px;
-                Text {
-                    text: root.text;
-                    color: root.ink;
-                    font-size: Type.body-medium;
-                    wrap: word-wrap;
-                    min-height: self.preferred-height;
-                    // A word longer than the line breaks inside itself
-                    // rather than widening the list (seen with a long URL).
-                    min-width: 0;
-                    horizontal-alignment: left;
-                    accessible-role: none;
+                // The pieces drawn against each other, as one text.
+                VerticalLayout {
+                    for piece in root.pieces: Text {
+                        text: piece;
+                        color: root.ink;
+                        font-size: Type.body-medium;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                        // A word longer than the line breaks inside itself
+                        // rather than widening the list (seen with a long URL).
+                        min-width: 0;
+                        horizontal-alignment: left;
+                        accessible-role: none;
+                    }
                 }
                 // Underlined: Slint's Text has no underline of its own.
                 Rectangle {
@@ -1214,12 +1298,20 @@ component LinkButton inherits FocusScope {
             TapArea { tapped => { root.pressed(); } }
         }
     }
-    FocusRing {
+    if root.height + 10px <= Tile.extent: FocusRing {
         x: -5px;
         y: -5px;
         width: root.width + 10px;
         height: root.height + 10px;
         radius: 0px;
+        shown: root.has-focus;
+    }
+    // A label taller than the extent: its ring in strips, as a tall row's.
+    if root.height + 10px > Tile.extent: TallRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
         shown: root.has-focus;
     }
 }
@@ -1316,6 +1408,25 @@ component ListView inherits Rectangle {
     out property <length> visible-width <=> flick.width;
     out property <length> visible-height <=> flick.height;
     in property <bool> interactive <=> flick.interactive;
+    // The person's own wheel, drag or fling.
+    callback flicked <=> flick.flicked;
+    // The item whose top is at `item-y` (window coordinates) shown from
+    // its top, as far as the content goes.
+    public function show-top(item-y: length) {
+        flick.content-y = max(min(0px, flick.height - flick.content-height),
+            min(0px, flick.content-y - (item-y - flick.absolute-position.y)));
+    }
+    // About row `row` of `count` in view, by the content's proportion:
+    // what can be said of a row not laid out.
+    public function near(row: int, count: int) {
+        flick.content-y = max(min(0px, flick.height - flick.content-height),
+            -(flick.content-height * row / max(1, count)));
+    }
+    // A screen down (`down`) or up.
+    public function page(down: bool) {
+        flick.content-y = max(min(0px, flick.height - flick.content-height),
+            min(0px, flick.content-y + (down ? -0.8 : 0.8) * flick.height));
+    }
     flick := Flickable {
         @children
     }
@@ -1411,7 +1522,7 @@ component IconButton inherits FocusScope {
     callback pressed();
     callback focused(string);
     accessible-role: button;
-    accessible-label: root.label;
+    accessible-label: Drawn.spoken(root.label);
     accessible-enabled: root.active;
     accessible-action-default => { root.press(); }
     function press() {
@@ -1595,7 +1706,7 @@ component Snackbar inherits Rectangle {
                 font-size: Type.body-medium;
                 color: Palette.inverse-on-surface;
                 accessible-role: AccessibleRole.text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
             if root.undo && !root.rtl: Rectangle {
                 width: root.undo-width;
@@ -1661,8 +1772,8 @@ component MenuItem inherits FocusScope {
     callback closed();
     callback focused(string);
     accessible-role: button;
-    accessible-label: root.text;
-    accessible-description: root.detail;
+    accessible-label: Drawn.spoken(root.text);
+    accessible-description: Drawn.spoken(root.detail);
     accessible-action-default => { root.pressed(); }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
@@ -1800,7 +1911,7 @@ component NoticeCard inherits Rectangle {
             min-height: self.preferred-height;
             vertical-alignment: center;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
             accessible-live-region: polite;
         }
         // Focus on the action reads why it is there: the notice's text,
@@ -1841,7 +1952,7 @@ component IdentityPrimary inherits FocusScope {
     callback focused(string);
     min-height: 48px;
     accessible-role: button;
-    accessible-label: root.text;
+    accessible-label: Drawn.spoken(root.text);
     accessible-enabled: root.enabled-action;
     accessible-action-default => { if (root.enabled-action) { root.pressed(); } }
     key-pressed(event) => {
@@ -1903,7 +2014,7 @@ component IdentityStop inherits FocusScope {
     callback pressed();
     callback focus-taken();
     accessible-role: button;
-    accessible-label: root.label;
+    accessible-label: Drawn.spoken(root.label);
     accessible-enabled: root.enabled-action;
     accessible-action-default => { if (root.enabled-action) { root.pressed(); } }
     key-pressed(event) => {
@@ -2432,7 +2543,7 @@ component IdentityScreen inherits FocusScope {
                 wrap: word-wrap;
                 min-height: self.preferred-height;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
             if root.page.back-arrow && root.rtl: VerticalLayout {
                 alignment: center;
@@ -2496,7 +2607,7 @@ component IdentityScreen inherits FocusScope {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 // The words, read down the first column then the second;
                 // one column when narrow (section 3.2, C2).
@@ -2520,7 +2631,7 @@ component IdentityScreen inherits FocusScope {
                             font-size: Type.body-large;
                             color: Palette.on-surface;
                             accessible-role: text;
-                            accessible-label: slot.number + " " + slot.word;
+                            accessible-label: Drawn.spoken(slot.number + " " + slot.word);
                         }
                     }
                 }
@@ -2542,7 +2653,7 @@ component IdentityScreen inherits FocusScope {
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                         accessible-role: text;
-                        accessible-label: root.page.peer-label + " " + root.page.peer-groups;
+                        accessible-label: Drawn.spoken(root.page.peer-label + " " + root.page.peer-groups);
                     }
                 }
                 if root.page.second-peer-groups != "": VerticalLayout {
@@ -2563,7 +2674,7 @@ component IdentityScreen inherits FocusScope {
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                         accessible-role: text;
-                        accessible-label: root.page.second-peer-label + " " + root.page.second-peer-groups;
+                        accessible-label: Drawn.spoken(root.page.second-peer-label + " " + root.page.second-peer-groups);
                     }
                 }
                 // Over 130 % the grid gives its place to a button that
@@ -2639,7 +2750,7 @@ component IdentityScreen inherits FocusScope {
                 font-size: Type.title-small;
                 color: Palette.on-surface;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
             // Looks like a field, is not one: no IME ever opens.
             Rectangle {
@@ -2696,7 +2807,7 @@ component IdentityScreen inherits FocusScope {
                     color: Palette.on-surface-variant;
                     vertical-alignment: center;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
             }
             // QWERTY rows of 10, 9 and 7, or alphabetical sevens when
@@ -2787,7 +2898,7 @@ component IdentityScreen inherits FocusScope {
             color: Palette.on-surface-variant;
             horizontal-alignment: center;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
         if root.page.waiting == "" && root.page.primary != "": IdentityPrimary {
             text: root.page.primary;
@@ -2853,7 +2964,7 @@ component IdentityScreen inherits FocusScope {
             wrap: word-wrap;
             min-height: self.preferred-height;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
     }
     // R2's full list (section 4.4): the grid in one column, a page over
@@ -2903,7 +3014,7 @@ component IdentityScreen inherits FocusScope {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 if root.rtl: VerticalLayout {
                     alignment: center;
@@ -3006,7 +3117,7 @@ component IdentityScreen inherits FocusScope {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 if root.page.dialog-lead != "": Text {
                     text: root.page.dialog-lead;
@@ -3015,12 +3126,12 @@ component IdentityScreen inherits FocusScope {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 for item in root.page.dialog-items: HorizontalLayout {
                     spacing: 8px;
                     accessible-role: list-item;
-                    accessible-label: item;
+                    accessible-label: Drawn.spoken(item);
                     Text {
                         text: "•";
                         font-size: Type.body-medium;
@@ -3044,7 +3155,7 @@ component IdentityScreen inherits FocusScope {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 if root.page.dialog-note-b != "": Text {
                     text: root.page.dialog-note-b;
@@ -3053,7 +3164,7 @@ component IdentityScreen inherits FocusScope {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 HorizontalLayout {
                     spacing: 8px;
@@ -3137,8 +3248,8 @@ component NameField inherits VerticalLayout {
             vertical-alignment: center;
             single-line: true;
             text <=> root.value;
-            accessible-label: root.label;
-            accessible-description: root.error;
+            accessible-label: Drawn.spoken(root.label);
+            accessible-description: Drawn.spoken(root.error);
             edited => {
                 if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
             }
@@ -3162,7 +3273,7 @@ component NameField inherits VerticalLayout {
         wrap: word-wrap;
         min-height: self.preferred-height;
         accessible-role: text;
-        accessible-label: self.text;
+        accessible-label: Drawn.spoken(self.text);
     }
 }
 
@@ -3309,7 +3420,7 @@ component PathField {
                 font-family: root.code-font;
                 font-size: Type.body-medium;
                 color: Palette.on-surface;
-                accessible-label: root.label;
+                accessible-label: Drawn.spoken(root.label);
                 accessible-value: self.text;
                 changed has-focus => {
                     if (self.has-focus) { root.focused(root.focus-key); }
@@ -3348,8 +3459,8 @@ component FocusLine inherits FocusScope {
     }
     callback focused(string);
     accessible-role: AccessibleRole.text;
-    accessible-label: root.text;
-    accessible-description: root.description;
+    accessible-label: Drawn.spoken(root.text);
+    accessible-description: Drawn.spoken(root.description);
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
@@ -3493,7 +3604,7 @@ component ProposalCard inherits Rectangle {
             min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
     }
     if !root.card.answered: VerticalLayout {
@@ -3514,7 +3625,7 @@ component ProposalCard inherits Rectangle {
                 color: Palette.on-surface;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
         }
         if root.card.photo-line != "": Text {
@@ -3524,7 +3635,7 @@ component ProposalCard inherits Rectangle {
             min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
         if root.card.key-change != "": Text {
             text: root.card.key-change;
@@ -3534,7 +3645,7 @@ component ProposalCard inherits Rectangle {
             min-height: self.preferred-height;
             color: Palette.error;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
         VerticalLayout {
             spacing: FocusMode.ring-reach;
@@ -3544,7 +3655,7 @@ component ProposalCard inherits Rectangle {
                 font-weight: 700;
                 color: Palette.on-surface-variant;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
             Text {
                 text: root.card.peer;
@@ -3554,7 +3665,7 @@ component ProposalCard inherits Rectangle {
                 min-height: self.preferred-height;
                 color: Palette.on-surface;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
             // Copy PeerId under the PeerId it copies (design section
             // 5.4), which leaves the action line Decline and Accept alone.
@@ -3580,7 +3691,7 @@ component ProposalCard inherits Rectangle {
                 font-weight: 700;
                 color: Palette.on-surface-variant;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
             // Wrapping as the PeerId does: unwrapped in the code font at
             // 200 % it set the card wider than a 320 px window (seen
@@ -3593,7 +3704,7 @@ component ProposalCard inherits Rectangle {
                 min-height: self.preferred-height;
                 color: Palette.on-surface;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
         }
         if root.card.context != "": Text {
@@ -3603,7 +3714,7 @@ component ProposalCard inherits Rectangle {
             min-height: self.preferred-height;
             color: Palette.on-surface;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
         for note[i] in root.card.notes: VerticalLayout {
             spacing: FocusMode.ring-reach;
@@ -3615,7 +3726,7 @@ component ProposalCard inherits Rectangle {
                 min-height: self.preferred-height;
                 color: note.warning ? Palette.error : Palette.on-surface;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
             }
             // The contact the warning names, a step away (design section
             // 5.4.1): after Copy PeerId and before Decline in focus order.
@@ -3641,7 +3752,7 @@ component ProposalCard inherits Rectangle {
             min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
         if root.card.goes != "": Text {
             text: root.card.goes;
@@ -3650,7 +3761,7 @@ component ProposalCard inherits Rectangle {
             min-height: self.preferred-height;
             color: Palette.on-surface-variant;
             accessible-role: text;
-            accessible-label: self.text;
+            accessible-label: Drawn.spoken(self.text);
         }
         // One per line at every width and text scale, Decline first and
         // Accept, filled, at the card's end; a label longer than the column
@@ -3715,7 +3826,7 @@ component OpenRow inherits FocusScope {
     callback pressed();
     callback focused(string);
     accessible-role: button;
-    accessible-label: root.text;
+    accessible-label: Drawn.spoken(root.text);
     accessible-action-default => { root.pressed(); }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
@@ -3809,7 +3920,7 @@ component ProposalEntry inherits Rectangle {
         color: Palette.on-surface-variant;
         horizontal-alignment: center;
         accessible-role: text;
-        accessible-label: self.text;
+        accessible-label: Drawn.spoken(self.text);
     }
                 VerticalLayout {
                 padding-top: 8px + root.day-space;
@@ -4012,6 +4123,10 @@ export component AppWindow inherits Window {
     in property <bool> composer-enabled;
     in property <string> composer-label;
     in-out property <string> draft;
+    // The view wrote `draft` itself: the caret goes to `draft-caret`, a
+    // UTF-8 offset, at its end.
+    in property <int> draft-caret;
+    in property <int> draft-written-seq;
     in property <string> refused;
     in property <string> send-label;
     in property <string> show-source-label;
@@ -4363,10 +4478,10 @@ export component AppWindow inherits Window {
         root.focus-seq += 1;
     }
     callback link(int, int);
-    // Read the whole message: the row's handle, and whether it shows its
+    // Open the whole message: the row's handle, and whether it shows its
     // source (section 4.3).
-    callback read-whole(int, bool);
-    in property <string> read-whole-label;
+    callback open-whole(int, bool);
+    in property <string> open-whole-label;
     // Copy message source (section 5.3): the message's source, byte for
     // byte, which the view copies; and that it did, for the feedback.
     callback message-source(int) -> string;
@@ -4387,11 +4502,22 @@ export component AppWindow inherits Window {
     in property <string> reader-title;
     // The message the reader shows, by its row's handle.
     in property <int> reader-handle: -1;
+    // The reader's link controls: each one's row in the formatted form,
+    // in body order (the source form has none), and the first one at or
+    // after a row, by its index or -1, for the keyboard's way through
+    // them (section 9).
+    in property <[int]> reader-link-rows;
+    pure callback reader-link-from(int) -> int;
     // Back or Escape: the reader closes (section 5.4).
     callback reader-close();
     // Show source / Show formatted in the reader: the view builds the
     // other form's rows.
     callback reader-switch();
+    // End pressed in the reader, and whether its list stands at its end:
+    // for the debug build's trace, which times End to the frame that
+    // shows the last line (A5).
+    callback reader-ended();
+    out property <bool> reader-at-end: true;
     callback reader-link(int);
     callback send();
     callback notice-pressed();
@@ -4466,6 +4592,38 @@ export component AppWindow inherits Window {
     property <length> message-width: max(0px,
         (root.narrow || root.list-aside ? root.width : root.width - 281px)
             - root.safe-area-insets.left - root.safe-area-insets.right - 34px);
+    // What `measure-text` measures (`lib.rs` `by_measure`): a body line,
+    // or a piece of a source when `measure-source` is set.
+    in-out property <BodyLine> measure-line;
+    in-out property <bool> measure-source;
+    // A link control's label instead, as `LinkButton` draws it.
+    in-out property <bool> measure-label;
+    // A message's room at its narrowest: `message-width` with the window
+    // at its 320 px minimum, or at 600 px with the list beside, whichever
+    // is less -- so a piece measured here keeps within the extent however
+    // the window is resized after. Then the bubble's 80 % and its padding.
+    property <length> measure-room: max(0px, min(320px, 600px - 281px)
+        - root.safe-area-insets.left - root.safe-area-insets.right - 34px) * 0.8 - 24px;
+    property <bool> measure-mono: !root.measure-label && (root.measure-source || root.measure-line.kind == LineKind.code);
+    // A line's indent, quote bar and marker beside its text, as a bubble's
+    // line lays them out, and a code line's padding round its text.
+    property <length> measure-indent: root.measure-source || root.measure-label ? 0px
+        : root.measure-line.depth * 16px
+            + (root.measure-line.quoted ? 3px + 6px : 0px)
+            + (root.measure-line.marker != "" ? measure-marker.preferred-width + 6px : 0px)
+            + (root.measure-line.kind == LineKind.code ? 12px : 0px);
+    // The line's tallest drawn item: its text, or a code line's fill.
+    out property <length> measured-height: measure-text.preferred-height
+        + (!root.measure-source && !root.measure-label && root.measure-line.kind == LineKind.code ? 12px : 0px);
+    // What a measure depends on beside the line: when either changes, what
+    // was measured is measured again, and the root is woken to do it --
+    // a text size changed in place (Android's fontScale) brings nothing
+    // else that would (review F1 of #583).
+    out property <length> measure-rem: 1rem;
+    out property <length> measure-width: root.measure-room;
+    callback measure-changed();
+    changed measure-rem => { root.measure-changed(); }
+    changed measure-width => { root.measure-changed(); }
     // In a narrow window: the conversation list is the pane shown.
     in-out property <bool> list-shown: true;
     // Whether the right-hand pane -- the conversation, or the trust
@@ -4958,13 +5116,13 @@ export component AppWindow inherits Window {
             announce-a := Text {
                 text: root.announcement-a;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
                 accessible-live-region: polite;
             }
             announce-b := Text {
                 text: root.announcement-b;
                 accessible-role: text;
-                accessible-label: self.text;
+                accessible-label: Drawn.spoken(self.text);
                 accessible-live-region: polite;
             }
         }
@@ -5048,8 +5206,8 @@ export component AppWindow inherits Window {
                                 color: Palette.on-surface-variant;
                                 vertical-alignment: center;
                                 accessible-role: text;
-                                accessible-label: self.text;
-                                accessible-description: root.connectivity;
+                                accessible-label: Drawn.spoken(self.text);
+                                accessible-description: Drawn.spoken(root.connectivity);
                                 accessible-live-region: polite;
                             }
                             if root.rtl && root.state-glyph != Glyph.none: VerticalLayout {
@@ -5095,15 +5253,20 @@ export component AppWindow inherits Window {
                 }
                 // A phone shows Chats or a conversation, never both, so the
                 // session notice is here too; the desktop shows it beside, in
-                // the conversation pane.
-                if root.narrow && root.list-shown && root.has-session-notice: NoticeCard {
-                    message: root.notice;
-                    has-action: root.has-notice-action;
-                    action: root.notice-action;
-                    focus-seq: root.focus-seq;
-                    focus-wanted: root.focus-target == "chats-notice";
-                    pressed => { root.notice-pressed(); }
-                    focused(k) => { root.focus-id = k; }
+                // the conversation pane. Set off the screen's sides as the
+                // no-reach notice above it is (j98: it ran edge to edge).
+                if root.narrow && root.list-shown && root.has-session-notice: HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    NoticeCard {
+                        message: root.notice;
+                        has-action: root.has-notice-action;
+                        action: root.notice-action;
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "chats-notice";
+                        pressed => { root.notice-pressed(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
                 // Any number of conversations: the list scrolls rather than
                 // raising the window's minimum height past the screen. A row
@@ -5138,10 +5301,10 @@ export component AppWindow inherits Window {
                     // kind, the unread count, the preview, the time (section 7).
                     // Never the avatar.
                     accessible-role: list-item;
-                    accessible-label: row.title;
+                    accessible-label: Drawn.spoken(row.title);
                     accessible-item-index: index;
                     accessible-item-count: root.conversations.length;
-                    accessible-description: row.description;
+                    accessible-description: Drawn.spoken(row.description);
                     accessible-item-selectable: true;
                     accessible-item-selected: self.shown-selected;
                     accessible-action-default => { root.choose(row.handle); }
@@ -5389,7 +5552,7 @@ export component AppWindow inherits Window {
                         vertical-alignment: center;
                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.rtl: VerticalLayout {
                         alignment: center;
@@ -5409,7 +5572,7 @@ export component AppWindow inherits Window {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 // A visible caption: without it this profile's own PeerId reads
                 // as one more trusted peer (seen in the rendered window). The
@@ -5440,7 +5603,7 @@ export component AppWindow inherits Window {
                         font-family: root.code-font;
                         font-size: Type.body-medium;
                         color: Palette.on-surface-variant;
-                        accessible-label: root.own-peer-id-label;
+                        accessible-label: Drawn.spoken(root.own-peer-id-label);
                         accessible-value: self.text;
                         changed has-focus => {
                             if (self.has-focus) { root.focus-id = "own-peer-id"; }
@@ -5503,7 +5666,7 @@ export component AppWindow inherits Window {
                             vertical-alignment: center;
                             single-line: true;
                             text <=> root.trust-entry;
-                            accessible-label: root.entry-label;
+                            accessible-label: Drawn.spoken(root.entry-label);
                             edited => {
                                 if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
                                 root.trust-entry-edited(self.text);
@@ -5542,7 +5705,7 @@ export component AppWindow inherits Window {
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if !entry-row.beside: HorizontalLayout {
                         alignment: start;
@@ -5574,7 +5737,7 @@ export component AppWindow inherits Window {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 Flickable {
                     vertical-stretch: 1;
@@ -5607,7 +5770,7 @@ export component AppWindow inherits Window {
                                 single-line: false;
                                 wrap: char-wrap;
                                 font-family: root.code-font;
-                                accessible-label: row.peer;
+                                accessible-label: Drawn.spoken(row.peer);
                                 accessible-value: self.text;
                                 changed has-focus => {
                                     if (self.has-focus) { root.focus-id = "peer:" + row.handle; }
@@ -5653,7 +5816,7 @@ export component AppWindow inherits Window {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     accessible-role: text;
-                    accessible-label: self.text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
             }
             // Escape on the add page is its Back (design section 5.3): it
@@ -5774,7 +5937,7 @@ export component AppWindow inherits Window {
                                 height: self.width;
                                 image-rendering: pixelated;
                                 accessible-role: image;
-                                accessible-label: root.show-code-label;
+                                accessible-label: Drawn.spoken(root.show-code-label);
                             }
                         }
                         // No code holds the lines: why, and what to do instead, in
@@ -5787,7 +5950,7 @@ export component AppWindow inherits Window {
                             min-height: self.preferred-height;
                             min-width: 0;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         // The same lines as text, selectable, in the code font,
                         // broken at any character, never cut.
@@ -5801,7 +5964,7 @@ export component AppWindow inherits Window {
                             color: Palette.on-surface;
                             min-width: 0;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         if root.peers-show-open && root.show-code-shown: HorizontalLayout {
                             alignment: start;
@@ -5828,7 +5991,7 @@ export component AppWindow inherits Window {
                             min-height: self.preferred-height;
                             min-width: 0;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         if root.peers-show-open && root.show-code-shown: HorizontalLayout {
                             alignment: start;
@@ -5858,7 +6021,7 @@ export component AppWindow inherits Window {
                                 min-width: 0;
                                 color: Palette.on-surface;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                         }
                         // The read failed: never "no address". Its line, focus
@@ -5951,7 +6114,7 @@ export component AppWindow inherits Window {
                             min-width: 0;
                             color: Palette.on-surface-variant;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         if root.peers-list-shown && root.peers-empty != "": Text {
                             text: root.peers-empty;
@@ -5959,7 +6122,7 @@ export component AppWindow inherits Window {
                             min-height: self.preferred-height;
                             min-width: 0;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         if root.peers-list-shown: VerticalLayout {
                             spacing: 12px;
@@ -5983,8 +6146,8 @@ export component AppWindow inherits Window {
                                         if (self.has-focus) { root.focus-id = "row:" + row.handle; }
                                     }
                                     accessible-role: text;
-                                    accessible-label: row.peer;
-                                    accessible-description: row.state == "" ? row.host + ". " + row.origin : row.host + ". " + row.state + ". " + row.origin;
+                                    accessible-label: Drawn.spoken(row.peer);
+                                    accessible-description: Drawn.spoken(row.state == "" ? row.host + ". " + row.origin : row.host + ". " + row.state + ". " + row.origin);
                                     VerticalLayout {
                                         spacing: 2px;
                                         // Each name its own plain-text line,
@@ -6000,7 +6163,7 @@ export component AppWindow inherits Window {
                                             min-height: self.preferred-height;
                                             min-width: 0;
                                             accessible-role: text;
-                                            accessible-label: name;
+                                            accessible-label: Drawn.spoken(name);
                                         }
                                         // The short PeerId wraps rather than set the
                                         // row's width, so Trust and the menu stay
@@ -6127,7 +6290,7 @@ export component AppWindow inherits Window {
                                     min-width: 0;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                             }
                         }
@@ -6163,7 +6326,7 @@ export component AppWindow inherits Window {
                                 // Held while its add is on its way (the model
                                 // takes no edit then either).
                                 read-only: root.peers-add-busy;
-                                accessible-label: root.address-field-label;
+                                accessible-label: Drawn.spoken(root.address-field-label);
                                 edited => {
                                     if (Drawn.drawable(self.text) != self.text) { self.text = Drawn.drawable(self.text); }
                                     root.address-edited(self.text);
@@ -6196,7 +6359,7 @@ export component AppWindow inherits Window {
                             min-width: 0;
                             color: Palette.on-surface-variant;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         // Under the helper, as the design places it (section 5.3).
                         if root.add-step-one && root.field-note != "" && root.refused-head == "": Text {
@@ -6207,7 +6370,7 @@ export component AppWindow inherits Window {
                             min-height: self.preferred-height;
                             min-width: 0;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         if root.add-step-one && root.field-note != "" && root.refused-head != "": RefusedLines {
                             head: root.refused-head;
@@ -6218,7 +6381,7 @@ export component AppWindow inherits Window {
                             font-size: Type.body-small;
                             rtl: root.rtl;
                             accessible-role: text;
-                            accessible-label: root.field-note;
+                            accessible-label: Drawn.spoken(root.field-note);
                         }
                         if root.add-step-one && (root.scan-camera || root.scan-images || root.scan-paste): HorizontalLayout {
                             alignment: start;
@@ -6314,7 +6477,7 @@ export component AppWindow inherits Window {
                             min-height: self.preferred-height;
                             min-width: 0;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         if root.peers-add-open: VerticalLayout {
                             spacing: 16px;
@@ -6339,7 +6502,7 @@ export component AppWindow inherits Window {
                                 wrap: char-wrap;
                                 min-height: self.preferred-height;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             HorizontalLayout {
                                 alignment: start;
@@ -6364,7 +6527,7 @@ export component AppWindow inherits Window {
                                 min-height: self.preferred-height;
                                 min-width: 0;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             Text {
                                 text: root.trust-step-both;
@@ -6372,7 +6535,7 @@ export component AppWindow inherits Window {
                                 min-height: self.preferred-height;
                                 min-width: 0;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             if block.buttons: HorizontalLayout {
                                 alignment: start;
@@ -6542,7 +6705,7 @@ export component AppWindow inherits Window {
                                 wrap: word-wrap;
                                 min-height: self.preferred-height;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             HorizontalLayout {
                                 alignment: center;
@@ -6561,7 +6724,7 @@ export component AppWindow inherits Window {
                         if root.cards-page == CardsPage.contacts && root.contacts-reading && root.contacts-loading-shown: Rectangle {
                             height: 40px;
                             accessible-role: progress-indicator;
-                            accessible-label: root.contacts-loading;
+                            accessible-label: Drawn.spoken(root.contacts-loading);
                             WaitMark {
                                 width: 24px;
                                 height: 24px;
@@ -6631,7 +6794,7 @@ export component AppWindow inherits Window {
                                         font-size: Type.body-medium;
                                         color: Palette.on-surface-variant;
                                         accessible-role: text;
-                                        accessible-label: self.text;
+                                        accessible-label: Drawn.spoken(self.text);
                                     }
                                     if root.contact-has-photo: HorizontalLayout {
                                         alignment: start;
@@ -6664,7 +6827,7 @@ export component AppWindow inherits Window {
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface-variant;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             HorizontalLayout {
                                 alignment: start;
@@ -6683,7 +6846,7 @@ export component AppWindow inherits Window {
                                 font-weight: 500;
                                 color: Palette.on-surface;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             for route in root.contact-routes: VerticalLayout {
                                 spacing: 4px;
@@ -6694,7 +6857,7 @@ export component AppWindow inherits Window {
                                     wrap: word-wrap;
                                     min-height: self.preferred-height;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 Text {
                                     text: root.peer-id-label;
@@ -6702,7 +6865,7 @@ export component AppWindow inherits Window {
                                     font-weight: 700;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 Text {
                                     text: route.peer;
@@ -6712,7 +6875,7 @@ export component AppWindow inherits Window {
                                     min-height: self.preferred-height;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 if route.fingerprint != "": Text {
                                     text: root.fingerprint-label;
@@ -6720,7 +6883,7 @@ export component AppWindow inherits Window {
                                     font-weight: 700;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 if route.fingerprint != "": Text {
                                     text: route.fingerprint;
@@ -6728,7 +6891,7 @@ export component AppWindow inherits Window {
                                     font-size: Type.body-medium;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 for line in route.sharing: Text {
                                     text: line;
@@ -6737,7 +6900,7 @@ export component AppWindow inherits Window {
                                     font-size: Type.body-medium;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                             }
                             if root.contact-shares-note != "": Text {
@@ -6747,7 +6910,7 @@ export component AppWindow inherits Window {
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface-variant;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             // Delete asks first, with its initial focus on
                             // Cancel: there is no undo of a delete yet.
@@ -6794,7 +6957,7 @@ export component AppWindow inherits Window {
                                     font-size: Type.body-medium;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 HorizontalLayout {
                                     alignment: start;
@@ -6838,7 +7001,7 @@ export component AppWindow inherits Window {
                                         width: 96px;
                                         height: 96px;
                                         accessible-role: image;
-                                        accessible-label: root.own-circle-label;
+                                        accessible-label: Drawn.spoken(root.own-circle-label);
                                         PhotoCircle {
                                             size: 96px;
                                             has-photo: root.own-edit-has-photo;
@@ -6873,7 +7036,7 @@ export component AppWindow inherits Window {
                                         font-size: Type.body-medium;
                                         color: Palette.on-surface-variant;
                                         accessible-role: text;
-                                        accessible-label: self.text;
+                                        accessible-label: Drawn.spoken(self.text);
                                     }
                                     if root.own-photo-choosable: HorizontalLayout {
                                         alignment: start;
@@ -6912,7 +7075,7 @@ export component AppWindow inherits Window {
                                         font-size: Type.body-medium;
                                         color: Palette.error;
                                         accessible-role: text;
-                                        accessible-label: self.text;
+                                        accessible-label: Drawn.spoken(self.text);
                                     }
                                 }
                             }
@@ -6943,7 +7106,7 @@ export component AppWindow inherits Window {
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface-variant;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             HorizontalLayout {
                                 alignment: start;
@@ -6969,7 +7132,7 @@ export component AppWindow inherits Window {
                                     font-weight: 700;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 FocusLine {
                                     text: root.own-fingerprint;
@@ -6988,7 +7151,7 @@ export component AppWindow inherits Window {
                                     min-height: self.preferred-height;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 if root.own-key-share-again.length > 0: VerticalLayout {
                                     spacing: FocusMode.ring-reach;
@@ -7001,7 +7164,7 @@ export component AppWindow inherits Window {
                                         min-height: self.preferred-height;
                                         color: Palette.on-surface;
                                         accessible-role: text;
-                                        accessible-label: self.text;
+                                        accessible-label: Drawn.spoken(self.text);
                                     }
                                     for row in root.own-key-share-again: OpenRow {
                                         text: row.title;
@@ -7039,7 +7202,7 @@ export component AppWindow inherits Window {
                                         min-height: self.preferred-height;
                                         color: Palette.error;
                                         accessible-role: text;
-                                        accessible-label: self.text;
+                                        accessible-label: Drawn.spoken(self.text);
                                     }
                                 }
                                 Text {
@@ -7049,7 +7212,7 @@ export component AppWindow inherits Window {
                                     min-height: self.preferred-height;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 if root.own-key-path != "": PathField {
                                     label: root.own-key-path-label;
@@ -7067,7 +7230,7 @@ export component AppWindow inherits Window {
                                     min-height: self.preferred-height;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 if root.own-key-making: HorizontalLayout {
                                     spacing: 8px;
@@ -7128,7 +7291,7 @@ export component AppWindow inherits Window {
                                     font-weight: 700;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 Text {
                                     text: root.own-peer;
@@ -7138,7 +7301,7 @@ export component AppWindow inherits Window {
                                     min-height: self.preferred-height;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                             }
                         }
@@ -7309,7 +7472,7 @@ export component AppWindow inherits Window {
                         Text {
                             text: root.messages-heading;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                     }
                 // A long conversation scrolls; the composer stays in view. The
@@ -7342,6 +7505,13 @@ export component AppWindow inherits Window {
                     // again, so the list settles at its newest message.
                     function to-newest() {
                         self.content-y = min(0px, self.height - self.content-height);
+                    }
+                    // `item`, as it gains focus, shown from its top if it
+                    // is taller than the list (`Reveal`): out of view, or
+                    // reached by TAB (`keyed`).
+                    public function reveal-tall(item-y: length, item-height: length, keyed: bool) {
+                        self.content-y = Reveal.tall(self.content-y, item-y - self.absolute-position.y,
+                            item-height, self.height, self.content-height, keyed);
                     }
                     // The direction of the person's own scroll, said as it
                     // happens: `flicked` comes of the person's wheel, drag or
@@ -7597,7 +7767,7 @@ export component AppWindow inherits Window {
                         color: Palette.on-surface-variant;
                         horizontal-alignment: center;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if row.day != "" && row.leaving && !row.hand-over: Text {
                         text: row.day;
@@ -7610,6 +7780,8 @@ export component AppWindow inherits Window {
                         focus-gained(reason) => {
                             if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
                             if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+                            messages-flick.reveal-tall(self.absolute-position.y, self.height,
+                                reason == FocusReason.tab-navigation);
                         }
                         // The person's choice for this message, kept with its row
                         // while the row exists: the drawn body, or the source.
@@ -7627,10 +7799,10 @@ export component AppWindow inherits Window {
                         property <TextHorizontalAlignment> text-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                         property <string> source-label: item.show-source ? root.show-formatted-label : root.show-source-label;
                         // The body is cut in the mode shown: its preview, this
-                        // line and Read the whole message (section 4).
+                        // line and Open the whole message (section 4).
                         property <string> cut-line: item.show-source ? row.source-cut-line : row.cut-line;
                         accessible-role: list-item;
-                        accessible-label: self.show-source ? row.source-label : row.label;
+                        accessible-label: Drawn.spoken(self.show-source ? row.source-label : row.label);
                         accessible-item-index: index;
                         accessible-item-count: root.messages.length;
                         changed has-focus => {
@@ -7826,8 +7998,8 @@ export component AppWindow inherits Window {
                                             color: Palette.primary;
                                             horizontal-alignment: item.text-alignment;
                                             accessible-role: text;
-                                            accessible-label: self.text;
-                                            accessible-description: row.author-id;
+                                            accessible-label: Drawn.spoken(self.text);
+                                            accessible-description: Drawn.spoken(row.author-id);
                                         }
                                         if row.reply != "": HorizontalLayout {
                                             spacing: 6px;
@@ -7847,7 +8019,7 @@ export component AppWindow inherits Window {
                                                 horizontal-stretch: 1;
                                                 horizontal-alignment: item.text-alignment;
                                                 accessible-role: text;
-                                                accessible-label: self.text;
+                                                accessible-label: Drawn.spoken(self.text);
                                             }
                                             if root.rtl: Rectangle {
                                                 width: 3px;
@@ -7955,7 +8127,7 @@ export component AppWindow inherits Window {
                                                         : Type.body-large;
                                                     horizontal-alignment: item.text-alignment;
                                                     accessible-role: text;
-                                                    accessible-label: line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text;
+                                                    accessible-label: Drawn.spoken(line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text);
                                                 }
                                                 if line.kind == LineKind.code: Rectangle {
                                                     // A block cut in pieces is one surface:
@@ -7981,7 +8153,7 @@ export component AppWindow inherits Window {
                                                         font-family: root.code-font;
                                                         font-size: Type.body-medium;
                                                         accessible-role: text;
-                                                        accessible-label: line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text;
+                                                        accessible-label: Drawn.spoken(line.marker != "" && !line.joined ? line.marker + " " + self.text : self.text);
                                                     }
                                                 }
                                                 if line.marker != "" && root.rtl: Text {
@@ -8009,7 +8181,7 @@ export component AppWindow inherits Window {
                                                 font-family: root.code-font;
                                                 font-size: Type.body-medium;
                                                 accessible-role: text;
-                                                accessible-label: self.text;
+                                                accessible-label: Drawn.spoken(self.text);
                                             }
                                         }
                                         // A cut body's line, then the way to the whole of it, at
@@ -8031,7 +8203,7 @@ export component AppWindow inherits Window {
                                         if item.cut-line != "": HorizontalLayout {
                                             alignment: start;
                                             ActionButton {
-                                                text: root.read-whole-label;
+                                                text: root.open-whole-label;
                                                 text-button: true;
                                                 target: 48px;
                                                 // `primary` on both bubbles (section 9's contrast).
@@ -8039,7 +8211,7 @@ export component AppWindow inherits Window {
                                                 focus-key: "read:" + row.handle;
                                                 focus-seq: root.focus-seq;
                                                 focus-wanted: root.focus-target == "read:" + row.handle;
-                                                pressed => { root.read-whole(row.handle, item.show-source); }
+                                                pressed => { root.open-whole(row.handle, item.show-source); }
                                                 focused(k) => { root.focus-id = k; }
                                             }
                                         }
@@ -8053,10 +8225,12 @@ export component AppWindow inherits Window {
                                             spacing: FocusMode.ring-reach;
                                             for link in row.links: LinkButton {
                                                 text: link.label;
+                                                pieces: link.pieces;
                                                 ink: row.outbound ? Palette.on-primary-container : Palette.primary;
                                                 focus-key: "link:" + row.handle + ":" + link.index;
                                                 pressed => { root.link(row.handle, link.index); }
                                                 focused(k) => { root.focus-id = k; }
+                                                gained(keyed) => { messages-flick.reveal-tall(self.absolute-position.y, self.height, keyed); }
                                             }
                                         }
                                         // The reason above the status, so the status
@@ -8072,7 +8246,7 @@ export component AppWindow inherits Window {
                                             min-width: 0px;
                                             horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
                                             accessible-role: text;
-                                            accessible-label: self.text;
+                                            accessible-label: Drawn.spoken(self.text);
                                         }
                                         // The status with its icon, then the time, at
                                         // the bubble's end (section 6). Not a live
@@ -8111,7 +8285,7 @@ export component AppWindow inherits Window {
                                                 min-width: 0px;
                                                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
                                                 accessible-role: text;
-                                                accessible-label: self.text;
+                                                accessible-label: Drawn.spoken(self.text);
                                             }
                                             Text {
                                                 text: "·";
@@ -8126,7 +8300,7 @@ export component AppWindow inherits Window {
                                                 color: Palette.on-surface-variant;
                                                 min-width: self.preferred-width;
                                                 accessible-role: text;
-                                                accessible-label: self.text;
+                                                accessible-label: Drawn.spoken(self.text);
                                             }
                                         }
                                     }
@@ -8244,7 +8418,7 @@ export component AppWindow inherits Window {
                         text: root.refused;
                         color: Palette.error;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                         accessible-live-region: polite;
                     }
                     // The composer (section 6): a filled, fully rounded field and a
@@ -8332,7 +8506,7 @@ export component AppWindow inherits Window {
                                     color: Palette.on-surface;
                                     text <=> root.draft;
                                     enabled: root.composer-enabled;
-                                    accessible-label: root.composer-label;
+                                    accessible-label: Drawn.spoken(root.composer-label);
                                     // Closing the keyboard keeps the field focused, as
                                     // a platform field does. Letting focus go there
                                     // (b010afb9) never removed the insertion handle it
@@ -8351,6 +8525,10 @@ export component AppWindow inherits Window {
                                     property <int> focus-seq: root.focus-seq;
                                     changed focus-seq => {
                                         if (root.focus-target == "composer") { self.focus(); }
+                                    }
+                                    property <int> written-seq: root.draft-written-seq;
+                                    changed written-seq => {
+                                        self.set-selection-offsets(root.draft-caret, root.draft-caret);
                                     }
                                     // The line being written stays in view.
                                     cursor-position-changed(at) => {
@@ -8395,6 +8573,13 @@ export component AppWindow inherits Window {
                             root.reader-close();
                             return accept;
                         }
+                        // Shift+TAB from Back: the body's last link control
+                        // (section 9), laid out or not.
+                        if (FocusMode.navigates(event) && (event.text == Key.Backtab || event.modifiers.shift)
+                            && root.focus-id == "reader-back" && reader-scroll.links > 0) {
+                            reader-scroll.go(root.reader-link-rows[reader-scroll.links - 1]);
+                            return accept;
+                        }
                         reject
                     }
                     Rectangle {
@@ -8417,6 +8602,8 @@ export component AppWindow inherits Window {
                                     ink: Palette.on-surface;
                                     label: root.back-label;
                                     focus-key: "reader-back";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "reader-back";
                                     pressed => { root.reader-close(); }
                                     focused(k) => { root.focus-id = k; }
                                 }
@@ -8452,7 +8639,7 @@ export component AppWindow inherits Window {
                                     overflow: elide;
                                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                             }
                             if !root.rtl: VerticalLayout {
@@ -8483,6 +8670,8 @@ export component AppWindow inherits Window {
                                     ink: Palette.on-surface;
                                     label: root.back-label;
                                     focus-key: "reader-back";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "reader-back";
                                     pressed => { root.reader-close(); }
                                     focused(k) => { root.focus-id = k; }
                                 }
@@ -8505,10 +8694,23 @@ export component AppWindow inherits Window {
                             init => {
                                 self.focus();
                                 root.focus-id = "reader-scroll";
+                                root.reader-at-end = self.at-end;
                             }
                             // How far the content may scroll, as a negative y.
                             property <length> bottom: min(0px, reader-list.visible-height - reader-list.content-height);
+                            property <bool> at-end: reader-list.content-y <= self.bottom + 1px;
+                            changed at-end => { root.reader-at-end = self.at-end; }
+                            // End holds the list at its end until the next
+                            // scroll: rows laid out as they come near make
+                            // the content taller than first measured, which
+                            // moves the end away from where End put the list
+                            // (tests/long_message.rs).
+                            property <bool> held-at-end;
+                            changed bottom => {
+                                if (self.held-at-end) { reader-list.content-y = self.bottom; }
+                            }
                             function scroll-to(y: length) {
+                                self.held-at-end = false;
                                 reader-list.content-y = max(self.bottom, min(0px, y));
                             }
                             // The other form, at about the same place: the share
@@ -8518,21 +8720,134 @@ export component AppWindow inherits Window {
                                 root.reader-switch();
                                 self.scroll-to(share * self.bottom);
                             }
+                            // TAB through the body's link controls, laid out or
+                            // not (section 9): from the scroll area to the first
+                            // one starting at or below the top of the screen,
+                            // else the first; from one to the next, then Back;
+                            // Shift+TAB the reverse, to the scroll area. The
+                            // toolkit's own order goes through the rows laid
+                            // out near the view; a link far from it is reached
+                            // by this one (`tab_in_the_reader_reaches_every_
+                            // link_laid_out_or_not`).
+                            property <int> links: root.reader-as-source ? 0 : root.reader-link-rows.length;
+                            // The link row TAB goes to, until it is laid out and
+                            // focused; -1 for none.
+                            property <int> want: -1;
+                            property <int> tries;
+                            // The row covering the top of the view, and whether it
+                            // starts there, as the rows said when last asked.
+                            property <int> top-row;
+                            property <bool> top-starts: true;
+                            property <int> ask-seq;
+                            property <bool> asking;
+                            // The link control focused, by its index.
+                            property <int> focused-link: -1;
+                            // The row a link TAB reached sits in, shown from its
+                            // top once the list has placed it.
+                            property <int> reveal-row: -1;
+                            public function go(row: int) {
+                                self.held-at-end = false;
+                                self.tries = 0;
+                                self.want = row;
+                            }
+                            function back-control() {
+                                root.focus-target = "reader-back";
+                                root.focus-seq += 1;
+                            }
+                            function from-top() {
+                                if (self.links == 0) { self.back-control(); return; }
+                                let from = root.reader-link-from(self.top-starts ? self.top-row : self.top-row + 1);
+                                self.go(root.reader-link-rows[from >= 0 ? from : 0]);
+                            }
+                            // Once a turn: the rows answer an ask before this runs.
+                            Timer {
+                                interval: 16ms;
+                                running: reader-scroll.asking || reader-scroll.want >= 0;
+                                triggered => {
+                                    if (reader-scroll.asking) {
+                                        reader-scroll.asking = false;
+                                        reader-scroll.from-top();
+                                        return;
+                                    }
+                                    reader-scroll.tries += 1;
+                                    // Not laid out yet: toward it, by the content's
+                                    // proportion, then a screen at a time.
+                                    if (reader-scroll.tries > 64) {
+                                        reader-scroll.want = -1;
+                                    } else if (reader-scroll.tries == 1) {
+                                        reader-list.near(reader-scroll.want, root.reader-rows.length);
+                                    } else {
+                                        reader-list.page(reader-scroll.want > reader-scroll.top-row);
+                                    }
+                                    reader-scroll.ask-seq += 1;
+                                }
+                            }
                             key-pressed(event) => {
+                                if (FocusMode.navigates(event)) {
+                                    let back = event.text == Key.Backtab || event.modifiers.shift;
+                                    if (self.has-focus) {
+                                        if (back) { return reject; }
+                                        self.asking = true;
+                                        self.ask-seq += 1;
+                                        return accept;
+                                    }
+                                    if (self.focused-link < 0) { return reject; }
+                                    let k = self.focused-link;
+                                    if (!back && k + 1 < self.links) {
+                                        self.go(root.reader-link-rows[k + 1]);
+                                    } else if (!back) {
+                                        self.back-control();
+                                    } else if (k > 0) {
+                                        self.go(root.reader-link-rows[k - 1]);
+                                    } else {
+                                        self.focus();
+                                    }
+                                    return accept;
+                                }
                                 if (event.text == Key.UpArrow) { self.scroll-to(reader-list.content-y + 40px); return accept; }
                                 if (event.text == Key.DownArrow) { self.scroll-to(reader-list.content-y - 40px); return accept; }
                                 if (event.text == Key.PageUp) { self.scroll-to(reader-list.content-y + reader-list.visible-height * 0.9); return accept; }
                                 if (event.text == Key.PageDown) { self.scroll-to(reader-list.content-y - reader-list.visible-height * 0.9); return accept; }
                                 if (event.text == Key.Home) { self.scroll-to(0px); return accept; }
-                                if (event.text == Key.End) { self.scroll-to(self.bottom); return accept; }
+                                if (event.text == Key.End) {
+                                    self.scroll-to(self.bottom);
+                                    self.held-at-end = true;
+                                    root.reader-ended();
+                                    return accept;
+                                }
                                 reject
                             }
                             accessible-role: list;
-                            accessible-label: root.reader-title;
+                            accessible-label: Drawn.spoken(root.reader-title);
                             reader-list := ListView {
                                 width: parent.width;
                                 height: parent.height;
-                                for r in root.reader-rows: VerticalLayout {
+                                flicked => { reader-scroll.held-at-end = false; }
+                                for r[i] in root.reader-rows: reader-row := VerticalLayout {
+                                    // A row is placed after it is made: its top is
+                                    // read on the next turn.
+                                    Timer {
+                                        interval: 1ms;
+                                        running: reader-scroll.reveal-row == i;
+                                        triggered => {
+                                            reader-scroll.reveal-row = -1;
+                                            reader-list.show-top(reader-row.absolute-position.y);
+                                        }
+                                    }
+                                    // Asked by a TAB: the row covering the view's top
+                                    // says so. Its geometry is read when asked, not
+                                    // as the row is made, which would lay the list
+                                    // out once per row.
+                                    property <int> ask: reader-scroll.ask-seq;
+                                    changed ask => {
+                                        if (reader-scroll.asking || reader-scroll.want >= 0) {
+                                            let top = self.y + reader-list.content-y;
+                                            if (top <= 0px && top + self.height > 0px) {
+                                                reader-scroll.top-row = i;
+                                                reader-scroll.top-starts = top >= -1px;
+                                            }
+                                        }
+                                    }
                                     padding-top: r.kind == ReaderRowKind.line && r.line.joined ? 0px : 4px;
                                     padding-right: 12px;
                                     if r.kind == ReaderRowKind.sent: Text {
@@ -8544,7 +8859,7 @@ export component AppWindow inherits Window {
                                         font-size: Type.body-medium;
                                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                         accessible-role: text;
-                                        accessible-label: r.spoken;
+                                        accessible-label: Drawn.spoken(r.spoken);
                                     }
                                     if r.kind == ReaderRowKind.source: Text {
                                         text: r.text;
@@ -8555,13 +8870,27 @@ export component AppWindow inherits Window {
                                         font-family: root.code-font;
                                         font-size: Type.body-medium;
                                         accessible-role: text;
-                                        accessible-label: self.text;
+                                        accessible-label: Drawn.spoken(self.text);
                                     }
                                     if r.kind == ReaderRowKind.link: LinkButton {
                                         text: r.text;
+                                        pieces: r.pieces;
                                         focus-key: "reader-link:" + r.index;
                                         pressed => { root.reader-link(r.index); }
-                                        focused(k) => { root.focus-id = k; }
+                                        focused(k) => {
+                                            root.focus-id = k;
+                                            reader-scroll.focused-link = r.index;
+                                        }
+                                        // TAB's way to it: shown from its top, then
+                                        // focused, as soon as it is laid out.
+                                        property <bool> wanted: reader-scroll.want == i;
+                                        function arrive() {
+                                            reader-scroll.want = -1;
+                                            reader-scroll.reveal-row = i;
+                                            self.focus();
+                                        }
+                                        changed wanted => { if (self.wanted) { self.arrive(); } }
+                                        init => { if (self.wanted) { self.arrive(); } }
                                     }
                                     // A line of the body, drawn as the bubble draws it,
                                     // on `surface` (section 5.1).
@@ -8598,7 +8927,7 @@ export component AppWindow inherits Window {
                                                 : Type.body-large;
                                             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                             accessible-role: text;
-                                            accessible-label: r.line.marker != "" && !r.line.joined ? r.line.marker + " " + self.text : self.text;
+                                            accessible-label: Drawn.spoken(r.line.marker != "" && !r.line.joined ? r.line.marker + " " + self.text : self.text);
                                         }
                                         if r.line.kind == LineKind.code: Rectangle {
                                             property <length> pad-top: r.line.joined ? 0px : 6px;
@@ -8622,7 +8951,7 @@ export component AppWindow inherits Window {
                                                 font-family: root.code-font;
                                                 font-size: Type.body-medium;
                                                 accessible-role: text;
-                                                accessible-label: self.text;
+                                                accessible-label: Drawn.spoken(self.text);
                                             }
                                         }
                                         if r.line.marker != "" && root.rtl: Text {
@@ -8747,7 +9076,7 @@ export component AppWindow inherits Window {
                             min-height: self.preferred-height;
                             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         // Focusable, as a step-two block's state line is: a
                         // late read that changes the words under focus is
@@ -8834,6 +9163,39 @@ export component AppWindow inherits Window {
             text: root.add-label;
             font-size: Type.label-large;
             font-weight: 500;
+            accessible-role: none;
+        }
+        // Never drawn: what one body line, one piece of a body's source, or
+        // a link control's label measures as the narrowest bubble draws it (HUMAN-CHAT.md Bounds,
+        // A 2026-11-07: a drawn line past the item extent is split by its
+        // measured extent in the layout, never by a count; `lib.rs`
+        // `by_measure`). Width, indent and fonts as the bubble's lines and
+        // source pieces take them below, and the reader's page draws them
+        // wider, so a piece within the extent here is within it there too.
+        measure-marker := Text {
+            x: 0;
+            y: 0;
+            visible: false;
+            text: root.measure-line.marker;
+            font-size: Type.body-large;
+            accessible-role: none;
+        }
+        measure-text := Text {
+            x: 0;
+            y: 0;
+            visible: false;
+            width: max(1px, root.measure-room - root.measure-indent);
+            text: root.measure-line.text;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+            font-family: root.measure-mono ? root.code-font : "";
+            font-weight: !root.measure-source && !root.measure-label
+                && (root.measure-line.kind == LineKind.heading || root.measure-line.kind == LineKind.table-header) ? 700 : 400;
+            font-size: root.measure-mono || root.measure-label ? Type.body-medium
+                : root.measure-line.kind != LineKind.heading ? Type.body-large
+                : root.measure-line.level == 1 ? 20rem / 14
+                : root.measure-line.level == 2 ? 18rem / 14
+                : Type.body-large;
             accessible-role: none;
         }
         // Over everything: a press outside the menu or Details closes it, as
@@ -9032,13 +9394,13 @@ export component AppWindow inherits Window {
                     closed => { root.close-row-menu(); }
                     focused(k) => { root.focus-id = k; }
                 }
-                // Then, on a cut row, Read the whole message; on every text
+                // Then, on a cut row, Open the whole message; on every text
                 // row Copy message source; Show source last
                 // (design/2026-11-04-long-message.md section 4.3). A card
                 // row has none of the three: it has no markdown source
                 // (contact-cards 5.5), so its menu passes none.
                 if root.row-menu-cut: MenuItem {
-                    text: root.read-whole-label;
+                    text: root.open-whole-label;
                     detail: root.row-menu-detail;
                     iconed: true;
                     glyph: Glyph.expand;
@@ -9048,7 +9410,7 @@ export component AppWindow inherits Window {
                     pressed => {
                         let handle = root.row-menu;
                         root.close-row-menu();
-                        root.read-whole(handle, root.row-menu-as-source);
+                        root.open-whole(handle, root.row-menu-as-source);
                     }
                     closed => { root.close-row-menu(); }
                     focused(k) => { root.focus-id = k; }
@@ -9226,7 +9588,7 @@ export component AppWindow inherits Window {
                         // window's edge. Without it the PeerId breaks whole.
                         min-width: 0px;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     // At the line's end, "Do not change" before the act; right
                     // to left both mirror, as a layout does not on its own.
@@ -9355,7 +9717,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     VerticalLayout {
                         spacing: 4px;
@@ -9365,7 +9727,7 @@ export component AppWindow inherits Window {
                             font-weight: 700;
                             color: Palette.on-surface-variant;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         Text {
                             text: root.header-id;
@@ -9375,7 +9737,7 @@ export component AppWindow inherits Window {
                             min-height: self.preferred-height;
                             color: Palette.on-surface;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                     }
                     if root.details-route != "": Text {
@@ -9385,7 +9747,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface-variant;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.details-card != "": Text {
                         text: root.details-card;
@@ -9394,7 +9756,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface-variant;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     HorizontalLayout {
                         alignment: end;
@@ -9488,7 +9850,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     // One action a line, the full width, as the proposal's
                     // (contact-cards 5.4): "Close without saving" does not fit
@@ -9585,7 +9947,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     Text {
                         text: root.new-key-body;
@@ -9594,7 +9956,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.new-key-old != "": Text {
                         text: root.new-key-old;
@@ -9603,7 +9965,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.new-key-pending != "": Text {
                         text: root.new-key-pending;
@@ -9612,7 +9974,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     HorizontalLayout {
                         alignment: end;
@@ -9689,7 +10051,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     // The key cannot be used (section 4.3): its reason, the
                     // folder for an unsafe one, and that the card cannot be
@@ -9701,7 +10063,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.share-key-path != "": PathField {
                         label: root.own-key-path-label;
@@ -9717,7 +10079,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.share-key-reason == "" && root.share-no-name != "": Text {
                         text: root.share-no-name;
@@ -9725,7 +10087,7 @@ export component AppWindow inherits Window {
                         min-height: self.preferred-height;
                         color: Palette.on-surface;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.share-key-reason == "" && root.share-no-name == "": VerticalLayout {
                         spacing: 4px;
@@ -9735,7 +10097,7 @@ export component AppWindow inherits Window {
                             font-weight: 700;
                             color: Palette.on-surface-variant;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                         }
                         HorizontalLayout {
                             spacing: 12px;
@@ -9755,14 +10117,14 @@ export component AppWindow inherits Window {
                                     min-height: self.preferred-height;
                                     color: Palette.on-surface;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                                 if root.share-preview-photo != "": Text {
                                     text: root.share-preview-photo;
                                     font-size: Type.body-medium;
                                     color: Palette.on-surface-variant;
                                     accessible-role: text;
-                                    accessible-label: self.text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
                             }
                         }
@@ -9774,7 +10136,7 @@ export component AppWindow inherits Window {
                         font-size: Type.body-medium;
                         color: Palette.on-surface-variant;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     HorizontalLayout {
                         alignment: end;
@@ -9902,7 +10264,7 @@ export component AppWindow inherits Window {
                     wrap: word-wrap;
                     horizontal-alignment: center;
                     accessible-role: text;
-                    accessible-label: line;
+                    accessible-label: Drawn.spoken(line);
                     accessible-live-region: AccessibleLiveness.polite;
                 }
             }
@@ -10065,7 +10427,7 @@ export component RefusalWindow inherits Window {
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.progress != "": Text {
                         text: root.progress;
@@ -10074,7 +10436,7 @@ export component RefusalWindow inherits Window {
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                         accessible-live-region: polite;
                     }
                     Text {
@@ -10084,7 +10446,7 @@ export component RefusalWindow inherits Window {
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     if root.path != "": VerticalLayout {
                         spacing: FocusMode.ring-reach;
@@ -10128,7 +10490,7 @@ export component RefusalWindow inherits Window {
                                 font-family: root.code-font;
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface;
-                                accessible-label: root.path-label;
+                                accessible-label: Drawn.spoken(root.path-label);
                                 accessible-value: self.text;
                                 changed has-focus => {
                                     if (self.has-focus) { root.focus-id = "path"; }
@@ -10151,7 +10513,7 @@ export component RefusalWindow inherits Window {
                             wrap: word-wrap;
                             min-height: self.preferred-height;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                             accessible-live-region: polite;
                         }
                         Text {
@@ -10161,7 +10523,7 @@ export component RefusalWindow inherits Window {
                             wrap: word-wrap;
                             min-height: self.preferred-height;
                             accessible-role: text;
-                            accessible-label: self.text;
+                            accessible-label: Drawn.spoken(self.text);
                             accessible-live-region: polite;
                         }
                     }
@@ -10258,7 +10620,7 @@ export component RefusalWindow inherits Window {
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                         accessible-role: text;
-                        accessible-label: self.text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     Flickable {
                         vertical-stretch: 1;
@@ -10274,12 +10636,12 @@ export component RefusalWindow inherits Window {
                                 wrap: word-wrap;
                                 min-height: self.preferred-height;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             for item in root.dialog-items: HorizontalLayout {
                                 spacing: 8px;
                                 accessible-role: list-item;
-                                accessible-label: item;
+                                accessible-label: Drawn.spoken(item);
                                 Text {
                                     text: "•";
                                     font-size: Type.body-medium;
@@ -10303,7 +10665,7 @@ export component RefusalWindow inherits Window {
                                 wrap: word-wrap;
                                 min-height: self.preferred-height;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                             if root.dialog-note-b != "": Text {
                                 text: root.dialog-note-b;
@@ -10312,7 +10674,7 @@ export component RefusalWindow inherits Window {
                                 wrap: word-wrap;
                                 min-height: self.preferred-height;
                                 accessible-role: text;
-                                accessible-label: self.text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                         }
                     }

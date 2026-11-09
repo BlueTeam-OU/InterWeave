@@ -5,7 +5,7 @@ topic: "tightening-a-peer-rule-sweep-every-test-peer"
 description: "When a rule starts refusing a peer shape (e.g. a relay that refuses ping), sweep every test peer of that shape, tests/support included; and xtask ci's cargo test stops at the first failing binary"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j69-reboot-and-cache-rows-2026-10-25"
 description: "p2p-network-dev-02's j69 device rows — reboot and cache-on landed (#421 f01fadd2), cache-on control re-run on branch -2 (f3663d9c, no PR yet), row 2 through Scan still needs the owner's wipe word"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

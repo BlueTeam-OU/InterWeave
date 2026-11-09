@@ -59,8 +59,8 @@ android {
         // Not a version (ADR-0065 decision 5): the counter Android orders
         // installs by, raised by one in a commit for every APK published,
         // pre-releases included, never reused and never derived from
-        // versionName. 1 was v0.1.0's APK; 2 is v0.2.0's.
-        versionCode = 2
+        // versionName. 1 was v0.1.0's APK, 2 v0.2.0's; 3 is v0.3.0's.
+        versionCode = 3
         versionName = workspaceVersion
         // The android-e2e cases' runner (src/androidTest/, tests/android-e2e's
         // src/adb.rs): one case per `am instrument`, in the app's process.
@@ -155,6 +155,7 @@ listOf("Debug", "Release").forEach { variant ->
 // for the APK; the Cargo graph's own check is devex-tooling's). Nor the
 // views' trace: every line it writes starts with "ui-trace", ui-slint's
 // trace::PREFIX, so a library that could write one carries the marker.
+// Nor the debug hooks' native entry (app/src/debug's DebugHooks).
 // And it does carry the first-run profile's writer, whose document opens
 // with the marker below (profile-config's EMBEDDED_DOCUMENT_MARKER, which
 // embedded_document starts with; the two are kept equal by hand): the release
@@ -162,13 +163,18 @@ listOf("Debug", "Release").forEach { variant ->
 // profile and its onboarding could seal no identity (j96).
 val verifyReleaseNative = tasks.register("verifyReleaseNative") {
     group = "verification"
-    description = "Fails if the release native library carries the android-e2e case entry or the views' trace, or lacks the first-run profile's writer."
+    description = "Fails if the release native library carries the android-e2e case entry, the views' trace or a debug hook, or lacks the first-run profile's writer."
     dependsOn("cargoNdkRelease")
     val library = rustJniLibs("Release").map { it.file("arm64-v8a/libinterweave_human_android.so") }
     inputs.file(library)
     doLast {
         val bytes = library.get().asFile.readBytes().toString(Charsets.ISO_8859_1)
-        for (name in listOf("Java_org_interweave_human_test_E2eCase_run", "interweave_android_e2e_cases", "ui-trace")) {
+        for (name in listOf(
+                "Java_org_interweave_human_test_E2eCase_run",
+                "interweave_android_e2e_cases",
+                "ui-trace",
+                "Java_org_interweave_human_DebugHooks",
+            )) {
             check(!bytes.contains(name)) { "the release native library carries $name" }
         }
         val firstRun = "# Written on first run by the Android client"

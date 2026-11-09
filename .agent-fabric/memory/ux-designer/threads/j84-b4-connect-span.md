@@ -5,7 +5,7 @@ topic: "j84-b4-connect-span"
 description: "j84 PR #513 — Connect closes the conversation (start-window s7.1), window marks inside Accept's span (contact-cards s5.4.2)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

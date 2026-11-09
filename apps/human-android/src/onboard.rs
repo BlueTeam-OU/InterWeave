@@ -138,22 +138,23 @@ impl Asks {
 
     /// Drop every waiting `ask`: an Unlock prompt asked while a window
     /// showed is not raised over the next one (unlock note §11: leaving
-    /// while the prompt shows counts as a cancel).
-    fn drop_all(&self, ask: jni::sys::jint) {
-        self.queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|&(waiting, _)| waiting != ask);
+    /// while the prompt shows counts as a cancel). Whether one waited.
+    fn drop_all(&self, ask: jni::sys::jint) -> bool {
+        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = queue.len();
+        queue.retain(|&(waiting, _)| waiting != ask);
+        queue.len() != before
     }
 
     /// Drop what waits: asks an earlier Activity instance left unread
     /// belong to its window, and a late `SECURE_OFF` would clear the new
-    /// window's flag while its flow runs (#309 review, risk).
-    fn clear(&self) {
-        self.queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
+    /// window's flag while its flow runs (#309 review, risk). Whether an
+    /// [`ask::UNLOCK`] was among them.
+    fn clear(&self) -> bool {
+        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        let unlock = queue.iter().any(|&(waiting, _)| waiting == ask::UNLOCK);
+        queue.clear();
+        unlock
     }
 
     /// The next ask within `timeout`, its argument above its
@@ -214,8 +215,12 @@ pub(crate) fn identity_state(
         return ready_state(&app_data_dir, &cipher);
     }
     // Called by onStart before its relay thread starts: whatever an
-    // earlier instance left in the queue is no longer anyone's.
-    ASKS.clear();
+    // earlier instance left in the queue is no longer anyone's. An Unlock
+    // a refused start asked since `window_shown` is dropped with it, so
+    // the check below asks its own.
+    if ASKS.clear() {
+        route_state().unasked();
+    }
     let found = interweave_human_android_platform::start_identity(
         &app_data_dir,
         PROFILE,
@@ -351,7 +356,7 @@ fn route(route: Route) {
     match route {
         Route::Prompt => ask_unlock(),
         Route::Notice => crate::activity::focus_locked_notice(),
-        Route::Nothing => {}
+        Route::Nothing | Route::Asked => {}
     }
 }
 
@@ -368,8 +373,8 @@ fn ask_unlock() {
 /// (false) showing. An Unlock prompt asked for an earlier showing is not
 /// raised over this one.
 pub(crate) fn window_shown(shown: bool) {
-    if shown {
-        ASKS.drop_all(ask::UNLOCK);
+    if shown && ASKS.drop_all(ask::UNLOCK) {
+        route_state().unasked();
     }
     route_state().shown(shown);
 }
@@ -634,13 +639,17 @@ pub(crate) fn clear_authentication() {
 }
 
 /// The notice's Unlock: the prompt again, while something waits on it.
-/// Raised by the person only, never on a retry of the app's own.
+/// Raised by the person only, never on a retry of the app's own. Raised
+/// whether or not a prompt is outstanding: one shown covers the notice, so
+/// the press means none shows, and a prompt that never answered must not
+/// leave the person without a way to unlock.
 pub(crate) fn authenticate() {
     if AFTER_PROMPT
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .is_some()
     {
+        route_state().asked();
         ask_unlock();
     }
 }
@@ -729,6 +738,9 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
         run(effects);
         render();
     });
+    // Queued after the answer's own work, so it is read after it.
+    #[cfg(feature = "ui-trace")]
+    crate::activity::trace_focus_settled();
 }
 
 /// `Native.offline`: whether the service stopped for Show my phrase. The
@@ -801,6 +813,7 @@ fn one(effect: Effect) -> Vec<Effect> {
         let effect = match o.gate.admit(effect, now_ms()) {
             Admit::Run(effect) => effect,
             Admit::Prompt => {
+                route_state().asked();
                 ask_unlock();
                 return Vec::new();
             }

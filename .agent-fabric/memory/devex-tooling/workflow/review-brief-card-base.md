@@ -5,7 +5,7 @@ topic: "review-brief-card-base"
 description: "fabric-review brief refuses a range whose base is not on origin/main (a second change on an open PR); add card_base"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

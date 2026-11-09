@@ -6,8 +6,10 @@
 //! rule; how near, and at what cost, is A5's measurement). Its rows are the body's lines
 //! and links, or its source's pieces, each within the figures a whole
 //! body may have (HUMAN-CHAT.md, Bounds: "in pieces each within the
-//! figures a whole body may have"), so no row is taller than a whole
-//! body at the bound.
+//! figures a whole body may have"), and any the layout measures past
+//! the item extent split again by that measure (`lib.rs` `by_measure`;
+//! A 2026-11-07), so no row draws an item past it, whatever its font
+//! draws (`a4_shapes` in `tests/long_message.rs`).
 
 use interweave_human_ui_model::{
     Day, ItemKey, MessageItem, UiText, body, cluster, fill, placeholder_en,
@@ -33,6 +35,9 @@ pub(crate) struct Forms {
     pub(crate) formatted: ModelRc<ReaderRow>,
     pub(crate) source: ModelRc<ReaderRow>,
     pub(crate) links: Vec<String>,
+    /// Each link's row in the formatted form: right after the line its
+    /// text is in (section 5.1), in the order the body gives them.
+    pub(crate) link_rows: Vec<usize>,
 }
 
 /// When `local_at` reached this app, as the reader's first line shows it
@@ -62,6 +67,8 @@ pub(crate) fn forms(
     sent: &(String, String),
     image: &dyn Fn(&str) -> String,
     lines: impl Fn(&[body::Line]) -> Vec<BodyLine>,
+    pieces: impl Fn(Vec<String>) -> Vec<String>,
+    label: impl Fn(&str) -> ModelRc<SharedString>,
 ) -> Forms {
     let first = ReaderRow {
         kind: ReaderRowKind::Sent,
@@ -69,42 +76,63 @@ pub(crate) fn forms(
         text: sent.0.as_str().into(),
         spoken: sent.1.as_str().into(),
         index: 0,
+        pieces: ModelRc::default(),
     };
-    let drawn = body::flatten(&item.body, image);
+    let (drawn, places) = body::flatten_placed(&item.body, image);
     let mut formatted = vec![first.clone()];
-    formatted.extend(lines(&drawn.lines).into_iter().map(|line| ReaderRow {
-        kind: ReaderRowKind::Line,
-        line,
-        text: SharedString::new(),
-        spoken: SharedString::new(),
-        index: 0,
-    }));
-    formatted.extend(
-        drawn
-            .links
-            .iter()
-            .enumerate()
-            .map(|(index, destination)| ReaderRow {
-                kind: ReaderRowKind::Link,
-                line: BodyLine::default(),
-                text: body::link_label(destination).into(),
-                spoken: SharedString::new(),
-                index: i32::try_from(index).unwrap_or(i32::MAX),
-            }),
-    );
+    let as_rows = |lines: Vec<BodyLine>| {
+        lines.into_iter().map(|line| ReaderRow {
+            kind: ReaderRowKind::Line,
+            line,
+            text: SharedString::new(),
+            spoken: SharedString::new(),
+            index: 0,
+            pieces: ModelRc::default(),
+        })
+    };
+    // Each link's control after the line that holds it: the lines are
+    // measured a run at a time, each run ending where a control comes,
+    // which breaks the run there as the control does on screen.
+    let mut next = 0;
+    let mut link_rows = Vec::with_capacity(drawn.links.len());
+    for (index, (destination, &place)) in drawn.links.iter().zip(&places).enumerate() {
+        if place >= next && place < drawn.lines.len() {
+            formatted.extend(as_rows(lines(&drawn.lines[next..=place])));
+            next = place + 1;
+        }
+        let text = body::link_label(destination);
+        link_rows.push(formatted.len());
+        formatted.push(ReaderRow {
+            kind: ReaderRowKind::Link,
+            line: BodyLine::default(),
+            pieces: label(&text),
+            text: text.into(),
+            spoken: SharedString::new(),
+            index: i32::try_from(index).unwrap_or(i32::MAX),
+        });
+    }
+    formatted.extend(as_rows(lines(&drawn.lines[next..])));
     let text = cluster::drawable(&item.source);
     let mut source = vec![first];
-    source.extend(body::pieces(&text).into_iter().map(|(piece, _)| ReaderRow {
+    let source_pieces = pieces(
+        body::pieces(&text)
+            .into_iter()
+            .map(|(piece, _)| piece.to_owned())
+            .collect(),
+    );
+    source.extend(source_pieces.into_iter().map(|piece| ReaderRow {
         kind: ReaderRowKind::Source,
         line: BodyLine::default(),
         text: piece.into(),
         spoken: SharedString::new(),
         index: 0,
+        pieces: ModelRc::default(),
     }));
     Forms {
         formatted: ModelRc::new(VecModel::from(formatted)),
         source: ModelRc::new(VecModel::from(source)),
         links: drawn.links,
+        link_rows,
     }
 }
 

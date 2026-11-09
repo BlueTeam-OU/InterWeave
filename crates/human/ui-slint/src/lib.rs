@@ -258,10 +258,10 @@ fn code_font() -> SharedString {
 /// refuses the NEWEST press and counts it: a refused press does nothing
 /// and can be pressed again, where dropping the oldest could drop an edit
 /// and keep the send after it (agreed, relay seq 10882). Edits, focus
-/// changes, a snackbar's closing and leaving for the list are state, not
-/// presses, and are never refused; with them, and a root that drains the
-/// queue whenever it takes, the queue holds at most six times this plus
-/// nine ([`View::queued_inputs`]). A root that stops between takes breaks
+/// changes, a snackbar's closing, leaving for the list and the root's
+/// Chats are state, not presses, and are never refused; with them, and a
+/// root that drains the queue whenever it takes, the queue holds at most
+/// six times this plus eleven ([`View::queued_inputs`]). A root that stops between takes breaks
 /// that number, not the bound: one more edit can wait per conversation
 /// selected meanwhile, so the queue stays finite.
 pub const INPUT_CAP: usize = 64;
@@ -310,9 +310,9 @@ enum Input {
     IdentifierCopied,
     /// Copy message source put a message's source on the clipboard.
     MessageCopied,
-    /// Read the whole message: the message, and whether its row showed
+    /// Open the whole message: the message, and whether its row showed
     /// its source.
-    ReadWhole(ItemKey, bool),
+    OpenWhole(ItemKey, bool),
     /// The reader's Back, or Escape.
     ReaderClosed,
     /// The notice's action, with the notice that was shown.
@@ -342,6 +342,8 @@ enum Input {
     Cards(cards::CardsInput),
     /// What the person did on onboarding's Connect.
     Connect(ConnectInput),
+    /// The root's: Chats, with nothing open over it ([`View::show_chats`]).
+    Chats,
 }
 
 /// An input the root applies before the next take, handed over as it
@@ -404,6 +406,10 @@ struct Shared {
     /// The open reader's two forms and its links, swapped and pressed
     /// from its callbacks.
     reader: Option<reader::Forms>,
+    /// When the press that opens the reader reached the view, for the
+    /// trace's time to its first frame.
+    #[cfg(feature = "ui-trace")]
+    open_asked: Option<Instant>,
     selected: Option<ConversationKey>,
     /// The conversation the open conversation's "Hide conversation" was
     /// last pressed for: focus moves after that hide wherever it was, as
@@ -530,6 +536,7 @@ impl SnackUp {
         match input {
             Input::SnackClosed(id) => *id == self.id,
             Input::Left
+            | Input::Chats
             | Input::TrustPage(true)
             | Input::PeersPage(true)
             | Input::Cards(cards::CardsInput::Open(_)) => self.conversation.is_some(),
@@ -630,6 +637,15 @@ impl Shared {
             }
             return self.wake.clone();
         }
+        // The root's Chats is not a press: a discard's restart that the
+        // cap refused would leave the person in a conversation whose data
+        // is gone. One waits at a time.
+        if let Input::Chats = input {
+            if !self.inputs.contains(&input) {
+                self.inputs.push_back(input);
+            }
+            return self.wake.clone();
+        }
         // Peers' snackbar closing is state, as the conversation's is.
         if let Input::PeersSnackClosed(_) = input {
             if !self.inputs.contains(&input) {
@@ -686,6 +702,7 @@ impl Shared {
                         | Input::PeersSnackClosed(_)
                         | Input::SnackClosed(_)
                         | Input::Left
+                        | Input::Chats
                 )
             })
             .count();
@@ -779,6 +796,14 @@ fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     });
     let s = Rc::clone(shared);
     window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
+}
+
+/// A change of what the drawn bodies are measured against (app.slint
+/// `measure-changed`): no input, only a wake -- the render it brings
+/// measures them again (`View::measure_again_if_changed`).
+fn wire_measure(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let s = Rc::clone(shared);
+    window.on_measure_changed(move || flag(&s, |_| {}));
 }
 
 /// Queue `input` from a window callback, and wake the root after the
@@ -882,6 +907,11 @@ pub struct View {
     /// as a fresh actions model would (review F1). Keyed by the item, not
     /// its handle, which a later item may reuse.
     bodies: HashMap<ItemKey, DrawnBody>,
+    /// What `bodies` were measured against beside their lines
+    /// (app.slint `measure-rem`, `measure-width`): when either changes, a
+    /// piece within the item extent before may not be, so each body is
+    /// drawn, and measured, again.
+    measured_for: (f32, f32),
     /// What the last render showed, to announce what changed since.
     seen: Seen,
     /// Which of the two announcement slots the next announcement goes in.
@@ -1018,6 +1048,55 @@ pub enum CopyFeedback {
 /// rendering notifier runs.
 type FrameTasks = Rc<RefCell<Vec<Box<dyn FnOnce()>>>>;
 
+/// Run `task` once a frame rendered after this call is drawn, a redraw
+/// asked for ([`View::after_next_frame`]).
+fn after_frame(tasks: &FrameTasks, window: &AppWindow, task: impl FnOnce() + 'static) {
+    tasks.borrow_mut().push(Box::new(task));
+    slint::ComponentHandle::window(window).request_redraw();
+}
+
+/// How long the trace waits after End for a frame that shows the
+/// reader's list at its end. Far past A5's 1 s, so a slow End is said
+/// with its time and a driver reports it beside the figure, and `at-end=no`
+/// means the end did not come at all; under the 30 s a device case waits
+/// for the line (`tests/android-e2e/tests/long_message.rs`).
+#[cfg(feature = "ui-trace")]
+const END_PATIENCE: Duration = Duration::from_secs(20);
+
+/// After each frame from End on, say the time once the reader's list
+/// stands at its end, or, past [`END_PATIENCE`], that it did not; one
+/// redraw asked per frame meanwhile. `frames` drawn so far.
+#[cfg(feature = "ui-trace")]
+fn trace_reader_end(
+    tasks: &FrameTasks,
+    weak: slint::Weak<AppWindow>,
+    to: Rc<dyn Fn(&str)>,
+    pressed: Instant,
+    frames: u32,
+) {
+    let Some(window) = weak.upgrade() else {
+        return;
+    };
+    let again = Rc::clone(tasks);
+    after_frame(tasks, &window, move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let (frames, took) = (frames + 1, pressed.elapsed());
+        let at_end = window.get_reader_at_end();
+        if at_end || took >= END_PATIENCE || !window.get_reader_open() {
+            to(&trace::reader_end_line(
+                took,
+                frames,
+                at_end,
+                window.get_reader_as_source(),
+            ));
+        } else {
+            trace_reader_end(&again, weak, to, pressed, frames);
+        }
+    });
+}
+
 impl View {
     /// A view over a new window, for a client whose runtime runs on
     /// `host`: the texts that name the runtime follow it (a phone never
@@ -1045,7 +1124,7 @@ impl View {
         window.set_show_source_label(text(UiText::ShowSource));
         window.set_card_sent_label(text(UiText::CardSentLabel));
         window.set_show_formatted_label(text(UiText::ShowFormatted));
-        window.set_read_whole_label(text(UiText::ReadWholeMessage));
+        window.set_open_whole_label(text(UiText::OpenWholeMessage));
         window.set_copy_message_label(text(UiText::CopyMessage));
         window.set_code_font(code_font());
         window.set_app_options_label(text(UiText::AppOptions));
@@ -1066,8 +1145,9 @@ impl View {
         window.set_details_label(text(UiText::Details));
         slint::ComponentHandle::global::<generated::Touch<'_>>(&window)
             .set_slop(TouchSettings::default().slop);
-        slint::ComponentHandle::global::<generated::Drawn<'_>>(&window)
-            .on_drawable(|text| cluster::drawable(&text).as_ref().into());
+        wire_drawn(&slint::ComponentHandle::global::<generated::Drawn<'_>>(
+            &window,
+        ));
         let shared = Rc::new(RefCell::new(Shared {
             window: slint::ComponentHandle::as_weak(&window),
             ..Shared::default()
@@ -1138,6 +1218,7 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_screens(&window, &shared);
+        wire_measure(&window, &shared);
 
         wire_swipe(&window, &shared);
         let s = Rc::clone(&shared);
@@ -1163,6 +1244,7 @@ impl View {
             item_handles: Handles::new(),
             action_models: HashMap::new(),
             bodies: HashMap::new(),
+            measured_for: (0.0, 0.0),
             clock: clock::Clock::default(),
             monotonic: Rc::new(Instant::now),
             marks: window_marks::Marks::default(),
@@ -1216,11 +1298,40 @@ impl View {
     /// events; the debug APK turns it on, the release build has none.
     #[cfg(feature = "ui-trace")]
     pub fn on_trace(&mut self, sink: impl Fn(&str) + 'static) {
-        let sink: Rc<dyn Fn(&str)> = Rc::new(sink);
-        let to = Rc::clone(&sink);
-        self.window
-            .on_focus_traced(move |id| to(&trace::focus_line(&id)));
-        self.trace = Some(trace::Tracer::new(sink));
+        let tracer = trace::Tracer::new(Rc::new(sink));
+        let say = tracer.focus_sayer();
+        self.window.on_focus_traced(move |id| say(&id));
+        if let Some(tasks) = self.frame_tasks() {
+            let (to, weak) = (tracer.sink(), swipe::weak(&self.window));
+            self.window.on_reader_ended(move || {
+                trace_reader_end(&tasks, weak.clone(), Rc::clone(&to), Instant::now(), 0);
+            });
+        }
+        self.trace = Some(tracer);
+    }
+
+    /// A credential prompt was answered: say where focus stands once the
+    /// answer has settled, if no move says it first (`trace.rs`).
+    #[cfg(feature = "ui-trace")]
+    pub fn trace_focus_settled(&self) {
+        if let Some(tracer) = self.trace.as_ref() {
+            let window = swipe::weak(&self.window);
+            tracer.focus_settled(Duration::from_millis(200), move || {
+                window.upgrade().map(|w| w.get_focus_id().to_string())
+            });
+        }
+    }
+
+    /// The reader's first frame, timed from the press that opened it, to
+    /// the trace if one is on.
+    #[cfg(feature = "ui-trace")]
+    fn trace_reader_drawn(&mut self) {
+        let Some(to) = self.trace.as_ref().map(trace::Tracer::sink) else {
+            return;
+        };
+        let asked = self.shared.borrow_mut().open_asked.take();
+        let asked = asked.unwrap_or_else(Instant::now);
+        self.after_next_frame(move || to(&trace::reader_drawn_line(asked.elapsed())));
     }
 
     /// The identity flow's `screen` is over the window with `page`, or,
@@ -1249,6 +1360,7 @@ impl View {
         }
         let window = &self.window;
         let page = match self.page {
+            Page::Conversation if window.get_reader_open() => "reader",
             Page::Conversation if self.shown.is_some() && window.get_pane_shown() => "conversation",
             Page::Conversation => "conversations",
             Page::Trust => "trust",
@@ -1276,8 +1388,11 @@ impl View {
             model.trust_settings(),
             |p| handles.of(p),
         );
-        if let Some(tracer) = self.trace.as_mut() {
-            tracer.render(now);
+        // A page that came without a focus move -- a conversation opened
+        // from Chats, focus left on its row -- says no focus line of its
+        // own (j98, 3b item 4).
+        if self.trace.as_mut().is_some_and(|tracer| tracer.render(now)) {
+            self.trace_focus_settled();
         }
     }
 
@@ -1365,6 +1480,16 @@ impl View {
         let _ = self.shared.borrow_mut().push(Input::Select(key));
     }
 
+    /// Show Chats with nothing open over it -- no conversation, reader or
+    /// page -- as a start shows it: after a discard of the store, whose
+    /// restart opens the app as any start does (contact cards section
+    /// 7.3; unlock note section 11, L1), since what was open showed the
+    /// data the discard deleted. Taken as the person's inputs are, in
+    /// their order, so a page it closes hands the root its close.
+    pub fn show_chats(&self) {
+        let _ = self.shared.borrow_mut().push(Input::Chats);
+    }
+
     /// Read times from `now` (Unix milliseconds) and the local zone from
     /// `offset` (seconds east of UTC at a given Unix millisecond) rather
     /// than the system's: for a test, or a root that pins them.
@@ -1431,6 +1556,17 @@ impl View {
     /// A redraw is asked for. False, and `task` dropped unrun, when the
     /// renderer cannot say when it rendered (the testing backend).
     pub fn after_next_frame(&mut self, task: impl FnOnce() + 'static) -> bool {
+        let Some(tasks) = self.frame_tasks() else {
+            return false;
+        };
+        after_frame(&tasks, &self.window, task);
+        true
+    }
+
+    /// The tasks run after the next frame, the window's one rendering
+    /// notifier set on the first ask; `None` where the renderer cannot
+    /// say when it rendered (the testing backend).
+    fn frame_tasks(&mut self) -> Option<FrameTasks> {
         if self.frame_tasks.is_none() {
             let tasks: FrameTasks = Rc::new(RefCell::new(Vec::new()));
             let queued = Rc::clone(&tasks);
@@ -1449,29 +1585,55 @@ impl View {
                 },
             );
             if set.is_err() {
-                return false;
+                return None;
             }
             self.frame_tasks = Some(tasks);
         }
-        let Some(tasks) = &self.frame_tasks else {
-            return false;
-        };
-        tasks.borrow_mut().push(Box::new(task));
-        slint::ComponentHandle::window(&self.window).request_redraw();
-        true
+        self.frame_tasks.clone()
     }
 
     /// Show the identity screens' `page` over everything, or hide them
     /// with `None` (design/2026-10-19-android-identity.md). The page is
     /// rebuilt from the flow by [`identity_page`] after every input.
     pub fn show_identity(&self, page: Option<IdentityPage>) {
+        // An overlay rising or going moves no focus by itself -- R over a
+        // start's refusal, focus left under it -- so the trace states it
+        // (j98, 3b item 4).
+        #[cfg(feature = "ui-trace")]
+        if self.window.get_identity_active() != page.is_some() {
+            self.trace_focus_settled();
+        }
         if let Some(page) = page {
             self.window.set_identity(page);
             self.window.set_identity_active(true);
         } else {
+            let focused_on_it = self.window.get_identity_active()
+                && self.window.get_focus_id().starts_with("identity-");
             self.window.set_identity_active(false);
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
+            // The focused control went with the screen, and Slint moves
+            // focus nowhere then: R's Try again granted lands on Chats with
+            // nothing focused (j98, A14). Chats' heading, as when the
+            // last conversation leaves; an open conversation's header,
+            // never its composer, which would open the keyboard unasked.
+            // A locked notice's ask, taken at the next render, replaces
+            // it; on another page what opened that page keeps focus. Asked
+            // twice, as of a control just made: a heading whose request
+            // sequence was never read before misses the first bump
+            // (measured, the A14 test). The root's Chats still queued is
+            // Chats already: the root hides a screen before it takes its
+            // inputs, so a discard's restart reaches here with the
+            // conversation it is about to close still shown.
+            let chats_queued = self.shared.borrow().inputs.contains(&Input::Chats);
+            if focused_on_it
+                && (chats_queued || self.page == Page::Conversation && self.reader.is_none())
+            {
+                let on_chats =
+                    chats_queued || self.window.get_narrow() && self.window.get_list_shown();
+                let header = self.shown.is_some() && !on_chats;
+                self.focus_key_after_draw(if header { "h" } else { "heading" }.to_owned());
+            }
         }
     }
 
@@ -1696,10 +1858,10 @@ impl View {
     /// Beside them, one Left beside each press plus one, and the closing of
     /// each snackbar shown since the last take, each once -- at most two,
     /// since the model changes a snackbar only through the root, which
-    /// renders and then takes -- each with a focus change beside it: six
-    /// times the cap plus nine in all; a pane shown or hidden waits
-    /// outside the queue
-    /// (`a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine`). A
+    /// renders and then takes -- and one root's Chats, each with a focus
+    /// change beside it: six times the cap plus eleven in all; a pane
+    /// shown or hidden waits outside the queue
+    /// (`a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_eleven`). A
     /// root that stops between takes can leave a selection taken and later
     /// inputs queued, which lets one more edit wait per conversation
     /// selected that way; the queue stays finite, not at that number.
@@ -1823,6 +1985,11 @@ impl View {
                     }
                 }
                 Input::Undo(id) => out.push(ViewEvent::Undo(id)),
+                Input::Chats => {
+                    if self.take_chats(model, &mut out) {
+                        return out;
+                    }
+                }
                 Input::Left => {
                     // A press before it may open a snackbar only once the
                     // root applies its intent: Back waits, first in the
@@ -1851,7 +2018,7 @@ impl View {
                         out.push(ViewEvent::IdentifierCopied(key));
                     }
                 }
-                Input::MessageCopied | Input::ReadWhole(..) | Input::ReaderClosed => {
+                Input::MessageCopied | Input::OpenWhole(..) | Input::ReaderClosed => {
                     out.extend(self.long_message_input(&input));
                 }
                 Input::Link(destination) => {
@@ -1947,6 +2114,13 @@ impl View {
                 }
             }
         }
+        self.take_drained(model, &mut out);
+        out
+    }
+
+    /// The end of a take, once the queue has drained: the selection
+    /// rendered, an off-screen snackbar closed and what is on screen read.
+    fn take_drained(&mut self, model: &UiModel, out: &mut Vec<ViewEvent>) {
         // A selection is shown by the take that resolves it. A root renders
         // and then takes, so a press that yields no intent -- nothing
         // unread, or the window unfocused -- gives the root no reason for
@@ -1995,7 +2169,6 @@ impl View {
                 }
             }
         }
-        out
     }
 
     /// The conversation a person can see now: the one shown, unless the
@@ -2042,6 +2215,43 @@ impl View {
         Some(FocusTarget::Item(*key))
     }
 
+    /// Take the root's Chats ([`View::show_chats`]) into `out`: true when
+    /// the take ends here, as a page it closes hands the root its close.
+    fn take_chats(&mut self, model: &UiModel, out: &mut Vec<ViewEvent>) -> bool {
+        self.close_reader();
+        self.shown = None;
+        self.shared.borrow_mut().selected = None;
+        self.window.set_list_shown(true);
+        self.selection_unrendered = true;
+        if let Some(snack) = model.snackbar()
+            && snack.conversation.is_some()
+            && !out.contains(&ViewEvent::SnackbarClosed(snack.id))
+        {
+            out.push(ViewEvent::SnackbarClosed(snack.id));
+        }
+        match self.page {
+            Page::Trust => {
+                self.page = Page::Conversation;
+                out.push(ViewEvent::Trust(TrustInput::Cancel));
+                return true;
+            }
+            Page::Peers => {
+                self.page = Page::Conversation;
+                if let Some(close) = leaving_peers_closes(model) {
+                    out.push(close);
+                    return true;
+                }
+            }
+            Page::Cards => {
+                if self.take_cards_input(model, cards::CardsInput::CloseOnward, out) {
+                    return true;
+                }
+            }
+            Page::Conversation | Page::Connect => {}
+        }
+        false
+    }
+
     /// Take a card input into `out`: true when the take ends here, as a
     /// page left for a card page hands the root its own close first.
     fn take_cards_input(
@@ -2077,13 +2287,13 @@ impl View {
             Input::MessageCopied => (self.copy_feedback == CopyFeedback::Snackbar)
                 .then(|| self.shown.clone().map(ViewEvent::MessageCopied))
                 .flatten(),
-            Input::ReadWhole(key, as_source) => {
+            Input::OpenWhole(key, as_source) => {
                 self.open_reader(*key, *as_source);
                 None
             }
             Input::ReaderClosed => {
                 if let Some(open) = self.close_reader() {
-                    // Back on the row's Read the whole message, the
+                    // Back on the row's Open the whole message, the
                     // conversation shown again: what arrived meanwhile is
                     // read now (section 7). A locked notice's focus ask
                     // held under the reader replaces this at the render
@@ -2106,8 +2316,7 @@ impl View {
         ) else {
             return;
         };
-        let sent = reader::sent(&self.clock, item.local_at);
-        let forms = reader::forms(item, &sent, &image_text, body_lines);
+        let forms = self.reader_forms(item);
         let title = match (&item.direction, &item.author) {
             (Direction::Inbound, Some(peer)) => short_peer(peer.as_str()),
             _ => placeholder_en::text(UiText::You).to_owned(),
@@ -2118,11 +2327,40 @@ impl View {
             forms.formatted.clone()
         });
         self.window.set_reader_as_source(as_source);
+        let link_rows: Vec<i32> = forms
+            .link_rows
+            .iter()
+            .map(|&row| i32::try_from(row).unwrap_or(i32::MAX))
+            .collect();
+        self.window
+            .set_reader_link_rows(ModelRc::new(VecModel::from(link_rows)));
         self.window.set_reader_title(title.into());
         self.window.set_reader_handle(handle);
         self.window.set_reader_open(true);
         self.shared.borrow_mut().reader = Some(forms);
         self.reader = Some(reader::Open { key, handle });
+        #[cfg(feature = "ui-trace")]
+        self.trace_reader_drawn();
+    }
+
+    /// `item`'s reader rows, both forms, each piece measured.
+    fn reader_forms(&self, item: &MessageItem) -> reader::Forms {
+        let sent = reader::sent(&self.clock, item.local_at);
+        let window = &self.window;
+        let forms = reader::forms(
+            item,
+            &sent,
+            &image_text,
+            |lines| {
+                by_measure(body_lines(lines), &|line| {
+                    measured(window, line, Measured::Line)
+                })
+            },
+            |pieces| pieces_by_measure(pieces, &|line| measured(window, line, Measured::Source)),
+            |label| label_pieces(window, label),
+        );
+        window.set_measure_line(BodyLine::default());
+        forms
     }
 
     /// Close the reader, if open, saying which message it showed.
@@ -2464,7 +2702,36 @@ impl View {
         }
     }
 
+    /// When what the drawn bodies were measured against beside their lines
+    /// changed (`measured_for`): every drawn body dropped, so the render
+    /// draws and measures each again, and an open reader's rows measured
+    /// again in place, in the form it shows.
+    fn measure_again_if_changed(&mut self) {
+        let basis = (
+            self.window.get_measure_rem(),
+            self.window.get_measure_width(),
+        );
+        if basis == self.measured_for {
+            return;
+        }
+        self.bodies.clear();
+        self.measured_for = basis;
+        if let Some(key) = self.reader.as_ref().map(|open| open.key)
+            && let Some(item) = self.shown_items.get(&key)
+        {
+            let forms = self.reader_forms(item);
+            self.window
+                .set_reader_rows(if self.window.get_reader_as_source() {
+                    forms.source.clone()
+                } else {
+                    forms.formatted.clone()
+                });
+            self.shared.borrow_mut().reader = Some(forms);
+        }
+    }
+
     fn render_messages(&mut self, model: &UiModel) {
+        self.measure_again_if_changed();
         let items = self
             .shown
             .as_ref()
@@ -2516,10 +2783,11 @@ impl View {
                         rc
                     }
                 };
+                let window = &self.window;
                 let drawn = self
                     .bodies
                     .entry(item.key)
-                    .or_insert_with(|| drawn_body(item));
+                    .or_insert_with(|| drawn_body(item, window));
                 let offer = model.swipe_offer(item.key);
                 swipes.insert(
                     format!("m:{handle}"),
@@ -3506,6 +3774,11 @@ impl View {
                     .any(|i| matches!(i, Input::Draft(k, _) if k == key));
                 if !pending && window.get_draft().as_str() != composer.draft {
                     window.set_draft(composer.draft.as_str().into());
+                    // Slint keeps the caret's offset over a new text, so a
+                    // draft given back to an emptied field had it at the
+                    // start (j98, A17): at its end, as typing left it.
+                    window.set_draft_caret(i32::try_from(composer.draft.len()).unwrap_or(i32::MAX));
+                    window.set_draft_written_seq(window.get_draft_written_seq().wrapping_add(1));
                 }
                 window.set_refused(
                     composer
@@ -3606,7 +3879,7 @@ fn update_by_key<K: PartialEq + Clone, R: Clone + PartialEq>(
     }
 }
 
-/// A long message's controls (design/2026-11-04-long-message.md): Read
+/// A long message's controls (design/2026-11-04-long-message.md): Open
 /// the whole message, Copy message source, and the reader's own.
 fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Shared>>) {
     // Copy message source: the source as received, read when pressed,
@@ -3622,14 +3895,32 @@ fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Share
     let s = Rc::clone(shared);
     window.on_message_copied(move || enqueue(&s, Input::MessageCopied));
     let s = Rc::clone(shared);
-    window.on_read_whole(move |handle, as_source| {
+    window.on_open_whole(move |handle, as_source| {
         let key = s.borrow().items.get(&handle).map(|item| item.key);
         if let Some(key) = key {
-            enqueue(&s, Input::ReadWhole(key, as_source));
+            #[cfg(feature = "ui-trace")]
+            {
+                s.borrow_mut().open_asked = Some(Instant::now());
+            }
+            enqueue(&s, Input::OpenWhole(key, as_source));
         }
     });
     let s = Rc::clone(shared);
     window.on_reader_close(move || enqueue(&s, Input::ReaderClosed));
+    // The first link control at or after a row of the reader's formatted
+    // form, by its index; -1 for none.
+    let s = Rc::clone(shared);
+    window.on_reader_link_from(move |row| {
+        let shared = s.borrow();
+        let rows = shared
+            .reader
+            .as_ref()
+            .map_or(&[][..], |forms| &forms.link_rows[..]);
+        let row = usize::try_from(row).unwrap_or(0);
+        rows.iter()
+            .position(|&at| at >= row)
+            .map_or(-1, |index| i32::try_from(index).unwrap_or(-1))
+    });
     // The other form at once, built as the reader opened: the scroll
     // is kept at its share right after this returns.
     let (s, weak) = (Rc::clone(shared), swipe::weak(window));
@@ -3722,6 +4013,19 @@ const fn hue_index(hue: AvatarHue) -> i32 {
     }
 }
 
+/// Gives a window's `Drawn` global its functions. Every window built
+/// needs it: an unset pure callback answers an empty string, which would
+/// leave every accessible text of the window empty (`tests/refusal.rs`
+/// finds its labels only through it).
+pub(crate) fn wire_drawn(drawn: &generated::Drawn<'_>) {
+    drawn.on_drawable(|text| cluster::drawable(&text).as_ref().into());
+    drawn.on_spoken(|text| {
+        cluster::spoken(&text, placeholder_en::text(UiText::ReplacedCharacter))
+            .as_ref()
+            .into()
+    });
+}
+
 /// An image's placeholder, in the view's words: its alt text, or only
 /// that it is an image when the alt text is empty or blank.
 fn image_text(alt: &str) -> String {
@@ -3773,7 +4077,107 @@ fn body_lines(lines: &[body::Line]) -> Vec<BodyLine> {
         .collect()
 }
 
-fn drawn_body(item: &MessageItem) -> DrawnBody {
+/// The most a drawn item spans, in logical pixels, in either dimension
+/// (HUMAN-CHAT.md Bounds, A 2026-11-05 (ii)): four times it is under the
+/// desktop renderer's 16-bit ceiling, so it holds to scale 4.
+const ITEM_EXTENT: f32 = 8_000.0;
+
+/// What `measure-text` lays a text out as.
+#[derive(Debug, Clone, Copy)]
+enum Measured {
+    /// A body line: its text, or a code line's fill.
+    Line,
+    /// A piece of a body's source.
+    Source,
+    /// A link control's label.
+    Label,
+}
+
+/// How tall `window`'s layout draws `line` as `what` (app.slint
+/// `measure-text`).
+fn measured(window: &AppWindow, line: &BodyLine, what: Measured) -> f32 {
+    window.set_measure_source(matches!(what, Measured::Source));
+    window.set_measure_label(matches!(what, Measured::Label));
+    window.set_measure_line(line.clone());
+    window.get_measured_height()
+}
+
+/// A link control's label as `LinkButton` draws it: all of it, never cut,
+/// in pieces each `window`'s layout measures within [`ITEM_EXTENT`]
+/// (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)).
+fn label_pieces(window: &AppWindow, label: &str) -> ModelRc<SharedString> {
+    let pieces = pieces_by_measure(vec![label.to_owned()], &|line| {
+        measured(window, line, Measured::Label)
+    });
+    window.set_measure_line(BodyLine::default());
+    ModelRc::new(VecModel::from(
+        pieces
+            .into_iter()
+            .map(SharedString::from)
+            .collect::<Vec<_>>(),
+    ))
+}
+
+/// `lines` with each one `height` measures past [`ITEM_EXTENT`] drawn
+/// as pieces within it (HUMAN-CHAT.md Bounds, A 2026-11-07: split by the
+/// measured extent, never by a count -- how much a character draws is
+/// the font's), and where each line continues said again.
+fn by_measure(lines: Vec<BodyLine>, height: &dyn Fn(&BodyLine) -> f32) -> Vec<BodyLine> {
+    let mut out = Vec::with_capacity(lines.len());
+    for line in lines {
+        split_by_measure(line, height, &mut out);
+    }
+    for index in 1..out.len() {
+        out[index - 1].continues = out[index].joined;
+    }
+    out
+}
+
+/// A source's pieces, each one past [`ITEM_EXTENT`] as [`by_measure`]
+/// splits a line.
+fn pieces_by_measure(pieces: Vec<String>, height: &dyn Fn(&BodyLine) -> f32) -> Vec<String> {
+    let mut out = Vec::with_capacity(pieces.len());
+    for piece in pieces {
+        let line = BodyLine {
+            text: piece.into(),
+            ..BodyLine::default()
+        };
+        split_by_measure(line, height, &mut out);
+    }
+    out.into_iter().map(|line| line.text.into()).collect()
+}
+
+/// `line`, halved where `body::halves` says until each half measures
+/// within [`ITEM_EXTENT`]: the first half keeps where the line joins the
+/// one before, each after it is a piece of the half before. One character
+/// is kept whatever it measures, since no cut makes it smaller.
+fn split_by_measure(line: BodyLine, height: &dyn Fn(&BodyLine) -> f32, out: &mut Vec<BodyLine>) {
+    if height(&line) <= ITEM_EXTENT {
+        out.push(line);
+        return;
+    }
+    let text = line.text.clone();
+    let Some((head, tail, _)) = body::halves(&text) else {
+        out.push(line);
+        return;
+    };
+    let rest = BodyLine {
+        text: tail.into(),
+        joined: true,
+        ..line.clone()
+    };
+    split_by_measure(
+        BodyLine {
+            text: head.into(),
+            ..line
+        },
+        height,
+        out,
+    );
+    split_by_measure(rest, height, out);
+}
+
+fn drawn_body(item: &MessageItem, window: &AppWindow) -> DrawnBody {
     let drawn = cut::formatted(&item.body, &image_text);
     let body = drawn.body;
     // A piece cut inside a run rejoins the run, with no break between.
@@ -3794,8 +4198,14 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         text
     };
     let formatted_plain = with_line(&shown_line);
-    let lines = body_lines(&body.lines);
+    let lines = by_measure(body_lines(&body.lines), &|line| {
+        measured(window, line, Measured::Line)
+    });
     let (source_pieces, source_shown) = cut::source(&item.source);
+    let source_pieces = pieces_by_measure(source_pieces, &|line| {
+        measured(window, line, Measured::Source)
+    });
+    window.set_measure_line(BodyLine::default());
     let source_cut_line = cut_line(source_shown);
     let source_plain = with_line(&source_cut_line);
     let source_pieces: Vec<SharedString> = source_pieces.into_iter().map(Into::into).collect();
@@ -3804,9 +4214,11 @@ fn drawn_body(item: &MessageItem) -> DrawnBody {
         .iter()
         .enumerate()
         .filter_map(|(index, destination)| {
+            let label = body::link_label(destination);
             Some(LinkRow {
                 index: i32::try_from(index).ok()?,
-                label: body::link_label(destination).into(),
+                pieces: label_pieces(window, &label),
+                label: label.into(),
             })
         })
         .collect();
@@ -4396,6 +4808,63 @@ mod tests {
     use std::cell::RefCell;
 
     use super::{Rows, update_by_key};
+
+    mod by_measure {
+        use super::super::{BodyLine, ITEM_EXTENT, LineKind, by_measure, pieces_by_measure};
+
+        /// A stand-in layout: each character draws `per` pixels tall.
+        fn per(per: f32) -> impl Fn(&BodyLine) -> f32 {
+            move |line| {
+                f32::from(u16::try_from(line.text.chars().count()).unwrap_or(u16::MAX)) * per
+            }
+        }
+
+        fn line(text: &str) -> BodyLine {
+            BodyLine {
+                kind: LineKind::Text,
+                marker: "3.".into(),
+                depth: 2,
+                text: text.into(),
+                ..BodyLine::default()
+            }
+        }
+
+        #[test]
+        fn a_line_within_the_extent_is_drawn_as_it_is() {
+            let lines = vec![line("one"), line("two")];
+            assert_eq!(by_measure(lines.clone(), &per(ITEM_EXTENT / 3.0)), lines);
+        }
+
+        #[test]
+        fn a_line_past_the_extent_is_halved_until_every_piece_is_within_it() {
+            // 10 characters at a quarter of the extent each: halves of five
+            // are still past it, so four pieces of two or three.
+            let height = per(ITEM_EXTENT / 4.0);
+            let got = by_measure(vec![line("abcdefghij"), line("end")], &height);
+            let texts: Vec<&str> = got.iter().map(|l| l.text.as_str()).collect();
+            assert_eq!(texts, ["abc", "de", "fgh", "ij", "end"]);
+            assert!(got.iter().all(|l| height(l) <= ITEM_EXTENT));
+            // The first keeps where the line joins; the rest are its pieces,
+            // each kind, depth and marker kept; only the last ends the line.
+            let joined: Vec<bool> = got.iter().map(|l| l.joined).collect();
+            assert_eq!(joined, [false, true, true, true, false]);
+            let continues: Vec<bool> = got.iter().map(|l| l.continues).collect();
+            assert_eq!(continues, [true, true, true, false, false]);
+            assert!(got[..4].iter().all(|l| l.depth == 2 && l.marker == "3."));
+        }
+
+        #[test]
+        fn one_character_past_the_extent_is_kept_whole() {
+            let got = by_measure(vec![line("x")], &per(ITEM_EXTENT * 2.0));
+            assert_eq!(got, [line("x")]);
+        }
+
+        #[test]
+        fn a_source_piece_past_the_extent_is_halved_too() {
+            let got = pieces_by_measure(vec!["abcd".into()], &per(ITEM_EXTENT / 2.0));
+            assert_eq!(got, ["ab", "cd"]);
+        }
+    }
 
     /// Code is drawn in a family the font stack resolves for `monospace`,
     /// named as a family the stack knows by that name: the generic's own

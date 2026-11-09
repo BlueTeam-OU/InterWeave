@@ -5,7 +5,7 @@ topic: "wildcard-listener-loopback-first-refuses-cache-route"
 description: "A 0.0.0.0 listener answers listen() with 127.0.0.1 and reports the LAN address later; a private discovery route offered in between is refused by ADR-0052 rule 3 and the 5-min discovery memo kept it refused (j133)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
