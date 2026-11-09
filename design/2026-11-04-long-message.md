@@ -228,8 +228,11 @@ a link in a long body presses it where they read it, not after
 scrolling to the end; and Tab (§9) then meets the links in the order
 the body gives them. The row keeps its controls together after its
 text, the cut line and Open the whole message (§4.1, §9): a row's
-text is bounded by §4.1's figures, so its links stay near what
-the person read.
+text is bounded by §6's figures, so its links come after at most one
+whole body's text, which for a whole row at the bound is several
+screens at 200 % text (A3). Keeping the row's controls in one place is
+a judgement, not evidence: a row is a list item, passed over as one,
+and the reader is where a long body is read.
 
 **Not pages.** The whole body is one scroll, not pages of N lines:
 paging breaks a log's line or a paragraph at an edge the content did
