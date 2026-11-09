@@ -433,7 +433,9 @@ Trust page (A13).
   `UnlockPromptTitle`, before anything else on the screen changes.
   Granting it runs the restart again, and R then follows the start's answer as
   `design/2026-10-21-contact-cards.md` §7 says. Where R goes, focus is on
-  Chats' list heading, or on the open conversation's header title (F15).
+  Chats' list heading, on a wide layout too; in an open narrow
+  conversation, on its header title; where the start asks for the locked
+  notice, on that notice first (F15, F11).
 - **A15** L1, R's Try again with the prompt cancelled: R stays, with focus
   on Try again and no other change. No prompt rises again until Try
   again is pressed again. Pressing it raises the prompt once.
