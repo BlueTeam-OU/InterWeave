@@ -81,8 +81,11 @@ other v1.0.0
 reuse v1.0.0
 shared v1.0.0 (*)
 EOF
+# The build-dependency `buildonly` is a tool here; notice_sources.json's
+# own cases are below.
+printf '{"tools": {"buildonly": "runs at build time"}, "sources": []}\n' > "$SANDBOX/sources.json"
 run() {
-    python3 "$UNDER_TEST" "$SANDBOX/metadata.json" "$1" "$SANDBOX/n.md" "${@:2}" \
+    NOTICE_SOURCES_JSON="$SANDBOX/sources.json" python3 "$UNDER_TEST" "$SANDBOX/metadata.json" "$1" "$SANDBOX/n.md" "${@:2}" \
         >"$SANDBOX/stdout" 2>"$SANDBOX/err"
 }
 
@@ -156,6 +159,8 @@ D="$SANDBOX/derived"
 mkdir -p "$D/tool"
 cp "$UNDER_TEST" "$D/tool/"
 cp -r "$SCRIPT_DIR/licence_texts" "$D/tool/"
+# No build-dependency here; the list beside the script is the one read.
+printf '{"tools": {}, "sources": []}\n' > "$D/tool/notice_sources.json"
 src() {  # src <crate> <path> <text>: a source file of a sandbox crate.
     mkdir -p "$(dirname "$D/crates/$1/$2")"
     printf '%s\n' "$3" > "$D/crates/$1/$2"
@@ -768,6 +773,150 @@ json.dump(m, open(sys.argv[1], "w"))
 PY
 list "${GOOD[@]:0:2}" "$(entry std '(MIT OR Apache-2.0) AND Unicode-3.0' standard)" "${GOOD[@]:3}"
 drefused "an expression owing an AND term beside its OR" "is not a plain OR of single terms"
+
+# --- Build-dependencies (notice_sources.json) -----------------------------
+# A -src crate's C sources, compiled in by its dependent's build script, owe
+# their notices like any crate; a build tool owes none. `sys` is compiled
+# and builds `csrc` (sources) with `tool`; `both` is a normal and a build
+# dependency of `sys`, so it is listed as a crate and asks nothing; `idle`
+# is reached in the metadata and not compiled, so its build-dependency
+# `orphan`, classified nowhere, asks nothing; `mtool` is the member's own.
+C="$SANDBOX/sources"
+ccrate() {  # ccrate <crate> <file> <text>...: a sandbox crate's files.
+    local d="$C/crates/$1"; shift
+    mkdir -p "$d"
+    printf '[package]\n' > "$d/Cargo.toml"
+    while (( $# )); do
+        mkdir -p "$(dirname "$d/$1")"
+        printf '%s\n' "$2" > "$d/$1"
+        shift 2
+    done
+}
+ccrate app
+ccrate sys LICENSE-MIT 'the sys licence'
+ccrate csrc LICENSE-MIT 'the csrc wrapper licence' vendor/LICENSE-c 'the C library notice'
+ccrate tool LICENSE 'the tool licence'
+ccrate mtool LICENSE 'the mtool licence'
+ccrate both LICENSE 'the both licence'
+ccrate idle LICENSE 'the idle licence'
+ccrate orphan LICENSE 'the orphan licence'
+cmeta() {  # cmeta [<csrc version>] [linked]: linked, app compiles csrc too
+    python3 - "$C/crates" "${1:-1.0.0}" "${2-}" > "$C/metadata.json" <<'PY'
+import json, sys
+root, csrc_version, linked = sys.argv[1], sys.argv[2], sys.argv[3]
+licences = {"app": "Apache-2.0", "csrc": "MIT AND BSD-3-Clause"}
+def pkg(name):
+    return {"id": f"{name}-id", "name": name, "version": csrc_version if name == "csrc" else "1.0.0",
+            "license": licences.get(name, "MIT"), "license_file": None, "repository": None,
+            "manifest_path": f"{root}/{name}/Cargo.toml"}
+def dep(name, *kinds):
+    return {"name": name, "pkg": f"{name}-id", "dep_kinds": [{"kind": k, "target": None} for k in kinds]}
+edges = {
+    "app": [dep("sys", None), dep("idle", None), dep("mtool", "build")],
+    "sys": [dep("csrc", "build"), dep("tool", "build"), dep("both", None, "build")],
+    "idle": [dep("orphan", "build")],
+}
+if linked:
+    edges["app"].append(dep("csrc", None))
+names = ["app", "sys", "csrc", "tool", "mtool", "both", "idle", "orphan"]
+print(json.dumps({"packages": [pkg(n) for n in names], "workspace_members": ["app-id"],
+                  "resolve": {"nodes": [{"id": f"{n}-id", "deps": edges.get(n, [])} for n in names]}}))
+PY
+}
+printf 'app v1.0.0 (/somewhere/app)\nsys v1.0.0\nboth v1.0.0\n' > "$C/compiled.txt"
+# slist [<tools json>] [<sources json>]: the classification under test.
+TOOLS='{"tool": "drives the compiler", "mtool": "generates code"}'
+SOURCES='[{"name": "csrc", "version": "1.0.0", "licence": "BSD-3-Clause", "files": ["vendor/LICENSE-c"], "read": "sys compiles vendor/ in"}]'
+slist() {
+    printf '{"tools": %s, "sources": %s}\n' "${1:-$TOOLS}" "${2:-$SOURCES}" > "$C/sources.json"
+}
+crun() {
+    NOTICE_SOURCES_JSON="$C/sources.json" python3 "$UNDER_TEST" "$C/metadata.json" "$C/compiled.txt" \
+        "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
+}
+crefused() {
+    local what="$1" needle="$2"
+    printf 'an earlier run\n' > "$SANDBOX/n.md"
+    if crun; then fail "$what: accepted"
+    elif [[ -e "$SANDBOX/n.md" ]]; then fail "$what: refused but left notices"
+    elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
+    else pass "$what: refused"; fi
+}
+cmeta
+slist
+if crun; then
+    N="$SANDBOX/n.md"
+    grep -qF -- '- `csrc` 1.0.0: BSD-3-Clause, the sources sys'"'"'s build compiles in (the crate declares MIT AND BSD-3-Clause) — text T' "$N" \
+        && grep -qx 'the C library notice' "$N" \
+        && grep -qF 'Used by csrc 1.0.0 (vendor/LICENSE-c).' "$N" \
+        && pass "a build-dependency's compiled-in sources are listed with the notice files their entry names" \
+        || fail "the compiled-in sources are not listed with their notice" "$(cat "$N")"
+    grep -q 'the csrc wrapper licence' "$N" \
+        && fail "a sources crate's own licence file, for its build code, is shipped" \
+        || pass "a sources crate's own licence file, for its build code, is not shipped"
+    if grep -qE '`(tool|mtool|orphan|idle)`' "$N"; then
+        fail "a tool, or a crate the build does not compile, is listed" "$(grep -E 'tool|orphan|idle' "$N")"
+    else
+        pass "a build tool, and the build-dependency of a crate not compiled, are not listed"
+    fi
+    [[ "$(grep -c '^- `both` 1.0.0: MIT — text T' "$N")" == 1 ]] \
+        && pass "a normal and build dependency at once is listed once, as a crate, unclassified" \
+        || fail "a normal and build dependency is not listed once as a crate" "$(grep both "$N")"
+    grep -qx '3 crates, 3 distinct licence texts' "$SANDBOX/stdout" \
+        && pass "the sources crate is counted" || fail "the counts are not as expected" "$(cat "$SANDBOX/stdout")"
+else
+    fail "a classified build graph was refused" "$(cat "$SANDBOX/err")"
+fi
+# Each beside the passing run above: one thing changed.
+slist '{"mtool": "generates code"}'
+crefused "a compiled crate's build-dependency classified nowhere" \
+    "tool 1.0.0 is a build-dependency of sys, which notice_sources.json classifies neither as a tool nor as sources compiled in"
+slist '{"tool": "drives the compiler"}'
+crefused "a member's build-dependency classified nowhere" "mtool 1.0.0 is a build-dependency of app"
+slist
+cmeta 1.1.0
+crefused "a sources crate at another version than its entry's" \
+    "csrc 1.1.0 is a build-dependency of sys; notice_sources.json's entry is for 1.0.0"
+cmeta
+slist "" \
+    '[{"name": "csrc", "version": "1.0.0", "licence": "BSD-3-Clause", "files": ["vendor/LICENSE-gone"], "read": "r"}]'
+crefused "a sources entry naming a file the crate does not have" \
+    "csrc 1.0.0 has no file vendor/LICENSE-gone, which notice_sources.json names"
+slist "" \
+    '[{"name": "csrc", "version": "1.0.0", "licence": "BSD-3-Clause", "files": ["vendor"], "read": "r"}]'
+crefused "a sources entry naming a directory" "csrc 1.0.0 has no file vendor, which notice_sources.json names"
+slist "" \
+    '[{"name": "csrc", "version": "1.0.0", "licence": "BSD-3-Clause", "files": ["../sys/LICENSE-MIT"], "read": "r"}]'
+crefused "a sources entry naming a file outside its crate" "csrc's files is not a list of paths inside the crate"
+slist "" \
+    "[{\"name\": \"csrc\", \"version\": \"1.0.0\", \"licence\": \"BSD-3-Clause\", \"files\": [\"$C/crates/sys/LICENSE-MIT\"], \"read\": \"r\"}]"
+crefused "a sources entry naming an absolute path" "csrc's files is not a list of paths inside the crate"
+slist "" \
+    '[{"name": "csrc", "version": "1.0.0", "licence": "BSD-3-Clause", "files": [], "read": "r"}]'
+crefused "a sources entry naming no file" "csrc's files is not a list of paths inside the crate"
+slist "" \
+    '[{"name": "csrc", "version": "1.0.0", "licence": "", "files": ["vendor/LICENSE-c"], "read": "r"}]'
+crefused "a sources entry naming no licence" "csrc names no licence for its compiled sources"
+slist "" \
+    '[{"name": "csrc", "version": "1.0.0", "licence": "BSD-3-Clause", "files": ["vendor/LICENSE-c"], "read": " "}]'
+crefused "a sources entry saying nothing of what was read" "csrc says nothing of what was read"
+cmeta "" linked
+slist
+{ cat "$C/compiled.txt"; echo "csrc v1.0.0"; } > "$C/linked.txt"
+if NOTICE_SOURCES_JSON="$C/sources.json" python3 "$UNDER_TEST" "$C/metadata.json" "$C/linked.txt" \
+    "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"; then
+    [[ "$(grep -c '`csrc`' "$SANDBOX/n.md")" == 1 ]] \
+        && grep -qF -- '- `csrc` 1.0.0: MIT AND BSD-3-Clause — text T' "$SANDBOX/n.md" \
+        && pass "a sources crate another crate compiles is listed once, as that crate" \
+        || fail "a sources crate compiled elsewhere is not listed once as a crate" "$(grep csrc "$SANDBOX/n.md")"
+else
+    fail "a sources crate compiled elsewhere was refused" "$(cat "$SANDBOX/err")"
+fi
+cmeta
+slist '{"tool": "drives the compiler", "mtool": "generates code", "csrc": "x"}'
+crefused "a crate classified both as a tool and as sources" "classifies csrc twice"
+slist '{"tool": "", "mtool": "generates code"}'
+crefused "a tool without its reason" "tools is not an object of names, each with its reason"
 
 python3 "$UNDER_TEST" "$SANDBOX/metadata.json" >/dev/null 2>&1
 [[ $? -eq 2 ]] && pass "a missing argument is a usage error (2)" || fail "a missing argument did not exit 2"

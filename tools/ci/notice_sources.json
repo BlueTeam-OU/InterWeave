@@ -1,0 +1,39 @@
+{
+  "tools": {
+    "android-build": "locates the Android SDK's d8 and javac for i-slint-backend-android-activity's build script",
+    "autocfg": "probes the compiler for cfg flags",
+    "bindgen": "generates Rust declarations from Skia's headers; Skia's own notices are ADR-0057's (skia_notices.py)",
+    "cc": "drives the C compiler; the sources it compiles are the crate's own or a sources entry's",
+    "cfg_aliases": "defines cfg aliases",
+    "flate2": "unpacks skia-bindings' prebuilt Skia archive, whose notices are ADR-0057's",
+    "gl_generator": "generates glutin's EGL and GLX function tables into its build output, from the Khronos registry",
+    "heck": "case conversion in skia-bindings' build script",
+    "i-slint-common": "shared build-time helpers; where it is compiled in, it is a normal dependency and listed as one",
+    "pkg-config": "locates system libraries, which the programs link and do not contain",
+    "regex": "text matching in skia-bindings' build script",
+    "rustc_version": "reads the compiler's version",
+    "serde_json": "reads skia-bindings' build configuration",
+    "slint-build": "compiles this repository's own .slint files into Rust",
+    "tar": "unpacks skia-bindings' prebuilt Skia archive, whose notices are ADR-0057's",
+    "toml": "reads skia-bindings' build configuration",
+    "vcpkg": "locates libraries on Windows MSVC; nothing found on these targets",
+    "version_check": "reads the compiler's version",
+    "walkdir": "declared by jni 0.22.4, whose build script only sets cfg flags and uses it nowhere"
+  },
+  "sources": [
+    {
+      "name": "openssl-src",
+      "version": "300.6.1+3.6.3",
+      "licence": "Apache-2.0",
+      "files": ["openssl/LICENSE.txt"],
+      "read": "openssl-sys's build script (vendored, under rusqlite's bundled-sqlcipher-vendored-openssl) compiles OpenSSL 3.6.3 from openssl/ into the program; OpenSSL is Apache-2.0, its text in openssl/LICENSE.txt, and it publishes no NOTICE. The crate's own LICENSE-MIT and LICENSE-APACHE cover its build code, which is not compiled in."
+    },
+    {
+      "name": "sqlcipher-src",
+      "version": "419.0.6+sqlcipher-4.19.0-sqlite-3.53.4-libtomcrypt-1.18.2",
+      "licence": "BSD-3-Clause AND blessing",
+      "files": ["sqlcipher/LICENSE-sqlcipher"],
+      "read": "libsqlite3-sys 0.39.1's build script compiles sqlcipher/sqlcipher.c (SQLCipher 4.19.0 on SQLite 3.53.4) into the program and never LIBTOMCRYPT_SOURCES, so LICENSE-libtomcrypt (WTFPL) covers nothing shipped. The amalgamation's copyright lines are ZETETIC LLC's, whose BSD-3-Clause notice is LICENSE-sqlcipher; SQLite's part is public domain (blessing) and owes no notice. The crate's own LICENSE (MIT) covers its Rust code, which is not compiled in."
+    }
+  ]
+}
