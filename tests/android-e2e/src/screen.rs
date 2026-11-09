@@ -124,7 +124,7 @@ impl Screens {
                 })
             })
             .and_then(|()| match last_of(&self.seen, "page=") {
-                Some("conversations") => Ok(()),
+                Some("conversations") => self.app_takes_keys(),
                 Some("connect") => Err(format!(
                     "the app settled on Connect, which a phone with no peer and no trust entry owes; the driver starts from Chats and does not leave Connect, which writes the profile; {}",
                     self.where_now()
@@ -697,6 +697,31 @@ impl Screens {
             std::thread::sleep(Duration::from_secs(1));
         }
         Ok(())
+    }
+
+    /// The app's window is the one key events reach. A system window in
+    /// front -- the platform's permission prompt the app raises at launch
+    /// on API 33+ while notifications are not granted, the notification
+    /// shade, a keyguard -- takes every key the driver sends, and the
+    /// trace then says nothing at all: fail here naming it instead.
+    fn app_takes_keys(&self) -> Result<(), String> {
+        let (window, app) = crate::platform::input_focus(&self.dump(&["window"])?)?;
+        let ours = format!("{PACKAGE}/");
+        if window.as_deref().is_some_and(|w| w.starts_with(&ours)) {
+            return Ok(());
+        }
+        let prompt = app
+            .as_deref()
+            .is_some_and(|a| a.contains("GrantPermissionsActivity"));
+        Err(format!(
+            "key events go to window {window:?} (focused app {app:?}), not the app's{}",
+            if prompt {
+                ": the platform's permission prompt is in front; after a pm clear on API 33+ \
+                 grant android.permission.POST_NOTIFICATIONS before the run"
+            } else {
+                ""
+            }
+        ))
     }
 
     /// `dumpsys <args>` on this serial, whole ([`crate::platform::dump_ended`]).
