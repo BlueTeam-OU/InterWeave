@@ -413,6 +413,72 @@ fn the_reader_shows_the_whole_body_and_escape_returns_to_the_button() {
     );
 }
 
+/// The debug build's trace names the reader's page, and End moves its
+/// list to its end, which the window says (`reader-at-end`): what the
+/// device case's End time waits for (A5,
+/// `tests/android-e2e/tests/long_message.rs`). The times themselves need
+/// a renderer that says when it drew, which this backend is not.
+#[test]
+fn the_trace_names_the_reader_and_end_reaches_its_list_end() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let lines = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let sink = std::rc::Rc::clone(&lines);
+    view.on_trace(move |line| sink.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &paragraphs(400)));
+    open(&mut view, &mut model, &direct(&alice));
+    let pages = |lines: &[String]| -> Vec<String> {
+        lines
+            .iter()
+            .filter(|l| l.starts_with("ui-trace page="))
+            .cloned()
+            .collect()
+    };
+    assert_eq!(
+        pages(&lines.borrow()).last().map(String::as_str),
+        Some("ui-trace page=conversation")
+    );
+
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        pages(&lines.borrow()).last().map(String::as_str),
+        Some("ui-trace page=reader")
+    );
+    for _ in 0..3 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        slint::platform::update_timers_and_animations();
+    }
+    assert_eq!(view.window().get_focus_id(), "reader-scroll");
+    assert!(
+        !view.window().get_reader_at_end(),
+        "400 paragraphs pass one screen"
+    );
+
+    // One End: the rows laid out near the end make the content taller
+    // than first measured, and the list is held at its end through it.
+    key(&view, Key::End);
+    slint::platform::update_timers_and_animations();
+    assert!(
+        view.window().get_reader_at_end(),
+        "End reaches the list's end"
+    );
+    key(&view, Key::Home);
+    slint::platform::update_timers_and_animations();
+    assert!(!view.window().get_reader_at_end(), "Home leaves it");
+
+    key(&view, Key::Escape);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        pages(&lines.borrow()).last().map(String::as_str),
+        Some("ui-trace page=conversation")
+    );
+}
+
 /// While the reader is open its conversation is not shown: a message
 /// that arrives then stays unread, and is read once the reader closes
 /// (section 7, A10).
@@ -913,8 +979,13 @@ fn a_press_on_a_link_control_past_the_extent_is_drawn_in_pieces() {
         if let Some(needed) = needed {
             assert_eq!(past, needed, "{n}: {:?}", control.size());
         }
-        // A control past the extent holds a label measured past it.
-        assert!(!past || pieces.len() > 1, "{n}: in pieces past the extent");
+        // A pinned shape is in pieces exactly when its control is past the
+        // extent (neither is within the label's 9 px of padding of it); the
+        // U+FDFD one, whatever its font draws, at least when past it.
+        match needed {
+            Some(_) => assert_eq!(pieces.len() > 1, past, "{n}: in pieces past the extent"),
+            None => assert!(!past || pieces.len() > 1, "{n}: in pieces past the extent"),
+        }
         let drawn = control
             .query_descendants()
             .match_type_name("Text")
@@ -1116,4 +1187,473 @@ fn the_cut_line_is_said_in_the_mode_that_draws_it() {
     assert!(!said(&view).contains(&line), "formatted: no cut line said");
     choose(&view, &row.label, text(UiText::ShowSource));
     assert!(said(&view).contains(&line), "as source: {}", said(&view));
+}
+
+/// TAB and Shift+TAB from each focus stop of a conversation, the focus
+/// id after each.
+fn tabs(view: &mut View, model: &mut UiModel, pressed: Key, n: usize) -> Vec<String> {
+    (0..n)
+        .map(|_| {
+            key(view, pressed);
+            let _ = intents(view, model);
+            view.window().get_focus_id().to_string()
+        })
+        .collect()
+}
+
+/// Shift+TAB from the composer onto a message taller than the list, the
+/// list at its newest end so only the message's lower part is in view:
+/// the message is shown from its top (`Reveal.tall`, `keyed`).
+#[test]
+fn tab_onto_a_tall_message_in_view_in_part_shows_its_top() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    let headings = (0..40)
+        .map(|i| format!("# Heading {i} of a message taller than the list"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    model.received(received(1, &alice, &headings));
+    open(&mut view, &mut model, &direct(&alice));
+    let handle = rows(&view)[0].handle;
+    let top = |view: &View, id: &str| {
+        ElementHandle::find_by_element_id(view.window(), id)
+            .next()
+            .unwrap_or_else(|| panic!("{id} drawn"))
+            .absolute_position()
+            .y
+    };
+    let forward = tabs(&mut view, &mut model, Key::Tab, 8);
+    assert!(
+        forward.iter().any(|f| f == "composer"),
+        "TAB reaches the composer: {forward:?}"
+    );
+    while view.window().get_focus_id() != "composer" {
+        let _ = key_settled(&mut view, &mut model, Key::Tab);
+    }
+    // TAB showed the message from its top on the way: back to the
+    // newest end, as the conversation opened, by the person's wheel.
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(200.0, 400.0),
+            delta_x: 0.0,
+            delta_y: -100_000.0,
+        });
+    slint::platform::update_timers_and_animations();
+    let (list, before) = (
+        top(&view, "AppWindow::messages-flick"),
+        top(&view, "AppWindow::item"),
+    );
+    assert!(
+        before < list - 1.0,
+        "the message's top starts out of view: at {before}, the list at {list}"
+    );
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        format!("item:{handle}")
+    );
+    let after = top(&view, "AppWindow::item");
+    assert!(
+        after >= list - 1.0,
+        "shown from its top: the message at {after}, the list at {list}"
+    );
+}
+
+/// A conversation on a phone-sized window whose messages are each
+/// taller than the list: the toolkit reveals a focused item only when
+/// it fits, and drops the focus of one it then finds out of view at the
+/// next key event, the TAB's own release included, so TAB from such a
+/// message began again at the top and never reached the next one, the
+/// composer or Send (the A40, 2026-11-08). Each is shown from its top as
+/// it gains focus (`Reveal`), and both directions cross every stop.
+#[test]
+fn tab_crosses_messages_taller_than_the_list() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    let headings = (0..40)
+        .map(|i| format!("# Heading {i} of a message taller than the list"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    model.received(received(1, &alice, &headings));
+    model.received(received(2, &alice, &headings));
+    open(&mut view, &mut model, &direct(&alice));
+    let handles: Vec<i32> = rows(&view).iter().map(|r| r.handle).collect();
+    let [first, second] = handles[..] else {
+        panic!("two rows: {handles:?}");
+    };
+    let stops = [
+        "back-to-list".to_owned(),
+        "header-title".to_owned(),
+        "more-options".to_owned(),
+        format!("item:{first}"),
+        format!("item:{second}"),
+        "composer".to_owned(),
+        "send".to_owned(),
+    ];
+    let forward = tabs(&mut view, &mut model, Key::Tab, 2 * stops.len());
+    let start = forward
+        .iter()
+        .position(|f| f == "back-to-list")
+        .expect("TAB reaches the conversation's first stop");
+    let cycle: Vec<_> = forward[start..start + stops.len()].to_vec();
+    assert_eq!(cycle, stops, "TAB, in order: {forward:?}");
+    let backward = tabs(&mut view, &mut model, Key::Backtab, stops.len());
+    let mut reversed = stops.to_vec();
+    reversed.reverse();
+    let at = reversed
+        .iter()
+        .position(|s| s == &forward[start + stops.len() - 1])
+        .expect("TAB ended on a stop");
+    let expected: Vec<_> = reversed
+        .iter()
+        .cycle()
+        .skip(at + 1)
+        .take(stops.len())
+        .cloned()
+        .collect();
+    assert_eq!(backward, expected, "Shift+TAB, in order");
+}
+
+/// A link control whose label is drawn far taller than the list is
+/// crossed by TAB as its message is: shown from its top as it gains
+/// focus, and the next TAB goes on.
+#[test]
+fn tab_crosses_a_link_control_taller_than_the_list() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    // "W" draws wide in any font with Latin letters (U+FDFD draws short
+    // where no Arabic font is installed).
+    let tall = format!("[a](https://e.org/{})", "W".repeat(1960));
+    model.received(received(1, &alice, &tall));
+    model.received(received(2, &alice, &tall));
+    open(&mut view, &mut model, &direct(&alice));
+    let list = ElementHandle::find_by_element_id(view.window(), "AppWindow::messages-flick")
+        .next()
+        .expect("the list drawn")
+        .size()
+        .height;
+    let control = ElementHandle::find_by_element_type_name(view.window(), "LinkButton")
+        .find(|e| e.accessible_label().is_some_and(|l| l.contains("e.org")))
+        .expect("a link control drawn")
+        .size()
+        .height;
+    assert!(
+        control > list,
+        "the case's premise: the link control ({control}) taller than the list ({list})"
+    );
+    let handles: Vec<i32> = rows(&view).iter().map(|r| r.handle).collect();
+    let [first, second] = handles[..] else {
+        panic!("two rows: {handles:?}");
+    };
+    let forward = tabs(&mut view, &mut model, Key::Tab, 12);
+    let start = forward
+        .iter()
+        .position(|f| f == &format!("item:{first}"))
+        .expect("TAB reaches the first message");
+    assert_eq!(
+        forward[start..start + 5],
+        [
+            format!("item:{first}"),
+            format!("link:{first}:0"),
+            format!("item:{second}"),
+            format!("link:{second}:0"),
+            "composer".to_owned(),
+        ],
+        "TAB, in order: {forward:?}"
+    );
+    // Back from the composer: each control above is out of view as it
+    // gains focus, the first message's link wholly so.
+    while view.window().get_focus_id() != "composer" {
+        key(&view, Key::Tab);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert_eq!(
+        tabs(&mut view, &mut model, Key::Backtab, 5),
+        [
+            format!("link:{second}:0"),
+            format!("item:{second}"),
+            format!("link:{first}:0"),
+            format!("item:{first}"),
+            "more-options".to_owned(),
+        ],
+        "Shift+TAB, in order"
+    );
+}
+
+/// `pressed`, then the loop's turns and the timers of a second, the
+/// focus id after.
+fn key_settled(view: &mut View, model: &mut UiModel, pressed: Key) -> String {
+    key(view, pressed);
+    let _ = intents(view, model);
+    for _ in 0..80 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        slint::platform::update_timers_and_animations();
+    }
+    view.window().get_focus_id().to_string()
+}
+
+/// A reader on a phone-sized window, open on `body`, focus on its
+/// scroll area.
+fn reader_on(body: &str) -> (View, UiModel) {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, body));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    for _ in 0..3 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        slint::platform::update_timers_and_animations();
+    }
+    assert_eq!(view.window().get_focus_id(), "reader-scroll");
+    (view, model)
+}
+
+/// A body of 200 paragraphs, then `n` links, each its own line.
+fn paragraphs_then_links(n: usize) -> String {
+    let links = (0..n)
+        .map(|i| format!("[link {i}](https://e.org/{i:02})"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!("{}\n\n{links}", paragraphs(200))
+}
+
+/// Whether the link control `index` is drawn in the reader's view.
+fn link_in_view(view: &View, index: usize) -> bool {
+    let destination = format!("e.org/{index:02}");
+    ElementHandle::find_by_element_type_name(view.window(), "LinkButton").any(|e| {
+        e.accessible_label()
+            .is_some_and(|label| label.contains(destination.as_str()))
+    })
+}
+
+/// TAB in the reader reaches every link control of the body in body
+/// order, laid out or not, then Back; Shift+TAB the reverse, to the
+/// scroll area (section 9, ux-designer's ruling on #581): the reader
+/// lays out only the rows near its view, and the toolkit's order
+/// reached none of them from the top of a long body.
+#[test]
+fn tab_in_the_reader_reaches_every_link_laid_out_or_not() {
+    let (mut view, mut model) = reader_on(&paragraphs_then_links(60));
+    assert!(
+        !link_in_view(&view, 0),
+        "the links start far below the screen"
+    );
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Tab),
+        "reader-link:0"
+    );
+    assert!(link_in_view(&view, 0), "the first link shown");
+    for i in 1..60 {
+        assert_eq!(
+            key_settled(&mut view, &mut model, Key::Tab),
+            format!("reader-link:{i}")
+        );
+        assert!(link_in_view(&view, i), "link {i} shown");
+    }
+    assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-link:59",
+        "Shift+TAB from Back: the last link"
+    );
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-link:58"
+    );
+    for i in (0..58).rev() {
+        assert_eq!(
+            key_settled(&mut view, &mut model, Key::Backtab),
+            format!("reader-link:{i}")
+        );
+    }
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-scroll"
+    );
+    // Back from the top of the body, where the last link is not laid
+    // out: Shift+TAB from Back still reaches it.
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Home),
+        "reader-scroll"
+    );
+    assert!(!link_in_view(&view, 59));
+    while view.window().get_focus_id() != "reader-back" {
+        key_settled(&mut view, &mut model, Key::Backtab);
+    }
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-link:59",
+        "Shift+TAB from Back at the body's top: the last link"
+    );
+    assert!(link_in_view(&view, 59));
+}
+
+/// A link control taller than the screen, reached by TAB, is shown
+/// from its top and keeps the focus: the toolkit reveals only what fits
+/// the view and drops the focus of what it then finds out of view, so
+/// Shift+TAB would begin again at an end.
+#[test]
+fn tab_in_the_reader_keeps_a_link_taller_than_the_screen() {
+    let (mut view, mut model) = reader_on(&format!(
+        "{}\n\n[a](https://e.org/{})",
+        paragraphs(200),
+        // "W" draws wide in any font with Latin letters; U+FDFD drew
+        // short on a host without an Arabic font, so the link fitted the
+        // screen and, the last row, could not be scrolled to the top.
+        "W".repeat(1960)
+    ));
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Tab),
+        "reader-link:0"
+    );
+    let link = ElementHandle::find_by_element_type_name(view.window(), "LinkButton")
+        .find(|e| e.accessible_label().is_some_and(|l| l.contains("e.org")))
+        .expect("the link control drawn");
+    let area = ElementHandle::find_by_element_id(view.window(), "AppWindow::reader-scroll")
+        .next()
+        .expect("the scroll area drawn");
+    let scroll = area.absolute_position().y;
+    assert!(
+        link.size().height > area.size().height,
+        "the case's premise: the link ({}) taller than the screen ({})",
+        link.size().height,
+        area.size().height
+    );
+    assert!(
+        // The row's own 4 px padding sits above the control.
+        (link.absolute_position().y - scroll - 4.0).abs() < 1.0,
+        "shown from its top: the link at {}, the view at {scroll}",
+        link.absolute_position().y
+    );
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        "reader-scroll",
+        "Shift+TAB from the link goes back to the scroll area"
+    );
+}
+
+/// From the scroll area TAB goes to the first link control starting at
+/// or below the top of the screen, not back to the first link.
+#[test]
+fn tab_from_the_reader_scroll_area_starts_at_the_screen() {
+    let (mut view, mut model) = reader_on(&paragraphs_then_links(60));
+    key(&view, Key::End);
+    let _ = intents(&mut view, &mut model);
+    let shown: Vec<usize> = (0..60).filter(|i| link_in_view(&view, *i)).collect();
+    let first_shown = *shown.first().expect("End shows the last links");
+    assert!(first_shown > 0, "End shows only the last links: {shown:?}");
+    let focus = key_settled(&mut view, &mut model, Key::Tab);
+    let index: usize = focus
+        .strip_prefix("reader-link:")
+        .and_then(|i| i.parse().ok())
+        .unwrap_or_else(|| panic!("TAB went to {focus:?}"));
+    assert!(
+        index == first_shown || index == first_shown + 1,
+        "the first link at or below the screen's top ({first_shown}, or the next if it starts above): {index}"
+    );
+    assert!(link_in_view(&view, index));
+}
+
+/// With no link control, TAB from the scroll area goes to Back.
+#[test]
+fn tab_from_a_reader_with_no_links_goes_to_back() {
+    let (mut view, mut model) = reader_on(&paragraphs(200));
+    assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
+}
+
+/// The source form has no link control: TAB from its scroll area goes
+/// to Back though the formatted form has links.
+#[test]
+fn tab_from_the_source_form_of_a_reader_goes_to_back() {
+    let (mut view, mut model) = reader_on(&paragraphs_then_links(3));
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_as_source());
+    // Back to the scroll area, then TAB.
+    while view.window().get_focus_id() != "reader-scroll" {
+        key_settled(&mut view, &mut model, Key::Tab);
+    }
+    assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
+}
+
+/// 200 paragraphs, every twentieth holding a link.
+fn paragraphs_with_links() -> String {
+    (1..=200)
+        .map(|i| {
+            if i % 20 == 0 {
+                format!(
+                    "Paragraph {i} [link {}](https://e.org/{:02}).",
+                    i / 20 - 1,
+                    i / 20 - 1
+                )
+            } else {
+                format!("Paragraph {i}.")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// In the reader each link's control comes right after the line that
+/// holds it, never gathered after the body's last line (section 5.1 as
+/// ux-designer amended it, e2a1959d6 on #581): a person pressing a link
+/// halfway down a long body finds it there.
+#[test]
+fn a_reader_link_is_drawn_after_its_own_line() {
+    let (view, _model) = reader_on(&paragraphs_with_links());
+    let rows = reader_text(&view);
+    for k in 0..10 {
+        let at = rows
+            .iter()
+            .position(|r| r.contains(&format!("e.org/{k:02}")) && !r.starts_with("Paragraph"))
+            .unwrap_or_else(|| panic!("link {k}'s control"));
+        assert!(
+            rows[at - 1].starts_with(&format!("Paragraph {} link {k}", (k + 1) * 20)),
+            "link {k} follows its line: {:?}",
+            &rows[at - 1..=at]
+        );
+    }
+}
+
+/// With links through the body, TAB from the scroll area goes to the
+/// first one starting at or below the top of the screen, wherever the
+/// person has scrolled to, and on in body order.
+#[test]
+fn tab_from_the_middle_of_a_reader_starts_at_the_screen() {
+    let (mut view, mut model) = reader_on(&paragraphs_with_links());
+    for _ in 0..8 {
+        key(&view, Key::PageDown);
+        let _ = intents(&mut view, &mut model);
+    }
+    let shown: Vec<usize> = (0..10).filter(|i| link_in_view(&view, *i)).collect();
+    let first_shown = *shown.first().expect("a link on the screen");
+    assert!(first_shown > 0, "scrolled past the first link: {shown:?}");
+    let focus = key_settled(&mut view, &mut model, Key::Tab);
+    assert!(
+        focus == format!("reader-link:{first_shown}")
+            || focus == format!("reader-link:{}", first_shown + 1),
+        "TAB from the scroll area at link {first_shown}: {focus}"
+    );
+    let index: usize = focus["reader-link:".len()..].parse().expect("a link");
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Tab),
+        format!("reader-link:{}", index + 1)
+    );
 }
