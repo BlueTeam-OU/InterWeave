@@ -124,7 +124,7 @@ impl Screens {
                 })
             })
             .and_then(|()| match last_of(&self.seen, "page=") {
-                Some("conversations") => Ok(()),
+                Some("conversations") => self.app_takes_keys(),
                 Some("connect") => Err(format!(
                     "the app settled on Connect, which a phone with no peer and no trust entry owes; the driver starts from Chats and does not leave Connect, which writes the profile; {}",
                     self.where_now()
@@ -187,22 +187,29 @@ impl Screens {
     /// The field route: `line` typed into the address field (one line:
     /// `input text` types no newline, and the field splits on newlines
     /// alone), Add pressed, the add answered `added` and its trust step
-    /// drawn.
+    /// drawn. A note the add page shows instead -- a refusal, a failure
+    /// -- ends the wait at once, named.
     pub fn add_by_field(&mut self, line: &str, patience: Duration) -> Step {
         let name = "add_by_field";
         if !typable(line) {
             return step(
                 name,
                 false,
-                format!("{line:?} holds a character `input text` would mangle"),
+                format!(
+                    "{line:?} holds a character `input text` would mangle or key events \
+                     cannot type (a capital or a shifted symbol: the Slint 1.18.1 limit)"
+                ),
             );
         }
         let added = self
             .tab_to("address-field")
             .and_then(|()| self.adb_ok(&["shell", "input", "text", line]).map(drop))
+            .and_then(|()| self.tab_to("add-action"))
             .and_then(|()| {
-                self.press(
-                    "add-action",
+                let from = self.seen.len();
+                self.key("KEYCODE_ENTER")?;
+                self.wait_answer(
+                    from,
                     &["add=added lines=1", "page=peers-add-trust"],
                     patience,
                 )
@@ -579,6 +586,32 @@ impl Screens {
         })
     }
 
+    /// Every one of `wants` seen from `from` on, or an add page's note
+    /// seen first, which fails the wait naming it: a note is the add's
+    /// answer as much as a result is.
+    fn wait_answer(
+        &mut self,
+        from: usize,
+        wants: &[&str],
+        patience: Duration,
+    ) -> Result<(), String> {
+        let lines: Vec<String> = wants.iter().map(|w| format!("{TRACE}{w}")).collect();
+        self.wait_until(patience, |seen| {
+            let noted = note_in(&seen[from..]).is_some();
+            let missing: Vec<&str> = wants
+                .iter()
+                .zip(&lines)
+                .filter(|(_, l)| !seen[from..].contains(l))
+                .map(|(w, _)| *w)
+                .collect();
+            (!noted && !missing.is_empty()).then(|| format!("{missing:?}"))
+        })?;
+        match note_in(&self.seen[from..]) {
+            Some(kind) => Err(format!("answered note={kind}")),
+            None => Ok(()),
+        }
+    }
+
     /// Wait until a line starting with `prefix` is among the trace's
     /// lines from index `from` on.
     fn wait_prefix(&mut self, from: usize, prefix: &str, patience: Duration) -> Result<(), String> {
@@ -666,6 +699,31 @@ impl Screens {
         Ok(())
     }
 
+    /// The app's window is the one key events reach. A system window in
+    /// front -- the platform's permission prompt the app raises at launch
+    /// on API 33+ while notifications are not granted, the notification
+    /// shade, a keyguard -- takes every key the driver sends, and the
+    /// trace then says nothing at all: fail here naming it instead.
+    fn app_takes_keys(&self) -> Result<(), String> {
+        let (window, app) = crate::platform::input_focus(&self.dump(&["window"])?)?;
+        let ours = format!("{PACKAGE}/");
+        if window.as_deref().is_some_and(|w| w.starts_with(&ours)) {
+            return Ok(());
+        }
+        let prompt = app
+            .as_deref()
+            .is_some_and(|a| a.contains("GrantPermissionsActivity"));
+        Err(format!(
+            "key events go to window {window:?} (focused app {app:?}), not the app's{}",
+            if prompt {
+                ": the platform's permission prompt is in front; after a pm clear on API 33+ \
+                 grant android.permission.POST_NOTIFICATIONS before the run"
+            } else {
+                ""
+            }
+        ))
+    }
+
     /// `dumpsys <args>` on this serial, whole ([`crate::platform::dump_ended`]).
     fn dump(&self, args: &[&str]) -> Result<String, String> {
         let mut words = vec!["shell"];
@@ -750,13 +808,28 @@ pub fn app_lines(log: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether `input text` types `line` as it is: it reads `%s` as a space
-/// and the device shell would read its metacharacters.
+/// Whether `input text` types `line` as it is: it reads `%s` as a space,
+/// the device shell would read its metacharacters, and it sends key
+/// events, whose Shift the app's Slint 1.18.1 backend drops
+/// (apps/human-android/README.md): no capital and no shifted symbol
+/// reaches the field. A `PeerId` has capitals, so the field route cannot
+/// take one over adb until that bump; a lowercased one is refused as not
+/// an address (A40 and Pixel, 2026-11-08/09).
 fn typable(line: &str) -> bool {
     !line.is_empty()
         && line
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | ':' | '-' | '_'))
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '/' | '.' | '-'))
+}
+
+/// The first add-page note among trace `lines`, by kind: `none` is not
+/// one, since Add pressed again clears the last note before its answer.
+fn note_in(lines: &[String]) -> Option<&str> {
+    lines.iter().find_map(|l| {
+        l.strip_prefix(TRACE)?
+            .strip_prefix("note=")
+            .filter(|kind| *kind != "none")
+    })
 }
 
 /// `mInputShown` out of `dumpsys input_method`, the first one printed:
@@ -852,11 +925,41 @@ mod tests {
 
     #[test]
     fn only_an_address_input_text_types_as_it_is_is_typed() {
-        assert!(typable("/ip4/192.168.100.6/tcp/4001/p2p/12D3KooWExample"));
-        assert!(typable("/ip6/fe80::1/udp/4001/quic-v1"));
-        for line in ["", "a b", "a%sb", "a;b", "a'b", "a\nb", "a$b", "a&b"] {
+        assert!(typable("/ip4/192.168.100.6/tcp/4001/p2p"));
+        assert!(typable("/dns4/peer-1.example/udp/4001/quic-v1"));
+        for line in [
+            "",
+            "a b",
+            "a%sb",
+            "a;b",
+            "a'b",
+            "a\nb",
+            "a$b",
+            "a&b",
+            // Key events lose Shift: a capital, `:` and `_` arrive changed.
+            "/ip4/192.168.100.6/tcp/4001/p2p/12D3KooWExample",
+            "/ip6/fe80::1/udp/4001/quic-v1",
+            "a_b",
+        ] {
             assert!(!typable(line), "{line:?}");
         }
+    }
+
+    #[test]
+    fn a_note_is_found_by_its_kind_and_nothing_else_is() {
+        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(note_in(&lines(&["ui-trace add=waiting"])), None);
+        assert_eq!(note_in(&lines(&["ui-trace notice=none"])), None);
+        assert_eq!(note_in(&lines(&["ui-trace note=none"])), None);
+        assert_eq!(
+            note_in(&lines(&[
+                "ui-trace note=none",
+                "ui-trace add=waiting",
+                "ui-trace focus=address-field",
+                "ui-trace note=refused:grammar",
+            ])),
+            Some("refused:grammar")
+        );
     }
 
     #[test]

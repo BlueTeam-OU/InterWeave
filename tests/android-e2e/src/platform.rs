@@ -499,6 +499,37 @@ pub fn keyguard_showing(dump: &str) -> Result<bool, String> {
     }
 }
 
+/// Who takes key events, from `dumpsys window`: the window named by
+/// `mCurrentFocus` and the activity named by `mFocusedApp`, each as the
+/// dump writes it (`NotificationShade`; `com.android.permissioncontroller/
+/// .permission.ui.GrantPermissionsActivity`), `None` for `null`. A key
+/// the driver sends goes to that window, never to the app behind it: on
+/// the Pixel (API 37) after `pm clear`, the platform's notification
+/// prompt held it and 40 TABs moved no focus (2026-11-09).
+///
+/// # Errors
+/// A dump without `mCurrentFocus=` or `mFocusedApp=`: no answer, never
+/// read as the app's.
+pub fn input_focus(dump: &str) -> Result<(Option<String>, Option<String>), String> {
+    let named = |key: &str| {
+        let value = dump
+            .lines()
+            .find_map(|l| l.trim_start().strip_prefix(key))
+            .ok_or_else(|| format!("no {key} in dumpsys window"))?;
+        if value.trim() == "null" {
+            return Ok(None);
+        }
+        // `Window{2e297f1 u0 NotificationShade}`, `ActivityRecord{1456
+        // u0 pkg/.Activity t2046}`: the third word, braces taken off.
+        value
+            .split_whitespace()
+            .nth(2)
+            .map(|w| Some(w.trim_end_matches('}').to_owned()))
+            .ok_or_else(|| format!("{key}{value} names no window"))
+    };
+    Ok((named("mCurrentFocus=")?, named("mFocusedApp=")?))
+}
+
 /// How long a person is given to unlock the phone.
 pub const UNLOCK_PATIENCE: Duration = Duration::from_secs(300);
 
@@ -1057,6 +1088,41 @@ ACTIVITY MANAGER SERVICES (dumpsys activity services)
         // Control: a dump without the value is no answer, never unlocked.
         assert!(keyguard_showing("WINDOW MANAGER POLICY STATE\n").is_err());
         assert!(keyguard_showing(&line("maybe")).is_err());
+    }
+
+    #[test]
+    fn who_takes_keys_is_read_as_the_pixel_printed_it() {
+        // The Pixel 9a (API 37), 2026-11-09: the app launched after
+        // `pm clear`, its notification prompt in front, the screen locked.
+        let prompt = "  mCurrentFocus=Window{2e297f1 u0 NotificationShade}\n  \
+            mFocusedApp=ActivityRecord{145622583 u0 \
+            com.android.permissioncontroller/.permission.ui.GrantPermissionsActivity t2046}\n";
+        assert_eq!(
+            input_focus(prompt),
+            Ok((
+                Some("NotificationShade".to_owned()),
+                Some(
+                    "com.android.permissioncontroller/.permission.ui.GrantPermissionsActivity"
+                        .to_owned()
+                )
+            ))
+        );
+        let app = "  mCurrentFocus=Window{1a2b u0 org.interweave.human/org.interweave.human.MainActivity}\n  \
+            mFocusedApp=ActivityRecord{77 u0 org.interweave.human/.MainActivity t9}\n";
+        assert_eq!(
+            input_focus(app),
+            Ok((
+                Some("org.interweave.human/org.interweave.human.MainActivity".to_owned()),
+                Some("org.interweave.human/.MainActivity".to_owned())
+            ))
+        );
+        assert_eq!(
+            input_focus("  mCurrentFocus=null\n  mFocusedApp=null\n"),
+            Ok((None, None))
+        );
+        // Control: a dump without the lines is no answer.
+        assert!(input_focus("WINDOW MANAGER POLICY STATE\n").is_err());
+        assert!(input_focus("  mCurrentFocus=Window{1}\n  mFocusedApp=null\n").is_err());
     }
 
     #[test]

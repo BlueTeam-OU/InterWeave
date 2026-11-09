@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 use i_slint_backend_testing::ElementHandle;
 use interweave_human_client_api::{
-    AddressAnswer, AddressList, AddressOrigin, AddressOutcome, PeerAddress, ShowAddresses,
-    TrustList, TrustRow,
+    AddressAnswer, AddressList, AddressOrigin, AddressOutcome, AddressRefused, PeerAddress,
+    ShowAddresses, TrustList, TrustRow,
 };
 use interweave_human_ui_model::{
     ContactView, Intent, RouteView, RuntimeHost, TrustChange, UiModel, UiText, placeholder_en,
@@ -1708,4 +1708,69 @@ fn the_app_bar_arrow_is_back_on_every_screen_that_has_one() {
     assert_eq!(page.last(), "ui-trace focus=identity-back");
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Back]);
+}
+
+/// A typed add refused is an answer the trace says, as a result is: a
+/// driver waiting on the add fails on it instead of on its patience
+/// (A40, 2026-11-09: a `PeerId` typed by key events lost its capitals and
+/// the refusal printed nothing). The same refusal again is said again,
+/// after the `none` the next Add's send clears it with.
+#[test]
+fn a_refused_add_is_said_each_time() {
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    let me = peer();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    let _ = intents(&mut view, &mut model);
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: Vec::new(),
+    }));
+    model.addresses_read(Ok(AddressList::default()));
+    view.render(&model);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    let lowered = format!("/ip4/192.168.1.30/tcp/4001/p2p/{}", peer().as_str()).to_lowercase();
+    view.window().invoke_address_edited(lowered.clone().into());
+    for _ in 0..2 {
+        press(&view, text(UiText::AddAction));
+        assert_eq!(
+            intents(&mut view, &mut model),
+            vec![Intent::AddAddresses(vec![lowered.clone()])]
+        );
+        model.addresses_added(
+            std::slice::from_ref(&lowered),
+            Ok(AddressAnswer {
+                outcome: AddressOutcome::Refused(AddressRefused::Grammar),
+                list: Ok(AddressList::default()),
+            }),
+        );
+        view.render(&model);
+    }
+
+    let said = said.borrow();
+    let answers: Vec<&String> = said
+        .iter()
+        .filter(|l| l.starts_with("ui-trace add=") || l.starts_with("ui-trace note="))
+        .collect();
+    assert_eq!(
+        answers,
+        [
+            "ui-trace add=waiting",
+            "ui-trace note=refused:grammar",
+            "ui-trace add=waiting",
+            "ui-trace note=none",
+            "ui-trace note=refused:grammar",
+        ],
+        "in {said:#?}"
+    );
+    for line in said.iter() {
+        assert!(!line.contains("192.168.1.30"), "{line:?}");
+    }
 }

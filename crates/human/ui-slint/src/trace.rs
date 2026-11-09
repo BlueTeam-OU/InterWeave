@@ -8,7 +8,7 @@
 //!
 //! A line names only kinds: the page, the focused control's focus key
 //! (a fixed name, or one with the integer handles the view gives rows),
-//! where the start stands on onboarding's Connect, Show's state, the add's result and each trust block's state, the
+//! where the start stands on onboarding's Connect, Show's state, the add's result, the add page's note and each trust block's state, the
 //! connectivity and the session notice the window shows, the identity
 //! screen over it and whether its page carries ADR-0043's warning, and each credential prompt the root raised and its
 //! answer. Never a
@@ -22,8 +22,8 @@ use std::rc::Rc;
 
 use interweave_human_client_api::Connectivity;
 use interweave_human_ui_model::{
-    AddResult, BlockProblem, BlockState, ConnectPhase, Peers, ScreenId, SessionNotice, ShowState,
-    TrustSettings,
+    AddNote, AddResult, Barred, BlockProblem, BlockState, ConnectPhase, Peers, Refusal, ScreenId,
+    SessionNotice, ShowState, TrustSettings,
 };
 use interweave_transport_api::TransportIdentity;
 
@@ -42,6 +42,11 @@ pub(crate) struct Shown {
     pub(crate) show: Option<&'static str>,
     pub(crate) adding: bool,
     pub(crate) add: Option<(&'static str, usize)>,
+    /// The add page's note, by kind, and the count the model bumps at
+    /// every note set: a refusal is an add's answer as much as a result
+    /// is, and without it a driver waiting on the add saw only patience
+    /// run out. The count makes the same note set again a line again.
+    pub(crate) note: Option<(&'static str, u64)>,
     /// Each block's handle, state and problem, in the page's order.
     pub(crate) blocks: Vec<Block>,
     /// The connectivity the window shows: `offline` while the key waits
@@ -77,6 +82,10 @@ pub(crate) fn shown(
         AddResult::Unchanged { lines } => ("unchanged", *lines),
         AddResult::Checked { lines } => ("checked", *lines),
     });
+    let note = match peers.add_note_said() {
+        (Some(n), said) => Some((note(n), said)),
+        (None, _) => None,
+    };
     let blocks = peers
         .blocks(trust)
         .iter()
@@ -110,6 +119,7 @@ pub(crate) fn shown(
         show,
         adding: peers.add_waiting(),
         add,
+        note,
         blocks,
         connectivity,
         notice,
@@ -264,6 +274,37 @@ const fn state(s: BlockState) -> &'static str {
     }
 }
 
+const fn note(n: &AddNote) -> &'static str {
+    match n {
+        AddNote::AddressNeeded => "address-needed",
+        AddNote::ScanAfterField => "scan-after-field",
+        AddNote::ImageNoCode => "image-no-code",
+        AddNote::NotAddress => "not-address",
+        AddNote::ImageUnreadable => "image-unreadable",
+        AddNote::ClipboardNoImage => "clipboard-no-image",
+        AddNote::ClipboardUnreadable => "clipboard-unreadable",
+        AddNote::CameraDenied => "camera-denied",
+        AddNote::CameraDeniedSettings => "camera-denied-settings",
+        AddNote::Refused { why, .. } => match why {
+            Refusal::Grammar => "refused:grammar",
+            Refusal::SpecialUse => "refused:special-use",
+            Refusal::DnsFromScan => "refused:dns-from-scan",
+            Refusal::TooMany => "refused:too-many",
+            Refusal::Limit => "refused:limit",
+            Refusal::ListOff => "refused:list-off",
+            Refusal::OwnAddress => "refused:own-address",
+        },
+        AddNote::TooManyLines { .. } => "too-many-lines",
+        AddNote::Failed => "failed",
+        AddNote::Checking => "checking",
+        AddNote::Unknown { .. } => "unknown",
+        AddNote::Superseded { .. } => "superseded",
+        AddNote::SeveralIncompatible { .. } => "several-incompatible",
+        AddNote::Barred(Barred::NotPermitted) => "barred:not-permitted",
+        AddNote::Barred(Barred::Incompatible) => "barred:incompatible",
+    }
+}
+
 const fn problem(p: BlockProblem) -> &'static str {
     match p {
         BlockProblem::Trust(_) => "trust",
@@ -295,6 +336,12 @@ pub(crate) fn changes(before: &Shown, now: &Shown) -> Vec<String> {
             Some((kind, n)) => format!("{PREFIX} add={kind} lines={n}"),
             None => format!("{PREFIX} add=none"),
         });
+    }
+    if now.note != before.note {
+        lines.push(format!(
+            "{PREFIX} note={}",
+            now.note.map_or("none", |(kind, _)| kind)
+        ));
     }
     if now.connectivity != before.connectivity {
         lines.push(format!("{PREFIX} connectivity={}", now.connectivity));
