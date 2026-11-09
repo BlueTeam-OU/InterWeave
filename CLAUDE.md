@@ -663,6 +663,22 @@ check green. `tools/checks/check_yamux_muxer.sh` is the guard, because
 `cargo-deny` structurally cannot be; its `--help` carries the mechanism,
 the advisory id, and why banning the version would not work.
 
+**A THIRD GAP is live too, and it is in the database's own grammar.** A
+RustSec patched range names crate VERSIONS, and `cargo-deny` matches the
+version in `Cargo.lock` against it; a feature of a patched version that
+compiles a different source tree is invisible to that match.
+RUSTSEC-2026-0459 (SQLite before 3.54.0, uninitialized page-cache memory
+from a `-wal` of another page size) is patched at `libsqlite3-sys >=
+0.39.0`, and the `rusqlite` 0.41 bump (devex-tooling's j306) answers it for the
+check — while the human store's `bundled-sqlcipher-vendored-openssl`
+build of that very version compiles `sqlcipher-src` 419.0.6, SQLite
+3.53.4, which the advisory names as still affected. No check here can see
+it: the lock names the patched version and the advisory is answered.
+The residual is carried by name in the plan's §21 record with its
+re-check trigger (`sqlcipher-src >= 420`), and the lesson is the rule: when
+an advisory's text names a feature build, read the C source version the
+graph actually compiles, not the crate version the range clears.
+
 ### Licence headers are checked
 
 Every first-party source file carries an `SPDX-License-Identifier:
