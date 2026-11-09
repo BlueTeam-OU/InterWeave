@@ -5005,7 +5005,7 @@ The Android client brings the repository's first non-Cargo dependency graph — 
 - **Shape (architect-cto, on the owner's two words):** `osv-scanner` over the Gradle **lockfiles** (`gradle.lockfile`, `buildscript-gradle.lockfile`), which means dependency locking is turned on in the Gradle build so the scanned input is the resolved graph and not a guess from `build.gradle.kts`; the invocation is one documented command in `apps/human-android/README.md` (devex-tooling's to write and keep with the build, as the Cargo checks are), passing `--config=<the one osv-scanner.toml beside the build>` so one suppressions file governs every lockfile scanned (the tool otherwise reads a config only from each lockfile's own directory), never a Gradle task that would make the build depend on a network service; turning dependency locking on is the Gradle build's owner's (rust-ui-dev), and the command is checked once the lockfiles exist.
 - **Suppressions are reviewed exemptions**, not a way past the check: one `osv-scanner.toml` beside the build, one `[[IgnoredVulns]]` entry per accepted finding with the OSV id and a `reason` that names the artefact, says why the finding does not apply here and what would change the answer (the tool's entry has no artefact field, so the reason carries it; `ignoreUntil` where the exemption is dated), never a `[[PackageOverrides]]` entry, which ignores every finding of a package rather than one — the models are `deny.toml`'s `[advisories].ignore` entries and `tools/checks/license_exempt.txt`, and an entry without its sentence is what a reviewer refuses.
 
-Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `CLAUDE.md` records the live gaps: `yamux` with the guard for it, and, from the day `rusqlite` 0.41 lands, the store's SQLCipher residual of RUSTSEC-2026-0459, §21's carried item), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
+Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `CLAUDE.md` records the live gaps: `yamux` with the guard for it, and, since #602 landed `rusqlite` 0.41 on 2026-11-09, the store's SQLCipher residual of RUSTSEC-2026-0459, §21's carried item), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
 
 The Cargo graph's own policy gained three ignores during this stage (2026-10-18, p2p-network-dev's decision, 2aa72262, bae39f8a and dde0a007 folded into #297), beside RUSTSEC-2024-0436 (`paste`, since Stage 4) and §18 (14)'s RUSTSEC-2026-0192 (`ttf-parser`): RUSTSEC-2026-0370 (`zvariant` 5.15.0), RUSTSEC-2026-0371 (`zbus_names` 4.3.4) and RUSTSEC-2026-0372 (`zvariant_derive` 5.15.0), one announcement — the standalone crates merged into `zbus` 6.0.0, unmaintained on their own, informational with no patched release; the first two are runtime code in the desktop binary, the third a proc-macro — reached through the desktop's AT-SPI path (`i-slint-backend-winit` 1.18.1 names `zbus` 5 directly) and through `tests/desktop-e2e`'s own direct `zbus` 5.19 and `atspi` 0.29 dev-dependencies, absent from the Android graph. Dated 2026-10-16 in the advisory database, they turned every PR's `tree checks` and `tool self-tests` red from 2026-10-18 until the entries landed; a scan of the whole lock against the database at that date found nothing else unanswered. Their revisit is the next Slint or accesskit bump together with the e2e suite's `zbus`/`atspi` pins: a Slint bump alone leaves the crates in the graph through those pins. §18's Stage 15 record stays as the record of that date.
 
@@ -6026,27 +6026,36 @@ none is the status value's, which stays on this stage.
   SQLite before 3.54.0 can return uninitialized page-cache memory when a
   database is opened beside a `-wal` file of another page size; dated
   2026-10-30, local, the victim opens the files). devex-tooling's bump
-  to `rusqlite` 0.41 and `libsqlite3-sys` 0.39.1 (their j306, branch
-  `develop-qzapp/devex-tooling/fix/j306-rusqlite-0-41-rustsec-2026-0459`
-  at 58f4df7a3; its pull request lands the lock and `deny.toml`'s
-  `blessing` and `WTFPL` terms on the owner's word of 2026-11-09) turns
-  `cargo deny check advisories` green, because the advisory's patched
-  range is `>= 0.39.0` and the check matches crate versions. The store's
-  build is not what that range describes:
-  `bundled-sqlcipher-vendored-openssl` (ADR-0060) compiles
-  `sqlcipher-src` 419.0.6, SQLCipher 4.19.0 over SQLite 3.53.4, which
-  the advisory names as affected in as many words. Found by
-  rust-ui-dev-02 (OBSERVATION 01a1c020, 2026-11-09) and ruled by
-  architect-cto the same day: no vendored SQLCipher (ADR-0051's shape is
-  for a defect only a fork can fix, and a release is the remedy here),
-  no hold on the bump, and the residual carried here by name. Within the
-  record: the party the advisory needs is one that writes a `-wal`
-  beside `human.sqlite` under the profile's state root, a process with
-  the app's uid on Android or a same-user process on the desktop, which
-  ADR-0060's "what it does not protect against" places outside the
+  to `rusqlite` 0.41 and `libsqlite3-sys` 0.39.1 (their j306, #602,
+  merged 295cf217a on 2026-11-09: the lock, and `deny.toml`'s `blessing`
+  and `WTFPL` terms on the owner's word of that day) turns `cargo deny
+  check advisories` green, because the advisory's patched range is `>=
+  0.39.0` and the check matches crate versions. The store's build is not
+  what that range describes: `bundled-sqlcipher-vendored-openssl`
+  (ADR-0060) compiles `sqlcipher-src` 419.0.6, SQLCipher 4.19.0 over
+  SQLite 3.53.4, which the advisory names as affected in as many words.
+  Found by rust-ui-dev-02 (OBSERVATION 01a1c020, 2026-11-09) and ruled
+  by architect-cto the same day: no vendored SQLCipher (ADR-0051's shape
+  is for a defect only a fork can fix, and a release is the remedy
+  here), no hold on the bump, and the residual carried here by name.
+  Within the record: the party the advisory needs is one that writes a
+  `-wal` beside `human.sqlite` under the profile's state root, a process
+  with the app's uid on Android or a same-user process on the desktop,
+  which ADR-0060's "what it does not protect against" places outside the
   store's protection and whose threat model ADR-0060 leaves to ADR-0037
-  and §28, so the residual is a stated limit and not an owed row; no
-  `deny.toml` ignore is written, since the check reports nothing to
+  and §28, so the residual is a stated limit and not an owed row. The
+  reasoning covers every path on which the store opens a file it did not
+  write in this run (p2p-network-dev-02's question, OBSERVATION
+  01a1c039, ruled 2026-11-09): every open in `crates/human/store` is on
+  `human.sqlite` or a `human.sqlite<suffix>` beside it in the profile's
+  private human directory — the ordinary open, the plaintext rewrite's
+  read of a file an earlier build of the same store wrote there, the
+  recovery discard's read-only open of the encrypted copy — and no
+  restore or import path exists in v1, so the only `-wal` any path can
+  meet is one written into that directory by the party already named; a
+  whole state root a person copies in carries the key and the store
+  themselves, so a `-wal` inside it adds nothing to its author's reach;
+  no `deny.toml` ignore is written, since the check reports nothing to
   ignore. Re-check trigger: a `libsqlite3-sys` release whose
   `bundled-sqlcipher` depends on a `sqlcipher-src` whose lock version's
   build metadata names `sqlite-3.54.0` or later (the crate's major is
