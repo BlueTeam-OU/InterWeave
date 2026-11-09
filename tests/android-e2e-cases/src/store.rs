@@ -3,9 +3,9 @@
 //! [`crate::cases::STORE_UNREAD`]: the human store's unread rows, read in
 //! the app's own process. Since Stage 21 the store is encrypted under a
 //! key the platform's cipher seals (ADR-0060), the Keystore on a phone,
-//! and that key opens in no other process: a copy pulled to the host is
-//! ciphertext there (`NotADatabase`, the A40 on 2026-11-09), so the read
-//! is the app's, under the cipher the runner hands the case.
+//! and that key opens in no other process, so a copy pulled to the host
+//! is ciphertext there: the read is the app's, under the cipher the
+//! runner hands the case.
 
 use interweave_human_store::at_rest;
 use interweave_human_store::key_custody::KeyCipher;
