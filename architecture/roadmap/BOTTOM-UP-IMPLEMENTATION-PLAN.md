@@ -6046,29 +6046,34 @@ none is the status value's, which stays on this stage.
   and §28, so the residual is a stated limit and not an owed row. The
   reasoning covers every path on which the store opens a file it did not
   write in this run (p2p-network-dev-02's question, OBSERVATION
-  01a1c039, ruled 2026-11-09): every open in `crates/human/store` is on
-  `human.sqlite` or a `human.sqlite<suffix>` beside it in the profile's
-  private human directory — the ordinary open, the plaintext rewrite's
-  read of a file an earlier build of the same store wrote there, the
-  recovery discard's read-only open of the encrypted copy — and no
-  restore or import path exists in v1, so the only `-wal` any path can
-  meet is one written into that directory by the party already named; a
-  whole state root a person copies in carries the key and the store
-  themselves, so a `-wal` inside it adds nothing to its author's reach;
-  no `deny.toml` ignore is written, since the check reports nothing to
-  ignore. Re-check trigger: a `libsqlite3-sys` release whose
-  `bundled-sqlcipher` depends on a `sqlcipher-src` whose lock version's
-  build metadata names `sqlite-3.54.0` or later (the crate's major is
-  the SQLCipher release, 4.19 as 419, and says nothing of the SQLite it
-  bundles; 420 is the expected vehicle, not the test); devex-tooling,
-  whose lane takes the dependency bumps, reads this item closed at that
-  bump and names the versions in its pull request, and architect-cto
-  moves the record. Should Stage 18 close first, the item is carried to
-  §22 (Stage 19, which holds the carries by name), architect-cto its
-  holder. The gap it shows, a patched range that covers a feature build
-  still carrying the affected source, is `CLAUDE.md` §8's third
-  dependency-check gap, beside the GHSA-only and the vendored-crate
-  ones.
+  01a1c039, ruled 2026-11-09): every open a client reaches —
+  `HumanStore::open_profile` (the human CLI, the desktop and the Android
+  service call nothing else) and the at-rest opens under it: the
+  ordinary open, the plaintext rewrite's read of a file an earlier build
+  of the same store wrote there, the recovery discard's read-only open
+  of the encrypted copy — is on `human.sqlite` or a
+  `human.sqlite<suffix>` beside it in the profile's private human
+  directory; the crate's public `HumanStore::open(path)` is the
+  plaintext opener for tests and opens any path, and no client calls it,
+  so a client that did would void this reasoning and reopen the
+  question; no restore or import path exists in v1. So the only `-wal`
+  any client path can meet is one written into that directory by the
+  party already named; a whole state root a person copies in carries the
+  key and the store themselves, so a `-wal` inside it adds nothing to
+  its author's reach; no `deny.toml` ignore is written, since the check
+  reports nothing to ignore. Re-check trigger: a `libsqlite3-sys`
+  release whose `bundled-sqlcipher` depends on a `sqlcipher-src` whose
+  lock version's build metadata names `sqlite-3.54.0` or later (the
+  crate's major is the SQLCipher release, 4.19 as 419, and says nothing
+  of the SQLite it bundles; 420 is the expected vehicle, not the test);
+  devex-tooling, whose lane takes the dependency bumps, reads this item
+  closed at that bump and names the versions in its pull request, and
+  architect-cto moves the record. Should Stage 18 close first, the item
+  is carried to §22 (Stage 19, which holds the carries by name),
+  architect-cto its holder. The gap it shows, a patched range that
+  covers a feature build still carrying the affected source, is
+  `CLAUDE.md` §8's third dependency-check gap, beside the GHSA-only and
+  the vendored-crate ones.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
   the three prose status sites with it, and, unless done earlier, the
