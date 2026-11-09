@@ -1333,10 +1333,26 @@ fn tab_crosses_a_link_control_taller_than_the_list() {
         .set_size(slint::LogicalSize::new(411.0, 891.0));
     let mut model = UiModel::new();
     let alice = peer();
-    let tall = format!("[a](https://e.org/{})", "\u{FDFD}".repeat(1960));
+    // "W" draws wide in any font with Latin letters (U+FDFD draws short
+    // where no Arabic font is installed).
+    let tall = format!("[a](https://e.org/{})", "W".repeat(1960));
     model.received(received(1, &alice, &tall));
     model.received(received(2, &alice, &tall));
     open(&mut view, &mut model, &direct(&alice));
+    let list = ElementHandle::find_by_element_id(view.window(), "AppWindow::messages-flick")
+        .next()
+        .expect("the list drawn")
+        .size()
+        .height;
+    let control = ElementHandle::find_by_element_type_name(view.window(), "LinkButton")
+        .find(|e| e.accessible_label().is_some_and(|l| l.contains("e.org")))
+        .expect("a link control drawn")
+        .size()
+        .height;
+    assert!(
+        control > list,
+        "the case's premise: the link control ({control}) taller than the list ({list})"
+    );
     let handles: Vec<i32> = rows(&view).iter().map(|r| r.handle).collect();
     let [first, second] = handles[..] else {
         panic!("two rows: {handles:?}");
