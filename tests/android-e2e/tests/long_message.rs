@@ -48,10 +48,12 @@ use interweave_android_e2e_tests::adb::AdbDevice;
 use interweave_android_e2e_tests::long::{envelope, shapes};
 use interweave_android_e2e_tests::screen::{Screens, Step};
 use interweave_android_e2e_tests::{Desktop, Device, PATIENCE, free_port, human};
+use interweave_human_chat_protocol::render;
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
     ClientConfig, ClientEvent, Destination, OutboundStatus, SessionState, TransportClient,
 };
+use interweave_human_ui_model::{UiText, cut, fill, placeholder_en};
 use interweave_ipc_client::IpcBinding;
 use interweave_test_support::e2e::example;
 use interweave_transport_api::{MAX_PAYLOAD_BYTES, TransportIdentity};
@@ -193,6 +195,22 @@ fn ms(step: &Step, field: &str) -> Duration {
     Duration::from_millis(ms)
 }
 
+/// Whether the app's row cuts `text` drawn formatted, as the view asks
+/// the model (ui-slint's `drawn_body`, with its image text): a row it
+/// shows whole has no Read the whole message to press.
+fn cut_in_row(text: &str) -> bool {
+    let image = |alt: &str| {
+        if alt.trim().is_empty() {
+            placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
+        } else {
+            fill(placeholder_en::text(UiText::ImageNotShown), &[("alt", alt)])
+        }
+    };
+    cut::formatted(&render(text), &image)
+        .shown_percent
+        .is_some()
+}
+
 /// The phone's screen now, to `dir/<name>.png`.
 fn shot(serial: &str, dir: &Path, name: &str) {
     let out = Command::new("adb")
@@ -245,6 +263,7 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
     let mut rows = Vec::new();
     for (serial_no, (name, text)) in (1u8..).zip(shapes()) {
         let chars = text.chars().count();
+        let cut = cut_in_row(&text);
         sender.send(&phone_peer, serial_no, text, || d.log()).await;
         let row = tokio::task::block_in_place(|| {
             let frame = |what: &str| {
@@ -257,6 +276,10 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
                 let s = screens.open_conversation(PATIENCE);
                 frame("conversation");
                 passed(&s, &screens);
+            }
+            if !cut {
+                frame("whole-in-row");
+                return (name, chars, None);
             }
             let open = screens.read_whole(&opened, PATIENCE);
             if open.get(keys::RESULT).and_then(|v| v.as_str()) != Some(keys::PASS) {
@@ -292,7 +315,7 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
             let s = screens.close_reader(PATIENCE);
             passed(&s, &screens);
             opened.push(read);
-            (name, chars, ms(&open, "ms"), ends)
+            (name, chars, Some((ms(&open, "ms"), ends)))
         });
         rows.push(row);
     }
@@ -300,7 +323,11 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
     println!(
         "A5 on {serial}: shape, characters, open (figure {OPEN_FIGURE:?}), End formatted and source (figure {END_FIGURE:?}), frames"
     );
-    for (name, chars, open, ends) in &rows {
+    for (name, chars, times) in &rows {
+        let Some((open, ends)) = times else {
+            println!("{name}\t{chars}\twhole in the row: nothing to open");
+            continue;
+        };
         let over = |t: &Duration, figure: Duration| if *t > figure { " OVER" } else { "" };
         println!(
             "{name}\t{chars}\t{open:?}{}\t{:?}{} ({:?})\t{:?}{} ({:?})",

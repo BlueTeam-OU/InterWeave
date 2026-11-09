@@ -166,14 +166,40 @@ mod tests {
                 encode_outbound(&envelope(text.clone()), MAX_PAYLOAD_BYTES).is_ok(),
                 "{name} fits"
             );
-            // Far past the 2 000 characters and 40 lines that cut a body,
-            // so every one is cut in the row.
+            // Far past the 2 000 characters of the cut as source; whether
+            // the row cuts it drawn is the next test's.
             assert!(
                 text.chars().count() > 10_000,
                 "{name}: {} characters",
                 text.chars().count()
             );
         }
+    }
+
+    /// The padded link draws one character: its label is past the label
+    /// bound, so the link has no control and its text "a" is drawn inert
+    /// (`body::has_control`). The row shows it whole and the device case
+    /// has no Read the whole message to press for it; every other shape
+    /// is cut. The view's image text, as `tests/long_message.rs` gives it.
+    #[test]
+    fn the_row_cuts_every_shape_but_the_padded_link() {
+        use interweave_human_ui_model::{UiText, cut, fill, placeholder_en};
+        let image = |alt: &str| {
+            if alt.trim().is_empty() {
+                placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
+            } else {
+                fill(placeholder_en::text(UiText::ImageNotShown), &[("alt", alt)])
+            }
+        };
+        let whole: Vec<_> = shapes()
+            .into_iter()
+            .filter(|(_, text)| {
+                let rendered = interweave_human_chat_protocol::render(text);
+                cut::formatted(&rendered, &image).shown_percent.is_none()
+            })
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(whole, ["padded link"]);
     }
 
     #[test]
