@@ -8725,8 +8725,10 @@ export component AppWindow inherits Window {
                             // one starting at or below the top of the screen,
                             // else the first; from one to the next, then Back;
                             // Shift+TAB the reverse, to the scroll area. The
-                            // toolkit's own order reaches only the rows laid
-                            // out near the view.
+                            // toolkit's own order goes through the rows laid
+                            // out near the view; a link far from it is reached
+                            // by this one (`tab_in_the_reader_reaches_every_
+                            // link_laid_out_or_not`).
                             property <int> links: root.reader-as-source ? 0 : root.reader-link-rows.length;
                             // The link row TAB goes to, until it is laid out and
                             // focused; -1 for none.
@@ -8833,8 +8835,9 @@ export component AppWindow inherits Window {
                                         }
                                     }
                                     // Asked by a TAB: the row covering the view's top
-                                    // says so. Read only when asked, so making a row
-                                    // reads no geometry.
+                                    // says so. Its geometry is read when asked, not
+                                    // as the row is made, which would lay the list
+                                    // out once per row.
                                     property <int> ask: reader-scroll.ask-seq;
                                     changed ask => {
                                         if (reader-scroll.asking || reader-scroll.want >= 0) {
