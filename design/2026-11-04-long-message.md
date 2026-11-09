@@ -435,9 +435,10 @@ client puts a space on each side where the mark touches a character
 that is not a space, and any pause the words need in a locale is in
 the string itself (§8). The one exception is before the words when
 the string's first character is punctuation (Unicode general category
-P, such as en's comma or another script's): punctuation attaches
-to what precedes it, so the client adds no space there, and
-"cafe" + mark + "open" reads "cafe, character not shown, open". A space
+P, such as a comma in any script): punctuation attaches to what
+precedes it, so the client adds no space there; with a hypothetical
+string ", character not shown,", "cafe" + mark + "open" reads
+"cafe, character not shown, open". A space
 before a lone comma would also show on a braille display as a stray
 mark. The space after the words stays. In either case, no words are shown on screen.
 
@@ -795,7 +796,10 @@ it, those checks are blocked, never passed.
   it, and never the platform's own reading of U+FFFD (§6), with its
   punctuation setting at the default and at the lowest level: on the
   desktop by Orca, on the Pixel by TalkBack under §10's Android
-  precondition. C1's source pasted into the middle of a draft shows one
+  precondition. A view check with `ReplacedCharacter` set to a test
+  string led by punctuation, ", character not shown,", gives
+  "cafe" + mark + "open" the accessible text "cafe, character not
+  shown, open": no space before the string, one after it. C1's source pasted into the middle of a draft shows one
   mark there at once, before Send, with no other notice, and the caret
   just after the paste; Ctrl+Z on the desktop then leaves the draft as
   it was before the paste. A base typed with 31 combining marks shows
