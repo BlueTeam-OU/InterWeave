@@ -211,6 +211,34 @@ fn cut_in_row(text: &str) -> bool {
         .is_some()
 }
 
+/// A shape's line of A5's table: its times beside the figures, or that
+/// the row shows it whole.
+fn report((name, chars, times): &Row) {
+    let Some((open, ends)) = times else {
+        println!("{name}\t{chars}\twhole in the row: nothing to open");
+        return;
+    };
+    let over = |t: &Duration, figure: Duration| if *t > figure { " OVER" } else { "" };
+    println!(
+        "{name}\t{chars}\t{open:?}{}\t{:?}{} ({:?})\t{:?}{} ({:?})",
+        over(open, OPEN_FIGURE),
+        ends[0].0,
+        over(&ends[0].0, END_FIGURE),
+        ends[0].1,
+        ends[1].0,
+        over(&ends[1].0, END_FIGURE),
+        ends[1].1,
+    );
+}
+
+/// A shape's name, characters, and its open and End times with End's
+/// frame counts, when the row cuts it.
+type Row = (
+    &'static str,
+    usize,
+    Option<(Duration, Vec<(Duration, Option<serde_json::Value>)>)>,
+);
+
 /// The phone's screen now, to `dir/<name>.png`.
 fn shot(serial: &str, dir: &Path, name: &str) {
     let out = Command::new("adb")
@@ -260,7 +288,11 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
     passed(&launched, &screens);
 
     let mut opened: Vec<String> = Vec::new();
-    let mut rows = Vec::new();
+    // Each shape's line is printed once it is measured, so a later
+    // shape's failure keeps the times already taken.
+    println!(
+        "A5 on {serial}: shape, characters, open (figure {OPEN_FIGURE:?}), End formatted and source (figure {END_FIGURE:?}), frames"
+    );
     for (serial_no, (name, text)) in (1u8..).zip(shapes()) {
         let chars = text.chars().count();
         let cut = cut_in_row(&text);
@@ -317,28 +349,7 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
             opened.push(read);
             (name, chars, Some((ms(&open, "ms"), ends)))
         });
-        rows.push(row);
-    }
-
-    println!(
-        "A5 on {serial}: shape, characters, open (figure {OPEN_FIGURE:?}), End formatted and source (figure {END_FIGURE:?}), frames"
-    );
-    for (name, chars, times) in &rows {
-        let Some((open, ends)) = times else {
-            println!("{name}\t{chars}\twhole in the row: nothing to open");
-            continue;
-        };
-        let over = |t: &Duration, figure: Duration| if *t > figure { " OVER" } else { "" };
-        println!(
-            "{name}\t{chars}\t{open:?}{}\t{:?}{} ({:?})\t{:?}{} ({:?})",
-            over(open, OPEN_FIGURE),
-            ends[0].0,
-            over(&ends[0].0, END_FIGURE),
-            ends[0].1,
-            ends[1].0,
-            over(&ends[1].0, END_FIGURE),
-            ends[1].1,
-        );
+        report(&row);
     }
 
     Box::pin(sender.client.close()).await;
