@@ -153,6 +153,17 @@ def flags_in(config):
             **{f: (cache or {}).get(f, "absent") for f in FLAGS}}
 
 
+def dashed(path):
+    """path as Claude Code spells it in a project directory's name, every
+    character but a letter or digit a dash; a compaction summary names
+    the transcript under that directory."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(path))
+
+
+def unpath(text, scratch):
+    return text.replace(dashed(scratch), "$SCRATCH_PROJECT").replace(str(scratch), "$SCRATCH")
+
+
 def pieces(text, size=LONG - 100):
     """text in pieces each short enough that elide leaves it whole."""
     return [text[i:i + size] for i in range(0, len(text), size)]
@@ -359,7 +370,7 @@ def run_session(spec, scratch, out, config, workdir, policy, nonce, words, label
                     c.get("text", "") for c in content or [] if isinstance(c, dict))
                 summaries.append({"timestamp": v.get("timestamp"), "chars": len(text),
                                   "words_found": [w for w in words if w in text],
-                                  "nonce_found": nonce in text, "text_pieces": pieces(text)})
+                                  "nonce_found": nonce in text, "text_pieces": pieces(unpath(text, scratch))})
         record["compact_summaries"] = summaries
         (out / f"session-{label}.jsonl").write_text("\n".join(json.dumps(elide(v)) for v in entries) + "\n")
     return ok, record
@@ -459,6 +470,8 @@ def main() -> int:
     try:
         subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
         scrub(dest / "evidence.md", scratch, out)
+        if dashed(scratch.name) in (dest / "evidence.md").read_text():
+            raise SystemExit("evidence.md still names the scratch directory in a project directory's spelling")
         tainted = token_in([out, dest])
     except BaseException:
         shutil.rmtree(dest, ignore_errors=True)
