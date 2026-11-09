@@ -39,7 +39,10 @@
 #            beside (its own licence files cover its build code, which
 #            is not compiled in, and are not shipped for it).
 # A build-dependency that is also a normal one of the same crate is
-# listed as that and asks nothing.
+# listed as that and asks nothing. A sources crate that another crate
+# compiles is one line: its own texts as a compiled crate and its
+# entry's files, the line reading "<expression>; and <licence>, the
+# sources <crate>'s build compiles in".
 #
 # The texts are each crate's own files whose names begin LICENSE, LICENCE,
 # COPYING, NOTICE, COPYRIGHT or UNLICENSE (and the files of a directory so
