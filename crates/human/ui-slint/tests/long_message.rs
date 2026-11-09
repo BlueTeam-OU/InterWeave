@@ -1208,6 +1208,68 @@ fn tabs(view: &mut View, model: &mut UiModel, pressed: Key, n: usize) -> Vec<Str
 /// message began again at the top and never reached the next one, the
 /// composer or Send (the A40, 2026-11-08). Each is shown from its top as
 /// it gains focus (`Reveal`), and both directions cross every stop.
+/// Shift+TAB from the composer onto a message taller than the list, the
+/// list at its newest end so only the message's lower part is in view:
+/// the message is shown from its top (`Reveal.tall`, `keyed`).
+#[test]
+fn tab_onto_a_tall_message_in_view_in_part_shows_its_top() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    let headings = (0..40)
+        .map(|i| format!("# Heading {i} of a message taller than the list"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    model.received(received(1, &alice, &headings));
+    open(&mut view, &mut model, &direct(&alice));
+    let handle = rows(&view)[0].handle;
+    let top = |view: &View, id: &str| {
+        ElementHandle::find_by_element_id(view.window(), id)
+            .next()
+            .unwrap_or_else(|| panic!("{id} drawn"))
+            .absolute_position()
+            .y
+    };
+    let forward = tabs(&mut view, &mut model, Key::Tab, 8);
+    assert!(
+        forward.iter().any(|f| f == "composer"),
+        "TAB reaches the composer: {forward:?}"
+    );
+    while view.window().get_focus_id() != "composer" {
+        let _ = key_settled(&mut view, &mut model, Key::Tab);
+    }
+    // TAB showed the message from its top on the way: back to the
+    // newest end, as the conversation opened, by the person's wheel.
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(200.0, 400.0),
+            delta_x: 0.0,
+            delta_y: -100_000.0,
+        });
+    slint::platform::update_timers_and_animations();
+    let (list, before) = (
+        top(&view, "AppWindow::messages-flick"),
+        top(&view, "AppWindow::item"),
+    );
+    assert!(
+        before < list - 1.0,
+        "the message's top starts out of view: at {before}, the list at {list}"
+    );
+    assert_eq!(
+        key_settled(&mut view, &mut model, Key::Backtab),
+        format!("item:{handle}")
+    );
+    let after = top(&view, "AppWindow::item");
+    assert!(
+        after >= list - 1.0,
+        "shown from its top: the message at {after}, the list at {list}"
+    );
+}
+
 #[test]
 fn tab_crosses_messages_taller_than_the_list() {
     let mut view = view();

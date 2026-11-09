@@ -574,10 +574,14 @@ global Reveal {
     // The scroll that shows an item from its top: the item's top `y`
     // within the list's view, `h` its height, a view `view` tall over
     // content `content` tall at scroll `at` (a negative y). Unchanged for
-    // an item that fits the view, which the toolkit reveals, and for one
-    // in view in part.
-    public pure function tall(at: length, y: length, h: length, view: length, content: length) -> length {
-        if (h <= view || (y < view && y + h > 0px)) { return at; }
+    // an item that fits the view, which the toolkit reveals. Focus that
+    // came by TAB (`keyed`) is shown from the item's top even when part of
+    // the item is in view, since the person reads on from there; a press
+    // on the part in view leaves the list where it is, so the item does
+    // not move from under the finger
+    // (`tab_onto_a_tall_message_in_view_in_part_shows_its_top`).
+    public pure function tall(at: length, y: length, h: length, view: length, content: length, keyed: bool) -> length {
+        if (h <= view || (!keyed && y < view && y + h > 0px)) { return at; }
         max(min(0px, view - content), min(0px, at - y))
     }
 }
@@ -1221,11 +1225,12 @@ component LinkButton inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
-        root.gained();
+        root.gained(reason == FocusReason.tab-navigation);
     }
     // Focus arrived, before the toolkit scrolls it into view: where the
-    // control's list reveals it if it is taller than the list.
-    callback gained();
+    // control's list reveals it if it is taller than the list; `keyed`
+    // when it came by TAB.
+    callback gained(keyed: bool);
     // The label, whole: what it says and is named by.
     in property <string> text;
     // The label as drawn: `text` in pieces, each within the item extent,
@@ -7502,10 +7507,11 @@ export component AppWindow inherits Window {
                         self.content-y = min(0px, self.height - self.content-height);
                     }
                     // `item`, as it gains focus, shown from its top if it
-                    // is taller than the list and out of view (`Reveal`).
-                    public function reveal-tall(item-y: length, item-height: length) {
+                    // is taller than the list (`Reveal`): out of view, or
+                    // reached by TAB (`keyed`).
+                    public function reveal-tall(item-y: length, item-height: length, keyed: bool) {
                         self.content-y = Reveal.tall(self.content-y, item-y - self.absolute-position.y,
-                            item-height, self.height, self.content-height);
+                            item-height, self.height, self.content-height, keyed);
                     }
                     // The direction of the person's own scroll, said as it
                     // happens: `flicked` comes of the person's wheel, drag or
@@ -7774,7 +7780,8 @@ export component AppWindow inherits Window {
                         focus-gained(reason) => {
                             if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
                             if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
-                            messages-flick.reveal-tall(self.absolute-position.y, self.height);
+                            messages-flick.reveal-tall(self.absolute-position.y, self.height,
+                                reason == FocusReason.tab-navigation);
                         }
                         // The person's choice for this message, kept with its row
                         // while the row exists: the drawn body, or the source.
@@ -8223,7 +8230,7 @@ export component AppWindow inherits Window {
                                                 focus-key: "link:" + row.handle + ":" + link.index;
                                                 pressed => { root.link(row.handle, link.index); }
                                                 focused(k) => { root.focus-id = k; }
-                                                gained => { messages-flick.reveal-tall(self.absolute-position.y, self.height); }
+                                                gained(keyed) => { messages-flick.reveal-tall(self.absolute-position.y, self.height, keyed); }
                                             }
                                         }
                                         // The reason above the status, so the status
