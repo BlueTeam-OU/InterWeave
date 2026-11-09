@@ -38,6 +38,7 @@ use std::time::Duration;
 use interweave_android_e2e_cases::{
     CaseCtx, Told, keys, send_until_routed, to_android, to_desktop,
 };
+use interweave_human_store::key_custody::FilesystemCustody;
 use interweave_local_client_api::DataSessionPort;
 use serde_json::{Map, Value};
 
@@ -563,6 +564,9 @@ impl Device for HostStandIn {
                 move |config: &str| try_provision(&app_data_dir, config)
             })),
             client: None,
+            // The host's custody: what a store the stand-in's profile
+            // holds is sealed under.
+            store_cipher: Some(Box::new(FilesystemCustody)),
         };
         let (name, args) = (case.to_owned(), args.to_string());
         CaseRun::on_thread(case, move || {

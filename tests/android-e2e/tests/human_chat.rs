@@ -196,6 +196,7 @@ impl Device for AppStandIn {
                 self.service.hub(),
                 Arc::clone(&self.tap),
             ))),
+            store_cipher: None,
         };
         let (name, args) = (case.to_owned(), args.to_string());
         CaseRun::on_thread(case, move || {

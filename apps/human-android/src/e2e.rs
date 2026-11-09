@@ -66,6 +66,7 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
             binding: ServiceHost::global().runtime_binding(),
             provision: Some(provision),
             client: None,
+            store_cipher: None,
         };
         return interweave_android_e2e_cases::run(case, args, ctx);
     }
@@ -115,6 +116,7 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
         binding: service.runtime_binding(),
         provision: Some(provision),
         client,
+        store_cipher: None,
     };
     let out = interweave_android_e2e_cases::run(case, args, ctx);
     if let Some(stopped) = service.stop(GRACE) {
