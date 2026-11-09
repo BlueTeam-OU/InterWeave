@@ -119,11 +119,12 @@ archive daemon desktop
 
 RN_EXIT_aarch64_linux_android=1 expect 1 "a refusal for the APK's library is exit 1" \
     "FAIL: the APK's library (aarch64-linux-android: apkpkg): release_notices: refused for aarch64-linux-android"
-grep -q '^notices x86_64' "$LOG" \
-    && pass "a refusal of one build does not stop the other being checked" \
-    || fail "the archive was not checked beside the refused APK"
+# The archive is checked first, so only its refusal shows the guard going on.
 RN_EXIT_x86_64_unknown_linux_gnu=1 expect 1 "a refusal for the Linux archive is exit 1" \
     "FAIL: the Linux archive (x86_64-unknown-linux-gnu: daemon desktop)"
+grep -q '^notices aarch64-linux-android' "$LOG" \
+    && pass "a refusal of one build does not stop the other being checked" \
+    || fail "the APK was not checked after the refused archive" "$(cat "$LOG")"
 RN_EXIT_x86_64_unknown_linux_gnu=3 expect 2 "the tool's exit other than 0 or 1 is no answer: exit 2" \
     "release_notices.py did not answer for the Linux archive"
 
