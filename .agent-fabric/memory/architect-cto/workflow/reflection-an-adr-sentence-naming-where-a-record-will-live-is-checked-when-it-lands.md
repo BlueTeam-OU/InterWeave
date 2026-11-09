@@ -5,7 +5,7 @@ topic: "reflection-an-adr-sentence-naming-where-a-record-will-live-is-checked-wh
 description: "When an ADR says a lane's record \"will be recorded in <dir> when it lands\", the landing PR's verification checks that sentence against where the record actually went, and amends the pointer in the same round"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

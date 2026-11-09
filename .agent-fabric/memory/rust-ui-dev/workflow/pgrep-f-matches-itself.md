@@ -5,7 +5,7 @@ topic: "pgrep-f-matches-itself"
 description: "A wait loop or pkill using `pgrep -f`/`pkill -f` on a pattern also matches the shell running it — infinite wait or self-kill"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

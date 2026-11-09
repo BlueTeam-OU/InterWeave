@@ -5,7 +5,7 @@ topic: "channels-allowlist-gate"
 description: "What registers a plugin channel in Claude Code 2.1.286: dev flag only; --channels needs Anthropic's ledger or an org allowedChannelPlugins"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

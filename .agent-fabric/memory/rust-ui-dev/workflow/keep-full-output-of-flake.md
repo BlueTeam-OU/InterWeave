@@ -5,7 +5,7 @@ topic: "keep-full-output-of-flake"
 description: "when reporting another lane's test failure, keep the whole panic output, not grep'd location lines"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

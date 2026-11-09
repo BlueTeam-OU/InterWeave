@@ -24,6 +24,19 @@ cases' runs under `tests/android-e2e/runs/`. Each record names what it
 did not show; the plan's closing record for section 20 carries what
 the stage did not prove, by name.
 
+**Known limit: a hardware keyboard types no capitals.** Slint 1.18.1's
+android-activity backend maps each key code to fixed lowercase text and
+never reads the key's meta state, so a hardware or Bluetooth keyboard
+(and `adb shell input` key events) loses Shift, AltGr and dead keys in
+every text field: no capitals, no shifted symbols such as `:` or `@`.
+A PeerId typed that way on Add an address is refused as not an address
+(found on the Pixel 9a, 2026-11-08). The soft keyboard is unaffected:
+it commits text through the input connection, not as key events.
+Upstream fixed it after 1.18.1 (slint-ui/slint 3a7e700487); the limit
+goes with the bump to the first release that carries that commit, under
+the exact pins in the root `Cargo.toml`. Not measured on a physical
+keyboard.
+
 Build, on a host set up by `tools/host/android` (its README):
 
 ```sh

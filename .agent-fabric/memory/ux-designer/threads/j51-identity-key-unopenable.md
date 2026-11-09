@@ -5,7 +5,7 @@ topic: "j51-identity-key-unopenable"
 description: "j51 state — design note for an identity key refused at open and the new-key action, PR #411"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

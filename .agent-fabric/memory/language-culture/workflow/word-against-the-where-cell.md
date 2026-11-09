@@ -5,7 +5,7 @@ topic: "word-against-the-where-cell"
 description: "before wording a design s9 key, list every case its Where cell and the spec rows it cites name; a text true in the request's cases broke in the next one three times"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

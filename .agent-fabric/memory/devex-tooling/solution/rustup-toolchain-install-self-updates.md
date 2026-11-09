@@ -5,7 +5,7 @@ topic: "rustup-toolchain-install-self-updates"
 description: "rustup toolchain install also self-updates rustup (1.29.1 → 1.29.2 at j214), drifting from the registry/android pins' RUSTUP_VERSION"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

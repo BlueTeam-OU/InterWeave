@@ -5,7 +5,7 @@ topic: "idle-round-3-dispatch-2026-10-24"
 description: "2026-10-24 third idle-agent round (six REQUESTs): all landed by 2026-10-25; the axe-suite record and ADR-067 correction supplied for #1164, plan §27 regime fix for #1169; what remains is the two folds"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

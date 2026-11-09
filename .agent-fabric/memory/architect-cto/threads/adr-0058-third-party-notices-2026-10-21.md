@@ -5,7 +5,7 @@ topic: "adr-0058-third-party-notices-2026-10-21"
 description: "ADR-0058 (accepted 2026-10-21): how a release ships the notice of a crate with no licence file; all of it landed by 2026-10-22; the legal read of the standard-text fallback is the one open point"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

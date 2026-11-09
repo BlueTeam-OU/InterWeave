@@ -5,7 +5,7 @@ topic: "stage-20-fleet-carrier-2026-10-19"
 description: "Owner's direction 2026-10-19 that the fleet uses InterWeave as its transport while the coordination protocol stays OUT of the InterWeave repo (general-purpose transport, human-to-human too): ADR-0055 + plan §28 Stage 20 re-cut generic…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

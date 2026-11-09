@@ -254,6 +254,14 @@ pub(crate) fn camera_closed() {
     with_view(|view| view.camera_closed());
 }
 
+/// A credential prompt was answered: the trace says where focus stands
+/// once the answer has settled, after what the answer asked of the window
+/// (ui-slint's trace.rs).
+#[cfg(feature = "ui-trace")]
+pub(crate) fn trace_focus_settled() {
+    with_view(|view| view.trace_focus_settled());
+}
+
 /// The locked notice is to take focus once it shows on Chats or a
 /// conversation (unlock note §11, F11 and F12): asked of the window that
 /// shows, or, with none yet -- a recreation's starts before its window --

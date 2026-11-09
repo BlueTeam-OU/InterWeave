@@ -5,7 +5,7 @@ topic: "human-store-realistic-size"
 description: "InterWeave human store sizing: 500 kept messages is realistic, 2000 already large; unread and unsent are marginal; 20k is out of scope"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

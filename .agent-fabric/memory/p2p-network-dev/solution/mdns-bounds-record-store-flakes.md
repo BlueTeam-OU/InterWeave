@@ -5,7 +5,7 @@ topic: "mdns-bounds-record-store-flakes"
 description: "mdns_bounds record-store red was a test bug fixed by #386 (1056bae5), not noise; ingress global-bucket case red only under workspace load (2026-10-20)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

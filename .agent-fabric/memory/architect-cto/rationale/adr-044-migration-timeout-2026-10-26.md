@@ -5,7 +5,7 @@ topic: "adr-044-migration-timeout-2026-10-26"
 description: "j385 2026-10-26: gzapp release migrations run under NO statement bound (Command Timeout 0), each migration tx opens with SET LOCAL lock_timeout='30s', the operator variable unset=none; DECISION 01a175d1-0809 to backend-dev-01; owed…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

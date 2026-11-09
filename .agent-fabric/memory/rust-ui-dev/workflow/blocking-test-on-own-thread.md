@@ -5,7 +5,7 @@ topic: "blocking-test-on-own-thread"
 description: "a test of a timeout/cancel bound runs the possibly-blocking call on a spawned thread and waits with recv_timeout, so its mutation fails instead of hanging the suite"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

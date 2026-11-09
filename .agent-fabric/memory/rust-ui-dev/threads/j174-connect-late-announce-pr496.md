@@ -5,7 +5,7 @@ topic: "j174-connect-late-announce-pr496"
 description: "j174 / PR #496: Connect's line said once on a late trust change (add-a-peer §5.1, §8); model said rules, the FocusNote line, the sync trap"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

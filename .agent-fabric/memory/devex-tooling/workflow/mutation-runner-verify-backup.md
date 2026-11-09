@@ -5,7 +5,7 @@ topic: "mutation-runner-verify-backup"
 description: a mutation script that backs up a guard with cp and restores it can empty the guard when /home fills; verify the backup first
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "j54-address-superseded"
 description: "j54 state — add-a-peer s5.7 superseded refusal (IPC 2.10) of an address change or step-2 Trust, PR #425"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

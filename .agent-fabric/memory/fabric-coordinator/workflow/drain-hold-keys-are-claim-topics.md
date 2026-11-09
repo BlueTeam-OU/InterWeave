@@ -5,7 +5,7 @@ topic: "drain-hold-keys-are-claim-topics"
 description: "assemble.py --hold names a claim's own <role>/<class>:<topic>, not the slice a merge_target landed it in; two claims aimed at one section in one bundle lose one text silently"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"

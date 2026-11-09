@@ -5,7 +5,7 @@ topic: "arming-words-2026-10-26"
 description: "Arming words given or withheld on 2026-10-26 (InterWeave #462 given at 1e5821eb; #464 withheld because the head moved after the ask), and the check that decides it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 30a6121dcee2a32f
+  - 55ad4776aa91f860
   - 93bb24adbb139b32
 ---
 
@@ -65,6 +66,9 @@ dial's failure is the crate's dial's (next architecture batch).
 
 - **#488 (4 work, 17 fix, design only: start-window U1-U4, contact-cards 5.4.1 tie-break, ux-designer-01 j77)**: given at 14c652c3 (j426, 2026-10-27); seven rounds chained from merge-base fde14292. Side effect: the per-peer endpoint bound now counts contact_routes too (20afc55a, 5th commit on the state-v10 for/ branch) so §11's "at most 63 same-device lines" holds.
 
+- #525 (2 work, 2 fix; devex-tooling's check_ipc_prose_versions, my j475): word given 2026-10-31 at 0fc8045c by AUTHORIZES header in REPLY 01a19223-db40, after reading the head on origin, the posted blind review of that head and zero threads; two earlier heads (3257abe1, 04793c09) passed over because a fix was coming.
+- #526 (2 work, 1 fix; rust-ui-dev-01's Pixel 10-31 record + my SPIKES/plan prose, j477): word given 2026-10-31 at fa0a1187 by AUTHORIZES header, after origin head, both posted reviews (second clean) and zero threads; closes j157.
+
 *References: reflection-the-arming-word-is-given-on-a-finished-head-only*
 
-*Observed 2026-10-30 (architect-cto)*
+*Observed 2026-10-31 (architect-cto)*

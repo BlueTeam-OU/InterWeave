@@ -707,6 +707,33 @@ async fn a_failed_page_read_is_its_commands_failure_and_try_again_reads_it() {
     assert_eq!(root.model().messages(&key).len(), 10, "Try again reads it");
 }
 
+/// A page read no service took -- Android's kept model while the start
+/// is refused for the person (unlock note §11, j98 A17) -- shows no
+/// failure row, whose Try again could not succeed then; the same read
+/// failed by the store shows it (the control). Mutation: every failed
+/// page read taken as the store's failure.
+#[tokio::test]
+async fn a_page_read_no_service_took_shows_no_failure_row() {
+    for (why, failed) in [
+        (Failure::ServiceStopped, false),
+        (Failure::StorageUnavailable, true),
+    ] {
+        let from = peer();
+        let (a, _b) = FakeNetwork::pair(node(), node());
+        let mut root = Root::start(facade(&a, texts(&from, 10)));
+        let key = direct(&from);
+        root.model.window(WindowInput::Opened(key.clone()));
+        let page = root
+            .model
+            .turn()
+            .into_iter()
+            .find(|c| matches!(c, Command::Window(WindowCommand::FetchPage(_))))
+            .expect("the opening's page asked");
+        root.model.apply(Update::Failed { command: page, why });
+        assert_eq!(top_failed(&root, &key), failed, "{why:?}");
+    }
+}
+
 /// A held page read waits for the test and then reads: what lets a
 /// headless test see the progress row and the pressed row while a read
 /// is on its way. Mutation: a hold that does not wait.

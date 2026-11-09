@@ -5,7 +5,7 @@ topic: "redacted-mayor-deck-claims-2026-10-27"
 description: "gzapp product claims confirmed for brand-comms' deck for the first deployment city's mayor (2026-10-27, main 298717e9d) — the rewordings and the strikes, reusable for any sent deck"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

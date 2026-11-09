@@ -5,7 +5,7 @@ topic: "gzapp-below-min-arming-authority"
 description: "arming a gzapp or InterWeave PR under 8 work commits? the word comes from architect-cto (AUTHORIZES header) or the owner; the dry-run names who"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

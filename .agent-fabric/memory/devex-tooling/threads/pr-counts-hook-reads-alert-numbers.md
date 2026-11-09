@@ -5,7 +5,7 @@ topic: "pr-counts-hook-reads-alert-numbers"
 description: "the pr-counts stop hook takes \"#N\" for a Dependabot alert as a PR and blocks the reply; write \"alert N\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

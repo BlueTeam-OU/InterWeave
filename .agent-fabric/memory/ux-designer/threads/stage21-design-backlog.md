@@ -5,7 +5,7 @@ topic: "stage21-design-backlog"
 description: "flows owed to design/ when Stage 21 opens at Stage 17's close — peer by address (ADR-0062) and key-change proposal (ADR-0063)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

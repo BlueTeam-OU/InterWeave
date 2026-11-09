@@ -5,7 +5,7 @@ topic: "empty-response-stream-is-peer-unreachable-2026-10-26"
 description: "InterWeave direct v2 and endpoint directory — a response stream ending with zero bytes is PeerUnreachable (the remote never answered), a short field means at least one byte; ruled 2026-10-26 on #460 F3, supplied on a for/ branch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

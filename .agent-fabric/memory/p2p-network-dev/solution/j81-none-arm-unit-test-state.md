@@ -5,7 +5,7 @@ topic: "j81-none-arm-unit-test-state"
 description: "j81 done — None-arm unit test merged in #470 (d514608b, 2026-10-27); how a unit test sees what the dcutr crate was handed (tell_crate funnel)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

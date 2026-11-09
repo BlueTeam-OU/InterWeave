@@ -5,7 +5,7 @@ topic: "j41-cli-handoff"
 description: "Where the command-line human client (j41) stood, PR #368 batch 1's handoff on 2026-10-22, and the design the next session builds"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

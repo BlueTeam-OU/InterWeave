@@ -5,7 +5,7 @@ topic: "reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it
 description: "A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

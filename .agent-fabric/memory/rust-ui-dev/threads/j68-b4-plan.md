@@ -5,7 +5,7 @@ topic: "j68-b4-plan"
 description: "j68 B4 plan (2026-10-30 code-plan) - three PRs B4a/B4b/B4c, commit lists, the listed-mode removal decision, questions out"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

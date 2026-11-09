@@ -5,7 +5,7 @@ topic: "ci-command-line-is-read-by-guards"
 description: "Before changing a ci.yml run: line in InterWeave, run the full cargo xtask checks — other guards grep the workflow's command lines"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -26,6 +26,6 @@ run: line changes (exit 2 there for cargo-deny/cargo-machete just means not inst
 locally). The funnel check now accepts exactly that one wrapper as a prefix.
 Related: [[solution-carried-2026-10-05]].
 
-*References: ci-session-wrapper-measured-in-podman*
+*References: solution-carried-2026-10-05*
 
 *Observed 2026-10-04 (devex-tooling)*

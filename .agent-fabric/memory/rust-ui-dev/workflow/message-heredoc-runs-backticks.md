@@ -5,7 +5,7 @@ topic: "message-heredoc-runs-backticks"
 description: a GZCoord message written with an unquoted heredoc runs every backtick span as a command
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

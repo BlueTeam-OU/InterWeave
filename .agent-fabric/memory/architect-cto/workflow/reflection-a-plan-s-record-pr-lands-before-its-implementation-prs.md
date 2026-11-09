@@ -5,7 +5,7 @@ topic: "reflection-a-plan-s-record-pr-lands-before-its-implementation-prs"
 description: "W43: When a plan's first PR is \"the ADR + proposed contracts\", land it before the implementation PRs; gzapp's stop-call ADR slipped a month and PR 9 could not open until ADR-079 was written in one night"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

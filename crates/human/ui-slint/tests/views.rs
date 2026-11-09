@@ -547,6 +547,38 @@ fn a_phone_shows_the_session_notice_and_its_action_on_chats() {
     );
 }
 
+/// The session notice on a phone's Chats is set off the screen's sides
+/// as the same notice under a conversation's app bar is: it ran edge to
+/// edge there (j98, the locked notice on the Pixel 9a).
+#[test]
+fn the_session_notice_on_chats_keeps_the_conversations_side_insets() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    model.authentication_needed(true);
+    view.render(&model);
+    settle();
+    let insets = |view: &View| {
+        let message = the(view, text(UiText::AuthenticationNeeded));
+        let unlock = the(view, text(UiText::Authenticate));
+        (
+            message.absolute_position().x,
+            390.0 - (unlock.absolute_position().x + unlock.size().width),
+        )
+    };
+    let on_chats = insets(&view);
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    let in_conversation = insets(&view);
+    assert!(
+        in_conversation.0 >= 24.0,
+        "control: the pane's 12 px and the card's 12 px, {in_conversation:?}"
+    );
+    assert_eq!(on_chats, in_conversation, "start and end insets");
+}
+
 /// The locked notice takes focus when asked, on Chats and under a
 /// conversation's app bar, and gives it back when the lock clears: to
 /// Chats' heading, or to the conversation's composer (unlock note §11,
@@ -670,6 +702,176 @@ fn the_locked_notice_takes_focus_once_a_screen_over_it_goes() {
     view.render(&model);
     settle();
     assert_eq!(view.window().get_focus_id(), "notice", "the screen gone");
+}
+
+/// TAB on R until its Try again holds focus, as the person's tap left it.
+fn focus_try_again(view: &View) {
+    let window = view.window().window();
+    for _ in 0..8 {
+        if view.window().get_focus_id() == "identity-primary" {
+            return;
+        }
+        window.dispatch_event(WindowEvent::KeyPressed {
+            text: Key::Tab.into(),
+        });
+        window.dispatch_event(WindowEvent::KeyReleased {
+            text: Key::Tab.into(),
+        });
+        // A headless window makes an element inside an `if` only when
+        // the tree is walked.
+        let _ = labelled(view, text(UiText::TryAgain)).len();
+        settle();
+    }
+    panic!("TAB never reached Try again");
+}
+
+/// R's Try again granted takes R away with focus on its button, which
+/// goes with it: focus lands on Chats' heading, or on an open
+/// conversation's header -- never nowhere (j98, A14) -- and a locked
+/// notice asked for takes it instead (F11).
+#[test]
+fn a_screen_going_with_focus_on_it_hands_focus_to_what_it_covered() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    let r = || {
+        Some(interweave_human_ui_slint::store_page(&StoreRecovery::new(
+            StoreScreen::Recovery,
+            1,
+        )))
+    };
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "on Chats"
+    );
+
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "header-title",
+        "in a conversation, its header"
+    );
+
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    view.show_identity(None);
+    view.render(&model);
+    // A headless window makes the card, inside an `if`, only when the
+    // tree is walked; a real one draws first.
+    let _ = labelled(&view, text(UiText::Authenticate)).len();
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "notice",
+        "a locked notice asked for comes first"
+    );
+}
+
+/// A discard's restart opens on Chats, prompt granted or cancelled (unlock
+/// note section 11, L1; A16 bullet 1): the conversation R covered, with
+/// the data the discard deleted, is gone, and so is a page over it.
+#[test]
+fn chats_after_a_discard_closes_what_r_covered() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    let r = || {
+        Some(interweave_human_ui_slint::store_page(&StoreRecovery::new(
+            StoreScreen::Recovery,
+            1,
+        )))
+    };
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(!view.window().get_list_shown(), "control: the conversation");
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_chats();
+    let _ = intents(&mut view, &mut model);
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert!(view.window().get_list_shown(), "granted: Chats");
+    assert_eq!(
+        view.window().get_header_title().as_str(),
+        text(UiText::NoConversation),
+        "nothing open"
+    );
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "granted: F14's Chats heading"
+    );
+
+    open(&mut view, &mut model, &direct(&alice));
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_chats();
+    let _ = intents(&mut view, &mut model);
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    view.show_identity(None);
+    view.render(&model);
+    let _ = labelled(&view, text(UiText::Authenticate)).len();
+    settle();
+    assert!(view.window().get_list_shown(), "cancelled: Chats");
+    assert_eq!(view.window().get_focus_id(), "notice", "its locked notice");
+    model.authentication_needed(false);
+
+    view.render(&model);
+    open_trust(&view);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert!(view.window().get_trust_page(), "control: Trust is open");
+    view.show_identity(r());
+    view.show_chats();
+    let _ = intents(&mut view, &mut model);
+    view.show_identity(None);
+    view.render(&model);
+    assert!(!view.window().get_trust_page(), "Trust closed");
+
+    // The Android root's order: it hides R before it takes the queued
+    // Chats, so R goes while the conversation is still shown (#599 F1).
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(!view.window().get_list_shown(), "control: the conversation");
+    view.show_identity(r());
+    settle();
+    focus_try_again(&view);
+    view.show_chats();
+    view.show_identity(None);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    settle();
+    assert!(view.window().get_list_shown(), "hidden first: Chats");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "hidden first: Chats' heading, not the hidden header"
+    );
 }
 
 /// §13, the accessibility tree: message and connectivity controls carry
@@ -1730,6 +1932,35 @@ fn a_render_before_the_take_keeps_what_was_typed() {
     assert_eq!(model.composer(&key).draft, "ab");
 }
 
+/// A draft the view writes into the composer -- the model's, given back
+/// after the field was emptied, as after an Unlock (j98, A17) -- leaves
+/// the caret at its end, where the person's typing had left it, not at
+/// its start: the next key goes after the draft.
+#[test]
+fn a_draft_written_back_leaves_the_caret_at_its_end() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    let mut on_composer = false;
+    for _ in 0..30 {
+        if tab(&view) == "composer" {
+            on_composer = true;
+            break;
+        }
+    }
+    assert!(on_composer, "Tab reaches the composer");
+    model.draft_changed(key.clone(), "draft a17".to_owned());
+    view.render(&model);
+    settle();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed { text: "!".into() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: "!".into() });
+    assert_eq!(view.window().get_draft().as_str(), "draft a17!");
+}
+
 /// rust-ui-dev F2b, review R2-1: an edit is never refused, however full
 /// the queue -- what a person typed is never lost -- and a render meanwhile
 /// does not erase it.
@@ -1850,11 +2081,12 @@ fn a_queue_drained_at_each_take_holds_at_most_four_times_the_cap_plus_three() {
 /// The queue's bound with leaving for the list too, at its worst order: a
 /// focus change beside every input, an edit and a Left beside every
 /// selection, while a pane shown or hidden waits outside the queue -- six
-/// times the cap plus one here, and with the two snackbar closings and a
-/// focus change beside each, six times the cap plus nine at most (review
-/// F4 on #289, rounds 1 and 2; j84).
+/// times the cap plus one here, the root's Chats and a focus change beside
+/// it two more, and with the two snackbar closings and a focus change
+/// beside each, six times the cap plus eleven at most (review F4 on #289,
+/// rounds 1 and 2; j84; #599 F2).
 #[test]
-fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
+fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_eleven() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
@@ -1878,7 +2110,43 @@ fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
     // Each press with its edit, its Left and three focus changes, and one
     // focus change more; no pane change among them.
     assert_eq!(view.queued_inputs(), 6 * INPUT_CAP + 1);
-    assert!(view.queued_inputs() <= 6 * INPUT_CAP + 9);
+    view.show_chats();
+    view.set_window_focused(false);
+    view.show_chats();
+    assert_eq!(view.queued_inputs(), 6 * INPUT_CAP + 3, "one Chats waits");
+    assert!(view.queued_inputs() <= 6 * INPUT_CAP + 11);
+}
+
+/// The root's Chats is not a press: a full queue never refuses it, so a
+/// discard's restart never leaves the person in a conversation whose data
+/// is gone, and asked twice before a take it waits once (#599 F3).
+#[test]
+fn the_roots_chats_is_never_refused_and_waits_once() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    let key = direct(&alice);
+    open(&mut view, &mut model, &key);
+    for _ in 0..INPUT_CAP {
+        view.select(key.clone());
+    }
+    view.window().invoke_send();
+    assert_eq!(view.refused_inputs(), 1, "control: the queue is full");
+    let queued = view.queued_inputs();
+    view.show_chats();
+    view.show_chats();
+    assert_eq!(view.refused_inputs(), 1, "Chats is not refused");
+    assert_eq!(view.queued_inputs(), queued + 1, "one Chats waits");
+    while !view.take_events(&model).is_empty() {}
+    assert_eq!(view.queued_inputs(), 0, "drained");
+    assert!(view.window().get_list_shown(), "Chats");
+    assert_eq!(
+        view.window().get_header_title().as_str(),
+        text(UiText::NoConversation),
+        "nothing open"
+    );
 }
 
 /// Review F1: a render that changes nothing about an item keeps focus on

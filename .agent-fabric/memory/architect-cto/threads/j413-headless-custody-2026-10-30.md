@@ -5,7 +5,7 @@ topic: "j413-headless-custody-2026-10-30"
 description: "j413 (R4 of the j422 control-plane design): ADR-0060 d3 and ADR-0038 amended 2026-10-30 on IW #509 — a headless custody/unlock for an automated client's (control) profile when SPIKE-007's envelope lands; who runs store discard, identity…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

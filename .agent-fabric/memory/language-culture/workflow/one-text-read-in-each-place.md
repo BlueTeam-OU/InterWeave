@@ -5,7 +5,7 @@ topic: "one-text-read-in-each-place"
 description: "a text one tool writes into several artifacts must be read as the reader of each one; deictic words (\"this release\", \"below\") break first"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -25,7 +25,7 @@ A second case on 2026-10-23, in a UI string rather than a file: IdR1NewKeys show
 
 **How to apply:** for a template or generated text, first ask the caller or the code where it ships. In the first pass, read it once per place. Give the cold read every place too: it caught "this release" only because the brief named both places. Related: [[workflow-carried-2026-10-10]].
 
-*References: cold-read-without-meanings*
+*References: workflow-carried-2026-10-10*
 
 *Anchors: `interweave:tools/ci/release_notices.py::render`*
 

@@ -500,8 +500,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     self.model.intent_refused(&intent);
                 }
                 // A read the window waits on ends here too: the edge shows
-                // its failure row, a photo its initials.
+                // its failure row, a photo its initials -- but a page no
+                // service took was never read, and a Try again could not
+                // succeed while none runs (unlock note §11).
                 match &command {
+                    Command::Window(WindowCommand::FetchPage(ask))
+                        if why == Failure::ServiceStopped =>
+                    {
+                        self.model.page_not_read(ask);
+                    }
                     Command::Window(WindowCommand::FetchPage(ask)) => self.model.page_failed(ask),
                     Command::Window(WindowCommand::ReadReplyTarget(ask)) => {
                         self.model.reply_target_failed(ask);

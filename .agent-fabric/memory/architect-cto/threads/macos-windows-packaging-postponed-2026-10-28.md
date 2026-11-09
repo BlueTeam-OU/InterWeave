@@ -5,7 +5,7 @@ topic: "macos-windows-packaging-postponed-2026-10-28"
 description: "the owner, 2026-10-28: macOS and Windows packaging are postponed indefinitely, an option after the whole plan is complete; the v1 release matrix is Linux and Android; recorded on InterWeave #505 (plan §21/§22, READMEs)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

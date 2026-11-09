@@ -5,7 +5,7 @@ topic: "conflict-ends-and-chain"
 description: "A git revert/merge that conflicts exits non-zero and silently skips every later step of a && chain; diff the staged commit against its message before committing"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

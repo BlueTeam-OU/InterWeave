@@ -5,7 +5,7 @@ topic: "slint-focus-new-element"
 description: "A Slint control created by the render that requests focus on it misses the first focus-seq change; the snackbar \"undo\" focus key is cleared by the view"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

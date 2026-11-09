@@ -5,7 +5,7 @@ topic: "admin-peers-address-methods"
 description: "ADR-0062 admin.peers add/remove/list_addresses shapes p2p-network-dev-02 published for plan §29 step 4/5's add-a-peer and show-your-own screens"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "desktop-e2e-needs-with-display"
 description: "desktop-e2e human_app fails \"never reached the AT-SPI registry, which lists []\" outside tools/ci/with_display.sh"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

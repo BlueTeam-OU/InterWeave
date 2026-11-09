@@ -5,7 +5,7 @@ topic: "j68-b2-plan"
 description: "j68 start window B2 (model/protocol) commit plan C1-C11 from the 2026-10-28 code-plan, the enum constraints, and the questions sent to owners"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

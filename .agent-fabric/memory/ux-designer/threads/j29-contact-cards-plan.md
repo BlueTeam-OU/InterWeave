@@ -5,7 +5,7 @@ topic: "j29-contact-cards-plan"
 description: "Contact-card UX spec (j29, REQUEST 01a15d2a from architect-cto-01) - written as design/2026-10-21-contact-cards.md, branch docs/contact-cards, PR after #333 merges"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
