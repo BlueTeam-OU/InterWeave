@@ -99,3 +99,36 @@ APK page's `THIRD-PARTY-NOTICES-android.md` written by the tool (plan
 derived still refuses the artifact — so the sentence loses its
 "until" and names the release that ran under it. Propagation: this
 note; decision 6; the log row; the digest entry; the README row.
+
+### Amendment 2026-11-09 — A build-dependency's compiled sources are the artifact's crates; a second list classifies every build-dependency; the notices are checked on the PR
+
+Decision 1 said "every third-party crate compiled into it" and described
+the set as "the build's own resolve for that artifact's target and
+packages, never the workspace-wide one, as `release_notices.py` already
+computes it". The tool walked normal dependencies only, and so did a
+reader of the record: a build-dependency runs at build time, but a
+`-src` crate's C sources are compiled into the program by its
+dependent's build script — `sqlcipher-src`'s SQLCipher under
+`libsqlite3-sys` 0.39.1 (which arrived with #602's `rusqlite` 0.41 bump,
+295cf217a), `openssl-src`'s OpenSSL under `openssl-sys` — and neither
+notice was in `THIRD-PARTY-NOTICES.md` or the Android crate notices
+(measured by devex-tooling on 2026-11-09: the tool on `main` emitted
+neither crate on either graph). The principle was right and its text
+incomplete, so this is an amendment and not a superseding record:
+decision 1 names a build-dependency whose sources are compiled in as a
+compiled crate of the artifact and a tool build-dependency as owing
+nothing; decision 2.i admits, for that class, the notice files beside the
+sources inside the crate, by path, since its top-level files cover build
+code that is not shipped; decision 3 gains the second reviewed list,
+`tools/ci/notice_sources.json`, every build-dependency of a compiled
+crate classified as a tool with its reason or as sources by name,
+version, licence and files, an unclassified one or a version mismatch
+refusing the artifact. Consequences said a bump "fails the release";
+since the same day a tree check (`tools/checks/check_release_notices.sh`)
+runs the tool over each shipped build's graph as the release does, so the
+refusal is red on the PR that brought the crate. One classification
+recorded as a judgement: `gl_generator` is a tool — it emits function
+tables generated from the Khronos registry's data, and no registry text
+is copied into the output. Propagation: this note; decisions 1, 2.i and
+3, Consequences, Operational and Implementation implications; the
+amendments row; the README row; the digest entry and keyword row.

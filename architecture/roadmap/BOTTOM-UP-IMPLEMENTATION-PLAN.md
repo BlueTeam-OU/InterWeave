@@ -5005,7 +5005,7 @@ The Android client brings the repository's first non-Cargo dependency graph — 
 - **Shape (architect-cto, on the owner's two words):** `osv-scanner` over the Gradle **lockfiles** (`gradle.lockfile`, `buildscript-gradle.lockfile`), which means dependency locking is turned on in the Gradle build so the scanned input is the resolved graph and not a guess from `build.gradle.kts`; the invocation is one documented command in `apps/human-android/README.md` (devex-tooling's to write and keep with the build, as the Cargo checks are), passing `--config=<the one osv-scanner.toml beside the build>` so one suppressions file governs every lockfile scanned (the tool otherwise reads a config only from each lockfile's own directory), never a Gradle task that would make the build depend on a network service; turning dependency locking on is the Gradle build's owner's (rust-ui-dev), and the command is checked once the lockfiles exist.
 - **Suppressions are reviewed exemptions**, not a way past the check: one `osv-scanner.toml` beside the build, one `[[IgnoredVulns]]` entry per accepted finding with the OSV id and a `reason` that names the artefact, says why the finding does not apply here and what would change the answer (the tool's entry has no artefact field, so the reason carries it; `ignoreUntil` where the exemption is dated), never a `[[PackageOverrides]]` entry, which ignores every finding of a package rather than one — the models are `deny.toml`'s `[advisories].ignore` entries and `tools/checks/license_exempt.txt`, and an entry without its sentence is what a reviewer refuses.
 
-Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `CLAUDE.md` records the one live gap, `yamux`, and the guard for it), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
+Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `CLAUDE.md` records the live gaps: `yamux` with the guard for it, and, since #602 landed `rusqlite` 0.41 on 2026-11-09, the store's SQLCipher residual of RUSTSEC-2026-0459, §21's carried item), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
 
 The Cargo graph's own policy gained three ignores during this stage (2026-10-18, p2p-network-dev's decision, 2aa72262, bae39f8a and dde0a007 folded into #297), beside RUSTSEC-2024-0436 (`paste`, since Stage 4) and §18 (14)'s RUSTSEC-2026-0192 (`ttf-parser`): RUSTSEC-2026-0370 (`zvariant` 5.15.0), RUSTSEC-2026-0371 (`zbus_names` 4.3.4) and RUSTSEC-2026-0372 (`zvariant_derive` 5.15.0), one announcement — the standalone crates merged into `zbus` 6.0.0, unmaintained on their own, informational with no patched release; the first two are runtime code in the desktop binary, the third a proc-macro — reached through the desktop's AT-SPI path (`i-slint-backend-winit` 1.18.1 names `zbus` 5 directly) and through `tests/desktop-e2e`'s own direct `zbus` 5.19 and `atspi` 0.29 dev-dependencies, absent from the Android graph. Dated 2026-10-16 in the advisory database, they turned every PR's `tree checks` and `tool self-tests` red from 2026-10-18 until the entries landed; a scan of the whole lock against the database at that date found nothing else unanswered. Their revisit is the next Slint or accesskit bump together with the e2e suite's `zbus`/`atspi` pins: a Slint bump alone leaves the crates in the graph through those pins. §18's Stage 15 record stays as the record of that date.
 
@@ -5487,6 +5487,45 @@ that unlisting the view dropped the newer facade's own answer, 5c735753
 the store's busy timeout), host-tested with the real embedded runtime
 and not run on a phone, so the restart interleaving above carries this
 too.
+Found after the close, from ux-designer's run of the unlock-policy
+design's A17 case on the A40 (2026-11-08, OBSERVATION 01a1bb5a,
+finding 1; rust-ui-dev-01's QUESTION 01a1bb8b-eee6 and architect-cto's
+REPLY 01a1bb8d-0776 of the same day): a capital letter typed as a KEY
+EVENT arrives lowercase, so a PeerId typed on Add an address is refused.
+The cause is the toolkit's, not the client's, and architect-cto read it
+in the pinned source: Slint 1.18.1's Android backend
+(`i-slint-backend-android-activity`, `androidwindowadapter.rs`'s
+`map_key_event`) maps each Keycode to one fixed text and reads no meta
+state, so Shift, AltGr and dead keys are lost from a hardware keyboard,
+while a soft keyboard commits text through the input connection and is
+unaffected (Gboard, rust-ui-dev-01's account); fixed upstream in Slint's
+3a7e700487 (2026-09-22), in no release at this writing, and the
+workspace pins `=1.18.1` exactly (`Cargo.toml`'s exact pins, which its
+comment ties to the i-slint-* crates making no semver promise). Ruled 2026-11-08 (architect-cto, option (b) of the question's
+three): NO vendored patch — every `third_party/` tree has an ADR saying
+why a registry release would not do (ADR-0051, ADR-0053, ADR-0054), and
+here only time is missing, so a patched UI backend would be a fork
+across the gap for an input no shipped flow assumes (Restore's R2 takes
+lowercase letters and Enter, `design/2026-10-19-android-identity.md`
+item 15, and the device runs typed those lowercase words with `adb
+input text`); and NOT silent — a user-visible limit is on record
+here, so the limit is CARRIED to the next Slint bump, beside §18 (15)'s
+inline styling, by name: **on Android a hardware keyboard enters
+lowercase letters, digits and the keys the backend maps, and no
+capital, so a PeerId cannot be typed from one until the bump**. The
+identity design's §8 ("The screens are workable without touch: a
+hardware keyboard or switch access") is untouched by it, its R2 and C3
+taking only lowercase letters; the flow the limit reaches is Add an
+address (`design/2026-10-22-add-a-peer.md`), whose keyboard reach
+holds for focus and Enter and not for a typed PeerId until then. The
+Android README's limits prose is rust-ui-dev's, and the bump theirs
+when a release carries the commit, re-measured at that bump on a phone
+with a hardware keyboard attached — and with
+`tests/android-e2e/src/screen.rs`'s `add_by_field`, which types an
+address line with `adb shell input text` (key events, so a PeerId's
+capitals are lowercased on 1.18.1) and has no caller today, as the
+host-side case (the review of #596, 2026-11-08). Whether a hardware keyboard is a target of the v0.3 release
+is the owner's question, put 2026-11-08 and open at this writing.
 
 ## 21. Stage 18 — full adversarial/security gate
 
@@ -5983,6 +6022,58 @@ none is the status value's, which stays on this stage.
   from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
   deferral either, as decided (0) required while the stage ran beside
   Stage 17.
+- **RUSTSEC-2026-0459's residual in the human store** (CVE-2026-119375:
+  SQLite before 3.54.0 can return uninitialized page-cache memory when a
+  database is opened beside a `-wal` file of another page size; dated
+  2026-10-30, local, the victim opens the files). devex-tooling's bump
+  to `rusqlite` 0.41 and `libsqlite3-sys` 0.39.1 (their j306, #602,
+  merged 295cf217a on 2026-11-09: the lock, and `deny.toml`'s `blessing`
+  and `WTFPL` terms on the owner's word of that day) turns `cargo deny
+  check advisories` green, because the advisory's patched range is `>=
+  0.39.0` and the check matches crate versions. The store's build is not
+  what that range describes: `bundled-sqlcipher-vendored-openssl`
+  (ADR-0060) compiles `sqlcipher-src` 419.0.6, SQLCipher 4.19.0 over
+  SQLite 3.53.4, which the advisory names as affected in as many words.
+  Found by rust-ui-dev-02 (OBSERVATION 01a1c020, 2026-11-09) and ruled
+  by architect-cto the same day: no vendored SQLCipher (ADR-0051's shape
+  is for a defect only a fork can fix, and a release is the remedy
+  here), no hold on the bump, and the residual carried here by name.
+  Within the record: the party the advisory needs is one that writes a
+  `-wal` beside `human.sqlite` under the profile's state root, a process
+  with the app's uid on Android or a same-user process on the desktop,
+  which ADR-0060's "what it does not protect against" places outside the
+  store's protection and whose threat model ADR-0060 leaves to ADR-0037
+  and §28, so the residual is a stated limit and not an owed row. The
+  reasoning covers every path on which the store opens a file it did not
+  write in this run (p2p-network-dev-02's question, OBSERVATION
+  01a1c039, ruled 2026-11-09): every open a client reaches —
+  `HumanStore::open_profile` (the human CLI, the desktop and the Android
+  service call nothing else) and the at-rest opens under it: the
+  ordinary open, the plaintext rewrite's read of a file an earlier build
+  of the same store wrote there, the recovery discard's read-only open
+  of the encrypted copy — is on `human.sqlite` or a
+  `human.sqlite<suffix>` beside it in the profile's private human
+  directory; the crate's public `HumanStore::open(path)` is the
+  plaintext opener for tests and opens any path, and no client calls it,
+  so a client that did would void this reasoning and reopen the
+  question; no restore or import path exists in v1. So the only `-wal`
+  any client path can meet is one written into that directory by the
+  party already named; a whole state root a person copies in carries the
+  key and the store themselves, so a `-wal` inside it adds nothing to
+  its author's reach; no `deny.toml` ignore is written, since the check
+  reports nothing to ignore. Re-check trigger: a `libsqlite3-sys`
+  release whose `bundled-sqlcipher` depends on a `sqlcipher-src` whose
+  lock version's build metadata names `sqlite-3.54.0` or later (the
+  crate's major is the SQLCipher release, 4.19 as 419, and says nothing
+  of the SQLite it bundles; 420 is the expected vehicle, not the test);
+  devex-tooling, whose lane takes the dependency bumps, reads this item
+  closed at that bump and names the versions in its pull request, and
+  architect-cto moves the record. Should Stage 18 close first, the item
+  is carried to §22 (Stage 19, which holds the carries by name),
+  architect-cto its holder. The gap it shows, a patched range that
+  covers a feature build still carrying the affected source, is
+  `CLAUDE.md` §8's third dependency-check gap, beside the GHSA-only and
+  the vendored-crate ones.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
   the three prose status sites with it, and, unless done earlier, the

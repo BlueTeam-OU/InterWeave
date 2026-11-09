@@ -61,6 +61,10 @@ impl Task {
 /// test below, which reads `tools/checks/` from disk rather than trusting this
 /// list: a check added to the directory and forgotten here would be a guard
 /// that a developer's pre-push run silently skips.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one entry per tree check, in ci.yml's order: its length is the number of checks"
+)]
 fn tree_checks() -> Vec<Task> {
     vec![
         Task::new(
@@ -162,6 +166,11 @@ fn tree_checks() -> Vec<Task> {
             "no shipped build turns a test-hooks feature on",
             "bash",
             &["tools/checks/check_shipped_test_hooks.sh"],
+        ),
+        Task::new(
+            "every shipped build's third-party notices can be written",
+            "bash",
+            &["tools/checks/check_release_notices.sh"],
         ),
         Task::new(
             "the root funnel's test file is present and CI runs cargo test (or cargo nextest run) --all-targets",
