@@ -164,6 +164,11 @@ fn tree_checks() -> Vec<Task> {
             &["tools/checks/check_shipped_test_hooks.sh"],
         ),
         Task::new(
+            "every shipped build's third-party notices can be written",
+            "bash",
+            &["tools/checks/check_release_notices.sh"],
+        ),
+        Task::new(
             "the root funnel's test file is present and CI runs cargo test (or cargo nextest run) --all-targets",
             "bash",
             &["tools/checks/check_root_funnel_precondition.sh"],
