@@ -101,7 +101,10 @@ four programs), `systemd/` (the two templates), `install.sh`,
 notice of every crate compiled into the programs and the Claude Code
 bridge -- the licence files it publishes, or for a crate that publishes none
 a notice derived as `tools/ci/notice_derived.json` lists it (ADR-0058); a
-crate with neither fails the archive -- and `claude-plugin/`, the Claude Code plugin marketplace with the
+crate with neither fails the archive -- and of the C libraries a crate's
+build compiles in from a build-dependency's sources (SQLCipher, OpenSSL),
+by the notice files `tools/ci/notice_sources.json` names; a build-dependency
+that list does not classify fails the archive too -- and `claude-plugin/`, the Claude Code plugin marketplace with the
 bridge inside it. `install.sh` does not install the plugin; Claude Code adds
 it, from a copy of `claude-plugin/` kept where it stays, with
 `claude plugin marketplace add <that copy>` and then

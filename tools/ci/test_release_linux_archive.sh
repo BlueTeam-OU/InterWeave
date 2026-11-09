@@ -106,6 +106,10 @@ nodes = [
 print(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages[:5]],
                   "resolve": {"nodes": nodes}}))
 PY
+# The fixture's build-dependency is a tool; release_notices.py's own
+# self-test holds the classification (test_release_notices.sh).
+printf '{"tools": {"buildonly": "runs at build time"}, "sources": []}\n' > "$SANDBOX/sources.json"
+export NOTICE_SOURCES_JSON="$SANDBOX/sources.json"
 
 # What `cargo tree -e normal -p <the five>` prints: the roots, the
 # crates their build compiles, a repeat marked (*).
