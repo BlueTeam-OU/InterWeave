@@ -1498,7 +1498,10 @@ fn tab_in_the_reader_keeps_a_link_taller_than_the_screen() {
     let (mut view, mut model) = reader_on(&format!(
         "{}\n\n[a](https://e.org/{})",
         paragraphs(200),
-        "\u{FDFD}".repeat(1960)
+        // "W" draws wide in any font with Latin letters; U+FDFD drew
+        // short on a host without an Arabic font, so the link fitted the
+        // screen and, the last row, could not be scrolled to the top.
+        "W".repeat(1960)
     ));
     assert_eq!(
         key_settled(&mut view, &mut model, Key::Tab),
@@ -1507,11 +1510,16 @@ fn tab_in_the_reader_keeps_a_link_taller_than_the_screen() {
     let link = ElementHandle::find_by_element_type_name(view.window(), "LinkButton")
         .find(|e| e.accessible_label().is_some_and(|l| l.contains("e.org")))
         .expect("the link control drawn");
-    let scroll = ElementHandle::find_by_element_id(view.window(), "AppWindow::reader-scroll")
+    let area = ElementHandle::find_by_element_id(view.window(), "AppWindow::reader-scroll")
         .next()
-        .expect("the scroll area drawn")
-        .absolute_position()
-        .y;
+        .expect("the scroll area drawn");
+    let scroll = area.absolute_position().y;
+    assert!(
+        link.size().height > area.size().height,
+        "the case's premise: the link ({}) taller than the screen ({})",
+        link.size().height,
+        area.size().height
+    );
     assert!(
         // The row's own 4 px padding sits above the control.
         (link.absolute_position().y - scroll - 4.0).abs() < 1.0,
