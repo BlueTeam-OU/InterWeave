@@ -817,7 +817,10 @@ it, those checks are blocked, never passed.
   limit). A contact whose name holds the same cluster: the Chats row's
   title, the conversation header, the author line and the contact
   screen's name each show one mark, and a screen reader reaching each
-  says `ReplacedCharacter` there, at both settings.
+  says `ReplacedCharacter` there, at both settings. Your card's name
+  holding the same cluster: the card screen shows one mark and says
+  `ReplacedCharacter`; with that name open for editing, the field's
+  accessible value is its text, never `ReplacedCharacter`.
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
