@@ -718,7 +718,9 @@ it, those checks are blocked, never passed.
   note takes. The build measures and reports the largest item in each
   dimension. Wide text is included: a whole body just under the bound
   of W (Latin), of U+6F22 (CJK), of an emoji and of U+FDFD, each in
-  formatted mode, in source mode and in the reader. An item past the
+  formatted mode and in source mode in the conversation; and a body of
+  each past the bound, at the largest the envelope admits, in the
+  reader in both modes (a whole body is not offered there, §3). An item past the
   extent is a defect of the split by measure (§5.1), never a reason to
   shrink the text or raise the figures. The build also measures and
   reports each shape's whole row at 200 %, the four wide bodies
