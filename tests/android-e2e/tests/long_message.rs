@@ -339,7 +339,11 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
                 assert_eq!(
                     end.get("at-end").and_then(|v| v.as_str()),
                     Some("yes"),
-                    "{name}, {form}: no frame showed the list at its end: {end:?}"
+                    // The trace waits 20 s for the end (ui-slint's
+                    // `END_PATIENCE`): a slower End is reported with its
+                    // time below, so `no` is an end that never came, or
+                    // a reader closed first.
+                    "{name}, {form}: no frame showed the list at its end within 20 s: {end:?}"
                 );
                 frame(&format!("{form}-end"));
                 ends.push((ms(&end, "ms"), end.get("frames").cloned()));

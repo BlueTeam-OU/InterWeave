@@ -1056,10 +1056,12 @@ fn after_frame(tasks: &FrameTasks, window: &AppWindow, task: impl FnOnce() + 'st
 }
 
 /// How long the trace waits after End for a frame that shows the
-/// reader's list at its end: past A5's 1 s, so a slow End is said with
-/// its time rather than not at all.
+/// reader's list at its end. Far past A5's 1 s, so a slow End is said
+/// with its time and a driver reports it beside the figure, and `at-end=no`
+/// means the end did not come at all; under the 30 s a device case waits
+/// for the line (`tests/android-e2e/tests/long_message.rs`).
 #[cfg(feature = "ui-trace")]
-const END_PATIENCE: Duration = Duration::from_secs(3);
+const END_PATIENCE: Duration = Duration::from_secs(20);
 
 /// After each frame from End on, say the time once the reader's list
 /// stands at its end, or, past [`END_PATIENCE`], that it did not; one
