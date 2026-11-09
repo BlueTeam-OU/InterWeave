@@ -39,10 +39,12 @@
 use std::os::unix::fs::PermissionsExt as _;
 use std::time::{Duration, Instant};
 
-use interweave_android_e2e_cases::{Recording, Tap, chat_text, desktop_message_id};
+use interweave_android_e2e_cases::{
+    Recording, StoreUnreadArgs, Tap, cases, chat_text, desktop_message_id, keys, unread_ids,
+};
 use interweave_android_e2e_tests::adb::{AdbDevice, PACKAGE};
 use interweave_android_e2e_tests::platform::{self, app_pid, dump, sdk, shell};
-use interweave_android_e2e_tests::{Desktop, Device, PATIENCE, free_port, human};
+use interweave_android_e2e_tests::{Desktop, Device, PATIENCE, PROFILE, free_port, human};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
@@ -52,6 +54,7 @@ use interweave_human_ui_model::{UiText, placeholder_en};
 use interweave_ipc_client::IpcBinding;
 use interweave_test_support::e2e;
 use interweave_transport_api::{MAX_PAYLOAD_BYTES, TransportIdentity};
+use serde_json::Value;
 
 /// Where an `embedded-android` profile listens: a wildcard only.
 const WILDCARD: &str = "/ip4/0.0.0.0/tcp/0";
@@ -60,10 +63,6 @@ const WILDCARD: &str = "/ip4/0.0.0.0/tcp/0";
 /// `MESSAGES_ID` on its `MESSAGES_CHANNEL`.
 const NOTICE_ID: &str = "id=2 ";
 const NOTICE_CHANNEL: &str = "channel=messages";
-
-/// The human store, under the app's data directory: the embedded
-/// profile's `human_dir` (`ProfilePaths`) and `STORE_FILE`.
-const STORE: &str = "interweave/state/profiles/human-android/human/human.sqlite";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a device with the app's androidTest build: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
@@ -141,21 +140,26 @@ async fn a_process_death_restarts_the_service_into_the_same_store() {
         "no person and no second restart: the same process took it"
     );
 
-    // Read at rest: no writer while the store's two files are copied.
+    // Read at rest, in the app's process: the store is encrypted under a
+    // Keystore-sealed key (ADR-0060) that opens in no other, so a pulled
+    // copy is ciphertext here. The case runs with no runtime, so no writer.
     phone.stop();
-    let copy = private_dir();
-    let db = copy.path().join("human.sqlite");
-    private_file(&db, &phone.pull(STORE));
-    if let Some(wal) = pull_if_any(&format!("{STORE}-wal")) {
-        private_file(&copy.path().join("human.sqlite-wal"), &wal);
-    }
-    let unread: Vec<String> = HumanStore::open(&db, StoreOptions::default())
-        .expect("the copy opens")
-        .unread_inbound()
-        .expect("its unread rows")
-        .into_iter()
-        .map(|r| r.app_message_id.as_str().to_owned())
-        .collect();
+    let out = phone
+        .run_case(
+            cases::STORE_UNREAD,
+            &StoreUnreadArgs {
+                profile: PROFILE.to_owned(),
+            }
+            .to_json(),
+        )
+        .result();
+    assert_eq!(
+        out.get(keys::RESULT).and_then(Value::as_str),
+        Some(keys::PASS),
+        "the store's unread rows: {out:?}\nphone:\n{}",
+        phone.log()
+    );
+    let unread = unread_ids(out[keys::UNREAD].as_str().expect("the ids as text"));
     for serial in [1, 2] {
         assert!(
             unread.contains(&desktop_message_id(serial)),
@@ -379,16 +383,6 @@ fn notice() -> Option<String> {
         .map(str::to_owned)
 }
 
-/// A file under the app's data directory read as the app, or `None`
-/// when there is none.
-fn pull_if_any(path: &str) -> Option<Vec<u8>> {
-    let out = platform::adb()
-        .args(["exec-out", "run-as", PACKAGE, "cat", path])
-        .output()
-        .expect("adb");
-    (out.status.success() && out.stderr.is_empty() && !out.stdout.is_empty()).then_some(out.stdout)
-}
-
 /// A scratch directory the store accepts: owner-only at creation,
 /// whatever the umask (ADR-0028 A 2026-10-08).
 fn private_dir() -> tempfile::TempDir {
@@ -396,12 +390,6 @@ fn private_dir() -> tempfile::TempDir {
         .permissions(std::fs::Permissions::from_mode(0o700))
         .tempdir()
         .expect("a private directory")
-}
-
-/// `bytes` written owner-only, as the store requires of its files.
-fn private_file(path: &std::path::Path, bytes: &[u8]) {
-    std::fs::write(path, bytes).expect("a copy");
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).expect("owner-only");
 }
 
 fn wall_ms() -> u64 {
