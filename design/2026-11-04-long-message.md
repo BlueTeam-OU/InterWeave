@@ -13,13 +13,11 @@ and a cluster past 32 code points is drawn as one replacement mark
 both on `main` in HUMAN-CHAT.md (the Bounds with §6's figures, 2 000
 and 40, written on #562; the Clusters bullet, with "raw source
 viewable" aligned to it). Where this note and the contract ever differ,
-the contract governs, with one exception while it is pending: the
-drawn-line unit and the 8 000 logical px bound on each drawn item
-(§5.1, §6, A4) follow architect-cto's DECISION 01a1ab12-5459, written
-as c416bea40 on their branch for rust-ui-dev's j95 pull request and not
-yet on `main`. Until it lands, HUMAN-CHAT.md's Bounds on `main` counts
-model lines and holds the renderer's ceiling by the figures; A4's
-drawn-line and per-item checks apply from its landing.
+the contract governs. Its Bounds on `main` carry both rulings this
+note builds on: the drawn-line unit and the 8 000 logical px bound on
+each drawn item (§5.1, §6, A4; architect-cto's DECISION 01a1ab12-5459,
+c416bea40), and the weighted count with the split by measure (Bounds
+ruling A 2026-11-07, DECISION 01a1b6b7-afbe, 0b0b11c1a).
 
 Owner of the design: ux-designer. The words are language-culture's: §8
 names each string and what it must say. Colours are roles of
@@ -243,10 +241,12 @@ where the person is in the body and let them move through it quickly.
 Whether the toolkit offers both is a precondition of A5 (§10).
 
 **Drawn in pieces**, in both modes, because no drawn item may pass
-8 000 logical px in either dimension (§6). A piece's bound is that
-extent as the layout measures it, never a count of characters, weighted
-or not (Bounds ruling A 2026-11-07, §6): one glyph can be many times
-wider than another. A piece ends where the text is drawn
+8 000 logical px in either dimension (§6). A piece holds no more
+than a whole body may (§6's figures, as the contract's Bounds say), and
+a drawn line within it that is taller or wider than 8 000 logical px is
+split further by its extent as the layout measures it, never by a count
+of characters, weighted or not (Bounds ruling A 2026-11-07, §6): one
+glyph can be many times wider than another. A piece ends where the text is drawn
 broken anyway, and there nothing shows, at the last such place inside
 the piece's bound: in source mode at a line break (§6); in formatted
 mode at a block boundary (a paragraph, a list item, a table row, a
@@ -341,7 +341,8 @@ tall as one of Latin letters). The weight comes from Unicode's
 properties, never from a font, so the cut depends on neither the width
 nor the text size, which is §2's reason for not cutting by drawn
 height. Every figure below counts the same way; the reader's pieces
-are not counted at all (§5.1). A line is a **drawn** line: one of the model's lines
+are each within the figures of a whole body, and a drawn line past
+8 000 logical px is split further by measure, not by count (§5.1). A line is a **drawn** line: one of the model's lines
 (a paragraph, a list item, a table row, a code line, a heading, a
 rule), plus one for each hard line break inside it, however it wraps —
 soft wrapping counts nothing (architect-cto's DECISION 01a1ab12-5459:
@@ -511,8 +512,8 @@ Why these figures, and the conditions any other figures must keep:
   selection — spans more than **8 000 logical px** in width or height,
   so any display scale up to 4 stays under the renderer's 32 767
   physical px, and the client never clamps the platform's scale
-  (architect-cto's DECISION 01a1ab12-5459, in HUMAN-CHAT.md's Bounds
-  with rust-ui-dev's j95 pull request). A whole body taller than that is
+  (architect-cto's DECISION 01a1ab12-5459, in HUMAN-CHAT.md's
+  Bounds). A whole body taller than that is
   drawn in pieces split by their measured extent (§5.1); an item past
   it is a defect of that split, never a reason to shrink the text or
   raise the figures. The figures are for the person (above)
@@ -854,7 +855,7 @@ miss the cut line, or look for the next message inside the reader.
   8 000 px item extent is held by splitting each piece by its measured
   extent, never by a count (§5.1); glyphs wider than two cells are a
   known limit of the figures only (§6). The contract text is
-  architect-cto's, with rust-ui-dev's j95 pull request.
+  architect-cto's, on `main` since 0b0b11c1a.
 
 Left out on purpose: a hint on screen for a link drawn inert (§6);
 search within a message; selecting part of a
