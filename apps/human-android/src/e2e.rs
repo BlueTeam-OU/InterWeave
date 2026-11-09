@@ -116,7 +116,9 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
         binding: service.runtime_binding(),
         provision: Some(provision),
         client,
-        store_cipher: None,
+        // The store's own cipher, as the launch above holds it: the key
+        // the store_unread case opens with, in this process only.
+        store_cipher: Some(Box::new(crate::keystore::StoreKeystore(cipher))),
     };
     let out = interweave_android_e2e_cases::run(case, args, ctx);
     if let Some(stopped) = service.stop(GRACE) {
