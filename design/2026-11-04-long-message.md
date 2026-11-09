@@ -230,7 +230,8 @@ the body gives them. The row keeps its controls together after its
 text, the cut line and Open the whole message (§4.1, §9): a row's
 text is bounded by §6's figures, so its links come after at most one
 whole body's text, which for a whole row at the bound is several
-screens at 200 % text (A3). Keeping the row's controls in one place is
+screens at 200 % text (A4's record), and more for §6's known limit,
+about 117 for 2 000 × U+FDFD. Keeping the row's controls in one place is
 a judgement, not evidence: a row is a list item, passed over as one,
 and the reader is where a long body is read.
 
@@ -264,8 +265,9 @@ is lost, repeated or cut, and no gap opens. The one thing that shows is
 a short, ragged line at that split, where the text itself does not
 break. That is accepted (rust-ui-dev's j92 note on #561: the toolkit
 does not say where it wraps): it changes no character, Copy takes the
-source whole, and it comes about once per piece of such a stretch — a
-few thousand characters, rust-ui-dev's estimate of a piece — never
+source whole, and it comes about once per piece of such a stretch — at
+most 2 000 characters (§6), fewer where a drawn line past 8 000
+logical px is split by measure — never
 between blocks or lines that break anyway.
 
 **Across a resize.** A window that changes between narrow and wide
