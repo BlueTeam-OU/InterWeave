@@ -103,7 +103,7 @@ mod tests {
     use interweave_human_store::{
         AppMessageId, HumanStore, InboundKind, InboundOrigin, NewInbound, StoreOptions,
     };
-    use interweave_local_client_fake::FakeNode;
+    use interweave_local_client_fake::{FakeConfig, FakeNetwork, FakeNode};
     use interweave_transport_api::TransportIdentity;
 
     use super::*;
@@ -150,6 +150,15 @@ mod tests {
         dir: &std::path::Path,
         cipher: Option<Box<dyn KeyCipher + Send>>,
     ) -> Map<String, Value> {
+        case_serving(dir, cipher, None)
+    }
+
+    /// [`case`], with `binding` standing for a runtime serving the app.
+    fn case_serving(
+        dir: &std::path::Path,
+        cipher: Option<Box<dyn KeyCipher + Send>>,
+        binding: Option<FakeNode>,
+    ) -> Map<String, Value> {
         let out = run::<FakeNode>(
             cases::STORE_UNREAD,
             &StoreUnreadArgs {
@@ -160,7 +169,7 @@ mod tests {
             CaseCtx {
                 peer: sender(),
                 app_data_dir: dir.to_owned(),
-                binding: None,
+                binding,
                 provision: None,
                 client: None,
                 store_cipher: cipher,
@@ -208,6 +217,33 @@ mod tests {
         let out = case(dir.path(), None);
         assert_eq!(out[keys::RESULT], keys::FAIL);
         assert_eq!(out[keys::DETAIL], "this runner holds no store cipher");
+    }
+
+    #[test]
+    fn a_runtime_serving_refuses_the_read_of_a_store_that_opens() {
+        let (dir, paths) = app_dir();
+        let mut store =
+            HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default())
+                .expect("an encrypted store");
+        unread(&mut store, &desktop_message_id(1));
+        drop(store);
+        let quiet = |peer| FakeConfig {
+            peer,
+            endpoints: Vec::new(),
+            default_endpoint: None,
+            queue_bound: 1,
+        };
+        let (serving, _other) = FakeNetwork::pair(quiet(sender()), quiet(sender()));
+
+        let out = case_serving(dir.path(), Some(Box::new(FilesystemCustody)), Some(serving));
+        assert_eq!(out[keys::RESULT], keys::FAIL, "{out:?}");
+        assert_eq!(
+            out[keys::DETAIL],
+            "a runtime is serving: the app's store has a writer"
+        );
+        // The control: the same store, no runtime, reads.
+        let out = case(dir.path(), Some(Box::new(FilesystemCustody)));
+        assert_eq!(out[keys::RESULT], keys::PASS, "{out:?}");
     }
 
     #[test]
