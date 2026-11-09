@@ -341,8 +341,9 @@ Width W or F (UAX #11), or that is drawn with emoji presentation
 (UTS #51), counts as two, and every other cluster as one
 (architect-cto's Bounds ruling A 2026-11-07, DECISION 01a1b6b7-afbe,
 on rust-ui-dev's measurement, OBSERVATION 01a1b6b2-3e5e: a whole body
-of 2 000 CJK or emoji clusters at 200 % text was two to three times as
-tall as one of Latin letters). The weight comes from Unicode's
+of 2 000 CJK or emoji clusters at 200 % text was about twice as tall
+as one of Latin letters: 9 981 and 13 947 logical px against 5 405,
+HUMAN-CHAT.md's Bounds). The weight comes from Unicode's
 properties, never from a font, so the cut depends on neither the width
 nor the text size, which is §2's reason for not cutting by drawn
 height. Every figure below counts the same way; the reader's pieces
