@@ -436,9 +436,11 @@ screen reader there and nothing is spoken twice. The words stand apart from the 
 client puts a space on each side where the mark touches a character
 that is not a space, and any pause the words need in a locale is in
 the string itself (§8). The one exception is before the words when
-the string's first character is punctuation (Unicode general category
-P, such as a comma in any script): punctuation attaches to what
-precedes it, so the client adds no space there; with a hypothetical
+the string's first character is a comma, full stop, colon or
+semicolon, in any script (U+002C, U+002E, U+003A, U+003B, U+3001,
+U+3002, U+060C, U+061B and their like): such a mark attaches to what
+precedes it, so the client adds no space there. Any other first
+character, an opening bracket or quote included, gets the space; with a hypothetical
 string ", character not shown,", "cafe" + mark + "open" reads
 "cafe, character not shown, open". A space
 before a lone comma would also show on a braille display as a stray
@@ -801,7 +803,9 @@ it, those checks are blocked, never passed.
   precondition. A view check with `ReplacedCharacter` set to a test
   string led by punctuation, ", character not shown,", gives
   "cafe" + mark + "open" the accessible text "cafe, character not
-  shown, open": no space before the string, one after it. C1's source pasted into the middle of a draft shows one
+  shown, open": no space before the string, one after it. Set to
+  "(character not shown)", it gives "cafe (character not shown) open":
+  a space on each side. C1's source pasted into the middle of a draft shows one
   mark there at once, before Send, with no other notice, and the caret
   just after the paste; Ctrl+Z on the desktop then leaves the draft as
   it was before the paste. A base typed with 31 combining marks shows
