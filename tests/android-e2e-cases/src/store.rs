@@ -69,19 +69,14 @@ pub(crate) fn store_unread(
         .query_map([], |r| r.get::<_, String>(0))
         .and_then(Iterator::collect::<Result<Vec<_>, _>>)
         .map_err(|e| format!("the unread rows: {e}"))?;
-    if let Some(id) = ids.iter().find(|id| id.contains(UNREAD_SEPARATOR)) {
-        return Err(format!(
-            "an unread id holds the separator {UNREAD_SEPARATOR:?}: {id:?}"
-        ));
-    }
     let mut out = Map::new();
     out.insert(keys::UNREAD.to_owned(), ids.join(UNREAD_SEPARATOR).into());
     Ok(out)
 }
 
-/// What joins the ids in [`keys::UNREAD`]: no `HumanChatV2` id the cases
-/// mint holds it, and the body refuses one that does rather than answer a
-/// list that splits wrong.
+/// What joins the ids in [`keys::UNREAD`]: the store keeps each as an
+/// `AppMessageId`, 32 lowercase hex characters (`AppMessageId::parse`),
+/// which a comma is not.
 pub const UNREAD_SEPARATOR: &str = ",";
 
 /// [`keys::UNREAD`]'s text as the ids it joined; none for an empty text.
