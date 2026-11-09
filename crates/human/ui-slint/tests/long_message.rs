@@ -1201,13 +1201,6 @@ fn tabs(view: &mut View, model: &mut UiModel, pressed: Key, n: usize) -> Vec<Str
         .collect()
 }
 
-/// A conversation on a phone-sized window whose messages are each
-/// taller than the list: the toolkit reveals a focused item only when
-/// it fits, and drops the focus of one it then finds out of view at the
-/// next key event, the TAB's own release included, so TAB from such a
-/// message began again at the top and never reached the next one, the
-/// composer or Send (the A40, 2026-11-08). Each is shown from its top as
-/// it gains focus (`Reveal`), and both directions cross every stop.
 /// Shift+TAB from the composer onto a message taller than the list, the
 /// list at its newest end so only the message's lower part is in view:
 /// the message is shown from its top (`Reveal.tall`, `keyed`).
@@ -1270,6 +1263,13 @@ fn tab_onto_a_tall_message_in_view_in_part_shows_its_top() {
     );
 }
 
+/// A conversation on a phone-sized window whose messages are each
+/// taller than the list: the toolkit reveals a focused item only when
+/// it fits, and drops the focus of one it then finds out of view at the
+/// next key event, the TAB's own release included, so TAB from such a
+/// message began again at the top and never reached the next one, the
+/// composer or Send (the A40, 2026-11-08). Each is shown from its top as
+/// it gains focus (`Reveal`), and both directions cross every stop.
 #[test]
 fn tab_crosses_messages_taller_than_the_list() {
     let mut view = view();
