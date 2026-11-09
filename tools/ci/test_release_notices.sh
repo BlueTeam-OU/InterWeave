@@ -906,9 +906,17 @@ slist
 if NOTICE_SOURCES_JSON="$C/sources.json" python3 "$UNDER_TEST" "$C/metadata.json" "$C/linked.txt" \
     "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"; then
     [[ "$(grep -c '`csrc`' "$SANDBOX/n.md")" == 1 ]] \
-        && grep -qF -- '- `csrc` 1.0.0: MIT AND BSD-3-Clause — text T' "$SANDBOX/n.md" \
-        && pass "a sources crate another crate compiles is listed once, as that crate" \
-        || fail "a sources crate compiled elsewhere is not listed once as a crate" "$(grep csrc "$SANDBOX/n.md")"
+        && grep -qF -- "- \`csrc\` 1.0.0: MIT AND BSD-3-Clause; and BSD-3-Clause, the sources sys's build compiles in — text T" "$SANDBOX/n.md" \
+        && pass "a sources crate another crate compiles is listed once, as that crate and as sources" \
+        || fail "a sources crate compiled elsewhere is not listed once as both" "$(grep csrc "$SANDBOX/n.md")"
+    grep -qx 'the csrc wrapper licence' "$SANDBOX/n.md" \
+        && grep -qx 'the C library notice' "$SANDBOX/n.md" \
+        && grep -qF 'Used by csrc 1.0.0 (vendor/LICENSE-c).' "$SANDBOX/n.md" \
+        && pass "a sources crate another crate compiles ships its own licence and the compiled-in notice" \
+        || fail "a sources crate compiled elsewhere lost a text" "$(cat "$SANDBOX/n.md")"
+    grep -qx '3 crates, .*' "$SANDBOX/stdout" \
+        && pass "a sources crate another crate compiles is counted once" \
+        || fail "a sources crate compiled elsewhere is not counted once" "$(cat "$SANDBOX/stdout")"
 else
     fail "a sources crate compiled elsewhere was refused" "$(cat "$SANDBOX/err")"
 fi

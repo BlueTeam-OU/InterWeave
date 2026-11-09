@@ -247,8 +247,6 @@ def built_in(metadata: dict, compiled_ids: set, tools: set, sources: dict) -> li
                     f"{name} {version} is a build-dependency of {user}; notice_sources.json's entry is for"
                     f" {entry['version']}: read the new version's sources and renew the entry"
                 )
-            if dep["pkg"] in compiled_ids:
-                continue
             found.setdefault(dep["pkg"], (package, entry, set()))[2].add(user)
     return sorted(found.values(), key=lambda f: (f[0]["name"], f[0]["version"]))
 
@@ -787,18 +785,24 @@ def source_notices(package: dict, entry: dict) -> list:
 
 def render(third: list, derived: dict, built: list) -> tuple:
     texts, order, lines = {}, [], []
-    rows = [(p, None) for p in third] + [(p, (e, users)) for p, e, users in built]
-    rows.sort(key=lambda r: (r[0]["name"], r[0]["version"]))
-    for package, source in rows:
+    # One row per crate: a sources crate that is also compiled as a crate
+    # ships its own texts and its entry's files, on one line.
+    rows = {p["id"]: [p, True, None] for p in third}
+    for package, entry, users in built:
+        rows.setdefault(package["id"], [package, False, None])[2] = (entry, users)
+    for package, compiled, source in sorted(rows.values(), key=lambda r: (r[0]["name"], r[0]["version"])):
         name, version = package["name"], package["version"]
         expr = package.get("license") or ""
+        notices, how = crate_notices(package, derived) if compiled else ([], "")
         if source:
             entry, users = source
-            notices = source_notices(package, entry)
-            how = f" (the crate declares {expr})" if expr else ""
-            expr = f"{entry['licence']}, the sources {', '.join(sorted(users))}'s build compiles in"
-        else:
-            notices, how = crate_notices(package, derived)
+            notices = notices + source_notices(package, entry)
+            compiled_in = f"{entry['licence']}, the sources {', '.join(sorted(users))}'s build compiles in"
+            if compiled:
+                how = f"{how}; and {compiled_in}"
+            else:
+                how = f" (the crate declares {expr})" if expr else ""
+                expr = compiled_in
         refs = []
         for text, what in notices:
             digest = hashlib.sha256(text.encode()).hexdigest()
@@ -831,7 +835,7 @@ def render(third: list, derived: dict, built: list) -> tuple:
         entry = texts[digest]
         out += ["", f"### {entry['label']}", "", "Used by " + "; ".join(entry["users"]) + ".", "",
                 "```text", entry["text"].rstrip("\n"), "```"]
-    return "\n".join(out) + "\n", len(order)
+    return "\n".join(out) + "\n", len(order), len(rows)
 
 
 def run(argv: list) -> int:
@@ -848,12 +852,12 @@ def run(argv: list) -> int:
         derived = load_derived(Path(os.environ.get("NOTICE_DERIVED_JSON") or DERIVED))
         tools, sources = load_sources(Path(os.environ.get("NOTICE_SOURCES_JSON") or SOURCES))
         built = built_in(metadata, compiled_ids, tools, sources)
-        page, distinct = render(third, derived, built)
+        page, distinct, listed = render(third, derived, built)
     except (OSError, ValueError, KeyError) as err:
         sys.stderr.write(f"release_notices: {err}\n")
         return 1
     publish(Path(argv[3]), page)
-    print(f"{len(third) + len(built)} crates, {distinct} distinct licence texts")
+    print(f"{listed} crates, {distinct} distinct licence texts")
     return 0
 
 def publish(path: Path, text: str) -> None:
