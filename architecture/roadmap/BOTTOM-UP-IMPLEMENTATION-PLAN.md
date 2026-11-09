@@ -6048,13 +6048,18 @@ none is the status value's, which stays on this stage.
   and §28, so the residual is a stated limit and not an owed row; no
   `deny.toml` ignore is written, since the check reports nothing to
   ignore. Re-check trigger: a `libsqlite3-sys` release whose
-  `bundled-sqlcipher` depends on `sqlcipher-src >= 420` (SQLCipher over
-  SQLite 3.54 or later); the lane that takes that bump reads this item
-  closed and names the versions. Until then it is re-carried by name in
-  the closing record. The gap it shows, a patched range that covers a
-  feature build still carrying the affected source, is `CLAUDE.md` §8's
-  third dependency-check gap, beside the GHSA-only and the
-  vendored-crate ones.
+  `bundled-sqlcipher` depends on a `sqlcipher-src` whose lock version's
+  build metadata names `sqlite-3.54.0` or later (the crate's major is
+  the SQLCipher release, 4.19 as 419, and says nothing of the SQLite it
+  bundles; 420 is the expected vehicle, not the test); devex-tooling,
+  whose lane takes the dependency bumps, reads this item closed at that
+  bump and names the versions in its pull request, and architect-cto
+  moves the record. Should Stage 18 close first, the item is carried to
+  §22 (Stage 19, which holds the carries by name), architect-cto its
+  holder. The gap it shows, a patched range that covers a feature build
+  still carrying the affected source, is `CLAUDE.md` §8's third
+  dependency-check gap, beside the GHSA-only and the vendored-crate
+  ones.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
   the three prose status sites with it, and, unless done earlier, the
