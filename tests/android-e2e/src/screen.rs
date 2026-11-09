@@ -646,8 +646,6 @@ impl Screens {
         None
     }
 
-    /// Wait until every line of `wants` is among the trace's lines from
-    /// index `from` on, following focus through what is read.
     /// The rest of the first trace line after `from` that starts with
     /// `prefix`, waited for.
     fn said(&mut self, from: usize, prefix: &str, patience: Duration) -> Result<String, String> {
@@ -677,6 +675,8 @@ impl Screens {
         }
     }
 
+    /// Wait until every line of `wants` is among the trace's lines from
+    /// index `from` on, following focus through what is read.
     fn wait_all(&mut self, from: usize, wants: &[&str], patience: Duration) -> Result<(), String> {
         let lines: Vec<String> = wants.iter().map(|w| format!("{TRACE}{w}")).collect();
         self.wait_until(patience, |seen| {
