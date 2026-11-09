@@ -573,7 +573,9 @@ Show source and Show formatted reuse the row's existing labels.
 | Open the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title (the sender), then `ReaderSent` next; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
 | Reader closed (Back, Escape) | the row's Open the whole message button | A6; A7 after a mode switch |
 | Reader closed because its row left (§5.4) | stays where the person's act in the list left it | A7 |
-| Tab from the reader's scroll area, or from one of its link controls (desktop) | the next link control in body order, laid out or not, shown from its top; the first is the first one starting at or below the top of the screen; after the last, Back (Keyboard, below) | A6 |
+| Tab from the reader's scroll area (desktop) | if the person scrolled the body since focus came there, the first link control starting at or below the top of the screen, else the body's first; otherwise the body's first link control; with no link control, Back; a link control is shown from its top (Keyboard, below) | A6 |
+| Tab from one of the reader's link controls (desktop) | the next link control in body order, laid out or not, shown from its top; after the last, Back | A6 |
+| Shift+Tab in the reader (desktop) | from a link control, the one before it in body order, shown from its top; from the body's first link control, the scroll area; from Back, the body's last link control, shown from its top, or with none, the scroll area | A6 |
 | Show source / Show formatted in the reader | stays on the action pressed | A6 |
 | Copy pressed in the reader's app bar | stays on Copy | A6 |
 | Copy message source chosen from a row's menu (cut or whole) | the row's bubble, as when the menu closes with nothing done (message-swipe §7) | A6 |
@@ -591,15 +593,25 @@ Show source and Show formatted reuse the row's existing labels.
   row's bubble and before its links; in the reader, Tab goes to Back,
   then Show source (or Show formatted), Copy and the scroll area, then
   to the body's link controls in body order, and from the last of them
-  back to Back; Shift+Tab goes the other way. From the scroll area,
-  Tab goes to the first link control that starts at or below the top
-  of the screen, wherever it lies in the body, laid out or not, and
-  the body scrolls to show it from its top; with none below, the first
-  link control of the body, and with none at all, Back. A keyboard
-  person must not have to scroll to a link before Tab finds it: Tab
-  moving forward and landing on Back past an unreached link reads as
-  a body with no more links (WCAG 2.1.1 and 2.4.3; a browser's Tab
-  reaches every link of a page the same way). Up, Down, Page Up,
+  back to Back; Shift+Tab goes the other way: from a link control to
+  the one before it in body order, from the body's first link control
+  to the scroll area, and from Back to the body's last link control
+  (with none, the scroll area). Where Tab enters the links from the
+  scroll area depends on whether the person scrolled: if they scrolled
+  the body since focus came to the scroll area (a key, the wheel, the
+  scroll bar), Tab goes to the first link control that starts at or
+  below the top of the screen, wherever it lies in the body, laid out
+  or not, and with none below, the body's first link control;
+  otherwise (focus came by Tab, Shift+Tab or the reader opening), Tab
+  goes to the body's first link control. With no link control at
+  all, Tab from the scroll area goes to Back. Whichever link control
+  focus moves to, the body scrolls to show it from its top; that
+  scroll is focus's, not the person's. So Tab alone reaches every
+  link: after wrapping through Back it enters at the body's first link
+  control, not at the screen top it last moved. A keyboard person must
+  not have to scroll to a link before Tab finds it: Tab moving forward
+  and landing on Back past an unreached link reads as a body with no
+  more links (WCAG 2.1.1 and 2.4.3). Up, Down, Page Up,
   Page Down, Home and End scroll; Escape closes.
 - **TalkBack in the reader**: swiping forward reads the body block by
   block, scrolling as it goes, to the end of the body, though only
