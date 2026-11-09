@@ -29,8 +29,10 @@ trigger. No run has daemons. The runs:
                       byte of line costs in tokens, read from the event
                       turn's usage against the first turn's
   c-compaction-keep   ``--model claude-sonnet-5-5``; events of the bound's
-                      length (327,680 bytes), random base64url, each with a
-                      word of its own in its head, one at a time (S30's b);
+                      length (327,680 bytes), one letter repeated, each with
+                      a word of its own in its head, one at a time (S30's
+                      b, whose random base64url the API's safeguards
+                      refused at the third event twice in a row here);
                       after events 1, 4 and 7 a user turn asks for every
                       event's number and word; each compaction's summary
                       is recorded whole
@@ -128,7 +130,7 @@ def spec_of(name):
                 "answer_s": 600}
     if name == "c-compaction-keep":
         return {"kind": "compact", "model": MODELS["sonnet"], "sizes": [BOUND] * max(ASK_AFTER),
-                "filler": "base64url", "answer_s": 300}
+                "filler": "a", "answer_s": 300}
     m = re.fullmatch(r"d-join-(user|channel)-(tool|text)-[123]", name)
     if m:
         turn, work = m.group(1), m.group(2)
