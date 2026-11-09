@@ -988,6 +988,12 @@ mod tests {
         }
     }
 
+    /// Whether a stand-in call is a dump, by the command word
+    /// `dump_command` builds (`tests/dump_reads.rs` keeps the word there).
+    fn dumps(call: &str) -> bool {
+        call.contains(crate::platform::dump_command(&[])[0])
+    }
+
     /// A stand-in adb in a scratch directory: a `dumpsys window` shows
     /// the keyguard for its first `locked` calls, logcat holds `trace`,
     /// and every call is appended to `calls`, one line each.
@@ -1063,7 +1069,7 @@ esac
         let r = s.launch_locked(Duration::from_millis(50));
         assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
         let calls = calls(&dir);
-        assert!(calls.iter().any(|c| c.contains("dumpsys")), "{calls:?}");
+        assert!(calls.iter().any(|c| dumps(c)), "{calls:?}");
         assert!(!calls.iter().any(|c| c.contains("am start")), "{calls:?}");
     }
 
@@ -1077,10 +1083,7 @@ esac
             .iter()
             .position(|c| c.contains("am start"))
             .expect("an am start");
-        let dumps = calls[..start]
-            .iter()
-            .filter(|c| c.contains("dumpsys"))
-            .count();
+        let dumps = calls[..start].iter().filter(|c| dumps(c)).count();
         assert!(dumps >= 3, "the start after the keyguard went: {calls:?}");
     }
 
