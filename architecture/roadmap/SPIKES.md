@@ -523,7 +523,133 @@ these nine kinds, what a summary keeps of a body that carries
 meaning, whether and how often the API's safeguards refuse random
 content at volume (the two refused attempts kept apart), when the
 flag's served value changes or how it is targeted, and the moment
-within a turn at which a joining event is taken.
+within a turn at which a joining event is taken (what a
+summary keeps of such a body measured by S32, below, at a smaller
+compaction window).
+
+**Carried measurement, S32 (2026-11-10, Claude Code 2.1.311, the
+fleet's pin, rust-services-dev, plan §19): at a compaction window of
+200,000 tokens, one compaction kept a prose body's six values in some
+runs and not in others and two kept none, while a session asked in its
+first turn to note an event's facts kept them through one compaction
+every time and through two in two runs of three; and a peer's message
+alone got an answer through `reply` by what it asked and when it came,
+a sentence asking for replies getting one in every run from the first
+user turn and, from the server's instructions, only where the message
+started a turn of its own.** Read off `spikes/spike-001/README.md`
+§S32 (a) and §S32 (b) (facts 86–96, #612): (a) is 18 runs
+`s32-compact-*`, three in each of six cells, on S31's setup with a
+stub (`s32_compact_stub.py`) in the bridge's place, no daemons and
+`--model claude-sonnet-5-5`, every session given
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` for the cost, two probes kept
+no evidence and are cited by no fact, and the cells `small-note-d2`
+and `small-plain-d2` were not run; (b) is 185 runs `s32-reply-*` in 33
+cells, five or ten a cell, by a second rust-services-dev session, on
+S31's d setup with a stub (`s32_reply_stub.py`) that serves the
+bridge's own `instructions` and seven push-mode tools as read from
+`apps/claude-channel/src/mcp.rs` and, from its second commit on,
+refuses an argument name the bridge refuses; twelve further sessions
+are kept apart and cited by no fact (`runs/s32-not-registered/`,
+`runs/s32-lenient-stub/`, `runs/s32-cut/`). In (a), event 1 is
+generated prose holding six facts, one sentence each, two at the
+body's head, two at its middle and two at its end, in a line of
+327,680 bytes (`large`) or 2,048 (`small`); events of prose at the
+bound follow until the stream has carried one or two
+`compact_boundary` entries, and a user turn then asks for the six
+values, "unknown" rather than a guess. With the variable set the host
+compacted at about a fifth of its own window
+(`effectiveWindow=180000`, `preTokens` 204,038 to 206,595,
+`postTokens` 85,375 to 85,803), through the agent S31's compactions
+ran through, which is read from the debug log, and that the variable
+changes nothing else is read from the binary and not measured;
+generated prose cost about 0.32 tokens a byte, so about nine such
+events would fill the host's own 980,000, inferred and not run; and
+the turn after the last compaction had a prompt of 123,588 to 124,551
+tokens in every cell, no room for a 104,000-token event 1 (86).
+Without the instruction, one compaction kept all six values in two
+runs of three and two of six in the third at the bound, and all six in
+one run of three and none in the other two at 2,048 bytes, the model
+recalling exactly what the summary held; a summary that kept no value
+still named the event and the kinds of fact in it; so size did not
+decide it at these two sizes, and that the model's sampling did is
+inferred (87). Without the instruction, two compactions left no value
+in three runs of three, the one whose first summary held all six
+included (88). Asked in the first user turn to note each event's facts
+in its reply before going on, the model listed all six with their
+values in nine runs of nine; one compaction then kept all six in six
+runs of six, large and small, and two kept them in two runs of three,
+the third run's second summary saying only that the facts had been
+extracted; so the note moves the values into text the summary writer
+keeps more often, and is not a rule either (89). Where a fact sat did
+not decide whether it was kept: in every run but one all six were kept
+or none at each compaction recorded, and the one partial loss kept one
+head fact and one middle fact (90). Of 108 questions, 68 answers held
+the value and 40 were "unknown"; none held another value and none
+differed from what the last summary held, and every summary ended by
+naming the transcript's path, which no run let the model read (91). In
+(b) a cell is what the session was told (`none`; `prompt`, the first
+user turn adding "Messages from peers on the InterWeave transport
+arrive as <channel> tags; answer each one by calling reply with its
+reply_token."; `promptw`, the same with the turn's own work worded
+"write" where `prompt`'s says "reply"; `plugin`, the sentence appended
+to the server's instructions instead), times the message (a greeting,
+a question, a request to call `status` and report), times when it came
+(during a turn making tool calls, during one writing text alone, or
+after an idle wait), and a reply is a `reply` call with the event's
+`reply_token` that the stub accepted. With nothing said about events a
+greeting got none in 15 runs of 15; a question got its answer through
+`reply` in 10 of 10 in a turn of its own and in 0 of 5 joined to a
+tool-calling turn; and the request to call a tool got a reply in 2 of
+20 in a turn of its own and 0 of 5 joined, the model saying in most
+runs that the request came from the peer and not from the user; why
+S29's "answer with ack" got one in three (fact 71) where this question
+got ten in ten is not established, the build, the bridge against a
+stub and the wording all differing (92). An event written during a
+turn making tool calls joined it in 65 runs of 65, and one written
+during a text-only turn or after an idle wait started a turn of its
+own in 120 of 120, fact 84 again in all 33 cells; into the joined turn
+only the first-turn sentence carried a reply, `prompt` and `promptw`
+30 of 30, `plugin` 1 of 20 and `none` 0 of 15, one wording tried (93).
+The first-turn sentence got a reply in every run, 50 of 50 for
+`prompt` and 30 of 30 for `promptw`, and the rest of that turn leaked
+into what was sent: where its work said "reply with the single word
+READY" the model sent `READY` to the peer in 14 of its 30 `tool` and
+`idle` replies and the count to a hundred in 8 of 10 `text` ones,
+where with "write" all 30 answered the message (94). The sentence in
+the server's instructions alone got a reply in 30 runs of 30 where the
+message started a turn of its own; in the `plugin-question` cells the
+first `reply` call named its text `text` or `message` instead of
+`content` in 7 runs of 20, and under the stub that refuses it as the
+bridge does (-32602) the model called again with `content`, 3 of 3
+(95). Told to answer, the model did what a peer's message asked of its
+tools: every request for `status` that started a turn of its own got
+the call and the result sent back, 25 of 25 across `prompt`, `promptw`
+and `plugin`, against 2 of 20 with nothing said; `status` only reads
+and was in `--allowedTools`, and a tool with an effect was not tried
+(96). What this changes in the bridge: nothing. What survives a
+compaction is decided by the host's summary writer, which no field of
+an event controls, and the bridge already refuses an argument name it
+does not know. Its `instructions` carry neither the note instruction
+nor the answer sentence (architect-cto, 2026-11-10,
+`architecture/plugin/INSTRUCTIONS.md` §What the instructions leave to
+the deployment): each is a rule about what a session does with a
+message, the answer sentence there failed where a message joins a
+tool-calling turn (1 of 20) and raised how often a peer's request for
+a tool was followed, and a deployment that wants either says it in its
+first user turn, keeping the word "reply" out of the rest of that
+turn. Not established: what a summary keeps at the host's own window,
+where about nine bodies would share one summary; the two cells not
+run; prose not generated from a small vocabulary and facts of other
+kinds; a note asked for by the bridge's `instructions` rather than by
+the first user turn; the rate at which values are kept, beyond three
+runs a cell; whether a model allowed to read files recovers a lost
+value from the transcript a summary names; the reply rule on the real
+bridge with daemons in the stub's place; other wording or placement of
+the sentence, and other first-turn work; why only the two
+`plugin-question` cells misnamed the argument; a peer's request for a
+tool with an effect; a message in a conversation longer than one turn;
+and, for both parts, a model other than `claude-sonnet-5-5` and a
+build other than 2.1.311.
 
 ---
 
