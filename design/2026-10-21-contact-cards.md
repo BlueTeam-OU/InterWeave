@@ -1838,7 +1838,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
    | Undo of a Move | the moved route's row on the source contact's page, recreated if needed | keyboard |
    | R or K raised by a refused start, at a launch or over another screen (Android) | its heading (`design/2026-10-19-android-identity.md` §8) | the identity note's §10 item 15, its bullet on R; K waits on a hook, as K1 over a screen already showing does |
-   | R's start refused again while R is showing, R staying (Android): Try again's start or a platform restart | stays where it was (`design/2026-10-19-android-identity.md` §8) | the identity note's §10 item 15, its bullet on R; for Try again with its prompt cancelled, unlock note A15 |
+   | A start refused again while R is showing, R staying (Android): Try again's start or a platform restart | stays where it was (`design/2026-10-19-android-identity.md` §8) | the identity note's §10 item 15, its bullet on R; for Try again with its prompt cancelled, unlock note A15 |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
    | dialog cancelled | the Discard button | keyboard |
    | discard failed | the failure line (focusable) | keyboard |

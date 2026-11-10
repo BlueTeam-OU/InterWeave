@@ -945,13 +945,13 @@ scale would also be a finding of the Android review
       command shows the same pid (the process stays). Then open
       InterWeave from the launcher. In each run the first Tab
       reaches Try again. Then, in the run over Chats, with focus on
-      Try again, fire `REFUSE_STORE` and then `RESTART` again. R is
-      refused again and stays, and the trace still shows Try again's
+      Try again, fire `REFUSE_STORE` and then `RESTART` again. The start
+      is refused again and R stays, and the trace still shows Try again's
       focus key (`focus=identity-primary`), not `focus=r-heading`
       (§8: R was not raised). Then fire `REFUSE_STORE` once more and
-      press Enter on Try again, so that its own start reaches the
-      store. R is refused again and stays, and focus
-      stays on Try again, as before. Then
+      press Enter on Try again, so that the start that Try again makes
+      reaches the store. That start is refused again and R stays, and
+      focus stays on Try again, as it did after the restart. Then
       press Shift+Tab to put focus back on R's heading (the trace shows
       `focus=r-heading`), and fire `RESTART` again. The hook refuses
       only once, so this start runs, and R leaves the screen while
