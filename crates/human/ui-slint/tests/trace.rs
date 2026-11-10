@@ -1719,6 +1719,11 @@ fn the_discards_and_the_p_up_notice_are_named() {
     i_slint_backend_testing::init_no_event_loop();
     let mut view = View::new(RuntimeHost::Embedded).expect("a window");
     view.window().show().expect("shown");
+    // Wide: the pane carries the notice, under its offline line.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    slint::platform::update_timers_and_animations();
     let said = Rc::new(RefCell::new(Vec::<String>::new()));
     let to = Rc::clone(&said);
     view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
@@ -1742,7 +1747,21 @@ fn the_discards_and_the_p_up_notice_are_named() {
     view.render(&model);
     model.network_access(true);
     view.render(&model);
+    // Offline on this wide window: the pane's offline line hides both,
+    // so the trace names neither though both are held (#610 review F3).
+    model.client_event(interweave_human_client_api::ClientEvent::Connectivity(
+        interweave_human_client_api::Connectivity::Offline,
+    ));
+    view.render(&model);
+    model.client_event(interweave_human_client_api::ClientEvent::Connectivity(
+        interweave_human_client_api::Connectivity::OnlineDirect,
+    ));
+    view.render(&model);
     press(&view, text(UiText::Close));
+    view.render(&model);
+    model.client_event(interweave_human_client_api::ClientEvent::Connectivity(
+        interweave_human_client_api::Connectivity::Offline,
+    ));
     view.render(&model);
     let said = said.borrow();
     let notices: Vec<&String> = said
@@ -1755,7 +1774,10 @@ fn the_discards_and_the_p_up_notice_are_named() {
             "ui-trace notice=store-discarded",
             "ui-trace notice=network-denied",
             "ui-trace notice=store-discarded",
+            "ui-trace notice=none",
+            "ui-trace notice=store-discarded",
             "ui-trace notice=unlock-pending",
+            "ui-trace notice=none",
         ],
         "in {said:#?}"
     );

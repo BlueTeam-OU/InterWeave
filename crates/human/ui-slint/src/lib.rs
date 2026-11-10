@@ -956,6 +956,10 @@ pub struct View {
     unlock_lines: unlock::Lines,
     /// The P-up notice as last drawn.
     unlock_notice: std::cell::Cell<bool>,
+    /// The notice the last render drew above the chats or in the pane, by
+    /// its trace name (#610 review F3).
+    #[cfg(feature = "ui-trace")]
+    drawn_notice: std::cell::Cell<Option<&'static str>>,
     /// Where the Trust page shown came from, and whether the P-up
     /// line's focus was asked for it (F2, F3).
     unlock_details: unlock::Details,
@@ -1295,6 +1299,8 @@ impl View {
             trust_announced: 0,
             unlock_lines: unlock::Lines::default(),
             unlock_notice: std::cell::Cell::new(false),
+            #[cfg(feature = "ui-trace")]
+            drawn_notice: std::cell::Cell::new(None),
             unlock_details: unlock::Details::No,
             trust_outcome_on: Page::Conversation,
             peer_lists,
@@ -1407,11 +1413,7 @@ impl View {
             page,
             model.connect_phase(),
             model.connectivity(),
-            model
-                .session_notice()
-                .map(trace::session_notice)
-                .or_else(|| self.shared.borrow().once_notice.map(trace::once_notice))
-                .or_else(|| self.unlock_notice.get().then_some("unlock-pending")),
+            self.drawn_notice.get(),
             model.peers(),
             model.trust_settings(),
             |p| handles.of(p),
@@ -3679,16 +3681,28 @@ impl View {
     }
 
     /// The P-up notice (unlock note section 4): the lowest of the
-    /// notices, so shown only when `free`, no session notice or discard's
-    /// notice in its slot. When it goes with focus on its Details --
+    /// notices, so offered only when `free`, no session notice or discard's
+    /// notice in its slot, and drawn where the window places it, below the
+    /// pane's `offline` line too. When it goes with focus on its Details --
     /// cleared, or another notice in its place -- focus goes to the list
     /// heading (F4); a replacing notice says itself, as it does today.
-    fn render_unlock_notice(&self, model: &UiModel, free: bool) {
-        let shown = free && model.unlock_notice();
+    /// Whether it is drawn, for the trace.
+    fn render_unlock_notice(&self, model: &UiModel, free: bool, offline: bool) -> bool {
+        let offered = free && model.unlock_notice();
         let window = &self.window;
-        window.set_unlock_notice_shown(shown);
+        window.set_unlock_notice_shown(offered);
         window.set_unlock_notice(placeholder_en::text(UiText::UnlockPendingNotice).into());
         window.set_unlock_details_label(placeholder_en::text(UiText::UnlockPendingDetails).into());
+        // Where the window draws it: Chats' slot on a narrow window while
+        // the list shows, the pane's on a wide one unless the offline line
+        // is there -- the card's own conditions in app.slint (#610 review
+        // F2).
+        let shown = offered
+            && if window.get_narrow() {
+                window.get_list_shown()
+            } else {
+                !offline
+            };
         let was = self.unlock_notice.replace(shown);
         // Details' own press goes to the Trust page, which asks its line.
         if was
@@ -3698,6 +3712,7 @@ impl View {
         {
             self.focus_key_after_draw("heading".to_owned());
         }
+        shown
     }
 
     /// The Trust page's unlock lines (unlock note sections 5 and 6): drawn
@@ -3836,13 +3851,6 @@ impl View {
         window.set_state_glyph(glyph);
         let notice = model.session_notice();
         let was = std::mem::replace(&mut self.shared.borrow_mut().notice, notice);
-        // Before the locked notice's, whose ask, if any, is the later and
-        // wins.
-        self.render_unlock_notice(
-            model,
-            notice.is_none() && self.shared.borrow().once_notice.is_none(),
-        );
-        self.follow_locked_notice(was, notice);
         // A conversation shows the device's state only while it is offline,
         // as its notice -- under one a person can act on, which says more
         // (#304 F7). Unknown shows nothing, never as offline.
@@ -3853,6 +3861,25 @@ impl View {
         } else {
             None
         };
+        // Before the locked notice's, whose ask, if any, is the later and
+        // wins.
+        let unlock = self.render_unlock_notice(
+            model,
+            notice.is_none() && self.shared.borrow().once_notice.is_none(),
+            offline.is_some(),
+        );
+        // The notice drawn in Chats' slot or the pane's, for the trace:
+        // what the window shows, never one held under another.
+        #[cfg(feature = "ui-trace")]
+        self.drawn_notice.set(
+            notice
+                .map(trace::session_notice)
+                .or_else(|| once.map(trace::once_notice))
+                .or_else(|| unlock.then_some("unlock-pending")),
+        );
+        #[cfg(not(feature = "ui-trace"))]
+        let _ = unlock;
+        self.follow_locked_notice(was, notice);
         self.follow_once_notice(
             self.shared.borrow().once_notice.is_some(),
             notice.is_none() && once.is_some(),

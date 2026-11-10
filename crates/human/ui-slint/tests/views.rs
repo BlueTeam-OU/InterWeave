@@ -4798,12 +4798,16 @@ fn a3_on_a_wide_window_the_p_up_notice_is_in_the_pane() {
     let shown = labelled(&view, text(UiText::UnlockPendingNotice));
     assert_eq!(shown.len(), 1, "one notice");
     assert!(shown[0].size().height > 0.0, "laid out");
-    // The pane's offline line goes before it, as a session notice does.
+    // The pane's offline line goes before it, as a session notice does,
+    // and focus on its Details goes to the list heading (F4; #610 review
+    // F2).
+    tab_to(&view, "unlock-details");
     let mut model = model;
     model.client_event(ClientEvent::Connectivity(Connectivity::Offline));
     view.render(&model);
     drawn(&view);
     assert!(!notice_shown(&view), "the offline line first");
+    assert_eq!(view.window().get_focus_id(), "conversations-heading");
     assert!(
         !labelled(
             &view,
