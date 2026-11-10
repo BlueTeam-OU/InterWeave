@@ -556,6 +556,36 @@ export global Touch {
 // renderer keeps an item's geometry in 16 bits of physical px, so four
 // times this is under its ceiling and the bound holds to scale 4 by
 // construction; an item that may grow with a body is drawn in pieces.
+// Slint 1.18 scrolls a focused item into view only when the whole of it
+// fits: for one taller than its Flickable it asks the top and the bottom
+// in view at once, finds no such scroll and moves nothing
+// (`Flickable::choose_min_move`). An item that took focus out of view
+// so stays out of it, and the next key event, its own release included,
+// drops the focus of an item it finds not visible
+// (`WindowInner::process_key_input`): TAB from a message taller than the
+// list ended with no focus, and the next TAB began again at the top
+// (tests/long_message.rs, `tab_crosses_messages_taller_than_the_list`,
+// `tab_crosses_a_link_control_taller_than_the_list`).
+// So such an item in the conversation's list is shown from its top as it
+// gains focus, before the toolkit's own scroll, which then has nothing to
+// do. The reader's list lays out only the rows near its view, so a link
+// there wholly out of view is not in the focus chain at all.
+global Reveal {
+    // The scroll that shows an item from its top: the item's top `y`
+    // within the list's view, `h` its height, a view `view` tall over
+    // content `content` tall at scroll `at` (a negative y). Unchanged for
+    // an item that fits the view, which the toolkit reveals. Focus that
+    // came by TAB (`keyed`) is shown from the item's top even when part of
+    // the item is in view, since the person reads on from there; a press
+    // on the part in view leaves the list where it is, so the item does
+    // not move from under the finger
+    // (`tab_onto_a_tall_message_in_view_in_part_shows_its_top`).
+    public pure function tall(at: length, y: length, h: length, view: length, content: length, keyed: bool) -> length {
+        if (h <= view || (!keyed && y < view && y + h > 0px)) { return at; }
+        max(min(0px, view - content), min(0px, at - y))
+    }
+}
+
 export global Tile {
     out property <length> extent: 8000px;
     // The most a press's ripple grows from its point. The renderer draws a
@@ -1195,7 +1225,12 @@ component LinkButton inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        root.gained(reason == FocusReason.tab-navigation);
     }
+    // Focus arrived, before the toolkit scrolls it into view: where the
+    // control's list reveals it if it is taller than the list; `keyed`
+    // when it came by TAB.
+    callback gained(keyed: bool);
     // The label, whole: what it says and is named by.
     in property <string> text;
     // The label as drawn: `text` in pieces, each within the item extent,
@@ -1373,6 +1408,25 @@ component ListView inherits Rectangle {
     out property <length> visible-width <=> flick.width;
     out property <length> visible-height <=> flick.height;
     in property <bool> interactive <=> flick.interactive;
+    // The person's own wheel, drag or fling.
+    callback flicked <=> flick.flicked;
+    // The item whose top is at `item-y` (window coordinates) shown from
+    // its top, as far as the content goes.
+    public function show-top(item-y: length) {
+        flick.content-y = max(min(0px, flick.height - flick.content-height),
+            min(0px, flick.content-y - (item-y - flick.absolute-position.y)));
+    }
+    // About row `row` of `count` in view, by the content's proportion:
+    // what can be said of a row not laid out.
+    public function near(row: int, count: int) {
+        flick.content-y = max(min(0px, flick.height - flick.content-height),
+            -(flick.content-height * row / max(1, count)));
+    }
+    // A screen down (`down`) or up.
+    public function page(down: bool) {
+        flick.content-y = max(min(0px, flick.height - flick.content-height),
+            min(0px, flick.content-y + (down ? -0.8 : 0.8) * flick.height));
+    }
     flick := Flickable {
         @children
     }
@@ -4448,11 +4502,22 @@ export component AppWindow inherits Window {
     in property <string> reader-title;
     // The message the reader shows, by its row's handle.
     in property <int> reader-handle: -1;
+    // The reader's link controls: each one's row in the formatted form,
+    // in body order (the source form has none), and the first one at or
+    // after a row, by its index or -1, for the keyboard's way through
+    // them (section 9).
+    in property <[int]> reader-link-rows;
+    pure callback reader-link-from(int) -> int;
     // Back or Escape: the reader closes (section 5.4).
     callback reader-close();
     // Show source / Show formatted in the reader: the view builds the
     // other form's rows.
     callback reader-switch();
+    // End pressed in the reader, and whether its list stands at its end:
+    // for the debug build's trace, which times End to the frame that
+    // shows the last line (A5).
+    callback reader-ended();
+    out property <bool> reader-at-end: true;
     callback reader-link(int);
     callback send();
     callback notice-pressed();
@@ -7441,6 +7506,13 @@ export component AppWindow inherits Window {
                     function to-newest() {
                         self.content-y = min(0px, self.height - self.content-height);
                     }
+                    // `item`, as it gains focus, shown from its top if it
+                    // is taller than the list (`Reveal`): out of view, or
+                    // reached by TAB (`keyed`).
+                    public function reveal-tall(item-y: length, item-height: length, keyed: bool) {
+                        self.content-y = Reveal.tall(self.content-y, item-y - self.absolute-position.y,
+                            item-height, self.height, self.content-height, keyed);
+                    }
                     // The direction of the person's own scroll, said as it
                     // happens: `flicked` comes of the person's wheel, drag or
                     // fling alone, before the change handlers run, so `last-y`
@@ -7708,6 +7780,8 @@ export component AppWindow inherits Window {
                         focus-gained(reason) => {
                             if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
                             if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+                            messages-flick.reveal-tall(self.absolute-position.y, self.height,
+                                reason == FocusReason.tab-navigation);
                         }
                         // The person's choice for this message, kept with its row
                         // while the row exists: the drawn body, or the source.
@@ -8156,6 +8230,7 @@ export component AppWindow inherits Window {
                                                 focus-key: "link:" + row.handle + ":" + link.index;
                                                 pressed => { root.link(row.handle, link.index); }
                                                 focused(k) => { root.focus-id = k; }
+                                                gained(keyed) => { messages-flick.reveal-tall(self.absolute-position.y, self.height, keyed); }
                                             }
                                         }
                                         // The reason above the status, so the status
@@ -8498,6 +8573,13 @@ export component AppWindow inherits Window {
                             root.reader-close();
                             return accept;
                         }
+                        // Shift+TAB from Back: the body's last link control
+                        // (section 9), laid out or not.
+                        if (FocusMode.navigates(event) && (event.text == Key.Backtab || event.modifiers.shift)
+                            && root.focus-id == "reader-back" && reader-scroll.links > 0) {
+                            reader-scroll.go(root.reader-link-rows[reader-scroll.links - 1]);
+                            return accept;
+                        }
                         reject
                     }
                     Rectangle {
@@ -8520,6 +8602,8 @@ export component AppWindow inherits Window {
                                     ink: Palette.on-surface;
                                     label: root.back-label;
                                     focus-key: "reader-back";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "reader-back";
                                     pressed => { root.reader-close(); }
                                     focused(k) => { root.focus-id = k; }
                                 }
@@ -8586,6 +8670,8 @@ export component AppWindow inherits Window {
                                     ink: Palette.on-surface;
                                     label: root.back-label;
                                     focus-key: "reader-back";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "reader-back";
                                     pressed => { root.reader-close(); }
                                     focused(k) => { root.focus-id = k; }
                                 }
@@ -8608,10 +8694,23 @@ export component AppWindow inherits Window {
                             init => {
                                 self.focus();
                                 root.focus-id = "reader-scroll";
+                                root.reader-at-end = self.at-end;
                             }
                             // How far the content may scroll, as a negative y.
                             property <length> bottom: min(0px, reader-list.visible-height - reader-list.content-height);
+                            property <bool> at-end: reader-list.content-y <= self.bottom + 1px;
+                            changed at-end => { root.reader-at-end = self.at-end; }
+                            // End holds the list at its end until the next
+                            // scroll: rows laid out as they come near make
+                            // the content taller than first measured, which
+                            // moves the end away from where End put the list
+                            // (tests/long_message.rs).
+                            property <bool> held-at-end;
+                            changed bottom => {
+                                if (self.held-at-end) { reader-list.content-y = self.bottom; }
+                            }
                             function scroll-to(y: length) {
+                                self.held-at-end = false;
                                 reader-list.content-y = max(self.bottom, min(0px, y));
                             }
                             // The other form, at about the same place: the share
@@ -8621,13 +8720,101 @@ export component AppWindow inherits Window {
                                 root.reader-switch();
                                 self.scroll-to(share * self.bottom);
                             }
+                            // TAB through the body's link controls, laid out or
+                            // not (section 9): from the scroll area to the first
+                            // one starting at or below the top of the screen,
+                            // else the first; from one to the next, then Back;
+                            // Shift+TAB the reverse, to the scroll area. The
+                            // toolkit's own order goes through the rows laid
+                            // out near the view; a link far from it is reached
+                            // by this one (`tab_in_the_reader_reaches_every_
+                            // link_laid_out_or_not`).
+                            property <int> links: root.reader-as-source ? 0 : root.reader-link-rows.length;
+                            // The link row TAB goes to, until it is laid out and
+                            // focused; -1 for none.
+                            property <int> want: -1;
+                            property <int> tries;
+                            // The row covering the top of the view, and whether it
+                            // starts there, as the rows said when last asked.
+                            property <int> top-row;
+                            property <bool> top-starts: true;
+                            property <int> ask-seq;
+                            property <bool> asking;
+                            // The link control focused, by its index.
+                            property <int> focused-link: -1;
+                            // The row a link TAB reached sits in, shown from its
+                            // top once the list has placed it.
+                            property <int> reveal-row: -1;
+                            public function go(row: int) {
+                                self.held-at-end = false;
+                                self.tries = 0;
+                                self.want = row;
+                            }
+                            function back-control() {
+                                root.focus-target = "reader-back";
+                                root.focus-seq += 1;
+                            }
+                            function from-top() {
+                                if (self.links == 0) { self.back-control(); return; }
+                                let from = root.reader-link-from(self.top-starts ? self.top-row : self.top-row + 1);
+                                self.go(root.reader-link-rows[from >= 0 ? from : 0]);
+                            }
+                            // Once a turn: the rows answer an ask before this runs.
+                            Timer {
+                                interval: 16ms;
+                                running: reader-scroll.asking || reader-scroll.want >= 0;
+                                triggered => {
+                                    if (reader-scroll.asking) {
+                                        reader-scroll.asking = false;
+                                        reader-scroll.from-top();
+                                        return;
+                                    }
+                                    reader-scroll.tries += 1;
+                                    // Not laid out yet: toward it, by the content's
+                                    // proportion, then a screen at a time.
+                                    if (reader-scroll.tries > 64) {
+                                        reader-scroll.want = -1;
+                                    } else if (reader-scroll.tries == 1) {
+                                        reader-list.near(reader-scroll.want, root.reader-rows.length);
+                                    } else {
+                                        reader-list.page(reader-scroll.want > reader-scroll.top-row);
+                                    }
+                                    reader-scroll.ask-seq += 1;
+                                }
+                            }
                             key-pressed(event) => {
+                                if (FocusMode.navigates(event)) {
+                                    let back = event.text == Key.Backtab || event.modifiers.shift;
+                                    if (self.has-focus) {
+                                        if (back) { return reject; }
+                                        self.asking = true;
+                                        self.ask-seq += 1;
+                                        return accept;
+                                    }
+                                    if (self.focused-link < 0) { return reject; }
+                                    let k = self.focused-link;
+                                    if (!back && k + 1 < self.links) {
+                                        self.go(root.reader-link-rows[k + 1]);
+                                    } else if (!back) {
+                                        self.back-control();
+                                    } else if (k > 0) {
+                                        self.go(root.reader-link-rows[k - 1]);
+                                    } else {
+                                        self.focus();
+                                    }
+                                    return accept;
+                                }
                                 if (event.text == Key.UpArrow) { self.scroll-to(reader-list.content-y + 40px); return accept; }
                                 if (event.text == Key.DownArrow) { self.scroll-to(reader-list.content-y - 40px); return accept; }
                                 if (event.text == Key.PageUp) { self.scroll-to(reader-list.content-y + reader-list.visible-height * 0.9); return accept; }
                                 if (event.text == Key.PageDown) { self.scroll-to(reader-list.content-y - reader-list.visible-height * 0.9); return accept; }
                                 if (event.text == Key.Home) { self.scroll-to(0px); return accept; }
-                                if (event.text == Key.End) { self.scroll-to(self.bottom); return accept; }
+                                if (event.text == Key.End) {
+                                    self.scroll-to(self.bottom);
+                                    self.held-at-end = true;
+                                    root.reader-ended();
+                                    return accept;
+                                }
                                 reject
                             }
                             accessible-role: list;
@@ -8635,7 +8822,32 @@ export component AppWindow inherits Window {
                             reader-list := ListView {
                                 width: parent.width;
                                 height: parent.height;
-                                for r in root.reader-rows: VerticalLayout {
+                                flicked => { reader-scroll.held-at-end = false; }
+                                for r[i] in root.reader-rows: reader-row := VerticalLayout {
+                                    // A row is placed after it is made: its top is
+                                    // read on the next turn.
+                                    Timer {
+                                        interval: 1ms;
+                                        running: reader-scroll.reveal-row == i;
+                                        triggered => {
+                                            reader-scroll.reveal-row = -1;
+                                            reader-list.show-top(reader-row.absolute-position.y);
+                                        }
+                                    }
+                                    // Asked by a TAB: the row covering the view's top
+                                    // says so. Its geometry is read when asked, not
+                                    // as the row is made, which would lay the list
+                                    // out once per row.
+                                    property <int> ask: reader-scroll.ask-seq;
+                                    changed ask => {
+                                        if (reader-scroll.asking || reader-scroll.want >= 0) {
+                                            let top = self.y + reader-list.content-y;
+                                            if (top <= 0px && top + self.height > 0px) {
+                                                reader-scroll.top-row = i;
+                                                reader-scroll.top-starts = top >= -1px;
+                                            }
+                                        }
+                                    }
                                     padding-top: r.kind == ReaderRowKind.line && r.line.joined ? 0px : 4px;
                                     padding-right: 12px;
                                     if r.kind == ReaderRowKind.sent: Text {
@@ -8665,7 +8877,20 @@ export component AppWindow inherits Window {
                                         pieces: r.pieces;
                                         focus-key: "reader-link:" + r.index;
                                         pressed => { root.reader-link(r.index); }
-                                        focused(k) => { root.focus-id = k; }
+                                        focused(k) => {
+                                            root.focus-id = k;
+                                            reader-scroll.focused-link = r.index;
+                                        }
+                                        // TAB's way to it: shown from its top, then
+                                        // focused, as soon as it is laid out.
+                                        property <bool> wanted: reader-scroll.want == i;
+                                        function arrive() {
+                                            reader-scroll.want = -1;
+                                            reader-scroll.reveal-row = i;
+                                            self.focus();
+                                        }
+                                        changed wanted => { if (self.wanted) { self.arrive(); } }
+                                        init => { if (self.wanted) { self.arrive(); } }
                                     }
                                     // A line of the body, drawn as the bubble draws it,
                                     // on `surface` (section 5.1).

@@ -35,6 +35,9 @@ pub(crate) struct Forms {
     pub(crate) formatted: ModelRc<ReaderRow>,
     pub(crate) source: ModelRc<ReaderRow>,
     pub(crate) links: Vec<String>,
+    /// Each link's row in the formatted form: right after the line its
+    /// text is in (section 5.1), in the order the body gives them.
+    pub(crate) link_rows: Vec<usize>,
 }
 
 /// When `local_at` reached this app, as the reader's first line shows it
@@ -75,27 +78,40 @@ pub(crate) fn forms(
         index: 0,
         pieces: ModelRc::default(),
     };
-    let drawn = body::flatten(&item.body, image);
+    let (drawn, places) = body::flatten_placed(&item.body, image);
     let mut formatted = vec![first.clone()];
-    formatted.extend(lines(&drawn.lines).into_iter().map(|line| ReaderRow {
-        kind: ReaderRowKind::Line,
-        line,
-        text: SharedString::new(),
-        spoken: SharedString::new(),
-        index: 0,
-        pieces: ModelRc::default(),
-    }));
-    formatted.extend(drawn.links.iter().enumerate().map(|(index, destination)| {
+    let as_rows = |lines: Vec<BodyLine>| {
+        lines.into_iter().map(|line| ReaderRow {
+            kind: ReaderRowKind::Line,
+            line,
+            text: SharedString::new(),
+            spoken: SharedString::new(),
+            index: 0,
+            pieces: ModelRc::default(),
+        })
+    };
+    // Each link's control after the line that holds it: the lines are
+    // measured a run at a time, each run ending where a control comes,
+    // which breaks the run there as the control does on screen.
+    let mut next = 0;
+    let mut link_rows = Vec::with_capacity(drawn.links.len());
+    for (index, (destination, &place)) in drawn.links.iter().zip(&places).enumerate() {
+        if place >= next && place < drawn.lines.len() {
+            formatted.extend(as_rows(lines(&drawn.lines[next..=place])));
+            next = place + 1;
+        }
         let text = body::link_label(destination);
-        ReaderRow {
+        link_rows.push(formatted.len());
+        formatted.push(ReaderRow {
             kind: ReaderRowKind::Link,
             line: BodyLine::default(),
             pieces: label(&text),
             text: text.into(),
             spoken: SharedString::new(),
             index: i32::try_from(index).unwrap_or(i32::MAX),
-        }
-    }));
+        });
+    }
+    formatted.extend(as_rows(lines(&drawn.lines[next..])));
     let text = cluster::drawable(&item.source);
     let mut source = vec![first];
     let source_pieces = pieces(
@@ -116,6 +132,7 @@ pub(crate) fn forms(
         formatted: ModelRc::new(VecModel::from(formatted)),
         source: ModelRc::new(VecModel::from(source)),
         links: drawn.links,
+        link_rows,
     }
 }
 

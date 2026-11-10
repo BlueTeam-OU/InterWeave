@@ -19,6 +19,7 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use interweave_human_client_api::Connectivity;
 use interweave_human_ui_model::{
@@ -241,6 +242,12 @@ impl Tracer {
         self.warns = warns;
     }
 
+    /// Where the lines go, for one said from outside a render: the
+    /// reader's times, said once a frame is drawn.
+    pub(crate) fn sink(&self) -> Rc<dyn Fn(&str)> {
+        Rc::clone(&self.sink)
+    }
+
     /// Say how `now` differs from what was last said: true when the
     /// page changed, which owes a statement of focus.
     pub(crate) fn render(&mut self, now: Shown) -> bool {
@@ -314,6 +321,26 @@ pub(crate) fn changes(before: &Shown, now: &Shown) -> Vec<String> {
     lines
 }
 
+/// The line for the reader's first frame drawn, `took` after the press
+/// that opened it reached the view (design/2026-11-04-long-message.md
+/// A5: within 0.5 s on the A40).
+pub(crate) fn reader_drawn_line(took: Duration) -> String {
+    format!("{PREFIX} reader=drawn ms={}", took.as_millis())
+}
+
+/// The line for End in the reader showing the source or the formatted
+/// form: `took` from the key to the frame that showed the list at its
+/// end, `frames` drawn in between counting that one, or, `at_end` false,
+/// the frame at which the wait gave up (A5: within 1 s).
+pub(crate) fn reader_end_line(took: Duration, frames: u32, at_end: bool, source: bool) -> String {
+    let at_end = if at_end { "yes" } else { "no" };
+    let form = if source { "source" } else { "formatted" };
+    format!(
+        "{PREFIX} reader=end ms={} frames={frames} at-end={at_end} form={form}",
+        took.as_millis()
+    )
+}
+
 /// The line for the identity screen moving from `before` to `now`.
 fn identity_change(before: Option<&'static str>, now: Option<&'static str>) -> Option<String> {
     (before != now).then(|| format!("{PREFIX} identity={}", now.unwrap_or("closed")))
@@ -350,6 +377,22 @@ fn is_key(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_readers_times_are_numbers_and_kinds() {
+        assert_eq!(
+            reader_drawn_line(Duration::from_micros(412_900)),
+            "ui-trace reader=drawn ms=412"
+        );
+        assert_eq!(
+            reader_end_line(Duration::from_millis(1_250), 4, true, false),
+            "ui-trace reader=end ms=1250 frames=4 at-end=yes form=formatted"
+        );
+        assert_eq!(
+            reader_end_line(Duration::from_secs(3), 180, false, true),
+            "ui-trace reader=end ms=3000 frames=180 at-end=no form=source"
+        );
+    }
 
     #[test]
     fn a_focus_key_is_written_and_anything_else_is_not() {

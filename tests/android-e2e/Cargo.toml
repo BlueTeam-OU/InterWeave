@@ -43,15 +43,18 @@ tracing-subscriber = { workspace = true }
 # src/wifi.rs: tokio's sleep between probes of the phone's listener;
 # each probe is a blocking connect of at most 1 s.
 tokio = { workspace = true, features = ["time"] }
+# src/long.rs: the long-message shapes, each grown to the largest the
+# sender's own encoder takes.
+interweave-human-chat-protocol = { path = "../../crates/human/chat-protocol" }
 
 [dev-dependencies]
 # human_chat.rs: the app's own service host on the host's stand-in for
 # the app's process, with the cases' recorder and client handle -- the
 # composition the phone's instrumentation runs the case on.
 interweave-human-android-platform = { path = "../../crates/human/android-platform", features = ["e2e-cases"] }
-# human_chat.rs: the desktop client's own facade, store, envelope and
-# model, and the captured payloads' schema check.
-interweave-human-chat-protocol = { path = "../../crates/human/chat-protocol" }
+# human_chat.rs: the desktop client's own facade and model, and the
+# captured payloads' schema check (the store and the envelope are
+# dependencies).
 interweave-human-transport-client = { path = "../../crates/human/transport-client" }
 interweave-human-ui-model = { path = "../../crates/human/ui-model" }
 # paths.rs: the relay's PeerIds, read back, and the cases' runtime.

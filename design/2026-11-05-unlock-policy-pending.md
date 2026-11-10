@@ -274,6 +274,7 @@ faults.
 | F12 | §11, L2, and L3's prompt cancelled: the locked notice shows at a return after a cancel, or after the prompt of a launch or of another return is cancelled | the locked notice, on the screen the person is on (Chats, or a conversation, under its app bar) | the notice's text, as focus reads it | A17, A18, A19 |
 | F13 | §11, L4: the start refused while no window shows | nothing is shown then; at the next launch, F10 (L3); at the next return, F10 (L3), or F12 (L2) after a cancel | — | A19 |
 | F14 | §11: Unlock granted and the client runs again, while the notice has focus | on Chats, the list heading (as F4); in a conversation, its composer | nothing for the notice's leaving | A20 |
+| F15 | §11, L1: R's prompt granted, and R goes with focus inside it | Chats' list heading (as F3, F4); in an open narrow conversation, its header title, never the composer: the person was on R, not writing. A locked notice the start asks for comes first (F11) | the focused control, as TalkBack reads it | A14 |
 
 Keyboard: every line is a Tab stop in the order of §5, and Details is
 the notice's action button as on every other notice. Each line, and the
@@ -431,7 +432,10 @@ Trust page (A13).
 - **A14** L1, R's Try again: the system prompt rises by itself, titled
   `UnlockPromptTitle`, before anything else on the screen changes.
   Granting it runs the restart again, and R then follows the start's answer as
-  `design/2026-10-21-contact-cards.md` §7 says.
+  `design/2026-10-21-contact-cards.md` §7 says. Where R goes, focus is on
+  Chats' list heading, on a wide layout too; in an open narrow
+  conversation, on its header title; where the start asks for the locked
+  notice, on that notice first (F15, F11).
 - **A15** L1, R's Try again with the prompt cancelled: R stays, with focus
   on Try again and no other change. No prompt rises again until Try
   again is pressed again. Pressing it raises the prompt once.

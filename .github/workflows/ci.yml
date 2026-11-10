@@ -980,6 +980,13 @@ jobs:
       - name: No shipped build turns a test-hooks feature on
         run: bash tools/checks/check_shipped_test_hooks.sh
 
+      # ADR-0058: the notices each shipped build owes are written today, by
+      # the release's own tool over the release's own graph, so a bump that
+      # brings a crate the reviewed lists do not cover is red here and not
+      # at the tag (each build read from where the release takes it).
+      - name: Every shipped build's third-party notices can be written
+        run: bash tools/checks/check_release_notices.sh
+
       # Plan §15 / ADR-0052 rule 5: Stage 12 may compose kademlia, the
       # relay client or the authorised-identify opt-ins only while the root
       # funnel's measurement is committed as a test and runs. The relay
