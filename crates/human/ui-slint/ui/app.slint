@@ -346,6 +346,15 @@ export struct TrustRow {
     origin: string,
 }
 
+// One line of the Trust page's identity section on the unlock policy
+// (design/2026-11-05-unlock-policy-pending.md section 5): its focus key,
+// which names its kind so focus on it stays when its words change, and
+// its words.
+export struct UnlockRow {
+    key: string,
+    text: string,
+}
+
 // One address on Peers (design/2026-10-22-add-a-peer.md section 5.2): its
 // peer in short, the host and port in the code font, its state and origin
 // in words, and what its row offers.
@@ -4186,6 +4195,20 @@ export component AppWindow inherits Window {
     // (design/2026-10-19-android-identity.md section 3.5).
     in property <bool> show-phrase-offered;
     in property <string> show-phrase-label;
+    // Android: the unlock note's lines (section 5), between the PeerId and
+    // Show recovery phrase, each a block of its own and a focus stop.
+    in property <[UnlockRow]> unlock-lines;
+    // Android: the P-up notice (unlock note section 4), the lowest of the
+    // notices: Rust sets it only while no session or discard notice shows;
+    // the pane's offline line goes before it too. Chats' slot on a narrow
+    // window, the pane's on a wide one -- never a narrow window's open
+    // conversation.
+    in property <bool> unlock-notice-shown;
+    in property <string> unlock-notice;
+    in property <string> unlock-details-label;
+    // Trust was opened by the notice's Details: leaving it hands focus to
+    // the list heading, which Rust asks, not to the app options button.
+    in-out property <bool> trust-by-details;
     // The Chats bar's overflow (#304 F12): the app's options, named apart
     // from a conversation's "More options" since both show side by side
     // on a wide window. Trust and Peers are its entries.
@@ -4524,6 +4547,7 @@ export component AppWindow inherits Window {
     callback draft-edited(string);
     callback open-trust();
     callback show-phrase();
+    callback unlock-details();
     callback close-trust();
     callback trust-entry-edited(string);
     callback trust-add();
@@ -4659,11 +4683,14 @@ export component AppWindow inherits Window {
     property <length> composer-height: 48px;
     property <length> bar-height: 64px;
     property <length> notice-height: 0px;
+    // The pane carries the P-up notice only on a wide window, below every
+    // other notice (unlock note section 4).
+    property <bool> pane-unlock: !root.narrow && !root.has-notice && root.unlock-notice-shown;
     property <length> messages-left: root.above-keyboard - root.pane-chrome
         - root.composer-height - root.bar-height
-        - (root.has-notice ? root.notice-height : 0px);
+        - (root.has-notice || root.pane-unlock ? root.notice-height : 0px);
     out property <bool> list-aside: root.typing && !root.narrow && root.messages-left < root.least-messages;
-    out property <bool> notice-aside: root.typing && root.has-notice && root.messages-left < root.least-messages;
+    out property <bool> notice-aside: root.typing && (root.has-notice || root.pane-unlock) && root.messages-left < root.least-messages;
     out property <bool> bar-aside: root.typing
         && root.above-keyboard - root.pane-chrome - root.composer-height - root.bar-height < root.least-messages;
 
@@ -4943,6 +4970,12 @@ export component AppWindow inherits Window {
         if (root.ask-before-leaving(2, -1, "app-options")) { return; }
         root.go-to-trust();
     }
+    // The P-up notice's Details: the Trust page in front, as the app
+    // options' Trust entry shows it, its line focused by Rust (F2).
+    function open-unlock-details() {
+        root.list-shown = false;
+        root.unlock-details();
+    }
     function go-to-trust() {
         root.list-shown = false;
         root.open-trust();
@@ -5077,7 +5110,9 @@ export component AppWindow inherits Window {
     function close-settings() {
         root.list-shown = true;
         root.close-trust();
-        root.chats-menu-closed-seq += 1;
+        if (!root.trust-by-details) {
+            root.chats-menu-closed-seq += 1;
+        }
     }
 
     // The window's content: a Tab anywhere in it is keyboard use
@@ -5265,6 +5300,23 @@ export component AppWindow inherits Window {
                         focus-seq: root.focus-seq;
                         focus-wanted: root.focus-target == "chats-notice";
                         pressed => { root.notice-pressed(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                // The P-up notice: Rust shows it only where no session or
+                // discard notice is in this slot. It never takes focus: its
+                // text is said by the card's live region.
+                if root.narrow && root.list-shown && root.unlock-notice-shown: HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    NoticeCard {
+                        message: root.unlock-notice;
+                        has-action: true;
+                        action: root.unlock-details-label;
+                        action-key: "unlock-details";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "unlock-details";
+                        pressed => { root.open-unlock-details(); }
                         focused(k) => { root.focus-id = k; }
                     }
                 }
@@ -5608,6 +5660,12 @@ export component AppWindow inherits Window {
                         changed has-focus => {
                             if (self.has-focus) { root.focus-id = "own-peer-id"; }
                         }
+                        // Where focus goes when the unlock line it was on
+                        // clears (unlock note section 6, F7).
+                        property <int> focus-seq: root.focus-seq;
+                        changed focus-seq => {
+                            if (root.focus-target == "own-peer-id") { self.focus(); }
+                        }
                     }
                     FocusRing {
                         x: -5px;
@@ -5616,6 +5674,17 @@ export component AppWindow inherits Window {
                         height: own-id.height + 10px;
                         shown: own-id-input.has-focus;
                     }
+                }
+                // Between the PeerId and Show recovery phrase, in reading and
+                // focus order (unlock note section 5): plain body text, no
+                // action, wrapped whole at every font size.
+                for line in root.unlock-lines: FocusNote {
+                    text: line.text;
+                    focus-key: line.key;
+                    rtl: root.rtl;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == line.key;
+                    focused(k) => { root.focus-id = k; }
                 }
                 if root.show-phrase-offered: HorizontalLayout {
                     alignment: start;
@@ -7450,6 +7519,18 @@ export component AppWindow inherits Window {
                     init => { root.notice-height = self.height; }
                     changed height => { root.notice-height = self.height; }
                     pressed => { root.notice-pressed(); }
+                    focused(k) => { root.focus-id = k; }
+                }
+                if root.pane-unlock && !root.notice-aside: NoticeCard {
+                    message: root.unlock-notice;
+                    has-action: true;
+                    action: root.unlock-details-label;
+                    action-key: "unlock-details";
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "unlock-details";
+                    init => { root.notice-height = self.height; }
+                    changed height => { root.notice-height = self.height; }
+                    pressed => { root.open-unlock-details(); }
                     focused(k) => { root.focus-id = k; }
                 }
                 // The list, and over its top corner its heading. The heading is

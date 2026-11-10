@@ -74,6 +74,9 @@ impl AppClient for HubClient {
                 ToView::Running(false)
                 | ToView::NetworkAccess(true)
                 | ToView::AuthenticationNeeded(false)
+                // What the person's Trust page says of the unlock policy:
+                // nothing a case exchanges.
+                | ToView::Unlock(_)
                 // An answer that calls for no store screen: a start refused
                 // elsewhere leaves the service not running, which the case waits on.
                 | ToView::Store(

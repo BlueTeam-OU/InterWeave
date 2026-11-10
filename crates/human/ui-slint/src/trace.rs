@@ -24,7 +24,7 @@ use std::time::Duration;
 use interweave_human_client_api::Connectivity;
 use interweave_human_ui_model::{
     AddResult, BlockProblem, BlockState, ConnectPhase, Peers, ScreenId, SessionNotice, ShowState,
-    TrustSettings,
+    TrustSettings, UiText,
 };
 use interweave_transport_api::TransportIdentity;
 
@@ -48,12 +48,35 @@ pub(crate) struct Shown {
     /// The connectivity the window shows: `offline` while the key waits
     /// for the person, as the model has it.
     pub(crate) connectivity: &'static str,
-    /// The session notice above the chats, if any.
+    /// The notice above the chats, if any: a session notice, else the
+    /// discard's shown once, else the unlock note's P-up notice.
     pub(crate) notice: Option<&'static str>,
 }
 
 /// One trust block: its handle, state and problem.
 pub(crate) type Block = (i32, &'static str, Option<&'static str>);
+
+/// A session notice's name in the trace.
+pub(crate) const fn session_notice(n: SessionNotice) -> &'static str {
+    match n {
+        SessionNotice::NoDaemon => "no-daemon",
+        SessionNotice::Reconnecting => "reconnecting",
+        SessionNotice::StorageDegraded => "storage-degraded",
+        SessionNotice::Refused(_) => "refused",
+        SessionNotice::NetworkDenied => "network-denied",
+        SessionNotice::AuthenticationNeeded => "authentication-needed",
+    }
+}
+
+/// A notice shown once (`View::show_once`), by name: the discard's two,
+/// and `once` for any other, which none is today.
+pub(crate) const fn once_notice(text: UiText) -> &'static str {
+    match text {
+        UiText::StoreDiscarded => "store-discarded",
+        UiText::StoreRestored => "store-restored",
+        _ => "once",
+    }
+}
 
 /// What a render showed: `page` as the window has it, the rest read
 /// from the model it drew; `handle` is the view's own handle
@@ -62,7 +85,7 @@ pub(crate) fn shown(
     page: &'static str,
     connect: ConnectPhase,
     connectivity: Connectivity,
-    notice: Option<SessionNotice>,
+    notice: Option<&'static str>,
     peers: &Peers,
     trust: &TrustSettings,
     mut handle: impl FnMut(&TransportIdentity) -> i32,
@@ -97,14 +120,6 @@ pub(crate) fn shown(
         Connectivity::Offline => "offline",
         Connectivity::Unknown => "unknown",
     };
-    let notice = notice.map(|n| match n {
-        SessionNotice::NoDaemon => "no-daemon",
-        SessionNotice::Reconnecting => "reconnecting",
-        SessionNotice::StorageDegraded => "storage-degraded",
-        SessionNotice::Refused(_) => "refused",
-        SessionNotice::NetworkDenied => "network-denied",
-        SessionNotice::AuthenticationNeeded => "authentication-needed",
-    });
     Shown {
         page,
         connect,
@@ -466,7 +481,7 @@ mod tests {
         };
         let locked = at(
             Connectivity::Offline,
-            Some(SessionNotice::AuthenticationNeeded),
+            Some(session_notice(SessionNotice::AuthenticationNeeded)),
         );
         assert_eq!(
             changes(&Shown::default(), &locked),

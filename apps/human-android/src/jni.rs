@@ -371,6 +371,9 @@ extern "system" fn Java_org_interweave_human_Native_start<'caller>(
     env.with_env(|env| -> Result<jint, jni::errors::Error> {
         let app_data_dir = app_data_dir.try_to_string(env)?;
         let code = start(env, &app_data_dir);
+        // What the start left of the unlock policy, whatever it answered
+        // (unlock note section 3).
+        ServiceHost::global().say_unlock(std::path::Path::new(&app_data_dir), PROFILE);
         // Answered in a running process as in a fresh one: the window's
         // locked view and the prompt or notice for a refusal for the
         // person, the locked state ended by any other answer (unlock

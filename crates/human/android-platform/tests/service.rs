@@ -245,6 +245,68 @@ fn the_unlock_status_is_the_last_start_that_ran() {
     );
 }
 
+/// The unlock note's four facts reach the view (section 8's
+/// precondition): `say_unlock` hands the hub the status member mapped to
+/// the model's names with the restart diagnostic, counted by the starts
+/// whose custody step ran -- a start that ran or was refused after it --
+/// so a locked start or the Activity's check owes the P-up notice nothing
+/// new (section 4).
+#[test]
+fn say_unlock_hands_the_view_the_four_facts_by_start() {
+    use interweave_human_ui_model::{KeyUnlock, ResealLeft, UnlockFacts, UnlockReason};
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let service = ServiceHost::new();
+    let mut link = service.hub().attach(std::sync::Arc::new(|| {}));
+    let said = |link: &mut interweave_human_android_platform::ViewLink| {
+        link.take().into_iter().find_map(|m| match m {
+            ToView::Unlock(said) => Some(said),
+            _ => None,
+        })
+    };
+    service.say_unlock(&app.dir, PROFILE);
+    assert_eq!(
+        said(&mut link).map(|s| (s.facts, s.start)),
+        Some((None, 0)),
+        "no start learnt the policy"
+    );
+    service
+        .start(ServiceLaunch {
+            unlock: Some(PENDING),
+            ..launch(&app)
+        })
+        .expect("started");
+    service.say_unlock(&app.dir, PROFILE);
+    let facts = UnlockFacts {
+        in_force: KeyUnlock::UserPresence,
+        configured: Some(KeyUnlock::BackgroundCompatible),
+        pending: Some(ResealLeft::Failed(UnlockReason::Keystore)),
+        restart_needs_unlock: Some(false),
+    };
+    assert_eq!(
+        said(&mut link).map(|s| (s.facts, s.start)),
+        Some((Some(facts), 1))
+    );
+    let _ = service.stop(GRACE);
+
+    service.refused_locked(Some(PENDING));
+    service.locked_before_start(Some(PENDING));
+    service.say_unlock(&app.dir, PROFILE);
+    assert_eq!(said(&mut link), None, "a lock is no start: nothing new");
+    service.refused_before_start_with(Some(UnlockStatus {
+        pending: Some(ResealFailure::OldKeyRemains),
+        configured: Some(KeyUnlockPolicy::UserPresence),
+        ..PENDING
+    }));
+    service.say_unlock(&app.dir, PROFILE);
+    let k = said(&mut link).expect("said");
+    assert_eq!(k.start, 2, "a refusal after the reseal is a start");
+    assert_eq!(
+        k.facts.and_then(|f| f.pending),
+        Some(ResealLeft::OldKeyRemains)
+    );
+}
+
 /// The Activity's check asks the person before any start, so no start
 /// sets the status: the check's own locked status is kept while nothing
 /// runs, and the restart diagnostic answers from it with the mode on disk

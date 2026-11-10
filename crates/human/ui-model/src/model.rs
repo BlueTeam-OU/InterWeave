@@ -29,6 +29,7 @@ use crate::labels::{
 use crate::look::Avatar;
 use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
+use crate::unlock::{UnlockFacts, UnlockLine};
 
 pub(crate) mod cards;
 pub(crate) mod directory;
@@ -711,6 +712,15 @@ impl Item {
     }
 }
 
+/// The unlock facts with their start and whether that start's P-up
+/// line was seen.
+#[derive(Debug, Clone, Copy)]
+struct UnlockSaid {
+    facts: UnlockFacts,
+    start: u64,
+    seen: bool,
+}
+
 /// The human client's presentation state.
 #[derive(Debug)]
 pub struct UiModel {
@@ -745,6 +755,10 @@ pub struct UiModel {
     /// The platform withholds network access, as the root last saw it.
     network_denied: bool,
     authentication_needed: bool,
+    /// The unlock note's facts, as the platform last said them, with
+    /// the start they are from and whether the person saw the Trust
+    /// page's line in that start (unlock note sections 3 and 4).
+    unlock: Option<UnlockSaid>,
     connectivity: Connectivity,
     /// The path to each peer a direct conversation is with, once the
     /// runtime has said: the route indicator's (`human-client-ui.md` §7).
@@ -803,6 +817,7 @@ impl UiModel {
             daemon_absent: false,
             network_denied: false,
             authentication_needed: false,
+            unlock: None,
             connectivity: Connectivity::Unknown,
             paths: HashMap::new(),
             session: SessionState::Reconnecting {
@@ -1111,6 +1126,54 @@ impl UiModel {
     /// offline, whatever else is known.
     pub fn authentication_needed(&mut self, needed: bool) {
         self.authentication_needed = needed;
+    }
+
+    /// The unlock note's four facts, as the last start left them, and
+    /// whether the Trust page's P-up line was seen in `start`, the
+    /// platform's count of the start they are from: a new start's count
+    /// shows the P-up notice again (unlock note section 4). `None` where
+    /// the platform has no unlock policy, or no start has learnt it.
+    pub fn unlock_facts(&mut self, facts: Option<UnlockFacts>, start: u64, seen: bool) {
+        self.unlock = facts.map(|facts| UnlockSaid { facts, start, seen });
+    }
+
+    /// The facts the platform last said.
+    #[must_use]
+    pub fn unlock(&self) -> Option<&UnlockFacts> {
+        self.unlock.as_ref().map(|said| &said.facts)
+    }
+
+    /// The Trust page's lines (unlock note section 5), D's in its locked
+    /// words while the locked notice shows.
+    #[must_use]
+    pub fn unlock_lines(&self) -> Vec<UnlockLine> {
+        self.unlock
+            .as_ref()
+            .map(|said| said.facts.lines(self.authentication_needed))
+            .unwrap_or_default()
+    }
+
+    /// Whether Chats offers the P-up notice: P-up holds and its line was
+    /// not seen in this start. Its place below every session notice is
+    /// the view's (section 4).
+    #[must_use]
+    pub fn unlock_notice(&self) -> bool {
+        self.unlock
+            .as_ref()
+            .is_some_and(|said| !said.seen && said.facts.needs_lock_pending())
+    }
+
+    /// The Trust page opened: the P-up line, while it holds, is seen for
+    /// this start. The start's count when that is new, for the platform
+    /// to keep past this model -- an Activity recreated while the service
+    /// runs still counts it seen (section 4).
+    pub fn unlock_line_seen(&mut self) -> Option<u64> {
+        let said = self.unlock.as_mut()?;
+        if said.seen || !said.facts.needs_lock_pending() {
+            return None;
+        }
+        said.seen = true;
+        Some(said.start)
     }
 
     /// Whether a person may send now: false while the platform withholds

@@ -22,6 +22,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use interweave_human_app_core::{Command, Update};
+use interweave_human_ui_model::UnlockFacts;
 
 use crate::notice::Notices;
 
@@ -61,6 +62,25 @@ pub enum ToView {
     /// hub's, so a view attached again still tells an answer that came
     /// after a discard from one before it (#377 review r3, risk 1).
     Store(StoreAnswer, StoreGeneration),
+    /// The unlock note's facts as the last start left them, the count of
+    /// that start, and whether its P-up line was seen (unlock note
+    /// sections 3 and 4): sent at an attach once said, and at every
+    /// change.
+    Unlock(UnlockSaid),
+}
+
+/// The unlock note's facts with the start they are from and whether its
+/// P-up line was seen, kept by the hub for the process's life and never
+/// stored: an Activity recreated in the same start still counts it seen
+/// (section 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnlockSaid {
+    /// The facts; `None` while no start has learnt the policy.
+    pub facts: Option<UnlockFacts>,
+    /// The count of the start they are from.
+    pub start: u64,
+    /// Whether that start's P-up line was seen.
+    pub seen: bool,
 }
 
 /// What a start's answer says of the message store.
@@ -139,6 +159,8 @@ struct Slot {
     /// The last start's answer, if one answered, and the answers so far.
     store: Option<StoreAnswer>,
     generation: StoreGeneration,
+    /// The unlock facts, once said.
+    unlock: Option<UnlockSaid>,
 }
 
 impl Default for Slot {
@@ -150,6 +172,7 @@ impl Default for Slot {
             authentication: false,
             store: None,
             generation: StoreGeneration::default(),
+            unlock: None,
         }
     }
 }
@@ -257,6 +280,9 @@ impl Hub {
         viewer.send(ToView::AuthenticationNeeded(slot.authentication));
         if let Some(answer) = slot.store {
             viewer.send(ToView::Store(answer, slot.generation));
+        }
+        if let Some(unlock) = slot.unlock {
+            viewer.send(ToView::Unlock(unlock));
         }
         slot.viewer = Some(viewer);
         ViewLink {
@@ -464,6 +490,50 @@ impl Hub {
         }
     }
 
+    /// The unlock facts of the start counted `start`, said to the
+    /// attached view when they changed: a start not counted before
+    /// forgets that a P-up line was seen, since that start retried and
+    /// the notice is owed again (unlock note section 4).
+    pub fn set_unlock(&self, facts: Option<UnlockFacts>, start: u64) {
+        let mut slot = self.slot();
+        let seen = slot
+            .unlock
+            .is_some_and(|said| said.start == start && said.seen);
+        let said = UnlockSaid { facts, start, seen };
+        if slot.unlock == Some(said) {
+            return;
+        }
+        slot.unlock = Some(said);
+        if let Some(viewer) = slot.viewer.as_ref()
+            && !viewer.send(ToView::Unlock(said))
+        {
+            slot.viewer = None;
+        }
+    }
+
+    /// The person saw the P-up line in the start counted `start`: kept
+    /// for that start alone, and said back to the view, whose model saw
+    /// it already, so a model it makes again for the same start -- at a
+    /// stop, or a lock -- starts seen too. A later start's count leaves it
+    /// unset.
+    pub fn unlock_line_seen(&self, start: u64) {
+        let mut slot = self.slot();
+        let Some(said) = slot
+            .unlock
+            .as_mut()
+            .filter(|said| said.start == start && !said.seen)
+        else {
+            return;
+        };
+        said.seen = true;
+        let said = *said;
+        if let Some(viewer) = slot.viewer.as_ref()
+            && !viewer.send(ToView::Unlock(said))
+        {
+            slot.viewer = None;
+        }
+    }
+
     /// A start's answer: said to the attached view, and to each later
     /// one. EVERY ANSWER IS SAID AND COUNTED, an unchanged one included:
     /// each answers a start, and a view that asked for a restart learns
@@ -650,6 +720,73 @@ mod tests {
             "{taken:?}"
         );
         assert_eq!(taken.len(), 3, "the pre-listing update was not sent");
+    }
+
+    /// The unlock note's section 4: the P-up line seen is kept for its
+    /// start, said to a view attached again in that start, and forgotten
+    /// by the next start's facts.
+    #[test]
+    fn a_seen_p_up_line_outlives_an_attach_and_not_a_start() {
+        use interweave_human_ui_model::{KeyUnlock, UnlockFacts};
+        let facts = Some(UnlockFacts {
+            in_force: KeyUnlock::BackgroundCompatible,
+            configured: Some(KeyUnlock::UserPresence),
+            pending: None,
+            restart_needs_unlock: Some(false),
+        });
+        let unlock = |link: &mut ViewLink| {
+            link.take().into_iter().find_map(|m| match m {
+                ToView::Unlock(said) => Some(said),
+                _ => None,
+            })
+        };
+        let hub = Hub::new();
+        let (_, wake) = counting();
+        let mut link = hub.attach(Arc::clone(&wake));
+        assert_eq!(unlock(&mut link), None, "nothing said before a start");
+        hub.set_unlock(facts, 1);
+        assert_eq!(
+            unlock(&mut link),
+            Some(UnlockSaid {
+                facts,
+                start: 1,
+                seen: false
+            })
+        );
+        hub.unlock_line_seen(0);
+        assert_eq!(
+            unlock(&mut link),
+            None,
+            "another start's seen is not this one's"
+        );
+        hub.unlock_line_seen(1);
+        assert_eq!(
+            unlock(&mut link).map(|s| s.seen),
+            Some(true),
+            "said back to the view"
+        );
+        let mut again = hub.attach(Arc::clone(&wake));
+        assert_eq!(
+            unlock(&mut again).map(|s| s.seen),
+            Some(true),
+            "an Activity made again in the start"
+        );
+        hub.set_unlock(facts, 1);
+        assert_eq!(
+            unlock(&mut again),
+            None,
+            "the same start said again changes nothing"
+        );
+        hub.set_unlock(facts, 2);
+        assert_eq!(
+            unlock(&mut again),
+            Some(UnlockSaid {
+                facts,
+                start: 2,
+                seen: false
+            }),
+            "the next start owes the notice again"
+        );
     }
 
     #[test]

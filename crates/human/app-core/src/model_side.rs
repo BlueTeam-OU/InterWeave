@@ -9,7 +9,8 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, Intent, UiModel, ViewEvent, WindowEvent, WindowInput,
+    ConnectGate, ConversationKey, Intent, TrustInput, UiModel, UnlockFacts, ViewEvent, WindowEvent,
+    WindowInput,
 };
 
 use crate::facade::CANCELLED_CAP;
@@ -62,6 +63,14 @@ pub trait Opener {
     /// with no onboarding never owes it
     /// (`connect_settled_reaches_the_platform_once_and_only_when_owed`).
     fn connect_settled(&mut self) {}
+
+    /// The Trust page's P-up line was seen in the start counted `start`
+    /// (unlock note section 4): kept by the platform, in memory and never
+    /// stored, so a model made again for that start does not show the
+    /// Chats notice again. Raised once per start, only after the root said
+    /// that start's facts ([`ModelSide::unlock_facts`]); a platform with
+    /// no unlock policy never says any.
+    fn unlock_line_seen(&mut self, _start: u64) {}
 }
 
 /// An action still being carried out, so a second press of the same one
@@ -231,6 +240,12 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// root learns it from the platform.
     pub fn authentication_needed(&mut self, needed: bool) {
         self.model.authentication_needed(needed);
+    }
+
+    /// The unlock note's facts as the platform says them, the count of
+    /// the start they are from, and whether its P-up line was seen.
+    pub fn unlock_facts(&mut self, facts: Option<UnlockFacts>, start: u64, seen: bool) {
+        self.model.unlock_facts(facts, start, seen);
     }
 
     /// What did not happen since the last call, oldest first.
@@ -650,6 +665,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     }
                     ViewEvent::Trust(input) => {
                         unrendered = true;
+                        if input == TrustInput::Opened
+                            && let Some(start) = self.model.unlock_line_seen()
+                        {
+                            self.opener.unlock_line_seen(start);
+                        }
                         if let Some(intent) = self.model.trust_settings_mut().input(input)
                             && let Some(command) = self.command_for(intent)
                         {
