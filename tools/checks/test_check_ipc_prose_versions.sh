@@ -137,7 +137,13 @@ if [ "$code" = 0 ]; then ok "an older version later in the parenthetical passes"
 R="$(copy r3-minor)"; F="$R/$CONTRACT"
 # The parenthetical's own minor bound. Rule 5 reports the same 2.N too;
 # the case asserts rule 3's line, which only rule 3's branch prints.
-edit "$F" "which 2.$MAX brings" "which 2.$((MAX + 1)) brings" || exit 1
+# The minor edited is the highest a parenthetical names, NOT the code's:
+# a minor that adds only a member to an existing result (2.13's
+# events_refused_total) brings no method row, so "which 2.$MAX brings"
+# need not be in the contract at all.
+NAMED="$(grep -o 'which 2\.[0-9]* brings' "$F" | sed 's/[^0-9]*2\.\([0-9]*\).*/\1/' | sort -n | tail -1)"
+[ -n "$NAMED" ] || { bad "no method parenthetical names a minor"; exit 1; }
+edit "$F" "which 2.$NAMED brings" "which 2.$((MAX + 1)) brings" || exit 1
 expect_fail "$R" 3 "$(line_of "$F" "which 2.$((MAX + 1)) brings")" "the parenthetical naming a minor above the code"
 
 R="$(copy r3-noversion)"; F="$R/$CONTRACT"
