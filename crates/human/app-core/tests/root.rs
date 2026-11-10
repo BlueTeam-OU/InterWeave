@@ -125,6 +125,9 @@ const AUTHENTICATION_ASKED: &str = "<authentication>";
 /// What [`Opened`] records for onboarding's Connect settled.
 const CONNECT_SETTLED: &str = "<connect settled>";
 
+/// What [`Opened`] records for the P-up line seen, before its start.
+const UNLOCK_SEEN: &str = "<unlock line seen> ";
+
 impl Opener for Opened {
     fn open(&mut self, destination: &str) {
         self.0.borrow_mut().push(destination.to_owned());
@@ -140,6 +143,10 @@ impl Opener for Opened {
 
     fn connect_settled(&mut self) {
         self.0.borrow_mut().push(CONNECT_SETTLED.to_owned());
+    }
+
+    fn unlock_line_seen(&mut self, start: u64) {
+        self.0.borrow_mut().push(format!("{UNLOCK_SEEN}{start}"));
     }
 }
 
@@ -2111,4 +2118,52 @@ async fn an_admin_retry_answered_before_its_done_is_sent() {
         "the Try again sent: {commands:?}"
     );
     root.model.apply(Update::Done(remove));
+}
+
+/// The unlock note's section 4: opening the Trust page while P-up holds
+/// tells the platform the line was seen in that start, once; opened
+/// again, or in a state that is not P-up, it tells nothing.
+#[tokio::test]
+async fn the_trust_page_opened_in_p_up_says_the_line_seen_once() {
+    use interweave_human_ui_model::{KeyUnlock, UnlockFacts};
+    let p_up = UnlockFacts {
+        in_force: KeyUnlock::BackgroundCompatible,
+        configured: Some(KeyUnlock::UserPresence),
+        pending: None,
+        restart_needs_unlock: Some(false),
+    };
+    let seen = |opened: &Opened| {
+        opened
+            .0
+            .borrow()
+            .iter()
+            .filter(|o| o.starts_with(UNLOCK_SEEN))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, opened) = Root::new(facade(&a, memory()));
+    root.model.unlock_facts(Some(p_up), 7, false);
+    root.pump(0).await;
+    root.will(trust(TrustInput::Opened));
+    root.pump(1).await;
+    root.will(trust(TrustInput::Cancel));
+    root.will(trust(TrustInput::Opened));
+    root.pump(1).await;
+    assert_eq!(seen(&opened), [format!("{UNLOCK_SEEN}7")], "once, for start 7");
+
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, opened) = Root::new(facade(&a, memory()));
+    root.model.unlock_facts(
+        Some(UnlockFacts {
+            configured: Some(KeyUnlock::BackgroundCompatible),
+            ..p_up
+        }),
+        7,
+        false,
+    );
+    root.pump(0).await;
+    root.will(trust(TrustInput::Opened));
+    root.pump(1).await;
+    assert!(seen(&opened).is_empty(), "not P-up: nothing to see");
 }
