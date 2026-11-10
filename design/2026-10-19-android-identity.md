@@ -922,8 +922,9 @@ scale would also be a finding of the Android review
     - R raised by a refused start (§8) has focus on its heading.
       This is checked by the debug build's focus trace
       (`ui-trace focus=`). The trace must name the heading's own
-      focus key, which the build adds for each of R, K and K1
-      (rust-ui-dev-01 names the keys). Any other value fails,
+      focus key, which the build adds for each of R, K and K1:
+      `r-heading`, `k-heading` and `k1-heading` (rust-ui-dev-01,
+      2026-11-10). Any other value fails,
       `focus=none` and `focus=?` included. Run it three times. Each
       of the first two runs fires the debug hook `REFUSE_STORE` and
       then `RESTART` (`apps/human-android/android/README.md`). The first
