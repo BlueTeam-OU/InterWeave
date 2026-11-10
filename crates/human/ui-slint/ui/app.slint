@@ -437,6 +437,10 @@ export enum IdScreen { w, c1, c2, c3, c4, r1, r2, r3, r4, k1, s1, s2, done }
 export struct IdentityPage {
     screen: IdScreen,
     title: string,
+    // The title's focus key where the title is a stop: R's, K's and K1's,
+    // which a refused start raises with focus on it (section 8); empty,
+    // the title is plain text.
+    heading-key: string,
     paragraphs: [string],
     // An inline banner (section 6), above the content; empty for none.
     notice: string,
@@ -2090,6 +2094,7 @@ component IdentityScreen inherits FocusScope {
     // in reading order, and never reach the window behind it (which
     // Slint's own navigation would, past the last stop). The stops are
     // segments, in reading order: 0 the app bar's back arrow, then the
+    // heading (`heading-idx`) where the page makes it a stop, then the
     // banner (`banner-idx`), 1 the grid's positions
     // (over 130 % font, its one button), 2 the chips, 3 the keypad's
     // letters, 4 delete, 5 clear, 6 the primary, 7 the secondary, 8 the
@@ -2123,10 +2128,31 @@ component IdentityScreen inherits FocusScope {
         if (seg == 8) { return root.page.tertiary != "" ? 1 : 0; }
         return root.page.dialog ? 1 : 0;
     }
-    // The banner's stop in segment 0: after the app bar's arrow.
-    function banner-idx() -> int {
+    // The heading's stop in segment 0: after the app bar's arrow.
+    function heading-idx() -> int {
         return root.page.back-arrow ? 1 : 0;
     }
+    // The banner's stop in segment 0: after the arrow and the heading.
+    function banner-idx() -> int {
+        return root.heading-idx() + (root.page.heading-key != "" ? 1 : 0);
+    }
+    // A refused start raised this page (section 8): focus to its heading,
+    // once, whatever had it under the page. Set by the window, taken here;
+    // a page with no heading stop takes it and moves nothing.
+    in-out property <bool> heading-wanted;
+    // Asked and not yet taken: the page's own rule waits, whichever of the
+    // two changes -- the flag, the page that came with it -- runs first.
+    property <bool> heading-held;
+    function heading-asked() -> bool {
+        if (!root.heading-wanted) { return root.heading-held; }
+        root.heading-wanted = false;
+        if (root.page.heading-key == "") { return false; }
+        root.typing = false;
+        root.heading-held = true;
+        root.go(0, root.heading-idx());
+        return true;
+    }
+    changed heading-wanted => { root.heading-asked(); }
     // Where segment `seg`'s first stop stands among the page's.
     function base(seg: int) -> int {
         return (seg > 0 ? root.size(0) : 0) + (seg > 1 ? root.size(1) : 0)
@@ -2150,6 +2176,7 @@ component IdentityScreen inherits FocusScope {
     // -- never a letter or a word, so a debug trace of a keyboard entry
     // cannot spell the phrase -- and its place.
     function took(key: string, seg: int, idx: int) {
+        root.heading-held = false;
         root.at-seg = seg;
         root.at-idx = idx;
         root.focused(key);
@@ -2333,9 +2360,18 @@ component IdentityScreen inherits FocusScope {
         root.notice-shown = root.page.notice;
         root.review-shown = root.page.review;
         root.screen-shown = root.page.screen;
-        root.opened();
+        if (!root.heading-asked()) { root.opened(); }
     }
     changed page => {
+        // Asked with the page that raised it, whichever change runs first:
+        // the heading wins over the rebuilt page's own rule.
+        if (root.heading-asked()) {
+            root.screen-shown = root.page.screen;
+            root.dialog-shown = root.page.dialog;
+            root.review-shown = root.page.review;
+            root.notice-shown = root.page.notice;
+            return;
+        }
         if (root.page.screen != root.screen-shown) {
             let from = root.screen-shown;
             root.screen-shown = root.page.screen;
@@ -2541,7 +2577,7 @@ component IdentityScreen inherits FocusScope {
                     focused(k) => { root.took(k, 0, 0); }
                 }
             }
-            Text {
+            if root.page.heading-key == "": Text {
                 horizontal-stretch: 1;
                 text: root.page.title;
                 font-size: Type.title-large;
@@ -2553,6 +2589,29 @@ component IdentityScreen inherits FocusScope {
                 min-height: self.preferred-height;
                 accessible-role: text;
                 accessible-label: Drawn.spoken(self.text);
+            }
+            // R's, K's and K1's title, a stop so that a refused start can
+            // put focus on it (section 8): no press, read from the top.
+            if root.page.heading-key != "": VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                FocusNote {
+                    text: root.page.title;
+                    font-size: Type.title-large;
+                    font-weight: 500;
+                    rtl: root.rtl;
+                    focus-key: root.page.heading-key;
+                    focus-seq: root.focus-seq;
+                    property <int> arrow: root.arrow-seq;
+                    changed arrow => { root.source(0, root.heading-idx(), 0, 0, self.absolute-position, self.width, self.height); }
+                    property <int> probe: root.probe-seq;
+                    changed probe => {
+                        root.offer(0, root.heading-idx(), 0, 0, true,
+                            self.absolute-position, self.width, self.height);
+                    }
+                    focus-wanted: !root.page.review && root.want-seg == 0 && root.want-idx == root.heading-idx();
+                    focused(k) => { root.took(k, 0, root.heading-idx()); }
+                }
             }
             if root.page.back-arrow && root.rtl: VerticalLayout {
                 alignment: center;
@@ -4006,6 +4065,9 @@ export component AppWindow inherits Window {
     // The identity screens (Android): shown over everything while active.
     in property <bool> identity-active;
     in property <IdentityPage> identity;
+    // Set by `View::raise_identity_heading`, taken by the page: focus to
+    // its heading once it shows.
+    in-out property <bool> identity-heading-wanted;
     callback identity-primary();
     callback identity-secondary();
     callback identity-tertiary();
@@ -10375,6 +10437,7 @@ export component AppWindow inherits Window {
             dialog(delete) => { root.identity-dialog(delete); }
             review(open) => { root.identity-review(open); }
             focused(k) => { root.focus-id = k; }
+            heading-wanted <=> root.identity-heading-wanted;
             init => { self.focus(); }
         }
     }

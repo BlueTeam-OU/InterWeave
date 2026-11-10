@@ -25,7 +25,7 @@ use interweave_human_ui_slint::{
 use crate::jni::{PROFILE, log};
 use crate::keystore::StoreKeystore;
 use crate::onboard::{ask, ask_activity, platform};
-use crate::store_follow::{Answer, Follow, Release, ShownState, follow as decide, release};
+use crate::store_follow::{Answer, Follow, Release, ShownState, follow as decide, raised, release};
 
 /// The flow while a store screen shows, and the plan it confirmed.
 struct Shown {
@@ -101,6 +101,7 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, said: Option<(StoreAnswer, StoreG
         match decide(state, said.map(|(said, _)| answer(said)), generation) {
             Follow::Keep => {}
             Follow::Show(screen) => {
+                let raised = raised(state, screen);
                 // The desktop and the phone hold one identity until Stage 22.
                 *shown = Some(Shown {
                     flow: StoreRecovery::new(screen, 1),
@@ -111,6 +112,9 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, said: Option<(StoreAnswer, StoreG
                 view.borrow()
                     .on_identity(move |input| defer(move || input_on(&input)));
                 render(shown.as_ref());
+                if raised {
+                    view.borrow().raise_identity_heading();
+                }
             }
             Follow::Hide => {
                 let s = shown.take();
