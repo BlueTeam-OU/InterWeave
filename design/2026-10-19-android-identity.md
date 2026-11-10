@@ -942,8 +942,11 @@ scale would also be a finding of the Android review
       a return to it is not a launch), and confirm that the same
       command shows the same pid (the process stays). Then open
       InterWeave from the launcher. In each run the first Tab
-      reaches Try again. Then, in the run over Chats, press
-      Shift+Tab to put focus back on R's heading (the trace shows
+      reaches Try again. Then, in the run over Chats, with focus on
+      Try again, fire `REFUSE_STORE` and then `RESTART` again. R is
+      refused again and stays, and the trace still shows Try again's
+      focus key, not `focus=r-heading` (§8: R was not raised). Then
+      press Shift+Tab to put focus back on R's heading (the trace shows
       `focus=r-heading`), and fire `RESTART` again. The hook refuses
       only once, so this start runs, and R leaves the screen while
       focus is on its heading. The trace then names Chats' list
