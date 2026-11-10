@@ -27,6 +27,9 @@ meta when the driver creates its trigger. No run has daemons. A cell:
                ``none``    nothing about events (S28's and S29's e)
                ``prompt``  the first turn says peer messages arrive and are
                            to be answered with ``reply``
+               ``promptw`` ``prompt``, its work saying "write" where
+                           ``prompt``'s says "reply" (``WORK_WRITE``);
+                           ``text``'s work says "write" in both
                ``plugin``  the same sentence appended to the server's
                            instructions, the first turn as ``none``'s;
                            ``plugin.json`` carries no instructions of its
@@ -74,7 +77,7 @@ from s31_print import dashed, is_text_delta, is_tool_use
 HERE = pathlib.Path(__file__).resolve().parent
 MCP_RS = REPO / "apps" / "claude-channel" / "src" / "mcp.rs"
 PUSH_TOOLS = ("broadcast", "send", "reply", "join", "leave", "identity", "status")
-TOLD = ("none", "prompt", "plugin")
+TOLD = ("none", "prompt", "promptw", "plugin")
 MESSAGES = {
     "greet": "S32 {nonce}: hello from the peer on daemon B",
     "question": "S32 {nonce}: which city is the capital of Australia?",
@@ -90,6 +93,13 @@ WORK = {
             "word READY.",
     "text": "Write the numbers from one to one hundred in words, separated by commas, then the single word READY.",
     "idle": "Reply now with the single word READY.",
+}
+# The same work with "write" for "reply": in prompt's cells the work's
+# "reply with READY" beside ANSWER's reply tool sent READY to the peer.
+WORK_WRITE = {
+    "tool": WORK["tool"].replace("then reply with", "then write"),
+    "text": WORK["text"],
+    "idle": "Write the single word READY now.",
 }
 TOOL_DELAY_MS = 3000
 SETTLE_S, AFTER_EVENT_S = 25, 180
@@ -136,7 +146,8 @@ def spec_of(name):
     if not m:
         return None
     told, message, arrival = m.group(1), m.group(2), m.group(3)
-    first = "This is a test. " + (ANSWER + " " if told == "prompt" else "") + WORK[arrival]
+    work = (WORK_WRITE if told == "promptw" else WORK)[arrival]
+    first = "This is a test. " + (ANSWER + " " if told in ("prompt", "promptw") else "") + work
     return {"told": told, "message": message, "arrival": arrival, "first": first,
             "extra_instructions": ANSWER if told == "plugin" else None}
 
@@ -159,9 +170,13 @@ def stub_record(path, started):
 
 
 def calls_of(stub):
-    """Each tools/call the stub received: its name, arguments and time."""
+    """Each tools/call the stub received: its name, arguments and time,
+    and the refusal the stub answered it with, if it refused it."""
+    refused = {e["body"]["id"]: e["body"]["error"]["message"] for e in stub
+               if e["dir"] == "out" and isinstance(e["body"], dict) and "error" in e["body"]}
     return [{"at_s": e["at_s"], "name": (e["body"].get("params") or {}).get("name"),
-             "arguments": (e["body"].get("params") or {}).get("arguments")}
+             "arguments": (e["body"].get("params") or {}).get("arguments"),
+             "refused": refused.get(e["body"].get("id"))}
             for e in stub if e["dir"] == "in" and isinstance(e["body"], dict)
             and e["body"].get("method") == "tools/call"]
 
@@ -288,14 +303,18 @@ def run_session(spec, scratch, out, config, workdir, policy, record):
     record["stub"] = stub
     calls = calls_of(stub)
     event_at, token = event_of(stub)
-    replies = [c for c in calls if c["name"] == "reply" and (c["arguments"] or {}).get("reply_token") == token]
+    # A reply is one the bridge would have taken: a refused call reached
+    # no peer.
+    replies = [c for c in calls if c["name"] == "reply" and not c["refused"]
+               and (c["arguments"] or {}).get("reply_token") == token]
     record["outcome"] = {
         "event_written_at_s": event_at,
         "replied": bool(replies),
         "reply_after_s": round(replies[0]["at_s"] - event_at, 3) if replies else None,
         "reply_content": (replies[0]["arguments"] or {}).get("content") if replies else None,
         "reply_calls": len(replies),
-        "calls_after_event": [{"name": c["name"], "at_s": c["at_s"]} for c in calls
+        "calls_after_event": [{"name": c["name"], "at_s": c["at_s"],
+                               **({"refused": c["refused"]} if c["refused"] else {})} for c in calls
                               if event_at is not None and c["at_s"] >= event_at],
         "text_after_event": texts_after(session.lines, fired_at) if fired_at is not None else [],
         "event_turns": sum(1 for t, v in session.lines if v.get("type") == "system"

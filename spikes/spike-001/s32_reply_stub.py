@@ -13,6 +13,10 @@ message's meta -- and records what the model calls. EVIDENCE ONLY.
   when ``<SPIKE_TRIGGER>.1`` exists, with the meta the bridge gives a
   direct message (S29's e runs show it whole) and a fresh
   ``reply_token``.
+- A call whose arguments the bridge's tool input refuses is refused as
+  the bridge refuses it (``refusal``): Claude Code does not hold a call
+  to the advertised schema, and a model has called ``reply`` with
+  ``text`` or ``message`` in place of ``content``.
 - ``status`` answers after ``SPIKE_TOOL_DELAY_MS``, so an event can be
   made to arrive while a tool runs; ``reply`` and ``send`` answer as the
   bridge did in S29 when the remote transport accepted.
@@ -81,7 +85,38 @@ def event_on_trigger():
     threading.Thread(target=run, daemon=True).start()
 
 
-def answer_tool(id_, name):
+def refusal(name, arguments):
+    """What the bridge answers a call's arguments that its tool input
+    refuses, or None: ``parse_call`` (``channel-core``'s ``tools.rs``)
+    deserialises into a ``deny_unknown_fields`` struct, so serde names an
+    unknown field first, in the order given, then a missing one, and
+    ``serve.rs`` answers either as invalid params. An unknown tool is
+    ``unknown tool``. The grammar checks past the shape (a PeerId, a
+    channel, the payload ceiling) are not reproduced."""
+    tool = next((t for t in SERVER["tools"] if t["name"] == name), None)
+    if tool is None:
+        return "unknown tool"
+    schema = tool["inputSchema"]
+    fields = [f"`{p}`" for p in schema["properties"]]
+    # serde's own phrasing of what a struct expects.
+    expected = ("there are no fields" if not fields else f"expected {fields[0]}" if len(fields) == 1 else
+                f"expected {fields[0]} or {fields[1]}" if len(fields) == 2 else
+                "expected one of " + ", ".join(fields))
+    for key in arguments or {}:
+        if key not in schema["properties"]:
+            return f"{name}: unknown field `{key}`, {expected}"
+    for key in schema["required"]:
+        if key not in (arguments or {}):
+            return f"{name}: missing field `{key}`"
+    return None
+
+
+def answer_tool(id_, name, arguments):
+    refused = refusal(name, arguments)
+    if refused:
+        send({"jsonrpc": "2.0", "id": id_, "error": {"code": -32602, "message": refused}})
+        return
+
     # Off the reading thread, so a delayed answer holds up nothing else.
     def run():
         if name == "status":
@@ -120,7 +155,8 @@ def main():
         elif method == "tools/list" and id_ is not None:
             result(id_, {"tools": SERVER["tools"]})
         elif method == "tools/call" and id_ is not None:
-            answer_tool(id_, (msg.get("params") or {}).get("name"))
+            params = msg.get("params") or {}
+            answer_tool(id_, params.get("name"), params.get("arguments"))
         elif id_ is not None and method:
             if method == "ping":
                 result(id_, {})
