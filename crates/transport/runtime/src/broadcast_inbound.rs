@@ -652,11 +652,7 @@ mod tests {
             ));
         }
         assert_eq!(w.queues.dropped_total(), 1, "7 was dropped to take 8");
-        assert_eq!(
-            w.queues.losses().refused_total(),
-            0,
-            "an overflow is no refusal"
-        );
+        assert_eq!(w.queues.refused_total(), 0, "an overflow is no refusal");
 
         w.draining = true;
         assert!(matches!(
@@ -664,7 +660,7 @@ mod tests {
             BroadcastAdmission::Refused(_)
         ));
         assert_eq!(
-            w.queues.losses().refused_total(),
+            w.queues.refused_total(),
             1,
             "one refused message, two sessions holding its channel"
         );
