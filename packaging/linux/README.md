@@ -108,7 +108,13 @@ that list does not classify fails the archive too -- and `claude-plugin/`, the C
 bridge inside it. `install.sh` does not install the plugin; Claude Code adds
 it, from a copy of `claude-plugin/` kept where it stays, with
 `claude plugin marketplace add <that copy>` and then
-`claude plugin install interweave@interweave`. Its SHA-256 is on the
+`claude plugin install interweave@interweave`. Installed, the plugin
+receives nothing yet: a Claude Code session registers its channel only when
+started with `--channels plugin:interweave@interweave` on a host whose
+managed settings list `{"plugin": "interweave", "marketplace": "interweave"}`
+in `allowedChannelPlugins`; `claude-plugin/interweave/README.md` in this
+archive names that entry, and the repository's
+`packaging/claude-plugin/INSTALL.md` gives both as its steps 7 and 8. The archive's SHA-256 is on the
 release page and in the `.sha256` file beside it, and the same sources
 and `SOURCE_DATE_EPOCH` give the same bytes. The first build of it is
 `evidence/2026-10-20-release-archive.md`.
