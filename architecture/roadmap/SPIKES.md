@@ -624,8 +624,9 @@ having run for `tool` and `idle` only (94). The sentence in
 the server's instructions alone got a reply in 30 runs of 30 where the
 message started a turn of its own; in the `plugin-question-text` and
 `-idle` cells the first `reply` call named its text `text` or
-`message` instead of `content` in 3 runs of 10, and in none of the 10
-`plugin-question-tool` runs, and the stub, refusing it as the bridge
+`message` instead of `content` in 3 runs of 10, while in
+`plugin-question-tool` one run of 10 called `reply` and named the
+argument rightly, and the stub, refusing a misnamed call as the bridge
 does (-32602), got the call again with `content`, 3 of 3 (95). Told to answer, the model did what a peer's message asked of its
 tools: every request for `status` that started a turn of its own got
 the call and the result sent back, 25 of 25 across `prompt`, `promptw`
@@ -653,7 +654,8 @@ value from the transcript a summary names; the reply rule on the real
 bridge with daemons in the stub's place; other wording or placement of
 the sentence, and other first-turn work; why a greeting during a counting
 turn got the count; why the `plugin-question` cells that started a
-turn of their own misnamed the argument and no other cell did; a peer's request for a
+turn of their own misnamed the argument, where no other run that
+called `reply` did; a peer's request for a
 tool with an effect; a message in a conversation longer than one turn;
 and, for both parts, a model other than `claude-sonnet-5-5` and a
 build other than 2.1.311.
