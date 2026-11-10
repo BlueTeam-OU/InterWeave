@@ -114,9 +114,12 @@ thread_local! {
     static SHOW_OPEN: RefCell<Option<ShowOpen>> = const { RefCell::new(None) };
 }
 
-/// Whether Show my address is open on this Activity's window: its
-/// addresses may be drawn, so `FLAG_SECURE` stays on whatever else ends
-/// (`onboard::secure_off`).
+/// Whether Show my address is open on this Activity's window, its
+/// addresses perhaps drawn: `onboard::secure_off` then leaves
+/// `FLAG_SECURE` on. Android-only wiring with no automated test of its
+/// own: `ShowOpen` is ui-slint's (`the_open_state_follows_openings_and_closings`),
+/// the decision `ready_check::secure_may_clear`'s, and no device case
+/// ends a K1 over an open Show, which needs a restore (#619 F1).
 pub(crate) fn show_open() -> bool {
     SHOW_OPEN.with(|slot| slot.borrow().as_ref().is_some_and(ShowOpen::get))
 }

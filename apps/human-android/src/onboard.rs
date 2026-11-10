@@ -1136,19 +1136,22 @@ fn render() {
 /// my phrase's end begins in the same turn of the event loop, before that
 /// frame (#615 F1); or Show my address, open under a K1 that a refused
 /// start raised over it and a restore ended. Whichever is left asks again
-/// at its own end.
+/// at its own end. The decision is host-tested; this reading of its two
+/// inputs is Android-only, and a device case covers the flow's
+/// (`kept_recovery.rs`), none Show's (#619 F1).
 pub(crate) fn secure_off() {
-    // A slot already borrowed counts as a flow showing: nothing asks the
-    // off from inside a borrow of it today (a frame task or Show's off,
-    // never `render` or an input), and should something come to, the flag
-    // staying on is the side a wrong guess may fall on.
-    let flow = ONBOARDING.with(|slot| slot.try_borrow().map_or(true, |o| o.is_some()));
+    // A slot already borrowed counts as a flow showing, said on a line of
+    // its own: the off is asked from a frame task or Show's off, which
+    // run outside `render` and an input, and were one to run inside, the
+    // flag staying on is the side a wrong guess may fall on.
+    let read = ONBOARDING.with(|slot| slot.try_borrow().map(|o| o.is_some()));
+    let flow = *read.as_ref().unwrap_or(&true);
     let show = crate::activity::show_open();
     if !secure_may_clear(flow, show) {
-        log(if flow {
-            "an identity flow shows: FLAG_SECURE stays on"
-        } else {
-            "Show my address is open: FLAG_SECURE stays on"
+        log(match read {
+            Err(_) => "the identity flow is busy: FLAG_SECURE stays on",
+            Ok(true) => "an identity flow shows: FLAG_SECURE stays on",
+            Ok(false) => "Show my address is open: FLAG_SECURE stays on",
         });
         return;
     }
