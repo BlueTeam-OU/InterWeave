@@ -4102,7 +4102,9 @@ struct Measures<'w> {
     known: RefCell<HashMap<(Measured, MeasureKey), f32>>,
 }
 
-/// Every field of a `BodyLine` that `measure-text` reads, hashable.
+/// Every field of a `BodyLine` that `measure-text` reads, hashable:
+/// `joined` and `continues` are not among them, so a line measures the
+/// same wherever a run of lines breaks.
 #[derive(PartialEq, Eq, Hash)]
 struct MeasureKey {
     // `LineKind` is generated without `Hash`: its discriminant stands in.
@@ -4112,8 +4114,6 @@ struct MeasureKey {
     quoted: bool,
     marker: SharedString,
     text: SharedString,
-    joined: bool,
-    continues: bool,
 }
 
 impl<'w> Measures<'w> {
@@ -4134,8 +4134,6 @@ impl<'w> Measures<'w> {
             quoted: line.quoted,
             marker: line.marker.clone(),
             text: line.text.clone(),
-            joined: line.joined,
-            continues: line.continues,
         };
         *self
             .known
