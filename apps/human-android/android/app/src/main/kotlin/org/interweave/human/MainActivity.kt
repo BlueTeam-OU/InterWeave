@@ -607,6 +607,7 @@ class MainActivity : NativeActivity() {
             // frame without the flow: no screenshot, no recording, no
             // recents thumbnail (android-key-custody.md, #309 F3).
             Ask.SECURE_OFF -> secure(false)
+            Ask.SECURE_ON -> secure(true)
             Ask.PROMPT -> prompt(Text.PHRASE_PROMPT_TITLE)
             Ask.UNLOCK -> prompt(Text.UNLOCK_PROMPT_TITLE)
             Ask.BIND -> {

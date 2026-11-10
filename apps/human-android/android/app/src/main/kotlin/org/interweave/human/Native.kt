@@ -274,6 +274,9 @@ internal object Ask {
     const val PICK_PHOTO = 14
     // The editor that asked for a photo closed: its open is cancelled.
     const val PHOTO_CANCEL = 15
+    // K1 raised over a running window: FLAG_SECURE on before R2 can draw
+    // a word, off by SECURE_OFF as at a launch.
+    const val SECURE_ON = 16
 
     // The bits of a waited ask that name it: src/ask_word.rs's ASK_BITS,
     // which its test holds to this line.

@@ -148,10 +148,17 @@ extern "system" fn JNI_OnLoad(
 /// what the refused start learnt of the policy in force. A first run is
 /// provisioned here in the debug build alone (android-platform's
 /// `identity`); a release first run is onboarding's.
-fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<Started, (jint, Learnt)> {
+fn identity(
+    env: &mut Env<'_>,
+    app_data_dir: &str,
+) -> Result<Started, (jint, Learnt, IdentityRefused)> {
     let cipher = KeystoreCipher::new(env).map_err(|e| {
         log(&format!("the Keystore cipher could not be reached: {e}"));
-        (refused::IDENTITY_UNAVAILABLE, Learnt::Nothing)
+        (
+            refused::IDENTITY_UNAVAILABLE,
+            Learnt::Nothing,
+            IdentityRefused::Unavailable(e.to_string()),
+        )
     })?;
     // A first run creates its identity in the debug build alone, so an
     // instrumentation case starts with no person; the release build's
@@ -165,7 +172,11 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<Started, (jint, Lea
     // The reseal runs before the host takes the profile's lock: one log
     // line when it did something or could not, never a word to the
     // person but the status.
-    let started = start_resealed(dir, PROFILE, &cipher, first_run).map_err(|why| {
+    let resealed = match crate::identity_hook::take() {
+        Some(why) => Err(why),
+        None => start_resealed(dir, PROFILE, &cipher, first_run),
+    };
+    let started = resealed.map_err(|why| {
         let unlock = (why == IdentityRefused::UserNotAuthenticated)
             .then(|| locked_status(dir, PROFILE, ServiceHost::global().unlock_status()))
             .flatten();
@@ -174,7 +185,7 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<Started, (jint, Lea
         } else {
             Learnt::Nothing
         };
-        (refused_identity(&why), learnt)
+        (refused_identity(&why), learnt, why)
     })?;
     match &started.resealed {
         Resealed::Unchanged | Resealed::Held => {}
@@ -304,7 +315,7 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     }
     let started = match identity(env, app_data_dir) {
         Ok(started) => started,
-        Err((code, learnt)) => {
+        Err((code, learnt, why)) => {
             let host = ServiceHost::global();
             match learnt {
                 // The store was not reached and Unlock's start may open
@@ -314,6 +325,11 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
                 }
                 Learnt::Status(unlock) => host.refused_before_start_with(unlock),
                 Learnt::Nothing => host.refused_before_start(),
+            }
+            // K1 over whatever the window shows, as at a launch (identity
+            // note section 3.4): the record no longer gives the identity.
+            if let IdentityRefused::RecoveryRequired(cause) = why {
+                crate::onboard::recovery_refused(std::path::Path::new(app_data_dir), &cause);
             }
             return code;
         }
@@ -544,6 +560,52 @@ extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextStoreOpen<'cal
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         ServiceHost::global().refuse_next_store_open();
         log("store hook: the next start refuses the store as needing recovery");
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `DebugHooks.invalidateNextStoreKey()`, the debug build's adb hook for
+/// K (identity note section 10 item 15): the next start refuses the store
+/// as one whose key the Keystore invalidated, once. Debug only, as
+/// [`Java_org_interweave_human_DebugHooks_refuseNextStoreOpen`].
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_invalidateNextStoreKey<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        ServiceHost::global().invalidate_next_store_key();
+        log("store hook: the next start refuses the store as its key invalidated");
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `DebugHooks.refuseNextIdentity()`, the debug build's adb hook for K1
+/// raised over a screen (identity note section 10 item 15): the next
+/// start answers `RecoveryRequired` as for a key the platform invalidated,
+/// once, with the record left as it is, so K1 names its `PeerId` and a
+/// restore with the right phrase is a real one. Debug only, as
+/// [`Java_org_interweave_human_DebugHooks_refuseNextStoreOpen`].
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextIdentity<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::identity_hook::arm();
+        log("identity hook: the next start answers that recovery is required");
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

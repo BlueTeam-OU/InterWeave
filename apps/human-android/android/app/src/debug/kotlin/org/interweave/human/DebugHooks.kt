@@ -32,16 +32,36 @@ import android.util.Log
  *
  *     adb shell am broadcast -a org.interweave.human.debug.REFUSE_STORE -p org.interweave.human
  *
+ * [REFUSE_STORE_KEY] is the same for a store whose key the Keystore
+ * invalidated: the next start shows K, whose discard is a real one.
+ *
+ *     adb shell am broadcast -a org.interweave.human.debug.REFUSE_STORE_KEY -p org.interweave.human
+ *
+ * [REFUSE_IDENTITY] makes the next start answer that the identity needs
+ * recovery, as for a key the platform invalidated, once, with the record
+ * left as it is: K1 rises over the window, and a restore with the right
+ * phrase is a real one.
+ *
+ *     adb shell am broadcast -a org.interweave.human.debug.REFUSE_IDENTITY -p org.interweave.human
+ *
  * The Service registers the receiver while it runs, asking the sender for
  * DUMP, which adb's shell holds.
  */
 internal object DebugHooks {
     const val RESTART = "org.interweave.human.debug.RESTART"
     const val REFUSE_STORE = "org.interweave.human.debug.REFUSE_STORE"
+    const val REFUSE_STORE_KEY = "org.interweave.human.debug.REFUSE_STORE_KEY"
+    const val REFUSE_IDENTITY = "org.interweave.human.debug.REFUSE_IDENTITY"
     private const val TAG = "interweave"
 
     /** The native side of [REFUSE_STORE]: the debug library's alone. */
     @JvmStatic private external fun refuseNextStoreOpen()
+
+    /** The native side of [REFUSE_STORE_KEY]: the debug library's alone. */
+    @JvmStatic private external fun invalidateNextStoreKey()
+
+    /** The native side of [REFUSE_IDENTITY]: the debug library's alone. */
+    @JvmStatic private external fun refuseNextIdentity()
 
     /** Hear the hooks on the main thread while [service] runs; the unregistration. */
     // Below API 33 registerReceiver takes no exported flag: a receiver
@@ -53,10 +73,16 @@ internal object DebugHooks {
                 when (intent.action) {
                     RESTART -> restart()
                     REFUSE_STORE -> refuseNextStoreOpen()
+                    REFUSE_STORE_KEY -> invalidateNextStoreKey()
+                    REFUSE_IDENTITY -> refuseNextIdentity()
                 }
             }
         }
-        val filter = IntentFilter(RESTART).apply { addAction(REFUSE_STORE) }
+        val filter = IntentFilter(RESTART).apply {
+            addAction(REFUSE_STORE)
+            addAction(REFUSE_STORE_KEY)
+            addAction(REFUSE_IDENTITY)
+        }
         val main = Handler(Looper.getMainLooper())
         // Exported, since adb's shell is another uid; DUMP is a
         // signature-level permission, which the shell holds.
@@ -65,7 +91,7 @@ internal object DebugHooks {
         } else {
             service.registerReceiver(receiver, filter, Manifest.permission.DUMP, main)
         }
-        Log.i(TAG, "debug hooks: listening for $RESTART and $REFUSE_STORE")
+        Log.i(TAG, "debug hooks: listening for $RESTART, $REFUSE_STORE, $REFUSE_STORE_KEY and $REFUSE_IDENTITY")
         return { service.unregisterReceiver(receiver) }
     }
 }

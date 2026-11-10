@@ -347,6 +347,19 @@ enum Input {
     Chats,
 }
 
+/// Whether focus key `id` names a control of the identity page: its own
+/// `identity-` keys, and the headings R, K and K1 take when a refused
+/// start raises them. Focus on one goes with the page.
+fn on_identity_page(id: &str) -> bool {
+    id.starts_with("identity-")
+        || [
+            store_screen::R_HEADING,
+            store_screen::K_HEADING,
+            identity::K1_HEADING,
+        ]
+        .contains(&id)
+}
+
 /// An input the root applies before the next take, handed over as it
 /// is: a draft's edit, or a press on the trust settings, Peers or
 /// Connect, which the model judges when it applies it. Any other input is
@@ -1637,8 +1650,8 @@ impl View {
             self.window.set_identity(page);
             self.window.set_identity_active(true);
         } else {
-            let focused_on_it = self.window.get_identity_active()
-                && self.window.get_focus_id().starts_with("identity-");
+            let focused_on_it =
+                self.window.get_identity_active() && on_identity_page(&self.window.get_focus_id());
             self.window.set_identity_active(false);
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
@@ -1665,6 +1678,18 @@ impl View {
                 self.focus_key_after_draw(if header { "h" } else { "heading" }.to_owned());
             }
         }
+    }
+
+    /// A refused start raised the identity page this call or the last
+    /// [`show_identity`](Self::show_identity) showed, in place of what the
+    /// person was on or was opening: focus goes to the page's heading,
+    /// whatever had it under the page, so any on-screen keyboard closes
+    /// (design/2026-10-19-android-identity.md section 8). Only R, K and K1
+    /// have a heading stop; on another page the ask moves nothing. A start
+    /// refused again while the page shows did not raise it, so the root
+    /// does not ask then, and focus stays where it was.
+    pub fn raise_identity_heading(&self) {
+        self.window.set_identity_heading_wanted(true);
     }
 
     /// Focus the locked notice's Unlock once it shows on Chats or in a

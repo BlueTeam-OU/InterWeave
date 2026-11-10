@@ -1420,6 +1420,42 @@ fn the_store_hook_refuses_one_start_as_recovery_and_leaves_the_store() {
     let _ = service.stop(GRACE);
 }
 
+/// The debug build's key hook (K, identity note section 10 item 15): an
+/// armed refusal refuses the next start's store as one whose key the
+/// Keystore invalidated, once, so K shows and the next start opens the
+/// same store; armed after the recovery hook, it is the one met.
+#[test]
+fn the_key_hook_refuses_one_start_as_key_invalidated() {
+    use interweave_human_android_platform::StoreRefusal;
+    let app = app();
+    let service = started(&app);
+    let _ = service.stop(GRACE);
+    let mut link = service.hub().attach(Arc::new(|| {}));
+    let _ = store_answers(&mut link);
+
+    service.refuse_next_store_open();
+    service.invalidate_next_store_key();
+    assert_eq!(
+        service.start(launch(&app)),
+        Err(StartRefused::StoreKeyInvalidated),
+        "the last hook armed is met"
+    );
+    assert!(!service.is_running(), "and leaves nothing running");
+    assert_eq!(
+        store_answers(&mut link),
+        [(StoreAnswer::Refused(StoreRefusal::KeyLost), 2)],
+        "K"
+    );
+    service
+        .start(launch(&app))
+        .expect("once: the next start opens the same store");
+    assert_eq!(
+        store_answers(&mut link).last(),
+        Some(&(StoreAnswer::Opened, 3))
+    );
+    let _ = service.stop(GRACE);
+}
+
 /// The store answers a view took from `link`, with the hub's count.
 fn store_answers(link: &mut ViewLink) -> Vec<(StoreAnswer, u64)> {
     link.take()
