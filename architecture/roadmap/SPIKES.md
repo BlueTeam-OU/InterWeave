@@ -613,12 +613,13 @@ only the first-turn sentence carried a reply, `prompt` and `promptw`
 30 of 30, `plugin` 1 of 20 and `none` 0 of 15, one wording tried (93).
 The first-turn sentence got a `reply` call in every run, 50 of 50 for
 `prompt` and 30 of 30 for `promptw`, 80 of 80, and the call answered
-the message in 58 of them, the rest of that turn leaking into what was
-sent: where its work said "reply with the single word READY" the model
+the message in 59 of them, one of those with the count appended, the
+rest of that turn leaking into what was sent: where its work said "reply with the single word READY" the model
 sent `READY` to the peer in 14 of `prompt`'s 30 `tool` and `idle`
 replies, where with "write" all 30 of `promptw`'s answered the
 message; and in `prompt-greet-text` it sent the count to a hundred in
-8 runs of 10, a leak that is not the word "reply"'s, that turn's work
+8 runs of 10, alone in 7 and after its answer in one, a leak that is
+not the word "reply"'s, that turn's work
 saying "write" already, and that no remedy was measured for, `promptw`
 having run for `tool` and `idle` only (94). The sentence in
 the server's instructions alone got a reply in 30 runs of 30 where the
