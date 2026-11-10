@@ -99,6 +99,26 @@ pub fn shapes() -> Vec<(&'static str, String)> {
         format!("| h | i |\n|---|---|\n{}", row.repeat(TABLE_ROWS - 1))
     });
     out.insert(3, ("table", table));
+    // Where each link, or each heading, differs: no line's measure is the
+    // one before's, so the reader lays out every one of them (the reader's
+    // measures are cached by what the layout reads). Before the reference
+    // link, whose controls are the most.
+    let distinct = |piece: fn(usize) -> String| largest(|n| (0..n).map(piece).collect());
+    let at = out.len() - 1;
+    out.insert(
+        at,
+        (
+            "distinct headings",
+            distinct(|i| format!("# <https://example.org/{i}>\n\n")),
+        ),
+    );
+    out.insert(
+        at + 1,
+        (
+            "distinct links",
+            distinct(|i| format!("[a](https://e.org/{i}) ")),
+        ),
+    );
     out
 }
 
@@ -158,6 +178,8 @@ mod tests {
                 "images",
                 "padded link",
                 "heading autolinks",
+                "distinct headings",
+                "distinct links",
                 "reference link"
             ]
         );
