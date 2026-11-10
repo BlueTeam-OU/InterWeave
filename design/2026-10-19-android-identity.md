@@ -940,7 +940,8 @@ scale would also be a finding of the Android review
       `adb shell pidof org.interweave.human` shows the same pid
       (the process stays). Then open InterWeave from the launcher.
       In each run the first Tab reaches Try again. Then, in the
-      run over Chats, with focus still on R's heading, fire
+      run over Chats, press Shift+Tab to put focus back on R's
+      heading (the trace shows `focus=r-heading`), and fire
       `RESTART` again. The hook refuses only once, so this start
       runs and R goes with focus on its heading. The trace then
       shows Chats' list heading, as unlock note F15 says for focus
