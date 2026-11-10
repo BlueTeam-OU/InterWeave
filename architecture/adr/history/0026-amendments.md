@@ -130,3 +130,47 @@ asking. No production client declines route notices (the bridge and the
 human clients take them), so the limit costs nothing today; a client
 that one day needs both makes declining a `hello` feature of its own,
 decided then, never a second cap on the minor.
+
+### Amendment 2026-11-10 — The operator reads what the broadcast ingress gate refused
+
+The amendment of 2026-10-24 gave a session its own two counts and left
+the operator with one: `admin.status` carried
+`ipc.events_dropped_total`, the session queues' drops, and nothing for
+what the ingress gate refuses. SPIKE-001's S30 measured the
+consequence (fact 79, `spikes/spike-001/README.md`): of 200 broadcasts
+published in 2.18 s, 47 were notified and the gate refused 153, and
+`admin.status` read `events_dropped_total` 0 on both daemons before and
+after. The only count of the 153 was the receiving bridge's own
+`ingress_refused`, which exists for a session that joined and ends with
+it; an operator reading the status saw a healthy daemon while three
+quarters of a burst was refused.
+
+The record now says the operator reads the refusals for the profile:
+`ipc.events_refused_total` in `admin.status`, moved by the branch that
+moves a session's `ingress_refused`. Its unit is p2p-network-dev's
+reading of that branch (REPLY 01a1c4e6-83ec, 2026-11-10): the gate runs
+before dedup and before the fan-out, so one refused inbound message is
+one increment whatever the number of sessions on its channel, and the
+branch is reached whether or not any session holds the channel. It
+carries the guarantee the session's count carries and no stronger one:
+a refused message leaves no dedup entry, so a republished copy that is
+refused counts again.
+
+Two shapes were rejected. Widening `events_dropped_total` to include
+refusals was rejected because that counter has a stated meaning since
+2026-11-04, the profile total of every session's `queue_overflow`, a
+lower bound on broadcasts lost; adding a signal that counts republished
+copies to it would leave a figure that is neither. A per-channel or
+per-publisher table was rejected for the reason the session's counts
+name no peer and no channel, and because it grows with what remote
+peers publish; one counter is bounded by construction.
+
+The first ruling said the member was "optional on the wire as its
+sibling is" and needed no minor. p2p-network-dev showed that false for
+this member (QUESTION 01a1c4e9-5cc0): `events_dropped_total` had been an
+optional property of `admin-status` 1.1.0 since 2026-10-01, so every
+reader accepted it, while this one is new to a closed block and a
+reader built before it refuses the whole status. It is therefore served
+behind IPC 2.13 under ADR-0017's amendment of 2026-10-07, absent below
+it; from 2.13, absent says the server keeps no count and `0` says none
+refused.

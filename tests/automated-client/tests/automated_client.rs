@@ -23,7 +23,9 @@
 use std::time::Duration;
 
 use interweave_automated_client_tests::{Client, ClientConfig, Inbound};
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{
+    AdminBinding as _, AdminCapability, AdminPort as _, AdminStatus,
+};
 use interweave_test_support::e2e::{Daemon, Home, PATIENCE, free_port, private_tempdir};
 use interweave_transport_api::{EndpointId, MessageId, TransportError, TransportIdentity};
 
@@ -164,6 +166,19 @@ observability: {{ log_level: debug }}
             );
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+
+    /// This profile's daemon's `admin.status`, read over its admin
+    /// socket at the client's minor.
+    async fn status(&self) -> AdminStatus {
+        self.home
+            .binding()
+            .admin([AdminCapability::Status].into())
+            .await
+            .expect("an admin port")
+            .status()
+            .await
+            .expect("the status")
     }
 
     async fn client(&self) -> Client {
@@ -491,8 +506,13 @@ const BURST: u32 = 200;
 /// delivery, silently -- no refusal reaches A, and
 /// `ipc.events_dropped_total` does not count it, since it counts copies
 /// a session queue dropped, not what the ingress gate refused
-/// (`LOCAL-IPC.md` A 2026-11-04; `session.losses`' `ingress_refused` is
-/// that signal). What arrives is A's, once each.
+/// (`LOCAL-IPC.md` A 2026-11-04). B's `ipc.events_refused_total` (IPC
+/// 2.13) does: it rises by at least one and by no more than were
+/// published and not received, plus the mesh probes after the first, any
+/// of which may arrive late and be refused -- GossipSub may drop a copy
+/// before the gate, uncounted -- while the dropped total stays where it
+/// was. What
+/// arrives is A's, once each.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
     use interweave_transport_runtime::ingress::{
@@ -506,8 +526,10 @@ async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
 
     // The mesh first: one broadcast seen. Each one B took spent a token.
     let started = tokio::time::Instant::now();
+    let mut probes = 0_u64;
     loop {
         from.publish(id(0), "mesh").await.expect("accepted locally");
+        probes += 1;
         if to
             .pump_until(Duration::from_millis(500), |r| !r.inbound.is_empty())
             .await
@@ -517,6 +539,7 @@ async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
         assert!(started.elapsed() < PATIENCE, "no mesh");
     }
     let spent = to.received.inbound.len();
+    let before = b.status().await;
 
     for n in 1..=BURST {
         from.publish(burst_id(n, KIND), &format!("burst {n}"))
@@ -549,6 +572,27 @@ async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
         (floor..=ceiling).contains(&burst.len()),
         "received {} outside the bucket's {floor}..={ceiling}",
         burst.len()
+    );
+    let after = b.status().await;
+    let refused = |s: &AdminStatus| s.events_refused.expect("kept, and read at 2.13");
+    let unseen = u64::from(BURST) - u64::try_from(burst.len()).expect("n");
+    let counted = refused(&after) - refused(&before);
+    // Each mesh probe is a message of its own on the mesh, so one still
+    // in flight after the first was seen may reach B after `before`, be
+    // refused by the spent bucket, and count with no unseen burst message
+    // beside it: the bound takes each probe after the first.
+    let late = probes - 1;
+    println!(
+        "broadcast burst: B's events_refused_total rose by {counted} of {unseen} unseen \
+         (+{late} late probes allowed)"
+    );
+    assert!(
+        (1..=unseen + late).contains(&counted),
+        "the gate's refusals, counted: {counted} of {unseen} unseen, {late} late probes"
+    );
+    assert_eq!(
+        after.events_dropped, before.events_dropped,
+        "a refusal is no queue drop"
     );
     // Each once; the ORDER is not asserted, because nothing promises it:
     // a run here once took a burst out of A's publish order.

@@ -108,7 +108,8 @@ pub(crate) async fn admin<A: AdminPort>(
     match request {
         Request::AdminStatus => match port.status().await {
             Ok(status) => {
-                ResponseFrame::success(id, &AdminStatusResult::new(status, counters.snapshot()))
+                let result = AdminStatusResult::new(status, counters.snapshot(), minor);
+                ResponseFrame::success(id, &result)
             }
             Err(code) => ResponseFrame::failure(id, code),
         },
@@ -684,6 +685,35 @@ mod tests {
                         other => panic!("{other:?}"),
                     });
             assert_eq!(reason, answered, "at 2.{minor}");
+        }
+    }
+
+    /// `admin.status` carries the port's refusal total only on a
+    /// connection at 2.13 or later; below it the 1.1 block, without the
+    /// member, whatever the port counted (the fake counts 9).
+    #[tokio::test]
+    async fn the_refused_total_is_served_from_two_thirteen() {
+        let since = interweave_ipc_protocol::REFUSED_TOTAL_SINCE_MINOR;
+        let fake = Fake::default();
+        let port = fake.admin([].into()).await.expect("port");
+        for (minor, served) in [(since, Some(9)), (since - 1, None)] {
+            let frame = admin(
+                &port,
+                &Counters::default(),
+                Duration::from_secs(1),
+                id(),
+                Request::AdminStatus,
+                minor,
+            )
+            .await;
+            let wire = body(frame.clone());
+            let status = frame.outcome::<AdminStatusResult>().expect("a status");
+            assert_eq!(status.ipc.events_refused_total, served, "2.{minor}: {wire}");
+            assert_eq!(
+                wire.contains("events_refused_total"),
+                served.is_some(),
+                "2.{minor}: {wire}"
+            );
         }
     }
 

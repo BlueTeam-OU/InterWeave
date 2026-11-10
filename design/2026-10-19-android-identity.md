@@ -958,14 +958,57 @@ scale would also be a finding of the Android review
       focus is on its heading. The trace then names Chats' list
       heading (`focus=conversations-heading`), as unlock note F15
       says for focus inside R. K1 is checked at the launch in item 9,
-      with item 9's hook. K1 raised over a screen already showing,
-      and K in every case, have no hook today, so their checks wait
-      on two debug hooks that rust-ui-dev-01 owns. Each is fired
-      while the client runs. One makes the next start answer
-      `RecoveryRequired` (K1). The other makes the next start refuse
-      the store as key invalidated (K). Each case is then checked as
-      R is, with its own hook in place of `REFUSE_STORE`, followed by
-      `RESTART`.
+      with item 9's hook. K1 raised over a screen already showing, and
+      K, are checked as R's first two runs are, over Chats and over an
+      open conversation: with the debug hook `REFUSE_IDENTITY` (K1) or
+      `REFUSE_STORE_KEY` (K) in place of `REFUSE_STORE`, followed by
+      `RESTART`. The trace must name `focus=k1-heading` or
+      `focus=k-heading`, and the first Tab reaches K1's primary action,
+      or on K Delete stored data…. R's steps from Try again on do not
+      apply to either screen. Firing the same hook and `RESTART` again
+      while K1 shows leaves focus where it was, since K1 is not raised
+      again.
+    - A K1 that was raised over a running window stays until its
+      restore ends (#611; rust-ui-dev-01's REQUEST 01a1c551, which
+      carries these checks from architect-cto's review). Use a profile
+      whose recovery phrase the tester has, whose `key_unlock_policy`
+      is `background-compatible` (as for R above), and that is not Stay
+      reachable.
+      On Chats, fire `REFUSE_IDENTITY` and then `RESTART`, so that K1
+      rises.
+      1. Before anything on K1 is touched, `adb shell dumpsys window`
+         shows `FLAG_SECURE` (`SECURE`) in the flags of InterWeave's
+         window. Read it again on R2, opened by K1's primary, before a
+         word is entered; then press Back, which with nothing entered
+         returns to K1 (§7). Read it a third time on K1 at the launch
+         in step 2. If the flag is missing at any of the three
+         readings, the step fails (§2). Report it to rust-ui-dev-01 as
+         a P1: on this path nothing ensures that the flag is set
+         before K1's first frame, so only the reading can show it.
+      2. Note the pid that `adb shell pidof org.interweave.human`
+         shows. On K1, press Back, so that the Activity finishes before
+         the restore, and confirm that the same command shows the same
+         pid. Then open InterWeave from the launcher. K1 opens again,
+         not Chats, with the same PeerId. If Chats opens, or K1 shows
+         a different PeerId, the step fails. If the pid changed before
+         the launch, the run is void, not failed: K1 is kept only while
+         the process lives, and the hook left the record able to open,
+         so a new process opens Chats. Run it again.
+      3. From that K1, enter the phrase on R2. The restore matches and
+         goes to R4. After R4's continue, Chats shows and the client
+         runs: `adb shell dumpsys activity services
+         org.interweave.human` lists the Service, and `logcat -s
+         interweave` shows the start succeeding. No second K1 rises,
+         then or at the next launch. The step fails if the Service is
+         not listed, if logcat does not show the start succeeding, or
+         if a second K1 rises, then or at the next launch.
+      Each result is reported with how it was seen: by the focus
+      trace, by the flag read through `dumpsys`, or rendered. K1 and
+      R2 are secured (step 1), so a screenshot of them is black, as
+      item 2 says of R2: what
+      they show is read on the phone or from the accessibility tree (a
+      `uiautomator dump`), and a screenshot is evidence only for Chats
+      after R4.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the

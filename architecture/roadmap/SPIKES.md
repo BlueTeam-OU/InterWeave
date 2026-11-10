@@ -438,8 +438,9 @@ A's bridge as 47, each once and in order, while `admin.status` on
 both daemons read `events_dropped_total` 0 before and after and A's
 bridge `status` read `ingress_refused` 153, `queue_overflow` 0: the
 counter counts session-queue drops, as `LOCAL-IPC.md` A 2026-11-04
-says, and the bridge's `ingress_refused` is the only count of gate
-loss (79). What this changes in the bridge: nothing; its bound stays
+says, and the bridge's `ingress_refused` was the only count of gate
+loss (79) until `admin.status` gained `ipc.events_refused_total`
+(IPC 2.13, ADR-0026 A 2026-11-10). What this changes in the bridge: nothing; its bound stays
 the only one on the line, and a deployment with compaction off has
 room for three events at it. Not established: a line past 8 MiB, the
 edge for content that costs more tokens a byte, what compaction keeps
