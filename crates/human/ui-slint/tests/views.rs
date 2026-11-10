@@ -5154,3 +5154,60 @@ fn a13_locked_states_show_the_header_policy_lines() {
         assert_eq!(unlock_rows(&view), want, "{name}");
     }
 }
+
+/// After a discard Chats opens with focus on the discard's notice
+/// (contact-cards section 9 item 1's focus table, j245): asked as R goes,
+/// taken once the notice shows -- after a session notice above it clears
+/// -- and never without the ask, as after an Unlock (unlock note F14,
+/// the list heading).
+#[test]
+fn after_a_discard_focus_is_on_the_discards_notice() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    for (asked, reconnecting) in [(true, false), (true, true), (false, false)] {
+        let mut view = unlock_view();
+        resize(&view, 390.0);
+        let mut model = UiModel::new();
+        if !reconnecting {
+            model.client_event(ClientEvent::Session(SessionState::Ready {
+                endpoint: Some(human()),
+            }));
+        }
+        view.render(&model);
+        view.show_identity(Some(interweave_human_ui_slint::store_page(
+            &StoreRecovery::new(StoreScreen::Recovery, 1),
+        )));
+        drawn(&view);
+        focus_try_again(&view);
+        view.show_chats();
+        let _ = intents(&mut view, &mut model);
+        view.show_identity(None);
+        view.show_once(UiText::StoreDiscarded);
+        if asked {
+            view.focus_once_notice();
+        }
+        view.render(&model);
+        drawn(&view);
+        if reconnecting {
+            assert!(
+                labelled(&view, text(UiText::StoreDiscarded)).is_empty(),
+                "control: the session notice first"
+            );
+            assert_ne!(view.window().get_focus_id(), "notice", "not yet");
+            model.client_event(ClientEvent::Session(SessionState::Ready {
+                endpoint: Some(human()),
+            }));
+            view.render(&model);
+            drawn(&view);
+        }
+        assert!(!labelled(&view, text(UiText::StoreDiscarded)).is_empty());
+        assert_eq!(
+            view.window().get_focus_id(),
+            if asked {
+                "notice"
+            } else {
+                "conversations-heading"
+            },
+            "asked {asked}, reconnecting {reconnecting}"
+        );
+    }
+}

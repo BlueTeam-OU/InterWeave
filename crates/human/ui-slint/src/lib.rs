@@ -947,6 +947,9 @@ pub struct View {
     /// no identity or store screen and no reader up takes focus there; one
     /// on another page spends it.
     locked_focus_wanted: std::cell::Cell<bool>,
+    /// The discard's notice asks focus once it shows
+    /// ([`Self::focus_once_notice`]).
+    once_focus_wanted: std::cell::Cell<bool>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
     /// The Trust page's unlock lines as last drawn (unlock note section 5).
@@ -1288,6 +1291,7 @@ impl View {
             removing: None,
             focus_wanted: Rc::new(RefCell::new(None)),
             locked_focus_wanted: std::cell::Cell::new(false),
+            once_focus_wanted: std::cell::Cell::new(false),
             trust_announced: 0,
             unlock_lines: unlock::Lines::default(),
             unlock_notice: std::cell::Cell::new(false),
@@ -1668,6 +1672,17 @@ impl View {
     /// other page focus stays where it is, and the ask is spent.
     pub fn focus_locked_notice(&self) {
         self.locked_focus_wanted.set(true);
+    }
+
+    /// Focus the discard's notice ([`Self::show_once`]) once it shows,
+    /// at this render or a later one: after a discard Chats opens with
+    /// focus on it (design/2026-10-21-contact-cards.md section 9, item 1's
+    /// focus table, "after a discard, Chats opens"). Not after an Unlock,
+    /// where the locked notice's leaving puts focus on the list heading
+    /// (unlock note F14). On another page focus stays, and the ask is
+    /// spent; its Close spends it too.
+    pub fn focus_once_notice(&self) {
+        self.once_focus_wanted.set(true);
     }
 
     /// Offer Show recovery phrase on Settings, under the `PeerId`, calling
@@ -3713,6 +3728,31 @@ impl View {
         drawn.said
     }
 
+    /// The discard's notice's focus: asked by [`Self::focus_once_notice`],
+    /// it lands on the notice's Close once the notice shows on Chats or
+    /// beside it -- `shown`, no session notice above it -- and no screen
+    /// is over it. On another page, or with the notice closed (`held`
+    /// false), the ask is spent.
+    fn follow_once_notice(&self, held: bool, shown: bool) {
+        if !self.once_focus_wanted.get() {
+            return;
+        }
+        if self.page != Page::Conversation || !held {
+            self.once_focus_wanted.set(false);
+        } else if shown && !self.window.get_identity_active() && self.reader.is_none() {
+            self.once_focus_wanted.set(false);
+            let on_chats = self.window.get_narrow() && self.window.get_list_shown();
+            self.focus_key_after_draw(
+                if on_chats {
+                    "chats-notice"
+                } else {
+                    "pane-notice"
+                }
+                .to_owned(),
+            );
+        }
+    }
+
     /// Focus the control whose focus key is `target`, once the render that
     /// draws it is done.
     fn focus_key(&self, target: String) {
@@ -3813,6 +3853,10 @@ impl View {
         } else {
             None
         };
+        self.follow_once_notice(
+            self.shared.borrow().once_notice.is_some(),
+            notice.is_none() && once.is_some(),
+        );
         window.set_has_notice(notice.is_some() || offline.is_some() || once.is_some());
         // The discard's notice is about the whole client, as a session
         // notice is: Chats shows it too.
