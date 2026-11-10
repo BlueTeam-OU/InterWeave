@@ -305,7 +305,10 @@ def run_session(spec, scratch, out, config, workdir, policy, nonce, words, label
                             break
                         since = got[0] + 1
                 steps.append({"per_event": per_event})
-                ok = bool(per_event) and all(e.get("result_at_s") for e in per_event)
+                # Every event answered, none an error: a case the API refused
+                # part-way has stopped, not passed.
+                ok = (sum("event" in e for e in per_event) == len(spec["sizes"])
+                      and all(e.get("result_at_s") and not e.get("is_error") for e in per_event))
             elif first and kind == "join":
                 fire(1)
                 test = (lambda v: is_tool_use(v, "status")) if spec["work"] == "tool" else is_text_delta
