@@ -613,19 +613,21 @@ only the first-turn sentence carried a reply, `prompt` and `promptw`
 30 of 30, `plugin` 1 of 20 and `none` 0 of 15, one wording tried (93).
 The first-turn sentence got a `reply` call in every run, 50 of 50 for
 `prompt` and 30 of 30 for `promptw`, 80 of 80, and the call answered
-the message in 58 of them, the rest of that turn leaking into what was
-sent: where its work said "reply with the single word READY" the model
+the message in 59 of them, one of those with the count appended, the
+rest of that turn leaking into what was sent: where its work said "reply with the single word READY" the model
 sent `READY` to the peer in 14 of `prompt`'s 30 `tool` and `idle`
 replies, where with "write" all 30 of `promptw`'s answered the
 message; and in `prompt-greet-text` it sent the count to a hundred in
-8 runs of 10, a leak that is not the word "reply"'s, that turn's work
+8 runs of 10, alone in 7 and after its answer in one, a leak that is
+not the word "reply"'s, that turn's work
 saying "write" already, and that no remedy was measured for, `promptw`
 having run for `tool` and `idle` only (94). The sentence in
 the server's instructions alone got a reply in 30 runs of 30 where the
 message started a turn of its own; in the `plugin-question-text` and
 `-idle` cells the first `reply` call named its text `text` or
-`message` instead of `content` in 3 runs of 10, and in none of the 10
-`plugin-question-tool` runs, and the stub, refusing it as the bridge
+`message` instead of `content` in 3 runs of 10, while in
+`plugin-question-tool` one run of 10 called `reply` and named the
+argument rightly, and the stub, refusing a misnamed call as the bridge
 does (-32602), got the call again with `content`, 3 of 3 (95). Told to answer, the model did what a peer's message asked of its
 tools: every request for `status` that started a turn of its own got
 the call and the result sent back, 25 of 25 across `prompt`, `promptw`
@@ -653,7 +655,8 @@ value from the transcript a summary names; the reply rule on the real
 bridge with daemons in the stub's place; other wording or placement of
 the sentence, and other first-turn work; why a greeting during a counting
 turn got the count; why the `plugin-question` cells that started a
-turn of their own misnamed the argument and no other cell did; a peer's request for a
+turn of their own misnamed the argument, where no other run that
+called `reply` did; a peer's request for a
 tool with an effect; a message in a conversation longer than one turn;
 and, for both parts, a model other than `claude-sonnet-5-5` and a
 build other than 2.1.311.
