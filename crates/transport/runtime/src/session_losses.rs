@@ -13,7 +13,8 @@
 //!   its dedup entry recorded, so within the dedup window a republish is
 //!   a duplicate: a lower bound on broadcasts lost.
 //! - `ingress_refused`: copies the ingress gate refused (over the
-//!   publisher's rate, or while draining) on a channel the session held
+//!   publisher's rate or the profile's shared ingress rate, or while
+//!   draining) on a channel the session held
 //!   when the refusal happened. A refusal records no dedup entry, so a
 //!   republish may still be delivered and each refused copy counts: a
 //!   signal, never a count of distinct losses.
