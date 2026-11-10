@@ -48,7 +48,8 @@ pub struct RuntimeStatus {
     /// `ipc.events_dropped_total`, `LOCAL-IPC.md` A 2026-11-04).
     pub broadcast_queue_overflow_total: u64,
     /// Inbound broadcasts the ingress gate refused (over the publisher's
-    /// rate, or while draining) since the runtime started, one per
+    /// rate or the profile's shared ingress rate, or while draining)
+    /// since the runtime started, one per
     /// refused message, on any channel, joined or not: monotonic
     /// (`admin.status`'s `ipc.events_refused_total`). A republished
     /// refused copy counts again; never a count of distinct losses.
