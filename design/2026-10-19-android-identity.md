@@ -601,11 +601,11 @@ access.
   from the top, the screen says what happened before what to do, and
   the first Tab reaches the primary action. The desktop's R is a
   dialog window and puts its initial focus on Try again (contact-cards
-  §7.1). Where a start made while R shows is refused again and R stays,
-  R was not raised, so this rule does not apply. That holds for the
-  start that Try again makes, and also for a restart the platform
-  runs. Focus stays where it was. After Try again, that is Try again,
-  as unlock note F11 says for a cancelled prompt
+  §7.1). Where a start made while R is showing is refused again and R
+  stays, R was not raised, so this rule does not apply. That holds for
+  the start that Try again makes, and also for a restart the platform
+  runs. Focus stays where it was, so after Try again it stays on Try
+  again, as unlock note F11 says for a cancelled prompt
   (`design/2026-11-05-unlock-policy-pending.md`).
 - After an error banner appears, focus goes to the banner.
 - After a dialog closes, focus returns to what opened it. The discard
