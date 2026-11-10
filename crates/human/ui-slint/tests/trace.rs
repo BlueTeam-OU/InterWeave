@@ -1935,3 +1935,67 @@ fn the_same_note_set_twice_is_said_twice() {
         "in {said:#?}"
     );
 }
+
+/// The scan's own sets are said again too: a scan control pressed twice
+/// with the field filled says `scan-after-field` twice, and the same
+/// refused code scanned twice says its refusal twice (#608 F8).
+#[test]
+fn a_scan_note_set_twice_is_said_twice() {
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    view.camera_hook(|_| {});
+    let mut model = UiModel::new();
+    let me = peer();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    let _ = intents(&mut view, &mut model);
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me.clone()),
+        allowed: Vec::new(),
+    }));
+    model.addresses_read(Ok(AddressList::default()));
+    view.render(&model);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(true, false, false);
+    view.render(&model);
+
+    let typed = format!("/ip4/192.168.1.30/tcp/4001/p2p/{}", peer().as_str());
+    view.window().invoke_address_edited(typed.into());
+    let _ = intents(&mut view, &mut model);
+    for _ in 0..2 {
+        press(&view, text(UiText::ScanCode));
+        assert!(intents(&mut view, &mut model).is_empty(), "nothing to send");
+    }
+    view.window().invoke_address_edited("".into());
+    let _ = intents(&mut view, &mut model);
+    let own = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", me.as_str());
+    for _ in 0..2 {
+        press(&view, text(UiText::ScanCode));
+        let _ = intents(&mut view, &mut model);
+        assert!(view.window().get_viewfinder_open(), "the scanner opens");
+        view.camera_read(&own);
+        assert!(intents(&mut view, &mut model).is_empty(), "nothing to send");
+    }
+
+    let said = said.borrow();
+    let notes: Vec<&String> = said
+        .iter()
+        .filter(|l| l.starts_with("ui-trace note="))
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            "ui-trace note=scan-after-field",
+            "ui-trace note=scan-after-field",
+            "ui-trace note=none",
+            "ui-trace note=refused:own-address",
+            "ui-trace note=refused:own-address",
+        ],
+        "in {said:#?}"
+    );
+}
