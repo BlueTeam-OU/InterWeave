@@ -945,7 +945,12 @@ scale would also be a finding of the Android review
       reaches Try again. Then, in the run over Chats, with focus on
       Try again, fire `REFUSE_STORE` and then `RESTART` again. R is
       refused again and stays, and the trace still shows Try again's
-      focus key, not `focus=r-heading` (§8: R was not raised). Then
+      focus key (`focus=identity-primary`), not `focus=r-heading`
+      (§8: R was not raised). Then fire `REFUSE_STORE` once more and
+      press Enter on Try again, on a profile whose unlock policy is
+      `none`, so that Try again raises no prompt and its own start
+      reaches the store. R is refused again and stays, and focus
+      stays on Try again, as before. Then
       press Shift+Tab to put focus back on R's heading (the trace shows
       `focus=r-heading`), and fire `RESTART` again. The hook refuses
       only once, so this start runs, and R leaves the screen while
