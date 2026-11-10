@@ -1386,6 +1386,11 @@ async fn transportctl_against_a_live_daemon() {
         serde_json::json!({"direct_tracked_peers": 0, "broadcast_tracked_peers": 0}),
         "{status}"
     );
+    // The two broadcast-loss totals, each kept and so emitted, 0 on a
+    // daemon nothing was published to: transportctl negotiates 2.13, the
+    // minor the refusal total is served from (admin-status 1.2.0).
+    assert_eq!(status["ipc"]["events_dropped_total"], 0, "{status}");
+    assert_eq!(status["ipc"]["events_refused_total"], 0, "{status}");
 
     let list = |home: &Home| {
         let out = home.transportctl(&["endpoints", "list", "--json"], "");

@@ -77,6 +77,7 @@ ipc_active_leases
 ipc_cross_domain_capability_denied_total
 ipc_peer_credential_refused_total
 ipc_events_dropped_total
+ipc_events_refused_total
 preauth_handshake_rejected_total{reason_class}
 preauth_tracked_sources
 preauth_pending_total

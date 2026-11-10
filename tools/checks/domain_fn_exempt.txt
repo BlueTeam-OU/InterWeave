@@ -62,6 +62,7 @@ SessionQueues::close                  call  broadcast_state.queues.close(
 SessionQueues::is_open                call  broadcast_state.queues.is_open(
 SessionQueues::drain_up_to            call  broadcast_state.queues.drain_up_to(
 SessionQueues::dropped_total          call  broadcast_state.queues.dropped_total(
+SessionQueues::refused_total          call  broadcast_state.queues.refused_total(
 TopicKey::wire_string                 call  topic_key_v1(channel).wire_string(
 
 # --- IPC 2.11 session.losses: the loss ledger is reached through
