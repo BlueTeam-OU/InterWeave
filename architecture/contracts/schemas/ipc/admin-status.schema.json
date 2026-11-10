@@ -62,7 +62,7 @@
         "events_refused_total": {
           "type": "integer",
           "minimum": 0,
-          "description": "Inbound broadcasts the ingress gate refused (over the publisher's rate, or while draining), one per refused message whatever the number of sessions on its channel, on any channel, held by a local session or not, since the daemon started; monotonic. A signal, never a count of distinct losses: a refused message leaves no dedup entry, so a republished copy that is refused counts again. Nothing a session queue drops moves it, and no refusal moves events_dropped_total. Since 1.2.0, served only on a connection that negotiated IPC 2.13 or later; below 2.13 the 1.1 block is served without it. From 2.13, omitted by a server that does not keep the count, never 0 in its place (LOCAL-IPC.md, admin.status, A 2026-11-10; ADR-0026 A 2026-11-10)."
+          "description": "Inbound broadcasts the ingress gate refused (over the publisher's rate or the profile's shared ingress rate, or while draining), one per refused message whatever the number of sessions on its channel, on any channel, held by a local session or not, since the daemon started; monotonic. A signal, never a count of distinct losses: a refused message leaves no dedup entry, so a republished copy that is refused counts again. Nothing a session queue drops moves it, and no refusal moves events_dropped_total. Since 1.2.0, served only on a connection that negotiated IPC 2.13 or later; below 2.13 the 1.1 block is served without it. From 2.13, omitted by a server that does not keep the count, never 0 in its place (LOCAL-IPC.md, admin.status, A 2026-11-10; ADR-0026 A 2026-11-10)."
         }
       }
     },
