@@ -933,7 +933,9 @@ scale would also be a finding of the Android review
       refusal lasts only while the process lives, and a launch
       runs a start only once the Service has ended. So use a
       profile that is not Stay reachable: fire `REFUSE_STORE` on
-      Chats, then press Back or Home, and confirm that
+      Chats, then press Back, so that the Activity finishes (Home
+      would leave it alive, and its return is not a launch), and
+      confirm that
       `adb shell pidof org.interweave.human` shows the same pid
       (the process stays). Then open InterWeave from the launcher.
       In each run the first Tab reaches Try again. K1 is checked
