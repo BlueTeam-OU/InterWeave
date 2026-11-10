@@ -294,6 +294,20 @@ pub(crate) struct ShowGuard {
     state: Rc<std::cell::Cell<GuardState>>,
 }
 
+/// Whether Show is open, read by the platform's other secured spans
+/// ([`View::guard_show`]'s answer): an identity flow ending while Show
+/// stays open under it leaves the flag to Show's own off.
+#[derive(Clone)]
+pub struct ShowOpen(Rc<std::cell::Cell<GuardState>>);
+
+impl ShowOpen {
+    /// Show asked the flag on and has not asked it off since.
+    #[must_use]
+    pub fn get(&self) -> bool {
+        self.0.get().open
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct GuardState {
     /// Asked on, and not asked off since.
@@ -310,6 +324,11 @@ impl ShowGuard {
             ask,
             state: Rc::default(),
         }
+    }
+
+    /// The open state, for the platform to read.
+    pub(crate) fn open_state(&self) -> ShowOpen {
+        ShowOpen(Rc::clone(&self.state))
     }
 
     /// The platform confirmed an ask on; one beyond the asks is none's.
@@ -1462,6 +1481,25 @@ mod show_guard_tests {
         let off = g.closed().expect("open again");
         off();
         assert_eq!(*asked.borrow(), vec![true, true, false]);
+    }
+
+    /// The platform's reading of the open state follows each opening
+    /// and closing, whatever the confirmations: an identity flow's end
+    /// reads it to leave the flag to Show's own off.
+    #[test]
+    fn the_open_state_follows_openings_and_closings() {
+        let (g, _) = guard();
+        let open = g.open_state();
+        assert!(!open.get());
+        g.opened();
+        assert!(open.get(), "open before it is secured");
+        g.secured();
+        let off = g.closed().expect("it was open");
+        assert!(!open.get(), "closed before its off runs");
+        g.opened();
+        assert!(open.get(), "open again");
+        off();
+        assert!(open.get(), "a closed opening's off closes nothing");
     }
 
     /// Only the latest ask's confirmation lets the addresses be drawn: an

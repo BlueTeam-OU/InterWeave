@@ -2681,11 +2681,12 @@ fn show_draws_no_address_until_the_window_is_secured() {
     let mut view = view();
     let asked = Rc::new(RefCell::new(Vec::new()));
     let log = Rc::clone(&asked);
-    view.guard_show(move |on| log.borrow_mut().push(on));
+    let open = view.guard_show(move |on| log.borrow_mut().push(on));
     let mut model = UiModel::new();
     let me = peer();
     open_peers(&mut view, &mut model, &me, &[], &[]);
     assert!(asked.borrow().is_empty(), "nothing asked before Show");
+    assert!(!open.get(), "not open before Show");
     // A confirmation no ask is waiting on secures nothing to come.
     view.show_secured();
     let _ = model.peers_input(PeersInput::OpenShow);
@@ -2696,6 +2697,7 @@ fn show_draws_no_address_until_the_window_is_secured() {
     }));
     view.render(&model);
     assert_eq!(*asked.borrow(), vec![true]);
+    assert!(open.get(), "open once asked on, before it is secured");
     let w = view.window();
     assert!(!w.get_show_code_shown(), "held until secured");
     assert_eq!(w.get_show_lines().as_str(), "", "no line either");
@@ -2709,6 +2711,8 @@ fn show_draws_no_address_until_the_window_is_secured() {
     view.leave_show();
     let _ = intents(&mut view, &mut model);
     assert_eq!(model.peers().show(), None, "leaving the screen closes Show");
+    view.render(&model);
+    assert!(!open.get(), "closed with the screen, its off still waiting");
     assert_eq!(
         *asked.borrow(),
         vec![true],
