@@ -594,15 +594,15 @@ access.
   launch and over a screen already showing, such as Chats, a
   conversation or Settings, whatever had focus there. Any on-screen
   keyboard closes, since none of these screens has a text field. Tab
-  then follows the reading order: on R, Try again, Delete stored
-  data… and Close; on K, Delete stored data… and Close; on K1, its
-  primary action when it has one. The heading comes first, not the
+  then follows the reading order. On R it reaches Try again, Delete
+  stored data… and Close; on K, Delete stored data… and Close; on K1,
+  its primary action when it has one. The heading comes first, not the
   primary action, because the person expected another screen. Read
   from the top, the screen says what happened before what to do, and
   the first Tab reaches the primary action. The desktop's R is a
   dialog window and puts its initial focus on Try again (contact-cards
   §7.1). Where a start on R is refused again and R stays (its Try
-  again), R has not risen, so this rule does not apply: focus stays
+  again), R was not raised, so this rule does not apply: focus stays
   on Try again, as unlock note F11 says for a cancelled prompt
   (`design/2026-11-05-unlock-policy-pending.md`).
 - After an error banner appears, focus goes to the banner.
@@ -925,34 +925,35 @@ scale would also be a finding of the Android review
       focus key, which the build adds for each of R, K and K1:
       `r-heading`, `k-heading` and `k1-heading` (rust-ui-dev-01,
       2026-11-10). Any other value fails,
-      `focus=none` and `focus=?` included. Use the debug hooks
-      `REFUSE_STORE` and then `RESTART` (`apps/human-android/android/README.md`).
-      Run it twice: once over Chats with focus on a
-      conversation row, and once over an open conversation with
-      the composer focused and the keyboard up, where the keyboard
-      closes too. Run it a third time at a launch. The hook's
-      refusal lasts only while the process lives, and a launch
-      runs a start only once the Service has ended. So use a
-      profile that is not Stay reachable: fire `REFUSE_STORE` on
-      Chats, then press Back, so that the Activity finishes (Home
-      would leave it alive, and its return is not a launch), and
-      confirm that
-      `adb shell pidof org.interweave.human` shows the same pid
-      (the process stays). Then open InterWeave from the launcher.
-      In each run the first Tab reaches Try again. Then, in the
-      run over Chats, press Shift+Tab to put focus back on R's
-      heading (the trace shows `focus=r-heading`), and fire
-      `RESTART` again. The hook refuses only once, so this start
-      runs and R goes with focus on its heading. The trace then
-      shows Chats' list heading, as unlock note F15 says for focus
-      inside R (`focus=conversations-heading`). K1 is checked
-      at the launch of item 9, with item 9's hook. K1 raised over a
-      screen already showing, and K in every case, have no hook
-      today, so their checks wait on one, which rust-ui-dev-01 owns:
-      a debug hook, fired while the client runs, that makes the next
-      start answer `RecoveryRequired` (K1) or refuse the store as key
-      invalidated (K). Each is then checked as R is, followed by
-      `RESTART`.
+      `focus=none` and `focus=?` included. Run it three times. Each
+      of the first two runs fires the debug hook `REFUSE_STORE` and
+      then `RESTART` (`apps/human-android/android/README.md`). The first
+      is over Chats, with focus on a conversation row. The second is
+      over an open conversation, with the composer focused and the
+      keyboard up; there the keyboard closes too. The third run is at
+      a launch. The hook's refusal lasts only while the process lives,
+      and a launch runs a start only after the Service has ended. So
+      use a profile that is not Stay reachable: fire `REFUSE_STORE`
+      on Chats and note the pid that
+      `adb shell pidof org.interweave.human` shows. Then press Back,
+      so that the Activity finishes (Home would leave it alive, and
+      a return to it is not a launch), and confirm that the same
+      command shows the same pid (the process stays). Then open
+      InterWeave from the launcher. In each run the first Tab
+      reaches Try again. Then, in the run over Chats, press
+      Shift+Tab to put focus back on R's heading (the trace shows
+      `focus=r-heading`), and fire `RESTART` again. The hook refuses
+      only once, so this start runs, and R leaves the screen while
+      focus is on its heading. The trace then names Chats' list
+      heading (`focus=conversations-heading`), as unlock note F15
+      says for focus inside R. K1 is checked at the launch in item 9,
+      with item 9's hook. K1 raised over a screen already showing,
+      and K in every case, have no hook today, so their checks wait
+      on a debug hook that rust-ui-dev-01 owns. Fired while the
+      client runs, it makes the next start answer
+      `RecoveryRequired` (K1) or refuse the store as key
+      invalidated (K). Each is then checked as R is, with the new hook
+      in place of `REFUSE_STORE`, followed by `RESTART`.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
