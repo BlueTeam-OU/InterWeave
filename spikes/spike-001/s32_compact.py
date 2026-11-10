@@ -128,7 +128,7 @@ def facts_of(rng):
          "sentence": f"The {places[4]} supplier raised the price of a crate of {goods} to {price} crowns.",
          "question": f"To what price did the {places[4]} supplier raise a crate of {goods}?"},
         {"template": "spare-key", "value": f"{colour} {box}", "needles": [f"{colour} {box}"],
-         "sentence": f"The spare key for the {places[5]} studio is kept inside a {colour} {box}.",
+         "sentence": f"The spare key for the {places[5]} studio is kept inside {'an' if colour[0] in 'aeiou' else 'a'} {colour} {box}.",
          "question": f"Where is the spare key for the {places[5]} studio kept?"},
     ]
 
@@ -160,23 +160,22 @@ def sentence(rng):
 
 
 def prose(rng, n):
-    """Exactly n characters of filler sentences on one line, the last cut
-    short to fit and closed with a full stop."""
+    """Exactly n characters of whole filler sentences on one line: a
+    model that met a sentence cut short remarked on it in the first
+    probes, so the end is made of sentences whose length fits, and only
+    what no sentence fits is spaces."""
     text = ""
-    while True:
-        nxt = sentence(rng) if not text else text + " " + sentence(rng)
-        if len(nxt) > n:
+    while n - len(text) > 300:
+        text = sentence(rng) if not text else text + " " + sentence(rng)
+    for _ in range(4):
+        rest = n - len(text) - (1 if text else 0)
+        if rest < 40:
             break
-        text = nxt
-    rest = n - len(text)
-    if rest >= 2:
-        tail = ""
-        while len(tail) < rest - 1:
-            tail += " " + sentence(rng)
-        text += tail[:rest - 1] + "."
-    elif rest == 1:
-        text += " "
-    return text
+        fits = [s for s in (sentence(rng) for _ in range(400)) if len(s) <= rest and rest - len(s) not in range(1, 40)]
+        if not fits:
+            break
+        text = (text + " " if text else "") + max(fits, key=len)
+    return text + " " * (n - len(text))
 
 
 def line_of(index, content):
@@ -290,7 +289,10 @@ def what_compaction_kept(entries, nonce, facts, scratch):
                               "text_pieces": pieces(unpath(text, scratch))})
     after = {}
     if last is not None:
-        kept = [v for v in entries[last + 1:] if not v.get("isCompactSummary")]
+        # Up to the recall turn: the answer is not something compaction kept.
+        end = next((i for i, v in enumerate(entries) if i > last and v.get("type") == "user"
+                    and text_of(v).startswith(RECALL_HEAD)), len(entries))
+        kept = [v for v in entries[last + 1:end] if not v.get("isCompactSummary")]
         kept_text = "\n".join(json.dumps(v) for v in kept)
         after = {"event_1_verbatim": any(marker in text_of(v) or marker in json.dumps(v) for v in kept),
                  "facts_in_kept_messages": [f["template"] for f in facts if found(kept_text, f)]}
@@ -411,6 +413,9 @@ def run_session(spec, scratch, out, config, workdir, policy, nonce, rng, facts, 
         boundaries, summaries, after = what_compaction_kept(entries, nonce, facts, scratch)
         record["compact_boundaries"], record["compact_summaries"] = boundaries, summaries
         record["after_last_compaction"] = after
+        # Claude Code's own reckoning of the session's cost, beside the tokens.
+        costs = [v.get("totalCostUSD") for v in entries if v.get("type") == "cost-state"]
+        record["session_cost_usd"] = costs[-1] if costs else None
         (out / "session.jsonl").write_text("\n".join(json.dumps(elide(v)) for v in entries) + "\n")
     return ok
 
@@ -499,7 +504,8 @@ def main() -> int:
         raise SystemExit(f"the token appears in {', '.join(tainted)}: no evidence kept, raw output removed")
     summary = {"boundaries": record.get("boundaries_in_stream"),
                "scored": [s["verdict"] for s in record.get("recall", {}).get("scored", [])],
-               "tokens": record.get("session_tokens"), "replaced": record.get("target_replaced")}
+               "tokens": record.get("session_tokens"), "cost_usd": record.get("session_cost_usd"),
+               "replaced": record.get("target_replaced")}
     print(f"{run}: {json.dumps(summary)} passed={passed}")
     return 0 if passed else 1
 
