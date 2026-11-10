@@ -762,7 +762,8 @@ struct AddPage {
     /// The lines an add left unknown -- its answer lost and the read back
     /// failed: a retry of them that writes nothing leaves them so (§5.7).
     unknown: Option<Vec<String>>,
-    /// Bumped at every note set, so the same note twice is still news.
+    /// Bumped at every note set, so the same note twice is still news:
+    /// a note is set through `page_note`, never by assigning `note`.
     notes: u64,
 }
 
@@ -1323,8 +1324,7 @@ impl Peers {
         if lines_of(&page.field).is_empty() {
             page.scanning = true;
         } else {
-            page.note = Some(AddNote::ScanAfterField);
-            self.ask_focus(PeersFocus::Note);
+            self.page_note(AddNote::ScanAfterField, PeersFocus::Note);
         }
     }
 
@@ -1482,8 +1482,7 @@ impl Peers {
                 .or_else(|| own_line(&lines, own.as_ref()).map(|l| (l, Refusal::OwnAddress)))
         };
         if let Some((line, why)) = refused {
-            page.note = Some(AddNote::Refused { line, why });
-            self.ask_focus(PeersFocus::Note);
+            self.page_note(AddNote::Refused { line, why }, PeersFocus::Note);
             return (ScanVerdict::Taken, None);
         }
         page.note = None;

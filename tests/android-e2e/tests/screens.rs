@@ -3,12 +3,18 @@
 //! The screen driving (`src/screen.rs`) on one phone, through the steps
 //! that write nothing: launch, Peers, Show drawn and closed, the add page
 //! opened and left: the check that the driver reaches every control it
-//! needs on the build at hand, without touching the profile. No row adds
-//! and trusts through the screens yet (`pairing.rs` adds by the binding's
-//! cases); one that does builds on these steps.
+//! needs on the build at hand, without touching the profile. One row adds
+//! through them (`pairing.rs`'s second row on two phones, its step-1 add
+//! on each Add page); none trusts through them yet, every row trusting
+//! by the binding's cases.
 //!
 //! `#[ignore]`d: run with `--ignored` against the debug APK (the trace is
-//! the `ui-trace` feature's), `ANDROID_SERIAL` naming the phone.
+//! the `ui-trace` feature's), `ANDROID_SERIAL` naming the phone. A
+//! locked phone asks its person to unlock it and is waited out; the
+//! launch fails, naming why, on API 33+ while the notifications prompt
+//! holds the keys (grant `POST_NOTIFICATIONS` first, as after a clear or
+//! a fresh install), and on a profile that owes Connect (no peer and no
+//! trust entry), which the driver does not leave.
 
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -31,7 +37,7 @@ fn passed(s: &Step, trace: &[String]) {
 }
 
 #[test]
-#[ignore = "a phone with the debug APK, ANDROID_SERIAL naming it"]
+#[ignore = "a phone with the debug APK, ANDROID_SERIAL naming it, on API 33+ notifications granted, and a profile that does not owe Connect"]
 fn the_driver_reaches_show_and_the_add_page_without_writing() {
     let serial = std::env::var("ANDROID_SERIAL").expect("ANDROID_SERIAL names the phone");
     let mut screens = Screens::new(&serial);
