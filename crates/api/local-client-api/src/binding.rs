@@ -194,8 +194,9 @@ pub struct SessionLosses {
     /// Copies this session's own queue dropped (its oldest, to take a
     /// newer one) or could not queue.
     pub queue_overflow: u64,
-    /// Copies the ingress gate refused -- over the publisher's rate, or
-    /// while draining -- on a channel this session held at the time; a
+    /// Copies the ingress gate refused -- over the publisher's rate or
+    /// the profile's shared ingress rate, or while draining -- on a
+    /// channel this session held at the time; a
     /// republish of a refused id may still be delivered.
     pub ingress_refused: u64,
 }
@@ -756,7 +757,8 @@ pub struct AdminStatus {
     /// which is absent on the wire, never `0`.
     pub events_dropped: Option<u64>,
     /// Inbound broadcasts the binding's ingress gate refused (over the
-    /// publisher's rate, or while draining), one per refused message, on
+    /// publisher's rate or the profile's shared ingress rate, or while
+    /// draining), one per refused message, on
     /// any channel, joined or not, since the runtime started: monotonic
     /// (`ipc.events_refused_total`, IPC 2.13). A signal like a session's
     /// `ingress_refused`: a republished refused copy counts again. `None`
