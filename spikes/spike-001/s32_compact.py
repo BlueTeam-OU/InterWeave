@@ -66,7 +66,7 @@ from s24_print import CHANNELS, SERVER, Session
 from s25_print import timeline
 from s29_print import ALLOWED, BOUND, elide, elide_line, init_record
 from s30_print import MODELS, TOO_LONG, result_record
-from s31_print import dashed, pieces, unpath
+from s31_print import dashed, pieces, unpath as s31_unpath
 
 HERE = pathlib.Path(__file__).resolve().parent
 SIZES = {"large": BOUND, "small": 2048}
@@ -230,6 +230,15 @@ def spec_of(name):
     return {"size": m.group(1), "note": m.group(2), "depth": int(m.group(3)), "window": window,
             "model": MODELS["sonnet"], "answer_s": 600,
             "env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": str(window)} if window else {}}
+
+
+def unpath(text, scratch):
+    """s31_print.py's unpath, and every project directory under the home
+    directory in Claude Code's dashed spelling: a long one is cut short
+    with a suffix of its own, so the scratch directory's full spelling
+    does not match it (the first probe's summary named one)."""
+    home = re.escape(dashed(pathlib.Path.home()))
+    return re.sub(home + r"[A-Za-z0-9-]*", "$SCRATCH_PROJECT", s31_unpath(text, scratch))
 
 
 def found(text, fact):
@@ -477,8 +486,9 @@ def main() -> int:
     try:
         subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
         scrub(dest / "evidence.md", scratch, out)
-        if dashed(scratch.name) in (dest / "evidence.md").read_text():
-            raise SystemExit("evidence.md still names the scratch directory in a project directory's spelling")
+        kept = (dest / "evidence.md").read_text()
+        if dashed(scratch.name) in kept or dashed(pathlib.Path.home()) in kept or str(pathlib.Path.home()) in kept:
+            raise SystemExit("evidence.md still names the home or scratch directory")
         tainted = token_in([out, dest])
     except BaseException:
         shutil.rmtree(dest, ignore_errors=True)
