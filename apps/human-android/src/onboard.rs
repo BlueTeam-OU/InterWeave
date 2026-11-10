@@ -34,7 +34,7 @@ use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustB
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
-use crate::ready_check::{AtFlowEnd, Before, at_flow_end};
+use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end};
 use crate::unlock_route::{Route, UnlockRoute};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, prompt_line};
@@ -525,20 +525,6 @@ fn now_ms() -> u64 {
     .unwrap_or(u64::MAX)
 }
 
-/// Where an identity flow was opened.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Over {
-    /// At a launch, before the service: its end binds it.
-    Launch,
-    /// Show my phrase, from Settings: the service is bound already, and
-    /// is taken offline and back rather than bound (design section 3.5).
-    Settings,
-    /// K1 raised over a window whose service is bound and whose start was
-    /// refused ([`raise_recovery`]): its end starts the service again, as
-    /// R's Try again does, rather than binding it.
-    Running,
-}
-
 impl Over {
     /// The ask that starts the service at the flow's end.
     const fn start_ask(self) -> jni::sys::jint {
@@ -547,12 +533,6 @@ impl Over {
             Self::Settings => ask::ONLINE,
             Self::Running => ask::RESTART,
         }
-    }
-
-    /// Opened from the start the window was given, a launch's or a kept
-    /// K1's, rather than by Settings.
-    const fn opened_from_start(self) -> bool {
-        !matches!(self, Self::Settings)
     }
 }
 
@@ -1126,13 +1106,9 @@ fn render() {
         if !cleared {
             log("no frame notifier: FLAG_SECURE stays on for this window");
         }
-        Some((
-            Rc::clone(&o.done),
-            o.over.opened_from_start(),
-            o.service_asked,
-        ))
+        Some((Rc::clone(&o.done), o.over, o.service_asked))
     });
-    if let Some((done, from_start, start_asked)) = handover {
+    if let Some((done, over, start_asked)) = handover {
         ONBOARDING.with(|slot| slot.borrow_mut().take());
         // A K1 a refused start kept while Show my phrase showed is still
         // owed when Show my phrase ends: `raise_recovery` held back for it.
@@ -1140,7 +1116,7 @@ fn render() {
         if let Ok(mut platform) = PLATFORM.lock()
             && let Some(platform) = platform.as_mut()
         {
-            match at_flow_end(from_start, platform.kept, start_asked) {
+            match at_flow_end(over, platform.kept, start_asked) {
                 AtFlowEnd::Drop => {
                     platform.start = None;
                     platform.kept = false;
