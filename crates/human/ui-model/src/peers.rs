@@ -769,7 +769,8 @@ mod note_slot {
 
     /// The add page's note and a count of every set of one, so the same
     /// note set twice is still news to the view. The fields are private
-    /// to this module: a set that skipped the count does not compile.
+    /// to this module, so writing the note past the count does not
+    /// compile. Replacing a page's whole slot would still get round it.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub(super) struct NoteSlot {
         note: Option<AddNote>,
@@ -793,6 +794,24 @@ mod note_slot {
 
         pub(super) const fn sets(&self) -> u64 {
             self.sets
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{AddNote, NoteSlot};
+
+        #[test]
+        fn a_note_set_after_a_clear_is_counted_on_from_before_it() {
+            let mut slot = NoteSlot::default();
+            slot.set(AddNote::AddressNeeded);
+            slot.clear();
+            assert_eq!((slot.get(), slot.sets()), (None, 1));
+            slot.set(AddNote::AddressNeeded);
+            assert_eq!(
+                (slot.get(), slot.sets()),
+                (Some(&AddNote::AddressNeeded), 2)
+            );
         }
     }
 }
