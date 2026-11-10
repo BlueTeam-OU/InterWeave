@@ -1578,6 +1578,30 @@ fn tab_from_a_reader_with_no_links_goes_to_back() {
     assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
 }
 
+/// Show source in an open reader shows the source: the formatted form is
+/// built as the reader opens and the source's when first asked for, here
+/// by the switch (the testing backend tells no frame, after which it is
+/// built otherwise), and its rows are the body's markup and all, joined
+/// as the source is; Show formatted gives the formatted rows back.
+#[test]
+fn show_source_in_the_reader_shows_the_source_built_when_asked() {
+    let body = format!("{}end", "**bold** ".repeat(600));
+    let (mut view, mut model) = reader_on(&body);
+    let formatted = reader_text(&view);
+    assert!(
+        formatted.iter().skip(1).all(|t| !t.contains("**")),
+        "control: the formatted form draws no markup"
+    );
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_as_source());
+    assert_eq!(reader_text(&view)[1..].concat(), body, "the source, whole");
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(!view.window().get_reader_as_source());
+    assert_eq!(reader_text(&view), formatted, "the formatted rows again");
+}
+
 /// The source form has no link control: TAB from its scroll area goes
 /// to Back though the formatted form has links.
 #[test]

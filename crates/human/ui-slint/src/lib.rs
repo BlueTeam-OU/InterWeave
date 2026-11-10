@@ -404,8 +404,9 @@ struct Shared {
     conversations: HashMap<i32, ConversationKey>,
     items: HashMap<i32, Pressable>,
     /// The open reader's two forms and its links, swapped and pressed
-    /// from its callbacks.
-    reader: Option<reader::Forms>,
+    /// from its callbacks: a cell of its own, borrowed apart from this
+    /// one while the source form is built ([`reader::Forms::source`]).
+    reader: Rc<RefCell<Option<reader::Forms>>>,
     /// When the press that opens the reader reached the view, for the
     /// trace's time to its first frame.
     #[cfg(feature = "ui-trace")]
@@ -2321,33 +2322,45 @@ impl View {
             (Direction::Inbound, Some(peer)) => short_peer(peer.as_str()),
             _ => placeholder_en::text(UiText::You).to_owned(),
         };
-        self.window.set_reader_rows(if as_source {
-            forms.source.clone()
-        } else {
-            forms.formatted.clone()
-        });
-        self.window.set_reader_as_source(as_source);
         let link_rows: Vec<i32> = forms
             .link_rows
             .iter()
             .map(|&row| i32::try_from(row).unwrap_or(i32::MAX))
             .collect();
+        let formatted = forms.formatted.clone();
+        let cell = Rc::clone(&self.shared.borrow().reader);
+        *cell.borrow_mut() = Some(forms);
+        self.window.set_reader_rows(if as_source {
+            reader::Forms::source(&cell).unwrap_or_default()
+        } else {
+            formatted
+        });
+        self.window.set_reader_as_source(as_source);
         self.window
             .set_reader_link_rows(ModelRc::new(VecModel::from(link_rows)));
         self.window.set_reader_title(title.into());
         self.window.set_reader_handle(handle);
         self.window.set_reader_open(true);
-        self.shared.borrow_mut().reader = Some(forms);
         self.reader = Some(reader::Open { key, handle });
         #[cfg(feature = "ui-trace")]
         self.trace_reader_drawn();
+        // The source form once the first frame is drawn, so Show source
+        // swaps at once; queued after the trace's, which times that frame.
+        // Where no frame is told (the testing backend), Show source builds
+        // it.
+        if !as_source {
+            self.after_next_frame(move || {
+                reader::Forms::source(&cell);
+            });
+        }
     }
 
-    /// `item`'s reader rows, both forms, each piece measured.
+    /// `item`'s reader rows, each piece measured: the formatted form now,
+    /// the source's when asked for.
     fn reader_forms(&self, item: &MessageItem) -> reader::Forms {
         let sent = reader::sent(&self.clock, item.local_at);
         let measures = Measures::new(&self.window);
-        reader::forms(
+        let formatted = reader::formatted(
             item,
             &sent,
             &image_text,
@@ -2356,9 +2369,19 @@ impl View {
                     measures.height(line, Measured::Line)
                 })
             },
-            |pieces| pieces_by_measure(pieces, &|line| measures.height(line, Measured::Source)),
             |label| label_pieces(&measures, label),
-        )
+        );
+        drop(measures);
+        let (window, source) = (swipe::weak(&self.window), item.source.clone());
+        reader::Forms::new(formatted, move || {
+            let Some(window) = window.upgrade() else {
+                return ModelRc::default();
+            };
+            let measures = Measures::new(&window);
+            reader::source(&source, &sent, |pieces| {
+                pieces_by_measure(pieces, &|line| measures.height(line, Measured::Source))
+            })
+        })
     }
 
     /// Close the reader, if open, saying which message it showed.
@@ -2367,7 +2390,7 @@ impl View {
         self.window.set_reader_open(false);
         self.window
             .set_reader_rows(ModelRc::new(VecModel::<generated::ReaderRow>::default()));
-        self.shared.borrow_mut().reader = None;
+        *self.shared.borrow().reader.borrow_mut() = None;
         Some(open)
     }
 
@@ -2718,13 +2741,15 @@ impl View {
             && let Some(item) = self.shown_items.get(&key)
         {
             let forms = self.reader_forms(item);
+            let formatted = forms.formatted.clone();
+            let cell = Rc::clone(&self.shared.borrow().reader);
+            *cell.borrow_mut() = Some(forms);
             self.window
                 .set_reader_rows(if self.window.get_reader_as_source() {
-                    forms.source.clone()
+                    reader::Forms::source(&cell).unwrap_or_default()
                 } else {
-                    forms.formatted.clone()
+                    formatted
                 });
-            self.shared.borrow_mut().reader = Some(forms);
         }
     }
 
@@ -3907,36 +3932,37 @@ fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Share
     window.on_reader_close(move || enqueue(&s, Input::ReaderClosed));
     // The first link control at or after a row of the reader's formatted
     // form, by its index; -1 for none.
-    let s = Rc::clone(shared);
+    let forms = Rc::clone(&shared.borrow().reader);
     window.on_reader_link_from(move |row| {
-        let shared = s.borrow();
-        let rows = shared
-            .reader
-            .as_ref()
-            .map_or(&[][..], |forms| &forms.link_rows[..]);
+        let forms = forms.borrow();
+        let rows = forms.as_ref().map_or(&[][..], |forms| &forms.link_rows[..]);
         let row = usize::try_from(row).unwrap_or(0);
         rows.iter()
             .position(|&at| at >= row)
             .map_or(-1, |index| i32::try_from(index).unwrap_or(-1))
     });
-    // The other form at once, built as the reader opened: the scroll
-    // is kept at its share right after this returns.
-    let (s, weak) = (Rc::clone(shared), swipe::weak(window));
+    // The other form, built now if the frame after the opening has not
+    // built it yet: the scroll is kept at its share right after this
+    // returns.
+    let (forms, weak) = (Rc::clone(&shared.borrow().reader), swipe::weak(window));
     window.on_reader_switch(move || {
-        let (Some(window), Some(forms)) = (weak.upgrade(), &s.borrow().reader) else {
+        let Some(window) = weak.upgrade() else {
             return;
         };
         let as_source = !window.get_reader_as_source();
-        window.set_reader_rows(if as_source {
-            forms.source.clone()
+        let rows = if as_source {
+            reader::Forms::source(&forms)
         } else {
-            forms.formatted.clone()
-        });
-        window.set_reader_as_source(as_source);
+            forms.borrow().as_ref().map(|forms| forms.formatted.clone())
+        };
+        if let Some(rows) = rows {
+            window.set_reader_rows(rows);
+            window.set_reader_as_source(as_source);
+        }
     });
-    let s = Rc::clone(shared);
+    let (s, forms) = (Rc::clone(shared), Rc::clone(&shared.borrow().reader));
     window.on_reader_link(move |index| {
-        let pressed = s.borrow().reader.as_ref().and_then(|forms| {
+        let pressed = forms.borrow().as_ref().and_then(|forms| {
             usize::try_from(index)
                 .ok()
                 .and_then(|i| forms.links.get(i).cloned())

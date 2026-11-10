@@ -14,6 +14,8 @@
 use interweave_human_ui_model::{
     Day, ItemKey, MessageItem, UiText, body, cluster, fill, placeholder_en,
 };
+use std::cell::RefCell;
+
 use slint::{ModelRc, SharedString, VecModel};
 
 use crate::clock::{self, Clock};
@@ -28,16 +30,66 @@ pub(crate) struct Open {
     pub(crate) handle: i32,
 }
 
-/// The reader's rows in both forms, built once as it opens so that Show
-/// source and Show formatted swap them at once, and its links'
-/// destinations by index.
+/// The reader's rows in both forms, and its links' destinations by
+/// index. The formatted form is built as the reader opens; the source's
+/// when first asked for ([`Forms::source`]) -- Show source, or the frame
+/// after the reader's first, whichever comes first -- since a body at the
+/// bound costs as much to measure again as source as it did formatted,
+/// and the person waits on the opening for both (A5).
 pub(crate) struct Forms {
     pub(crate) formatted: ModelRc<ReaderRow>,
-    pub(crate) source: ModelRc<ReaderRow>,
+    source: Source,
     pub(crate) links: Vec<String>,
     /// Each link's row in the formatted form: right after the line its
     /// text is in (section 5.1), in the order the body gives them.
     pub(crate) link_rows: Vec<usize>,
+}
+
+/// The source form's rows, or what builds them.
+enum Source {
+    Built(ModelRc<ReaderRow>),
+    Pending(Box<dyn FnOnce() -> ModelRc<ReaderRow>>),
+    /// Taken by [`Forms::source`] while it builds.
+    Building,
+}
+
+impl Forms {
+    /// The formatted form, the source's left to `build`.
+    pub(crate) fn new(
+        (formatted, links, link_rows): (ModelRc<ReaderRow>, Vec<String>, Vec<usize>),
+        build: impl FnOnce() -> ModelRc<ReaderRow> + 'static,
+    ) -> Self {
+        Self {
+            formatted,
+            source: Source::Pending(Box::new(build)),
+            links,
+            link_rows,
+        }
+    }
+
+    /// The open reader's source rows, built first if they were not:
+    /// outside `forms`' borrow, since building measures in the window,
+    /// and the window's handlers borrow it too. `None` when no reader is
+    /// open, or one that is building.
+    pub(crate) fn source(forms: &RefCell<Option<Self>>) -> Option<ModelRc<ReaderRow>> {
+        let build = {
+            let mut forms = forms.borrow_mut();
+            let forms = forms.as_mut()?;
+            match std::mem::replace(&mut forms.source, Source::Building) {
+                Source::Built(rows) => {
+                    forms.source = Source::Built(rows.clone());
+                    return Some(rows);
+                }
+                Source::Pending(build) => build,
+                Source::Building => return None,
+            }
+        };
+        let rows = build();
+        if let Some(forms) = forms.borrow_mut().as_mut() {
+            forms.source = Source::Built(rows.clone());
+        }
+        Some(rows)
+    }
 }
 
 /// When `local_at` reached this app, as the reader's first line shows it
@@ -61,25 +113,17 @@ pub(crate) fn sent(clock: &Clock, local_at: u64) -> (String, String) {
     (shown.clone(), shown)
 }
 
-/// `item`'s rows, formatted and as source, after the line `sent`.
-pub(crate) fn forms(
+/// `item`'s formatted rows after the line `sent`, its links'
+/// destinations, and each link's row.
+pub(crate) fn formatted(
     item: &MessageItem,
     sent: &(String, String),
     image: &dyn Fn(&str) -> String,
     lines: impl Fn(&[body::Line]) -> Vec<BodyLine>,
-    pieces: impl Fn(Vec<String>) -> Vec<String>,
     label: impl Fn(&str) -> ModelRc<SharedString>,
-) -> Forms {
-    let first = ReaderRow {
-        kind: ReaderRowKind::Sent,
-        line: BodyLine::default(),
-        text: sent.0.as_str().into(),
-        spoken: sent.1.as_str().into(),
-        index: 0,
-        pieces: ModelRc::default(),
-    };
+) -> (ModelRc<ReaderRow>, Vec<String>, Vec<usize>) {
     let (drawn, places) = body::flatten_placed(&item.body, image);
-    let mut formatted = vec![first.clone()];
+    let mut formatted = vec![sent_row(sent)];
     let as_rows = |lines: Vec<BodyLine>| {
         lines.into_iter().map(|line| ReaderRow {
             kind: ReaderRowKind::Line,
@@ -112,15 +156,28 @@ pub(crate) fn forms(
         });
     }
     formatted.extend(as_rows(lines(&drawn.lines[next..])));
-    let text = cluster::drawable(&item.source);
-    let mut source = vec![first];
+    (
+        ModelRc::new(VecModel::from(formatted)),
+        drawn.links,
+        link_rows,
+    )
+}
+
+/// `source`'s rows after the line `sent`.
+pub(crate) fn source(
+    source: &str,
+    sent: &(String, String),
+    pieces: impl Fn(Vec<String>) -> Vec<String>,
+) -> ModelRc<ReaderRow> {
+    let text = cluster::drawable(source);
+    let mut rows = vec![sent_row(sent)];
     let source_pieces = pieces(
         body::pieces(&text)
             .into_iter()
             .map(|(piece, _)| piece.to_owned())
             .collect(),
     );
-    source.extend(source_pieces.into_iter().map(|piece| ReaderRow {
+    rows.extend(source_pieces.into_iter().map(|piece| ReaderRow {
         kind: ReaderRowKind::Source,
         line: BodyLine::default(),
         text: piece.into(),
@@ -128,11 +185,18 @@ pub(crate) fn forms(
         index: 0,
         pieces: ModelRc::default(),
     }));
-    Forms {
-        formatted: ModelRc::new(VecModel::from(formatted)),
-        source: ModelRc::new(VecModel::from(source)),
-        links: drawn.links,
-        link_rows,
+    ModelRc::new(VecModel::from(rows))
+}
+
+/// The reader's first row: when the message came, as [`sent`] gives it.
+fn sent_row(sent: &(String, String)) -> ReaderRow {
+    ReaderRow {
+        kind: ReaderRowKind::Sent,
+        line: BodyLine::default(),
+        text: sent.0.as_str().into(),
+        spoken: sent.1.as_str().into(),
+        index: 0,
+        pieces: ModelRc::default(),
     }
 }
 
