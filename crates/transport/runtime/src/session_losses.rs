@@ -31,6 +31,18 @@
 //! this session had joined, since the join", with no per-session work on
 //! the refused path.
 //!
+//! # The profile's refusal total is counted here, for every channel
+//!
+//! `admin.status`'s `ipc.events_refused_total` is one counter for the
+//! profile, moved by the same call that moves a channel's count:
+//! [`LossLedger::refused`], one per refused inbound message, whether or
+//! not any session holds the channel. A sum of the sessions' counts
+//! would miss a channel nobody held, count one message once per holder,
+//! and fall when a session ends. Monotonic, never reset while the
+//! runtime runs, and a signal as `ingress_refused` is: a republished
+//! refused copy counts again. Nothing a queue drops moves it; that is
+//! `ipc.events_dropped_total`'s ([`crate::session_queue`]).
+//!
 //! # A session's counts live as long as the session, not its queue
 //!
 //! The queue closes when the session leaves its last channel and opens
@@ -81,6 +93,8 @@ struct SessionLedger {
 pub struct LossLedger {
     channels: BTreeMap<ChannelId, ChannelCount>,
     sessions: BTreeMap<String, SessionLedger>,
+    /// Every refusal [`Self::refused`] was told of, held channel or not.
+    refused_total: u64,
 }
 
 impl LossLedger {
@@ -138,9 +152,11 @@ impl LossLedger {
         }
     }
 
-    /// The ingress gate refused a broadcast on `channel`. One increment,
-    /// and none at all on a channel no session holds.
+    /// The ingress gate refused a broadcast on `channel`. One increment
+    /// to the profile's total always, and one to the channel's count,
+    /// none at all on a channel no session holds.
     pub fn refused(&mut self, channel: &ChannelId) {
+        self.refused_total = self.refused_total.saturating_add(1);
         if let Some(count) = self.channels.get_mut(channel) {
             count.refused = count.refused.saturating_add(1);
         }
@@ -152,6 +168,13 @@ impl LossLedger {
         if let Some(ledger) = self.sessions.get_mut(session) {
             ledger.queue_overflow = ledger.queue_overflow.saturating_add(1);
         }
+    }
+
+    /// Every broadcast the ingress gate refused since this ledger was
+    /// made, on any channel, held or not (`ipc.events_refused_total`).
+    #[must_use]
+    pub fn refused_total(&self) -> u64 {
+        self.refused_total
     }
 
     /// `session`'s counts now. Zero for a session with no entry.
@@ -265,6 +288,24 @@ mod tests {
         l.left("b", &ch("general"));
         assert_eq!(l.sizes().1, 0);
         assert_eq!(l.read("b").ingress_refused, 1, "folded, not lost");
+    }
+
+    #[test]
+    fn the_refused_total_counts_every_refusal_once_held_or_not() {
+        let mut l = LossLedger::new();
+        l.refused(&ch("general"));
+        assert_eq!(l.refused_total(), 1, "a channel nobody holds");
+        l.joined("a", &ch("general"));
+        l.joined("b", &ch("general"));
+        l.refused(&ch("general"));
+        assert_eq!(l.refused_total(), 2, "once, for two holders");
+        assert_eq!(l.read("a").ingress_refused, 1, "the control: held");
+        l.overflowed("a");
+        assert_eq!(l.refused_total(), 2, "an overflow is no refusal");
+        l.left("a", &ch("general"));
+        l.released("b");
+        assert_eq!(l.refused_total(), 2, "a leave or an end lowers nothing");
+        assert_eq!(l.sizes(), (1, 0), "and keeps no channel for it");
     }
 
     #[test]

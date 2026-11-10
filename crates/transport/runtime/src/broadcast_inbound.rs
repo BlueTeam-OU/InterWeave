@@ -636,6 +636,74 @@ mod tests {
         }
     }
 
+    /// `admin.status`'s two profile totals move at the same two places,
+    /// each at its own and never at the other's: an overflow moves
+    /// `ipc.events_dropped_total` alone, a refusal
+    /// `ipc.events_refused_total` alone -- once per refused message,
+    /// however many sessions held its channel.
+    #[test]
+    fn an_overflow_and_a_refusal_each_move_their_own_profile_total() {
+        let mut w = World::new(&["fast", "slow"]);
+        w.queues.open("slow", 1);
+        for (id, at) in [(7, 0), (8, 1)] {
+            assert!(matches!(
+                w.admit(&frame(id, b"body"), P1, at),
+                BroadcastAdmission::Delivered { .. }
+            ));
+        }
+        assert_eq!(w.queues.dropped_total(), 1, "7 was dropped to take 8");
+        assert_eq!(
+            w.queues.losses().refused_total(),
+            0,
+            "an overflow is no refusal"
+        );
+
+        w.draining = true;
+        assert!(matches!(
+            w.admit(&frame(9, b"body"), P1, 2),
+            BroadcastAdmission::Refused(_)
+        ));
+        assert_eq!(
+            w.queues.losses().refused_total(),
+            1,
+            "one refused message, two sessions holding its channel"
+        );
+        assert_eq!(w.queues.dropped_total(), 1, "a refusal drops nothing");
+    }
+
+    /// The profile's refusal total is not the sessions' sum: a refusal on
+    /// a channel no session joined counts, and a session's end lowers
+    /// nothing.
+    #[test]
+    fn a_refusal_nobody_joined_for_counts_in_the_profile_total() {
+        let mut w = World::new(&[]);
+        w.draining = true;
+        assert!(matches!(
+            w.admit(&frame(7, b"body"), P1, 0),
+            BroadcastAdmission::Refused(_)
+        ));
+        assert_eq!(w.queues.losses().refused_total(), 1);
+
+        let mut w = World::new(&["gone"]);
+        w.draining = true;
+        assert!(matches!(
+            w.admit(&frame(7, b"body"), P1, 0),
+            BroadcastAdmission::Refused(_)
+        ));
+        assert_eq!(
+            w.queues.losses().read("gone").ingress_refused,
+            1,
+            "the control: the session counted it too"
+        );
+        w.queues.losses_mut().released("gone");
+        assert_eq!(w.queues.losses().read("gone").ingress_refused, 0);
+        assert_eq!(
+            w.queues.losses().refused_total(),
+            1,
+            "the session's end takes nothing from the profile"
+        );
+    }
+
     /// `queue_overflow` is a lower bound on broadcasts LOST, not delayed
     /// (ADR-0026 A 2026-10-24): the overflowed broadcast was admitted and
     /// its dedup entry recorded, so within the dedup window a republish of
@@ -729,6 +797,11 @@ mod tests {
             w.queues.losses().read("human").ingress_refused,
             2,
             "each refused copy counts"
+        );
+        assert_eq!(
+            w.queues.losses().refused_total(),
+            2,
+            "in the profile's total too"
         );
 
         assert!(
