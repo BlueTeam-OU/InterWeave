@@ -688,9 +688,6 @@ mod tests {
         }
     }
 
-    /// `own_peer` is served from 2.9 and answered `grammar` below it, the
-    /// reason a 2.7 or 2.8 client's decoder knows; another refusal is the
-    /// control, served alike on both sides of the minor.
     /// `admin.status` carries the port's refusal total only on a
     /// connection at 2.13 or later; below it the 1.1 block, without the
     /// member, whatever the port counted (the fake counts 9).
@@ -720,6 +717,9 @@ mod tests {
         }
     }
 
+    /// `own_peer` is served from 2.9 and answered `grammar` below it, the
+    /// reason a 2.7 or 2.8 client's decoder knows; another refusal is the
+    /// control, served alike on both sides of the minor.
     #[tokio::test]
     async fn own_peer_is_answered_grammar_below_two_nine() {
         use interweave_ipc_protocol::{AddressResult, OWN_PEER_SINCE_MINOR};
