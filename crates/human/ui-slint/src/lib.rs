@@ -1403,7 +1403,11 @@ impl View {
             page,
             model.connect_phase(),
             model.connectivity(),
-            model.session_notice(),
+            model
+                .session_notice()
+                .map(trace::session_notice)
+                .or_else(|| self.shared.borrow().once_notice.map(trace::once_notice))
+                .or_else(|| self.unlock_notice.get().then_some("unlock-pending")),
             model.peers(),
             model.trust_settings(),
             |p| handles.of(p),

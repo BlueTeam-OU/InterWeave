@@ -1709,3 +1709,54 @@ fn the_app_bar_arrow_is_back_on_every_screen_that_has_one() {
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Back]);
 }
+
+/// The notice in Chats' slot is named whichever it is: the discard's
+/// shown once, and the unlock note's P-up notice, each under the
+/// session notices (j245 finding 2).
+#[test]
+fn the_discards_and_the_p_up_notice_are_named() {
+    use interweave_human_ui_model::{KeyUnlock, UnlockFacts};
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    model.client_event(interweave_human_client_api::ClientEvent::Session(
+        interweave_human_client_api::SessionState::Ready { endpoint: None },
+    ));
+    model.unlock_facts(
+        Some(UnlockFacts {
+            in_force: KeyUnlock::BackgroundCompatible,
+            configured: Some(KeyUnlock::UserPresence),
+            pending: None,
+            restart_needs_unlock: Some(false),
+        }),
+        1,
+        false,
+    );
+    view.show_once(UiText::StoreDiscarded);
+    view.render(&model);
+    model.network_access(false);
+    view.render(&model);
+    model.network_access(true);
+    view.render(&model);
+    press(&view, text(UiText::Close));
+    view.render(&model);
+    let said = said.borrow();
+    let notices: Vec<&String> = said
+        .iter()
+        .filter(|l| l.starts_with("ui-trace notice="))
+        .collect();
+    assert_eq!(
+        notices,
+        [
+            "ui-trace notice=store-discarded",
+            "ui-trace notice=network-denied",
+            "ui-trace notice=store-discarded",
+            "ui-trace notice=unlock-pending",
+        ],
+        "in {said:#?}"
+    );
+}
