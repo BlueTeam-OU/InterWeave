@@ -639,6 +639,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
 /// again.
 pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
     if ONBOARDING.with(|slot| slot.borrow().is_some()) {
+        log("K1 kept: an identity flow shows, whose end decides it");
         return;
     }
     let platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
