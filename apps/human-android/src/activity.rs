@@ -612,11 +612,11 @@ fn android_main(app: AndroidApp) {
     // window, as the phrase pages do (add-a-peer §5.4).
     view.guard_show(|on| {
         use crate::onboard::{ASKS, ask};
-        ASKS.push(if on {
-            ask::SHOW_SECURE
+        if on {
+            ASKS.push(ask::SHOW_SECURE);
         } else {
-            ask::SECURE_OFF
-        });
+            crate::onboard::secure_off();
+        }
     });
     // Scan a code: the Activity's camera, on while the viewfinder is open
     // (add-a-peer §5.5), offered only on a phone that has one.

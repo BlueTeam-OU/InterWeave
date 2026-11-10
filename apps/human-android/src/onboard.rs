@@ -34,7 +34,7 @@ use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustB
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
-use crate::ready_check::Before;
+use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end};
 use crate::unlock_route::{Route, UnlockRoute};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, prompt_line};
@@ -195,7 +195,9 @@ struct Platform {
     /// running window ([`Over::Running`]), its end restarting the service
     /// whether the binding was kept or not; the check of a window that
     /// comes after its own went answers recovery ([`ready_state`]). A
-    /// later start that runs drops it ([`start_answered`]).
+    /// later start that runs drops it ([`start_answered`]), as does the
+    /// end of the flow that shows it; Show my phrase's end keeps it
+    /// ([`render`]).
     kept: bool,
 }
 
@@ -523,20 +525,6 @@ fn now_ms() -> u64 {
     .unwrap_or(u64::MAX)
 }
 
-/// Where an identity flow was opened.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Over {
-    /// At a launch, before the service: its end binds it.
-    Launch,
-    /// Show my phrase, from Settings: the service is bound already, and
-    /// is taken offline and back rather than bound (design section 3.5).
-    Settings,
-    /// K1 raised over a window whose service is bound and whose start was
-    /// refused ([`raise_recovery`]): its end starts the service again, as
-    /// R's Try again does, rather than binding it.
-    Running,
-}
-
 impl Over {
     /// The ask that starts the service at the flow's end.
     const fn start_ask(self) -> jni::sys::jint {
@@ -644,7 +632,8 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
 }
 
 /// K1 over `view`, the chats staying attached underneath, for a start
-/// [`recovery_refused`] kept; nothing while a flow shows already. Focus
+/// [`recovery_refused`] kept; nothing while a flow shows already, whose
+/// end raises it or leaves it to the start it asks ([`render`]). Focus
 /// goes to its heading (section 8), and `FLAG_SECURE` goes on before R2
 /// can draw a word: K1 itself draws none. Its end starts the service
 /// again.
@@ -1110,25 +1099,47 @@ fn render() {
         if !o.service_asked && (o.over != Over::Settings || o.offline_asked) {
             ask_service(o);
         }
-        let cleared = o
-            .view
-            .borrow_mut()
-            .after_next_frame(|| ASKS.push(ask::SECURE_OFF));
+        let cleared = o.view.borrow_mut().after_next_frame(secure_off);
         if !cleared {
             log("no frame notifier: FLAG_SECURE stays on for this window");
         }
-        Some(Rc::clone(&o.done))
+        Some((Rc::clone(&o.done), o.over, o.service_asked))
     });
-    if let Some(done) = handover {
+    if let Some((done, over, start_asked)) = handover {
         ONBOARDING.with(|slot| slot.borrow_mut().take());
+        // A K1 a refused start kept while Show my phrase showed is still
+        // owed when Show my phrase ends: `raise_recovery` held back for it.
+        let mut raise = false;
         if let Ok(mut platform) = PLATFORM.lock()
             && let Some(platform) = platform.as_mut()
         {
-            platform.start = None;
-            platform.kept = false;
+            match at_flow_end(over, platform.kept, start_asked) {
+                AtFlowEnd::Drop => {
+                    platform.start = None;
+                    platform.kept = false;
+                }
+                AtFlowEnd::Keep => {}
+                AtFlowEnd::Raise => raise = true,
+            }
         }
         done();
+        if raise {
+            invoke_on_window(crate::activity::raise_recovery);
+        }
     }
+}
+
+/// `FLAG_SECURE` off, once a frame without the flow was drawn or Show my
+/// address closed -- unless an identity flow shows by the time it is
+/// asked: K1 raised at Show my phrase's end begins in the same turn of
+/// the event loop, before that frame (#615 F1), and its own end asks again.
+pub(crate) fn secure_off() {
+    let showing = ONBOARDING.with(|slot| slot.try_borrow().map_or(true, |o| o.is_some()));
+    if showing {
+        log("an identity flow shows: FLAG_SECURE stays on");
+        return;
+    }
+    ASKS.push(ask::SECURE_OFF);
 }
 
 /// Ask the Activity to start the service: bound as a launch does after a
