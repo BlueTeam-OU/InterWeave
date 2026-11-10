@@ -958,14 +958,43 @@ scale would also be a finding of the Android review
       focus is on its heading. The trace then names Chats' list
       heading (`focus=conversations-heading`), as unlock note F15
       says for focus inside R. K1 is checked at the launch in item 9,
-      with item 9's hook. K1 raised over a screen already showing,
-      and K in every case, have no hook today, so their checks wait
-      on two debug hooks that rust-ui-dev-01 owns. Each is fired
-      while the client runs. One makes the next start answer
-      `RecoveryRequired` (K1). The other makes the next start refuse
-      the store as key invalidated (K). Each case is then checked as
-      R is, with its own hook in place of `REFUSE_STORE`, followed by
-      `RESTART`.
+      with item 9's hook. K1 raised over a screen already showing is
+      checked as R is, with the debug hook `REFUSE_IDENTITY` in place
+      of `REFUSE_STORE`, followed by `RESTART`, and the trace naming
+      `focus=k1-heading`. K has no hook today, so its check waits on a
+      debug hook that rust-ui-dev-01 owns, fired while the client
+      runs, that makes the next start refuse the store as key
+      invalidated. K is then checked as R is, with that hook in place
+      of `REFUSE_STORE`.
+    - A K1 that was raised over a running window stays until its
+      restore ends (#611; rust-ui-dev-01's REQUEST 01a1c551, which
+      carries these checks from architect-cto's review). Use a profile
+      whose phrase the run has, whose `key_unlock_policy` is
+      `background-compatible` (as for R above), and that is not Stay
+      reachable. On
+      Chats, fire `REFUSE_IDENTITY` and then `RESTART`, so that K1
+      rises.
+      1. Before anything on K1 is touched, `adb shell dumpsys window`
+         shows `FLAG_SECURE` (`SECURE`) in the flags of InterWeave's
+         window. Read it again on R2, opened by K1's primary, before a
+         word is entered; then press Back, which with nothing entered
+         returns to K1 (§7). Read it a third time on K1 at the launch
+         in step 2. The flag off at any of the three readings fails
+         (§2), and goes to rust-ui-dev-01 as a P1: on this path nothing
+         orders the flag before K1's first frame, so the reading is
+         what decides it.
+      2. On K1, press Back, so that the Activity finishes before the
+         restore. Then open InterWeave from the launcher. K1 opens
+         again, not Chats, with the same PeerId.
+      3. From that K1, enter the phrase on R2. The restore matches and
+         goes to R4. After R4's continue, Chats shows and the client
+         runs: `adb shell dumpsys activity services
+         org.interweave.human` lists the Service, and `logcat -s
+         interweave` shows the start succeeding. No second K1 rises,
+         then or at the next launch.
+      Each result is reported with how it was seen: rendered (a
+      screenshot), by the focus trace, or by the flag read through
+      `dumpsys`.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
