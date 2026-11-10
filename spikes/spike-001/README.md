@@ -576,7 +576,7 @@ The account and the build are (a)'s: this login's claude.ai login, Claude Code 2
     - **So:** a `reply` call came in 80 runs of 80, and it answered the message in 58: 14 sent `READY` and 8 the count.
     - **Not established:** other work, other wording, why a greeting during a counting turn got the count, or a longer conversation.
 95. The sentence in the server's instructions alone got a reply in every run where the message started a turn of its own: 30 of 30 (`plugin` × `text`, `idle`).
-    - **A misnamed argument:** in the counted `plugin-question-text` and `-idle` runs, the first call to `reply` named its text `text` or `message` instead of `content` in 3 runs of 10 (`idle-2`, `idle-5`, `text-1`), and in none of the 10 `plugin-question-tool` runs.
+    - **A misnamed argument:** in the counted `plugin-question-text` and `-idle` runs, the first call to `reply` named its text `text` or `message` instead of `content` in 3 runs of 10 (`idle-2`, `idle-5`, `text-1`). In `plugin-question-tool` only one run of 10 called `reply` at all (`tool-4`, its event having joined a tool-calling turn, fact 93), and it named `content`: 0 misnamed of 1 call, which says nothing about whether joining a turn changes the naming.
     - **After the refusal:** the stub refused each as the bridge does (-32602), and the model called again with `content` each time, 3 of 3. Claude Code passed both calls through as made.
     - **The runs kept apart:** the ten runs in `runs/s32-lenient-stub/` were set aside because their stub accepted any argument name, so a misnamed call there counted as a reply. They are counted nowhere.
     - **Not established:** why only these cells did it, how often over more runs, and how a turn goes on after a refusal other than this one.
