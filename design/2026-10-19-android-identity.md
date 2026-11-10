@@ -919,19 +919,31 @@ scale would also be a finding of the Android review
     - Back from C3, with `IdDiscard` or with nothing entered, puts
       focus on `IdPeerIdWritten`; from R2 opened by R1, on
       `IdEnterWords`.
-    - R raised by a refused start (§8) has focus on its heading,
-      checked by the debug build's focus trace (`ui-trace focus=`;
-      a trace of `focus=none` fails). Use the debug hooks
+    - R raised by a refused start (§8) has focus on its heading.
+      This is checked by the debug build's focus trace
+      (`ui-trace focus=`). The trace must name the heading's own
+      focus key, which the build adds for each of R, K and K1
+      (rust-ui-dev-01 names the keys). Any other value fails,
+      `focus=none` and `focus=?` included. Use the debug hooks
       `REFUSE_STORE` and then `RESTART` (`apps/human-android/android/README.md`).
       Run it twice: once over Chats with focus on a
       conversation row, and once over an open conversation with
       the composer focused and the keyboard up, where the keyboard
-      closes too. Run it a third time at a launch (`REFUSE_STORE`,
-      then a launch from the launcher). In each run the first Tab
-      reaches Try again. K1 is checked the same way at the launch
-      of item 9, with item 9's hook. K has no hook today, so its
-      check waits on one: a debug hook that refuses the store as
-      key invalidated, which rust-ui-dev-01 owns.
+      closes too. Run it a third time at a launch. The hook's
+      refusal lasts only while the process lives, and a launch
+      runs a start only once the Service has ended. So use a
+      profile that is not Stay reachable: fire `REFUSE_STORE` on
+      Chats, then press Back or Home, and confirm that
+      `adb shell pidof org.interweave.human` shows the same pid
+      (the process stays). Then open InterWeave from the launcher.
+      In each run the first Tab reaches Try again. K1 is checked
+      at the launch of item 9, with item 9's hook. K1 raised over a
+      screen already showing, and K in every case, have no hook
+      today, so their checks wait on one, which rust-ui-dev-01 owns:
+      a debug hook, fired while the client runs, that makes the next
+      start answer `RecoveryRequired` (K1) or refuse the store as key
+      invalidated (K). Each is then checked as R is, followed by
+      `RESTART`.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
