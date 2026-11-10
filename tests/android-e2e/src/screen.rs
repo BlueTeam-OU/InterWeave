@@ -595,21 +595,8 @@ impl Screens {
         wants: &[&str],
         patience: Duration,
     ) -> Result<(), String> {
-        let lines: Vec<String> = wants.iter().map(|w| format!("{TRACE}{w}")).collect();
-        self.wait_until(patience, |seen| {
-            let noted = note_in(&seen[from..]).is_some();
-            let missing: Vec<&str> = wants
-                .iter()
-                .zip(&lines)
-                .filter(|(_, l)| !seen[from..].contains(l))
-                .map(|(w, _)| *w)
-                .collect();
-            (!noted && !missing.is_empty()).then(|| format!("{missing:?}"))
-        })?;
-        match note_in(&self.seen[from..]) {
-            Some(kind) => Err(format!("answered note={kind}")),
-            None => Ok(()),
-        }
+        self.wait_until(patience, |seen| answered(&seen[from..], wants).err())?;
+        answered(&self.seen[from..], wants).unwrap_or(Ok(()))
     }
 
     /// Wait until a line starting with `prefix` is among the trace's
@@ -857,6 +844,26 @@ fn step(case: &str, passed: bool, detail: String) -> Step {
     out
 }
 
+/// An add's answer among `seen`, the trace's lines since its key press:
+/// `Ok` with the answer once a note shows -- the failure naming it,
+/// whatever else is missing -- or once every one of `wants` shows; `Err`
+/// naming what is still missing while neither has.
+fn answered(seen: &[String], wants: &[&str]) -> Result<Result<(), String>, String> {
+    if let Some(kind) = note_in(seen) {
+        return Ok(Err(format!("answered note={kind}")));
+    }
+    let missing: Vec<&str> = wants
+        .iter()
+        .filter(|w| !seen.contains(&format!("{TRACE}{w}")))
+        .copied()
+        .collect();
+    if missing.is_empty() {
+        Ok(Ok(()))
+    } else {
+        Err(format!("{missing:?}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -959,6 +966,52 @@ mod tests {
                 "ui-trace note=refused:grammar",
             ])),
             Some("refused:grammar")
+        );
+    }
+
+    /// `add_by_field`'s doc: a note the add page shows ends the wait at
+    /// once, named, whatever the wanted lines are doing (#608 F3).
+    #[test]
+    fn a_note_ends_an_adds_wait_named_and_results_alone_pass_it() {
+        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let wants = ["add=added lines=1", "page=peers-add-trust"];
+        assert_eq!(
+            answered(
+                &lines(&["ui-trace focus=add-action", "ui-trace note=refused:grammar"]),
+                &wants
+            ),
+            Ok(Err("answered note=refused:grammar".to_owned())),
+            "the note, with every wanted line missing"
+        );
+        assert_eq!(
+            answered(
+                &lines(&[
+                    "ui-trace add=added lines=1",
+                    "ui-trace page=peers-add-trust",
+                    "ui-trace note=failed:unavailable",
+                ]),
+                &wants
+            ),
+            Ok(Err("answered note=failed:unavailable".to_owned())),
+            "a note beside the results still fails"
+        );
+        assert_eq!(
+            answered(
+                &lines(&[
+                    "ui-trace add=added lines=1",
+                    "ui-trace page=peers-add-trust"
+                ]),
+                &wants
+            ),
+            Ok(Ok(()))
+        );
+        assert_eq!(
+            answered(
+                &lines(&["ui-trace add=added lines=1", "ui-trace note=none"]),
+                &wants
+            ),
+            Err("[\"page=peers-add-trust\"]".to_owned()),
+            "still waiting, naming what is missing"
         );
     }
 
