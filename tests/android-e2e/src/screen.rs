@@ -1275,11 +1275,11 @@ esac
                 &lines(&[
                     "ui-trace add=added lines=1",
                     "ui-trace page=peers-add-trust",
-                    "ui-trace note=failed:unavailable",
+                    "ui-trace note=failed",
                 ]),
                 &wants
             ),
-            Ok(Err("answered note=failed:unavailable".to_owned())),
+            Ok(Err("answered note=failed".to_owned())),
             "a note beside the results still fails"
         );
         assert_eq!(
