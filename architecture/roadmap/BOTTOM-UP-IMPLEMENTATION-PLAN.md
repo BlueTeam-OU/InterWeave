@@ -7063,11 +7063,30 @@ owner:
   through the real Scan is p2p-network-dev-02's (j69), on the owner's
   word to clear both phones; its run file is that carry's evidence
   when it runs, never a condition of this close.
+  Note, 2026-11-10: it ran and passed. One run, 175.57 s, on the
+  Pixel 9a (API 37) and the A40 (API 30) over Wi-Fi, both cleared, the
+  app at d1be8eb89: each phone was added on the other's Add page by
+  scanning the code the other showed, a person holding the camera, no
+  address given through the binding; no message crossed with neither
+  trusting or with A alone trusting, and one crossed each way once
+  both trusted
+  (`tests/android-e2e/runs/2026-11-10-pixel-9a-a40-wifi-fresh-pair-through-scan.md`,
+  #608). The file names what it does not prove: one code each way and
+  one run, which address each scan added (the peer cache was on), and
+  the one-sided step with B trusting first. Carried beside it, to
+  p2p-network-dev-02: the Add page's address field is not this row's
+  route, two runs through it on 2026-11-09 having failed in step 1,
+  one of them on the capitals a key event loses (§20's record after
+  Stage 17's close, the same file's note); and the driver's handling
+  of an add answered other than `added` (#622) ran against a stand-in
+  adb on the host, on no device.
 - The cache-on control measured nothing else dialling B after the
   restart for the shipped profile with Kademlia off; with Kademlia on,
   the cache's write timing for a kill sooner after a connection, and
   who dialled beyond inference stay unproved (`…-cache-on-control.md`
-  names each): p2p-network-dev-02's (j69), with row 2 through Scan.
+  names each): p2p-network-dev-02's (j69). Row 2's run through Scan
+  (the note above, 2026-11-10) restarted nothing and measured none of
+  the three; they stay carried.
 - What the phone rows share, as their files list it: every case ran by
   the app's instrumentation in a fresh process, no window shown and
   the network service not started (`…-fresh-pair.md`; `E2eCase.kt`
@@ -7313,7 +7332,8 @@ owner:
 - The fresh-pair row's one-sided step in the other direction (B
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
-  p2p-network-dev-02's (j69).
+  p2p-network-dev-02's (j69). The run through Scan of 2026-11-10 left
+  both as they were (its file's "What this run does not prove").
 - SPIKE-011's items not established and carried to step 3 (SPIKES.md):
   the rewrite of the store key on a device, and its key file's refusals
   there (a missing, newer-version or truncated file refused by name, as
