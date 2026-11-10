@@ -939,7 +939,12 @@ scale would also be a finding of the Android review
       confirm that
       `adb shell pidof org.interweave.human` shows the same pid
       (the process stays). Then open InterWeave from the launcher.
-      In each run the first Tab reaches Try again. K1 is checked
+      In each run the first Tab reaches Try again. Then, in the
+      run over Chats, with focus still on R's heading, fire
+      `RESTART` again. The hook refuses only once, so this start
+      runs and R goes with focus on its heading. The trace then
+      shows Chats' list heading, as unlock note F15 says for focus
+      inside R (`focus=conversations-heading`). K1 is checked
       at the launch of item 9, with item 9's hook. K1 raised over a
       screen already showing, and K in every case, have no hook
       today, so their checks wait on one, which rust-ui-dev-01 owns:
