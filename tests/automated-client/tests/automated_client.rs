@@ -508,8 +508,10 @@ const BURST: u32 = 200;
 /// a session queue dropped, not what the ingress gate refused
 /// (`LOCAL-IPC.md` A 2026-11-04). B's `ipc.events_refused_total` (IPC
 /// 2.13) does: it rises by at least one and by no more than were
-/// published and not received -- GossipSub may drop a copy before the
-/// gate, uncounted -- while the dropped total stays where it was. What
+/// published and not received, plus the mesh probes after the first, any
+/// of which may arrive late and be refused -- GossipSub may drop a copy
+/// before the gate, uncounted -- while the dropped total stays where it
+/// was. What
 /// arrives is A's, once each.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
@@ -524,8 +526,10 @@ async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
 
     // The mesh first: one broadcast seen. Each one B took spent a token.
     let started = tokio::time::Instant::now();
+    let mut probes = 0_u64;
     loop {
         from.publish(id(0), "mesh").await.expect("accepted locally");
+        probes += 1;
         if to
             .pump_until(Duration::from_millis(500), |r| !r.inbound.is_empty())
             .await
@@ -573,10 +577,18 @@ async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
     let refused = |s: &AdminStatus| s.events_refused.expect("kept, and read at 2.13");
     let unseen = u64::from(BURST) - u64::try_from(burst.len()).expect("n");
     let counted = refused(&after) - refused(&before);
-    println!("broadcast burst: B's events_refused_total rose by {counted} of {unseen} unseen");
+    // Each mesh probe is a message of its own on the mesh, so one still
+    // in flight after the first was seen may reach B after `before`, be
+    // refused by the spent bucket, and count with no unseen burst message
+    // beside it: the bound takes each probe after the first.
+    let late = probes - 1;
+    println!(
+        "broadcast burst: B's events_refused_total rose by {counted} of {unseen} unseen \
+         (+{late} late probes allowed)"
+    );
     assert!(
-        (1..=unseen).contains(&counted),
-        "the gate's refusals, counted: {counted} of {unseen} unseen"
+        (1..=unseen + late).contains(&counted),
+        "the gate's refusals, counted: {counted} of {unseen} unseen, {late} late probes"
     );
     assert_eq!(
         after.events_dropped, before.events_dropped,
