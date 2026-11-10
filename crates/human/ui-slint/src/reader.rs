@@ -113,54 +113,124 @@ pub(crate) fn sent(clock: &Clock, local_at: u64) -> (String, String) {
     (shown.clone(), shown)
 }
 
-/// `item`'s formatted rows after the line `sent`, its links'
-/// destinations, and each link's row.
-pub(crate) fn formatted(
-    item: &MessageItem,
-    sent: &(String, String),
-    image: &dyn Fn(&str) -> String,
-    lines: impl Fn(&[body::Line]) -> Vec<BodyLine>,
-    label: impl Fn(&str) -> ModelRc<SharedString>,
-) -> (ModelRc<ReaderRow>, Vec<String>, Vec<usize>) {
-    let (drawn, places) = body::flatten_placed(&item.body, image);
-    let mut formatted = vec![sent_row(sent)];
-    let as_rows = |lines: Vec<BodyLine>| {
-        lines.into_iter().map(|line| ReaderRow {
-            kind: ReaderRowKind::Line,
-            line,
-            text: SharedString::new(),
-            spoken: SharedString::new(),
-            index: 0,
-            pieces: ModelRc::default(),
-        })
-    };
-    // Each link's control after the line that holds it: the lines are
-    // measured a run at a time, each run ending where a control comes,
-    // which breaks the run there as the control does on screen.
-    let mut next = 0;
-    let mut link_rows = Vec::with_capacity(drawn.links.len());
-    for (index, (destination, &place)) in drawn.links.iter().zip(&places).enumerate() {
-        if place >= next && place < drawn.lines.len() {
-            formatted.extend(as_rows(lines(&drawn.lines[next..=place])));
-            next = place + 1;
+/// The text, in bytes, one [`Formatting::step`] measures at most, a line
+/// or a link control counted at least [`ITEM_BYTES`]: a body at the
+/// bound measured in one go holds the window for a second or more (A5),
+/// and in steps it draws between them, the opening's bar among what it
+/// draws (section 3, `ReaderOpening`). A body within one step builds as
+/// it opens.
+pub(crate) const STEP_BYTES: usize = 32 * 1024;
+const ITEM_BYTES: usize = 64;
+
+/// `item`'s formatted rows after the line `sent`, built a step at a time:
+/// each link's control after the line that holds it, the lines measured
+/// a run at a time, each run ending where a control comes, which breaks
+/// the run there as the control does on screen. A run is also cut
+/// between steps, but only before a line that starts afresh, so the rows
+/// are those one step would give.
+pub(crate) struct Formatting {
+    drawn: body::Body,
+    places: Vec<usize>,
+    rows: Vec<ReaderRow>,
+    link_rows: Vec<usize>,
+    /// The next link to place.
+    link: usize,
+    /// The first line not yet in `rows`.
+    next: usize,
+}
+
+impl Formatting {
+    pub(crate) fn new(
+        item: &MessageItem,
+        sent: &(String, String),
+        image: &dyn Fn(&str) -> String,
+    ) -> Self {
+        let (drawn, places) = body::flatten_placed(&item.body, image);
+        Self {
+            link_rows: Vec::with_capacity(drawn.links.len()),
+            drawn,
+            places,
+            rows: vec![sent_row(sent)],
+            link: 0,
+            next: 0,
         }
-        let text = body::link_label(destination);
-        link_rows.push(formatted.len());
-        formatted.push(ReaderRow {
-            kind: ReaderRowKind::Link,
-            line: BodyLine::default(),
-            pieces: label(&text),
-            text: text.into(),
-            spoken: SharedString::new(),
-            index: i32::try_from(index).unwrap_or(i32::MAX),
-        });
     }
-    formatted.extend(as_rows(lines(&drawn.lines[next..])));
-    (
-        ModelRc::new(VecModel::from(formatted)),
-        drawn.links,
-        link_rows,
-    )
+
+    /// Build on for about `room` bytes of text ([`STEP_BYTES`] a turn,
+    /// `usize::MAX` for all of it); whether every line and control is in.
+    pub(crate) fn step(
+        &mut self,
+        mut room: usize,
+        lines: impl Fn(&[body::Line]) -> Vec<BodyLine>,
+        label: impl Fn(&str) -> ModelRc<SharedString>,
+    ) -> bool {
+        loop {
+            if room == 0 {
+                return false;
+            }
+            let count = self.drawn.lines.len();
+            let run_end = match self.places.get(self.link) {
+                Some(&place) if place >= self.next && place < count => place + 1,
+                Some(_) => self.next,
+                None => count,
+            };
+            if self.next < run_end {
+                let end = self.cut(run_end, &mut room);
+                self.rows
+                    .extend(as_rows(lines(&self.drawn.lines[self.next..end])));
+                self.next = end;
+                continue;
+            }
+            let Some(destination) = self.drawn.links.get(self.link) else {
+                return true;
+            };
+            let text = body::link_label(destination);
+            room = room.saturating_sub(text.len().max(ITEM_BYTES));
+            self.link_rows.push(self.rows.len());
+            self.rows.push(ReaderRow {
+                kind: ReaderRowKind::Link,
+                line: BodyLine::default(),
+                pieces: label(&text),
+                text: text.into(),
+                spoken: SharedString::new(),
+                index: i32::try_from(self.link).unwrap_or(i32::MAX),
+            });
+            self.link += 1;
+        }
+    }
+
+    /// Where this step's part of the run from `next` to `end` ends: as
+    /// many lines as `room` holds, one at least, and then on to a line
+    /// that starts afresh, since a piece is measured with its line.
+    fn cut(&self, end: usize, room: &mut usize) -> usize {
+        let lines = &self.drawn.lines;
+        let mut at = self.next;
+        while at < end && (*room > 0 || at == self.next || lines[at].join != body::Join::Starts) {
+            *room = room.saturating_sub(lines[at].text.len().max(ITEM_BYTES));
+            at += 1;
+        }
+        at
+    }
+
+    /// The rows, the links' destinations, and each link's row.
+    pub(crate) fn done(self) -> (ModelRc<ReaderRow>, Vec<String>, Vec<usize>) {
+        (
+            ModelRc::new(VecModel::from(self.rows)),
+            self.drawn.links,
+            self.link_rows,
+        )
+    }
+}
+
+fn as_rows(lines: Vec<BodyLine>) -> impl Iterator<Item = ReaderRow> {
+    lines.into_iter().map(|line| ReaderRow {
+        kind: ReaderRowKind::Line,
+        line,
+        text: SharedString::new(),
+        spoken: SharedString::new(),
+        index: 0,
+        pieces: ModelRc::default(),
+    })
 }
 
 /// `source`'s rows after the line `sent`.
