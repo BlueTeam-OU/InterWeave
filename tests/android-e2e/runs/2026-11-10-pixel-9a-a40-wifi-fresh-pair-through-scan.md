@@ -49,15 +49,17 @@ What the test or its cases assert, and the run met:
   code, then B scanned A's. No address was given through the binding.
 - **Neither trusting.** For the step's window from each side's start,
   no direct message either sent to the other was accepted and none
-  arrived (60 tries each way).
+  arrived.
 - **A alone trusts B.** A trusted B and B did not trust A; no message A
-  sent was accepted (45 tries) and none arrived either way.
+  sent was accepted and none arrived either way.
 - **Both trust.** A message from A was accepted by B and read there,
   and one from B was accepted by A and read there. This step is the
   positive control for the two before it.
 
-What the run printed and nothing asserts: each side's last outcome for
-the other (its row) and A's close. Neither row recorded a dial with
+What the run printed and nothing asserts: how many tries each window
+held (60 each way with neither trusting, 45 with A alone trusting; a
+window of one try would pass), each side's last outcome for the other
+(its row) and A's close. Neither row recorded a dial with
 neither side trusting (`none`); A's row for B ended `denied` with A
 alone trusting (the case allows `connected` there, see the module doc
 of `tests/pairing.rs`); A's close reported `accepted`, and both rows
