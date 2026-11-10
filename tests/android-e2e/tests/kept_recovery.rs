@@ -58,6 +58,9 @@ fn k1_kept_while_s1_shows_rises_secured_at_its_back() {
     hook(REFUSE_IDENTITY);
     app_line(&mut s, "identity hook: the next start answers", 0);
     let from = s.app_log().len();
+    // Before the restart: a K1 drawn at once would be among the lines
+    // read from here on.
+    let after = s.mark();
     hook(RESTART);
     app_line(
         &mut s,
@@ -68,7 +71,6 @@ fn k1_kept_while_s1_shows_rises_secured_at_its_back() {
     // control that the case is the one it names, not a K1 raised at once.
     app_line(&mut s, "no identity: RecoveryRequired", from);
     app_line(&mut s, "K1 kept: an identity flow shows", from);
-    let after = s.mark();
     passed(
         &s.none_after(after, "identity=", Duration::from_secs(2)),
         &s,
