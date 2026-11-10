@@ -601,9 +601,11 @@ access.
   from the top, the screen says what happened before what to do, and
   the first Tab reaches the primary action. The desktop's R is a
   dialog window and puts its initial focus on Try again (contact-cards
-  §7.1). Where a start on R is refused again and R stays (its Try
-  again), R was not raised, so this rule does not apply: focus stays
-  on Try again, as unlock note F11 says for a cancelled prompt
+  §7.1). Where a start made while R shows is refused again and R stays,
+  R was not raised, so this rule does not apply. That holds for the
+  start that Try again makes, and also for a restart the platform
+  runs. Focus stays where it was. After Try again, that is Try again,
+  as unlock note F11 says for a cancelled prompt
   (`design/2026-11-05-unlock-policy-pending.md`).
 - After an error banner appears, focus goes to the banner.
 - After a dialog closes, focus returns to what opened it. The discard
@@ -949,11 +951,12 @@ scale would also be a finding of the Android review
       says for focus inside R. K1 is checked at the launch in item 9,
       with item 9's hook. K1 raised over a screen already showing,
       and K in every case, have no hook today, so their checks wait
-      on a debug hook that rust-ui-dev-01 owns. Fired while the
-      client runs, it makes the next start answer
-      `RecoveryRequired` (K1) or refuse the store as key
-      invalidated (K). Each is then checked as R is, with the new hook
-      in place of `REFUSE_STORE`, followed by `RESTART`.
+      on two debug hooks that rust-ui-dev-01 owns. Each is fired
+      while the client runs. One makes the next start answer
+      `RecoveryRequired` (K1). The other makes the next start refuse
+      the store as key invalidated (K). Each case is then checked as
+      R is, with its own hook in place of `REFUSE_STORE`, followed by
+      `RESTART`.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
