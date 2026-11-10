@@ -587,6 +587,24 @@ access.
   when a font change closes it, to the grid's current position.
 - When R2 or C3 opens, and after a chip fills a position, focus goes
   to the keypad's first enabled key.
+- When a refused start raises a screen in place of the one the person
+  was on or was opening, focus goes to that screen's heading, which
+  is focusable for this. The screens are K1 (§3.4) and the store's R
+  and K (`design/2026-10-21-contact-cards.md` §7.1). This holds at a
+  launch and over a screen already showing, such as Chats, a
+  conversation or Settings, whatever had focus there. Any on-screen
+  keyboard closes, since none of these screens has a text field. Tab
+  then follows the reading order: on R, Try again, Delete stored
+  data… and Close; on K, Delete stored data… and Close; on K1, its
+  primary action when it has one. The heading comes first, not the
+  primary action, because the person expected another screen. Read
+  from the top, the screen says what happened before what to do, and
+  the first Tab reaches the primary action. The desktop's R is a
+  dialog window and puts its initial focus on Try again (contact-cards
+  §7.1). Where a start on R is refused again and R stays (its Try
+  again), R has not risen, so this rule does not apply: focus stays
+  on Try again, as unlock note F11 says for a cancelled prompt
+  (`design/2026-11-05-unlock-policy-pending.md`).
 - After an error banner appears, focus goes to the banner.
 - After a dialog closes, focus returns to what opened it. The discard
   dialog's `IdDiscard` leaves the screen instead, and §7 names where
@@ -901,6 +919,19 @@ scale would also be a finding of the Android review
     - Back from C3, with `IdDiscard` or with nothing entered, puts
       focus on `IdPeerIdWritten`; from R2 opened by R1, on
       `IdEnterWords`.
+    - R raised by a refused start (§8) has focus on its heading,
+      checked by the debug build's focus trace (`ui-trace focus=`;
+      a trace of `focus=none` fails). Use the debug hooks
+      `REFUSE_STORE` and then `RESTART` (`apps/human-android/android/README.md`).
+      Run it twice: once over Chats with focus on a
+      conversation row, and once over an open conversation with
+      the composer focused and the keyboard up, where the keyboard
+      closes too. Run it a third time at a launch (`REFUSE_STORE`,
+      then a launch from the launcher). In each run the first Tab
+      reaches Try again. K1 is checked the same way at the launch
+      of item 9, with item 9's hook. K has no hook today, so its
+      check waits on one: a debug hook that refuses the store as
+      key invalidated, which rust-ui-dev-01 owns.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the

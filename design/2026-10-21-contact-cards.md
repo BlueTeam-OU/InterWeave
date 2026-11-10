@@ -1837,6 +1837,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Move: the picker cancelled | the route row's Move | keyboard |
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
    | Undo of a Move | the moved route's row on the source contact's page, recreated if needed | keyboard |
+   | R or K raised by a refused start, at a launch or over another screen (Android) | its heading (`design/2026-10-19-android-identity.md` §8) | the identity note's §10 item 15, its bullet on R; K waits on a hook |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
    | dialog cancelled | the Discard button | keyboard |
    | discard failed | the failure line (focusable) | keyboard |
