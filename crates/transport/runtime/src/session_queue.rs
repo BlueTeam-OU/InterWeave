@@ -174,6 +174,14 @@ impl SessionQueues {
         self.dropped_total
     }
 
+    /// Every broadcast the ingress gate refused since this set was made,
+    /// on any channel, joined or not: the ledger's count, read beside
+    /// [`Self::dropped_total`] (`ipc.events_refused_total`).
+    #[must_use]
+    pub fn refused_total(&self) -> u64 {
+        self.losses.refused_total()
+    }
+
     /// The ledger, for the joins, leaves, session ends and ingress
     /// refusals the queues do not see.
     pub fn losses_mut(&mut self) -> &mut LossLedger {

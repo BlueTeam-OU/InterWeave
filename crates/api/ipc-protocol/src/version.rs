@@ -33,8 +33,10 @@ pub const IPC_MAJOR: u64 = 2;
 /// ([`crate::SUPERSEDED_SINCE_MINOR`]), and a data session's broadcast
 /// losses, `session.losses`, brought 2.11 (ADR-0026 A 2026-10-24), and
 /// the peer row's last-seen time brought 2.12
-/// ([`crate::LAST_SEEN_SINCE_MINOR`]).
-pub const IPC_MAX_MINOR: u64 = 12;
+/// ([`crate::LAST_SEEN_SINCE_MINOR`]), and `admin.status`'s profile
+/// total of ingress refusals brought 2.13
+/// ([`crate::REFUSED_TOTAL_SINCE_MINOR`]).
+pub const IPC_MAX_MINOR: u64 = 13;
 
 /// A version pair as it crosses the wire.
 ///
@@ -165,7 +167,8 @@ mod tests {
             (10, 10),
             (11, 11),
             (12, 12),
-            (13, 12),
+            (13, 13),
+            (14, 13),
             (u64::MAX, IPC_MAX_MINOR),
         ] {
             assert_eq!(

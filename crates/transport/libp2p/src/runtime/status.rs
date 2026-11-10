@@ -47,6 +47,13 @@ pub struct RuntimeStatus {
     /// the ended ones included: monotonic (`admin.status`'s
     /// `ipc.events_dropped_total`, `LOCAL-IPC.md` A 2026-11-04).
     pub broadcast_queue_overflow_total: u64,
+    /// Inbound broadcasts the ingress gate refused (over the publisher's
+    /// rate or the profile's shared ingress rate, or while draining)
+    /// since the runtime started, one per
+    /// refused message, on any channel, joined or not: monotonic
+    /// (`admin.status`'s `ipc.events_refused_total`). A republished
+    /// refused copy counts again; never a count of distinct losses.
+    pub broadcast_ingress_refused_total: u64,
     /// The pre-authentication funnel's counts (`admin.status`'s
     /// `pre_auth`).
     pub pre_auth: PreAuthStatus,
