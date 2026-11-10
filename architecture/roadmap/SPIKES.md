@@ -610,18 +610,22 @@ during a text-only turn or after an idle wait started a turn of its
 own in 120 of 120, fact 84 again in all 33 cells; into the joined turn
 only the first-turn sentence carried a reply, `prompt` and `promptw`
 30 of 30, `plugin` 1 of 20 and `none` 0 of 15, one wording tried (93).
-The first-turn sentence got a reply in every run, 50 of 50 for
-`prompt` and 30 of 30 for `promptw`, and the rest of that turn leaked
-into what was sent: where its work said "reply with the single word
-READY" the model sent `READY` to the peer in 14 of its 30 `tool` and
-`idle` replies and the count to a hundred in 8 of 10 `text` ones,
-where with "write" all 30 answered the message (94). The sentence in
+The first-turn sentence got a `reply` call in every run, 50 of 50 for
+`prompt` and 30 of 30 for `promptw`, 80 of 80, and the call answered
+the message in 58 of them, the rest of that turn leaking into what was
+sent: where its work said "reply with the single word READY" the model
+sent `READY` to the peer in 14 of `prompt`'s 30 `tool` and `idle`
+replies, where with "write" all 30 of `promptw`'s answered the
+message; and in `prompt-greet-text` it sent the count to a hundred in
+8 runs of 10, a leak that is not the word "reply"'s, that turn's work
+saying "write" already, and that no remedy was measured for, `promptw`
+having run for `tool` and `idle` only (94). The sentence in
 the server's instructions alone got a reply in 30 runs of 30 where the
-message started a turn of its own; in the `plugin-question` cells the
-first `reply` call named its text `text` or `message` instead of
-`content` in 7 runs of 20, and under the stub that refuses it as the
-bridge does (-32602) the model called again with `content`, 3 of 3
-(95). Told to answer, the model did what a peer's message asked of its
+message started a turn of its own; in the `plugin-question-text` and
+`-idle` cells the first `reply` call named its text `text` or
+`message` instead of `content` in 3 runs of 10, and in none of the 10
+`plugin-question-tool` runs, and the stub, refusing it as the bridge
+does (-32602), got the call again with `content`, 3 of 3 (95). Told to answer, the model did what a peer's message asked of its
 tools: every request for `status` that started a turn of its own got
 the call and the result sent back, 25 of 25 across `prompt`, `promptw`
 and `plugin`, against 2 of 20 with nothing said; `status` only reads
@@ -637,7 +641,8 @@ message, the answer sentence there failed where a message joins a
 tool-calling turn (1 of 20) and raised how often a peer's request for
 a tool was followed, and a deployment that wants either says it in its
 first user turn, keeping the word "reply" out of the rest of that
-turn. Not established: what a summary keeps at the host's own window,
+turn, which is the remedy measured for the `READY` leak and not for
+the count's. Not established: what a summary keeps at the host's own window,
 where about nine bodies would share one summary; the two cells not
 run; prose not generated from a small vocabulary and facts of other
 kinds; a note asked for by the bridge's `instructions` rather than by
@@ -645,8 +650,9 @@ the first user turn; the rate at which values are kept, beyond three
 runs a cell; whether a model allowed to read files recovers a lost
 value from the transcript a summary names; the reply rule on the real
 bridge with daemons in the stub's place; other wording or placement of
-the sentence, and other first-turn work; why only the two
-`plugin-question` cells misnamed the argument; a peer's request for a
+the sentence, and other first-turn work; why a greeting during a counting
+turn got the count; why the `plugin-question` cells that started a
+turn of their own misnamed the argument and no other cell did; a peer's request for a
 tool with an effect; a message in a conversation longer than one turn;
 and, for both parts, a model other than `claude-sonnet-5-5` and a
 build other than 2.1.311.
