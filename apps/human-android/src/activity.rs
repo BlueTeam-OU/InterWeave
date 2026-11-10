@@ -275,7 +275,8 @@ static NOTICE_FOCUS: AtomicBool = AtomicBool::new(false);
 
 /// K1 over the window that shows, for a start the Service made that
 /// answered `RecoveryRequired` (onboard.rs, `recovery_refused`); with no
-/// window, nothing: a launch's own check finds the record refused.
+/// window, nothing here: the next window's check answers recovery for the
+/// K1 kept, and that window opens it (`ready_state`).
 pub(crate) fn raise_recovery() {
     let Some(view) = VIEW.with(|view| view.borrow().clone()) else {
         return;

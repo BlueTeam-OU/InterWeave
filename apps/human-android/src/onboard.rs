@@ -34,6 +34,7 @@ use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustB
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
+use crate::ready_check::Before;
 use crate::unlock_route::{Route, UnlockRoute};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, prompt_line};
@@ -189,6 +190,11 @@ struct Platform {
     /// acceptance 10). Show my phrase opens the record instead, and asks
     /// its own policy ([`opening_needs_presence`]).
     user_presence: bool,
+    /// `start` is a K1 [`recovery_refused`] kept in a process that found
+    /// the identity ready: whichever window opens it opens it over a
+    /// bound service ([`Over::Running`]), and the check of a window that
+    /// comes after its own went answers recovery ([`ready_state`]).
+    kept: bool,
 }
 
 static PLATFORM: Mutex<Option<Platform>> = Mutex::new(None);
@@ -286,6 +292,7 @@ pub(crate) fn identity_state(
         cipher: Arc::new(cipher),
         start,
         user_presence,
+        kept: false,
     });
     code
 }
@@ -332,6 +339,7 @@ pub(crate) fn recovery_refused(app_data_dir: &Path, cause: &RecoveryCause) {
             return;
         };
         platform.start = Some(start);
+        platform.kept = true;
     }
     invoke_on_window(crate::activity::raise_recovery);
 }
@@ -343,10 +351,22 @@ pub(crate) fn recovery_refused(app_data_dir: &Path, cause: &RecoveryCause) {
 /// note §11, L2 and L3): the locked view, the prompt or the focused
 /// notice, and a grant that starts the service again. A client already
 /// running holds its identity and is asked nothing. Any other answer of
-/// the record is the service's to report, so it reads as ready.
+/// the record is the service's to report, so it reads as ready -- but a
+/// K1 kept for a window, its own window gone, answers recovery, so the
+/// Activity sets `FLAG_SECURE` before this window draws it (#611 F1).
 fn ready_state(app_data_dir: &Path, cipher: &KeystoreCipher) -> jni::sys::jint {
-    if interweave_human_android_platform::ServiceHost::global().is_running() {
-        return state::READY;
+    let kept = PLATFORM
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .is_some_and(|p| p.kept && matches!(p.start, Some(Start::Recovery { .. })));
+    match crate::ready_check::before_reading(
+        interweave_human_android_platform::ServiceHost::global().is_running(),
+        kept,
+    ) {
+        Before::Ready => return state::READY,
+        Before::Recovery => return state::RECOVERY,
+        Before::ReadRecord => {}
     }
     let locked = match interweave_human_android_platform::start_identity(
         app_data_dir,
@@ -559,6 +579,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         cipher,
         start: Some(start),
         user_presence,
+        kept,
     }) = platform.as_ref()
     else {
         return false;
@@ -574,6 +595,16 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         }
     };
     let raised = matches!(start, Start::Recovery { .. });
+    // A K1 kept in a running process, its window gone: the service is
+    // bound or binds, and its end restarts it, as over a window. The flag
+    // is on already, set at the Activity's check; asked again for a
+    // window made with no check before it.
+    let over = if *kept {
+        ASKS.push(ask::SECURE_ON);
+        Over::Running
+    } else {
+        Over::Launch
+    };
     let onboarding = Onboarding {
         view: Rc::clone(view),
         flow,
@@ -581,7 +612,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
         gate: PresenceGate::new(*user_presence),
-        over: Over::Launch,
+        over,
         lock,
         offline_asked: false,
         service_asked: false,
@@ -612,6 +643,7 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         cipher,
         start: Some(start @ Start::Recovery { .. }),
         user_presence,
+        ..
     }) = platform.as_ref()
     else {
         return;
@@ -1078,6 +1110,7 @@ fn render() {
             && let Some(platform) = platform.as_mut()
         {
             platform.start = None;
+            platform.kept = false;
         }
         done();
     }

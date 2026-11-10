@@ -81,3 +81,12 @@ mod platform_log;
     )
 )]
 mod identity_hook;
+// On every target, so the host tests what a check answers for a kept K1.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs answers with it on Android"
+    )
+)]
+mod ready_check;
