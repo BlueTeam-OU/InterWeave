@@ -41,6 +41,9 @@ interweave-local-client-api = { path = "../../crates/api/local-client-api" }
 # resolves them; built for the phone as the app already builds it.
 interweave-profile-config = { path = "../../crates/config/profile-config" }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
+# The store_unread case: the store read-only under its key in the app's
+# process, as app-core already builds it for the phone.
+interweave-human-store = { path = "../../crates/human/store" }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time"] }
 

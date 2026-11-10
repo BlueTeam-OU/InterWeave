@@ -33,6 +33,9 @@ interweave-ipc-client = { path = "../../crates/local/ipc-client" }
 # The Android half of each case, which both runners run (architect-cto,
 # 2026-10-10), and its result JSON.
 interweave-android-e2e-cases = { path = "../android-e2e-cases" }
+# The store cipher the stand-in hands a case: the host's custody. Also
+# human_chat.rs's desktop store.
+interweave-human-store = { path = "../../crates/human/store" }
 serde_json = { workspace = true }
 # The stand-in's log, filtered as the embedded host filters (gate (g)).
 tracing = { workspace = true }
@@ -49,9 +52,9 @@ interweave-human-chat-protocol = { path = "../../crates/human/chat-protocol" }
 # the app's process, with the cases' recorder and client handle -- the
 # composition the phone's instrumentation runs the case on.
 interweave-human-android-platform = { path = "../../crates/human/android-platform", features = ["e2e-cases"] }
-# human_chat.rs: the desktop client's own facade, store and model, and
-# the captured payloads' schema check (the envelope is a dependency).
-interweave-human-store = { path = "../../crates/human/store" }
+# human_chat.rs: the desktop client's own facade and model, and the
+# captured payloads' schema check (the store and the envelope are
+# dependencies).
 interweave-human-transport-client = { path = "../../crates/human/transport-client" }
 interweave-human-ui-model = { path = "../../crates/human/ui-model" }
 # paths.rs: the relay's PeerIds, read back, and the cases' runtime.

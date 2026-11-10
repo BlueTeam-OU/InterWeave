@@ -33,6 +33,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use interweave_human_store::key_custody::KeyCipher;
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort as _, DataCapability, DataSessionBinding,
     DataSessionPort, LocalSessionEvent, ROUTE_ESTABLISHED, SessionEvent, SessionRequest,
@@ -47,6 +48,7 @@ use serde_json::{Map, Value};
 
 mod human_chat;
 mod pairing;
+mod store;
 
 pub use human_chat::{
     AppClient, Handed, HumanChatArgs, Recording, RecordingSession, Tap, chat_text,
@@ -55,6 +57,7 @@ pub use human_chat::{
 pub use pairing::{
     AddedAddressArgs, AwaitPeerArgs, PairArgs, PairExpect, PeerCacheArgs, pair_close, pair_message,
 };
+pub use store::{StoreUnreadArgs, UNREAD_SEPARATOR, unread_ids};
 
 /// The result JSON's keys. The instrumentation copies each to the status
 /// key `interweave.<key>` (the seam agreed with rust-ui-dev, 01a12771).
@@ -127,6 +130,10 @@ pub mod keys {
     pub const CACHED: &str = "cached";
     /// [`super::cases::PEER_CACHE`]: whether the case removed the file.
     pub const FORGOTTEN: &str = "forgotten";
+    /// [`super::cases::STORE_UNREAD`]: the unread rows' application ids,
+    /// joined by [`super::UNREAD_SEPARATOR`] ([`super::unread_ids`]
+    /// splits them).
+    pub const UNREAD: &str = "unread";
     /// [`RESULT`] of a case that held.
     pub const PASS: &str = "pass";
     /// [`RESULT`] of a case that did not, or could not run.
@@ -215,6 +222,14 @@ pub mod cases {
     /// [`super::keys::FORGOTTEN`].
     pub const PEER_CACHE: &str = "peer_cache";
 
+    /// The human store's unread rows between two starts, with no runtime
+    /// serving and so no writer: their application ids, read-only under
+    /// the store's key with the runner's [`super::CaseCtx::store_cipher`]
+    /// -- in the app's process, since the key opens in no other.
+    /// Arguments: [`super::StoreUnreadArgs`]; answers
+    /// [`super::keys::UNREAD`].
+    pub const STORE_UNREAD: &str = "store_unread";
+
     /// The cases a runner must have the runtime ALONE serving for: the
     /// app's runtime with the app's launch, identity and paths, and no
     /// store and no facade, so the `human` lease is free for the case
@@ -263,6 +278,10 @@ pub struct CaseCtx<B> {
     /// The app's own client, for a case of [`cases::NEED_THE_CLIENT`]:
     /// `None` where the app's service is not serving in full.
     pub client: Option<Box<dyn AppClient>>,
+    /// The cipher the runner's store key is sealed under -- the
+    /// Keystore's on a phone -- for a case that reads the store; `None`
+    /// where the runner holds none.
+    pub store_cipher: Option<Box<dyn KeyCipher + Send>>,
 }
 
 /// How a runner writes the profile's configuration ([`CaseCtx::provision`]).
@@ -410,6 +429,16 @@ fn dispatch<B: DataSessionBinding + AdminBinding>(
                 return Err("a runtime is serving: it rewrites the cache file".to_owned());
             }
             out.extend(pairing::peer_cache(&ctx.app_data_dir, &args)?);
+        }
+        cases::STORE_UNREAD => {
+            let args = StoreUnreadArgs::from_json(&args)?;
+            if ctx.binding.is_some() {
+                return Err("a runtime is serving: the app's store has a writer".to_owned());
+            }
+            let cipher = ctx
+                .store_cipher
+                .ok_or("this runner holds no store cipher")?;
+            out.extend(store::store_unread(&ctx.app_data_dir, &*cipher, &args)?);
         }
         cases::HUMAN_CHAT => {
             let args = HumanChatArgs::from_json(&args)?;
@@ -1246,6 +1275,7 @@ mod tests {
                         binding: Some(android),
                         provision: None,
                         client: None,
+                        store_cipher: None,
                     },
                 )
             })
@@ -1672,6 +1702,7 @@ mod tests {
                 binding: Some(android.clone()),
                 provision: None,
                 client: None,
+                store_cipher: None,
             },
         ));
         assert_eq!(out[keys::RESULT], keys::PASS, "{out:?}");
@@ -1768,6 +1799,7 @@ mod tests {
                     answer
                 })),
                 client: None,
+                store_cipher: None,
             }
         };
         let config = "profile:\n  name: \"x\"\n";
@@ -1795,6 +1827,7 @@ mod tests {
                 binding: None,
                 provision: None,
                 client: None,
+                store_cipher: None,
             },
         ));
         assert_eq!(out[keys::RESULT], keys::PASS);
@@ -1861,6 +1894,7 @@ mod tests {
                 binding: Some(Panics),
                 provision: None,
                 client: None,
+                store_cipher: None,
             },
         ));
         assert_eq!(out[keys::RESULT], keys::FAIL);
@@ -1904,6 +1938,7 @@ mod tests {
             binding: None,
             provision: None,
             client: None,
+            store_cipher: None,
         };
         let args = PathsArgs {
             desktop: peer(),
