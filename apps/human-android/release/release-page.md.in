@@ -18,7 +18,8 @@
      01a15425-8aed (Android), the REPLY to 01a1581e-702e (the shared
      page and the Linux section), the REPLY to 01a1c5ca-d5bc (the
      archive's command-line client and Claude Code plugin) and the
-     REPLY to 01a1c699-c7a5 (its install and uninstall scripts). -->
+     REPLYs to 01a1c699-c7a5 and 01a1c6a1-16f0 (its install and
+     uninstall scripts). -->
 # InterWeave {version}
 
 This release of InterWeave is for Android phones and for Linux
@@ -145,9 +146,9 @@ failure.
 - systemd user units. One of them starts the service for you.
 - `install.sh` and `uninstall.sh`: scripts. `install.sh` installs the
   four programs and the systemd user units, and `uninstall.sh` removes
-  them. Both change files only in your home folder. Uninstalling does
-  not delete your profiles, so if you install again, you keep the
-  same identity.
+  them. Both run as your own user and need no root access.
+  Uninstalling does not delete your profiles, so if you install again,
+  you keep the same identity.
 - `claude-plugin/`: a plugin for Claude Code, so that a Claude Code
   session can send and receive InterWeave messages. Installing
   InterWeave does not add it to Claude Code. The README says how to
