@@ -1099,10 +1099,7 @@ fn render() {
         if !o.service_asked && (o.over != Over::Settings || o.offline_asked) {
             ask_service(o);
         }
-        let cleared = o
-            .view
-            .borrow_mut()
-            .after_next_frame(|| ASKS.push(ask::SECURE_OFF));
+        let cleared = o.view.borrow_mut().after_next_frame(secure_off);
         if !cleared {
             log("no frame notifier: FLAG_SECURE stays on for this window");
         }
@@ -1130,6 +1127,19 @@ fn render() {
             invoke_on_window(crate::activity::raise_recovery);
         }
     }
+}
+
+/// `FLAG_SECURE` off, once a frame without the flow was drawn or Show my
+/// address closed -- unless an identity flow shows by the time it is
+/// asked: K1 raised at Show my phrase's end begins in the same turn of
+/// the event loop, before that frame (#615 F1), and its own end asks again.
+pub(crate) fn secure_off() {
+    let showing = ONBOARDING.with(|slot| slot.try_borrow().map_or(true, |o| o.is_some()));
+    if showing {
+        log("an identity flow shows: FLAG_SECURE stays on");
+        return;
+    }
+    ASKS.push(ask::SECURE_OFF);
 }
 
 /// Ask the Activity to start the service: bound as a launch does after a
