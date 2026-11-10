@@ -2422,10 +2422,7 @@ impl View {
             return;
         };
         let (formatted, links, link_rows) = formatting.done();
-        let shown_rows: Vec<i32> = link_rows
-            .iter()
-            .map(|&row| i32::try_from(row).unwrap_or(i32::MAX))
-            .collect();
+        let shown_rows = link_rows_model(&link_rows);
         let (source, sent) = source.unwrap_or_default();
         let weak = swipe::weak(&self.window);
         let forms = reader::Forms::new((formatted.clone(), links, link_rows), move || {
@@ -2444,8 +2441,7 @@ impl View {
         } else {
             formatted
         });
-        self.window
-            .set_reader_link_rows(ModelRc::new(VecModel::from(shown_rows)));
+        self.window.set_reader_link_rows(shown_rows);
         #[cfg(feature = "ui-trace")]
         self.trace_reader_drawn();
         // Queued after the trace's, which times the frame before it.
@@ -2846,6 +2842,10 @@ impl View {
             } else if let Some(item) = self.shown_items.get(&key) {
                 let forms = self.reader_forms(item);
                 let formatted = forms.formatted.clone();
+                // Measured again, a line may be in more pieces or fewer,
+                // and every control after it on another row.
+                self.window
+                    .set_reader_link_rows(link_rows_model(&forms.link_rows));
                 let cell = Rc::clone(&self.shared.borrow().reader);
                 *cell.borrow_mut() = Some(forms);
                 self.window
@@ -4220,6 +4220,15 @@ enum Measured {
     Source,
     /// A link control's label.
     Label,
+}
+
+/// Each link control's row in the reader, as the window takes them.
+fn link_rows_model(rows: &[usize]) -> ModelRc<i32> {
+    let rows: Vec<i32> = rows
+        .iter()
+        .map(|&row| i32::try_from(row).unwrap_or(i32::MAX))
+        .collect();
+    ModelRc::new(VecModel::from(rows))
 }
 
 /// How long an opening reader shows nothing before its bar (design

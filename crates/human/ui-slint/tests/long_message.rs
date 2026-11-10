@@ -1733,6 +1733,59 @@ fn rows_built_in_steps_are_the_rows_built_in_one_go() {
     assert_eq!(rows(&view), stepped);
 }
 
+/// Each link's row, as the window holds it for TAB, is that link's
+/// control after a text size changed in place: measured again, the lines
+/// before the controls are in more pieces, and every control on another
+/// row.
+#[test]
+fn the_link_rows_follow_the_rows_measured_again() {
+    let font = |view: &View, size: f32| {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(size)));
+    };
+    // Each link's row and the row the window says, by link.
+    let rows = |view: &View| -> (Vec<i32>, Vec<i32>) {
+        let rows = view.window().get_reader_rows();
+        let links: Vec<i32> = (0..rows.row_count())
+            .filter_map(|i| rows.row_data(i).map(|r| (i, r)))
+            .filter(|(_, r)| format!("{:?}", r.kind) == "Link")
+            .map(|(i, _)| i32::try_from(i).expect("few"))
+            .collect();
+        let said = view.window().get_reader_link_rows();
+        (
+            links,
+            (0..said.row_count())
+                .filter_map(|i| said.row_data(i))
+                .collect(),
+        )
+    };
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 4000.0));
+    font(&view, 14.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    let body = (0..6)
+        .map(|i| format!("{} [a](https://e.org/{i})", "W".repeat(1500)))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    model.received(received(1, &alice, &body));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    let (links, said) = rows(&view);
+    assert_eq!(links.len(), 6, "control: a control per link");
+    assert_eq!(said, links, "as the reader opened");
+    font(&view, 42.0);
+    slint::platform::update_timers_and_animations();
+    let _ = intents(&mut view, &mut model);
+    let (again, said) = rows(&view);
+    assert_ne!(again, links, "control: the controls moved");
+    assert_eq!(said, again, "measured again");
+}
+
 /// Escape while the reader is opening closes it, and the rows built for
 /// it never open it again.
 #[test]
