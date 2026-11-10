@@ -1163,7 +1163,8 @@ esac
             "ui-trace focus=add-action\nui-trace note=refused:grammar",
         );
         let why = s.wait_answer(0, &wants, patience).unwrap_err();
-        assert!(why.contains("note=refused:grammar"), "{why}");
+        // The note's own answer, not a timeout whose trace tail shows it.
+        assert!(why.starts_with("answered note=refused:grammar"), "{why}");
         let (_dir, mut s) = stand_in(
             0,
             "ui-trace add=added lines=1\nui-trace page=peers-add-trust",
