@@ -118,6 +118,11 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, said: Option<(StoreAnswer, StoreG
                 view.show_identity(None);
                 if let Some(notice) = s.and_then(|s| s.flow.notice()) {
                     view.show_once(notice);
+                    // Chats opens on it (contact-cards section 9 item
+                    // 1); a notice held for an Unlock asks none, since
+                    // the locked notice's leaving puts focus on the list
+                    // heading (unlock note F14).
+                    view.focus_once_notice();
                 }
             }
             Follow::HideHolding => {
