@@ -29,6 +29,7 @@ mod presence;
 pub mod preview;
 mod store_recovery;
 mod trust;
+mod unlock;
 mod waiting;
 
 pub use connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectLine, ConnectPhase};
@@ -77,4 +78,8 @@ pub use store_recovery::{
     StoreScreen,
 };
 pub use trust::{EntryProblem, OutcomeFrom, TrustChange, TrustInput, TrustOutcome, TrustSettings};
+pub use unlock::{
+    KeyUnlock, PendingWay, ResealLeft, UnlockChange, UnlockEnded, UnlockFacts, UnlockLine,
+    UnlockLineKind, UnlockReason, change as unlock_change,
+};
 pub use waiting::{age_text, announced_change, next_age_change, waiting_text};
