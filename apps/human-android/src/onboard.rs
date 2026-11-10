@@ -613,6 +613,7 @@ static AFTER_PROMPT: Mutex<Option<jni::sys::jint>> = Mutex::new(None);
 fn locked_before_start(app_data_dir: &Path) {
     let host = interweave_human_android_platform::ServiceHost::global();
     host.locked_before_start(locked_status(app_data_dir, PROFILE, host.unlock_status()));
+    host.say_unlock(app_data_dir, PROFILE);
 }
 
 /// Nothing runs until the person authenticates: the window shows it,

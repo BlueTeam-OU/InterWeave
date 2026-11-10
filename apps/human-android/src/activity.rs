@@ -421,6 +421,10 @@ impl Opener for AndroidOpener {
             log(&format!("the connect-owed marker: {why:?}"));
         }
     }
+
+    fn unlock_line_seen(&mut self, start: u64) {
+        ServiceHost::global().hub().unlock_line_seen(start);
+    }
 }
 
 struct Root {
