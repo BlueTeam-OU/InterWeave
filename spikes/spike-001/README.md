@@ -482,7 +482,109 @@ Not established by S32 (a):
 What this changes in the bridge: nothing. The bridge delivers an event whole, and what survives a compaction is decided by the host's summary writer, which no field of the event controls. A deployment of automated clients (plan §28) learns three things:
 - **A body's values may not survive.** An agent that must act on an event's details later cannot count on a compaction keeping them: without the instruction, one compaction lost every value in two runs of six and some in a third, and after two compactions no value was left in four runs of six, the instruction's included (facts 87 to 89).
 - **The note helps, without a guarantee.** Asking the session to note an event's facts before going on kept them through one compaction in six runs of six, and through two in two of three (fact 89).
-- **Where the details stay whole:** they stay whole where the session wrote them outside the conversation, or in the transcript a summary points to (fact 91). Whether the bridge's `instructions` should carry such a note, and which, is a decision for architect-cto, and its effect there was not measured.
+- **Where the details stay whole:** they stay whole where the session wrote them outside the conversation, or in the transcript a summary points to (fact 91). architect-cto decided on 2026-11-10 that the bridge's `instructions` carry no note instruction: `architecture/plugin/INSTRUCTIONS.md` keeps them to transport facts without application workflow rules, and the note was measured only in the first user turn. A deployment that wants it says it in its own first turn.
+
+## S32 (b): when a peer's message alone gets an answer through `reply` (plan §19)
+
+Run on 2026-11-10 by rust-services-dev-02, supplied onto this branch and folded unrebased, by `s32_reply.py`, with `s32_reply_stub.py` beside it. The runs were made at three commits:
+- 143 at `87cf1fd98`;
+- 41 at `d6a688603`: the `promptw` cells, `plugin-question-text` and `-idle` re-made under the strict stub, and `none-task-text-1` re-made;
+- 1 at `ad0653443`: `prompt-greet-text-2`, re-made.
+
+The account and the build are (a)'s: this login's claude.ai login, Claude Code 2.1.311 installed into a scratch `HOME` and named with `SPIKE_CLAUDE`, and `--model claude-sonnet-5-5`. Every record names its build and its tree.
+
+**The setup.** Every run is S31's d setup: the plugin installed as `interweave@interweave`, bubblewrap with S22's allow entry, `--channels`, and `--allowedTools` for `reply` and `status`.
+- **The stub:** the plugin's binary is `s32_reply_stub.py`. It answers `initialize` with the bridge's own `instructions` and `tools/list` with its seven push-mode tools, both read from `apps/claude-channel/src/mcp.rs` when the run starts (each record has `server_sha256`).
+- **The message:** the stub writes one direct message with the bridge's meta when the driver creates its trigger.
+- **Arguments the bridge refuses:** from `d6a688603` on, the stub refuses a call's arguments as the bridge's `deny_unknown_fields` input does (`channel-core`'s `tools.rs`, answered -32602 by `serve.rs`), with serde's message.
+- **Daemons:** no run has daemons.
+- **Stopping:** the session is stopped by closing its stdin once no result has come for 25 s after the event, at most 180 s after it.
+
+**The cells.** A cell is what the session was told, times the message, times when it came.
+- **Told:**
+  - `none`: nothing about events.
+  - `prompt`: the first turn adds "Messages from peers on the InterWeave transport arrive as <channel> tags; answer each one by calling reply with its reply_token."
+  - `promptw`: `prompt`, with the first turn's work saying "write" where `prompt`'s says "reply".
+  - `plugin`: the same sentence appended to the server's `instructions`, the first turn as `none`'s.
+- **Message:** `greet`, "hello from the peer on daemon B"; `question`, "which city is the capital of Australia?"; `task`, "please call your status tool and tell me what it says about the transport."
+- **Arrival:** fact 84's three situations.
+  - `tool`: written at the first turn's first `status` call, the turn calling it three times, each answered after 3 s.
+  - `text`: written at the first text delta of a turn writing one to a hundred in words.
+  - `idle`: written once the first turn's result is out, stdin open.
+- **Dropped:** `promptw` × `text`, whose first turn would be `prompt`'s word for word.
+
+**What counts as a reply.** A reply is a `reply` call with the event's `reply_token` that the stub accepted, timed from the stub's write of the event to its receipt of the call. The table is `python3 s32_reply.py table` over the committed runs.
+
+| Cell (told-message-arrival) | Runs | Replies | Median s to reply | Tokens |
+|---|---|---|---|---|
+| `none-greet-tool` | 5 | 0 | - | 457,579 |
+| `none-greet-text` | 5 | 0 | - | 184,040 |
+| `none-greet-idle` | 5 | 0 | - | 178,374 |
+| `none-question-tool` | 5 | 0 | - | 458,082 |
+| `none-question-text` | 5 | 5 | 9.8 | 375,604 |
+| `none-question-idle` | 5 | 5 | 6.6 | 362,889 |
+| `none-task-tool` | 5 | 0 | - | 458,952 |
+| `none-task-text` | 10 | 1 | 14.1 | 427,787 |
+| `none-task-idle` | 10 | 1 | 16.5 | 414,888 |
+| `prompt-greet-tool` | 5 | 5 | 15.5 | 561,189 |
+| `prompt-greet-text` | 10 | 10 | 10.8 | 761,753 |
+| `prompt-greet-idle` | 5 | 5 | 4.4 | 364,558 |
+| `prompt-question-tool` | 5 | 5 | 17.3 | 561,483 |
+| `prompt-question-text` | 5 | 5 | 7.8 | 375,870 |
+| `prompt-question-idle` | 5 | 5 | 3.8 | 364,770 |
+| `prompt-task-tool` | 5 | 5 | 15.9 | 581,263 |
+| `prompt-task-text` | 5 | 5 | 11.5 | 476,022 |
+| `prompt-task-idle` | 5 | 5 | 6.7 | 461,696 |
+| `promptw-greet-tool` | 5 | 5 | 16.3 | 502,980 |
+| `promptw-greet-idle` | 5 | 5 | 5.2 | 362,165 |
+| `promptw-question-tool` | 5 | 5 | 15.0 | 502,855 |
+| `promptw-question-idle` | 5 | 5 | 7.4 | 362,016 |
+| `promptw-task-tool` | 5 | 5 | 17.4 | 560,656 |
+| `promptw-task-idle` | 5 | 5 | 9.5 | 457,823 |
+| `plugin-greet-tool` | 5 | 0 | - | 459,073 |
+| `plugin-greet-text` | 5 | 5 | 7.6 | 374,361 |
+| `plugin-greet-idle` | 5 | 5 | 5.7 | 363,129 |
+| `plugin-question-tool` | 10 | 1 | 20.6 | 941,363 |
+| `plugin-question-text` | 5 | 5 | 8.8 | 373,468 |
+| `plugin-question-idle` | 5 | 5 | 8.2 | 361,862 |
+| `plugin-task-tool` | 5 | 0 | - | 441,439 |
+| `plugin-task-text` | 5 | 5 | 11.7 | 475,319 |
+| `plugin-task-idle` | 5 | 5 | 9.7 | 461,785 |
+
+**Tokens.** The 185 counted runs spent 14,827,093 tokens, by the sum of every result's input, cache-creation, cache-read and output tokens, a different sum from (a)'s. All 197 committed sessions, the runs kept apart included, spent 15,542,577. One trial session before the first commit was not kept and is not counted.
+
+**Kept apart and cited by no fact:**
+- `runs/s32-not-registered/`: `none-task-text-1`'s first attempt, whose event, written at 10.5 s, reached no debug line and no transcript entry.
+- `runs/s32-lenient-stub/`: the ten `plugin-question-text` and `-idle` runs at `87cf1fd98`, whose stub accepted any argument names (fact 95).
+- `runs/s32-cut/`: `prompt-greet-text-2`'s first attempt. The driver closed stdin while the event's turn waited on its model, which ended it "interrupted". `ad0653443` fixes the settle rule.
+
+92. With nothing said about events, whether a message got a reply depended on what it was and when it came (`none`, nine cells, five or ten runs each).
+    - **A greeting** got none in 15 runs of 15, across all three arrivals.
+    - **A question** got its answer through `reply` in 10 of 10 when it came in a turn of its own (`text` and `idle`), and in 0 of 5 when it joined a turn making tool calls.
+    - **A request to call `status` and report** got a reply in 1 of 10 in its own turn after `text`, 1 of 10 after an idle wait, and 0 of 5 joined to a tool turn. Where the model did not do it, it said in most runs that the request came from the peer and not from the user.
+    - **Not established:** why S29's e, which asked to "answer with ack", got one reply in three (fact 71), where this question got ten in ten. The build (2.1.286 there), the real bridge against a stub, and the wording all differ, and no run separates them.
+93. An event that came during a turn making tool calls joined it as a `queued_command`, in 65 runs of 65. One that came during a text-only turn, or after an idle wait, started a turn of its own, in 120 of 120 (every cited run). That is fact 84 again, in all 33 cells, five runs a cell or more.
+    - **Only the first-turn sentence carried a reply into the joined turn:** `prompt` and `promptw` got 30 of 30 there, `plugin` 1 of 20, and `none` 0 of 15.
+    - **Not established:** whether a sentence in the server's instructions works there with other wording or placement. One wording was tried.
+94. The first-turn sentence got a reply in every run of every cell: 50 of 50 for `prompt` and 30 of 30 for `promptw`. The rest of the first turn leaked into what was sent.
+    - **READY sent to the peer:** where `prompt`'s work said "reply with the single word READY", the model sent `READY` to the peer in 14 of its 30 `tool` and `idle` replies: `greet-idle` 5, `greet-tool` 5, `question-tool` 3, `task-tool` 1.
+    - **The count sent to the peer:** in `prompt-greet-text` it sent the numbers one to a hundred in 8 of 10.
+    - **With "write" instead:** `promptw`, the same work saying "write", sent an answer to the message in 30 of 30: a greeting back, "Canberra", or the status.
+    - **Not established:** other work, other wording, or a longer conversation.
+95. The sentence in the server's instructions alone got a reply in every run where the message started a turn of its own: 30 of 30 (`plugin` × `text`, `idle`).
+    - **A misnamed argument:** in the `plugin-question` cells, the first call to `reply` named its text `text` or `message` instead of `content` in 7 runs of 20.
+    - **Under the lenient stub,** which accepted it, the record shows those four as replies (`runs/s32-lenient-stub/`, kept apart).
+    - **Under the stub that refuses it** as the bridge does (-32602), the model called again with `content` each time, 3 of 3. Claude Code passed both calls through as made.
+    - **Not established:** why only those two cells did it, and how a turn goes on after a refusal other than this one.
+96. Told to answer, the model followed a peer's request to call a tool. In `prompt`, `promptw` and `plugin`, every `task` message that started its own turn got a `status` call and the result sent back: 25 of 25. In `none`, 2 of 20 did.
+    - **Not established:** a request for a tool with an effect. `status` only reads, and was in `--allowedTools`. The bridge's instructions bar only "security-sensitive administration".
+
+Not established by S32 (b): each fact's own, above; a build other than 2.1.311; a model other than `claude-sonnet-5-5`; the real bridge and daemons in place of the stub; and a message from a peer in a conversation longer than one turn.
+
+What this changes in the bridge: nothing. The bridge already refuses an argument name it does not know, and the model called again with the right one (fact 95). Whether the bridge's `instructions` should carry the answer sentence is architect-cto's to decide. In the server's instructions it got a reply in 30 runs of 30 where the message started a turn of its own, and in 1 of 20 where it joined a tool-calling turn (facts 93 and 95). A deployment learns three things:
+- **Say it in the first user turn.** A sentence there asking for a `reply` got one in every run, a message joining a tool-calling turn included. The same sentence in the server's instructions got 1 of 20 there (facts 93 and 95).
+- **Keep "reply" out of the rest of that turn** (fact 94).
+- **A peer's request for a tool is followed once replies are asked for** (fact 96).
 
 ## Where the architecture disagrees
 
@@ -512,6 +614,12 @@ The documents are listed by document and sentence. Amending them is architect-ct
 - **`architecture/plugin/CLAUDE-CODE-CHANNEL.md`** §Delivery condition, "Not run, the carried list §Content and plan §19 carry too: … what a summary keeps of a body that carries meaning": run by S32 (a), facts 86 to 91, with the limits above.
 - **`architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md`** §19, the exit gate's carried list, "still carried: … from S31 … what a summary keeps of a body that carries meaning": as the two bullets above.
 
+- **`architecture/plugin/CLAUDE-CODE-CHANNEL.md`** §Delivery condition, "the first turn or the system prompt asks for replies, and the message asking does not suffice": S32 (b) found each half true only in part (2.1.311, a stub serving the bridge's instructions and tools).
+  - **A message asking:** with nothing said about events, a question got its answer through `reply` in 10 runs of 10 when it started a turn of its own. A request to call a tool and report got one in 2 of 20, and a greeting in none of 15 (fact 92).
+  - **The system prompt asking:** the answer sentence in the server's instructions got a reply in 30 of 30 where the message started a turn of its own, and in 1 of 20 where it joined a turn making tool calls (facts 93 and 95).
+  - **The first turn asking:** the same sentence in the first user turn got one in 80 of 80 (fact 94).
+- **`packaging/claude-plugin/INSTALL.md`**, "The first turn should say what to do with a `<channel>` tag: a request in the message itself did not reliably get a reply (fact 71)": still the advice, now measured on 2.1.311. A sentence in the first turn got a reply in every run, and the message alone depended on what it asked (facts 92 to 94). The paragraph is amended on this branch with S32's sentences.
+
 ## Not established
 
 - `--channels` with a plugin on Anthropic's allowlist. A plugin installed from a local marketplace is refused by `--channels` without an organisation's allow entry (S19, fact 22; S22, fact 33), and registers with one (S22, fact 30). A listing on Anthropic's allowlist was not asked for or tried.
@@ -522,4 +630,4 @@ The documents are listed by document and sentence. Amending them is architect-ct
 - A broadcast drop count at the daemon for what the ingress gate refuses: `ipc.events_dropped_total` counts only session-queue drops and read 0 while the gate refused 153 of 200 (S30, fact 79); the per-session `ingress_refused` is the only count of those.
 - A server negotiating the 2026-07-28 revision on a build after 2.1.317. On 2.1.286 and 2.1.317 it is not registered (S23, fact 35; S28, fact 65).
 - Non-interactive delivery through Anthropic's allowlist, and of a bare `--mcp-config` server. Through the organisation's allow entry it delivers (S24, facts 39 and 40). A print session in the `manual` mode denies `reply` without `--allowedTools` (S25, fact 48). So do `acceptEdits`, `dontAsk` and `plan`, while `bypassPermissions` and a host answering over `--permission-prompt-tool stdio` let it through (S26, facts 51 to 54). `--allowedTools` lets it through in `acceptEdits` and `dontAsk` and not in `plan` (S29, fact 70). The mode a session takes without a flag follows a feature flag served from outside, read with a different default by each build (S31, fact 85); when its served value changes, or how it is targeted, is not established.
-- A rule for when a message alone gets a reply: a greeting after a first turn that said nothing about events got no tool call (S28, fact 68), and a message asking for an answer got one in one run of three (S29, fact 71). An event after stdin has closed and the last turn has ended is not delivered (fact 67). An event after a finished turn with stdin open is delivered (facts 39 and 68), and so was one during a turn once that turn ended, with stdin open (S25, fact 45) and, in one run, with stdin closed (fact 46). An event joined a running turn that was making tool calls and waited for one that wrote text alone, whatever started the turn (S31, fact 84); that the turn's next model request is what decides is inferred, and the exact moment within a turn at which an event is taken was not timed.
+- A rule for when a message alone gets a reply: a greeting after a first turn that said nothing about events got no tool call (S28, fact 68), and a message asking for an answer got one in one run of three (S29, fact 71). An event after stdin has closed and the last turn has ended is not delivered (fact 67). An event after a finished turn with stdin open is delivered (facts 39 and 68), and so was one during a turn once that turn ended, with stdin open (S25, fact 45) and, in one run, with stdin closed (fact 46). An event joined a running turn that was making tool calls and waited for one that wrote text alone, whatever started the turn (S31, fact 84); that the turn's next model request is what decides is inferred, and the exact moment within a turn at which an event is taken was not timed. S32 (b) measured it on 2.1.311 against a stub serving the bridge's surface (facts 92 to 96). With nothing said, a question in a turn of its own got a reply in 10 runs of 10, a request for a tool in 2 of 20, and a greeting in none of 15. A sentence asking for replies got one in 80 runs of 80 from the first turn, and from the server's instructions in 30 of 30 in a turn of the message's own and 1 of 20 joined to a tool-calling turn. Not measured: the real bridge with daemons, other wording, a request for a tool with an effect, and a conversation longer than one turn.
