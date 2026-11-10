@@ -301,7 +301,8 @@ pub(crate) struct ShowGuard {
 pub struct ShowOpen(Rc<std::cell::Cell<GuardState>>);
 
 impl ShowOpen {
-    /// Show asked the flag on and has not asked it off since.
+    /// Show is open: set as it opens, cleared as it closes, before its
+    /// off waits for a frame without it.
     #[must_use]
     pub fn get(&self) -> bool {
         self.0.get().open
@@ -310,7 +311,8 @@ impl ShowOpen {
 
 #[derive(Clone, Copy, Default)]
 struct GuardState {
-    /// Asked on, and not asked off since.
+    /// Show is open: set as it opens, cleared as it closes, before its
+    /// off waits for a frame without it.
     open: bool,
     /// Asks on so far.
     asked: u64,
