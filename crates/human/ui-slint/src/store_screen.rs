@@ -13,6 +13,12 @@ use slint::{ModelRc, SharedString, VecModel};
 use crate::IdentityInput;
 use crate::generated::IdentityPage;
 
+/// R's heading as the focus trace names it: a refused start that raises R
+/// puts focus on it (design/2026-10-19-android-identity.md section 8).
+pub(crate) const R_HEADING: &str = "r-heading";
+/// K's heading, as R's.
+pub(crate) const K_HEADING: &str = "k-heading";
+
 /// What a tap on a store screen comes to, for the root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreOutcome {
@@ -54,12 +60,14 @@ pub fn store_page(flow: &StoreRecovery) -> IdentityPage {
     };
     match flow.screen() {
         StoreScreen::Recovery => {
+            page.heading_key = R_HEADING.into();
             page.primary = text(UiText::TryAgain);
             page.secondary = text(UiText::DiscardStore);
             page.secondary_danger = true;
             page.tertiary = text(UiText::Close);
         }
         StoreScreen::KeyLost => {
+            page.heading_key = K_HEADING.into();
             page.primary = text(UiText::DiscardStore);
             page.primary_danger = true;
             page.secondary = text(UiText::Close);

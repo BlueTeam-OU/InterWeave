@@ -596,6 +596,50 @@ fn a_screen_change_says_where_focus_stands() {
     );
 }
 
+/// R raised by a refused start: the trace names its heading's own key,
+/// which is what identity note section 10 item 15 reads, and nothing
+/// else once it settled.
+#[test]
+fn a_raised_r_says_its_heading() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    use interweave_human_ui_slint::store_page;
+    let settle = || {
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(100));
+            slint::platform::update_timers_and_animations();
+        }
+    };
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let model = UiModel::new();
+    view.render(&model);
+    settle();
+
+    let first = said.borrow().len();
+    let r = store_page(&StoreRecovery::new(StoreScreen::Recovery, 1));
+    let title = r.title.to_string();
+    view.show_identity(Some(r));
+    view.raise_identity_heading();
+    // A headless window makes the heading, inside an `if`, only when the
+    // tree is walked; a real one draws first.
+    let _ = ElementHandle::find_by_accessible_label(view.window(), &title).count();
+    settle();
+    let focus: Vec<String> = said.borrow()[first..]
+        .iter()
+        .filter(|l| l.starts_with("ui-trace focus="))
+        .cloned()
+        .collect();
+    assert!(
+        !focus.is_empty() && focus.iter().all(|l| l == "ui-trace focus=r-heading"),
+        "R's heading, and only it, in {:#?}",
+        said.borrow()[first..].to_vec()
+    );
+}
+
 /// Welcome's two actions: TAB steps through them in reading order and
 /// round again, Shift+TAB back, and neither reaches the window behind.
 #[test]
