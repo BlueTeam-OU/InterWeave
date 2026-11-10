@@ -10,8 +10,6 @@ use std::ffi::CString;
 use std::time::Duration;
 
 use interweave_human_android_platform::AvailabilityMode;
-#[cfg(feature = "dev-stand-ins")]
-use interweave_human_android_platform::custody::RecoveryCause;
 use interweave_human_android_platform::{
     EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, Resealed, ServiceHost,
     ServiceLaunch, StartRefused, Started, Told, Transports, UnlockStatus, addresses_from_wire,
@@ -174,7 +172,7 @@ fn identity(
     // The reseal runs before the host takes the profile's lock: one log
     // line when it did something or could not, never a word to the
     // person but the status.
-    let resealed = match identity_hook() {
+    let resealed = match crate::identity_hook::take() {
         Some(why) => Err(why),
         None => start_resealed(dir, PROFILE, &cipher, first_run),
     };
@@ -589,23 +587,6 @@ extern "system" fn Java_org_interweave_human_DebugHooks_invalidateNextStoreKey<'
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
-/// Armed by `DebugHooks.refuseNextIdentity()`: the next start's identity
-/// answers `RecoveryRequired`, once.
-#[cfg(feature = "dev-stand-ins")]
-static REFUSE_IDENTITY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// The refusal the debug build's identity hook stands in for, taken once;
-/// `None`, and always in the release build, the record is read.
-fn identity_hook() -> Option<IdentityRefused> {
-    #[cfg(feature = "dev-stand-ins")]
-    if REFUSE_IDENTITY.swap(false, std::sync::atomic::Ordering::SeqCst) {
-        return Some(IdentityRefused::RecoveryRequired(
-            RecoveryCause::KeyInvalidated,
-        ));
-    }
-    None
-}
-
 /// `DebugHooks.refuseNextIdentity()`, the debug build's adb hook for K1
 /// raised over a screen (identity note section 10 item 15): the next
 /// start answers `RecoveryRequired` as for a key the platform invalidated,
@@ -623,7 +604,7 @@ extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextIdentity<'call
     _class: JClass<'caller>,
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
-        REFUSE_IDENTITY.store(true, std::sync::atomic::Ordering::SeqCst);
+        crate::identity_hook::arm();
         log("identity hook: the next start answers that recovery is required");
         Ok(())
     })
