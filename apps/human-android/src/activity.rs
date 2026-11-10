@@ -273,6 +273,20 @@ pub(crate) fn focus_locked_notice() {
 
 static NOTICE_FOCUS: AtomicBool = AtomicBool::new(false);
 
+/// K1 over the window that shows, for a start the Service made that
+/// answered `RecoveryRequired` (onboard.rs, `recovery_refused`); with no
+/// window, nothing: a launch's own check finds the record refused.
+pub(crate) fn raise_recovery() {
+    let Some(view) = VIEW.with(|view| view.borrow().clone()) else {
+        return;
+    };
+    if view.try_borrow_mut().is_err() {
+        defer(raise_recovery);
+        return;
+    }
+    crate::onboard::raise_recovery(&view);
+}
+
 fn apply_notice_focus() {
     let applied = VIEW.with(|view| {
         view.borrow().as_ref().map(|view| {
