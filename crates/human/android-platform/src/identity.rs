@@ -283,6 +283,32 @@ pub fn locked_status(
     })
 }
 
+/// `status` as the view reads it, with the diagnostic under the
+/// effective mode (`None` where the mode cannot be read): the unlock
+/// note's four facts (section 3), in the model's own names.
+#[must_use]
+pub fn unlock_facts(
+    status: UnlockStatus,
+    restart_needs_unlock: Option<bool>,
+) -> interweave_human_ui_model::UnlockFacts {
+    use interweave_human_ui_model::{KeyUnlock, ResealLeft, UnlockFacts, UnlockReason};
+    let policy = |p| match p {
+        KeyUnlockPolicy::BackgroundCompatible => KeyUnlock::BackgroundCompatible,
+        KeyUnlockPolicy::UserPresence => KeyUnlock::UserPresence,
+    };
+    UnlockFacts {
+        in_force: policy(status.in_force),
+        configured: status.configured.map(policy),
+        pending: status.pending.map(|why| match why {
+            ResealFailure::Keystore => ResealLeft::Failed(UnlockReason::Keystore),
+            ResealFailure::Storage => ResealLeft::Failed(UnlockReason::Storage),
+            ResealFailure::Other => ResealLeft::Failed(UnlockReason::Other),
+            ResealFailure::OldKeyRemains => ResealLeft::OldKeyRemains,
+        }),
+        restart_needs_unlock,
+    }
+}
+
 /// Whether this start's reseal will need the person: the configured
 /// policy is user-presence and the record is not yet under it, so sealing
 /// it again takes the user-presence key, which the Keystore refuses
