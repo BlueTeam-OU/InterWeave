@@ -2634,8 +2634,7 @@ impl SwarmRuntime {
                                 let outstanding = direct_state.reservations.outstanding();
                                 let join_references = broadcast_state.subs.join_references();
                                 let dropped_total = broadcast_state.queues.dropped_total();
-                                let refused_total =
-                                    broadcast_state.queues.losses().refused_total();
+                                let refused_total = broadcast_state.queues.refused_total();
                                 let ingress = status::IngressStatus {
                                     direct_tracked_peers: direct_state.ingress.tracked_peers(),
                                     broadcast_tracked_peers: broadcast_state.ingress.tracked_peers(),
