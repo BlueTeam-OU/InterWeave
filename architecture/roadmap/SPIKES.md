@@ -393,8 +393,9 @@ What this changes in the bridge: nothing; its bound stays the only one
 on the line. Not established then: a line past 8 MiB, another model's
 context, a burst past ten, an event at the bound in a conversation
 already holding others (the last three of these measured by S30,
-below; the line past 8 MiB stays carried), whether the kind of turn
-decides joining, and what in a build sets the unflagged mode.
+below; the line past 8 MiB stayed carried until S31), whether the
+kind of turn decides joining, and what in a build sets the unflagged
+mode (these three measured by S31, below).
 
 **Carried measurement, S30 (2026-11-06, Claude Code 2.1.311, the
 fleet's pin, rust-services-dev, plan §19): an event at the bound fits
@@ -444,7 +445,85 @@ room for three events at it. Not established: a line past 8 MiB, the
 edge for content that costs more tokens a byte, what compaction keeps
 of the events it replaces, a second host, whether the kind of turn
 decides joining, and the 256-byte card name across real daemons; and,
-from S29, what in a build sets the unflagged mode (fact 75).
+from S29, what in a build sets the unflagged mode (fact 75) — all of
+these but the second host and the card name measured by S31, below.
+
+**Carried measurement, S31 (2026-11-09, Claude Code 2.1.311, the
+fleet's pin, and 2.1.286 for the mode runs, rust-services-dev, plan
+§19): the host disconnects a channel server whose line and newline
+pass 16 MiB; of nine kinds of content none costs more tokens a byte
+than one letter repeated; a compaction keeps an event's frame and not
+its body; an event joins a running turn that is making tool calls and
+waits for one that writes text alone, whatever started the turn; and
+the unflagged mode of a print session follows a feature flag served
+from outside the host.** Read off
+`spikes/spike-001/README.md` §S31 (facts 80–85, 52 runs `s31-a-*` to
+`s31-e-*`, #606), every run on S30's a and b setup with a stub
+(`s31_stub.py`) in the bridge's place and no daemons, a to c given
+`--model claude-sonnet-5-5`, d and e no `--model` and reporting the
+same; three further runs are kept apart and cited by no fact
+(`runs/s31-not-registered/`, `runs/s31-api-refused/`). A line of
+16,777,215 bytes was delivered whole, its turn ending "Prompt is too
+long"; at 16,777,216 bytes and at 64 MiB the host logged `wrote >16MB
+to stdout without a JSON-RPC message boundary`, closed the transport
+and logged no reconnect in the 180 s that followed, no event reaching
+the transcript; read from the binary and not measured, the bound is a
+buffer of the bytes since the last message boundary (`kz=16777216`),
+and 2.1.286, which had read 8 MiB whole (fact 72), carries the same
+check, its constant not read; one run each (80). At the bridge's
+bound of 327,680 bytes each of nine kinds of content was answered,
+one run each: one letter repeated cost 0.9997 tokens a byte, random
+printable ASCII 0.991, random punctuation and random base64url 0.948,
+random CJK 0.699, random emoji 0.687, `</channel>` repeated 0.500,
+random digits 0.333, and U+0001 0.0002, the transcript holding every
+one of its characters, so what drops them from the prompt is past the
+host, inferred and not measured (81). On Sonnet the one-letter event
+was answered at 978,944 bytes (a prompt of 996,013 tokens) and
+refused at 991,232, where S30 put the edge on Opus and Haiku, while
+random printable ASCII at 991,232 bytes was not refused: the host
+compacted the event into a summary of 2,702 characters (`preTokens`
+264,972, `postTokens` 3,266) that kept its number, word and nonce,
+and the turn answered; so a single event past the prompt is either
+summarised away or refused, which of the two decided by the
+compaction agent's own prompt fitting being inferred, one run each
+(82). Seven bound-sized events of one letter repeated, each with a
+word of its own in its head, were each answered, the host compacting
+before the third, the fifth and the seventh (`preTokens` about
+755,000, `postTokens` about 85,300); each summary names every event
+it replaced by number and word and keeps none of the 327,511 letters
+of a body, the later summaries carrying the earlier one's list
+forward, and asked after events 1, 4 and 7 the model listed every
+number and word correctly, the last two answers from summaries alone
+for the events replaced; the summaries are the model's, not a rule's,
+one run (83). An event written while a turn was making tool calls
+joined it as an attachment, and one written while a turn was writing
+text alone, one model request, waited and started a turn of its own,
+the same whether the running turn was a user turn or one an event had
+started, three of three in each of the four cells; so facts 45
+and 74 differed by the work of the turn and not by its kind (84).
+Without a mode flag a print session took `auto` when the feature flag
+`tengu_moss_anchor` was true and `default` when it was false: read
+from the binaries, 2.1.286 reads the flag with a default of true and
+2.1.311 with false; measured, three of three per cell on each
+build, a fresh config directory gave `auto` on 2.1.286 and `default`
+on 2.1.311, a directory whose cache held the served value, false,
+gave `default` on both, that cached value set true gave `auto` on
+both, and `DISABLE_GROWTHBOOK=1` gave each build its own default; so
+fact 75's change is the default the build reads the flag with, S29's
+four late-starting 2.1.286 sessions fitting a fetch that finished
+first, which is inferred, and the served value may change (85). What
+this changes in the bridge: nothing; its bound sits far inside the
+host's and an event at it fits the prompt whatever its content. A
+deployment that needs `reply` names it in `--allowedTools` or passes
+`--permission-mode` rather than counting on the unflagged mode, and
+does not count on a compaction keeping an event's body. Not
+established: a second host, the 256-byte card name across real
+daemons, the line bound on 2.1.286 or a later build, content past
+these nine kinds, what a summary keeps of a body that carries
+meaning, whether and how often the API's safeguards refuse random
+content at volume (the two refused attempts kept apart), when the
+flag's served value changes or how it is targeted, and the moment
+within a turn at which a joining event is taken.
 
 ---
 
