@@ -1110,10 +1110,19 @@ mod tests {
         call.contains(crate::platform::dump_command(&[])[0])
     }
 
+    /// Key focus on the app's own window, as the Pixel printed it.
+    const APP_FOCUS: &str = "  mCurrentFocus=Window{1a2b u0 org.interweave.human/org.interweave.human.MainActivity}\n  mFocusedApp=ActivityRecord{77 u0 org.interweave.human/.MainActivity t9}";
+
     /// A stand-in adb in a scratch directory: a `dumpsys window` shows
     /// the keyguard for its first `locked` calls, logcat holds `trace`,
     /// and every call is appended to `calls`, one line each.
     fn stand_in(locked: u32, trace: &str) -> (tempfile::TempDir, Screens) {
+        stand_in_focus(locked, trace, APP_FOCUS)
+    }
+
+    /// [`stand_in`], its `dumpsys window` printing `focus` too: the
+    /// `mCurrentFocus=` and `mFocusedApp=` lines.
+    fn stand_in_focus(locked: u32, trace: &str, focus: &str) -> (tempfile::TempDir, Screens) {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path().display();
@@ -1124,6 +1133,7 @@ case "$*" in
   *dumpsys*)
     n=$(grep -c dumpsys {d}/calls)
     if [ "$n" -le {locked} ]; then echo "  isKeyguardShowing=true"; else echo "  isKeyguardShowing=false"; fi
+    printf '%s\n' "{focus}"
     echo IW_END=0 ;;
   *logcat\ -d*) printf '%s\n' "{trace}" ;;
 esac
@@ -1249,6 +1259,45 @@ esac
         let calls = calls(&dir);
         assert!(calls.iter().any(|c| dumps(c)), "{calls:?}");
         assert!(!calls.iter().any(|c| c.contains("am start")), "{calls:?}");
+    }
+
+    /// `launch` ends on the app's own window taking the keys, and fails
+    /// naming a system window in front -- the permission prompt with
+    /// what grants it, or any other -- once the start decided (#608 F15).
+    #[test]
+    fn a_launch_fails_naming_a_system_window_that_takes_the_keys() {
+        let trace = "ui-trace page=conversations\nui-trace connect=settled";
+        let patience = Duration::from_millis(200);
+        let (_dir, mut s) = stand_in(0, trace);
+        let r = s.launch(patience);
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::PASS)), "{r:?}");
+        let detail = |r: &Step| {
+            r.get(keys::DETAIL)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
+        let prompt = "  mCurrentFocus=Window{2e297f1 u0 NotificationShade}\n  mFocusedApp=ActivityRecord{145622583 u0 com.android.permissioncontroller/.permission.ui.GrantPermissionsActivity t2046}";
+        let (_dir, mut s) = stand_in_focus(0, trace, prompt);
+        let r = s.launch(patience);
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
+        let why = detail(&r);
+        assert!(
+            why.contains("NotificationShade")
+                && why.contains("GrantPermissionsActivity")
+                && why.contains("POST_NOTIFICATIONS"),
+            "{why}"
+        );
+        // Another window: named, with no grant to suggest.
+        let shade = "  mCurrentFocus=Window{2e297f1 u0 NotificationShade}\n  mFocusedApp=ActivityRecord{77 u0 org.interweave.human/.MainActivity t9}";
+        let (_dir, mut s) = stand_in_focus(0, trace, shade);
+        let r = s.launch(patience);
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
+        let why = detail(&r);
+        assert!(
+            why.contains("NotificationShade") && !why.contains("POST_NOTIFICATIONS"),
+            "{why}"
+        );
     }
 
     #[test]
