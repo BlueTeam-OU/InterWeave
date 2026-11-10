@@ -34,7 +34,7 @@ use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustB
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
-use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end};
+use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end, secure_may_clear};
 use crate::unlock_route::{Route, UnlockRoute};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, prompt_line};
@@ -639,6 +639,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
 /// again.
 pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
     if ONBOARDING.with(|slot| slot.borrow().is_some()) {
+        log("K1 kept: an identity flow shows, whose end decides it");
         return;
     }
     let platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1130,13 +1131,28 @@ fn render() {
 }
 
 /// `FLAG_SECURE` off, once a frame without the flow was drawn or Show my
-/// address closed -- unless an identity flow shows by the time it is
-/// asked: K1 raised at Show my phrase's end begins in the same turn of
-/// the event loop, before that frame (#615 F1), and its own end asks again.
+/// address closed -- unless what it secures is still drawn by the time it
+/// is asked ([`secure_may_clear`]): an identity flow, as K1 raised at Show
+/// my phrase's end begins in the same turn of the event loop, before that
+/// frame (#615 F1); or Show my address, open under a K1 that a refused
+/// start raised over it and a restore ended. Whichever is left asks again
+/// at its own end. The decision is host-tested; this reading of its two
+/// inputs is Android-only, and a device case covers the flow's
+/// (`kept_recovery.rs`), none Show's (#619 F1).
 pub(crate) fn secure_off() {
-    let showing = ONBOARDING.with(|slot| slot.try_borrow().map_or(true, |o| o.is_some()));
-    if showing {
-        log("an identity flow shows: FLAG_SECURE stays on");
+    // A slot already borrowed counts as a flow showing, said on a line of
+    // its own: the off is asked from a frame task or Show's off, which
+    // run outside `render` and an input, and were one to run inside, the
+    // flag staying on is the side a wrong guess may fall on.
+    let read = ONBOARDING.with(|slot| slot.try_borrow().map(|o| o.is_some()));
+    let flow = *read.as_ref().unwrap_or(&true);
+    let show = crate::activity::show_open();
+    if !secure_may_clear(flow, show) {
+        log(match read {
+            Err(_) => "the identity flow is busy: FLAG_SECURE stays on",
+            Ok(true) => "an identity flow shows: FLAG_SECURE stays on",
+            Ok(false) => "Show my address is open: FLAG_SECURE stays on",
+        });
         return;
     }
     ASKS.push(ask::SECURE_OFF);

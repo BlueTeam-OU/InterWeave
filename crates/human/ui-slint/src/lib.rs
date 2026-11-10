@@ -63,6 +63,7 @@ pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
 pub use identity::{
     IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
 };
+pub use peers::ShowOpen;
 pub use refusal::{RefusalPage, RefusalView};
 pub use store_screen::{StoreOutcome, apply_store, store_page};
 
@@ -1777,8 +1778,13 @@ impl View {
     /// and `ask(false)` once a frame without Show has been drawn. Where
     /// the renderer cannot say when it drew (the testing backend), the
     /// flag is never asked off. Unset, as on the desktop, nothing waits.
-    pub fn guard_show(&mut self, ask: impl Fn(bool) + 'static) {
-        self.peer_lists.show_guard = Some(peers::ShowGuard::new(Rc::new(ask)));
+    /// The answer says whether Show is open, for the platform's other
+    /// secured spans: one ending under an open Show leaves the flag on.
+    pub fn guard_show(&mut self, ask: impl Fn(bool) + 'static) -> ShowOpen {
+        let guard = peers::ShowGuard::new(Rc::new(ask));
+        let open = guard.open_state();
+        self.peer_lists.show_guard = Some(guard);
+        open
     }
 
     /// The platform has secured the window, as [`Self::guard_show`] asked:

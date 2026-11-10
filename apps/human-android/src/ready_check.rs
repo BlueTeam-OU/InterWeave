@@ -4,7 +4,8 @@
 //! `Native.identityState` answers for it, in a process that found the
 //! identity ready before, ahead of reading the record (`ready_state`),
 //! and what a flow's end does with it, by where the flow was opened
-//! (`render`). On every target, so the host tests it.
+//! (`render`); and whether `FLAG_SECURE` may go off when its off is
+//! asked (`secure_off`). On every target, so the host tests it.
 
 /// The answer before the record is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +83,13 @@ pub(crate) const fn at_flow_end(over: Over, kept: bool, start_asked: bool) -> At
     }
 }
 
+/// Whether `FLAG_SECURE` may go off now, with an identity flow showing
+/// or not and Show my address open or not: only with neither, since each
+/// draws what the flag secures and asks the off again at its own end.
+pub(crate) const fn secure_may_clear(flow_shows: bool, show_open: bool) -> bool {
+    !flow_shows && !show_open
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,5 +121,16 @@ mod tests {
             assert_eq!(at_flow_end(over, true, false), AtFlowEnd::Drop);
             assert_eq!(at_flow_end(over, false, true), AtFlowEnd::Drop);
         }
+    }
+
+    /// The flag stays on while a flow shows (K1 raised in the turn Show
+    /// my phrase ended, #615 F1) or Show my address is open (under a K1
+    /// a restore ended), and goes off only once neither draws.
+    #[test]
+    fn the_flag_goes_off_only_once_nothing_it_secures_is_drawn() {
+        assert!(secure_may_clear(false, false));
+        assert!(!secure_may_clear(true, false), "a flow shows");
+        assert!(!secure_may_clear(false, true), "Show is open");
+        assert!(!secure_may_clear(true, true));
     }
 }
