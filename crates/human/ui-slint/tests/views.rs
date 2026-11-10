@@ -118,7 +118,14 @@ fn intents(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
             match event {
                 ViewEvent::Intent(intent) => out.push(intent),
                 ViewEvent::DraftChanged { key, draft } => model.draft_changed(key, draft),
-                ViewEvent::Trust(input) => out.extend(model.trust_settings_mut().input(input)),
+                ViewEvent::Trust(input) => {
+                    // As the root's model side does: the Trust page
+                    // opened is the P-up line seen (unlock note section 4).
+                    if input == interweave_human_ui_model::TrustInput::Opened {
+                        let _ = model.unlock_line_seen();
+                    }
+                    out.extend(model.trust_settings_mut().input(input));
+                }
                 ViewEvent::Peers(input) => out.extend(model.peers_input(input)),
                 ViewEvent::Connect(input) => out.extend(model.connect_input(input)),
                 ViewEvent::Undo(id) => out.extend(model.undo(id)),
@@ -4465,4 +4472,685 @@ fn the_discard_notice_shows_once_under_session_notices_and_goes_on_close() {
         labelled(&view, text(UiText::StoreDiscarded)).is_empty(),
         "never again"
     );
+}
+
+// ---- The unlock note (design/2026-11-05-unlock-policy-pending.md) ----
+//
+// Section 8's precondition, at this layer: the four facts of section 3
+// reach the view as `UnlockFacts` (android-platform's `unlock_facts` maps
+// the status member and the diagnostic, `Unsynced` already classed
+// `OldKeyRemains` by `identity::reseal`).
+
+use interweave_human_ui_model::{KeyUnlock, ResealLeft, UnlockFacts, UnlockReason};
+
+const BG: KeyUnlock = KeyUnlock::BackgroundCompatible;
+const UP: KeyUnlock = KeyUnlock::UserPresence;
+const STORAGE: Option<ResealLeft> = Some(ResealLeft::Failed(UnlockReason::Storage));
+const KEYSTORE: Option<ResealLeft> = Some(ResealLeft::Failed(UnlockReason::Keystore));
+const K: Option<ResealLeft> = Some(ResealLeft::OldKeyRemains);
+
+fn facts(
+    in_force: KeyUnlock,
+    configured: Option<KeyUnlock>,
+    pending: Option<ResealLeft>,
+    d: Option<bool>,
+) -> UnlockFacts {
+    UnlockFacts {
+        in_force,
+        configured,
+        pending,
+        restart_needs_unlock: d,
+    }
+}
+
+thread_local! {
+    static PLATFORM: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A shown window, the testing platform set once per thread: a case
+/// that draws several states makes a view for each.
+fn unlock_view() -> View {
+    if !PLATFORM.with(|p| p.replace(true)) {
+        i_slint_backend_testing::init_no_event_loop();
+    }
+    let view = View::new(RuntimeHost::Daemon).expect("a window");
+    view.window().show().expect("shown");
+    view
+}
+
+/// The frame the event loop draws after a render, then its turns: a
+/// repeated element -- a line made by this render -- exists only once
+/// drawn, and the focus a render asks lands on the turns after it.
+fn drawn(view: &View) {
+    // The testing backend draws nothing: a query of the tree lays it out
+    // as a frame would, making the repeated elements.
+    let _ = i_slint_backend_testing::ElementQuery::from_root(view.window()).find_first();
+    settle();
+}
+
+/// P-up as most cases start: user-presence configured, a
+/// background-compatible record in force, Storage.
+fn p_up() -> UnlockFacts {
+    facts(BG, Some(UP), STORAGE, Some(false))
+}
+
+/// A model whose session runs, so no session notice shows, with `f`
+/// said for start 1, unseen.
+fn unlock_model(f: Option<UnlockFacts>) -> UiModel {
+    let mut model = UiModel::new();
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
+    model.unlock_facts(f, 1, false);
+    model
+}
+
+/// Unlock lines by focus key and words.
+type Rows = Vec<(String, String)>;
+
+/// The Trust page's unlock lines as drawn: their keys and words.
+fn unlock_rows(view: &View) -> Rows {
+    let rows = view.window().get_unlock_lines();
+    (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .map(|r| (r.key.to_string(), r.text.to_string()))
+        .collect()
+}
+
+fn p_text(head: UiText, reason: UiText) -> String {
+    [text(head), text(reason), text(UiText::UnlockTriesAgain)].join(" ")
+}
+
+/// TAB until focus is on `key`; panics past forty stops.
+fn tab_to(view: &View, key: &str) {
+    for _ in 0..40 {
+        if view.window().get_focus_id() == key {
+            return;
+        }
+        tab(view);
+    }
+    panic!("no TAB stop {key:?}");
+}
+
+/// The P-up notice's Details, found by its notice's words.
+fn details(view: &View) -> Option<ElementHandle> {
+    labelled(view, text(UiText::UnlockPendingDetails))
+        .into_iter()
+        .find(|e| e.accessible_description().as_deref() == Some(text(UiText::UnlockPendingNotice)))
+}
+
+fn notice_shown(view: &View) -> bool {
+    !labelled(view, text(UiText::UnlockPendingNotice)).is_empty()
+}
+
+/// Open the Trust page by App options and draw it, as the root does.
+fn on_trust(view: &mut View, model: &mut UiModel) {
+    open_trust(view);
+    let _ = intents(view, model);
+    view.render(model);
+    drawn(view);
+}
+
+/// A1: each row of section 3's table shows exactly its lines, in order,
+/// on the Trust page; D's line is absent in P-up and P-down whatever the
+/// diagnostic says; a mismatch with no reseal class reads Other.
+#[test]
+fn a1_each_state_shows_exactly_its_lines_in_order() {
+    let d = (
+        "unlock-d".to_owned(),
+        text(UiText::UnlockRestartNeedsUnlock).to_owned(),
+    );
+    let p = |head, reason| ("unlock-p".to_owned(), p_text(head, reason));
+    let k = (
+        "unlock-k".to_owned(),
+        text(UiText::UnlockOldKeyRemains).to_owned(),
+    );
+    let cases: [(&str, UnlockFacts, Rows); 9] = [
+        ("N", facts(BG, Some(BG), None, Some(false)), vec![]),
+        ("D", facts(UP, Some(UP), None, Some(true)), vec![d.clone()]),
+        (
+            "P-up, D's condition true",
+            facts(BG, Some(UP), STORAGE, Some(true)),
+            vec![p(
+                UiText::UnlockPendingNeedsLock,
+                UiText::UnlockReasonStorage,
+            )],
+        ),
+        (
+            "P-down, D's condition true",
+            facts(UP, Some(BG), KEYSTORE, Some(true)),
+            vec![p(UiText::UnlockPendingNoLock, UiText::UnlockReasonKeystore)],
+        ),
+        (
+            "Held: a mismatch with no class",
+            facts(BG, Some(UP), None, Some(false)),
+            vec![p(UiText::UnlockPendingNeedsLock, UiText::UnlockReasonOther)],
+        ),
+        (
+            "P-unknown with D",
+            facts(UP, None, STORAGE, Some(true)),
+            vec![
+                p(UiText::UnlockPendingUnknown, UiText::UnlockReasonStorage),
+                d.clone(),
+            ],
+        ),
+        (
+            "P-unknown without D",
+            facts(UP, Some(UP), KEYSTORE, Some(false)),
+            vec![p(
+                UiText::UnlockPendingUnknown,
+                UiText::UnlockReasonKeystore,
+            )],
+        ),
+        ("K", facts(BG, Some(BG), K, Some(false)), vec![k.clone()]),
+        ("K with D", facts(UP, Some(UP), K, Some(true)), vec![k, d]),
+    ];
+    for (name, f, want) in cases {
+        let mut view = unlock_view();
+        resize(&view, 390.0);
+        view.offer_show_phrase(|| {});
+        let mut model = unlock_model(Some(f));
+        view.render(&model);
+        on_trust(&mut view, &mut model);
+        assert_eq!(unlock_rows(&view), want, "{name}");
+        for (key, words) in &want {
+            let line = the(&view, words);
+            assert!(line.size().height > 0.0, "{name}: {key} laid out");
+        }
+    }
+    // No facts said: no line.
+    let mut view = unlock_view();
+    let mut model = unlock_model(None);
+    view.render(&model);
+    on_trust(&mut view, &mut model);
+    assert!(unlock_rows(&view).is_empty(), "no facts, no line");
+}
+
+/// A2: each P line with each reason carries that reason's sentence and
+/// no other, between its first sentence and `UnlockTriesAgain`.
+#[test]
+fn a2_each_p_line_carries_its_reason_alone_between_its_sentences() {
+    let reasons = [
+        (UnlockReason::Storage, UiText::UnlockReasonStorage),
+        (UnlockReason::Keystore, UiText::UnlockReasonKeystore),
+        (UnlockReason::Other, UiText::UnlockReasonOther),
+    ];
+    let ways = [
+        (BG, Some(UP), UiText::UnlockPendingNeedsLock),
+        (UP, Some(BG), UiText::UnlockPendingNoLock),
+        (UP, None, UiText::UnlockPendingUnknown),
+    ];
+    let mut view = unlock_view();
+    let mut model = unlock_model(None);
+    view.render(&model);
+    on_trust(&mut view, &mut model);
+    for (in_force, configured, head) in ways {
+        for (reason, said) in reasons {
+            model.unlock_facts(
+                Some(facts(
+                    in_force,
+                    configured,
+                    Some(ResealLeft::Failed(reason)),
+                    Some(false),
+                )),
+                1,
+                false,
+            );
+            view.render(&model);
+            let rows = unlock_rows(&view);
+            assert_eq!(rows.len(), 1, "{head:?} {reason:?}");
+            let line = &rows[0].1;
+            let rest = line
+                .strip_prefix(text(head))
+                .and_then(|r| r.strip_suffix(text(UiText::UnlockTriesAgain)))
+                .unwrap_or_else(|| panic!("{head:?}: head and tail in place: {line}"));
+            assert_eq!(rest.trim(), text(said), "{head:?} {reason:?}");
+            for (_, other) in reasons.iter().filter(|(r, _)| *r != reason) {
+                assert!(!line.contains(text(*other)), "{reason:?} carries no other");
+            }
+        }
+    }
+}
+
+/// A3: P-up with no other notice shows on Chats without taking focus,
+/// its words a polite live region; never in a narrow window's open
+/// conversation; any session notice goes in its place and it comes back
+/// when that clears; no other state shows it.
+#[test]
+fn a3_the_p_up_notice_shows_on_chats_below_every_session_notice() {
+    let mut view = unlock_view();
+    resize(&view, 390.0);
+    let mut model = unlock_model(Some(p_up()));
+    view.render(&model);
+    drawn(&view);
+    let before = view.window().get_focus_id();
+    assert!(notice_shown(&view), "on Chats");
+    assert!(details(&view).is_some(), "with Details");
+    assert_eq!(view.window().get_focus_id(), before, "takes no focus");
+    let words = the(&view, text(UiText::UnlockPendingNotice));
+    assert_eq!(
+        words.accessible_live_region(),
+        Some(i_slint_backend_testing::AccessibleLiveness::Polite),
+        "said politely, once, by its live region as it appears"
+    );
+
+    // A session notice in its place, and back when it clears.
+    model.network_access(false);
+    view.render(&model);
+    assert!(!notice_shown(&view), "network denied first");
+    assert!(!labelled(&view, text(UiText::NetworkDenied)).is_empty());
+    model.network_access(true);
+    view.render(&model);
+    assert!(notice_shown(&view), "back once it clears");
+    model.authentication_needed(true);
+    view.render(&model);
+    assert!(!notice_shown(&view), "the locked notice first");
+    model.authentication_needed(false);
+    view.render(&model);
+    view.show_once(UiText::StoreDiscarded);
+    view.render(&model);
+    assert!(!notice_shown(&view), "the discard's notice first");
+
+    // Never in an open conversation on a narrow window.
+    let mut view = interweave_view_with(&model);
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    drawn(&view);
+    assert!(
+        !view.window().get_list_shown(),
+        "control: the conversation is in front"
+    );
+    assert!(!notice_shown(&view), "not in the conversation");
+
+    // No other row shows it.
+    for f in [
+        facts(UP, Some(BG), STORAGE, Some(true)),
+        facts(UP, Some(UP), None, Some(true)),
+        facts(UP, Some(UP), K, Some(true)),
+        facts(UP, None, STORAGE, Some(true)),
+        facts(BG, Some(BG), None, Some(false)),
+    ] {
+        let mut view = unlock_view();
+        resize(&view, 390.0);
+        let model = unlock_model(Some(f));
+        view.render(&model);
+        assert!(!notice_shown(&view), "{f:?}");
+    }
+}
+
+/// A narrow view rendered from `model`.
+fn interweave_view_with(model: &UiModel) -> View {
+    let mut view = unlock_view();
+    resize(&view, 390.0);
+    view.render(model);
+    view
+}
+
+/// A3 on a wide window: the pane's notice slot, beside the list.
+#[test]
+fn a3_on_a_wide_window_the_p_up_notice_is_in_the_pane() {
+    let mut view = unlock_view();
+    resize(&view, 1000.0);
+    let model = unlock_model(Some(p_up()));
+    view.render(&model);
+    drawn(&view);
+    let shown = labelled(&view, text(UiText::UnlockPendingNotice));
+    assert_eq!(shown.len(), 1, "one notice");
+    assert!(shown[0].size().height > 0.0, "laid out");
+    // The pane's offline line goes before it, as a session notice does.
+    let mut model = model;
+    model.client_event(ClientEvent::Connectivity(Connectivity::Offline));
+    view.render(&model);
+    drawn(&view);
+    assert!(!notice_shown(&view), "the offline line first");
+    assert!(
+        !labelled(
+            &view,
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::OfflineBanner)
+        )
+        .is_empty()
+    );
+}
+
+/// A4 and A5: Details opens Trust with focus on the P-up line; Back is
+/// Chats with no notice and focus on the list heading; a next start with
+/// P-up still holding shows it again, the same start said again does
+/// not.
+#[test]
+fn a4_a5_details_opens_the_line_and_back_lands_on_the_heading() {
+    let mut view = unlock_view();
+    resize(&view, 390.0);
+    view.offer_show_phrase(|| {});
+    let mut model = unlock_model(Some(p_up()));
+    view.render(&model);
+    drawn(&view);
+    details(&view)
+        .expect("Details")
+        .invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    drawn(&view);
+    assert!(view.window().get_trust_page(), "Trust opened");
+    assert_eq!(view.window().get_focus_id(), "unlock-p", "on the P-up line");
+
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    drawn(&view);
+    assert!(!view.window().get_trust_page());
+    assert!(!notice_shown(&view), "seen");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "the list heading, not App options"
+    );
+
+    // The Activity made again in the same start: the hub says seen.
+    let mut again = view_after_recreate(Some(p_up()), 1, true);
+    assert!(!notice_shown(&again.0), "seen survives a recreation");
+    // A next start, P-up still holding: unseen again.
+    again.1.unlock_facts(Some(p_up()), 2, false);
+    again.0.render(&again.1);
+    assert!(notice_shown(&again.0), "the next start shows it again");
+}
+
+/// A fresh view and model, the facts said as the hub says them to an
+/// Activity made again.
+fn view_after_recreate(f: Option<UnlockFacts>, start: u64, seen: bool) -> (View, UiModel) {
+    let mut view = unlock_view();
+    resize(&view, 390.0);
+    let mut model = unlock_model(None);
+    model.unlock_facts(f, start, seen);
+    view.render(&model);
+    (view, model)
+}
+
+/// A6: P-up clears, or another notice replaces it, while Details has
+/// focus: focus is on the list heading.
+#[test]
+fn a6_the_notice_going_under_focus_hands_it_to_the_heading() {
+    for replace in [false, true] {
+        let mut view = unlock_view();
+        resize(&view, 390.0);
+        let mut model = unlock_model(Some(p_up()));
+        view.render(&model);
+        drawn(&view);
+        tab_to(&view, "unlock-details");
+        if replace {
+            model.network_access(false);
+        } else {
+            model.unlock_facts(Some(facts(UP, Some(UP), None, Some(false))), 2, false);
+        }
+        view.render(&model);
+        drawn(&view);
+        assert!(!notice_shown(&view), "replace {replace}: gone");
+        assert_eq!(
+            view.window().get_focus_id(),
+            "conversations-heading",
+            "replace {replace}"
+        );
+    }
+}
+
+/// A7: Trust from App options in P-up: `PeerId`, the line, Show recovery
+/// phrase in focus order; back on Chats, no notice.
+#[test]
+fn a7_trust_from_app_options_reads_peer_id_line_then_show_phrase() {
+    let mut view = unlock_view();
+    resize(&view, 390.0);
+    view.offer_show_phrase(|| {});
+    let mut model = unlock_model(Some(p_up()));
+    view.render(&model);
+    on_trust(&mut view, &mut model);
+    tab_to(&view, "own-peer-id");
+    assert_eq!(tab(&view), "unlock-p");
+    assert_eq!(tab(&view), "show-phrase");
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    drawn(&view);
+    assert!(!notice_shown(&view), "seen from App options too");
+    assert_eq!(view.window().get_focus_id(), "app-options", "as today");
+
+    // Two lines: each its own stop, in the table's order.
+    let mut view = unlock_view();
+    resize(&view, 390.0);
+    view.offer_show_phrase(|| {});
+    let mut model = unlock_model(Some(facts(UP, Some(UP), K, Some(true))));
+    view.render(&model);
+    on_trust(&mut view, &mut model);
+    tab_to(&view, "own-peer-id");
+    assert_eq!(tab(&view), "unlock-k");
+    assert_eq!(tab(&view), "unlock-d");
+    assert_eq!(tab(&view), "show-phrase");
+}
+
+/// A8: a line appearing on the open page is said once, focus unchanged.
+#[test]
+fn a8_a_line_appearing_is_said_once_and_moves_no_focus() {
+    let mut view = unlock_view();
+    resize(&view, 390.0);
+    let mut model = unlock_model(Some(facts(BG, Some(BG), None, Some(false))));
+    view.render(&model);
+    on_trust(&mut view, &mut model);
+    tab_to(&view, "own-peer-id");
+    model.unlock_facts(Some(facts(UP, Some(UP), None, Some(true))), 2, false);
+    view.render(&model);
+    drawn(&view);
+    assert_eq!(
+        announced(&view).as_deref(),
+        Some(text(UiText::UnlockRestartNeedsUnlock))
+    );
+    assert_eq!(view.window().get_focus_id(), "own-peer-id");
+    let before = slots(&view);
+    view.render(&model);
+    drawn(&view);
+    assert_eq!(slots(&view), before, "once");
+}
+
+/// A9: a P or K line clearing with focus on it hands focus to the
+/// `PeerId` field and says its ending once; D clearing says Applied only
+/// when the policy in force changed.
+#[test]
+fn a9_a_line_clearing_under_focus_goes_to_the_peer_id_and_says_why() {
+    let cases = [
+        (
+            "P",
+            facts(UP, Some(BG), KEYSTORE, Some(true)),
+            facts(BG, Some(BG), None, Some(false)),
+            "unlock-p",
+            Some(text(UiText::UnlockApplied)),
+        ),
+        (
+            "K",
+            facts(BG, Some(BG), K, Some(false)),
+            facts(BG, Some(BG), None, Some(false)),
+            "unlock-k",
+            Some(text(UiText::UnlockOldKeyRemoved)),
+        ),
+        (
+            "D by the policy",
+            facts(UP, Some(UP), None, Some(true)),
+            facts(BG, Some(BG), None, Some(false)),
+            "unlock-d",
+            Some(text(UiText::UnlockApplied)),
+        ),
+        (
+            "D by the mode",
+            facts(UP, Some(UP), None, Some(true)),
+            facts(UP, Some(UP), None, Some(false)),
+            "unlock-d",
+            None,
+        ),
+    ];
+    for (name, from, to, key, said) in cases {
+        let mut view = unlock_view();
+        resize(&view, 390.0);
+        let mut model = unlock_model(Some(from));
+        view.render(&model);
+        on_trust(&mut view, &mut model);
+        tab_to(&view, key);
+        let before = slots(&view);
+        model.unlock_facts(Some(to), 2, false);
+        view.render(&model);
+        drawn(&view);
+        assert!(unlock_rows(&view).is_empty(), "{name}: gone");
+        assert_eq!(view.window().get_focus_id(), "own-peer-id", "{name}");
+        match said {
+            Some(said) => assert_eq!(announced(&view).as_deref(), Some(said), "{name}"),
+            None => assert_eq!(slots(&view), before, "{name}: nothing said"),
+        }
+    }
+}
+
+/// A10: rotation, or a resize, with focus on a line keeps it there.
+#[test]
+fn a10_a_rotation_keeps_focus_on_the_line() {
+    let mut view = unlock_view();
+    resize(&view, 390.0);
+    let mut model = unlock_model(Some(facts(UP, Some(UP), K, Some(true))));
+    view.render(&model);
+    on_trust(&mut view, &mut model);
+    tab_to(&view, "unlock-d");
+    resize(&view, 800.0);
+    view.render(&model);
+    drawn(&view);
+    assert_eq!(view.window().get_focus_id(), "unlock-d", "landscape");
+    resize(&view, 390.0);
+    view.render(&model);
+    drawn(&view);
+    assert_eq!(view.window().get_focus_id(), "unlock-d", "and back");
+}
+
+/// A12: F9's transitions with the page open and a line focused: focus on
+/// the first line now in that place, the ending said first, then each
+/// line new or changed.
+#[test]
+fn a12_a_line_replaced_at_one_start_keeps_focus_in_place_and_says_it() {
+    let both = |a: &str, b: &str| fill(UiText::AnnounceBoth, &[("first", a), ("rest", b)]);
+    let d = text(UiText::UnlockRestartNeedsUnlock);
+    let cases: [(&str, UnlockFacts, bool, UnlockFacts, &str, &str, String); 5] = [
+        (
+            "P-up to D",
+            p_up(),
+            false,
+            facts(UP, Some(UP), None, Some(true)),
+            "unlock-p",
+            "unlock-d",
+            both(text(UiText::UnlockApplied), d),
+        ),
+        (
+            "P-down to K",
+            facts(UP, Some(BG), STORAGE, Some(false)),
+            false,
+            facts(BG, Some(BG), K, Some(false)),
+            "unlock-p",
+            "unlock-k",
+            both(
+                text(UiText::UnlockApplied),
+                text(UiText::UnlockOldKeyRemains),
+            ),
+        ),
+        (
+            "K with D to D",
+            facts(UP, Some(UP), K, Some(true)),
+            false,
+            facts(UP, Some(UP), None, Some(true)),
+            "unlock-k",
+            "unlock-d",
+            text(UiText::UnlockOldKeyRemoved).to_owned(),
+        ),
+        (
+            "Storage to Keystore",
+            p_up(),
+            false,
+            facts(BG, Some(UP), KEYSTORE, Some(false)),
+            "unlock-p",
+            "unlock-p",
+            p_text(UiText::UnlockPendingNeedsLock, UiText::UnlockReasonKeystore),
+        ),
+        (
+            "locked D to D",
+            facts(UP, Some(UP), None, Some(true)),
+            true,
+            facts(UP, Some(UP), None, Some(true)),
+            "unlock-d",
+            "unlock-d",
+            d.to_owned(),
+        ),
+    ];
+    for (name, from, locked, to, at, then, said) in cases {
+        let mut view = unlock_view();
+        resize(&view, 390.0);
+        let mut model = unlock_model(Some(from));
+        model.authentication_needed(locked);
+        view.render(&model);
+        on_trust(&mut view, &mut model);
+        tab_to(&view, at);
+        model.authentication_needed(false);
+        model.unlock_facts(Some(to), 2, false);
+        view.render(&model);
+        drawn(&view);
+        assert_eq!(view.window().get_focus_id(), then, "{name}");
+        assert_eq!(announced(&view).as_deref(), Some(said.as_str()), "{name}");
+    }
+}
+
+/// A13: locked, the locked notice shown: (a) D in its locked words, or
+/// none with foreground-only; (b) P-up on Trust and only the locked
+/// notice on Chats; (c) the mode unknown, no D; (d) P-down and no D.
+#[test]
+fn a13_locked_states_show_the_header_policy_lines() {
+    let locked_d = (
+        "unlock-d".to_owned(),
+        text(UiText::UnlockRestartNeedsUnlockLocked).to_owned(),
+    );
+    let cases: [(&str, UnlockFacts, Rows); 5] = [
+        (
+            "a, stay-reachable",
+            facts(UP, Some(UP), None, Some(true)),
+            vec![locked_d],
+        ),
+        (
+            "a, foreground-only",
+            facts(UP, Some(UP), None, Some(false)),
+            vec![],
+        ),
+        (
+            "b",
+            facts(BG, Some(UP), None, Some(false)),
+            vec![(
+                "unlock-p".to_owned(),
+                p_text(UiText::UnlockPendingNeedsLock, UiText::UnlockReasonOther),
+            )],
+        ),
+        ("c, mode unknown", facts(UP, None, None, None), vec![]),
+        (
+            "d",
+            facts(UP, Some(BG), None, Some(true)),
+            vec![(
+                "unlock-p".to_owned(),
+                p_text(UiText::UnlockPendingNoLock, UiText::UnlockReasonOther),
+            )],
+        ),
+    ];
+    for (name, f, want) in cases {
+        let mut view = unlock_view();
+        resize(&view, 390.0);
+        let mut model = unlock_model(Some(f));
+        model.authentication_needed(true);
+        view.render(&model);
+        drawn(&view);
+        assert!(
+            !labelled(&view, text(UiText::AuthenticationNeeded)).is_empty(),
+            "{name}: the locked notice"
+        );
+        assert!(
+            !notice_shown(&view),
+            "{name}: only the locked notice on Chats"
+        );
+        on_trust(&mut view, &mut model);
+        assert_eq!(unlock_rows(&view), want, "{name}");
+    }
 }
