@@ -34,6 +34,7 @@ use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustB
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
+use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end};
 use crate::unlock_route::{Route, UnlockRoute};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, prompt_line};
@@ -90,6 +91,10 @@ pub(crate) mod ask {
     /// `Native.showSecured`, after which the window draws its addresses;
     /// [`SECURE_OFF`] once a frame without it was drawn.
     pub(crate) const SHOW_SECURE: jint = 10;
+    /// K1 raised over a running window ([`super::raise_recovery`]):
+    /// `FLAG_SECURE` on before R2 can draw a word; [`SECURE_OFF`] once a
+    /// frame without the flow was drawn, as at a launch.
+    pub(crate) const SECURE_ON: jint = 16;
     /// Scan a code opened: the camera on, `CAMERA` asked first if the app
     /// does not hold it (add-a-peer §5.5: at the first Scan, nowhere else).
     pub(crate) const CAMERA_START: jint = 11;
@@ -185,6 +190,15 @@ struct Platform {
     /// acceptance 10). Show my phrase opens the record instead, and asks
     /// its own policy ([`opening_needs_presence`]).
     user_presence: bool,
+    /// `start` is a K1 [`recovery_refused`] kept in a process that found
+    /// the identity ready: whichever window opens it opens it as over a
+    /// running window ([`Over::Running`]), its end restarting the service
+    /// whether the binding was kept or not; the check of a window that
+    /// comes after its own went answers recovery ([`ready_state`]). A
+    /// later start that runs drops it ([`start_answered`]), as does the
+    /// end of the flow that shows it; Show my phrase's end keeps it
+    /// ([`render`]).
+    kept: bool,
 }
 
 static PLATFORM: Mutex<Option<Platform>> = Mutex::new(None);
@@ -245,31 +259,7 @@ pub(crate) fn identity_state(
             void_paper: onboarding::void_paper(&app_data_dir, PROFILE),
         }),
         Err(IdentityRefused::RecoveryRequired(cause)) => {
-            let paths = TrustBoundary::new(&app_data_dir)
-                .and_then(|boundary| ProfilePaths::resolve_embedded(PROFILE, boundary))
-                .ok();
-            Some(Start::Recovery {
-                reason: match cause {
-                    RecoveryCause::KeyInvalidated | RecoveryCause::KeyMissing => {
-                        RecoveryReason::Key
-                    }
-                    _ => RecoveryReason::Record,
-                },
-                // The PeerId the record's field names, read without the
-                // cipher whatever the envelope's state; none readable
-                // offers no restore (design section 3.4).
-                expected: paths.as_ref().and_then(|resolved| {
-                    match custody::named_identity(resolved) {
-                        Ok(RecordName::Names(peer)) => Some(peer),
-                        _ => None,
-                    }
-                }),
-                // Unresolved paths name no PeerId either, so K1 offers no
-                // restore and the line has nowhere to show.
-                new_keys: paths
-                    .as_ref()
-                    .is_some_and(|resolved| !crate::identity_keys::holds(resolved)),
-            })
+            Some(recovery_start(&app_data_dir, &cause))
         }
         Err(IdentityRefused::UserNotAuthenticated) => {
             // Nothing runs until the person authenticates: the window
@@ -306,8 +296,56 @@ pub(crate) fn identity_state(
         cipher: Arc::new(cipher),
         start,
         user_presence,
+        kept: false,
     });
     code
+}
+
+/// K1's start for a record refused for `cause` (design section 3.4).
+fn recovery_start(app_data_dir: &Path, cause: &RecoveryCause) -> Start {
+    let paths = TrustBoundary::new(app_data_dir)
+        .and_then(|boundary| ProfilePaths::resolve_embedded(PROFILE, boundary))
+        .ok();
+    Start::Recovery {
+        reason: match cause {
+            RecoveryCause::KeyInvalidated | RecoveryCause::KeyMissing => RecoveryReason::Key,
+            _ => RecoveryReason::Record,
+        },
+        // The PeerId the record's field names, read without the cipher
+        // whatever the envelope's state; none readable offers no restore
+        // (design section 3.4).
+        expected: paths
+            .as_ref()
+            .and_then(|resolved| match custody::named_identity(resolved) {
+                Ok(RecordName::Names(peer)) => Some(peer),
+                _ => None,
+            }),
+        // Unresolved paths name no PeerId either, so K1 offers no restore
+        // and the line has nowhere to show.
+        new_keys: paths
+            .as_ref()
+            .is_some_and(|resolved| !crate::identity_keys::holds(resolved)),
+    }
+}
+
+/// A start the Service made in this process answered `RecoveryRequired`
+/// for `cause`: K1 rises over whatever the window shows, Chats, a
+/// conversation or Settings, as it opens at a launch (design sections
+/// 3.4 and 8). Kept for the window, which raises it at its next turn
+/// ([`raise_recovery`]). Before `Native.identityState` answered in this
+/// process there is no window to raise it over, and the launch's own
+/// check finds the record refused.
+pub(crate) fn recovery_refused(app_data_dir: &Path, cause: &RecoveryCause) {
+    let start = recovery_start(app_data_dir, cause);
+    {
+        let mut platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(platform) = platform.as_mut() else {
+            return;
+        };
+        platform.start = Some(start);
+        platform.kept = true;
+    }
+    invoke_on_window(crate::activity::raise_recovery);
 }
 
 /// [`identity_state`] once this process found the identity ready: a
@@ -317,10 +355,22 @@ pub(crate) fn identity_state(
 /// note §11, L2 and L3): the locked view, the prompt or the focused
 /// notice, and a grant that starts the service again. A client already
 /// running holds its identity and is asked nothing. Any other answer of
-/// the record is the service's to report, so it reads as ready.
+/// the record is the service's to report, so it reads as ready -- but a
+/// K1 kept for a window, its own window gone, answers recovery, so the
+/// Activity sets `FLAG_SECURE` before this window draws it (#611 F1).
 fn ready_state(app_data_dir: &Path, cipher: &KeystoreCipher) -> jni::sys::jint {
-    if interweave_human_android_platform::ServiceHost::global().is_running() {
-        return state::READY;
+    let kept = PLATFORM
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .is_some_and(|p| p.kept && matches!(p.start, Some(Start::Recovery { .. })));
+    match crate::ready_check::before_reading(
+        interweave_human_android_platform::ServiceHost::global().is_running(),
+        kept,
+    ) {
+        Before::Ready => return state::READY,
+        Before::Recovery => return state::RECOVERY,
+        Before::ReadRecord => {}
     }
     let locked = match interweave_human_android_platform::start_identity(
         app_data_dir,
@@ -409,6 +459,19 @@ pub(crate) fn refused_locked() {
 pub(crate) fn start_answered(ran: bool) {
     route_state().answered(ran);
     clear_authentication();
+    // A K1 kept for a window is no longer owed once a start ran: the
+    // record opened after all (the identity hook's one refusal spent, or
+    // a restore through another window), and no later window opens it.
+    if ran
+        && let Some(platform) = PLATFORM
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+        && platform.kept
+    {
+        platform.start = None;
+        platform.kept = false;
+    }
 }
 
 /// The app's data directory and the Keystore bridge `Native.identityState`
@@ -462,6 +525,17 @@ fn now_ms() -> u64 {
     .unwrap_or(u64::MAX)
 }
 
+impl Over {
+    /// The ask that starts the service at the flow's end.
+    const fn start_ask(self) -> jni::sys::jint {
+        match self {
+            Self::Launch => ask::BIND,
+            Self::Settings => ask::ONLINE,
+            Self::Running => ask::RESTART,
+        }
+    }
+}
+
 struct Onboarding {
     view: Rc<RefCell<View>>,
     flow: IdentityFlow,
@@ -470,9 +544,9 @@ struct Onboarding {
     cipher: Arc<KeystoreCipher>,
     /// The presence window, and the key operation waiting on its prompt.
     gate: PresenceGate,
-    /// Show my phrase, from Settings: the service is bound already, and
-    /// is taken offline and back rather than bound (design section 3.5).
-    from_settings: bool,
+    /// Where the flow was opened, which says how its end starts the
+    /// service.
+    over: Over,
     /// The profile's lock, held from before the first word until the
     /// service is asked to start, and lent to each seal and restore
     /// (android-key-custody.md, Recovery). None where it could not be
@@ -481,7 +555,7 @@ struct Onboarding {
     /// Show my phrase asked the service to stop: whatever ends the flow
     /// must ask it back (#309 F2).
     offline_asked: bool,
-    /// The service was asked to start (BIND or ONLINE).
+    /// The service was asked to start (BIND, ONLINE or RESTART).
     service_asked: bool,
     /// Called once the flow hands over to the chats.
     done: Rc<dyn Fn()>,
@@ -508,12 +582,76 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         cipher,
         start: Some(start),
         user_presence,
+        kept,
     }) = platform.as_ref()
     else {
         return false;
     };
     // Before the network service is bound, so nothing else holds it.
     // Refused, no word is shown or taken until a Try again takes it.
+    let mut flow = IdentityFlow::new(english(), start.clone());
+    let lock = match onboarding::hold(app_data_dir, PROFILE) {
+        Ok(lock) => Some(lock),
+        Err(why) => {
+            flow.held(Err(failed(&why)));
+            None
+        }
+    };
+    let raised = matches!(start, Start::Recovery { .. });
+    // A K1 kept in a running process, its window gone: the service is
+    // bound or binds, and its end restarts it, as over a window. The flag
+    // is on already, set at the Activity's check; asked again for a
+    // window made with no check before it.
+    let over = if *kept {
+        ASKS.push(ask::SECURE_ON);
+        Over::Running
+    } else {
+        Over::Launch
+    };
+    let onboarding = Onboarding {
+        view: Rc::clone(view),
+        flow,
+        creation: None,
+        app_data_dir: app_data_dir.clone(),
+        cipher: Arc::clone(cipher),
+        gate: PresenceGate::new(*user_presence),
+        over,
+        lock,
+        offline_asked: false,
+        service_asked: false,
+        done: Rc::new(done),
+    };
+    drop(platform);
+    begin(view, onboarding);
+    // A refused start raised K1 in place of Chats: focus on its heading
+    // (section 8).
+    if raised {
+        view.borrow().raise_identity_heading();
+    }
+    true
+}
+
+/// K1 over `view`, the chats staying attached underneath, for a start
+/// [`recovery_refused`] kept; nothing while a flow shows already, whose
+/// end raises it or leaves it to the start it asks ([`render`]). Focus
+/// goes to its heading (section 8), and `FLAG_SECURE` goes on before R2
+/// can draw a word: K1 itself draws none. Its end starts the service
+/// again.
+pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
+    if ONBOARDING.with(|slot| slot.borrow().is_some()) {
+        return;
+    }
+    let platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(Platform {
+        app_data_dir,
+        cipher,
+        start: Some(start @ Start::Recovery { .. }),
+        user_presence,
+        ..
+    }) = platform.as_ref()
+    else {
+        return;
+    };
     let mut flow = IdentityFlow::new(english(), start.clone());
     let lock = match onboarding::hold(app_data_dir, PROFILE) {
         Ok(lock) => Some(lock),
@@ -529,15 +667,16 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
         gate: PresenceGate::new(*user_presence),
-        from_settings: false,
+        over: Over::Running,
         lock,
         offline_asked: false,
         service_asked: false,
-        done: Rc::new(done),
+        done: Rc::new(|| {}),
     };
     drop(platform);
+    ASKS.push(ask::SECURE_ON);
     begin(view, onboarding);
-    true
+    view.borrow().raise_identity_heading();
 }
 
 /// Settings' Show recovery phrase: S1 over `view`, the chats staying
@@ -566,7 +705,7 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
         gate: PresenceGate::new(user_presence),
-        from_settings: true,
+        over: Over::Settings,
         // Taken once the service has stopped (`offline`).
         lock: None,
         offline_asked: false,
@@ -613,6 +752,7 @@ static AFTER_PROMPT: Mutex<Option<jni::sys::jint>> = Mutex::new(None);
 fn locked_before_start(app_data_dir: &Path) {
     let host = interweave_human_android_platform::ServiceHost::global();
     host.locked_before_start(locked_status(app_data_dir, PROFILE, host.unlock_status()));
+    host.say_unlock(app_data_dir, PROFILE);
 }
 
 /// Nothing runs until the person authenticates: the window shows it,
@@ -717,11 +857,7 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
                     // acceptance 10; the custody doc's failure list).
                     Prompted::Dropped(Effect::StartService) => {
                         o.service_asked = true;
-                        await_authentication(if o.from_settings {
-                            ask::ONLINE
-                        } else {
-                            ask::BIND
-                        });
+                        await_authentication(o.over.start_ask());
                         // C4's or R4's continue ends on Chats with the
                         // notice focused; S2's Done on Settings, which
                         // keeps its own (identity note §10 item 10).
@@ -960,27 +1096,50 @@ fn render() {
         if o.gate.holding() {
             return None;
         }
-        if !o.service_asked && (!o.from_settings || o.offline_asked) {
+        if !o.service_asked && (o.over != Over::Settings || o.offline_asked) {
             ask_service(o);
         }
-        let cleared = o
-            .view
-            .borrow_mut()
-            .after_next_frame(|| ASKS.push(ask::SECURE_OFF));
+        let cleared = o.view.borrow_mut().after_next_frame(secure_off);
         if !cleared {
             log("no frame notifier: FLAG_SECURE stays on for this window");
         }
-        Some(Rc::clone(&o.done))
+        Some((Rc::clone(&o.done), o.over, o.service_asked))
     });
-    if let Some(done) = handover {
+    if let Some((done, over, start_asked)) = handover {
         ONBOARDING.with(|slot| slot.borrow_mut().take());
+        // A K1 a refused start kept while Show my phrase showed is still
+        // owed when Show my phrase ends: `raise_recovery` held back for it.
+        let mut raise = false;
         if let Ok(mut platform) = PLATFORM.lock()
             && let Some(platform) = platform.as_mut()
         {
-            platform.start = None;
+            match at_flow_end(over, platform.kept, start_asked) {
+                AtFlowEnd::Drop => {
+                    platform.start = None;
+                    platform.kept = false;
+                }
+                AtFlowEnd::Keep => {}
+                AtFlowEnd::Raise => raise = true,
+            }
         }
         done();
+        if raise {
+            invoke_on_window(crate::activity::raise_recovery);
+        }
     }
+}
+
+/// `FLAG_SECURE` off, once a frame without the flow was drawn or Show my
+/// address closed -- unless an identity flow shows by the time it is
+/// asked: K1 raised at Show my phrase's end begins in the same turn of
+/// the event loop, before that frame (#615 F1), and its own end asks again.
+pub(crate) fn secure_off() {
+    let showing = ONBOARDING.with(|slot| slot.try_borrow().map_or(true, |o| o.is_some()));
+    if showing {
+        log("an identity flow shows: FLAG_SECURE stays on");
+        return;
+    }
+    ASKS.push(ask::SECURE_OFF);
 }
 
 /// Ask the Activity to start the service: bound as a launch does after a
@@ -991,9 +1150,5 @@ fn ask_service(o: &mut Onboarding) {
     o.service_asked = true;
     clear_authentication();
     person_asked();
-    ASKS.push(if o.from_settings {
-        ask::ONLINE
-    } else {
-        ask::BIND
-    });
+    ASKS.push(o.over.start_ask());
 }

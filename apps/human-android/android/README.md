@@ -47,3 +47,20 @@ record.
   entry is the debug library's alone; `verifyReleaseNative` fails a
   release library that names it. `logcat -s interweave` shows its
   `store hook:` line.
+- **Refuse the store once, as its key invalidated**
+  (`adb shell am broadcast -a org.interweave.human.debug.REFUSE_STORE_KEY -p org.interweave.human`):
+  as the store hook above, for K: the next start to reach the store is
+  refused as a store whose key the Keystore invalidated, with its files
+  and its key left as they are, so K shows. Its Delete stored data… is a
+  real discard. Armed after the store hook and before a start, it is the
+  one met. Its line is `store hook:` too.
+- **Refuse the identity once, as needing recovery**
+  (`adb shell am broadcast -a org.interweave.human.debug.REFUSE_IDENTITY -p org.interweave.human`):
+  the next start the Service makes -- the restart hook's, Try again's, a
+  launch's once its check has passed -- answers `RecoveryRequired` as for
+  a key the platform invalidated, with the record left as it is, so K1
+  rises over the window with the record's PeerId. A restore with the
+  right phrase is a real one, and the restart after it opens the record
+  as before. The Activity's own check at a launch reads the record, not
+  the hook, so K1 in place of Chats before anything starts is identity
+  note item 9's. `logcat -s interweave` shows its `identity hook:` line.

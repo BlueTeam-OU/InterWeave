@@ -119,7 +119,7 @@ every one against 2.35 before packing, and starts each in a clean image
 of that glibc before anything is published. A local build is made
 against whatever glibc the builder has.
 
-From v0.1.1 the archive and its `.sha256` are signed: a `.minisig` beside
+From v0.2.0 the archive and its `.sha256` are signed: a `.minisig` beside
 each, made with the archive key whose public half is
 `packaging/release-keys.toml`'s `archive.minisign_public_key` on `main`,
 and the release run's provenance attestation names the run that built

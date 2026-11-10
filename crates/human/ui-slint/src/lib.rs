@@ -29,8 +29,8 @@ use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply, Retention,
     RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome,
-    TrustSettings, UiModel, UiText, announced_change, attention_class, fill, next_age_change,
-    placeholder_en, short_peer, waiting_text,
+    TrustSettings, UiModel, UiText, UnlockLineKind, announced_change, attention_class, fill,
+    next_age_change, placeholder_en, short_peer, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -53,6 +53,7 @@ mod store_screen;
 mod swipe;
 #[cfg(feature = "ui-trace")]
 mod trace;
+mod unlock;
 #[cfg(feature = "ui-trace")]
 pub use trace::{Prompt as TracedPrompt, prompt_line};
 mod window_marks;
@@ -346,6 +347,19 @@ enum Input {
     Chats,
 }
 
+/// Whether focus key `id` names a control of the identity page: its own
+/// `identity-` keys, and the headings R, K and K1 take when a refused
+/// start raises them. Focus on one goes with the page.
+fn on_identity_page(id: &str) -> bool {
+    id.starts_with("identity-")
+        || [
+            store_screen::R_HEADING,
+            store_screen::K_HEADING,
+            identity::K1_HEADING,
+        ]
+        .contains(&id)
+}
+
 /// An input the root applies before the next take, handed over as it
 /// is: a draft's edit, or a press on the trust settings, Peers or
 /// Connect, which the model judges when it applies it. Any other input is
@@ -434,6 +448,10 @@ struct Shared {
     /// came to (design/2026-10-21-contact-cards.md section 7.3). Held by
     /// the view alone, never stored.
     once_notice: Option<UiText>,
+    /// What the next Trust page open came from: the P-up notice's
+    /// Details puts focus on the P-up line, and leaving that page hands
+    /// focus to the list heading (unlock note section 6, F2 and F3).
+    trust_opened_by: unlock::OpenedBy,
     /// The trusted peers as rendered, by handle.
     trusted: HashMap<i32, TransportIdentity>,
     /// Peers' rows as rendered, by handle: the address and its peer.
@@ -942,8 +960,22 @@ pub struct View {
     /// no identity or store screen and no reader up takes focus there; one
     /// on another page spends it.
     locked_focus_wanted: std::cell::Cell<bool>,
+    /// The discard's notice asks focus once it shows
+    /// ([`Self::focus_once_notice`]).
+    once_focus_wanted: std::cell::Cell<bool>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
+    /// The Trust page's unlock lines as last drawn (unlock note section 5).
+    unlock_lines: unlock::Lines,
+    /// The P-up notice as last drawn.
+    unlock_notice: std::cell::Cell<bool>,
+    /// The notice the last render drew above the chats or in the pane, by
+    /// its trace name (#610 review F3).
+    #[cfg(feature = "ui-trace")]
+    drawn_notice: std::cell::Cell<Option<&'static str>>,
+    /// Where the Trust page shown came from, and whether the P-up
+    /// line's focus was asked for it (F2, F3).
+    unlock_details: unlock::Details,
     /// The page on show when the trust settings' latest outcome came. A
     /// trust step's outcome is its block's to say wherever it lands, and
     /// a read's that lands on Peers is its trust line's: neither is
@@ -1214,6 +1246,11 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_open_trust(move || enqueue(&s, Input::TrustPage(true)));
         let s = Rc::clone(&shared);
+        window.on_unlock_details(move || {
+            s.borrow_mut().trust_opened_by = unlock::OpenedBy::Details;
+            enqueue(&s, Input::TrustPage(true));
+        });
+        let s = Rc::clone(&shared);
         window.on_close_trust(move || enqueue(&s, Input::TrustPage(false)));
         let s = Rc::clone(&shared);
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
@@ -1271,7 +1308,13 @@ impl View {
             removing: None,
             focus_wanted: Rc::new(RefCell::new(None)),
             locked_focus_wanted: std::cell::Cell::new(false),
+            once_focus_wanted: std::cell::Cell::new(false),
             trust_announced: 0,
+            unlock_lines: unlock::Lines::default(),
+            unlock_notice: std::cell::Cell::new(false),
+            #[cfg(feature = "ui-trace")]
+            drawn_notice: std::cell::Cell::new(None),
+            unlock_details: unlock::Details::No,
             trust_outcome_on: Page::Conversation,
             peer_lists,
             cards: cards::CardScreens::default(),
@@ -1383,7 +1426,7 @@ impl View {
             page,
             model.connect_phase(),
             model.connectivity(),
-            model.session_notice(),
+            self.drawn_notice.get(),
             model.peers(),
             model.trust_settings(),
             |p| handles.of(p),
@@ -1607,8 +1650,8 @@ impl View {
             self.window.set_identity(page);
             self.window.set_identity_active(true);
         } else {
-            let focused_on_it = self.window.get_identity_active()
-                && self.window.get_focus_id().starts_with("identity-");
+            let focused_on_it =
+                self.window.get_identity_active() && on_identity_page(&self.window.get_focus_id());
             self.window.set_identity_active(false);
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
@@ -1637,6 +1680,18 @@ impl View {
         }
     }
 
+    /// A refused start raised the identity page this call or the last
+    /// [`show_identity`](Self::show_identity) showed, in place of what the
+    /// person was on or was opening: focus goes to the page's heading,
+    /// whatever had it under the page, so any on-screen keyboard closes
+    /// (design/2026-10-19-android-identity.md section 8). Only R, K and K1
+    /// have a heading stop; on another page the ask moves nothing. A start
+    /// refused again while the page shows did not raise it, so the root
+    /// does not ask then, and focus stays where it was.
+    pub fn raise_identity_heading(&self) {
+        self.window.set_identity_heading_wanted(true);
+    }
+
     /// Focus the locked notice's Unlock once it shows on Chats or in a
     /// conversation, at this render or once an identity or store screen,
     /// or the reader, over it goes: after a cancelled Unlock prompt, and at
@@ -1644,6 +1699,17 @@ impl View {
     /// other page focus stays where it is, and the ask is spent.
     pub fn focus_locked_notice(&self) {
         self.locked_focus_wanted.set(true);
+    }
+
+    /// Focus the discard's notice ([`Self::show_once`]) once it shows,
+    /// at this render or a later one: after a discard Chats opens with
+    /// focus on it (design/2026-10-21-contact-cards.md section 9, item 1's
+    /// focus table, "after a discard, Chats opens"). Not after an Unlock,
+    /// where the locked notice's leaving puts focus on the list heading
+    /// (unlock note F14). On another page focus stays, and the ask is
+    /// spent; its Close spends it too.
+    pub fn focus_once_notice(&self) {
+        self.once_focus_wanted.set(true);
     }
 
     /// Offer Show recovery phrase on Settings, under the `PeerId`, calling
@@ -2042,6 +2108,24 @@ impl View {
                     if open && self.page == Page::Peers && model.peers().show().is_some() {
                         out.push(ViewEvent::Peers(PeersInput::CloseShow));
                     }
+                    let by_details = std::mem::take(&mut self.shared.borrow_mut().trust_opened_by)
+                        == unlock::OpenedBy::Details;
+                    if open {
+                        self.unlock_details = if by_details {
+                            unlock::Details::Wanted
+                        } else {
+                            unlock::Details::No
+                        };
+                    } else if std::mem::replace(&mut self.unlock_details, unlock::Details::No)
+                        != unlock::Details::No
+                    {
+                        // Opened by Details, whose notice is gone now it
+                        // was seen: back on Chats, at the list heading
+                        // (F3), as the window did not ask the app options
+                        // button.
+                        self.focus_key_after_draw("heading".to_owned());
+                    }
+                    self.window.set_trust_by_details(open && by_details);
                     self.page = if open {
                         Page::Trust
                     } else {
@@ -2419,21 +2503,31 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
+        let unlock = self.render_unlock(model);
         // Before Peers, which draws the pages Connect opened by its page.
         let connect = self.render_connect(model);
         let peers = self.render_peers(model);
         let cards = self.render_cards(model);
         let window = self.render_window();
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let said = [conversation, trust, connect, peers, cards, window, outcome]
-            .into_iter()
-            .flatten()
-            .reduce(|first, rest| {
-                fill(
-                    placeholder_en::text(UiText::AnnounceBoth),
-                    &[("first", &first), ("rest", &rest)],
-                )
-            });
+        let said = [
+            conversation,
+            trust,
+            unlock,
+            connect,
+            peers,
+            cards,
+            window,
+            outcome,
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(|first, rest| {
+            fill(
+                placeholder_en::text(UiText::AnnounceBoth),
+                &[("first", &first), ("rest", &rest)],
+            )
+        });
         if let Some(said) = said {
             self.announce(said);
         }
@@ -3611,6 +3705,94 @@ impl View {
         }
     }
 
+    /// The P-up notice (unlock note section 4): the lowest of the
+    /// notices, so offered only when `free`, no session notice or discard's
+    /// notice in its slot, and drawn where the window places it, below the
+    /// pane's `offline` line too. When it goes with focus on its Details --
+    /// cleared, or another notice in its place -- focus goes to the list
+    /// heading (F4); a replacing notice says itself, as it does today.
+    /// Whether it is drawn, for the trace.
+    fn render_unlock_notice(&self, model: &UiModel, free: bool, offline: bool) -> bool {
+        let offered = free && model.unlock_notice();
+        let window = &self.window;
+        window.set_unlock_notice_shown(offered);
+        window.set_unlock_notice(placeholder_en::text(UiText::UnlockPendingNotice).into());
+        window.set_unlock_details_label(placeholder_en::text(UiText::UnlockPendingDetails).into());
+        // Where the window draws it: Chats' slot on a narrow window while
+        // the list shows, the pane's on a wide one unless the offline line
+        // is there -- the card's own conditions in app.slint (#610 review
+        // F2).
+        let shown = offered
+            && if window.get_narrow() {
+                window.get_list_shown()
+            } else {
+                !offline
+            };
+        let was = self.unlock_notice.replace(shown);
+        // Details' own press goes to the Trust page, which asks its line.
+        if was
+            && !shown
+            && self.page != Page::Trust
+            && self.window.get_focus_id() == "unlock-details"
+        {
+            self.focus_key_after_draw("heading".to_owned());
+        }
+        shown
+    }
+
+    /// The Trust page's unlock lines (unlock note sections 5 and 6): drawn
+    /// whenever they change, said only while the page is open, focus kept
+    /// on a line drawn again; and once, the P-up line focused when Details
+    /// opened the page (F2). The announcement, for the render's one.
+    fn render_unlock(&mut self, model: &UiModel) -> Option<String> {
+        let on_trust = self.page == Page::Trust;
+        let focus_id = self.window.get_focus_id();
+        let drawn = self.unlock_lines.draw(model, on_trust, focus_id.as_str());
+        if let Some(rows) = drawn.rows {
+            self.window
+                .set_unlock_lines(ModelRc::new(VecModel::from(rows)));
+        }
+        if let Some(focus) = drawn.focus.filter(|_| on_trust) {
+            self.focus_key_after_draw(focus);
+        }
+        if on_trust && self.unlock_details == unlock::Details::Wanted {
+            self.unlock_details = unlock::Details::Asked;
+            if model
+                .unlock_lines()
+                .iter()
+                .any(|line| line.kind() == UnlockLineKind::Pending)
+            {
+                self.focus_key_after_draw(unlock::key(UnlockLineKind::Pending).to_owned());
+            }
+        }
+        drawn.said
+    }
+
+    /// The discard's notice's focus: asked by [`Self::focus_once_notice`],
+    /// it lands on the notice's Close once the notice shows on Chats or
+    /// beside it -- `shown`, no session notice above it -- and no screen
+    /// is over it. On another page, or with the notice closed (`held`
+    /// false), the ask is spent.
+    fn follow_once_notice(&self, held: bool, shown: bool) {
+        if !self.once_focus_wanted.get() {
+            return;
+        }
+        if self.page != Page::Conversation || !held {
+            self.once_focus_wanted.set(false);
+        } else if shown && !self.window.get_identity_active() && self.reader.is_none() {
+            self.once_focus_wanted.set(false);
+            let on_chats = self.window.get_narrow() && self.window.get_list_shown();
+            self.focus_key_after_draw(
+                if on_chats {
+                    "chats-notice"
+                } else {
+                    "pane-notice"
+                }
+                .to_owned(),
+            );
+        }
+    }
+
     /// Focus the control whose focus key is `target`, once the render that
     /// draws it is done.
     fn focus_key(&self, target: String) {
@@ -3694,7 +3876,6 @@ impl View {
         window.set_state_glyph(glyph);
         let notice = model.session_notice();
         let was = std::mem::replace(&mut self.shared.borrow_mut().notice, notice);
-        self.follow_locked_notice(was, notice);
         // A conversation shows the device's state only while it is offline,
         // as its notice -- under one a person can act on, which says more
         // (#304 F7). Unknown shows nothing, never as offline.
@@ -3705,6 +3886,29 @@ impl View {
         } else {
             None
         };
+        // Before the locked notice's, whose ask, if any, is the later and
+        // wins.
+        let unlock = self.render_unlock_notice(
+            model,
+            notice.is_none() && self.shared.borrow().once_notice.is_none(),
+            offline.is_some(),
+        );
+        // The notice drawn in Chats' slot or the pane's, for the trace:
+        // what the window shows, never one held under another.
+        #[cfg(feature = "ui-trace")]
+        self.drawn_notice.set(
+            notice
+                .map(trace::session_notice)
+                .or_else(|| once.map(trace::once_notice))
+                .or_else(|| unlock.then_some("unlock-pending")),
+        );
+        #[cfg(not(feature = "ui-trace"))]
+        let _ = unlock;
+        self.follow_locked_notice(was, notice);
+        self.follow_once_notice(
+            self.shared.borrow().once_notice.is_some(),
+            notice.is_none() && once.is_some(),
+        );
         window.set_has_notice(notice.is_some() || offline.is_some() || once.is_some());
         // The discard's notice is about the whole client, as a session
         // notice is: Chats shows it too.

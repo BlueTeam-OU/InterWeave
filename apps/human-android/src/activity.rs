@@ -273,6 +273,21 @@ pub(crate) fn focus_locked_notice() {
 
 static NOTICE_FOCUS: AtomicBool = AtomicBool::new(false);
 
+/// K1 over the window that shows, for a start the Service made that
+/// answered `RecoveryRequired` (onboard.rs, `recovery_refused`); with no
+/// window, nothing here: the next window's check answers recovery for the
+/// K1 kept, and that window opens it (`ready_state`).
+pub(crate) fn raise_recovery() {
+    let Some(view) = VIEW.with(|view| view.borrow().clone()) else {
+        return;
+    };
+    if view.try_borrow_mut().is_err() {
+        defer(raise_recovery);
+        return;
+    }
+    crate::onboard::raise_recovery(&view);
+}
+
 fn apply_notice_focus() {
     let applied = VIEW.with(|view| {
         view.borrow().as_ref().map(|view| {
@@ -420,6 +435,10 @@ impl Opener for AndroidOpener {
             // opens only if the device still knows no one.
             log(&format!("the connect-owed marker: {why:?}"));
         }
+    }
+
+    fn unlock_line_seen(&mut self, start: u64) {
+        ServiceHost::global().hub().unlock_line_seen(start);
     }
 }
 
@@ -593,11 +612,11 @@ fn android_main(app: AndroidApp) {
     // window, as the phrase pages do (add-a-peer §5.4).
     view.guard_show(|on| {
         use crate::onboard::{ASKS, ask};
-        ASKS.push(if on {
-            ask::SHOW_SECURE
+        if on {
+            ASKS.push(ask::SHOW_SECURE);
         } else {
-            ask::SECURE_OFF
-        });
+            crate::onboard::secure_off();
+        }
     });
     // Scan a code: the Activity's camera, on while the viewfinder is open
     // (add-a-peer §5.5), offered only on a phone that has one.

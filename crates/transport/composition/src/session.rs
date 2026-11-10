@@ -735,14 +735,16 @@ impl AdminPort for InProcessAdmin {
         let connectivity = ask_driver(&driver, Request::Connectivity)
             .await?
             .ok_or(TransportError::BackendUnavailable)?;
-        // The funnel's and the ingress limiters' counts and the session
-        // queues' drops, from one of the substrate's own snapshots.
+        // The funnel's and the ingress limiters' counts, the session
+        // queues' drops and the ingress gate's refusals, from one of the
+        // substrate's own snapshots.
         let substrate = ask_driver(&driver, Request::Diagnostics)
             .await?
             .ok_or(TransportError::BackendUnavailable)?
             .substrate;
         let (funnel, ingress) = (substrate.pre_auth, substrate.ingress);
         let events_dropped = substrate.broadcast_queue_overflow_total;
+        let events_refused = substrate.broadcast_ingress_refused_total;
         // Not held past the driver's answers: a strong sender outliving
         // them would keep a dropped runtime's driver alive.
         drop(driver);
@@ -768,6 +770,7 @@ impl AdminPort for InProcessAdmin {
                 broadcast_tracked_peers: ingress.broadcast_tracked_peers,
             }),
             events_dropped: Some(events_dropped),
+            events_refused: Some(events_refused),
         })
     }
 

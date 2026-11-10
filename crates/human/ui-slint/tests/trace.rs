@@ -596,6 +596,50 @@ fn a_screen_change_says_where_focus_stands() {
     );
 }
 
+/// R raised by a refused start: the trace names its heading's own key,
+/// which is what identity note section 10 item 15 reads, and nothing
+/// else once it settled.
+#[test]
+fn a_raised_r_says_its_heading() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    use interweave_human_ui_slint::store_page;
+    let settle = || {
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(100));
+            slint::platform::update_timers_and_animations();
+        }
+    };
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let model = UiModel::new();
+    view.render(&model);
+    settle();
+
+    let first = said.borrow().len();
+    let r = store_page(&StoreRecovery::new(StoreScreen::Recovery, 1));
+    let title = r.title.to_string();
+    view.show_identity(Some(r));
+    view.raise_identity_heading();
+    // A headless window makes the heading, inside an `if`, only when the
+    // tree is walked; a real one draws first.
+    let _ = ElementHandle::find_by_accessible_label(view.window(), &title).count();
+    settle();
+    let focus: Vec<String> = said.borrow()[first..]
+        .iter()
+        .filter(|l| l.starts_with("ui-trace focus="))
+        .cloned()
+        .collect();
+    assert!(
+        !focus.is_empty() && focus.iter().all(|l| l == "ui-trace focus=r-heading"),
+        "R's heading, and only it, in {:#?}",
+        said.borrow()[first..].to_vec()
+    );
+}
+
 /// Welcome's two actions: TAB steps through them in reading order and
 /// round again, Shift+TAB back, and neither reaches the window behind.
 #[test]
@@ -1708,6 +1752,79 @@ fn the_app_bar_arrow_is_back_on_every_screen_that_has_one() {
     assert_eq!(page.last(), "ui-trace focus=identity-back");
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Back]);
+}
+
+/// The notice in Chats' slot is named whichever it is: the discard's
+/// shown once, and the unlock note's P-up notice, each under the
+/// session notices (j245 finding 2).
+#[test]
+fn the_discards_and_the_p_up_notice_are_named() {
+    use interweave_human_ui_model::{KeyUnlock, UnlockFacts};
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    // Wide: the pane carries the notice, under its offline line.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    slint::platform::update_timers_and_animations();
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    model.client_event(interweave_human_client_api::ClientEvent::Session(
+        interweave_human_client_api::SessionState::Ready { endpoint: None },
+    ));
+    model.unlock_facts(
+        Some(UnlockFacts {
+            in_force: KeyUnlock::BackgroundCompatible,
+            configured: Some(KeyUnlock::UserPresence),
+            pending: None,
+            restart_needs_unlock: Some(false),
+        }),
+        1,
+        false,
+    );
+    view.show_once(UiText::StoreDiscarded);
+    view.render(&model);
+    model.network_access(false);
+    view.render(&model);
+    model.network_access(true);
+    view.render(&model);
+    // Offline on this wide window: the pane's offline line hides both,
+    // so the trace names neither though both are held (#610 review F3).
+    model.client_event(interweave_human_client_api::ClientEvent::Connectivity(
+        interweave_human_client_api::Connectivity::Offline,
+    ));
+    view.render(&model);
+    model.client_event(interweave_human_client_api::ClientEvent::Connectivity(
+        interweave_human_client_api::Connectivity::OnlineDirect,
+    ));
+    view.render(&model);
+    press(&view, text(UiText::Close));
+    view.render(&model);
+    model.client_event(interweave_human_client_api::ClientEvent::Connectivity(
+        interweave_human_client_api::Connectivity::Offline,
+    ));
+    view.render(&model);
+    let said = said.borrow();
+    let notices: Vec<&String> = said
+        .iter()
+        .filter(|l| l.starts_with("ui-trace notice="))
+        .collect();
+    assert_eq!(
+        notices,
+        [
+            "ui-trace notice=store-discarded",
+            "ui-trace notice=network-denied",
+            "ui-trace notice=store-discarded",
+            "ui-trace notice=none",
+            "ui-trace notice=store-discarded",
+            "ui-trace notice=unlock-pending",
+            "ui-trace notice=none",
+        ],
+        "in {said:#?}"
+    );
 }
 
 /// A typed add refused is an answer the trace says, as a result is: a

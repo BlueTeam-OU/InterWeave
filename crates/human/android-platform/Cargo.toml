@@ -26,6 +26,8 @@ bip39 = { workspace = true }
 interweave-human-app-core = { path = "../app-core" }
 interweave-human-store = { path = "../store" }
 interweave-human-transport-client = { path = "../transport-client" }
+# The unlock note's facts as the view reads them (`ServiceHost::say_unlock`).
+interweave-human-ui-model = { path = "../ui-model" }
 interweave-local-client-api = { path = "../../api/local-client-api" }
 interweave-profile-config = { path = "../../config/profile-config" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
@@ -63,7 +65,6 @@ e2e-cases = ["dep:interweave-android-e2e-cases"]
 interweave-human-chat-protocol = { path = "../chat-protocol" }
 interweave-human-client-api = { path = "../client-api" }
 interweave-human-core = { path = "../core" }
-interweave-human-ui-model = { path = "../ui-model" }
 # The stand-ins on for this crate's own tests, as composition's test hooks
 # are: the service is started the way the debug APK starts it.
 interweave-human-android-platform = { path = ".", features = ["dev-stand-ins", "e2e-cases", "test-hooks"] }

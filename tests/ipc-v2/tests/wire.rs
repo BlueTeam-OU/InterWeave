@@ -873,6 +873,11 @@ async fn an_unleased_connection_holds_commands_and_cannot_send_direct() {
 /// and the queue are all full. The queue is bounded at 16, the profile's
 /// least, so it fills well inside the writer's stall limit, which would
 /// otherwise close the client first and end its session.
+///
+/// And the overflow is no refusal: `ipc.events_refused_total` is served
+/// to the connection that negotiated 2.13, kept and so emitted, and
+/// stays 0 throughout; the connection at 2.12 is served the 1.1 block,
+/// without it (`REFUSED_TOTAL_SINCE_MINOR`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
     use interweave_ipc_protocol::{ChannelParams, PublishParams, Request};
@@ -889,21 +894,38 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
         16,
     )
     .await;
-    let mut admin = Client::connect(&node.paths.admin).await;
-    admin.hello(ADMIN).await;
+    let since = interweave_ipc_protocol::REFUSED_TOTAL_SINCE_MINOR;
+    let mut older = Client::connect(&node.paths.admin).await;
+    older
+        .hello(&ADMIN.replace(r#""minor":0"#, &format!(r#""minor":{}"#, since - 1)))
+        .await;
+    let mut current = Client::connect(&node.paths.admin).await;
+    current
+        .hello(&ADMIN.replace(r#""minor":0"#, &format!(r#""minor":{since}"#)))
+        .await;
     let mut asked = 0_u32;
     let mut dropped = async || {
-        asked += 1;
-        admin
-            .send(&request_body(
-                &format!("status-{asked}"),
-                Request::AdminStatus,
-            ))
-            .await;
-        let answer: Value = serde_json::from_str(&admin.response().await).expect("json");
-        answer["result"]["ipc"]["events_dropped_total"]
+        let mut status = async |admin: &mut Client| -> Value {
+            asked += 1;
+            admin
+                .send(&request_body(
+                    &format!("status-{asked}"),
+                    Request::AdminStatus,
+                ))
+                .await;
+            let answer: Value = serde_json::from_str(&admin.response().await).expect("json");
+            answer["result"]["ipc"].clone()
+        };
+        let (old, new) = (status(&mut older).await, status(&mut current).await);
+        assert!(
+            old.get("events_refused_total").is_none(),
+            "below 2.13, the 1.1 block: {old}"
+        );
+        assert_eq!(new["events_refused_total"], 0, "no refusal: {new}");
+        assert_eq!(old["events_dropped_total"], new["events_dropped_total"]);
+        new["events_dropped_total"]
             .as_u64()
-            .unwrap_or_else(|| panic!("the count is kept, so emitted: {answer}"))
+            .unwrap_or_else(|| panic!("the count is kept, so emitted: {new}"))
     };
     assert_eq!(dropped().await, 0, "nothing dropped yet");
 
@@ -968,7 +990,7 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
         publish().await;
     }
     assert_eq!(dropped().await, first + 5, "one per broadcast, counted");
-    drop((stalled, publisher, admin));
+    drop((stalled, publisher, older, current));
     node.stop().await;
 }
 

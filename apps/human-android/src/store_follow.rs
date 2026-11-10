@@ -109,6 +109,18 @@ pub(crate) const fn release(at: u64, answer: Option<Answer>, generation: u64) ->
     }
 }
 
+/// Whether [`Follow::Show`] of `screen` raises it -- in place of what the
+/// person was on, or of the other store screen -- so that focus goes to
+/// its heading. Shown again while the same screen shows, after a
+/// discard's restart was refused, it was not raised, and focus stays
+/// (identity note section 8).
+pub(crate) const fn raised(shown: Option<ShownState>, screen: StoreScreen) -> bool {
+    match shown {
+        None => true,
+        Some(s) => !same(s.screen, screen),
+    }
+}
+
 const fn same(a: StoreScreen, b: StoreScreen) -> bool {
     matches!(
         (a, b),
@@ -143,6 +155,22 @@ mod tests {
         assert_eq!(follow(None, OPENED, 2), Follow::Keep);
         assert_eq!(follow(None, None, 0), Follow::Keep, "no start answered");
         assert_eq!(follow(Some(shown(R, None)), None, 0), Follow::Keep);
+    }
+
+    /// A screen shown over none, or over the other store screen, is
+    /// raised, so its heading takes focus; the same screen shown again
+    /// after a discard was not (identity note section 8).
+    #[test]
+    fn a_screen_is_raised_unless_it_already_shows() {
+        assert!(raised(None, R), "over Chats or a conversation");
+        assert!(raised(None, K));
+        assert!(raised(Some(shown(R, None)), K), "K in place of R");
+        assert!(raised(Some(shown(K, Some(1))), R), "R in place of K");
+        assert!(
+            !raised(Some(shown(R, Some(1))), R),
+            "R again after its discard's restart was refused"
+        );
+        assert!(!raised(Some(shown(K, None)), K));
     }
 
     /// A start refused elsewhere is not an opened store: with no discard

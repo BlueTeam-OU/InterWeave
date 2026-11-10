@@ -23,7 +23,7 @@
 
 use interweave_human_app_core::{ModelSide, Opener, Surface};
 
-use crate::hub::{StoreAnswer, StoreGeneration, ToView};
+use crate::hub::{StoreAnswer, StoreGeneration, ToView, UnlockSaid};
 
 /// The store could not be listed for this view: what it holds stays
 /// unshown until the view attaches again. A class, never content.
@@ -43,6 +43,8 @@ pub struct ViewSide<S: Surface, O: Opener> {
     store: Option<(StoreAnswer, StoreGeneration)>,
     /// Whether the service runs, as the hub last said.
     running: bool,
+    /// The unlock facts, as the hub last said them.
+    unlock: Option<UnlockSaid>,
     /// The model the last stop set aside, stopped: shown again if the
     /// lock is said while nothing runs, its drafts carried by the next
     /// start.
@@ -60,6 +62,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             authentication: false,
             store: None,
             running: false,
+            unlock: None,
             kept: None,
         }
     }
@@ -102,6 +105,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 // model keeps what the hub last said of it.
                 self.side.network_access(self.network);
                 self.side.authentication_needed(self.authentication);
+                self.say_unlock();
                 if !running && self.authentication {
                     self.show_kept();
                 }
@@ -127,6 +131,10 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             }
             ToView::Update(update) => self.side.apply(*update),
             ToView::ListingFailed => return Err(ListingFailed),
+            ToView::Unlock(said) => {
+                self.unlock = Some(said);
+                self.say_unlock();
+            }
             ToView::Store(answer, generation) => {
                 // Any other answer is a start that ran or was refused for
                 // a reason other than the lock: what it showed replaced the
@@ -156,6 +164,18 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             kept.carry_drafts(self.side.drafts());
             kept.remade();
             self.side = kept;
+            // Set aside before the facts a refused restart learnt: the
+            // locked Trust page shows the hub's last word, not the
+            // running client's (unlock note A13(b); #610 review F1).
+            self.say_unlock();
+        }
+    }
+
+    /// The unlock facts as the hub last said them, to the model shown:
+    /// they outlive a change of the running state, as the record does.
+    fn say_unlock(&mut self) {
+        if let Some(said) = self.unlock {
+            self.side.unlock_facts(said.facts, said.start, said.seen);
         }
     }
 
@@ -470,6 +490,54 @@ mod tests {
         assert_eq!(
             model(&side).session_notice(),
             Some(SessionNotice::Reconnecting)
+        );
+    }
+
+    /// A restart refused for the person after the client ran shows the
+    /// model the stop set aside, with the unlock facts that restart
+    /// learnt, said before the lock: the locked P-up line, not the
+    /// running client's none (unlock note A13(b); #610 review F1).
+    #[test]
+    fn the_kept_model_shown_at_a_lock_takes_the_last_unlock_facts() {
+        use interweave_human_ui_model::{KeyUnlock, UnlockFacts, UnlockLine};
+        let facts = |configured| {
+            Some(UnlockFacts {
+                in_force: KeyUnlock::BackgroundCompatible,
+                configured: Some(configured),
+                pending: None,
+                restart_needs_unlock: Some(false),
+            })
+        };
+        let mut side = view_side();
+        side.apply(ToView::Running(true)).expect("applied");
+        side.apply(ToView::Unlock(crate::hub::UnlockSaid {
+            facts: facts(KeyUnlock::BackgroundCompatible),
+            start: 1,
+            seen: false,
+        }))
+        .expect("applied");
+        assert!(model(&side).unlock_lines().is_empty(), "the control: N");
+        side.apply(ToView::Running(false)).expect("applied");
+        side.apply(ToView::Unlock(crate::hub::UnlockSaid {
+            facts: facts(KeyUnlock::UserPresence),
+            start: 1,
+            seen: false,
+        }))
+        .expect("applied");
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        assert_eq!(
+            model(&side).session_notice(),
+            Some(SessionNotice::AuthenticationNeeded),
+            "the kept model, locked"
+        );
+        assert!(
+            matches!(
+                model(&side).unlock_lines()[..],
+                [UnlockLine::Pending { .. }]
+            ),
+            "{:?}",
+            model(&side).unlock_lines()
         );
     }
 

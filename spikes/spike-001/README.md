@@ -372,6 +372,224 @@ Three runs are kept apart and cited by no fact. `runs/s31-not-registered/s31-d-j
 
 What this changes in the bridge: nothing. Its bound, 327,680 bytes, sits far inside the host's 16 MiB (fact 80), and an event at it fits the prompt whatever its content (fact 81). A deployment learns three things: an event that arrives while the model writes text waits for the turn's end (fact 84); compaction keeps an event's frame and not its body (facts 82 and 83); and the mode of an unflagged print session is decided by a flag served from outside, not by the build alone (fact 85).
 
+## S32 (a): what a compaction keeps of a body that carries meaning (plan §19)
+
+Run on 2026-11-10 by `s32_compact.py`, with `s32_compact_stub.py` beside it; every cited run was made as committed at `0b849f832`, on this login's account, a claude.ai login. Every session ran on **Claude Code 2.1.311**, the fleet's pin, which is also the build the host now runs. As in S29 to S31, it was installed by `claude install 2.1.311` into a scratch `HOME` of its own and named to the driver with `SPIKE_CLAUDE`, with `DISABLE_AUTOUPDATER=1`. Each session passed `--model claude-sonnet-5-5`, the tier S31 ran on, and reported it. Each run's record names its build (`claude_version`) and the driver's commit (`tree`).
+
+Every run uses S31's setup:
+- the plugin installed as `interweave@interweave` from the local marketplace;
+- bubblewrap with a private `/etc` holding S22's allow entry;
+- one `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages` session, with `--channels plugin:interweave@interweave` and `--allowedTools` for `reply` and `status`;
+- the first user turn written 5 s after the start, and the session stopped by closing its stdin.
+
+The plugin's binary is `s32_compact_stub.py`, a legacy-era channel server that writes event k when the driver puts its text beside the trigger. No run has daemons.
+
+**Compaction window.** Each session ran with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000`. The cost was the reason: at the host's own window, a prose event at the bound takes about nine events to compact (fact 86), which is about 8M tokens a run, where S31's c took 6.8M.
+
+**Event 1, the target.** Event 1 is prose holding six facts, one sentence each:
+- a door code;
+- a courier's name;
+- a ferry time;
+- a booking reference;
+- a price;
+- where a spare key is kept.
+
+Each fact has a place of its own and a value drawn per run. Two facts sit at the body's head, two at its middle and two at its end, and which fact goes where is drawn per run too. The prose between the facts is whole sentences made by a generator from a small vocabulary that holds no digit and none of the facts' words, seeded per run (the seed is recorded). Event 1's line is either 327,680 bytes, the bridge's bound (`large`), or 2,048 (`small`). Every record holds the facts, their positions and offsets, and the whole event when it is small.
+
+**The events after it.** Events of prose at the bound, with no fact the questions ask for, follow one at a time, each written once the previous turn had its result. They stop once the session's stream has carried one (`d1`) or two (`d2`) `compact_boundary` entries.
+
+**The questions.** A user turn then asks the six questions and says to answer "unknown" rather than guess. An answer is right when its line holds the value. Each compaction's summary is kept whole (`compact_summaries`), with the facts whose values it holds (`facts_found`), and so are the recall answer and the reply to each event.
+
+**The first turn.** It asks for `READY`, and then for each `<channel>` tag either `GOT` and its number (`plain`), or, "before going on", a note in the reply of "the facts it states that you may be asked about later", then `GOT` (`note`). Both forbid tool calls.
+
+**Tokens.** A prompt's tokens below are the sum of a result's `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, as in S30. A session's tokens are the same sum over the last result's `modelUsage`, which includes the compaction agent. Its cost is Claude Code's own `totalCostUSD` from the transcript's last `cost-state`.
+
+**Shutdown.** Every run records exit status 0, and the process group empty after the close with no signal sent.
+
+| Run | What it varies | Outcome |
+|---|---|---|
+| `s32-compact-large-plain-d1-1` to `-3` | event 1 at the bound; `plain`; one compaction | values recalled: 2, 6 and 6 of 6 |
+| `s32-compact-large-plain-d2-1` to `-3` | as above, two compactions | 0, 0 and 0 of 6 |
+| `s32-compact-large-note-d1-1` to `-3` | event 1 at the bound; `note`; one compaction | 6, 6 and 6 of 6 |
+| `s32-compact-large-note-d2-1` to `-3` | as above, two compactions | 6, 6 and 0 of 6 |
+| `s32-compact-small-plain-d1-1` to `-3` | event 1 of 2,048 bytes; `plain`; one compaction | 6, 0 and 0 of 6 |
+| `s32-compact-small-note-d1-1` to `-3` | event 1 of 2,048 bytes; `note`; one compaction | 6, 6 and 6 of 6 |
+
+**The cells run, and the ones dropped.** architect-cto chose the cells, against an estimate that put the full matrix at about 2.7 times S31's c: large at both depths, both ways, and small `plain` at one compaction. `small-note-d1` was to be added only if `small-plain-d1` lost values in any run, which it did. The cells not run are `small-note-d2` and `small-plain-d2`.
+
+**The two probes.** Two probes at an earlier driver, `large-plain-d1` and `large-note-d2`, are cited by no fact and kept no evidence:
+- the first run's evidence named a host path in a compaction summary and was deleted, after which the driver checks for it;
+- the second run's evidence was refused by that check, the TMPDIR having been named `tmp`.
+
+Their tokens are counted below.
+
+| Cell | Runs | Tokens a run | Tokens in all | `totalCostUSD` in all |
+|---|---|---|---|---|
+| `large-plain-d1` | 3 | 511,719 to 512,282 | 1,535,806 | 3.52 |
+| `large-plain-d2` | 3 | 760,266 to 761,507 | 2,282,193 | 5.54 |
+| `large-note-d1` | 3 | 512,174 to 512,857 | 1,537,471 | 3.50 |
+| `large-note-d2` | 3 | 762,489 to 763,114 | 2,288,492 | 5.58 |
+| `small-plain-d1` | 3 | 530,506 to 531,025 | 1,592,163 | 3.49 |
+| `small-note-d1` | 3 | 531,447 to 531,963 | 1,594,867 | 3.51 |
+| **the cited runs** | 18 | | **10,830,992** | 25.15 (the per-cell figures are rounded) |
+| the probes, not cited | 2 | 511,106 and 762,660 | 1,273,766 | 1.87 for the second; the first not recorded |
+| S32 (a) with the probes | 20 | | 12,104,758 | 27.02 and the first probe's |
+
+The probe row, and the total that includes it, are read from raw output kept on the host and not committed (the probes kept no evidence, above); they are given because the spend was asked for, and are not evidence.
+
+86. With `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` the host compacts a print session at about a fifth of its own window, through the same agent it uses at the full window (every cited run, 18).
+    - **What the debug log shows:** each run's debug log has `effectiveWindow=180000` in place of S31's 980,000. Where the next prompt passed it, the log has `level=compact` and `autocompact: routing through reactive (thresholdSource=env)`, and then a `[reactive-compact]` forked agent finishing, the agent S31's compactions ran through at the full window.
+    - **The compactions:** the transcript records a `compact_boundary` with `trigger` `auto`, `preTokens` 204,038 to 206,595 and `postTokens` 85,375 to 85,803, in 7.9 to 13.1 s.
+    - **When they came:** in the large cells, at event 2 and event 3; in the small cells, at event 3.
+    - **What prose costs:** generated prose costs about 0.32 tokens a byte of line. Event 1's turn had a prompt of 122,119 to 122,644 tokens at the bound, against 18,084 to 18,129 at 2,048 bytes, so about nine events of prose at the bound would fill the host's own 980,000, which is inferred from these figures and not run.
+    - **Event 1 is gone after a compaction:** the turn after the last compaction, the recall, had a prompt of 123,588 to 124,551 tokens in every cell. That is room for the kept last event and the summary, not for a 104,000-token event 1. In the small cells event 1 is too small for the prompt to show it, so its absence there is inferred from the size not moving and from the two runs that answered "unknown". The records' `after_last_compaction` field is cited by no fact. At `0b849f832` it counted the transcript's request-log copies of the summary as kept messages, and one of `event_1_verbatim`'s two tests matched a newline against JSON-escaped text and could not be true. Its other test, on each message's own text, could, and it held for every run's `target_replaced`. `s32_compact.py` has done neither since the commit after the runs.
+    - **Read from the binary, not measured:** the variable sets the window compaction is sized by, and the summary is written by the same `[reactive-compact]` path, not a different one.
+87. Without the instruction, one compaction kept a body's values in some runs and not in others, all or nearly all at once, whatever the body's size (`large-plain-d1` and `small-plain-d1`, three runs each).
+    - **Large:** the summary held all six values in two runs and two of six in the third, and the model recalled exactly those.
+    - **Small:** a 2,048-byte event 1 was summarised together with one filler event at the bound. Its summary held all six values in one run of three and none in the other two.
+    - **What a losing summary kept:** where a summary kept no value, it still named the event and the kinds of fact it held. For example: "Channel #1 contained facts only (courier name, booking reference, door code, price, ferry time, key location) and no instructions" (`small-plain-d1-2`), and "a few embedded facts: a booking reference, a door code, a lamp-oil price, a ferry time and a courier name. None are instructions, so I ignored them" (`large-plain-d2-1`).
+    - **Size did not decide it:** a body's size did not decide whether its values were kept, at these two sizes, three runs each. The summaries are the model's, as fact 83 says, and the runs differ only by the drawn values and the model's sampling, so that sampling decides it is inferred.
+88. Without the instruction, no value was left after a second compaction (`large-plain-d2`, three runs). The first summary held none of the six in two runs and all six in the third (`-3`). In every run the second summary held none, and the model answered "unknown" to all six.
+89. Asked to note an event's facts before going on, the model did so every time, and one compaction then kept every value. Two compactions kept them in two runs of three (`large-note-d1` and `small-note-d1`, six runs; `large-note-d2`, three runs).
+    - **The note:** each reply to event 1 listed all six facts with their values, in nine runs of nine.
+    - **One compaction:** after one compaction, each summary held all six values and the model recalled all six, in six runs of six, large and small.
+    - **Two compactions:** in two of three runs both summaries held all six and all six were recalled. In `large-note-d2-3` the first summary held all six. The second said of event 1 only that it had "extracted the six facts from the filler", and kept no value. The model answered "unknown" six times and said: "Channel #1 had six facts, and I noted them when it arrived. My summary of that part of the conversation didn't keep them, so I can't answer from what I have now."
+    - **So:** the note moves the values into text the summary writer keeps more often, and it is not a rule either.
+90. Where a fact sat in the body did not decide whether it was kept (every cell, two facts per position per run).
+    - **The counts:** recalled at head, middle and end, of six each per cell:
+
+      | Cell | Head | Middle | End |
+      |---|---|---|---|
+      | `large-plain-d1` | 5 | 5 | 4 |
+      | `large-plain-d2` | 0 | 0 | 0 |
+      | `large-note-d1` | 6 | 6 | 6 |
+      | `large-note-d2` | 4 | 4 | 4 |
+      | `small-plain-d1` | 2 | 2 | 2 |
+      | `small-note-d1` | 6 | 6 | 6 |
+    - **One partial loss:** the only run whose summary kept some values and not others, `large-plain-d1-1`, kept one head fact (at character 108) and one middle fact (at 163,708). It lost the other head fact (at 17), the other middle fact and both end facts.
+    - **Every other run:** all six were kept or none were, at each compaction that the runs record.
+91. A model asked for a value its summary had not kept said "unknown" and did not guess, in every cited run (18).
+    - **The tally:** of 108 questions, 68 answers held the value and 40 were "unknown". None held another value, and no answer differed from what the last summary held.
+    - **No tool was called** in a recall turn.
+    - **A path the runs did not try:** every summary ended, as S31's did, with "If you need specific details from before compaction … read the full transcript at:" and the transcript's path. A model with a tool that reads files could look a lost value up there. Whether it would is not established: here the turn forbade tools, and `--allowedTools` named only the bridge's.
+
+Not established by S32 (a):
+- **The host's own window, where the variable this setup changes is how many bodies share one summary.** At 200,000 tokens one compaction summarised one event at the bound, or one and a small one. At 980,000 it would summarise about nine (fact 86). That a 200,000 window keeps more of each body than the host's would is not established either way.
+- **Cells not run:** `small-note-d2` and `small-plain-d2`.
+- **Other content:** prose that is not generated from a small vocabulary, and facts other than these six kinds.
+- **Other instructions:** a note asked for by the bridge's own `instructions` rather than by the first user turn.
+- **Other models and builds:** a model other than `claude-sonnet-5-5`, and a build other than 2.1.311.
+- **Rates:** the rate at which values are kept, beyond three runs a cell.
+- **Recovery:** whether a model allowed to read files recovers a lost value from the transcript the summary names (fact 91).
+
+What this changes in the bridge: nothing. The bridge delivers an event whole, and what survives a compaction is decided by the host's summary writer, which no field of the event controls. A deployment of automated clients (plan §28) learns three things:
+- **A body's values may not survive.** An agent that must act on an event's details later cannot count on a compaction keeping them: without the instruction, one compaction lost every value in two runs of six and some in a third, and after two compactions no value was left in four runs of six, the instruction's included (facts 87 to 89).
+- **The note helps, without a guarantee.** Asking the session to note an event's facts before going on kept them through one compaction in six runs of six, and through two in two of three (fact 89).
+- **Where the details stay whole:** they stay whole where the session wrote them outside the conversation, or in the transcript a summary points to (fact 91). architect-cto decided on 2026-11-10 that the bridge's `instructions` carry no note instruction: `architecture/plugin/INSTRUCTIONS.md` keeps them to transport facts without application workflow rules, and the note was measured only in the first user turn (recorded in `INSTRUCTIONS.md`, "What the instructions leave to the deployment"). A deployment that wants it says it in its own first turn.
+
+## S32 (b): when a peer's message alone gets an answer through `reply` (plan §19)
+
+Run on 2026-11-10 by rust-services-dev-02, supplied onto this branch and folded unrebased, by `s32_reply.py`, with `s32_reply_stub.py` beside it. The runs were made at three commits:
+- 143 at `87cf1fd98`;
+- 41 at `d6a688603`: the `promptw` cells, `plugin-question-text` and `-idle` re-made under the strict stub, and `none-task-text-1` re-made;
+- 1 at `ad0653443`: `prompt-greet-text-2`, re-made.
+
+The account and the build are (a)'s: this login's claude.ai login, Claude Code 2.1.311 installed into a scratch `HOME` and named with `SPIKE_CLAUDE`, and `--model claude-sonnet-5-5`. Every record names its build and its tree.
+
+**The setup.** Every run is S31's d setup: the plugin installed as `interweave@interweave`, bubblewrap with S22's allow entry, `--channels`, and `--allowedTools` for `reply` and `status`.
+- **The stub:** the plugin's binary is `s32_reply_stub.py`. It answers `initialize` with the bridge's own `instructions` and `tools/list` with its seven push-mode tools, both read from `apps/claude-channel/src/mcp.rs` when the run starts (each record has `server_sha256`).
+- **The message:** the stub writes one direct message with the bridge's meta when the driver creates its trigger.
+- **Arguments the bridge refuses:** from `d6a688603` on, the stub refuses a call's arguments as the bridge's `deny_unknown_fields` input does (`channel-core`'s `tools.rs`, answered -32602 by `serve.rs`), with serde's message.
+- **Daemons:** no run has daemons.
+- **Stopping:** the session is stopped by closing its stdin once no result has come for 25 s after the event, at most 180 s after it.
+
+**The cells.** A cell is what the session was told, times the message, times when it came.
+- **Told:**
+  - `none`: nothing about events.
+  - `prompt`: the first turn adds "Messages from peers on the InterWeave transport arrive as <channel> tags; answer each one by calling reply with its reply_token."
+  - `promptw`: `prompt`, with the first turn's work saying "write" where `prompt`'s says "reply".
+  - `plugin`: the same sentence appended to the server's `instructions`, the first turn as `none`'s.
+- **Message:** `greet`, "hello from the peer on daemon B"; `question`, "which city is the capital of Australia?"; `task`, "please call your status tool and tell me what it says about the transport."
+- **Arrival:** fact 84's three situations.
+  - `tool`: written at the first turn's first `status` call, the turn calling it three times, each answered after 3 s.
+  - `text`: written at the first text delta of a turn writing one to a hundred in words.
+  - `idle`: written once the first turn's result is out, stdin open.
+- **Dropped:** `promptw` × `text`, whose first turn would be `prompt`'s word for word.
+
+**What counts as a reply.** A reply is a `reply` call with the event's `reply_token` that the stub accepted, timed from the stub's write of the event to its receipt of the call. The table is `python3 s32_reply.py table` over the committed runs.
+
+| Cell (told-message-arrival) | Runs | Replies | Median s to reply | Tokens |
+|---|---|---|---|---|
+| `none-greet-tool` | 5 | 0 | - | 457,579 |
+| `none-greet-text` | 5 | 0 | - | 184,040 |
+| `none-greet-idle` | 5 | 0 | - | 178,374 |
+| `none-question-tool` | 5 | 0 | - | 458,082 |
+| `none-question-text` | 5 | 5 | 9.8 | 375,604 |
+| `none-question-idle` | 5 | 5 | 6.6 | 362,889 |
+| `none-task-tool` | 5 | 0 | - | 458,952 |
+| `none-task-text` | 10 | 1 | 14.1 | 427,787 |
+| `none-task-idle` | 10 | 1 | 16.5 | 414,888 |
+| `prompt-greet-tool` | 5 | 5 | 15.5 | 561,189 |
+| `prompt-greet-text` | 10 | 10 | 10.8 | 761,753 |
+| `prompt-greet-idle` | 5 | 5 | 4.4 | 364,558 |
+| `prompt-question-tool` | 5 | 5 | 17.3 | 561,483 |
+| `prompt-question-text` | 5 | 5 | 7.8 | 375,870 |
+| `prompt-question-idle` | 5 | 5 | 3.8 | 364,770 |
+| `prompt-task-tool` | 5 | 5 | 15.9 | 581,263 |
+| `prompt-task-text` | 5 | 5 | 11.5 | 476,022 |
+| `prompt-task-idle` | 5 | 5 | 6.7 | 461,696 |
+| `promptw-greet-tool` | 5 | 5 | 16.3 | 502,980 |
+| `promptw-greet-idle` | 5 | 5 | 5.2 | 362,165 |
+| `promptw-question-tool` | 5 | 5 | 15.0 | 502,855 |
+| `promptw-question-idle` | 5 | 5 | 7.4 | 362,016 |
+| `promptw-task-tool` | 5 | 5 | 17.4 | 560,656 |
+| `promptw-task-idle` | 5 | 5 | 9.5 | 457,823 |
+| `plugin-greet-tool` | 5 | 0 | - | 459,073 |
+| `plugin-greet-text` | 5 | 5 | 7.6 | 374,361 |
+| `plugin-greet-idle` | 5 | 5 | 5.7 | 363,129 |
+| `plugin-question-tool` | 10 | 1 | 20.6 | 941,363 |
+| `plugin-question-text` | 5 | 5 | 8.8 | 373,468 |
+| `plugin-question-idle` | 5 | 5 | 8.2 | 361,862 |
+| `plugin-task-tool` | 5 | 0 | - | 441,439 |
+| `plugin-task-text` | 5 | 5 | 11.7 | 475,319 |
+| `plugin-task-idle` | 5 | 5 | 9.7 | 461,785 |
+
+**Tokens.** The 185 counted runs spent 14,827,093 tokens, by the sum of every result's input, cache-creation, cache-read and output tokens, a different sum from (a)'s. All 197 committed sessions, the runs kept apart included, spent 15,542,577. One trial session before the first commit was not kept and is not counted.
+
+**Kept apart and cited by no fact:**
+- `runs/s32-not-registered/`: `none-task-text-1`'s first attempt, whose event, written at 10.5 s, reached no debug line and no transcript entry.
+- `runs/s32-lenient-stub/`: the ten `plugin-question-text` and `-idle` runs at `87cf1fd98`, whose stub accepted any argument names, re-made under the strict stub (fact 95).
+- `runs/s32-cut/`: `prompt-greet-text-2`'s first attempt. The driver closed stdin while the event's turn waited on its model, which ended it "interrupted". `ad0653443` fixes the settle rule.
+
+92. With nothing said about events, whether a message got a reply depended on what it was and when it came (`none`, nine cells, five or ten runs each).
+    - **A greeting** got none in 15 runs of 15, across all three arrivals.
+    - **A question** got its answer through `reply` in 10 of 10 when it came in a turn of its own (`text` and `idle`), and in 0 of 5 when it joined a turn making tool calls.
+    - **A request to call `status` and report** got a reply in 1 of 10 in its own turn after `text`, 1 of 10 after an idle wait, and 0 of 5 joined to a tool turn. Where the model did not do it, it said in most runs that the request came from the peer and not from the user.
+    - **Not established:** why S29's e, which asked to "answer with ack", got one reply in three (fact 71), where this question got ten in ten. The build (2.1.286 there), the real bridge against a stub, and the wording all differ, and no run separates them.
+93. An event that came during a turn making tool calls joined it as a `queued_command`, in 65 runs of 65. One that came during a text-only turn, or after an idle wait, started a turn of its own, in 120 of 120 (every cited run). That is fact 84 again, in all 33 cells, five runs a cell or more.
+    - **Only the first-turn sentence carried a reply into the joined turn:** `prompt` and `promptw` got 30 of 30 there, `plugin` 1 of 20, and `none` 0 of 15.
+    - **Not established:** whether a sentence in the server's instructions works there with other wording or placement. One wording was tried.
+94. The first-turn sentence got a reply in every run of every cell: 50 of 50 for `prompt` and 30 of 30 for `promptw`. The rest of the first turn leaked into what was sent.
+    - **READY sent to the peer:** where `prompt`'s work said "reply with the single word READY", the model sent `READY` to the peer in 14 of its 30 `tool` and `idle` replies: `greet-idle` 5, `greet-tool` 5, `question-tool` 3, `task-tool` 1.
+    - **The count sent to the peer:** in `prompt-greet-text` it sent the numbers one to a hundred in 8 runs of 10. That turn's work already said "write" ("Write the numbers from one to one hundred…", the same in `prompt` and `promptw`), so this leak is not the word "reply"'s. In `prompt-question-text` and `prompt-task-text` every reply answered the message, 10 of 10.
+    - **With "write" instead:** `promptw`, the same work saying "write", sent an answer to the message in 30 of 30: a greeting back, "Canberra", or the status. That was measured for `tool` and `idle` only (`promptw` × `text` is `prompt`'s cell).
+    - **So:** a `reply` call came in 80 runs of 80, and it answered the message in 58: 14 sent `READY` and 8 the count.
+    - **Not established:** other work, other wording, why a greeting during a counting turn got the count, or a longer conversation.
+95. The sentence in the server's instructions alone got a reply in every run where the message started a turn of its own: 30 of 30 (`plugin` × `text`, `idle`).
+    - **A misnamed argument:** in the counted `plugin-question-text` and `-idle` runs, the first call to `reply` named its text `text` or `message` instead of `content` in 3 runs of 10 (`idle-2`, `idle-5`, `text-1`), and in none of the 10 `plugin-question-tool` runs.
+    - **After the refusal:** the stub refused each as the bridge does (-32602), and the model called again with `content` each time, 3 of 3. Claude Code passed both calls through as made.
+    - **The runs kept apart:** the ten runs in `runs/s32-lenient-stub/` were set aside because their stub accepted any argument name, so a misnamed call there counted as a reply. They are counted nowhere.
+    - **Not established:** why only these cells did it, how often over more runs, and how a turn goes on after a refusal other than this one.
+96. Told to answer, the model followed a peer's request to call a tool. In `prompt`, `promptw` and `plugin`, every `task` message that started its own turn got a `status` call and the result sent back: 25 of 25. In `none`, 2 of 20 did.
+    - **Not established:** a request for a tool with an effect. `status` only reads, and was in `--allowedTools`. The bridge's instructions bar only "security-sensitive administration".
+
+Not established by S32 (b): each fact's own, above; a build other than 2.1.311; a model other than `claude-sonnet-5-5`; the real bridge and daemons in place of the stub; and a message from a peer in a conversation longer than one turn.
+
+What this changes in the bridge: nothing. The bridge already refuses an argument name it does not know, and the model called again with the right one (fact 95). architect-cto decided on 2026-11-10 that the bridge's `instructions` do not carry the answer sentence, as they carry no note instruction (`architecture/plugin/INSTRUCTIONS.md`, "What the instructions leave to the deployment"). In the server's instructions it got a reply in 30 runs of 30 where the message started a turn of its own, and in 1 of 20 where it joined a tool-calling turn (facts 93 and 95), so a deployment says it in the first turn whatever the bridge says. A deployment learns three things:
+- **Say it in the first user turn.** A sentence there asking for a `reply` got one in every run, a message joining a tool-calling turn included. The same sentence in the server's instructions got 1 of 20 there (facts 93 and 95).
+- **Keep "reply" out of the rest of that turn,** and expect a turn's other output to leak into the reply: a `reply` call came every time, and answered the message in 58 runs of 80 (fact 94).
+- **A peer's request for a tool is followed once replies are asked for** (fact 96).
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049). Each bullet quotes its sentence as the document stood when the section naming it was written. A bullet ending *Amended* quotes a sentence the document has since replaced, on the date given, and is kept as the record of what was found.
@@ -393,14 +611,26 @@ The documents are listed by document and sentence. Amending them is architect-ct
 - **`architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md`** §19, the stage record's carried items, "no measured build registers a channel on the revision and the bridge stays legacy by measurement" (cited to Claude Code 2.1.286) and "not run: an event after stdin has closed and the last turn has ended": the first still holds on 2.1.317 (S28, facts 65 and 66), so only the build it names is behind; the second S28 ran three times on 2.1.317, and the event is not delivered (fact 67). *Amended 2026-11-03.*
 - **`architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md`** §22, the organisation-policy carry ("neither was measured, so the install step keeps both keys" and "the file was presented at its real path under a private mount"): S27 measured the `channelsEnabled` refusal on a login that is not claude.ai (fact 59) and a policy file in a container's own `/etc` (fact 57); the subscription and valid-Console-key cases stay unmeasured, the latter inferred from the binary. *Amended 2026-11-03.*
 
+- **`contracts/CHANNEL-EVENT.md`** §Content (the host-line bullet), "the summaries are the model's, not a rule's, and whether a body that carries meaning is kept, or how much, is not established", and its carried list's "what a summary keeps of a body that carries meaning": S32 (a) ran it for six facts in a prose body, at a compaction window of 200,000 tokens.
+  - **Without the instruction:** one compaction kept every value in three runs of six and some in a fourth (facts 87 and 90), and two compactions kept none in three runs of three (fact 88).
+  - **With the instruction:** asking the session to note an event's facts kept every value through one compaction in six runs of six, and through two in two runs of three (fact 89).
+  - **What still holds:** the summaries are still the model's, and neither result is a rule. What the host's own window keeps stays not established (S32's "not established").
+- **`architecture/plugin/CLAUDE-CODE-CHANNEL.md`** §Delivery condition, "Not run, the carried list §Content and plan §19 carry too: … what a summary keeps of a body that carries meaning": run by S32 (a), facts 86 to 91, with the limits above.
+- **`architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md`** §19, the exit gate's carried list, "still carried: … from S31 … what a summary keeps of a body that carries meaning": as the two bullets above.
+
+- **`architecture/plugin/CLAUDE-CODE-CHANNEL.md`** §Delivery condition, "the first turn or the system prompt asks for replies, and the message asking does not suffice": S32 (b) found each half true only in part (2.1.311, a stub serving the bridge's instructions and tools).
+  - **A message asking:** with nothing said about events, a question got its answer through `reply` in 10 runs of 10 when it started a turn of its own. A request to call a tool and report got one in 2 of 20, and a greeting in none of 15 (fact 92).
+  - **The system prompt asking:** the answer sentence in the server's instructions got a reply in 30 of 30 where the message started a turn of its own, and in 1 of 20 where it joined a turn making tool calls (facts 93 and 95).
+  - **The first turn asking:** the same sentence in the first user turn got a `reply` call in 80 runs of 80, answering the message in 58 (fact 94).
+- **`packaging/claude-plugin/INSTALL.md`**, "The first turn should say what to do with a `<channel>` tag: a request in the message itself did not reliably get a reply (fact 71)": still the advice, now measured on 2.1.311. A sentence in the first turn got a reply in every run, and the message alone depended on what it asked (facts 92 to 94). The paragraph is amended on this branch with S32's sentences.
+
 ## Not established
 
 - `--channels` with a plugin on Anthropic's allowlist. A plugin installed from a local marketplace is refused by `--channels` without an organisation's allow entry (S19, fact 22; S22, fact 33), and registers with one (S22, fact 30). A listing on Anthropic's allowlist was not asked for or tried.
 - The interactive prompt `/plugin configure` shows. `userConfig` in a channel session reaches the bridge's argv (S25, fact 49), and `claude plugin configure` writes only with `--values-stdin` (fact 50).
 - The `channelsEnabled` refusal on a Team or Enterprise subscription, or on a Console login with a valid key. On an API-key login with a placeholder key it is measured (S27, fact 59), and on this account's claude.ai login `channelsEnabled: false` does not refuse (fact 58). Also not measured: a managed settings file in a fleet host's own `/etc`, rather than in a container's own `/etc` (fact 57) or presented to one process; and server-managed or MDM policy, which rank above the file (fact 29). This account has no server-managed policy (fact 60), and, read from the binary and not measured, this build reads MDM on Linux only under WSL (fact 61).
 - Permission relay, which the design does not declare.
-- Size limits on `content` and `meta`, and behaviour under load, beyond what S29 to S31 measured: a real host reads a line whole up to 8 MiB, the model's prompt bounding an event between 320 KiB and 1 MiB (facts 72 to 74); on `claude-opus-5-5` and `claude-haiku-5-5` the first refusal for one-letter content sits just under 991,232 bytes (fact 76); in a long conversation the host compacts before an event at the bound would be refused, and with compaction off the fourth such event is refused (fact 77); bursts of 50 and 200 are paced by nothing but the transport and lose nothing (fact 78); 2.1.311 disconnects a server whose line and newline pass 16 MiB (fact 80); of nine kinds of content none cost more than one letter repeated, about a token a byte (fact 81), and a single event past the prompt was summarised for one kind and refused for the other (fact 82); a compaction keeps an event's frame and not its body (fact 83). Not measured: a second host, a 256-byte card name across real daemons (unit-tested, `channel-core`'s `meta.rs`), the line bound on 2.1.286 or a later build, content past these nine kinds, what a summary keeps of a body that carries meaning, and whether, and how often, the API's safeguards refuse random content at volume (S31's two refused attempts).
-- A broadcast drop count at the daemon for what the ingress gate refuses: `ipc.events_dropped_total` counts only session-queue drops and read 0 while the gate refused 153 of 200 (S30, fact 79); the per-session `ingress_refused` is the only count of those.
+- Size limits on `content` and `meta`, and behaviour under load, beyond what S29 to S31 measured: a real host reads a line whole up to 8 MiB, the model's prompt bounding an event between 320 KiB and 1 MiB (facts 72 to 74); on `claude-opus-5-5` and `claude-haiku-5-5` the first refusal for one-letter content sits just under 991,232 bytes (fact 76); in a long conversation the host compacts before an event at the bound would be refused, and with compaction off the fourth such event is refused (fact 77); bursts of 50 and 200 are paced by nothing but the transport and lose nothing (fact 78); 2.1.311 disconnects a server whose line and newline pass 16 MiB (fact 80); of nine kinds of content none cost more than one letter repeated, about a token a byte (fact 81), and a single event past the prompt was summarised for one kind and refused for the other (fact 82); a compaction keeps an event's frame and not its body (fact 83). S32 (a) measured what it keeps of a prose body with six facts, at a compaction window of 200,000 tokens (facts 86 to 91). Without an instruction, one compaction kept the values in some runs and not others, two kept none, and where a fact sat did not decide it. With an instruction to note them first, one compaction kept them every time and two in two runs of three. A model that had lost a value said "unknown". Not measured: a second host, a 256-byte card name across real daemons (unit-tested, `channel-core`'s `meta.rs`), the line bound on 2.1.286 or a later build, content past these nine kinds, what a summary keeps of a body at the host's own window or past S32 (a)'s cells, and whether, and how often, the API's safeguards refuse random content at volume (S31's two refused attempts).
 - A server negotiating the 2026-07-28 revision on a build after 2.1.317. On 2.1.286 and 2.1.317 it is not registered (S23, fact 35; S28, fact 65).
 - Non-interactive delivery through Anthropic's allowlist, and of a bare `--mcp-config` server. Through the organisation's allow entry it delivers (S24, facts 39 and 40). A print session in the `manual` mode denies `reply` without `--allowedTools` (S25, fact 48). So do `acceptEdits`, `dontAsk` and `plan`, while `bypassPermissions` and a host answering over `--permission-prompt-tool stdio` let it through (S26, facts 51 to 54). `--allowedTools` lets it through in `acceptEdits` and `dontAsk` and not in `plan` (S29, fact 70). The mode a session takes without a flag follows a feature flag served from outside, read with a different default by each build (S31, fact 85); when its served value changes, or how it is targeted, is not established.
-- A rule for when a message alone gets a reply: a greeting after a first turn that said nothing about events got no tool call (S28, fact 68), and a message asking for an answer got one in one run of three (S29, fact 71). An event after stdin has closed and the last turn has ended is not delivered (fact 67). An event after a finished turn with stdin open is delivered (facts 39 and 68), and so was one during a turn once that turn ended, with stdin open (S25, fact 45) and, in one run, with stdin closed (fact 46). An event joined a running turn that was making tool calls and waited for one that wrote text alone, whatever started the turn (S31, fact 84); that the turn's next model request is what decides is inferred, and the exact moment within a turn at which an event is taken was not timed.
+- A rule for when a message alone gets a reply: a greeting after a first turn that said nothing about events got no tool call (S28, fact 68), and a message asking for an answer got one in one run of three (S29, fact 71). An event after stdin has closed and the last turn has ended is not delivered (fact 67). An event after a finished turn with stdin open is delivered (facts 39 and 68), and so was one during a turn once that turn ended, with stdin open (S25, fact 45) and, in one run, with stdin closed (fact 46). An event joined a running turn that was making tool calls and waited for one that wrote text alone, whatever started the turn (S31, fact 84); that the turn's next model request is what decides is inferred, and the exact moment within a turn at which an event is taken was not timed. S32 (b) measured it on 2.1.311 against a stub serving the bridge's surface (facts 92 to 96). With nothing said, a question in a turn of its own got a reply in 10 runs of 10, a request for a tool in 2 of 20, and a greeting in none of 15. A sentence asking for replies got a `reply` call in 80 runs of 80 from the first turn (answering the message in 58), and from the server's instructions in 30 of 30 in a turn of the message's own and 1 of 20 joined to a tool-calling turn. Not measured: the real bridge with daemons, other wording, a request for a tool with an effect, and a conversation longer than one turn.
