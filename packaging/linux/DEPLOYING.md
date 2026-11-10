@@ -22,7 +22,7 @@ have no safe place to live (`NoRuntimeDir`).
   user manager for the account (`systemctl --user status` answers). On
   an older glibc the binaries refuse to start, naming the missing
   `GLIBC_2.x`. v0.1.0 is the exception: its `human-desktop` needs glibc
-  2.43 and `interweave-human` 2.38; from v0.1.1 every binary in the
+  2.43 and `interweave-human` 2.38; from v0.2.0 every binary in the
   archive is checked against 2.35 when the release is built.
 - Lingering for the account, so its units keep running with nobody
   logged in and start at boot: `loginctl enable-linger` (the host's
