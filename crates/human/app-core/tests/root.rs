@@ -2150,7 +2150,11 @@ async fn the_trust_page_opened_in_p_up_says_the_line_seen_once() {
     root.will(trust(TrustInput::Cancel));
     root.will(trust(TrustInput::Opened));
     root.pump(1).await;
-    assert_eq!(seen(&opened), [format!("{UNLOCK_SEEN}7")], "once, for start 7");
+    assert_eq!(
+        seen(&opened),
+        [format!("{UNLOCK_SEEN}7")],
+        "once, for start 7"
+    );
 
     let (a, _) = FakeNetwork::pair(node(), node());
     let (mut root, opened) = Root::new(facade(&a, memory()));
