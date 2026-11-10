@@ -927,7 +927,9 @@ scale would also be a finding of the Android review
       focus key, which the build adds for each of R, K and K1:
       `r-heading`, `k-heading` and `k1-heading` (rust-ui-dev-01,
       2026-11-10). Any other value fails,
-      `focus=none` and `focus=?` included. Run it three times. Each
+      `focus=none` and `focus=?` included. Run it three times, on a profile whose
+      `key_unlock_policy` is `background-compatible`, so that no
+      start raises an unlock prompt. Each
       of the first two runs fires the debug hook `REFUSE_STORE` and
       then `RESTART` (`apps/human-android/android/README.md`). The first
       is over Chats, with focus on a conversation row. The second is
@@ -947,9 +949,8 @@ scale would also be a finding of the Android review
       refused again and stays, and the trace still shows Try again's
       focus key (`focus=identity-primary`), not `focus=r-heading`
       (§8: R was not raised). Then fire `REFUSE_STORE` once more and
-      press Enter on Try again, on a profile whose unlock policy is
-      `none`, so that Try again raises no prompt and its own start
-      reaches the store. R is refused again and stays, and focus
+      press Enter on Try again, so that its own start reaches the
+      store. R is refused again and stays, and focus
       stays on Try again, as before. Then
       press Shift+Tab to put focus back on R's heading (the trace shows
       `focus=r-heading`), and fire `RESTART` again. The hook refuses
