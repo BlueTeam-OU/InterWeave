@@ -691,6 +691,35 @@ mod tests {
     /// `own_peer` is served from 2.9 and answered `grammar` below it, the
     /// reason a 2.7 or 2.8 client's decoder knows; another refusal is the
     /// control, served alike on both sides of the minor.
+    /// `admin.status` carries the port's refusal total only on a
+    /// connection at 2.13 or later; below it the 1.1 block, without the
+    /// member, whatever the port counted (the fake counts 9).
+    #[tokio::test]
+    async fn the_refused_total_is_served_from_two_thirteen() {
+        let since = interweave_ipc_protocol::REFUSED_TOTAL_SINCE_MINOR;
+        let fake = Fake::default();
+        let port = fake.admin([].into()).await.expect("port");
+        for (minor, served) in [(since, Some(9)), (since - 1, None)] {
+            let frame = admin(
+                &port,
+                &Counters::default(),
+                Duration::from_secs(1),
+                id(),
+                Request::AdminStatus,
+                minor,
+            )
+            .await;
+            let wire = body(frame.clone());
+            let status = frame.outcome::<AdminStatusResult>().expect("a status");
+            assert_eq!(status.ipc.events_refused_total, served, "2.{minor}: {wire}");
+            assert_eq!(
+                wire.contains("events_refused_total"),
+                served.is_some(),
+                "2.{minor}: {wire}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn own_peer_is_answered_grammar_below_two_nine() {
         use interweave_ipc_protocol::{AddressResult, OWN_PEER_SINCE_MINOR};
