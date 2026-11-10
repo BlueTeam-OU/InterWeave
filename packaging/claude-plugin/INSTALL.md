@@ -11,7 +11,7 @@ What the plugin's steps rest on is measured in SPIKE-001's S19 to S22 and S24 to
 
 - **Linux x86_64, with a systemd user manager for the account.** Log in to the account, or turn on lingering (`loginctl enable-linger <account>`, which an administrator runs). The daemon and the bridge both need `XDG_RUNTIME_DIR`, the directory the user manager provides; `echo "$XDG_RUNTIME_DIR"` must print a path. With it unset, the bridge cannot reach the daemon, and Claude Code does not start it again (SPIKE-001 fact 19): it serves the session without a channel, and its `status` tool reports `bridge refused` with the class `runtime_dir_unset`. There is no fallback directory, on purpose.
 - **Claude Code**, installed for this account and signed in with this account's own credential. The session that loads the channel is an interactive one, or, once step 7 is in place, a non-interactive one (step 8).
-- **The release archive** `interweave-<version>-x86_64-unknown-linux-gnu.tar.gz` and its `.sha256` file, from the project's release page. It holds the three programs, the two user units, the install scripts, and `claude-plugin/`, the plugin marketplace with the bridge inside it.
+- **The release archive** `interweave-<version>-x86_64-unknown-linux-gnu.tar.gz` and its `.sha256` file, from the project's release page. It holds the four programs (`transport-daemon`, `transportctl`, `human-desktop` and `interweave-human`, the command-line human client), the two user units, the install scripts, and `claude-plugin/`, the plugin marketplace with the bridge inside it.
 - **One profile name and one TCP port per profile.** Below, the profile is `claude`, the port is `4001`, and the bridge's endpoint is `claude`. The plugin starts the bridge with `--profile default --endpoint claude` unless you change that (step 6).
 
 ## 1. Check and unpack the archive
@@ -28,7 +28,7 @@ cd interweave-<version>-x86_64-unknown-linux-gnu
 ./install.sh
 ```
 
-This installs `transport-daemon`, `transportctl` and `human-desktop` into `~/.local/bin`, and the two unit templates into `~/.config/systemd/user`. It enables nothing, and it does not install the bridge: the bridge ships only inside the plugin (step 6). `packaging/linux/README.md` covers this step and uninstalling.
+This installs `transport-daemon`, `transportctl`, `human-desktop` and `interweave-human` into `~/.local/bin`, and the two unit templates into `~/.config/systemd/user`. It enables nothing, and it does not install the bridge: the bridge ships only inside the plugin (step 6). `packaging/linux/README.md` covers this step and uninstalling.
 
 ## 3. Create the profile
 
