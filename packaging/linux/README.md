@@ -40,10 +40,14 @@ promises such a client, and what the client owes itself, is
 ## Installing and uninstalling
 
 `install.sh` and `uninstall.sh` are run as the account that will run the
-profile, and write nothing outside its home: the four programs
+profile, need no root and change nothing system-wide; they write only that
+account's own files: the four programs
 (`transport-daemon`, `transportctl`, `human-desktop` and the command-line
 human client `interweave-human`) into `~/.local/bin`,
-the two templates into `${XDG_CONFIG_HOME:-~/.config}/systemd/user`.
+the two templates into `${XDG_CONFIG_HOME:-~/.config}/systemd/user`
+(outside the home when `XDG_CONFIG_HOME` is), and on uninstall the
+removal of InterWeave's own runtime unit links under the account's
+`$XDG_RUNTIME_DIR/systemd/user` (normally `/run/user/<uid>`).
 From the release archive, whose `bin/` and `systemd/` sit beside the
 scripts:
 
