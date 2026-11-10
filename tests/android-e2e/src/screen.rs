@@ -711,7 +711,7 @@ impl Screens {
         patience: Duration,
     ) -> Result<(), String> {
         self.wait_until(patience, |seen| answered(&seen[from..], wants).err())?;
-        answered(&self.seen[from..], wants).unwrap_or(Ok(()))
+        answered(&self.seen[from..], wants).unwrap_or_else(Err)
     }
 
     /// Wait until a line starting with `prefix` is among the trace's
@@ -1149,6 +1149,32 @@ esac
                 .and_then(Value::as_str)
                 .is_some_and(|d| d.contains("reader=drawn")),
             "{step:?}"
+        );
+    }
+
+    /// `wait_answer` ends on a note, named, on the wanted lines alone,
+    /// and fails naming what never came (#608 F3, F6).
+    #[test]
+    fn an_adds_wait_ends_on_its_note_or_its_results() {
+        let wants = ["add=added lines=1", "page=peers-add-trust"];
+        let patience = Duration::from_millis(50);
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace focus=add-action\nui-trace note=refused:grammar",
+        );
+        let why = s.wait_answer(0, &wants, patience).unwrap_err();
+        assert!(why.contains("note=refused:grammar"), "{why}");
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace add=added lines=1\nui-trace page=peers-add-trust",
+        );
+        assert_eq!(s.wait_answer(0, &wants, patience), Ok(()));
+        // The wait itself fails, not a read after it.
+        let (_dir, mut s) = stand_in(0, "ui-trace add=added lines=1");
+        let why = s.wait_answer(0, &wants, patience).unwrap_err();
+        assert!(
+            why.contains("page=peers-add-trust") && why.contains("within"),
+            "{why}"
         );
     }
 
