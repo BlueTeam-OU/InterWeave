@@ -243,14 +243,21 @@ def run_session(spec, scratch, out, config, workdir, policy, record):
         steps.append({"trigger": 1, "at_s": fired_at})
 
     def settle():
-        """Until no result has come for SETTLE_S since the event, at most
-        AFTER_EVENT_S after it; a result before the event does not count."""
+        """Until no turn is running and no result has come for SETTLE_S
+        since the event, at most AFTER_EVENT_S after it; a result before
+        the event does not count. A turn is running from its init to its
+        result: closing stdin under one interrupts it, which the first
+        version of this rule did to one turn slow to answer."""
         end, last_at = time.time() + AFTER_EVENT_S, None
         while time.time() < end and proc.poll() is None:
-            after = [t for t, v in session.lines if v.get("type") == "result" and t >= fired_at]
+            kinds = [(t, v.get("type"), v.get("subtype")) for t, v in session.lines]
+            after = [t for t, k, _ in kinds if k == "result" and t >= fired_at]
             if after:
                 last_at = after[-1]
-            if last_at is not None and at() - last_at > SETTLE_S:
+            starts = [i for i, (_, k, s) in enumerate(kinds) if k == "system" and s == "init"]
+            ends = [i for i, (_, k, _) in enumerate(kinds) if k == "result"]
+            running = bool(starts) and (not ends or starts[-1] > ends[-1])
+            if last_at is not None and not running and at() - last_at > SETTLE_S:
                 break
             time.sleep(0.5)
 
@@ -427,7 +434,9 @@ def main() -> int:
         record["sandbox"] = "bwrap: the host's /etc entries read-only, /etc/claude-code a scratch directory read-only"
         ok, _ = run_session(spec, scratch, out, config, workdir, policy, record)
         record["env_passed"] = sorted(child_env({"CLAUDE_CONFIG_DIR": "", "CLAUDE_CODE_OAUTH_TOKEN": ""}))
-        passed = ok and record["shutdown"]["group_empty"]
+        # A turn the close interrupted, or one that failed, measured nothing.
+        passed = ok and record["shutdown"]["group_empty"] and \
+            all(r["subtype"] == "success" for r in record["results"])
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
         raw_tainted = purge_if_token(out)
