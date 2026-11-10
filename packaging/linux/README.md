@@ -46,8 +46,9 @@ account's own files: the four programs
 human client `interweave-human`) into `~/.local/bin`,
 the two templates into `${XDG_CONFIG_HOME:-~/.config}/systemd/user`
 (outside the home when `XDG_CONFIG_HOME` is), and on uninstall the
-removal of InterWeave's own runtime unit links under the account's
-`$XDG_RUNTIME_DIR/systemd/user` (normally `/run/user/<uid>`).
+removal of InterWeave's own unit links, persistent under that directory
+and runtime under the account's `$XDG_RUNTIME_DIR/systemd/user` (normally
+`/run/user/<uid>/systemd/user`).
 From the release archive, whose `bin/` and `systemd/` sit beside the
 scripts:
 
