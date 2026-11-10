@@ -292,9 +292,13 @@ def what_compaction_kept(entries, nonce, facts, scratch):
         # Up to the recall turn: the answer is not something compaction kept.
         end = next((i for i, v in enumerate(entries) if i > last and v.get("type") == "user"
                     and text_of(v).startswith(RECALL_HEAD)), len(entries))
-        kept = [v for v in entries[last + 1:end] if not v.get("isCompactSummary")]
-        kept_text = "\n".join(json.dumps(v) for v in kept)
-        after = {"event_1_verbatim": any(marker in text_of(v) or marker in json.dumps(v) for v in kept),
+        # The conversation's own messages only: the transcript's request
+        # log (``api-request-blob``) copies the summary, and the runs at
+        # 0b849f832 counted those copies as kept messages.
+        kept = [v for v in entries[last + 1:end]
+                if v.get("type") in ("user", "assistant") and not v.get("isCompactSummary")]
+        kept_text = "\n".join(text_of(v) for v in kept)
+        after = {"event_1_verbatim": marker in kept_text,
                  "facts_in_kept_messages": [f["template"] for f in facts if found(kept_text, f)]}
     return boundaries, summaries, after
 
