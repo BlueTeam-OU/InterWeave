@@ -293,18 +293,26 @@ impl Screens {
     /// The camera route: Scan pressed, the viewfinder open, and the add
     /// answered `added` with its trust step drawn once the camera read
     /// the other phone's code -- which needs the phones facing each
-    /// other, and the camera granted.
+    /// other, and the camera granted. A note the add page shows -- the
+    /// camera denied, the code refused -- ends the wait, named, as on
+    /// the field route.
     pub fn add_by_scan(&mut self, patience: Duration) -> Step {
         let scanned = self.tab_to("scan-code").and_then(|()| {
             let from = self.seen.len();
             self.key("KEYCODE_ENTER")?;
-            self.wait_all(from, &["page=peers-scan"], patience)?;
-            self.wait_all(from, &["page=peers-add-trust"], patience)?;
-            // A scan adds every line the code carries: how many is the
-            // other phone's, so only the kind is asked.
-            self.wait_prefix(from, "add=added lines=", patience)
+            self.wait_scanned(from, patience)
         });
         self.answer("add_by_scan", scanned)
+    }
+
+    /// A scan's answer among the trace's lines from `from` on: the scan
+    /// page, the trust step and the add's `added`, or a note seen first.
+    fn wait_scanned(&mut self, from: usize, patience: Duration) -> Result<(), String> {
+        self.wait_answer(from, &["page=peers-scan"], patience)?;
+        self.wait_answer(from, &["page=peers-add-trust"], patience)?;
+        // A scan adds every line the code carries: how many is the
+        // other phone's, so only the kind is asked.
+        self.wait_prefix(from, "add=added lines=", patience)
     }
 
     /// The trust step's one block: Trust pressed, and the block trusted.
@@ -1177,6 +1185,30 @@ esac
             why.contains("page=peers-add-trust") && why.contains("within"),
             "{why}"
         );
+    }
+
+    /// `add_by_scan`'s wait ends on the add page's note, named, before
+    /// the scan page or after it, and passes on the scan's results.
+    #[test]
+    fn a_scans_wait_ends_on_its_note_or_its_results() {
+        let patience = Duration::from_millis(50);
+        let (_dir, mut s) = stand_in(0, "ui-trace focus=scan-code\nui-trace note=camera-denied");
+        let why = s.wait_scanned(0, patience).unwrap_err();
+        assert!(why.starts_with("answered note=camera-denied"), "{why}");
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace page=peers-scan\nui-trace note=refused:own-address",
+        );
+        let why = s.wait_scanned(0, patience).unwrap_err();
+        assert!(
+            why.starts_with("answered note=refused:own-address"),
+            "{why}"
+        );
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace page=peers-scan\nui-trace note=none\nui-trace page=peers-add-trust\nui-trace add=added lines=2",
+        );
+        assert_eq!(s.wait_scanned(0, patience), Ok(()));
     }
 
     #[test]
