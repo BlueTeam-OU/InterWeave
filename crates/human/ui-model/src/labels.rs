@@ -278,8 +278,8 @@ ui_texts! {
     /// the time as the row shows it (section 5.1, 8).
     ReaderSent => "{day}, {time}",
     /// The reader's progress bar while its first screen is drawn, after
-    /// 0.5 s (section 3). Not shown: the reader opens synchronously, and
-    /// A5 measures whether an open ever takes that long.
+    /// 0.5 s (section 3): the view builds a long body's rows a step a
+    /// turn, and shows it while they are still being built.
     ReaderOpening => "Opening the whole message",
     /// The reader's action and every text message's menu item: the whole
     /// message's markdown source to the clipboard (section 5.3).
