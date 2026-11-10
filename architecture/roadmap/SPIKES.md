@@ -453,10 +453,10 @@ fleet's pin, and 2.1.286 for the mode runs, rust-services-dev, plan
 §19): the host disconnects a channel server whose line and newline
 pass 16 MiB; of nine kinds of content none costs more tokens a byte
 than one letter repeated; a compaction keeps an event's frame and not
-its body; an event joins a running turn that goes on to make a model
-request and waits for one that does not, whatever started the turn;
-and the unflagged mode of a print session follows a feature flag
-served from outside the host.** Read off
+its body; an event joins a running turn that is making tool calls and
+waits for one that writes text alone, whatever started the turn; and
+the unflagged mode of a print session follows a feature flag served
+from outside the host.** Read off
 `spikes/spike-001/README.md` §S31 (facts 80–85, 52 runs `s31-a-*` to
 `s31-e-*`, #606), every run on S30's a and b setup with a stub
 (`s31_stub.py`) in the bridge's place and no daemons, a to c given
