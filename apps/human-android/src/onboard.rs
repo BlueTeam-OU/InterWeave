@@ -34,7 +34,7 @@ use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustB
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
-use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end};
+use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end, secure_may_clear};
 use crate::unlock_route::{Route, UnlockRoute};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, prompt_line};
@@ -1130,13 +1130,25 @@ fn render() {
 }
 
 /// `FLAG_SECURE` off, once a frame without the flow was drawn or Show my
-/// address closed -- unless an identity flow shows by the time it is
-/// asked: K1 raised at Show my phrase's end begins in the same turn of
-/// the event loop, before that frame (#615 F1), and its own end asks again.
+/// address closed -- unless what it secures is still drawn by the time it
+/// is asked ([`secure_may_clear`]): an identity flow, as K1 raised at Show
+/// my phrase's end begins in the same turn of the event loop, before that
+/// frame (#615 F1); or Show my address, open under a K1 that a refused
+/// start raised over it and a restore ended. Whichever is left asks again
+/// at its own end.
 pub(crate) fn secure_off() {
-    let showing = ONBOARDING.with(|slot| slot.try_borrow().map_or(true, |o| o.is_some()));
-    if showing {
-        log("an identity flow shows: FLAG_SECURE stays on");
+    // A slot already borrowed counts as a flow showing: nothing asks the
+    // off from inside a borrow of it today (a frame task or Show's off,
+    // never `render` or an input), and should something come to, the flag
+    // staying on is the side a wrong guess may fall on.
+    let flow = ONBOARDING.with(|slot| slot.try_borrow().map_or(true, |o| o.is_some()));
+    let show = crate::activity::show_open();
+    if !secure_may_clear(flow, show) {
+        log(if flow {
+            "an identity flow shows: FLAG_SECURE stays on"
+        } else {
+            "Show my address is open: FLAG_SECURE stays on"
+        });
         return;
     }
     ASKS.push(ask::SECURE_OFF);

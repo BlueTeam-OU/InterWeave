@@ -15,8 +15,8 @@ use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboard
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::{
-    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, TouchSettings, View, defer, init_android,
-    invoke_on_window,
+    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, ShowOpen, TouchSettings, View, defer,
+    init_android, invoke_on_window,
 };
 
 use crate::jni::{PROFILE, log};
@@ -109,6 +109,16 @@ thread_local! {
     // The window, for Back, whether the chats or the identity screens
     // show.
     static VIEW: RefCell<Option<Rc<RefCell<View>>>> = const { RefCell::new(None) };
+    // Whether Show my address is open on this window, read without
+    // borrowing the view, which may be borrowed when a frame's off runs.
+    static SHOW_OPEN: RefCell<Option<ShowOpen>> = const { RefCell::new(None) };
+}
+
+/// Whether Show my address is open on this Activity's window: its
+/// addresses may be drawn, so `FLAG_SECURE` stays on whatever else ends
+/// (`onboard::secure_off`).
+pub(crate) fn show_open() -> bool {
+    SHOW_OPEN.with(|slot| slot.borrow().as_ref().is_some_and(ShowOpen::get))
 }
 
 /// `Native.back`: the platform's Back, given to the window; when no screen
@@ -610,7 +620,7 @@ fn android_main(app: AndroidApp) {
     view.on_haptic(|| HAPTIC.raise());
     // Show my address draws this device's addresses only in a secured
     // window, as the phrase pages do (add-a-peer §5.4).
-    view.guard_show(|on| {
+    let show_open = view.guard_show(|on| {
         use crate::onboard::{ASKS, ask};
         if on {
             ASKS.push(ask::SHOW_SECURE);
@@ -618,6 +628,7 @@ fn android_main(app: AndroidApp) {
             crate::onboard::secure_off();
         }
     });
+    SHOW_OPEN.with(|slot| *slot.borrow_mut() = Some(show_open));
     // Scan a code: the Activity's camera, on while the viewfinder is open
     // (add-a-peer §5.5), offered only on a phone that has one.
     view.camera_hook(|on| {
@@ -685,5 +696,6 @@ fn android_main(app: AndroidApp) {
     // it on its next send. The session stays the Service's.
     ROOT.with(|root| root.borrow_mut().take());
     VIEW.with(|slot| slot.borrow_mut().take());
+    SHOW_OPEN.with(|slot| slot.borrow_mut().take());
     log("android_main: the Activity's views end");
 }
