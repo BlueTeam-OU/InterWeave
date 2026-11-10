@@ -1774,3 +1774,47 @@ fn a_refused_add_is_said_each_time() {
         assert!(!line.contains("192.168.1.30"), "{line:?}");
     }
 }
+
+/// The same note set again with nothing between is said again: Add
+/// pressed twice on an empty field sets `address-needed` twice and never
+/// `none` (trace.rs's note count, #608 F4).
+#[test]
+fn the_same_note_set_twice_is_said_twice() {
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    let _ = intents(&mut view, &mut model);
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(peer()),
+        allowed: Vec::new(),
+    }));
+    model.addresses_read(Ok(AddressList::default()));
+    view.render(&model);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    for _ in 0..2 {
+        press(&view, text(UiText::AddAction));
+        assert!(intents(&mut view, &mut model).is_empty(), "nothing to send");
+        view.render(&model);
+    }
+    let said = said.borrow();
+    let notes: Vec<&String> = said
+        .iter()
+        .filter(|l| l.starts_with("ui-trace note="))
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            "ui-trace note=address-needed",
+            "ui-trace note=address-needed"
+        ],
+        "in {said:#?}"
+    );
+}
