@@ -58,6 +58,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Copies dropped from any client's session queue under the push-events overload rule (item 1, or a copy that could not queue), every session since the daemon started, closed ones included; monotonic. Omitted by a server that does not keep the count, never 0 in its place (LOCAL-IPC.md, admin.status, A 2026-11-04)."
+        },
+        "events_refused_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Inbound broadcasts the ingress gate refused (over the publisher's rate, or while draining), one per refused message whatever the number of sessions on its channel, on any channel, held by a local session or not, since the daemon started; monotonic. A signal, never a count of distinct losses: a refused message leaves no dedup entry, so a republished copy that is refused counts again. Nothing a session queue drops moves it, and no refusal moves events_dropped_total. Since 1.2.0, served only on a connection that negotiated IPC 2.13 or later; below 2.13 the 1.1 block is served without it. From 2.13, omitted by a server that does not keep the count, never 0 in its place (LOCAL-IPC.md, admin.status, A 2026-11-10; ADR-0026 A 2026-11-10)."
         }
       }
     },
@@ -95,12 +100,13 @@
   "x-contract": {
     "name": "ipc.admin-status",
     "status": "active",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "adr": [
       "0017",
       "0037",
       "0036",
-      "0035"
+      "0035",
+      "0026"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }
