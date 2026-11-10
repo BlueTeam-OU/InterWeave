@@ -278,6 +278,7 @@ impl AdminPort for FakeAdmin {
             pre_auth: None,
             ingress: None,
             events_dropped: None,
+            events_refused: Some(9),
         })
     }
 

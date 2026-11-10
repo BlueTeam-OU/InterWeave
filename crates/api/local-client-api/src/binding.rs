@@ -755,6 +755,14 @@ pub struct AdminStatus {
     /// A 2026-11-04). `None` for a binding that keeps no such count,
     /// which is absent on the wire, never `0`.
     pub events_dropped: Option<u64>,
+    /// Inbound broadcasts the binding's ingress gate refused (over the
+    /// publisher's rate, or while draining), one per refused message, on
+    /// any channel, joined or not, since the runtime started: monotonic
+    /// (`ipc.events_refused_total`, IPC 2.13). A signal like a session's
+    /// `ingress_refused`: a republished refused copy counts again. `None`
+    /// for a binding that keeps no such count, or one read over a
+    /// connection below 2.13, which is absent on the wire, never `0`.
+    pub events_refused: Option<u64>,
 }
 
 /// The pre-authentication funnel at one instant (`resource-limits.md`

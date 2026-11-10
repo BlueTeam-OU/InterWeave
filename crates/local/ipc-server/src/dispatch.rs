@@ -108,7 +108,8 @@ pub(crate) async fn admin<A: AdminPort>(
     match request {
         Request::AdminStatus => match port.status().await {
             Ok(status) => {
-                ResponseFrame::success(id, &AdminStatusResult::new(status, counters.snapshot()))
+                let result = AdminStatusResult::new(status, counters.snapshot(), minor);
+                ResponseFrame::success(id, &result)
             }
             Err(code) => ResponseFrame::failure(id, code),
         },

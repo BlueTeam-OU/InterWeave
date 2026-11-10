@@ -85,6 +85,14 @@ pub const OWN_PEER_SINCE_MINOR: u64 = 9;
 /// is what every older client already reads as not applied.
 pub const SUPERSEDED_SINCE_MINOR: u64 = 10;
 
+/// The minor from which `admin-status`'s `ipc` block may carry
+/// `events_refused_total` (`ipc/admin-status` 1.2.0, behind the minor
+/// under ADR-0017 A 2026-10-07; architect-cto's ruling of 2026-11-10).
+/// Below it the 1.1 block is served unchanged: a client built before it
+/// reads the block with `deny_unknown_fields` and would refuse the whole
+/// status, for the reason [`ROUTE_HELD_SINCE_MINOR`] gives.
+pub const REFUSED_TOTAL_SINCE_MINOR: u64 = 13;
+
 /// Rows on one `ipc/peer-list` page: a row is up to 194 bytes, so 1024
 /// would overflow the 128 KiB body and 512 is about 100 KB; a full
 /// allowlist of 4096 is eight pages (architect-cto's ruling of
@@ -204,10 +212,13 @@ pub struct AdminStatusResult {
 }
 
 impl AdminStatusResult {
-    /// The port's view, with the counters only the IPC server can keep.
+    /// The port's view, with the counters only the IPC server can keep,
+    /// in the shape the connection's `minor` negotiated: the refusal
+    /// total only from [`REFUSED_TOTAL_SINCE_MINOR`]
+    /// (`the_refused_total_is_served_from_its_minor`).
     /// `ipc.active_leases` is the port's count, never the server's.
     #[must_use]
-    pub fn new(status: AdminStatus, counters: ServerCounters) -> Self {
+    pub fn new(status: AdminStatus, counters: ServerCounters, minor: u64) -> Self {
         Self {
             health: status.health,
             peer: status.peer,
@@ -219,6 +230,9 @@ impl AdminStatusResult {
                 cross_domain_capability_denied_total: counters.cross_domain_capability_denied_total,
                 peer_credential_refused_total: counters.peer_credential_refused_total,
                 events_dropped_total: status.events_dropped,
+                events_refused_total: status
+                    .events_refused
+                    .filter(|_| minor >= REFUSED_TOTAL_SINCE_MINOR),
             },
             pre_auth: status.pre_auth.map(|counts| PreAuthCounters {
                 tracked_sources: Some(u64::try_from(counts.tracked_sources).unwrap_or(u64::MAX)),
@@ -247,6 +261,7 @@ impl From<AdminStatusResult> for AdminStatus {
             connectivity: result.connectivity,
             active_leases: usize::try_from(result.ipc.active_leases).unwrap_or(usize::MAX),
             events_dropped: result.ipc.events_dropped_total,
+            events_refused: result.ipc.events_refused_total,
             // A block missing either count is not the funnel's view.
             pre_auth: result.pre_auth.and_then(|counters| {
                 Some(PreAuthCounts {
@@ -309,6 +324,18 @@ pub struct IpcCounters {
         deserialize_with = "absent_or_count"
     )]
     pub events_dropped_total: Option<u64>,
+    /// Inbound broadcasts the ingress gate refused, one per refused
+    /// message, on any channel since the daemon started: the port's
+    /// count, emitted only when the port keeps one and the connection
+    /// negotiated [`REFUSED_TOTAL_SINCE_MINOR`]. Absent says "not
+    /// counted" (or, below the minor, "not said"), where a 0 says "none
+    /// refused". A signal: a republished refused copy counts again.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "absent_or_count"
+    )]
+    pub events_refused_total: Option<u64>,
 }
 
 /// `admin-status.pre_auth`: every field optional on the wire.
@@ -1626,7 +1653,8 @@ impl From<AddressRow> for BootstrapAddress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::IPC_MAX_MINOR;
+    use serde_json::{Value, json};
 
     fn ep(id: &str) -> EndpointId {
         EndpointId::parse(id).expect("endpoint")
@@ -1764,8 +1792,10 @@ mod tests {
                 broadcast_tracked_peers: 6,
             }),
             events_dropped: Some(7),
+            events_refused: Some(8),
         };
-        let result = AdminStatusResult::new(status.clone(), ServerCounters::default());
+        let result =
+            AdminStatusResult::new(status.clone(), ServerCounters::default(), IPC_MAX_MINOR);
         let wire = serde_json::to_value(&result).expect("ser");
         assert_eq!(
             wire["pre_auth"],
@@ -1791,11 +1821,13 @@ mod tests {
             pre_auth: None,
             ingress: None,
             events_dropped: None,
+            events_refused: None,
             ..status
         };
         let wire = serde_json::to_value(AdminStatusResult::new(
             none.clone(),
             ServerCounters::default(),
+            IPC_MAX_MINOR,
         ))
         .expect("ser");
         assert!(
@@ -1805,7 +1837,8 @@ mod tests {
         assert_eq!(
             AdminStatus::from(AdminStatusResult::new(
                 none.clone(),
-                ServerCounters::default()
+                ServerCounters::default(),
+                IPC_MAX_MINOR,
             )),
             none
         );
@@ -1899,11 +1932,13 @@ mod tests {
             pre_auth: None,
             ingress: None,
             events_dropped: None,
+            events_refused: None,
         };
         let json = |status: &AdminStatus| {
             serde_json::to_value(AdminStatusResult::new(
                 status.clone(),
                 ServerCounters::default(),
+                IPC_MAX_MINOR,
             ))
             .expect("ser")
         };
@@ -1928,6 +1963,82 @@ mod tests {
             let back: AdminStatusResult = serde_json::from_value(wire).expect("de");
             assert_eq!(AdminStatus::from(back), status);
         }
+    }
+
+    /// `ipc.events_refused_total` is served only to a connection that
+    /// negotiated 2.13 (ADR-0017 A 2026-10-07): below it the 1.1 block
+    /// goes out unchanged, byte for byte, whatever the port counted,
+    /// since a reader built before it refuses an unknown member. From it,
+    /// absent is "not counted" and 0 is "none refused", as for
+    /// `events_dropped_total`, and each reads back as the port gave it.
+    #[test]
+    fn the_refused_total_is_served_from_its_minor() {
+        use interweave_transport_api::{
+            DirectInboundState, PathReadiness, PreferredPathPolicy, TransportIdentity,
+        };
+        let unkept = AdminStatus {
+            health: Health::Healthy,
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("peer"),
+            connectivity: ConnectivitySummary {
+                direct_inbound: DirectInboundState::Unknown,
+                relay_inbound: PathReadiness::Unavailable,
+                active_relay_reservations: 0,
+                target_relay_reservations: 0,
+                active_relayed_peer_paths: 0,
+                hole_punch_inflight: 0,
+                preferred_path_policy: PreferredPathPolicy::DirectFirst,
+                updated_at: 0,
+            },
+            active_leases: 0,
+            pre_auth: None,
+            ingress: None,
+            events_dropped: Some(2),
+            events_refused: None,
+        };
+        let bytes = |status: &AdminStatus, minor: u64| {
+            serde_json::to_string(&AdminStatusResult::new(
+                status.clone(),
+                ServerCounters::default(),
+                minor,
+            ))
+            .expect("ser")
+        };
+        for kept in [0, 153] {
+            let status = AdminStatus {
+                events_refused: Some(kept),
+                ..unkept.clone()
+            };
+            let below = REFUSED_TOTAL_SINCE_MINOR - 1;
+            assert_eq!(
+                bytes(&status, below),
+                bytes(&unkept, below),
+                "below 2.13 the 1.1 block, unchanged"
+            );
+            assert!(!bytes(&status, below).contains("events_refused_total"));
+            let wire: Value =
+                serde_json::from_str(&bytes(&status, REFUSED_TOTAL_SINCE_MINOR)).expect("json");
+            assert_eq!(wire["ipc"]["events_refused_total"], kept, "{wire}");
+            assert_eq!(wire["ipc"]["events_dropped_total"], 2, "its sibling apart");
+            let back: AdminStatusResult = serde_json::from_value(wire).expect("de");
+            assert_eq!(AdminStatus::from(back), status);
+        }
+        let wire: Value =
+            serde_json::from_str(&bytes(&unkept, REFUSED_TOTAL_SINCE_MINOR)).expect("json");
+        assert!(
+            wire["ipc"].get("events_refused_total").is_none(),
+            "a port that keeps no count names none at 2.13 too: {wire}"
+        );
+        // Read below 2.13, the count is not said: `None`, never 0.
+        let read = AdminStatus::from(AdminStatusResult::new(
+            AdminStatus {
+                events_refused: Some(4),
+                ..unkept.clone()
+            },
+            ServerCounters::default(),
+            REFUSED_TOTAL_SINCE_MINOR - 1,
+        ));
+        assert_eq!(read.events_refused, None);
     }
 
     #[test]

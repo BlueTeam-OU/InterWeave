@@ -807,8 +807,10 @@ fn every_result() -> Vec<(&'static str, Value)> {
                 broadcast_tracked_peers: 0,
             }),
             events_dropped: Some(4),
+            events_refused: Some(5),
         },
         ServerCounters::default(),
+        IPC_MAX_MINOR,
     );
     let list = EndpointList::from_views(
         vec![

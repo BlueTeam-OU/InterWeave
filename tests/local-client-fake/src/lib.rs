@@ -1115,6 +1115,7 @@ impl AdminPort for FakeAdmin {
             ingress: None,
             // The fake keeps no count of its queues' drops, so it names none.
             events_dropped: None,
+            events_refused: None,
         })
     }
 
