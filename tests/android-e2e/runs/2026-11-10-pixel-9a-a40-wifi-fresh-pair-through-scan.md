@@ -38,7 +38,7 @@ other apps' lines.
 |---|---|---|
 | 1 | 04:13:39Z | pass, 175.57 s |
 
-The run showed the following, each asserted by the test or its cases:
+What the test or its cases assert, and the run met:
 
 - **Step 1, added on the screens.** On each phone the test opened Peers,
   and in each direction one phone held its Show code open while the
@@ -48,19 +48,24 @@ The run showed the following, each asserted by the test or its cases:
   `add=added lines=` (`src/screen.rs`, `add_by_scan`): A scanned B's
   code, then B scanned A's. No address was given through the binding.
 - **Neither trusting.** For the step's window from each side's start,
-  every direct message either sent to the other was refused: 60 tries
-  each way. None arrived, and neither side's row for the other recorded
-  a dial (`none`).
-- **A alone trusts B.** No message A sent was accepted (45 tries), none
-  arrived either way, and A's row for B ended `denied`.
-- **Both trust.** A message from A was accepted by B and read there, one
-  from B was accepted by A and read there, A's close reported
-  `accepted`, and both rows ended `connected`. This step is the positive
-  control for the two before it.
+  no direct message either sent to the other was accepted and none
+  arrived (60 tries each way).
+- **A alone trusts B.** A trusted B and B did not trust A; no message A
+  sent was accepted (45 tries) and none arrived either way.
+- **Both trust.** A message from A was accepted by B and read there,
+  and one from B was accepted by A and read there. This step is the
+  positive control for the two before it.
 
-So the pair added through the screens behaves as the 2026-10-24 rows
-did: no message crosses until each side has the other's address and
-trusts the other's PeerId.
+What the run printed and nothing asserts: each side's last outcome for
+the other (its row) and A's close. Neither row recorded a dial with
+neither side trusting (`none`); A's row for B ended `denied` with A
+alone trusting (the case allows `connected` there, see the module doc
+of `tests/pairing.rs`); A's close reported `accepted`, and both rows
+ended `connected` once both trusted.
+
+So once each side held the other's address from its own screens, no
+message crossed until both trusted the other's PeerId. The address was
+never withheld, so the run does not show that an address is needed.
 
 ## What this run does not prove
 

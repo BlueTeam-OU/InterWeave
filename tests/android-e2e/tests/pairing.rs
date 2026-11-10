@@ -727,9 +727,11 @@ fn on_two_phones_two_fresh_profiles_connect_after_both_trust_and_not_before() {
 /// The second row with step 1's add made on each phone's own Add page,
 /// each scanning the other's Show code: the debug APK (the screens'
 /// trace is its `ui-trace` feature), the screen lock off, app data
-/// cleared on both, the camera granted, and a person to face the phones.
+/// cleared on both, the camera granted, on API 33 and later the
+/// notifications too (the prompt takes the keys at the first launch
+/// otherwise), and a person to face the phones.
 #[test]
-#[ignore = "needs two devices on one LAN with cleared app data, the camera granted and no screen lock, adb, the debug and androidTest builds on both, and a person to face them"]
+#[ignore = "needs two devices on one LAN with cleared app data, the camera (and on API 33+ notifications) granted and no screen lock, adb, the debug and androidTest builds on both, and a person to face them"]
 fn on_two_phones_two_fresh_profiles_added_on_their_screens_connect_after_both_trust_and_not_before()
 {
     let (mut a, mut b) = phones();
