@@ -415,64 +415,50 @@ ui_texts! {
     /// unlocks the app for a key operation or a launch (not S1's, which
     /// is `IdS1Title`).
     UnlockPromptTitle => "Unlock InterWeave",
-    // PLACEHOLDER (en)
     /// ANDROID, Trust page (unlock note section 7, D): stay-reachable with
     /// user-presence in force. While InterWeave runs it can stay
     /// reachable; after a restart it stays offline until unlocked. Never
     /// says it comes back by itself.
-    UnlockRestartNeedsUnlock => "While InterWeave keeps running, it can stay reachable. After your phone or the app restarts, InterWeave stays offline until you unlock it with your screen lock.",
-    // PLACEHOLDER (en)
+    UnlockRestartNeedsUnlock => "While InterWeave keeps running, it can stay reachable. After your phone or InterWeave restarts, InterWeave stays offline until you unlock it with your screen lock.",
     /// ANDROID, Trust page: D while InterWeave is locked, without "while
     /// it keeps running". Never says it comes back by itself.
-    UnlockRestartNeedsUnlockLocked => "After every restart of your phone or the app, InterWeave stays offline until you unlock it with your screen lock.",
-    // PLACEHOLDER (en)
+    UnlockRestartNeedsUnlockLocked => "After your phone or InterWeave restarts, InterWeave stays offline until you unlock it with your screen lock.",
     /// ANDROID, Trust page, P-up's first sentence: the setting was changed
     /// to need the screen lock after a restart and is not in force yet,
     /// so a restart still opens without it. Its reason and
     /// `UnlockTriesAgain` follow as sentences of their own.
-    UnlockPendingNeedsLock => "InterWeave's setting was changed to need your screen lock after a restart, but the change is not in force yet: until it is, InterWeave opens after a restart without your screen lock, as before.",
-    // PLACEHOLDER (en)
+    UnlockPendingNeedsLock => "InterWeave's screen-lock setting was changed: after a restart, InterWeave will need your screen lock. This change has not taken effect yet. For now, after a restart, InterWeave opens without your screen lock, as before.",
     /// ANDROID, Trust page, P-down's first sentence: the setting was
     /// changed to no longer need the screen lock and is not in force yet,
     /// so a restart still stays offline until unlocked.
-    UnlockPendingNoLock => "InterWeave's setting was changed so that it no longer needs your screen lock after a restart, but the change is not in force yet: until it is, InterWeave stays offline after a restart until you unlock it, as before.",
-    // PLACEHOLDER (en)
+    UnlockPendingNoLock => "InterWeave's screen-lock setting was changed: after a restart, InterWeave will no longer need your screen lock. This change has not taken effect yet. For now, after a restart, InterWeave stays offline until you unlock it, as before.",
     /// ANDROID, Trust page, P-unknown's first sentence: a change could not
     /// be applied or checked; InterWeave works as before.
-    UnlockPendingUnknown => "InterWeave could not apply or check a change to its screen-lock setting, so it works as before.",
-    // PLACEHOLDER (en)
+    UnlockPendingUnknown => "InterWeave could not apply or check a change to its screen-lock setting, so InterWeave works as before.",
     /// ANDROID, Trust page: every P line's last sentence.
     UnlockTriesAgain => "InterWeave tries again each time it starts.",
-    // PLACEHOLDER (en)
     /// ANDROID, Trust page: a P line's reason, Storage, the one the person
     /// can act on.
-    UnlockReasonStorage => "This phone's storage could not save the change. Freeing some space may help.",
-    // PLACEHOLDER (en)
+    UnlockReasonStorage => "This phone's storage could not save the change. Freeing some space on this phone may help.",
     /// ANDROID, Trust page: a P line's reason, Keystore; nothing to do in
     /// InterWeave.
-    UnlockReasonKeystore => "This phone's secure key storage did not accept the change. There is nothing to do in InterWeave.",
-    // PLACEHOLDER (en)
+    UnlockReasonKeystore => "This phone's secure key storage did not accept the change. You cannot fix this in InterWeave.",
     /// ANDROID, Trust page: a P line's reason, Other; no cause offered.
     UnlockReasonOther => "The change could not be made.",
-    // PLACEHOLDER (en)
     /// ANDROID, Trust page, K: the setting is in force, the previous
     /// setting's key could not be removed yet, InterWeave tries again.
     /// Nothing for the person to do.
-    UnlockOldKeyRemains => "The screen-lock setting is in force. The key used by the previous screen-lock setting could not be removed from this phone yet. InterWeave tries again each time it starts.",
-    // PLACEHOLDER (en)
+    UnlockOldKeyRemains => "The change to InterWeave's screen-lock setting has taken effect. The key that the previous setting used could not be removed from this phone yet. InterWeave tries again each time it starts.",
     /// ANDROID, the Chats notice in P-up, one sentence: the setting is not
     /// in force yet, so a restart does not need the screen lock.
-    UnlockPendingNotice => "The screen-lock setting is not in force yet, so InterWeave does not need your screen lock after a restart.",
-    // PLACEHOLDER (en)
+    UnlockPendingNotice => "The change to InterWeave's screen-lock setting has not taken effect yet, so after a restart InterWeave does not need your screen lock.",
     /// ANDROID, the P-up notice's action, opening the Trust page's line.
     UnlockPendingDetails => "Details",
-    // PLACEHOLDER (en)
     /// ANDROID, announced when a P line ends (or D, by the policy in force
     /// changing): the setting is now in force.
-    UnlockApplied => "The screen-lock setting is now in force.",
-    // PLACEHOLDER (en)
+    UnlockApplied => "The change to InterWeave's screen-lock setting has taken effect.",
     /// ANDROID, announced when the K line ends: the old key was removed.
-    UnlockOldKeyRemoved => "The key used by the previous screen-lock setting has been removed.",
+    UnlockOldKeyRemoved => "The key that InterWeave's previous screen-lock setting used has been removed from this phone.",
     /// The Chats bar's overflow button, its accessible name and tooltip:
     /// the app's options, Trust among them (#304 F12; ux-designer-01
     /// 34023aa1). Named apart from a conversation's More options, which
