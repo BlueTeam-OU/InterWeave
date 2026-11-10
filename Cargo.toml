@@ -637,8 +637,8 @@ bip39 = { version = "2", default-features = false, features = ["std"] }
 # SQLite, which is what the plaintext tests and the rewrite's read of a
 # plaintext store use. Only the human crates depend on rusqlite, so no
 # other binary links OpenSSL. `default-features = false` drops the WASM
-# shim that 0.40 enables by default.
-rusqlite = { version = "0.40", default-features = false, features = ["bundled-sqlcipher-vendored-openssl"] }
+# shim that rusqlite enables by default (0.40 and 0.41).
+rusqlite = { version = "0.41", default-features = false, features = ["bundled-sqlcipher-vendored-openssl"] }
 # Temporary directories for storage tests. A retention test that never
 # touches a real file cannot prove anything survives a restart.
 tempfile = "3"

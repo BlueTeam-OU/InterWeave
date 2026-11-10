@@ -170,16 +170,44 @@ pub fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Body {
     pieced(whole(rendered, image))
 }
 
+/// [`flatten`], with each link's place: the index in the body's lines of
+/// the last piece of the line its text is in, after which the reader
+/// draws its control (design/2026-11-04-long-message.md section 5.1).
+pub fn flatten_placed(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> (Body, Vec<usize>) {
+    placed(whole(rendered, image))
+}
+
 /// `whole`'s lines in pieces within the bounds, its links as they are.
 pub(crate) fn pieced(whole: Whole) -> Body {
-    Body {
-        lines: whole
-            .lines
-            .into_iter()
-            .flat_map(Line::into_pieces)
-            .collect(),
-        links: whole.links.into_iter().map(|(_, link)| link).collect(),
+    placed(whole).0
+}
+
+/// [`pieced`], with each link's place as [`flatten_placed`] gives it.
+fn placed(whole: Whole) -> (Body, Vec<usize>) {
+    let mut lines = Vec::new();
+    let mut last_piece = Vec::with_capacity(whole.lines.len());
+    for line in whole.lines {
+        lines.extend(line.into_pieces());
+        last_piece.push(lines.len().saturating_sub(1));
     }
+    let places = whole
+        .links
+        .iter()
+        .map(|(line, _)| {
+            last_piece
+                .get(*line)
+                .copied()
+                .unwrap_or_else(|| lines.len().saturating_sub(1))
+        })
+        .collect();
+    let destinations = whole.links.into_iter().map(|(_, link)| link).collect();
+    (
+        Body {
+            lines,
+            links: destinations,
+        },
+        places,
+    )
 }
 
 /// A body before its lines are cut into pieces: each line whole, each
@@ -596,6 +624,28 @@ mod tests {
             [line(Kind::Text, 0, false, "", "click and file")]
         );
         assert!(got.links.is_empty(), "no control for an inert link");
+    }
+
+    /// Each link's place is the last piece of the line its text is in:
+    /// a line cut into pieces puts it after the last, and a line with two
+    /// links places both there (section 5.1).
+    #[test]
+    fn a_link_is_placed_after_the_last_piece_of_its_line() {
+        let long = "word ".repeat(1_000);
+        let source = format!(
+            "[a](https://e.org/1) first\n\nmiddle\n\n{long}[b](https://e.org/2) and [c](https://e.org/3)\n\nlast"
+        );
+        let (drawn, places) = super::flatten_placed(&render(&source), &|alt| alt.to_owned());
+        assert_eq!(drawn, body(&source), "the same body as flatten");
+        assert_eq!(drawn.links.len(), 3);
+        let long_pieces = drawn.lines.len() - 3;
+        assert!(long_pieces > 1, "the long line is cut: {long_pieces}");
+        assert_eq!(places, [0, 1 + long_pieces, 1 + long_pieces]);
+        assert_eq!(
+            drawn.lines[places[1] + 1].text,
+            "last",
+            "after the long line's last piece"
+        );
     }
 
     #[test]

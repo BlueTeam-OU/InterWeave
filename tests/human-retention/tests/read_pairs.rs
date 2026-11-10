@@ -159,11 +159,7 @@ fn the_pairs_hold_no_content_and_a_column_that_could_is_refused_at_open() {
 
     let conn = rusqlite::Connection::open(&path).expect("raw");
     let stmt = conn.prepare("SELECT * FROM read_pairs").expect("select");
-    let columns: Vec<String> = stmt
-        .column_names()
-        .iter()
-        .map(|c| (*c).to_owned())
-        .collect();
+    let columns: Vec<String> = stmt.column_names().map(str::to_owned).collect();
     assert_eq!(
         columns,
         [

@@ -44,6 +44,11 @@ pub const TRACE: &str = "ui-trace ";
 /// on the page.
 const TABS: usize = 40;
 
+/// How many TABs [`Screens::read_whole`] presses before it gives up: a
+/// cut row's preview of autolinks holds some 20 link controls, which
+/// follow its Read the whole message and come before the next row's.
+const READ_TABS: usize = 80;
+
 /// How long a TAB's focus line may take to come.
 const TAB_PATIENCE: Duration = Duration::from_secs(3);
 
@@ -59,6 +64,9 @@ pub type Step = Map<String, Value>;
 /// The app on one phone, by its `adb -s` serial.
 pub struct Screens {
     serial: String,
+    /// The adb program: `adb` on the PATH, a stand-in in this module's
+    /// tests.
+    program: std::ffi::OsString,
     /// The trace lines read so far since the launch cleared the log.
     seen: Vec<String>,
     /// How many of `seen` a wait has already consumed.
@@ -76,6 +84,7 @@ impl Screens {
     pub fn new(serial: &str) -> Self {
         Self {
             serial: serial.to_owned(),
+            program: "adb".into(),
             seen: Vec::new(),
             read: 0,
             focus: String::new(),
@@ -106,15 +115,8 @@ impl Screens {
         }
         (self.seen, self.read, self.focus, self.app) = (Vec::new(), 0, String::new(), Vec::new());
         let launched = self
-            .adb_ok(&[
-                "shell",
-                "am",
-                "start",
-                "-W",
-                "-n",
-                &format!("{PACKAGE}/.MainActivity"),
-            ])
-            .and_then(|_| self.wait_all(0, &["page=conversations"], patience))
+            .front()
+            .and_then(|()| self.wait_all(0, &["page=conversations"], patience))
             .and_then(|()| {
                 self.wait_until(patience, |seen| match last_of(seen, "connect=") {
                     Some("not-owed" | "settled" | "open") => None,
@@ -146,6 +148,77 @@ impl Screens {
             .press("app-options", &["focus=app-trust"], patience)
             .and_then(|()| self.press("app-peers", &["page=peers"], patience));
         self.answer("open_peers", opened)
+    }
+
+    /// Chats -> the conversation whose row TAB reaches first, drawn.
+    pub fn open_conversation(&mut self, patience: Duration) -> Step {
+        let opened = self.press("conversation:", &["page=conversation"], patience);
+        self.answer("open_conversation", opened)
+    }
+
+    /// The first Read the whole message TAB reaches whose focus key is
+    /// not in `opened`, pressed, and the reader's first frame: the step
+    /// carries the row's focus key as `read` and the trace's `ms`, from
+    /// the press reaching the view to that frame (design/2026-11-04-
+    /// long-message.md A5). What reaches the phone before the view, the
+    /// key's way through `input` and the platform, is not in it.
+    pub fn read_whole(&mut self, opened: &[String], patience: Duration) -> Step {
+        let name = "read_whole";
+        let reached = self.tab_until("a Read the whole message not yet opened", READ_TABS, |f| {
+            f.starts_with("read:") && !opened.iter().any(|o| o == f)
+        });
+        if let Err(why) = reached {
+            return step(name, false, why);
+        }
+        let read = self.focus.clone();
+        let from = self.seen.len();
+        let drawn = self
+            .key("KEYCODE_ENTER")
+            .and_then(|()| self.wait_all(from, &["page=reader"], patience))
+            .and_then(|()| self.said(from, "reader=drawn ", patience));
+        let mut out = self.timed(name, drawn);
+        out.insert("read".to_owned(), Value::String(read));
+        out
+    }
+
+    /// Show source, or Show formatted, in the open reader.
+    pub fn reader_switch(&mut self) -> Step {
+        // The switch draws no page: the next End line names the form it
+        // measured, which is the check.
+        let switched = self
+            .tab_to("reader-source")
+            .and_then(|()| self.key("KEYCODE_ENTER"))
+            .and_then(|()| self.settle().map(drop));
+        self.answer("reader_switch", switched)
+    }
+
+    /// End in the open reader, its list focused first, and the trace's
+    /// time to the frame that shows the list at its end: the step carries
+    /// `ms`, `frames`, `at-end` and the reader's `form` (A5).
+    pub fn reader_end(&mut self, patience: Duration) -> Step {
+        let ended = self.tab_to("reader-scroll").and_then(|()| {
+            let from = self.seen.len();
+            self.key("KEYCODE_MOVE_END")?;
+            self.said(from, "reader=end ", patience)
+        });
+        self.timed("reader_end", ended)
+    }
+
+    /// Back from the reader to its conversation, focus on the row's Read
+    /// the whole message (section 5.4).
+    pub fn close_reader(&mut self, patience: Duration) -> Step {
+        let closed = self.back(&["page=conversation"], patience).and_then(|()| {
+            self.settle()?;
+            if self.focus.starts_with("read:") {
+                Ok(())
+            } else {
+                Err(format!(
+                    "focus left on {:?}, not a Read the whole message",
+                    self.focus
+                ))
+            }
+        });
+        self.answer("close_reader", closed)
     }
 
     /// Show my address, its code drawn (`show=shown`), then Back to
@@ -345,11 +418,14 @@ impl Screens {
     /// seen: the onboarding pages, where `launch` waits for Conversations.
     pub fn launch_to_identity(&mut self, screen: &str, patience: Duration) -> Step {
         let name = "launch_to_identity";
+        if let Err(why) = self.unlocked() {
+            return step(name, false, why);
+        }
         let _ = self.adb(&["shell", "am", "force-stop", PACKAGE]);
         if let Err(why) = self.adb_ok(&["logcat", "-c"]) {
             return step(name, false, why);
         }
-        (self.seen, self.read, self.focus) = (Vec::new(), 0, String::new());
+        (self.seen, self.read, self.focus, self.app) = (Vec::new(), 0, String::new(), Vec::new());
         let want = format!("identity={screen}");
         let launched = self
             .front()
@@ -494,19 +570,29 @@ impl Screens {
     /// title), and that line, read as a TAB's answer, pressed ENTER one
     /// control late (the 2026-10-25 Pixel run: Add opened for Show).
     fn tab_to(&mut self, key: &str) -> Result<(), String> {
-        let at = |focus: &str| {
+        self.tab_until(&format!("{key:?}"), TABS, |focus| {
             if key.ends_with(':') {
                 focus.starts_with(key)
             } else {
                 focus == key
             }
-        };
+        })
+    }
+
+    /// TAB, at most `tabs` times, until the settled focus is `at`, or fail
+    /// naming `what` and where focus went.
+    fn tab_until(
+        &mut self,
+        what: &str,
+        tabs: usize,
+        at: impl Fn(&str) -> bool,
+    ) -> Result<(), String> {
         self.settle()?;
         if at(&self.focus) {
             return Ok(());
         }
         let mut visited = Vec::new();
-        for _ in 0..TABS {
+        for _ in 0..tabs {
             self.key("KEYCODE_TAB")?;
             let moved = self.settle()?;
             visited.push(if moved {
@@ -519,7 +605,7 @@ impl Screens {
             }
         }
         Err(format!(
-            "{TABS} TABs never reached {key:?}; focus went {visited:?} on {}",
+            "{tabs} TABs never reached {what}; focus went {visited:?} on {}",
             self.where_now()
         ))
     }
@@ -565,6 +651,35 @@ impl Screens {
             }
         }
         None
+    }
+
+    /// The rest of the first trace line after `from` that starts with
+    /// `prefix`, waited for.
+    fn said(&mut self, from: usize, prefix: &str, patience: Duration) -> Result<String, String> {
+        let want = format!("{TRACE}{prefix}");
+        self.wait_until(patience, |seen| {
+            (!seen[from..].iter().any(|l| l.starts_with(&want))).then(|| format!("{prefix:?}"))
+        })?;
+        Ok(self.seen[from..]
+            .iter()
+            .find_map(|l| l.strip_prefix(&want))
+            .unwrap_or_default()
+            .to_owned())
+    }
+
+    /// `name`'s answer, its detail where it stands and each `key=value`
+    /// of a timing line as a field of its own.
+    fn timed(&self, name: &str, said: Result<String, String>) -> Step {
+        match said {
+            Ok(line) => {
+                let mut out = step(name, true, self.where_now());
+                for (k, v) in fields(&line) {
+                    out.insert(k.to_owned(), Value::String(v.to_owned()));
+                }
+                out
+            }
+            Err(why) => step(name, false, why),
+        }
     }
 
     /// Wait until every line of `wants` is among the trace's lines from
@@ -742,8 +857,17 @@ impl Screens {
     }
 
     /// `am start` of the main activity: launches it, or brings its task
-    /// to the front.
+    /// to the front. Refused behind a keyguard, asking no one: there
+    /// `am start -W` waits with no end (51 minutes on the A40), so a
+    /// step that may ask the person calls [`Self::unlocked`] first, and
+    /// one that must not ([`Self::launch_locked`]) fails here instead.
     fn front(&self) -> Result<(), String> {
+        if crate::platform::keyguard_showing(&self.dump(&["window"])?)? {
+            return Err(format!(
+                "the phone {} is locked: am start -W would wait behind the keyguard with no end",
+                self.serial
+            ));
+        }
         self.adb_ok(&[
             "shell",
             "am",
@@ -760,7 +884,7 @@ impl Screens {
     }
 
     fn adb(&self, args: &[&str]) -> std::io::Result<Output> {
-        Command::new("adb")
+        Command::new(&self.program)
             .args(["-s", &self.serial])
             .args(args)
             .output()
@@ -844,6 +968,11 @@ fn keyboard_shown(dump: &str) -> Option<bool> {
             "false" => Some(false),
             _ => None,
         })
+}
+
+/// A trace line's `key=value` words.
+fn fields(line: &str) -> impl Iterator<Item = (&str, &str)> {
+    line.split(' ').filter_map(|w| w.split_once('='))
 }
 
 fn step(case: &str, passed: bool, detail: String) -> Step {
@@ -943,6 +1072,105 @@ mod tests {
         ] {
             assert!(!typable(line), "{line:?}");
         }
+    }
+
+    /// Whether a stand-in call is a dump, by the command word
+    /// `dump_command` builds (`tests/dump_reads.rs` keeps the word there).
+    fn dumps(call: &str) -> bool {
+        call.contains(crate::platform::dump_command(&[])[0])
+    }
+
+    /// A stand-in adb in a scratch directory: a `dumpsys window` shows
+    /// the keyguard for its first `locked` calls, logcat holds `trace`,
+    /// and every call is appended to `calls`, one line each.
+    fn stand_in(locked: u32, trace: &str) -> (tempfile::TempDir, Screens) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path().display();
+        let script = format!(
+            r#"#!/bin/sh
+echo "$*" >> {d}/calls
+case "$*" in
+  *dumpsys*)
+    n=$(grep -c dumpsys {d}/calls)
+    if [ "$n" -le {locked} ]; then echo "  isKeyguardShowing=true"; else echo "  isKeyguardShowing=false"; fi
+    echo IW_END=0 ;;
+  *logcat\ -d*) printf '%s\n' "{trace}" ;;
+esac
+"#
+        );
+        let program = dir.path().join("adb");
+        std::fs::write(&program, script).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut screens = Screens::new("stand-in");
+        screens.program = program.into();
+        (dir, screens)
+    }
+
+    fn calls(dir: &tempfile::TempDir) -> Vec<String> {
+        let calls = std::fs::read_to_string(dir.path().join("calls")).unwrap_or_default();
+        calls.lines().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_timing_line_is_waited_for_and_its_fields_answered() {
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace page=reader\nui-trace reader=end ms=1250 frames=4 at-end=yes form=formatted",
+        );
+        let said = s.said(0, "reader=end ", Duration::from_millis(50));
+        assert_eq!(
+            said.as_deref(),
+            Ok("ms=1250 frames=4 at-end=yes form=formatted")
+        );
+        let step = s.timed("reader_end", said);
+        assert_eq!(step.get(keys::RESULT), Some(&json!(keys::PASS)), "{step:?}");
+        for (k, v) in [
+            ("ms", "1250"),
+            ("frames", "4"),
+            ("at-end", "yes"),
+            ("form", "formatted"),
+        ] {
+            assert_eq!(step.get(k), Some(&json!(v)), "{k} in {step:?}");
+        }
+        // A line that never comes fails the step, naming what it waited for.
+        let said = s.said(0, "reader=drawn ", Duration::from_millis(50));
+        let step = s.timed("read_whole", said);
+        assert_eq!(step.get(keys::RESULT), Some(&json!(keys::FAIL)), "{step:?}");
+        assert!(
+            step.get(keys::DETAIL)
+                .and_then(Value::as_str)
+                .is_some_and(|d| d.contains("reader=drawn")),
+            "{step:?}"
+        );
+    }
+
+    #[test]
+    fn no_am_start_runs_behind_a_keyguard() {
+        let (dir, mut s) = stand_in(u32::MAX, "ui-trace page=conversations");
+        let why = s.front().unwrap_err();
+        assert!(why.contains("locked"), "{why}");
+        let r = s.bring_back();
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
+        let r = s.launch_locked(Duration::from_millis(50));
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
+        let calls = calls(&dir);
+        assert!(calls.iter().any(|c| dumps(c)), "{calls:?}");
+        assert!(!calls.iter().any(|c| c.contains("am start")), "{calls:?}");
+    }
+
+    #[test]
+    fn a_launch_to_identity_waits_for_the_unlock_before_it_starts() {
+        let (dir, mut s) = stand_in(2, "ui-trace identity=w");
+        let r = s.launch_to_identity("w", Duration::from_secs(5));
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::PASS)), "{r:?}");
+        let calls = calls(&dir);
+        let start = calls
+            .iter()
+            .position(|c| c.contains("am start"))
+            .expect("an am start");
+        let dumps = calls[..start].iter().filter(|c| dumps(c)).count();
+        assert!(dumps >= 3, "the start after the keyguard went: {calls:?}");
     }
 
     #[test]

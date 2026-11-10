@@ -13,13 +13,11 @@ and a cluster past 32 code points is drawn as one replacement mark
 both on `main` in HUMAN-CHAT.md (the Bounds with §6's figures, 2 000
 and 40, written on #562; the Clusters bullet, with "raw source
 viewable" aligned to it). Where this note and the contract ever differ,
-the contract governs, with one exception while it is pending: the
-drawn-line unit and the 8 000 logical px bound on each drawn item
-(§5.1, §6, A4) follow architect-cto's DECISION 01a1ab12-5459, written
-as c416bea40 on their branch for rust-ui-dev's j95 pull request and not
-yet on `main`. Until it lands, HUMAN-CHAT.md's Bounds on `main` counts
-model lines and holds the renderer's ceiling by the figures; A4's
-drawn-line and per-item checks apply from its landing.
+the contract governs. Its Bounds on `main` carry both rulings this
+note builds on: the drawn-line unit and the 8 000 logical px bound on
+each drawn item (§5.1, §6, A4; architect-cto's DECISION 01a1ab12-5459,
+c416bea40), and the weighted count with the split by measure (Bounds
+ruling A 2026-11-07, DECISION 01a1b6b7-afbe, 0b0b11c1a).
 
 Owner of the design: ux-designer. The words are language-culture's: §8
 names each string and what it must say. Colours are roles of
@@ -46,10 +44,10 @@ the look spec's edge case "A very long message"
 (`design/2026-10-16-android-look.md` §8); for a body within the bound,
 that line stands as written. It revises one rule of
 `design/2026-10-16-message-swipe.md` §7: a cut row has a second focus
-stop besides its bubble and its links, Read the whole message (§4.3,
+stop besides its bubble and its links, Open the whole message (§4.3,
 §9). And it revises message-swipe §7's list of a row's menu items, and
 its §11 item 23 that checks that list: every text row, cut or whole,
-gains Copy message source, and a cut row Read the whole message too,
+gains Copy message source, and a cut row Open the whole message too,
 both before Show source, which stays last (§4.3, §5.3). A card row,
 which has no Copy, is unchanged. And it revises the look spec's §6
 Composer, a 48 dp field (the build grows it without a limit): it
@@ -122,8 +120,8 @@ mode shown.
 | state | in the conversation | in the reader (§5) |
 |---|---|---|
 | whole in the mode shown | the body in that mode, as today | not offered from this mode |
-| cut, formatted | the preview (§4.1), the cut line (§4.2), Read the whole message (§4.3) | the whole body, formatted |
-| cut, source | the source's preview, the cut line, Read the whole message | the whole source |
+| cut, formatted | the preview (§4.1), the cut line (§4.2), Open the whole message (§4.3) | the whole body, formatted |
+| cut, source | the source's preview, the cut line, Open the whole message | the whole source |
 | reader opening | — | its first screen within A5's figure (§10); nothing below 0.5 s, then an indeterminate progress bar under the app bar, labelled `ReaderOpening` (§8), until the first screen is drawn |
 | row gone while the reader is open | — | the reader closes (§5.4) |
 
@@ -186,9 +184,9 @@ end, and characters mean nothing to most people. It is the share of the
 body's characters, counted as §6 counts them, that the preview holds,
 rounded down, at least 1 %.
 
-### 4.3 Read the whole message
+### 4.3 Open the whole message
 
-A text button, `ReadWholeMessage` (§8), under the cut line at the
+A text button, `OpenWholeMessage` (§8), under the cut line at the
 bubble's start edge, with the 48 dp target every control keeps. It
 opens the reader (§5) at the start of the body, in the mode the row
 is in (formatted or source). It is a control at rest on purpose,
@@ -198,7 +196,7 @@ beside it (visibility of system status, Nielsen's heuristic 1).
 
 It is also an item of the row's menu. A cut row's menu, in order: the
 row's actions as message-swipe §7 gives them (Keep and Dismiss, or
-Unkeep, or Retry and Cancel), then Read the whole message, then
+Unkeep, or Retry and Cancel), then Open the whole message, then
 `CopyMessage` (§5.3), then Show source last. Where the toolkit offers
 custom accessibility actions (message-swipe §7: optional, not there
 today), it is one of the bubble's as well. No gesture opens it.
@@ -223,7 +221,19 @@ look spec §5.2), wrapping like the text, so neither is ever cut off;
 its forms on screen and spoken are §8's.
 Under it, the whole body in one continuous scroll, drawn as the person
 scrolls so that only what is near the screen is laid out. Its look is
-the bubble's text on `surface`, without the bubble.
+the bubble's text on `surface`, without the bubble, but for where a
+link's control sits: on a line of its own after the line that holds
+the link, never gathered after the body's last line. A person reading
+a link in a long body presses it where they read it, not after
+scrolling to the end; and Tab (§9) then meets the links in the order
+the body gives them. The row keeps its controls together after its
+text, the cut line and Open the whole message (§4.1, §9): a row's
+text is bounded by §6's figures, so its links come after at most one
+whole body's text, which for a whole row at the bound is several
+screens at 200 % text (A4's record), and more for §6's known limit,
+about 117 for 2 000 × U+FDFD. Keeping the row's controls in one place is
+a judgement, not evidence: a row is a list item, passed over as one,
+and the reader is where a long body is read.
 
 **Not pages.** The whole body is one scroll, not pages of N lines:
 paging breaks a log's line or a paragraph at an edge the content did
@@ -235,7 +245,12 @@ where the person is in the body and let them move through it quickly.
 Whether the toolkit offers both is a precondition of A5 (§10).
 
 **Drawn in pieces**, in both modes, because no drawn item may pass
-8 000 logical px in either dimension (§6). A piece ends where the text is drawn
+8 000 logical px in either dimension (§6). A piece holds no more
+than a whole body may (§6's figures, as the contract's Bounds say), and
+a drawn line within it that is taller or wider than 8 000 logical px is
+split further by its extent as the layout measures it, never by a count
+of characters, weighted or not (Bounds ruling A 2026-11-07, §6): one
+glyph can be many times wider than another. A piece ends where the text is drawn
 broken anyway, and there nothing shows, at the last such place inside
 the piece's bound: in source mode at a line break (§6); in formatted
 mode at a block boundary (a paragraph, a list item, a table row, a
@@ -250,8 +265,9 @@ is lost, repeated or cut, and no gap opens. The one thing that shows is
 a short, ragged line at that split, where the text itself does not
 break. That is accepted (rust-ui-dev's j92 note on #561: the toolkit
 does not say where it wraps): it changes no character, Copy takes the
-source whole, and it comes about once per piece of such a stretch — a
-few thousand characters, rust-ui-dev's estimate of a piece — never
+source whole, and it comes about once per piece of such a stretch — at
+most 2 000 characters (§6), fewer where a drawn line past 8 000
+logical px is split by measure — never
 between blocks or lines that break anyway.
 
 **Across a resize.** A window that changes between narrow and wide
@@ -281,8 +297,9 @@ before Show source; a card has none. Feedback: on Android 13 and later
 the system shows its own clipboard confirmation and the app adds none
 (the platform's guidance); on Android 12 and earlier, and on the
 desktop, a snackbar `MessageCopied`. If the platform refuses the copy,
-a snackbar `MessageNotCopied` says so; nothing else changes. Copy is
-not undoable and needs no undo: it changes nothing in the app.
+a snackbar `MessageNotCopied` says so and that Copy can be pressed
+again; nothing else changes. Copy is not undoable and needs no undo:
+it changes nothing in the app.
 
 The conditions architect-cto's ruling carries (§11 Q1), each a check
 of A9: Copy acts on the person's press only, never on receipt, read or
@@ -303,7 +320,7 @@ no clipboard path at all: `design/2026-10-19-android-identity.md`.)
 Back (Android's system Back or the app bar's) or, on the desktop,
 Escape closes the reader, and the conversation is where it was: the
 row in the mode it was in when the reader opened, whatever mode the
-reader was switched to, so its Read the whole message is there for
+reader was switched to, so its Open the whole message is there for
 focus to return to (§9).
 
 The reader also closes, with no message of its own, when its row
@@ -319,7 +336,19 @@ item, so the text cannot go from under the person while they read it.
 **Both, characters and lines.** A body is cut when it has more than
 **2 000 characters** or more than **40 lines**, and the preview is then
 at most **1 600 characters** and **32 lines**. A character is a
-grapheme cluster; a line is a **drawn** line: one of the model's lines
+grapheme cluster, **weighted**: a cluster whose base has East Asian
+Width W or F (UAX #11), or that is drawn with emoji presentation
+(UTS #51), counts as two, and every other cluster as one
+(architect-cto's Bounds ruling A 2026-11-07, DECISION 01a1b6b7-afbe,
+on rust-ui-dev's measurement, OBSERVATION 01a1b6b2-3e5e: a whole body
+of 2 000 CJK or emoji clusters at 200 % text was about twice as tall
+as one of Latin letters: 9 981 and 13 947 logical px against 5 405,
+HUMAN-CHAT.md's Bounds). The weight comes from Unicode's
+properties, never from a font, so the cut depends on neither the width
+nor the text size, which is §2's reason for not cutting by drawn
+height. Every figure below counts the same way; the reader's pieces
+are each within the figures of a whole body, and a drawn line past
+8 000 logical px is split further by measure, not by count (§5.1). A line is a **drawn** line: one of the model's lines
 (a paragraph, a list item, a table row, a code line, a heading, a
 rule), plus one for each hard line break inside it, however it wraps —
 soft wrapping counts nothing (architect-cto's DECISION 01a1ab12-5459:
@@ -342,6 +371,19 @@ cut line's percentage, A1 and A2 — counts the same way.
 
 The gap between the two figures is there so that a body just over the
 bound is never cut to hide only its last sentence or two.
+
+**A known limit of the figures.** A glyph the font draws wider than
+its count says — an Arabic ligature such as U+FDFD, wide cuneiform, or,
+less so, a run of a wide Latin letter such as `W` — draws more than its
+weight: its width is the font's, so no list of such characters would
+be complete. A body of them under the bound is whole, and its row is
+the figure times the widest glyph the fonts draw, drawn in pieces split
+by measure like any other (§5.1). rust-ui-dev measured whole rows at
+200 % text, 412 dp wide, in 747 dp viewports (INFO 01a1b6eb-93d8, the
+build of ruling A): 2 000 × U+FDFD about 117, 2 000 × `W` about 13,
+against about 8 for a 400-word paragraph and 7.4 for 1 000 CJK
+characters. It is accepted: nobody writes such text by the thousand,
+and only a trusted peer can send a message at all.
 
 **In source mode what is drawn is the source** (HUMAN-CHAT.md on #562:
 "the plain-text fallback and Show source are cut by the same rule over
@@ -383,7 +425,10 @@ speaks U+FFFD on its own depends on the person's punctuation setting
 and the speech engine, not on the platform alone, so the client does
 not leave it to them: wherever the client sets the accessible text —
 the bubble's `Item` label, the Chats row's description, the reader's
-blocks and Show source — it puts `ReplacedCharacter` (§8) in place of
+blocks and Show source, and a name or title that can hold the mark
+(the Chats row's title, the conversation header, a message's author
+line, the card and contact screens' names) — it puts
+`ReplacedCharacter` (§8) in place of
 every U+FFFD: a mark it drew for a cluster past 32 code points, and a
 U+FFFD the body already carries (a sent message whose draft was
 replaced, or one the sender's own client replaced), which looks the
@@ -391,9 +436,20 @@ same and which no client can tell apart. So U+FFFD never reaches the
 screen reader there and nothing is spoken twice. The words stand apart from the text around them: the
 client puts a space on each side where the mark touches a character
 that is not a space, and any pause the words need in a locale is in
-the string itself (§8). In either case, no words are shown on screen.
+the string itself (§8). The one exception is before the words when
+the string's first character is a comma, full stop, colon or
+semicolon, in any script (U+002C, U+002E, U+003A, U+003B, U+3001,
+U+3002, U+060C, U+061B and their like): such a mark attaches to what
+precedes it, so the client adds no space there. Any other first
+character, an opening bracket or quote included, gets the space; with a hypothetical
+string ", character not shown,", "cafe" + mark + "open" reads
+"cafe, character not shown, open". A space
+before a lone comma would also show on a braille display as a stray
+mark. The space after the words stays. In either case, no words are shown on screen.
 
-The composer's draft is the one place without them. It is the client's
+The composer's draft is the one place without them, and so is any
+other field the person edits, such as a name being edited, for the
+same reason. The draft is the client's
 own Slint field, whose accessible value is the draft itself, and a
 screen reader that sets that value writes the draft
 (`crates/human/ui-slint/tests/look.rs` does so through it), so words
@@ -465,10 +521,11 @@ Why these figures, and the conditions any other figures must keep:
   selection — spans more than **8 000 logical px** in width or height,
   so any display scale up to 4 stays under the renderer's 32 767
   physical px, and the client never clamps the platform's scale
-  (architect-cto's DECISION 01a1ab12-5459, in HUMAN-CHAT.md's Bounds
-  with rust-ui-dev's j95 pull request). A whole body taller than that is
-  drawn in pieces (§5.1); a failure makes the pieces smaller, never the
-  text, and never raises the figures. The figures are for the person (above)
+  (architect-cto's DECISION 01a1ab12-5459, in HUMAN-CHAT.md's
+  Bounds). A whole body taller than that is
+  drawn in pieces split by their measured extent (§5.1); an item past
+  it is a defect of that split, never a reason to shrink the text or
+  raise the figures. The figures are for the person (above)
   and for the cost of the first draw. My estimate on the Pixel 9a (2.625 px
   per dp; body text 32 sp on a 48 sp line, about 126 px, about 17
   characters per line in a narrow bubble; a first-level heading 40 sp
@@ -506,13 +563,13 @@ are that locale's holder's.
 | key | where | must say | en (proposed) |
 |---|---|---|---|
 | `LongMessageShown` | the cut line (§4.2) | that the message continues past what is shown, and the share shown (`{percent}`, the whole locale-formatted value, sign included) | The first {percent} of the message is shown. |
-| `ReadWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Read the whole message |
+| `OpenWholeMessage` | the button and menu item (§4.3) | that it opens the whole message to read | Open the whole message |
 | `ReaderSent` | the reader's first content line (§5.1) | when the message reached this app, as the row's time does (`local_at`): the day (`{day}`) and the time as the row shows it (`{time}`). On screen `{day}` is `Today`, `Yesterday`, else the Chats list rows' short date (`DateRowThisYear`, `DateRowOtherYear`); in its accessible label it is `Today`, `Yesterday`, else `DateFull`, never the short form (look spec §5.2, §9) | {day}, {time} |
 | `ReaderOpening` | the reader's progress bar (§3) | that the message is being opened | Opening the whole message |
 | `CopyMessage` | the reader's action and every text message's row menu (§5.3) | that it copies the whole message's source, markdown included | Copy message source |
 | `MessageCopied` | snackbar (§5.3) | that the whole message's source is on the clipboard | Message source copied |
-| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied | Could not copy the message |
-| `ReplacedCharacter` | never on screen: a screen reader's text in place of every U+FFFD, wherever the client sets the accessible text, and never in the composer's draft (§6) | that one character is there that is shown only as a replacement mark; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
+| `MessageNotCopied` | snackbar (§5.3) | that the message could not be copied, and the action that is left: copy again (a "could not" a person can act on ends with its action: architect-cto's vocabulary read of #565, REPLY 01a1aea5) | Could not copy the message source. Choose Copy message source to try again. |
+| `ReplacedCharacter` | never on screen: a screen reader's text in place of every U+FFFD, wherever the client sets the accessible text, names and titles included, and never in the composer's draft or another field the person edits (§6) | that one character is there that is shown only as a replacement mark; a word or two, spoken in the middle of the text around it, with any pause the locale needs before and after it | character not shown |
 
 Show source and Show formatted reuse the row's existing labels.
 
@@ -522,9 +579,12 @@ Show source and Show formatted reuse the row's existing labels.
 
 | case | focus goes to | check |
 |---|---|---|
-| Read the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title (the sender), then `ReaderSent` next; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
-| Reader closed (Back, Escape) | the row's Read the whole message button | A6; A7 after a mode switch |
+| Open the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title (the sender), then `ReaderSent` next; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
+| Reader closed (Back, Escape) | the row's Open the whole message button | A6; A7 after a mode switch |
 | Reader closed because its row left (§5.4) | stays where the person's act in the list left it | A7 |
+| Tab from the reader's scroll area (desktop) | if the person scrolled the body since focus came there, the first link control starting at or below the top of the screen, else the body's first; otherwise the body's first link control; with no link control, Back; a link control is shown from its top (Keyboard, below) | A6 |
+| Tab from one of the reader's link controls (desktop) | the next link control in body order, laid out or not, shown from its top; after the last, Back | A6 |
+| Shift+Tab in the reader (desktop) | from a link control, the one before it in body order, shown from its top; from the body's first link control, the scroll area; from Back, the body's last link control, shown from its top, or with none, the scroll area | A6 |
 | Show source / Show formatted in the reader | stays on the action pressed | A6 |
 | Copy pressed in the reader's app bar | stays on Copy | A6 |
 | Copy message source chosen from a row's menu (cut or whole) | the row's bubble, as when the menu closes with nothing done (message-swipe §7) | A6 |
@@ -534,14 +594,34 @@ Show source and Show formatted reuse the row's existing labels.
 - **What is read, and in what order**, in a cut row: the bubble is read
   as one item, as the look spec's `Item` label gives it, with `{body}`
   the preview's text followed by the cut line's sentence — never the
-  whole body. Then, as their own stops, Read the whole message, the
+  whole body. Then, as their own stops, Open the whole message, the
   preview's link controls, and the row's next element. The button's
   label is its own string. A replacement mark anywhere is spoken as §6
   says.
-- **Keyboard** (desktop): Tab reaches Read the whole message after the
+- **Keyboard** (desktop): Tab reaches Open the whole message after the
   row's bubble and before its links; in the reader, Tab goes to Back,
-  then Show source (or Show formatted), Copy and the scroll area; Up,
-  Down, Page Up, Page Down, Home and End scroll; Escape closes.
+  then Show source (or Show formatted), Copy and the scroll area, then
+  to the body's link controls in body order, and from the last of them
+  back to Back; Shift+Tab goes the other way: from a link control to
+  the one before it in body order, from the body's first link control
+  to the scroll area, and from Back to the body's last link control
+  (with none, the scroll area). Where Tab enters the links from the
+  scroll area depends on whether the person scrolled: if they scrolled
+  the body since focus came to the scroll area (a key, the wheel, the
+  scroll bar), Tab goes to the first link control that starts at or
+  below the top of the screen, wherever it lies in the body, laid out
+  or not, and with none below, the body's first link control;
+  otherwise (focus came by Tab, Shift+Tab or the reader opening), Tab
+  goes to the body's first link control. With no link control at
+  all, Tab from the scroll area goes to Back. Whichever link control
+  focus moves to, the body scrolls to show it from its top; that
+  scroll is focus's, not the person's. So Tab alone reaches every
+  link: after wrapping through Back it enters at the body's first link
+  control, not at the screen top it last moved. A keyboard person must
+  not have to scroll to a link before Tab finds it: Tab moving forward
+  and landing on Back past an unreached link reads as a body with no
+  more links (WCAG 2.1.1 and 2.4.3). Up, Down, Page Up,
+  Page Down, Home and End scroll; Escape closes.
 - **TalkBack in the reader**: swiping forward reads the body block by
   block, scrolling as it goes, to the end of the body, though only
   what is near the screen is laid out. A8 states this as a
@@ -581,12 +661,12 @@ it, those checks are blocked, never passed.
   that mode draws. A body whole formatted and past the bound as source
   (links whose labels pass 2 000 characters, drawn inert; a body of
   reference definitions; about 2 000 blank lines) is whole formatted, and in source mode shows the
-  source's preview, the cut line with the source's share and Read the
+  source's preview, the cut line with the source's share and Open the
   whole message, which opens the reader in source mode; Show formatted
   takes them away again.
 - **A2** A cut row shows the preview, the cut line with a percentage
   equal to the preview's characters over the body's, rounded down and
-  at least 1, and Read the whole message; its preview ends as §4.1
+  at least 1, and Open the whole message; its preview ends as §4.1
   says, and a table cut keeps its header. `key: ` followed by 3 000
   hexadecimal digits (0–9, a–f) previews 1 600 characters and an
   ellipsis (§4.1 step 3), and A12's C2 previews its mark and 1 599
@@ -626,7 +706,11 @@ it, those checks are blocked, never passed.
   one ragged line per model line, at a larger font, so the headings'
   figures bound the table, as they bound the link and image shapes; cutting a table at fewer
   rows instead would make its preview the one shape cut short of §6's
-  figures. The device run measures it again.
+  figures. The device run measures it again. A3 holds the cut row
+  only. A whole body, at most 2 000 characters counted as §6 counts
+  them, has no cut line or button and is at most a quarter more text
+  than its shape's preview, so it needs nothing more in the
+  conversation; A4 measures it. The one exception is §6's known limit.
 - **A4** At 200 % text, on the narrowest layout and at the highest
   scale the probe can set, a whole body at the bound in each of the shapes above, the
   four link and image shapes and A12's C1 included, draws without a
@@ -641,8 +725,16 @@ it, those checks are blocked, never passed.
   where no word boundary fits, the one of the contract's three ways
   (wrap, scroll inside an item no wider than the viewport, pieces) this
   note takes. The build measures and reports the largest item in each
-  dimension; a failure makes the pieces smaller, never the text, and
-  never raises the figures.
+  dimension. Wide text is included: a whole body just under the bound
+  of W (Latin), of U+6F22 (CJK), of an emoji and of U+FDFD, each in
+  formatted mode and in source mode in the conversation; and a body of
+  each past the bound, at the largest the envelope admits, in the
+  reader in both modes (a whole body is not offered there, §3). An item past the
+  extent is a defect of the split by measure (§5.1), never a reason to
+  shrink the text or raise the figures. The build also measures and
+  reports each shape's whole row at 200 %, the four wide bodies
+  included, in viewports; those figures are a record, not a pass
+  condition (Bounds ruling A 2026-11-07).
 - **A5** The reader opens on each shape with its first screen drawn
   within 0.5 s on the A40, optimised build; End reaches the body's last
   line within 1 s; scrolling shows no blank screen, and no seam but §5.1's ragged line at
@@ -657,7 +749,7 @@ it, those checks are blocked, never passed.
   the background and back, and the window resized, as §9 says; a reader
   opened from a row cut in one mode only, switched to the other mode,
   then closed, leaves the row in the mode it was opened from, with
-  focus on its Read the whole message (§5.4); and with
+  focus on its Open the whole message (§5.4); and with
   more than the session's item ceiling of read, unkept messages, a new
   one arriving leaves the reader open on its message (§5.4).
 - **A8** TalkBack reads a cut message's reader from its start to its
@@ -709,7 +801,12 @@ it, those checks are blocked, never passed.
   it, and never the platform's own reading of U+FFFD (§6), with its
   punctuation setting at the default and at the lowest level: on the
   desktop by Orca, on the Pixel by TalkBack under §10's Android
-  precondition. C1's source pasted into the middle of a draft shows one
+  precondition. A view check with `ReplacedCharacter` set to a test
+  string led by punctuation, ", character not shown,", gives
+  "cafe" + mark + "open" the accessible text "cafe, character not
+  shown, open": no space before the string, one after it. Set to
+  "(character not shown)", it gives "cafe (character not shown) open":
+  a space on each side. C1's source pasted into the middle of a draft shows one
   mark there at once, before Send, with no other notice, and the caret
   just after the paste; Ctrl+Z on the desktop then leaves the draft as
   it was before the paste. A base typed with 31 combining marks shows
@@ -718,7 +815,13 @@ it, those checks are blocked, never passed.
   every other character, and its sent row says `ReplacedCharacter`
   there at both punctuation settings. What each screen reader says for the mark in
   the draft is recorded at both settings, whatever it is (§6's
-  limit).
+  limit). A contact whose name holds the same cluster: the Chats row's
+  title, the conversation header, the author line and the contact
+  screen's name each show one mark, and a screen reader reaching each
+  says `ReplacedCharacter` there, at both settings. Your card's name
+  holding the same cluster: the card screen shows one mark and says
+  `ReplacedCharacter`; with that name open for editing, the field's
+  accessible value is its text, never `ReplacedCharacter`.
 
 **H1** (the hypothesis of §2, unvalidated): a person given a
 conversation with a long pasted log in its middle, asked to find the
@@ -775,6 +878,15 @@ miss the cut line, or look for the next message inside the reader.
   source, which carries it byte for byte, and not by Show source; the
   contract's text says so (HUMAN-CHAT.md, on `main` since #563). How the mark looks is
   this note's (§6).
+- **Q6 — architect-cto** (asked by rust-ui-dev's measurement,
+  OBSERVATION 01a1b6b2-3e5e: a whole body of wide clusters is far
+  taller than the figures assume). **Ruled** (Bounds ruling A
+  2026-11-07, DECISION 01a1b6b7-afbe to rust-ui-dev; INFO 01a1b6b7-b4b4
+  to this note): every figure uses the weighted count of §6; the
+  8 000 px item extent is held by splitting each piece by its measured
+  extent, never by a count (§5.1); glyphs wider than two cells are a
+  known limit of the figures only (§6). The contract text is
+  architect-cto's, on `main` since 0b0b11c1a.
 
 Left out on purpose: a hint on screen for a link drawn inert (§6);
 search within a message; selecting part of a
