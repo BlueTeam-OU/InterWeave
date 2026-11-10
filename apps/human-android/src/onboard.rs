@@ -191,9 +191,11 @@ struct Platform {
     /// its own policy ([`opening_needs_presence`]).
     user_presence: bool,
     /// `start` is a K1 [`recovery_refused`] kept in a process that found
-    /// the identity ready: whichever window opens it opens it over a
-    /// bound service ([`Over::Running`]), and the check of a window that
-    /// comes after its own went answers recovery ([`ready_state`]).
+    /// the identity ready: whichever window opens it opens it as over a
+    /// running window ([`Over::Running`]), its end restarting the service
+    /// whether the binding was kept or not; the check of a window that
+    /// comes after its own went answers recovery ([`ready_state`]). A
+    /// later start that runs drops it ([`start_answered`]).
     kept: bool,
 }
 
@@ -455,6 +457,19 @@ pub(crate) fn refused_locked() {
 pub(crate) fn start_answered(ran: bool) {
     route_state().answered(ran);
     clear_authentication();
+    // A K1 kept for a window is no longer owed once a start ran: the
+    // record opened after all (the identity hook's one refusal spent, or
+    // a restore through another window), and no later window opens it.
+    if ran
+        && let Some(platform) = PLATFORM
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+        && platform.kept
+    {
+        platform.start = None;
+        platform.kept = false;
+    }
 }
 
 /// The app's data directory and the Keystore bridge `Native.identityState`
