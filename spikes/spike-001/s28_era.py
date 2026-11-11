@@ -55,14 +55,16 @@ SETTLE_S = 45
 AFTER_DECISION_S = 25
 
 
-def main() -> int:
+def main(series: str = "s28") -> int:
+    """``series`` names the run directories: S33 re-runs these rows on a
+    later build under its own name (s33_era.py)."""
     if len(sys.argv) != 2 or sys.argv[1] not in RUNS:
         raise SystemExit(f"usage: {sys.argv[0]} {{{'|'.join(RUNS)}}}")
     if os.environ.get("SPIKE_CLAUDE"):
-        raise SystemExit("unset SPIKE_CLAUDE: S28 measures the claude on PATH")
+        raise SystemExit(f"unset SPIKE_CLAUDE: {series.upper()} measures the claude on PATH")
     name = sys.argv[1]
     spec = RUNS[name]
-    run = "s28-" + name
+    run = f"{series}-{name}"
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="spike001s28-")).resolve()
     if scratch == REPO or REPO in scratch.parents:
