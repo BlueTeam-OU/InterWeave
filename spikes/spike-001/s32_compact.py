@@ -222,11 +222,16 @@ def filler_event(rng, nonce, index, size):
 
 
 def spec_of(name):
-    m = re.fullmatch(r"(large|small)-(plain|note)-d([12])(?:-w(\d+))?-([123])", name)
+    # The -b<build> segment names a build other than the one S32 (a) first
+    # ran (2.1.311), so a second build's runs sit beside the first's
+    # rather than over them; main refuses a name whose build is not the
+    # one measured.
+    m = re.fullmatch(r"(large|small)-(plain|note)-d([12])(?:-w(\d+))?(?:-b(\d+\.\d+\.\d+))?-([123])", name)
     if not m:
         return None
     window = WINDOW if m.group(4) is None else int(m.group(4))
     return {"size": m.group(1), "note": m.group(2), "depth": int(m.group(3)), "window": window,
+            "build": m.group(5),
             "model": MODELS["sonnet"], "answer_s": 600,
             "env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": str(window)} if window else {}}
 
@@ -426,12 +431,14 @@ def run_session(spec, scratch, out, config, workdir, policy, nonce, rng, facts, 
 
 def main() -> int:
     if len(sys.argv) != 2 or spec_of(sys.argv[1]) is None:
-        raise SystemExit(f"usage: SPIKE_CLAUDE=<binary> {sys.argv[0]} <large|small>-<plain|note>-d<1|2>[-w<window>]-<N>")
+        raise SystemExit(f"usage: SPIKE_CLAUDE=<binary> {sys.argv[0]} <large|small>-<plain|note>-d<1|2>[-w<window>][-b<build>]-<N>")
     if not os.environ.get("SPIKE_CLAUDE"):
         raise SystemExit("set SPIKE_CLAUDE: S32 names the build it measures")
     name = sys.argv[1]
     spec = spec_of(name)
     version = claude_version()
+    if spec["build"] is not None and spec["build"] != version:
+        raise SystemExit(f"the name says build {spec['build']}, SPIKE_CLAUDE is {version}")
     run = "s32-compact-" + name
     head = subprocess.run(["git", "rev-parse", "--short=9", "HEAD"], capture_output=True, text=True,
                           cwd=REPO).stdout.strip()
