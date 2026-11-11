@@ -4913,6 +4913,24 @@ operation exists, in P3's test or beside it); `testing.md`'s
 reply-after-leave case (a broadcast reply token after `leave` fails
 `ChannelNotJoined`, in the integration tests above).
 
+**Dated note, 2026-11-11 (SPIKE-001 S32 (a) on Claude Code 2.1.322,
+the fleet's pin, rust-services-dev, facts 104–106, #629).** The
+carried paragraph below gives S32 (a)'s counts on 2.1.311, its two
+small cells at two compactions "run 2026-11-11 on the same build", and
+carries "another model or build" and "the rate beyond three runs a
+cell". Those two cells were run again the same day on 2.1.322, three
+runs each, by the same driver on the same setup: the host compacted at
+the same window and with the same events (fact 104), two compactions
+kept no value in three runs of three without the note (fact 105) and
+every value in three of three with it (fact 106). So for the two cells
+the advice rests on, the 2.1.311 counts read as the pin's, over the
+two builds no value in six runs of six without the note and every
+value in six of six with it, and the paragraph's conclusion stands:
+neither result is a rule, and a deployment that wants the note asks
+for it in its own first turn. Carried: S32 (a)'s other six cells on
+2.1.322, a build after 2.1.322, and the rate beyond six runs a cell
+over the two builds.
+
 Carried by name, from SPIKE-001 (not established, 2026-10-03):
 marketplace distribution — measured 2026-10-22 for the development-flag
 path only (S19: a local-marketplace install registers the channel under
