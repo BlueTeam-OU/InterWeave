@@ -116,9 +116,10 @@ pub(crate) fn sent(clock: &Clock, local_at: u64) -> (String, String) {
 /// The text, in bytes, one [`Formatting::step`] measures at most, a line
 /// or a link control counted at least [`ITEM_BYTES`]: a body at the
 /// bound measured in one go holds the window for a second or more (A5),
-/// and in steps it draws between them, the opening's bar among what it
-/// draws (section 3, `ReaderOpening`). A body within one step builds as
-/// it opens.
+/// so an opening builds by time in whole steps, and the window draws
+/// between its turns, the opening's bar among what it draws (section 3,
+/// `ReaderOpening`; the budgets are `OPENING_FIRST_GO` and
+/// `OPENING_TURN` in `lib.rs`).
 pub(crate) const STEP_BYTES: usize = 32 * 1024;
 const ITEM_BYTES: usize = 64;
 

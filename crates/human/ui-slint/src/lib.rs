@@ -1030,10 +1030,12 @@ pub struct View {
     age_due: Option<u64>,
     /// The message the reader shows, while it is open.
     reader: Option<reader::Open>,
-    /// The reader's rows while they are built, a step a turn.
+    /// The reader's rows while they are built, in turns past the first go.
     opening: Option<Opening>,
     /// The last opening's [`Opening::seq`].
     opening_seq: u64,
+    /// How long an opening builds before a turn, and in each turn.
+    opening_budgets: OpeningBudgets,
     /// What runs once the next frame has been drawn
     /// ([`View::after_next_frame`]); `None` until the window's one
     /// rendering notifier is set.
@@ -1292,6 +1294,10 @@ impl View {
             reader: None,
             opening: None,
             opening_seq: 0,
+            opening_budgets: OpeningBudgets {
+                first_go: OPENING_FIRST_GO,
+                turn: OPENING_TURN,
+            },
             frame_tasks: None,
             seen: Seen::default(),
             next_slot_b: false,
@@ -2391,8 +2397,10 @@ impl View {
     }
 
     /// Open the reader on `key` in the form its row showed (section 4.3):
-    /// its app bar at once, its formatted rows a step a turn until they
-    /// are all built ([`reader::Formatting`]), the source's after.
+    /// its app bar at once, its formatted rows in one go of up to
+    /// [`OPENING_FIRST_GO`], then a turn of up to [`OPENING_TURN`] at a
+    /// time until all are built ([`reader::Formatting`]), the source's
+    /// after.
     fn open_reader(&mut self, key: ItemKey, as_source: bool) {
         let (Some(item), Some(handle)) = (
             self.shown_items.get(&key),
@@ -2428,7 +2436,8 @@ impl View {
             step: slint::Timer::default(),
             bar: slint::Timer::default(),
         };
-        if opening.build.borrow_mut().advance() {
+        let budgets = self.opening_budgets;
+        if opening.build.borrow_mut().advance(budgets.first_go) {
             self.opening = Some(opening);
             self.reader_built();
             return;
@@ -2454,7 +2463,7 @@ impl View {
             move || {
                 let done = build
                     .try_borrow_mut()
-                    .is_ok_and(|mut build| build.advance());
+                    .is_ok_and(|mut build| build.advance(budgets.turn));
                 if done {
                     enqueue(&shared, Input::ReaderBuilt(seq));
                 }
@@ -3574,6 +3583,15 @@ impl View {
         said.flatten()
     }
 
+    /// Build every reader opening by these budgets instead of
+    /// [`OPENING_FIRST_GO`] and [`OPENING_TURN`]: for a test, which
+    /// cannot rely on how long a build takes on the host. Zero builds one
+    /// step a call.
+    #[doc(hidden)]
+    pub fn set_opening_budgets(&mut self, first_go: Duration, turn: Duration) {
+        self.opening_budgets = OpeningBudgets { first_go, turn };
+    }
+
     /// Whether an Accept snackbar's clock is polling: for a test.
     #[doc(hidden)]
     #[must_use]
@@ -4414,7 +4432,7 @@ fn link_rows_model(rows: &[usize]) -> ModelRc<i32> {
 /// 2026-11-04-long-message.md section 3: "nothing below 0.5 s").
 const OPENING_BAR_AFTER: Duration = Duration::from_millis(500);
 
-/// A reader opening: its rows built a step a turn by `step`, and the
+/// A reader opening: its rows built turn by turn by `step`, and the
 /// bar `bar` shows once [`OPENING_BAR_AFTER`] has passed. Dropped, both
 /// stop.
 struct Opening {
@@ -4461,15 +4479,41 @@ impl Build {
         done
     }
 
-    /// [`step`](Self::step): true at the step that puts the last row in,
-    /// and false at every one after, so that step is told once.
-    fn advance(&mut self) -> bool {
+    /// [`step`](Self::step) on until every row is in or `budget` has
+    /// passed, one step at least: true at the call that puts the last row
+    /// in, and false at every one after, so that call is told once.
+    fn advance(&mut self, budget: Duration) -> bool {
         if self.told {
             return false;
         }
-        self.told = self.step(reader::STEP_BYTES);
-        self.told
+        let started = std::time::Instant::now();
+        loop {
+            self.told = self.step(reader::STEP_BYTES);
+            if self.told || started.elapsed() >= budget {
+                return self.told;
+            }
+        }
     }
+}
+
+/// How long an opening builds before it first lets the window draw: a
+/// body built within it opens in one go, its first frame the rows, and
+/// takes no turn of the event loop, each of which costs the opening a
+/// wake and maybe a frame (A5 on the A40, 2026-11-11: list 433 to 559 ms
+/// at 32 KiB a turn). Short of [`OPENING_BAR_AFTER`], so the window
+/// draws, and a Back pressed meanwhile is taken, before the bar is due.
+const OPENING_FIRST_GO: Duration = Duration::from_millis(400);
+
+/// How long each later turn builds: the bar drawn between turns, so the
+/// person sees it move, with few turns.
+const OPENING_TURN: Duration = Duration::from_millis(50);
+
+/// The two budgets an opening builds by ([`OPENING_FIRST_GO`],
+/// [`OPENING_TURN`]).
+#[derive(Clone, Copy)]
+struct OpeningBudgets {
+    first_go: Duration,
+    turn: Duration,
 }
 
 /// How tall `window`'s layout draws a text, for one build of a body's

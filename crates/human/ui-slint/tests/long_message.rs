@@ -23,6 +23,8 @@ use interweave_human_ui_model::{
 use interweave_human_ui_slint::{View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
+use std::time::Duration;
+
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle as _, Model as _};
 
@@ -1625,6 +1627,7 @@ fn after(ms: u64) {
 fn a_slow_opening_shows_nothing_then_its_bar_until_the_rows_are_in() {
     let opening = text(UiText::ReaderOpening);
     let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
     view.window()
         .window()
         .set_size(slint::LogicalSize::new(411.0, 891.0));
@@ -1663,6 +1666,65 @@ fn a_slow_opening_shows_nothing_then_its_bar_until_the_rows_are_in() {
     assert_eq!(view.window().get_reader_link_rows().row_count(), 3000);
 }
 
+/// A body built within the first go opens with its rows, no turn taken
+/// and no bar (`OPENING_FIRST_GO` in `src/lib.rs`): the first go here
+/// unbounded, so the host's speed does not decide the test.
+#[test]
+fn a_body_built_within_the_first_go_opens_with_its_rows() {
+    let mut view = view();
+    view.set_opening_budgets(Duration::MAX, Duration::ZERO);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &many_places()));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_open());
+    assert_eq!(
+        view.window().get_reader_link_rows().row_count(),
+        3000,
+        "every row in at the open"
+    );
+    after(600);
+    assert!(
+        labelled(&view, text(UiText::ReaderOpening)).is_empty(),
+        "no bar"
+    );
+}
+
+/// A Back pressed while the reader opens closes it at once: the opening
+/// stops, its bar never shows, and no later turn puts rows in.
+#[test]
+fn a_back_while_the_reader_opens_closes_it_and_no_bar_shows() {
+    let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &many_places()));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    after(200);
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "control: still opening"
+    );
+    view.window().invoke_reader_close();
+    let _ = intents(&mut view, &mut model);
+    assert!(!view.window().get_reader_open(), "closed at the Back");
+    for _ in 0..50 {
+        after(16);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert!(!view.window().get_reader_open(), "no turn opens it again");
+    assert!(
+        !view.window().get_reader_opening_shown(),
+        "the bar never shows"
+    );
+    assert_eq!(view.window().get_reader_rows().row_count(), 0);
+}
+
 /// Rows built a step at a time are the rows one go builds: a run of
 /// lines is cut between steps only before a line that starts afresh, so
 /// no piece is measured apart from the line it continues. One go is what
@@ -1691,6 +1753,7 @@ fn rows_built_in_steps_are_the_rows_built_in_one_go() {
             .collect()
     };
     let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
     view.window()
         .window()
         .set_size(slint::LogicalSize::new(411.0, 891.0));
