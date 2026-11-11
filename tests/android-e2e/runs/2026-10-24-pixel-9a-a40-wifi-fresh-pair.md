@@ -104,7 +104,9 @@ as a second source of step 3's dial.
 - **The Scan screen.** The address is given through the binding's add,
   the call the screen makes, not by scanning a shown code. It is re-run
   through the Scan screen once rust-ui-dev-01's camera Scan lands (the
-  Show screen, #409, is on main).
+  Show screen, #409, is on main). Added 2026-11-11: that re-run passed
+  on 2026-11-10, `2026-11-10-pixel-9a-a40-wifi-fresh-pair-through-scan.md`
+  (#608).
 - **The one-sided step in the other direction.** B trusting first, with
   A not trusting, is not run.
 - **Which side dialled in step 3, or from which source.** Both hold the
