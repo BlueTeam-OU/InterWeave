@@ -172,6 +172,9 @@ def main() -> int:
     spec = spec_of(name)
     version = claude_version()
     run = "s30-" + name
+    # A re-run under a committed name would replace that evidence.
+    if (HERE / "runs" / run).exists():
+        raise SystemExit(f"runs/{run} exists: move it aside or name another run")
     bridge_kind = spec["kind"] == "bridge"
 
     subprocess.run(["cargo", "build", "-q", "-j", "2", "--release", "-p", "interweave-claude-channel"], check=True,

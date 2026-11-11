@@ -395,6 +395,9 @@ def main() -> int:
     if spec.get("build") and spec["build"] != version:
         raise SystemExit(f"{name} names build {spec['build']}, SPIKE_CLAUDE is {version}")
     run = "s31-" + name
+    # A re-run under a committed name would replace that evidence.
+    if (HERE / "runs" / run).exists():
+        raise SystemExit(f"runs/{run} exists: move it aside or name another run")
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="s31-")).resolve()
     if scratch == REPO or REPO in scratch.parents:

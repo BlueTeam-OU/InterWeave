@@ -79,6 +79,9 @@ def main() -> int:
     if len(sys.argv) != 2 or sys.argv[1] not in RUNS:
         raise SystemExit(f"usage: {sys.argv[0]} {{{'|'.join(RUNS)}}}")
     run = "s30-" + sys.argv[1]
+    # A re-run under a committed name would replace that evidence.
+    if (HERE / "runs" / run).exists():
+        raise SystemExit(f"runs/{run} exists: move it aside or name another run")
     subprocess.run(["cargo", "build", "-q", "-j", "2", "--release", "-p", "interweave-claude-channel"], check=True,
                    cwd=REPO)
     subprocess.run(["cargo", "build", "-q", "-j", "2", "-p", "interweave-transport-daemon", "-p",
