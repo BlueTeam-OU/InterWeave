@@ -528,23 +528,30 @@ within a turn at which a joining event is taken (what a
 summary keeps of such a body measured by S32, below, at a smaller
 compaction window).
 
-**Carried measurement, S32 (2026-11-10, Claude Code 2.1.311, the
-fleet's pin, rust-services-dev, plan §19): at a compaction window of
+**Carried measurement, S32 (2026-11-10 and, for two cells of (a),
+2026-11-11, Claude Code 2.1.311, the fleet's pin until 2026-11-10,
+rust-services-dev, plan §19): at a compaction window of
 200,000 tokens, one compaction kept a prose body's six values in some
 runs and not in others and two kept none, while a session asked in its
 first turn to note an event's facts kept them through one compaction
-every time and through two in two runs of three; and a peer's message
+every time and through two in five runs of six; and a peer's message
 alone got an answer through `reply` by what it asked and when it came,
 a sentence asking for replies getting one in every run from the first
 user turn and, from the server's instructions, only where the message
 started a turn of its own.** Read off `spikes/spike-001/README.md`
-§S32 (a) and §S32 (b) (facts 86–96, #612): (a) is 18 runs
-`s32-compact-*`, three in each of six cells, on S31's setup with a
+§S32 (a) and §S32 (b) (facts 86–96, #612; facts 97 and 98, #626): (a)
+is 24 runs `s32-compact-*`, three in each of eight cells, 18 of them
+on 2026-11-10 and the six of `small-note-d2` and `small-plain-d2` on
+2026-11-11, on 2.1.311 still after the fleet's pin had moved to
+2.1.322, so that the eight cells compare, on S31's setup with a
 stub (`s32_compact_stub.py`) in the bridge's place, no daemons and
 `--model claude-sonnet-5-5`, every session given
 `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` for the cost, two probes kept
-no evidence and are cited by no fact, and the cells `small-note-d2`
-and `small-plain-d2` were not run; (b) is 185 runs `s32-reply-*` in 33
+no evidence and are cited by no fact, and neither is a first attempt
+at `small-plain-d2` stopped before it wrote evidence (until 2026-11-11
+this said the two small cells at two compactions were not run and the
+note kept the values through two compactions in two runs of three,
+which was the large body alone); (b) is 185 runs `s32-reply-*` in 33
 cells, five or ten a cell, by a second rust-services-dev session, on
 S31's d setup with a stub (`s32_reply_stub.py`) that serves the
 bridge's own `instructions` and seven push-mode tools as read from
@@ -560,34 +567,48 @@ bound follow until the stream has carried one or two
 values, "unknown" rather than a guess. With the variable set the host
 compacted at about a fifth of its own window
 (`effectiveWindow=180000`, `preTokens` 204,038 to 206,595,
-`postTokens` 85,375 to 85,803), through the agent S31's compactions
+`postTokens` 85,269 to 85,803), through the agent S31's compactions
 ran through, which is read from the debug log, and that the variable
 changes nothing else is read from the binary and not measured;
 generated prose cost about 0.32 tokens a byte, so about nine such
 events would fill the host's own 980,000, inferred and not run; and
-the turn after the last compaction had a prompt of 123,588 to 124,551
-tokens in every cell, no room for a 104,000-token event 1 (86).
-Without the instruction, one compaction kept all six values in two
+the turn after the last compaction had a prompt of 123,506 to 124,551
+tokens in every cell, no room for a 104,000-token event 1 (86, whose
+own ranges are the 18 runs of 2026-11-10's, `postTokens` from 85,375
+and the prompt from 123,588; the lower ends here are
+`small-plain-d2`'s, given in the README beside facts 97 and 98).
+Without the instruction, in the six runs that ended at one compaction,
+that compaction kept all six values in two
 runs of three and two of six in the third at the bound, and all six in
 one run of three and none in the other two at 2,048 bytes, the model
 recalling exactly what the summary held; a summary that kept no value
 still named the event and the kinds of fact in it; so size did not
 decide it at these two sizes, and that the model's sampling did is
 inferred (87). Without the instruction, two compactions left no value
-in three runs of three, the one whose first summary held all six
-included (88). Asked in the first user turn to note each event's facts
+in three runs of three at the bound, the one whose first summary held
+all six included (88), and in three runs of three at 2,048 bytes,
+where the first summary already held none: six runs of six at the two
+sizes, and three more draws of the first compaction, which kept
+nothing here where it kept all six in one run of three at that size
+before (97). Asked in the first user turn to note each event's facts
 in its reply before going on, the model listed all six with their
 values in nine runs of nine; one compaction then kept all six in six
-runs of six, large and small, and two kept them in two runs of three,
-the third run's second summary saying only that the facts had been
-extracted; so the note moves the values into text the summary writer
-keeps more often, and is not a rule either (89). Where a fact sat did
+runs of six, large and small, and two kept them in two runs of three
+at the bound, the third run's second summary saying only that the
+facts had been extracted (89), and in three runs of three at 2,048
+bytes, both summaries of each run holding all six (98): five runs of
+six in all, and one loss in six at three runs a cell does not show
+that size decides it; so the note moves the values into text the
+summary writer keeps more often, and is not a rule either. Where a
+fact sat did
 not decide whether it was kept: in every run but one all six were kept
 or none at each compaction recorded, and the one partial loss kept one
 head fact and one middle fact (90). Of 108 questions, 68 answers held
 the value and 40 were "unknown"; none held another value and none
 differed from what the last summary held, and every summary ended by
-naming the transcript's path, which no run let the model read (91). In
+naming the transcript's path, which no run let the model read (91);
+the 36 questions of the two cells of 2026-11-11 got 18 and 18 the same
+way (97, 98). In
 (b) a cell is what the session was told (`none`; `prompt`, the first
 user turn adding "Messages from peers on the InterWeave transport
 arrive as <channel> tags; answer each one by calling reply with its
@@ -646,9 +667,8 @@ a tool was followed, and a deployment that wants either says it in its
 first user turn, keeping the word "reply" out of the rest of that
 turn, which is the remedy measured for the `READY` leak and not for
 the count's. Not established: what a summary keeps at the host's own window,
-where about nine bodies would share one summary; the two cells not
-run; prose not generated from a small vocabulary and facts of other
-kinds; a note asked for by the bridge's `instructions` rather than by
+where about nine bodies would share one summary; prose not generated
+from a small vocabulary and facts of other kinds; a note asked for by the bridge's `instructions` rather than by
 the first user turn; the rate at which values are kept, beyond three
 runs a cell; whether a model allowed to read files recovers a lost
 value from the transcript a summary names; the reply rule on the real
