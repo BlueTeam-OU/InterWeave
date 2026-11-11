@@ -646,7 +646,7 @@ Run on 2026-11-11 by `s32_compact.py` at `663e21757`, at architect-cto's request
 - `--model claude-sonnet-5-5`;
 - Claude Code 2.1.322, installed into a scratch `HOME` and named with `SPIKE_CLAUDE`; each run's `run.json` records `claude_version` 2.1.322.
 
-The first run, `small-plain-d2-b2.1.322-1`, was run alone, to stop if the host compacted at another point. It did not, so the other five followed in one detached campaign. Each run records exit status 0, the process group empty after the close, and `target_replaced` true.
+The first run, `small-plain-d2-b2.1.322-1`, was run alone, to stop if the host compacted at another point. It did not, so the other five followed in one detached campaign. The driver stamps a run's `tree` with `HEAD` alone. All six started between 19:54 and 19:59 UTC (`started_at`), after `663e21757` was committed and before any tracked file changed, so the stamp names the code that ran. Each run records exit status 0, the process group empty after the close, and `target_replaced` true.
 
 | Run | What it varies | Outcome |
 |---|---|---|
