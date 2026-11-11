@@ -72,7 +72,7 @@ The configuration directory and the file must be this account's and not writable
 
 ## 4. Trust the peers the bridge talks to
 
-Trust is deny by default: with an empty allowlist, no message reaches the bridge and the bridge can send to no one. Either list the peers' PeerIds in `trust.allowed_peers` before the daemon starts, or add them to the running daemon:
+Trust is deny by default: with an empty allowlist, no message reaches the bridge and the bridge can send to no one. Either list the peers' PeerIds in `trust.allowed_peers` before the daemon starts, or add them to the running daemon once step 5 has started it. Before that, `transportctl` answers `no daemon is running for profile "claude"` and exits 3:
 
 ```sh
 transportctl --profile claude trust allow <PeerId>
@@ -80,6 +80,8 @@ transportctl --profile claude trust list
 ```
 
 `trust allow` takes effect at once and is kept across restarts. Trust is per direction and per side. The other peer's daemon must also trust this profile's PeerId before anything it sends arrives here, and before a reply from here reaches it.
+
+Trust does not say where a peer is. One side has to be told the other's address: `transportctl --profile <its profile> peers add /ip4/<address>/tcp/4001/p2p/<PeerId>` (or `interweave-human ... peers add`) on the peer, naming this host's address and this profile's port and PeerId. A loopback address is refused as `special_use`, even with both profiles on one host, so name the host's own LAN address. Once the peer is connected, the bridge replies over that connection.
 
 ## 5. Start the daemon
 
@@ -104,7 +106,7 @@ claude plugin install interweave@interweave --config profile=claude --config end
 claude plugin list
 ```
 
-`profile` and `endpoint` are the plugin's two routing settings: the profile from step 3 and the endpoint its `config.yaml` declares. Unset, they are `default` and `claude`. A third, `log_level`, is how much the bridge writes to its own log: `error`, `warn`, `info` or `debug`, `info` unset (`--config log_level=debug` while you debug). They are kept in Claude Code's user settings. `claude plugin configure interweave@interweave` shows them and changes nothing, on a terminal or not. To change them, pipe a JSON object to it with `--values-stdin`: the bridge's next start is given them (SPIKE-001 S25, fact 50):
+`profile` and `endpoint` are the plugin's two routing settings: the profile from step 3 and the endpoint its `config.yaml` declares. Unset, they are `default` and `claude`. A third, `log_level`, is how much the bridge writes to its own log: `error`, `warn`, `info` or `debug`, `info` unset (`--config log_level=debug` while you debug). With `log_level` unset, the install ends `1 userConfig option not yet set`, and `claude plugin configure` lists it as `not set`. The bridge then runs at `info`, and its `status` tool reports `info` under `log`. They are kept in Claude Code's user settings. `claude plugin configure interweave@interweave` shows them and changes nothing, on a terminal or not. To change them, pipe a JSON object to it with `--values-stdin`: the bridge's next start is given them (SPIKE-001 S25, fact 50):
 
 ```sh
 echo '{"profile": "claude", "endpoint": "claude"}' | claude plugin configure interweave@interweave --values-stdin
@@ -159,6 +161,12 @@ claude --dangerously-load-development-channels plugin:interweave@interweave
 
 Claude Code then shows "WARNING: Loading development channels", naming `plugin:interweave@interweave`. Choose "1. I am using this for local development" (SPIKE-001 S19).
 
+### A peer that is a human client
+
+The human clients, `interweave-human` and `human-desktop`, show only a message in their chat envelope. A message from one arrives with `content_type` `application/vnd.interweave-human-chat+json;v=2`, and its content is a JSON object. An answer that is plain text is still accepted: `reply` reports `remote transport accepted at endpoint human`, and the client shows nothing. `interweave-human status` counts it as neither unread nor undisplayable. An answer reaches the person only as such an object, `{"v":2,"kind":"text","app_message_id":"<32 lowercase hex digits>","text":"<the answer>","reply_to":"<the app_message_id answered>"}`, sent with that same `content_type`. Say so in the first user turn, beside the sentence in "Without a terminal" below. One run of each, on the 0.3.0 archive and Claude Code 2.1.322 (`evidence/2026-11-11-v0.3.0-install-run.md`): a plain answer was accepted and not shown, and an answer in the envelope was shown. That the client counts a plain answer as a message of unknown media type is `tests/desktop-e2e`'s `the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed`, which this run did not repeat.
+
+The peer's endpoint must also be held when the answer arrives. A peer that sent with `interweave-human ... send` and then exited holds nothing, and `reply` fails with `RemoteEndpointUnavailable`. Keep a client running on the peer, `interweave-human ... listen` for example.
+
 ### Without a terminal
 
 A program that drives Claude Code non-interactively gets the channel too, with step 7 in place:
@@ -179,7 +187,7 @@ systemctl --user disable --now interweave-daemon@claude
 ./uninstall.sh                     # from the unpacked archive; keeps every profile
 ```
 
-`uninstall.sh` leaves the profile, its key and its state under `~/.config/interweave` and `~/.local/share/interweave`. Remove them yourself if the profile is to go too. Step 7's file stays too: an administrator removes `/etc/claude-code/managed-settings.d/interweave.json` once no account on the host uses the channel.
+`uninstall.sh` stops and disables every `interweave-daemon@` and `interweave-client@` instance of the account, not only `claude`'s. When `XDG_RUNTIME_DIR` reaches no user manager, it looks the account's own manager up in `/run/user/<uid>`. So an account that runs another profile's daemon, or a client of one, loses those too, and has to enable them again. It leaves the profile, its key and its state under `~/.config/interweave` and `~/.local/share/interweave`. Remove them yourself if the profile is to go too. Step 7's file stays too: an administrator removes `/etc/claude-code/managed-settings.d/interweave.json` once no account on the host uses the channel.
 
 ## What this does not give you
 
