@@ -7333,7 +7333,9 @@ owner:
   trusting first) was not run; which side dialled in its step 3, and
   from which source, is not told apart (the peer cache was on):
   p2p-network-dev-02's (j69). The run through Scan of 2026-11-10 left
-  both as they were (its file's "What this run does not prove").
+  both as they were: its file's "What this run does not prove" names
+  the B-first step and the source of the dial, and its rows, both
+  ended `connected`, do not tell the sides apart.
 - SPIKE-011's items not established and carried to step 3 (SPIKES.md):
   the rewrite of the store key on a device, and its key file's refusals
   there (a missing, newer-version or truncated file refused by name, as
