@@ -679,7 +679,72 @@ turn of their own misnamed the argument, where no other run that
 called `reply` did; a peer's request for a
 tool with an effect; a message in a conversation longer than one turn;
 and, for both parts, a model other than `claude-sonnet-5-5` and a
-build other than 2.1.311.
+build other than 2.1.311 (four of (b)'s cells run on 2.1.322 with the
+release bridge and two daemons by S33, below).
+
+**Carried measurement, S33 (2026-11-11, Claude Code 2.1.322, the
+fleet's pin, rust-services-dev, plan §19): the revision is still not
+registered and the bridge's legacy answer still is; and with the
+release bridge across two daemons, four of S32 (b)'s cells came out
+as they had with a stub on 2.1.311, the answer sentence getting a
+reply in every run from the first user turn, a joined turn included,
+and from the server's instructions only where the message started a
+turn of its own.** Read off `spikes/spike-001/README.md` §S33 (facts
+99–103, #628), 22 sessions. (1) is S28's a and b again, `s33-a-modern`
+and `s33-b-legacy`, one interactive session each: the server offering
+the 2026-07-28 revision was probed with `server/discover`, connected
+modern with no `initialize` and skipped, with the debug line of
+2.1.286 and 2.1.317 word for word, the era notice on screen and no
+event in the conversation, and the legacy control registered and
+delivered (99). (2) is 20 print sessions `s33-reply-*`, five in each
+of four of S32 (b)'s 33 cells, the session S32 (b)'s by its own code
+(`--model claude-sonnet-5-5`), 1,803,745 tokens in all. In the stub's
+place ran the release `claude-channel`, installed as the plugin,
+behind a proxy (`s33_proxy.py`) that passes every line through whole
+and in order and makes the two changes S32's stub made: in the
+`plugin` cells it appends the answer sentence to the bridge's
+`instructions`, which carry none, and in the `tool` cells it holds
+each `status` answer 3 s. The message came from a peer, a second
+bridge on the second of two daemons on the host's private address,
+and a reply had also to be answered by the bridge without `isError`
+and to reach that peer. The bridge, answering `server/discover` with
+`-32601` and then asked for `2025-11-25`, connected legacy and
+delivered the peer's message in 20 sessions of 20 (100). The sentence
+in the first user turn got a reply in 10 runs of 10, five of them
+where the message joined a turn making `status` calls; in the
+server's instructions alone it got one in 5 of 5 where the message
+started a turn of its own and in 0 of 5 where it joined the
+tool-calling turn, the model making its two remaining `status` calls,
+writing `READY` and calling nothing else; S32 (b) had 5, 5, 5 and 1
+of 10 in the same cells, so neither the build nor the stub in the
+bridge's place made that difference (101). Every reply answered the
+question and reached the peer as sent; `READY` went to the peer in no
+run, where S32 (b)'s `prompt-question-tool` cell sent it in 3 of 5,
+and no `reply` call was refused: in `plugin-question-idle`, the cell
+both campaigns ran under the server's instructions, 0 of 5 where
+S32 (b) misnamed the argument in 2 of 5; build and
+bridge both differ from S32 (b)'s, no run separates them, and at five
+runs a cell neither difference is established (102). The silence in
+the joined `plugin` cell was not a lost event: the event was in the
+transcript in all five runs, and in one the model wrote that the
+message did not come from the user and that it was not acting on it
+(103). What this changes in the bridge: nothing. It stays in the
+legacy era, which 2.1.322 still registers, and a deployment that
+needs every message answered says the sentence in its first user
+turn, as `architecture/plugin/INSTRUCTIONS.md` §What the instructions
+leave to the deployment already says. Not established: a build after
+2.1.322; whether the gate in the 2.1.322 binary is still the era
+check fact 36 read, which was not read from that binary; the era rows
+beyond one run each; S32 (b)'s other 29 cells on 2.1.322 or with the
+real bridge (`none`, `promptw`, and every `greet`, `task` and `text`
+cell); what made the `READY` leak and the misnamed argument absent;
+whether a reply changes with what `status` answers, the bridge
+reporting the drivers' scratch configuration directory as not private
+in the ten `tool` runs, where a deployment's would be private; whether
+the bridge offered the seven tools S32's stub served, the proxy's
+record keeping the `tools/list` answer by name only;
+a model other than `claude-sonnet-5-5`; and a conversation longer
+than one turn.
 
 ---
 
