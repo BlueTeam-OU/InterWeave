@@ -528,8 +528,9 @@ within a turn at which a joining event is taken (what a
 summary keeps of such a body measured by S32, below, at a smaller
 compaction window).
 
-**Carried measurement, S32 (2026-11-10, Claude Code 2.1.311, the
-fleet's pin, rust-services-dev, plan §19): at a compaction window of
+**Carried measurement, S32 (2026-11-10 and, for two cells of (a),
+2026-11-11, Claude Code 2.1.311, the fleet's pin until 2026-11-10,
+rust-services-dev, plan §19): at a compaction window of
 200,000 tokens, one compaction kept a prose body's six values in some
 runs and not in others and two kept none, while a session asked in its
 first turn to note an event's facts kept them through one compaction
@@ -566,14 +567,18 @@ bound follow until the stream has carried one or two
 values, "unknown" rather than a guess. With the variable set the host
 compacted at about a fifth of its own window
 (`effectiveWindow=180000`, `preTokens` 204,038 to 206,595,
-`postTokens` 85,375 to 85,803), through the agent S31's compactions
+`postTokens` 85,269 to 85,803), through the agent S31's compactions
 ran through, which is read from the debug log, and that the variable
 changes nothing else is read from the binary and not measured;
 generated prose cost about 0.32 tokens a byte, so about nine such
 events would fill the host's own 980,000, inferred and not run; and
-the turn after the last compaction had a prompt of 123,588 to 124,551
-tokens in every cell, no room for a 104,000-token event 1 (86).
-Without the instruction, one compaction kept all six values in two
+the turn after the last compaction had a prompt of 123,506 to 124,551
+tokens in every cell, no room for a 104,000-token event 1 (86, whose
+own ranges are the 18 runs of 2026-11-10's, `postTokens` from 85,375
+and the prompt from 123,588; the lower ends here are
+`small-plain-d2`'s, given in the README beside facts 97 and 98).
+Without the instruction, in the six runs that ended at one compaction,
+that compaction kept all six values in two
 runs of three and two of six in the third at the bound, and all six in
 one run of three and none in the other two at 2,048 bytes, the model
 recalling exactly what the summary held; a summary that kept no value
