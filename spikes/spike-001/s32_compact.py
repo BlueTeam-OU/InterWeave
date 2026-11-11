@@ -21,7 +21,7 @@ with the first user turn written 5 s after the start. The plugin's binary
 is s32_compact_stub.py, whose event k is the text the driver writes for
 it. No run has daemons. A run is named
 
-  <size>-<note>-d<depth>[-w<window>]-<N>
+  <size>-<note>-d<depth>[-w<window>][-b<build>]-<N>
 
   <size>    ``large``: event 1, the target, is a line of the bridge's bound
             (327,680 bytes); ``small``: a line of 2,048 bytes
@@ -35,7 +35,13 @@ it. No run has daemons. A run is named
   <window>  CLAUDE_CODE_AUTO_COMPACT_WINDOW for the session, read from the
             binary as the window compaction is sized by; ``w0`` sets none,
             the host's own; omitted, WINDOW
+  <build>   the Claude Code version the run must be on, for a build
+            other than 2.1.311, the one S32 (a) first ran; refused when
+            SPIKE_CLAUDE reports another
   <N>       the run's number in its cell
+
+A run whose directory under runs/ already exists is refused before it
+starts: a re-run under a committed name would replace that evidence.
 
 The prose is made from a small vocabulary by a generator seeded per run
 (the seed is recorded); a fact is a sentence with a place of its own and
@@ -441,6 +447,8 @@ def main() -> int:
     if spec["build"] is not None and spec["build"] != version:
         raise SystemExit(f"the name says build {spec['build']}, SPIKE_CLAUDE is {version}")
     run = "s32-compact-" + name
+    if (HERE / "runs" / run).exists():
+        raise SystemExit(f"runs/{run} exists: move it aside or name another run")
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="s32-")).resolve()
     if scratch == REPO or REPO in scratch.parents:
