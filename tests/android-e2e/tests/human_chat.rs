@@ -13,6 +13,9 @@
 //! model -> facade -> binding -> runtime -> libp2p -> runtime -> binding
 //! -> facade -> store -> model. Direct, plain and compressed (`;ce=br`,
 //! an envelope over the 48 KiB limit raw), both ways on both paths; every
+//! `HumanChatV2` field the receiving facade decoded equals what the
+//! sending facade composed, both ways (gate (c)'s desktop <-> Android
+//! matrix, in `chat`); every
 //! payload a runtime handed a client, captured as handed, validates
 //! against `human-chat/envelope.schema.json`; each Android side's route
 //! indicator names its path to D when its case ends, and D's names R
@@ -636,8 +639,10 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
 
 /// One Android side's exchange with D, its case `run` already started
 /// with `args`: its two arrive at D, D's route indicator to it is read
-/// while it runs, D's two answers and its close cross the other way.
-/// Answers that indicator and what the Android side's runtime handed it.
+/// while it runs, D's two answers and its close cross the other way, and
+/// each envelope either facade decoded equals, field by field, the one
+/// the other composed. Answers that indicator and what the Android
+/// side's runtime handed it.
 async fn chat<B: DataSessionBinding + AdminBinding + Clone>(
     side: &mut Side<B>,
     device: &dyn Device,
@@ -722,6 +727,26 @@ async fn chat<B: DataSessionBinding + AdminBinding + Clone>(
             .unwrap_or_else(|| panic!("D never got {name}'s {}", envelope.app_message_id));
         assert_eq!(&got.envelope, envelope, "{name} -> D arrived as composed");
     }
+    // And the other way: what the Android side's facade decoded from D is
+    // what D composed, every field -- the two answers and the close, each
+    // once. Keyed by id rather than by arrival: D sends both answers before
+    // waiting on either, so they may cross in either order. Gate (c)'s
+    // desktop <-> Android matrix is this pair of comparisons, on every row
+    // that calls this.
+    let received: Vec<Value> = serde_json::from_str(
+        out.get(keys::RECEIVED)
+            .and_then(Value::as_str)
+            .expect("received"),
+    )
+    .expect("received is a JSON array");
+    let mut received: Vec<HumanChatV2> = received
+        .iter()
+        .map(|v| HumanChatV2::parse(&v.to_string()).expect("an envelope"))
+        .collect();
+    let mut composed: Vec<HumanChatV2> = replies.iter().chain([&close]).cloned().collect();
+    received.sort_by(|a, b| a.app_message_id.cmp(&b.app_message_id));
+    composed.sort_by(|a, b| a.app_message_id.cmp(&b.app_message_id));
+    assert_eq!(received, composed, "D -> {name} arrived as composed");
     let payloads = out
         .get(keys::PAYLOADS)
         .and_then(Value::as_str)
