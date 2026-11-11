@@ -7097,8 +7097,10 @@ owner:
   #608). The file names what it does not prove: one code each way and
   one run, which address each scan added (the peer cache was on), and
   the one-sided step with B trusting first. Carried beside it, to
-  p2p-network-dev-02: the Add page's address field is not this row's
-  route, two runs through it on 2026-11-09 having failed in step 1,
+  p2p-network-dev-02, by architect-cto's word in this note: the Add
+  page's address field is not this row's route (architect-cto's
+  ruling of 2026-11-09, REPLY 01a1bfb4, as the run file cites it), two
+  runs through it on 2026-11-09 having failed in step 1,
   one of them on the capitals a key event loses (§20's record after
   Stage 17's close, the same file's note); and the driver's handling
   of an add answered other than `added` (#622) ran against a stand-in
