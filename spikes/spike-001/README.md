@@ -590,6 +590,52 @@ What this changes in the bridge: nothing. The bridge already refuses an argument
 - **Keep "reply" out of the rest of that turn,** and expect a turn's other output to leak into the reply: a `reply` call came every time, and answered the message in 59 runs of 80, one with the count appended (fact 94).
 - **A peer's request for a tool is followed once replies are asked for** (fact 96).
 
+## S33: the 2026-07-28 revision and S32 (b)'s reply cells on the fleet's pin, with the real bridge (plan §19)
+
+Run on 2026-11-11 by rust-services-dev-02 against **Claude Code 2.1.322**, the `claude` on this login's `PATH` and the fleet's pin, with `DISABLE_AUTOUPDATER=1`, on this login's account, a claude.ai login. Every record names its build: `claude_binary_version` (the two era runs) or `claude_version` (the reply runs), each `2.1.322`, and the era runs' debug logs name no other version. The facts are numbered after #626's 97 and 98.
+
+**(1), the era rows,** are S28's a and b. `s28_era.py` takes the series that names its runs, and `s33_era.py` runs it as `s33`, both as committed at `c6e80e04b`: `s23_stub.py` unchanged, a private `/etc` whose `claude-code` is an empty directory, `--mcp-config` and the development flag, one event 3 s after the handshake, SIGINT to Claude Code. Each run is one session, as S28's were. Both record `group_empty: true` with SIGINT the only signal.
+
+| Run | What it varies | Outcome |
+|---|---|---|
+| `s33-a-modern` | the stub offers 2026-07-28 to `server/discover` | client sent `server/discover`, `tools/list`, no `initialize`; `protocolEra` `modern`, `negotiatedProtocolVersion` `2026-07-28`; `Channel notifications skipped: connection negotiated a modern protocol revision with no unsolicited notification path`; the era notice on screen; no event in the conversation |
+| `s33-b-legacy` | the stub answers `-32601`, as the bridge does (control) | client sent `server/discover`, `initialize` asking `2025-11-25`, `notifications/initialized`, `tools/list`; `protocolEra` `legacy`; `Channel notifications registered`; the event in the conversation |
+
+**(2), the reply cells,** are four of S32 (b)'s cells, run by `s33_reply.py` with `s33_proxy.py` beside it. Eighteen runs were made at `96910b03f`, and two at `c6e80e04b` (`prompt-question-idle-1` and `prompt-question-tool-1`) with both files uncommitted and as `96910b03f` committed them, unchanged since.
+- **The session is S32 (b)'s, run by its own code:** `s32_reply.spec_of` words the first turn, and `s32_reply.run_session` starts the print session (`--model claude-sonnet-5-5`, `--channels`, `--allowedTools` for `reply` and `status`, bubblewrap with S22's allow entry). It also fires the event at the same signal and stops the session by the same settle rule.
+- **The bridge is the release `claude-channel`** at the run's tree, installed as `interweave@interweave` with S28's `--config` (`profile`, `endpoint=claude`, `log_level=debug`). The plugin's binary is `s33_proxy.py`, which runs the bridge and passes every line through whole and in order, recording each in the stub's record shape. It makes two changes, each one S32's stub made:
+  - In `plugin`, it appends the answer sentence to the bridge's `initialize` instructions. The bridge carries no such sentence (`architecture/plugin/INSTRUCTIONS.md`).
+  - In `tool`, it holds each `status` answer 3 s and holds no other line behind it.
+- **The message comes from a peer:** S16's two daemons on this host's private address, and on daemon B a second bridge that sends S32's `question` text to endpoint `claude` when the trigger appears. Every send was answered `remote transport accepted at endpoint claude`.
+- **A reply** is S32's: a `reply` call with the event's `reply_token` that was not refused. Here the bridge also had to answer it without `isError`, and the peer on daemon B had to receive its content. In 20 runs of 20, the bridge's own connection was `protocolEra` `legacy`, `negotiatedProtocolVersion` `2025-11-25`, by its debug log. Every run passed: exit status 0, the group empty, and every result `success`.
+- **The table** is `python3 s33_reply.py table` over the committed runs. "Joined" counts the runs whose event entered the transcript as a `queued_command`.
+
+| Cell (told-message-arrival) | Runs | Joined a running turn | Replies | Median s to reply | Tokens | S32 (b) on 2.1.311, the stub |
+|---|---|---|---|---|---|---|
+| `prompt-question-idle` | 5 | 0 | 5 | 2.8 | 366,332 | 5 of 5 |
+| `prompt-question-tool` | 5 | 5 | 5 | 14.8 | 600,264 | 5 of 5 |
+| `plugin-question-idle` | 5 | 0 | 5 | 3.3 | 363,805 | 5 of 5 |
+| `plugin-question-tool` | 5 | 5 | 0 | - | 473,344 | 1 of 10 |
+
+The 20 runs spent 1,803,745 tokens, by S32 (b)'s sum. The two era sessions are interactive, and no token count was recorded for them.
+
+99. On 2.1.322 a channel server that negotiates the 2026-07-28 revision is still not registered as a channel (`s33-a-modern`, one run). The client probed `server/discover`, took the DiscoverResult and connected in the modern era with no `initialize`. The debug log says `Channel notifications skipped: connection negotiated a modern protocol revision with no unsolicited notification path`, word for word as on 2.1.286 and 2.1.317 (facts 35 and 65), and the session showed the era notice. The event did not reach the conversation. The legacy control registered and delivered (`s33-b-legacy`, one run). So facts 34, 35 and 65 hold on 2.1.322.
+    - **Not established:** a build after 2.1.322. Whether the gate in the 2.1.322 binary is still the era check fact 36 read was not read from that binary. Each row is one run, as S28's were.
+100. The bridge's negotiation still picks the era 2.1.322 registers. 2.1.322 sends `server/discover` first and, on `-32601`, `initialize` asking for `2025-11-25` (`s33-b-legacy`). The release bridge, which answers both that way (fact 66), connected in the legacy era in each of (2)'s 20 runs and delivered the peer's message in each.
+101. With the real bridge across two daemons on 2.1.322, the answer sentence worked where S32 (b) found it working, and failed where it failed (the table, four cells, five runs each).
+    - **In the first user turn,** it got a reply in 10 runs of 10. That includes 5 of 5 where the message joined a turn making `status` calls, the event entering as a `queued_command` each time.
+    - **Only in the server's instructions,** it got a reply in 5 of 5 where the message started a turn of its own. It got none in 5 of 5 where the message joined the tool-calling turn: the model made its two remaining `status` calls, wrote `READY`, and called nothing else.
+    - **Against S32 (b):** these are fact 93's and fact 95's results, where the same four cells on 2.1.311 with the stub got 5, 5, 5 and 1 of 10. So neither the build nor the stub in place of the bridge and daemons made that difference.
+    - **Not established:** the other S32 (b) cells (`none`, `promptw`, and the `greet`, `task` and `text` cells) on 2.1.322 or with the real bridge; a model other than `claude-sonnet-5-5`; a conversation longer than one turn.
+102. Every reply in (2) answered the question, and the peer on daemon B received it as sent. In `prompt-question-tool` the content was `Canberra` (four runs) or `Canberra.` (one); in the two `idle` cells it was a sentence naming Canberra, 10 of 10.
+    - **No `READY` leak:** the first turn's "reply with the single word READY" did not reach the peer in any run. In S32 (b)'s same `prompt-question-tool` cell it did in 3 of 5 (fact 94). Build and bridge both differ, and no run separates them.
+    - **No misnamed argument:** no `reply` call was refused, 0 of 20, where S32 (b)'s `plugin-question` cells misnamed `content` in 3 of 10 (fact 95). The difference is not established: five runs a cell, and a different build.
+103. The joined turn's silence in `plugin-question-tool` was not a lost event. The event was in the transcript as a `queued_command` in all five runs, and in one (`tool-3`) the model wrote that "a peer message also arrived asking about the capital of Australia. It didn't come from you, so I'm not acting on it." That is fact 92's account of a request it did not follow, now in this cell.
+
+Not established by S33: each fact's own, above.
+
+What this changes in the bridge: nothing. The bridge stays in the legacy era, which 2.1.322 still registers (facts 99 and 100). A deployment says the answer sentence in the first user turn, as INSTALL.md says: on 2.1.322 with the real bridge, the sentence only in the server's instructions again got no reply from a message that joined a tool-calling turn (fact 101).
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049). Each bullet quotes its sentence as the document stood when the section naming it was written. A bullet ending *Amended* quotes a sentence the document has since replaced, on the date given, and is kept as the record of what was found.
