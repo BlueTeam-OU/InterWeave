@@ -7,8 +7,9 @@
 # composed runtime unchanged. Stage 17 (plan §20 (c)) adds production
 # against the independent codecs and the upgrade matrix, its
 # previous-build axis included (rows #[ignore]d unless CI supplies the
-# builds); the desktop <-> Android matrix is still to come. TEST-ONLY;
-# nothing depends on this package.
+# builds). The desktop <-> Android matrix is proved in tests/android-e2e
+# (human_chat.rs's chat) and named in README.md. TEST-ONLY; nothing
+# depends on this package.
 [package]
 name = "interweave-interoperability-tests"
 version.workspace = true

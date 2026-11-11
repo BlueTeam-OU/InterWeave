@@ -35,9 +35,21 @@ The byte-exact encoding of those vectors is pinned beside the codecs, in `tests/
 
   The rows are `#[ignore]`. CI builds the list (devex-tooling's `tools/ci/build_previous_builds.sh`) and runs the file with `--ignored`, where an unset variable or a missing entry fails.
 
+- **The desktop ↔ Android matrix** (plan §20 (c)). It is proved in `tests/android-e2e`, not in this crate: that suite's driver holds the app's process, the desktop daemon and the relay, and moving it here would run the exchange twice (architect-cto's ruling of 2026-11-11). The matrix is `tests/android-e2e/tests/human_chat.rs::chat`. In each direction, every field of the `HumanChatV2` the receiving facade decoded must equal the one the sending facade composed, not just the payload. The Android side's decoded envelopes reach the host through the case's `received` key (`tests/android-e2e-cases`, `keys::RECEIVED`).
+
+  Every row calls `chat`. Each side sends one plain message and one `;ce=br` message, the `;ce=br` one over the 48 KiB payload limit before compression. The desktop then sends a plain close:
+
+  | row (`tests/android-e2e/tests/human_chat.rs::…`) | Android side | path to the desktop |
+  |---|---|---|
+  | `human_chat_crosses_between_android_and_desktop_relayed_and_direct_plain_and_compressed` | stand-in for the app's process, on the host | relayed (R) and direct (C), in one run |
+  | `on_a_device_the_phone_chats_over_the_relayed_path_with_a_stand_in_as_the_control` | the phone | relayed, over adb's reversed ports |
+  | `on_a_device_the_phone_chats_over_the_direct_path_beside_a_relayed_stand_in` | the phone | direct, over adb's reversed ports |
+  | `over_wifi_the_phone_chats_with_the_desktop_dialling_its_lan_address` | the phone | direct, over the phone's Wi-Fi |
+
+  The stand-in row runs in CI. The phone rows are `#[ignore]`d and run by hand, and each run is a file under `tests/android-e2e/runs/` (the run for this matrix: still to come). A relayed row proves the envelopes crossed a relayed path. Whether the route indicator was shown on the phone's screen is stated separately in the run file, since `chat` reads the indicator at the UI model, not the screen.
+
 **Not yet proved:**
 
-- **The desktop ↔ Android matrix** on real devices waits for the Android app.
 - **Same-host rows only.** The direct and broadcast rows run on the host's private-range address, since ADR-0052 refuses a loopback peer address. They show nothing about NAT, relays or a second host.
 
 See [`architecture/docs/architecture/testing.md`](../../architecture/docs/architecture/testing.md) for the normative scenarios and exit criteria.
