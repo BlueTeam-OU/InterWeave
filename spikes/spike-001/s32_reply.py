@@ -64,6 +64,7 @@ import sys
 import tempfile
 import time
 
+from s28_era import tree_stamp
 from spike_common import CLAUDE, REPO, child_env, claude_version, raw_dir
 from s19_channels import long_term_token, seed_config
 from s22_org_channels import ALLOW, DROP_IN, MARKETPLACE, PLUGIN, TOOL, cli, private_etc, purge_if_token, scrub, \
@@ -389,8 +390,7 @@ def main() -> int:
     spec = spec_of(name)
     version = claude_version()
     run = "s32-reply-" + name
-    head = subprocess.run(["git", "rev-parse", "--short=9", "HEAD"], capture_output=True, text=True,
-                          cwd=REPO).stdout.strip()
+    stamp = tree_stamp()
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="s32-")).resolve()
     if scratch == REPO or REPO in scratch.parents:
@@ -402,7 +402,7 @@ def main() -> int:
     if spec["extra_instructions"]:
         surface["instructions"] += "\n" + spec["extra_instructions"]
     message = MESSAGES[spec["message"]].format(nonce=nonce)
-    record = {"run": run, "tree": head, "claude_version": version, "nonce": nonce, "cell": name.rsplit("-", 1)[0],
+    record = {"run": run, **stamp, "claude_version": version, "nonce": nonce, "cell": name.rsplit("-", 1)[0],
               "told": spec["told"], "message_kind": spec["message"], "arrival": spec["arrival"],
               "first_turn": spec["first"], "message": message,
               "instructions_added": spec["extra_instructions"],

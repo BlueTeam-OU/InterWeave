@@ -49,6 +49,7 @@ import threading
 import time
 
 import s32_reply
+from s28_era import tree_stamp
 from spike_common import REPO, child_env, claude_version, raw_dir
 from s16_run import PROFILE, STRANGER, Home, Peer, free_port, private_ipv4
 from s19_channels import seed_config
@@ -119,8 +120,7 @@ def main() -> int:
                     "interweave-transportctl"], check=True, cwd=REPO)
     bridge = REPO / "target" / "release" / "claude-channel"
     daemon, ctl = REPO / "target" / "debug" / "transport-daemon", REPO / "target" / "debug" / "transportctl"
-    head = subprocess.run(["git", "rev-parse", "--short=9", "HEAD"], capture_output=True, text=True,
-                          cwd=REPO).stdout.strip()
+    stamp = tree_stamp()
 
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="s33-")).resolve()
@@ -130,7 +130,7 @@ def main() -> int:
 
     nonce = secrets.token_hex(4)
     message = s32_reply.MESSAGES["question"].format(nonce=nonce)
-    record = {"run": run, "tree": head, "claude_version": claude_version(), "nonce": nonce,
+    record = {"run": run, **stamp, "claude_version": claude_version(), "nonce": nonce,
               "cell": name.rsplit("-", 1)[0], "told": spec["told"], "message_kind": "question",
               "arrival": spec["arrival"], "first_turn": spec["first"], "message": message,
               "instructions_added": spec["extra_instructions"], "bridge": "release claude-channel at the tree",

@@ -36,11 +36,15 @@ LOG = open(sys.argv[1], "a", buffering=1)
 EXTRA = os.environ.get("SPIKE_EXTRA_INSTRUCTIONS")
 DELAY_S = int(os.environ.get("SPIKE_TOOL_DELAY_MS", "0")) / 1000
 WRITE = threading.Lock()
+LOG_LOCK = threading.Lock()
 STATUS_IDS = set()
 
 
 def record(direction, body):
-    LOG.write(json.dumps({"wall": time.time(), "dir": direction, "body": body}) + "\n")
+    # Two threads log; one lock keeps each record a line of its own, as
+    # the stub's LOCK does (PR #628's review).
+    with LOG_LOCK:
+        LOG.write(json.dumps({"wall": time.time(), "dir": direction, "body": body}) + "\n")
 
 
 def parsed(line):
