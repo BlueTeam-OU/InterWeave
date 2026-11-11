@@ -46,7 +46,7 @@ The byte-exact encoding of those vectors is pinned beside the codecs, in `tests/
   | `on_a_device_the_phone_chats_over_the_direct_path_beside_a_relayed_stand_in` | the phone | direct, over adb's reversed ports |
   | `over_wifi_the_phone_chats_with_the_desktop_dialling_its_lan_address` | the phone | direct, over the phone's Wi-Fi |
 
-  The stand-in row runs in CI. The phone rows are `#[ignore]`d and run by hand, and each run is a file under `tests/android-e2e/runs/`. All three passed on a Pixel 9a at API 37 on 2026-11-11, `tests/android-e2e/runs/2026-11-11-pixel-9a-desktop-android-matrix.md`. A relayed row proves the envelopes crossed a relayed path. Whether the route indicator was shown on the phone's screen is stated separately in the run file, since `chat` reads the indicator at the UI model, not the screen.
+  The stand-in row runs in CI. The phone rows are `#[ignore]`d and run by hand, and each run is a file under `tests/android-e2e/runs/`. All three passed on a Pixel 9a at API 37 on 2026-11-11, `tests/android-e2e/runs/2026-11-11-pixel-9a-desktop-android-matrix.md`. A relayed row proves the envelopes crossed a relayed path. Whether the route indicator was shown on the phone's screen is stated separately in the run file, since the phone's indicator is read at its UI model, not the screen: the case `human_chat` (`tests/android-e2e-cases`) checks the phone's, and `chat` reads the desktop's.
 
 **Not yet proved:**
 

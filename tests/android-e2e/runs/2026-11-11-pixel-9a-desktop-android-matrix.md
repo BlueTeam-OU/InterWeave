@@ -48,7 +48,8 @@ the runtimes handed a client validated against
 
 **The phone ran the new comparison.** An androidTest build older than
 e9bcecd09 reports no `received` key, and `chat` then panics at
-`expect("received")` before any comparison. Each row passed, so the
+`expect("received")`, after the phone-to-desktop comparison and before
+the desktop-to-phone one. Each row passed, so the
 phone's case reported `received`, from the build installed above.
 
 **The comparison is not vacuous.** The mutation was run on the host
@@ -63,9 +64,11 @@ also passed at the fold, just before this run.
 
 - **The relayed route indicator on the screen.** The relayed row proves
   that the envelopes crossed a relayed path, in both directions. It
-  proves nothing about the indicator as rendered. `chat` reads the path
-  from the phone's UI model (`model.path`), not from the Slint window,
-  and nobody looked at the phone's screen during the run. Whether the
+  proves nothing about the indicator as rendered. The phone's indicator
+  is checked by the case, `tests/android-e2e-cases`' `human_chat`, which
+  reads the path from the phone's UI model (`model.path`), not from the
+  Slint window. `chat` reads only the desktop's. Nobody looked at the
+  phone's screen during the run. Whether the
   rendered indicator is live on the Android path is rust-ui-dev's carry
   (plan §21).
 - **A radio network on the relayed and direct rows.** Those rows reach
@@ -75,10 +78,11 @@ also passed at the fold, just before this run.
 - **A NAT, a public relay or a second host.** The relay is a bare Swarm
   on this host's loopback, and the host is a VM behind NAT, so the
   phone cannot dial it over the LAN (`wifi.rs`).
-- **Exactly once, phone to desktop.** The desktop's check finds each
-  message the phone composed and compares it field by field, but does
-  not count copies. Desktop to phone, the comparison is over the whole
-  set and would catch a duplicate.
+- **Exactly once, phone to desktop, at the facade.** The desktop's
+  check finds each message the phone composed and compares it field by
+  field, but does not count copies at the facade. The rows do count the
+  payloads D's runtime handed its client. Desktop to phone, the
+  comparison is over the whole set and would catch a duplicate.
 - **Repeatability.** Each row ran once.
 - **Other phones and API levels.** Only the Pixel 9a at API 37 ran. The
   A40 (API 30) holds a build signed with another key, and installing
