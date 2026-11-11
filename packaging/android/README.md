@@ -225,10 +225,10 @@ gpg --armor --export <fingerprint>
 Back it up with gpg's `--export-secret-keys`, kept off the agents'
 accounts. A lost tag key costs no install: a new one is made, pinned by
 a pull request, and signs the next tag. A rotation replaces the pin, so
-a person checking an older tag checks it against the pin of its own
-tagged commit, not `main`'s: since the rotation before `v0.3.0`,
-`v0.2.0`'s tag verifies only against the first tag key (ADR-0066, A
-2026-11-10).
+a person checking an older tag signed by a pinned tag key checks it
+against the pin of its own tagged commit, not `main`'s: since the
+rotation before `v0.3.0`, `v0.2.0`'s tag verifies only against the first
+tag key (ADR-0066, A 2026-11-10). `v0.1.0` predates the pin (below).
 
 ### Signing a release tag
 
