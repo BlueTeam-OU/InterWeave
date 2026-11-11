@@ -618,8 +618,9 @@ setup. The host compacted at the same window
 compaction with event 3 and the second with event 4, with `preTokens`,
 `postTokens` and the recall turn's prompt inside the ranges above
 (104); without the instruction no value was left in three runs of
-three, the first summaries naming less of event 1 than 2.1.311's had,
-which three runs a build do not show to be the build's (105); and with
+three, each first summary naming the kinds of fact, as 2.1.311's had,
+but of every channel's body rather than of event 1, which three runs a
+build do not show to be how a build places them (105); and with
 it every value was kept in three runs of three, both summaries of each
 run holding all six, the 36 questions getting 18 and 18 again and no
 other value (106). So for these two cells the 2.1.311 counts read as
