@@ -5124,7 +5124,20 @@ re-carried in the closing record with the reason, the matrix comparing
 the decoded envelope fields the scope of 2026-09-30 names, never the
 payload carry alone — and the closing record states whether the relayed
 route indicator was proved live on this path, the fact §21 (Stage 18)
-holds its own carry against; (d) ADR-0028's trust boundary (A 2026-10-08) is supplied by the
+holds its own carry against (note of 2026-11-11, architect-cto's ruling
+for the matrix §21 holds re-carried: the gate asks that the item be
+proved and fixes no crate for its driver — the matrix is proved in
+`tests/android-e2e`'s `human_chat` driver, where the exchange and the
+`#[ignore]`d device rows already are, and named from
+`tests/interoperability/README.md` by `path::fn` for each cell —
+direction, plain or `;ce=br`, direct or relayed, stand-in or phone —
+with the run file, a pointer to a file alone not being enough, since a
+renamed test must make the README visibly false; the phone's side is
+compared as every decoded field against what the desktop composed, not
+as a payload match, and the run file shows that for both directions on
+a real phone; and the run file says the relayed rows prove the
+envelopes crossed a relayed path, and says separately whether the
+rendered indicator was observed); (d) ADR-0028's trust boundary (A 2026-10-08) is supplied by the
 embedded runtime as the app's own data directory and the runtime's
 private directories sit directly under it at `0700` — the store opens on the device, and a platform test shows the runtime
 refusing to place a private directory under the platform's `files/`,
@@ -5779,8 +5792,16 @@ NEW; the matrix names the rest.
   decided (7); the bridge against the human client's facade as the far
   end, plain and `;ce=br`.
 
-Rust-ui-dev's carries stay theirs: the rendered relayed-path indicator and
-the Android↔desktop path (§20 gate (c)).
+Rust-ui-dev's carry stays theirs: the rendered relayed-path indicator,
+live on the Android↔desktop path. The desktop ↔ Android platform matrix
+(§20 gate (c): both directions, plain and `;ce=br`, direct and relayed,
+every decoded field) is p2p-network-dev's; a change it needs under
+`tests/android-e2e`'s `human_chat` driver is rust-ui-dev's, supplied to
+the matrix's holder. The split was named here on 2026-11-11
+(architect-cto's ruling): as first written, "the rendered relayed-path
+indicator and the Android↔desktop path" read as two carries and gave
+the matrix to rust-ui-dev, which §20's carried list never did — it names
+the matrix and the indicator as two items.
 
 ### Preconditions (each met by a named check)
 
