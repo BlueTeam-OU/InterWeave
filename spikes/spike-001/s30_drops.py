@@ -38,6 +38,7 @@ import tempfile
 import time
 import pathlib
 
+from s28_era import tree_stamp
 from spike_common import REPO, raw_dir
 from s16_run import STRANGER, Home, Peer, free_port, private_ipv4
 
@@ -84,14 +85,12 @@ def main() -> int:
                     "interweave-transportctl"], check=True, cwd=REPO)
     bridge = REPO / "target" / "release" / "claude-channel"
     daemon, ctl = REPO / "target" / "debug" / "transport-daemon", REPO / "target" / "debug" / "transportctl"
-    head = subprocess.run(["git", "rev-parse", "--short=9", "HEAD"], capture_output=True, text=True,
-                          cwd=REPO).stdout.strip()
 
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="s30d-")).resolve()
     nonce = secrets.token_hex(4)
     started = time.time()
-    record = {"run": run, "tree": head, "nonce": nonce, "count": COUNT, "refill_wait_s": REFILL_S,
+    record = {"run": run, **tree_stamp(), "nonce": nonce, "count": COUNT, "refill_wait_s": REFILL_S,
               "quiet_after_s": QUIET_S,
               "started_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(started)) + "Z"}
     live = []

@@ -58,6 +58,7 @@ import sys
 import tempfile
 import time
 
+from s28_era import tree_stamp
 from spike_common import CLAUDE, REPO, child_env, claude_version, raw_dir
 from s19_channels import long_term_token, seed_config
 from s22_org_channels import ALLOW, DROP_IN, MARKETPLACE, PLUGIN, cli, private_etc, purge_if_token, scrub, \
@@ -440,8 +441,6 @@ def main() -> int:
     if spec["build"] is not None and spec["build"] != version:
         raise SystemExit(f"the name says build {spec['build']}, SPIKE_CLAUDE is {version}")
     run = "s32-compact-" + name
-    head = subprocess.run(["git", "rev-parse", "--short=9", "HEAD"], capture_output=True, text=True,
-                          cwd=REPO).stdout.strip()
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="s32-")).resolve()
     if scratch == REPO or REPO in scratch.parents:
@@ -454,7 +453,7 @@ def main() -> int:
     order = rng.sample(range(6), 6)
     content, offsets = target_event(rng, nonce, SIZES[spec["size"]], facts, order)
     positions = {facts[i]["template"]: pos for i, pos in zip(order, ("head", "head", "middle", "middle", "end", "end"))}
-    record = {"run": run, "tree": head, "claude_version": version, "nonce": nonce, "seed": seed,
+    record = {"run": run, **tree_stamp(), "claude_version": version, "nonce": nonce, "seed": seed,
               "model_flag": spec["model"], "env_set": spec["env"], "first_turn": FIRST[spec["note"]],
               "size": spec["size"], "target_bytes": SIZES[spec["size"]], "filler_bytes": BOUND,
               "depth": spec["depth"], "window": spec["window"], "recall_head": RECALL_HEAD,

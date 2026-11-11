@@ -59,6 +59,7 @@ import sys
 import tempfile
 import time
 
+from s28_era import tree_stamp
 from spike_common import CLAUDE, REPO, child_env, claude_version, raw_dir
 from s16_run import PROFILE, STRANGER, Home, Peer, free_port, private_ipv4
 from s19_channels import long_term_token, seed_config
@@ -172,8 +173,6 @@ def main() -> int:
     version = claude_version()
     run = "s30-" + name
     bridge_kind = spec["kind"] == "bridge"
-    head = subprocess.run(["git", "rev-parse", "--short=9", "HEAD"], capture_output=True, text=True,
-                          cwd=REPO).stdout.strip()
 
     subprocess.run(["cargo", "build", "-q", "-j", "2", "--release", "-p", "interweave-claude-channel"], check=True,
                    cwd=REPO)
@@ -191,7 +190,7 @@ def main() -> int:
 
     nonce = secrets.token_hex(4)
     live = []
-    record = {"run": run, "tree": head, "claude_version": version, "nonce": nonce, "kind": spec["kind"],
+    record = {"run": run, **tree_stamp(), "claude_version": version, "nonce": nonce, "kind": spec["kind"],
               "model_flag": spec.get("model"), "env_set": spec.get("env", {}), "first_turn": spec.get("first", STUB_FIRST)}
     passed = False
     try:
