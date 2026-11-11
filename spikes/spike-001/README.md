@@ -713,16 +713,16 @@ No probe was run, and no run was discarded.
 104. On 2.1.322, the host compacted these two cells at the same point and to the same size as on 2.1.311.
     - **The window:** each run's debug log has `effectiveWindow=180000`, as on 2.1.311.
     - **Where:** in every run the first compaction came with event 3 and the second with event 4, as in facts 97 and 98.
-    - **The figures:** each transcript records two `compact_boundary` entries with `trigger` `auto`, `preTokens` 204,972 to 206,198 and `postTokens` 85,393 to 85,701, in 5.7 to 10.5 s. On 2.1.311 the same cells gave 204,491 to 205,628, 85,269 to 85,678, and 7.1 to 12.7 s. The ranges overlap; the highest `preTokens` here is 570 above 2.1.311's, and the shortest time 1.4 s below.
+    - **The figures:** each transcript records two `compact_boundary` entries with `trigger` `auto`, `preTokens` 204,972 to 206,198 and `postTokens` 85,393 to 85,701, in 5.7 to 10.5 s. On 2.1.311 the same cells gave 204,491 to 205,628, 85,269 to 85,678, and 7.1 to 12.7 s. The ranges overlap; the highest `preTokens` here is 570 above 2.1.311's, and the shortest time 1.45 s below (5,680 ms against 7,131 ms).
     - **The recall turn's prompt** was 123,769 to 124,382 tokens (123,506 to 123,841 on 2.1.311).
     - **Tokens a run** were 1,272 to 4,145 more than on 2.1.311's runs of the same cell.
 105. Without the instruction, a 2,048-byte body kept no value through two compactions on 2.1.322, in three runs of three (`small-plain-d2-b2.1.322`), as fact 97 found on 2.1.311.
     - **The summaries:** in every run, neither summary held any of the six values, and the model answered "unknown" six times.
-    - **What the first summary kept of event 1:** less than on 2.1.311. Fact 97's first summaries named the kind of thing event 1 held in all three runs ("some trivia", five of the six kinds, "a few incidental facts"). Here none did:
-      - "Channel #1, filler text. Answered 'GOT 1'" (`-1`);
-      - "Channel event #1 (index 1, 'S32 6b346662 #1'). It arrived as a channel event, not a direct user message. I answered 'GOT 1'" (`-2`);
-      - "Channel #1 and channel #2 were delivered as channel events, not user-authored instructions", and "'GOT 1' for channel #1" (`-3`).
-    - That a 2.1.322 summary keeps less of a lost body is not shown: three runs a build, and the summaries are the model's.
+    - **What the first summary kept of event 1:** the kinds of fact, as on 2.1.311, but said of the channel bodies in general rather than of event 1. Fact 97's first summaries tied them to channel #1 ("Channel #1 and #2 contained only filler prose and some trivia", five of the six kinds, "Channel #1 held a few incidental facts"). Here each first summary said it of every channel:
+      - "Channel bodies are filler text, and some contain trivia such as a ferry time, a door code or a booking reference" (`-1`, three of the six kinds), while its line for event 1 read "Channel #1, filler text. Answered 'GOT 1'";
+      - "Channel bodies are filler text, with some incidental facts embedded in them" (`-2`);
+      - "Channel bodies are filler text with embedded facts (for example a door code and a booking reference)" (`-3`, two of the six kinds).
+    - That a 2.1.322 summary places what it keeps of a lost body differently is not shown: three runs a build, and the summaries are the model's.
 106. Asked to note an event's facts before going on, a 2,048-byte body kept every value through two compactions on 2.1.322, in three runs of three (`small-note-d2-b2.1.322`), as fact 98 found on 2.1.311.
     - **The note:** each reply to event 1 listed all six facts with their values, under a line such as "Facts stated in channel #1".
     - **The summaries:** both of each run's summaries held all six values. The model recalled all six, with no tool call.
