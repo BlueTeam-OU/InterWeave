@@ -1004,7 +1004,8 @@ scale would also be a finding of the Android review
          the launch, the run is void, not failed: K1 is kept only while
          the process lives, and the hook left the record able to open,
          so a new process opens Chats. Run it again.
-      3. From that K1, enter the phrase on R2. The restore matches and
+      3. Clear the log (`adb logcat -c`). Then, from that K1, enter
+         the phrase on R2. The restore matches and
          goes to R4. After R4's continue, the client runs. If the phone
          knows no address and no peer, Connect to someone opens:
          onboarding's third step (`design/2026-10-22-add-a-peer.md`
@@ -1052,8 +1053,11 @@ scale would also be a finding of the Android review
          exception to that last case. If, on such a phone, the pair
          is `connect=not-owed` with `page=conversations` and
          `logcat -s interweave` shows a line containing
-         `the connect-owed marker:`,
-         the marker write failed. The build accepts that failure and
+         `the connect-owed marker:` logged after the log was cleared
+         at the start of this step and before R4's continue,
+         the marker write failed. A line with that text from any
+         other time does not count: a failed clear of the marker
+         logs the same text. The build accepts that failure and
          opens Chats without Connect
          (`apps/human-android/src/onboard.rs`, `connect_owed`). The
          Connect part of the step is then void, not passed, as for
