@@ -6166,8 +6166,8 @@ none is the status value's, which stays on this stage.
   source, the carry to §22 the item provided for is not taken (Stage 18
   had not closed), and `CLAUDE.md` §8's third gap is written in the past
   tense for this advisory while its rule stays. What the note does not
-  change: v0.3.0 was tagged before the bump (c0bbe40a9, 2026-11-10; its
-  lock names `sqlcipher-src` 419.0.6), so a v0.3.0 artifact compiles the
+  change: v0.3.0 was tagged before the bump (on c0bbe40a9, 2026-11-11;
+  its lock names `sqlcipher-src` 419.0.6), so a v0.3.0 artifact compiles the
   affected source within the limit this item states, a `-wal` written
   beside `human.sqlite` by a party ADR-0060 already places outside the
   store's protection; the item asked no hold on a release and this note
