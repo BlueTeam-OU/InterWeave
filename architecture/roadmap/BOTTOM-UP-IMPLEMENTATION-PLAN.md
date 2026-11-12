@@ -5052,7 +5052,7 @@ The Android client brings the repository's first non-Cargo dependency graph — 
 - **Shape (architect-cto, on the owner's two words):** `osv-scanner` over the Gradle **lockfiles** (`gradle.lockfile`, `buildscript-gradle.lockfile`), which means dependency locking is turned on in the Gradle build so the scanned input is the resolved graph and not a guess from `build.gradle.kts`; the invocation is one documented command in `apps/human-android/README.md` (devex-tooling's to write and keep with the build, as the Cargo checks are), passing `--config=<the one osv-scanner.toml beside the build>` so one suppressions file governs every lockfile scanned (the tool otherwise reads a config only from each lockfile's own directory), never a Gradle task that would make the build depend on a network service; turning dependency locking on is the Gradle build's owner's (rust-ui-dev), and the command is checked once the lockfiles exist.
 - **Suppressions are reviewed exemptions**, not a way past the check: one `osv-scanner.toml` beside the build, one `[[IgnoredVulns]]` entry per accepted finding with the OSV id and a `reason` that names the artefact, says why the finding does not apply here and what would change the answer (the tool's entry has no artefact field, so the reason carries it; `ignoreUntil` where the exemption is dated), never a `[[PackageOverrides]]` entry, which ignores every finding of a package rather than one — the models are `deny.toml`'s `[advisories].ignore` entries and `tools/checks/license_exempt.txt`, and an entry without its sentence is what a reviewer refuses.
 
-Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `CLAUDE.md` records the live gaps: `yamux` with the guard for it, and, since #602 landed `rusqlite` 0.41 on 2026-11-09, the store's SQLCipher residual of RUSTSEC-2026-0459, §21's carried item), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
+Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `CLAUDE.md` records the gaps: `yamux` with the guard for it, live, and the store's SQLCipher residual of RUSTSEC-2026-0459, §21's carried item, met from #602's `rusqlite` 0.41 on 2026-11-09 until #637's `rusqlite` 0.42 on 2026-11-12 closed it), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
 
 The Cargo graph's own policy gained three ignores during this stage (2026-10-18, p2p-network-dev's decision, 2aa72262, bae39f8a and dde0a007 folded into #297), beside RUSTSEC-2024-0436 (`paste`, since Stage 4) and §18 (14)'s RUSTSEC-2026-0192 (`ttf-parser`): RUSTSEC-2026-0370 (`zvariant` 5.15.0), RUSTSEC-2026-0371 (`zbus_names` 4.3.4) and RUSTSEC-2026-0372 (`zvariant_derive` 5.15.0), one announcement — the standalone crates merged into `zbus` 6.0.0, unmaintained on their own, informational with no patched release; the first two are runtime code in the desktop binary, the third a proc-macro — reached through the desktop's AT-SPI path (`i-slint-backend-winit` 1.18.1 names `zbus` 5 directly) and through `tests/desktop-e2e`'s own direct `zbus` 5.19 and `atspi` 0.29 dev-dependencies, absent from the Android graph. Dated 2026-10-16 in the advisory database, they turned every PR's `tree checks` and `tool self-tests` red from 2026-10-18 until the entries landed; a scan of the whole lock against the database at that date found nothing else unanswered. Their revisit is the next Slint or accesskit bump together with the e2e suite's `zbus`/`atspi` pins: a Slint bump alone leaves the crates in the graph through those pins. §18's Stage 15 record stays as the record of that date.
 
@@ -6092,7 +6092,9 @@ none is the status value's, which stays on this stage.
   from the clause, `error_contract_matrix.rs` holds no `Proof::Stage(18)`
   deferral either, as decided (0) required while the stage ran beside
   Stage 17.
-- **RUSTSEC-2026-0459's residual in the human store** (CVE-2026-119375:
+- **RUSTSEC-2026-0459's residual in the human store** (closed
+  2026-11-12, the dated note at this item's end; what follows is the
+  item as carried from 2026-11-09 until then) (CVE-2026-119375:
   SQLite before 3.54.0 can return uninitialized page-cache memory when a
   database is opened beside a `-wal` file of another page size; dated
   2026-10-30, local, the victim opens the files). devex-tooling's bump
@@ -6144,6 +6146,33 @@ none is the status value's, which stays on this stage.
   covers a feature build still carrying the affected source, is
   `CLAUDE.md` §8's third dependency-check gap, beside the GHSA-only and
   the vendored-crate ones.
+
+  **Dated note, 2026-11-12 (the re-check trigger fired; the item is
+  closed).** The remedy arrived by a route the trigger did not expect:
+  RustSec published the source crate's own advisory, RUSTSEC-2026-0502
+  (`sqlcipher-src`, the same CVE-2026-119375; patched `>= 420.0.0`,
+  unaffected `< 419.0.3`), so `cargo deny check advisories` came to
+  match the crate that carries the C source and
+  `tools/checks/check_dependencies.sh` failed on `main`'s lock
+  (architect-cto's OBSERVATION 01a1ceec-8da3 of that morning to
+  devex-tooling). devex-tooling's bump (their j328, #637, merged
+  fd4679a7f on 2026-11-12: `rusqlite` 0.42.0, `libsqlite3-sys` 0.40.0)
+  answers it, and the trigger's own test is met as it was written, read
+  from `Cargo.lock` on `main` at that merge and not from the crate's
+  major: `sqlcipher-src`
+  `420.0.0+sqlcipher-4.20.0-sqlite-3.54.1-libtomcrypt-1.18.2`, SQLCipher
+  4.20.0 on SQLite 3.54.1, past the 3.54.0 the advisory names as fixed.
+  So from fd4679a7f the store's build no longer compiles the affected
+  source, the carry to §22 the item provided for is not taken (Stage 18
+  had not closed), and `CLAUDE.md` §8's third gap is written in the past
+  tense for this advisory while its rule stays. What the note does not
+  change: v0.3.0 was tagged before the bump (c0bbe40a9, 2026-11-10; its
+  lock names `sqlcipher-src` 419.0.6), so a v0.3.0 artifact compiles the
+  affected source within the limit this item states, a `-wal` written
+  beside `human.sqlite` by a party ADR-0060 already places outside the
+  store's protection; the item asked no hold on a release and this note
+  asks no re-cut, and the first release cut from a `main` at or after
+  fd4679a7f carries the fix.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
   the three prose status sites with it, and, unless done earlier, the
