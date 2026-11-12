@@ -546,7 +546,7 @@ started a turn of its own.** Read off `spikes/spike-001/README.md`
 §S32 (a) and §S32 (b) (facts 86–96, #612; facts 97 and 98, #626;
 facts 104–106, #629, the two small cells again on 2.1.322; facts
 108–112, #636, the other six on 2.1.322): (a)
-is 24 runs `s32-compact-*`, three in each of eight cells, 18 of them
+is 24 runs `s32-compact-*-d[12]-[1-3]`, three in each of eight cells, 18 of them
 on 2026-11-10 and the six of `small-note-d2` and `small-plain-d2` on
 2026-11-11, on 2.1.311 still after the fleet's pin had moved to
 2.1.322, so that the eight cells compare, on S31's setup with a
@@ -632,7 +632,7 @@ other value (106). So for these two cells the 2.1.311 counts read as
 the pin's: over the two builds, no value in six runs of six without
 the note and every value in six of six with it. The other six cells of
 (a) were run on 2.1.322 on 2026-11-12, three runs each: 18 runs
-`s32-compact-*-b2.1.322-*` beside those, 10,841,121 tokens (10,830,992
+`s32-compact-{large-*,small-*-d1}-b2.1.322-*` beside those, 10,841,121 tokens (10,830,992
 for the same cells on 2.1.311), by the same driver at `20e48edc4` on
 the same setup, the first run alone, to stop if the host compacted at
 another point, which it did not (until 2026-11-12 this said the six
