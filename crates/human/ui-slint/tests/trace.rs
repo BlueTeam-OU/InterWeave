@@ -1007,12 +1007,10 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
 fn enter_takes_the_whole_word_typed_before_the_page_caught_up() {
     use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_r2();
-    let keys: Vec<slint::SharedString> = ["a", "c", "t"]
-        .into_iter()
-        .map(Into::into)
-        .chain([slint::platform::Key::Return.into()])
-        .collect();
-    page.burst(&keys);
+    // Off the first key, so the chip's focus rule has somewhere to move.
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-key", "control: w");
+    page.burst(&letters_then("act", &[slint::platform::Key::Return]));
     assert_eq!(
         page.take(),
         [
@@ -1022,11 +1020,64 @@ fn enter_takes_the_whole_word_typed_before_the_page_caught_up() {
             IdentityInput::Enter,
         ]
     );
-    let entry = page.flow.entry().expect("still R2");
-    assert_eq!(entry.word(0), Some("act"), "the whole word was taken");
-    assert_eq!(entry.picker().typed(), "");
-    // The chip's focus rule followed the page that showed it taken.
-    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    assert_eq!(page.word(0), Some("act"), "the whole word was taken");
+    assert_eq!(page.typed(), "");
+    // The chip's focus rule followed the page that showed it taken: on
+    // q, the first enabled key, so TAB and Enter press w, not e.
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')]);
+}
+
+/// `word`'s letters, then `keys`, as one burst gives them.
+fn letters_then(word: &str, keys: &[slint::platform::Key]) -> Vec<slint::SharedString> {
+    word.chars()
+        .map(|letter| slint::SharedString::from(letter.to_string()))
+        .chain(keys.iter().map(|key| (*key).into()))
+        .collect()
+}
+
+/// An Enter queued behind the Escape that asks the discard dialog takes
+/// nothing: in the order the keys came, the dialog was up (#634 F1).
+#[test]
+fn enter_queued_behind_the_discard_dialog_takes_nothing() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    page.burst(&letters_then("act", &[Key::Escape, Key::Return]));
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('a'),
+            IdentityInput::Key('c'),
+            IdentityInput::Key('t'),
+            IdentityInput::Back,
+            IdentityInput::Enter,
+        ],
+        "control: the stale page let the Enter through"
+    );
+    assert!(page.flow.discard_asked());
+    assert_eq!(page.word(0), None, "no word taken behind the dialog");
+    assert_eq!(page.typed(), "act");
+}
+
+/// C3 by keyboard: letters and Enter in one burst take the word and move
+/// to the second position, focus on the first enabled key (#634 F3).
+#[test]
+fn c3s_enter_takes_the_word_typed() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_c3();
+    page.tab();
+    page.burst(&letters_then("gal", &[slint::platform::Key::Return]));
+    assert_eq!(page.take().last(), Some(&IdentityInput::Enter));
+    assert_eq!(
+        page.flow.check(),
+        Some((20, None)),
+        "galaxy, the right word"
+    );
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')], "focus was on q");
 }
 
 /// The platform's text size: 14 px is 100 %, as Android's font scale
