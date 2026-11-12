@@ -1016,8 +1016,31 @@ async fn the_widest_legal_card_name_reaches_the_model_whole_and_one_byte_more_is
         .parse::<libp2p::PeerId>()
         .expect("a PeerId")
         .to_bytes();
-    let message =
-        canonical_card_bytes(&longer, None, None, &multihash, human().as_str()).expect("encodable");
+    let canonical = |name: &str| {
+        canonical_card_bytes(name, None, None, &multihash, human().as_str()).expect("encodable")
+    };
+    let verifies = |message: &[u8], signature_b64: &str| {
+        use base64::Engine as _;
+        let bytes: [u8; 64] = base64::engine::general_purpose::STANDARD
+            .decode(signature_b64)
+            .expect("base64")
+            .try_into()
+            .expect("64 bytes");
+        key.verifying_key()
+            .verify_strict(message, &ed25519_dalek::Signature::from_bytes(&bytes))
+            .is_ok()
+    };
+    // The control for the route bytes built here: the builder's own
+    // signature on the widest card verifies over them, so they are the
+    // bytes a receiver verifies on this route.
+    assert!(
+        verifies(
+            &canonical(&widest),
+            envelope["card"]["signature"].as_str().expect("a signature")
+        ),
+        "the hand-built canonical bytes are build_card's"
+    );
+    let message = canonical(&longer);
     {
         use base64::Engine as _;
         let signature =
@@ -1025,6 +1048,16 @@ async fn the_widest_legal_card_name_reaches_the_model_whole_and_one_byte_more_is
         envelope["card"]["name"] = json!(longer);
         envelope["card"]["signature"] = json!(signature);
     }
+    // The name is the 257-byte card's only fault: its signature verifies
+    // over its own canonical bytes on the route it is sent on, built from
+    // the name the envelope carries, not from what was signed.
+    assert!(
+        verifies(
+            &canonical(envelope["card"]["name"].as_str().expect("a name")),
+            envelope["card"]["signature"].as_str().expect("a signature")
+        ),
+        "signed for what it carries"
+    );
     let over = serde_json::to_string(&envelope).expect("serializes");
     assert_eq!(longer.len(), 257);
     assert_eq!(longer.chars().count(), MAX_CARD_NAME_SCALARS + 1);
@@ -1039,6 +1072,14 @@ async fn the_widest_legal_card_name_reaches_the_model_whole_and_one_byte_more_is
     );
     let dropped = bridge.status().await["dropped_cards"].clone();
     eprintln!("size: a 257-byte card name: no event; status.dropped_cards {dropped}");
+    // Every reason of the closed set is written, zero included, so the
+    // loop below cannot pass on a map that lost one.
+    assert_eq!(dropped["name"], json!(1), "{dropped}");
+    assert_eq!(
+        dropped.as_object().map(serde_json::Map::len),
+        Some(12),
+        "{dropped}"
+    );
     for (reason, count) in dropped.as_object().expect("an object") {
         let want = u64::from(reason == "name");
         assert_eq!(count, &json!(want), "{reason}: {dropped}");
