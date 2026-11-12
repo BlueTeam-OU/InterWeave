@@ -30,10 +30,10 @@
     },
     {
       "name": "sqlcipher-src",
-      "version": "419.0.6+sqlcipher-4.19.0-sqlite-3.53.4-libtomcrypt-1.18.2",
+      "version": "420.0.0+sqlcipher-4.20.0-sqlite-3.54.1-libtomcrypt-1.18.2",
       "licence": "BSD-3-Clause AND blessing",
       "files": ["sqlcipher/LICENSE-sqlcipher"],
-      "read": "libsqlite3-sys 0.39.1's build script compiles sqlcipher/sqlcipher.c (SQLCipher 4.19.0 on SQLite 3.53.4) into the program and never LIBTOMCRYPT_SOURCES, so LICENSE-libtomcrypt (WTFPL) covers nothing shipped. The amalgamation's copyright lines are ZETETIC LLC's, whose BSD-3-Clause notice is LICENSE-sqlcipher; SQLite's part is public domain (blessing) and owes no notice. The crate's own LICENSE (MIT) covers its Rust code, which is not compiled in."
+      "read": "libsqlite3-sys 0.40.0's build script compiles sqlcipher/sqlcipher.c (SQLCipher 4.20.0 on SQLite 3.54.1) into the program and never LIBTOMCRYPT_SOURCES, so LICENSE-libtomcrypt (WTFPL) covers nothing shipped. The amalgamation's copyright lines are ZETETIC LLC's, whose BSD-3-Clause notice is LICENSE-sqlcipher; SQLite's part is public domain (blessing) and owes no notice. The crate's own LICENSE (MIT) covers its Rust code, which is not compiled in."
     }
   ]
 }

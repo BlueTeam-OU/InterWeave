@@ -927,7 +927,13 @@ scale would also be a finding of the Android review
       focus key, which the build adds for each of R, K and K1:
       `r-heading`, `k-heading` and `k1-heading` (rust-ui-dev-01,
       2026-11-10). Any other value fails,
-      `focus=none` and `focus=?` included. Run it three times, on a profile whose
+      `focus=none` and `focus=?` included. One exception: a launch
+      makes a new window, whose focus is empty until the heading takes
+      focus. So at a launch, a `focus=none` logged in the same
+      millisecond, just before the trace names the heading's focus key,
+      is that empty focus and does not fail. The
+      trace reads the focus property, not frames (rust-ui-dev-01's
+      REPLY 01a1ce5b). Run it three times, on a profile whose
       `key_unlock_policy` is `background-compatible`, so that no
       start raises an unlock prompt. Each
       of the first two runs fires the debug hook `REFUSE_STORE` and
@@ -952,8 +958,10 @@ scale would also be a finding of the Android review
       press Enter on Try again, so that the start that Try again makes
       reaches the store. That start is refused again and R stays, and
       focus stays on Try again, as it did after the restart. Then
-      press Shift+Tab to put focus back on R's heading (the trace shows
-      `focus=r-heading`), and fire `RESTART` again. The hook refuses
+      press Shift+Tab to put focus back on R's heading. Where adb cannot
+      send Shift+Tab, as on Android 11, press Tab instead, again and again,
+      until focus comes back to R's heading.
+      The trace shows `focus=r-heading`. Then fire `RESTART` again. The hook refuses
       only once, so this start runs, and R leaves the screen while
       focus is on its heading. The trace then names Chats' list
       heading (`focus=conversations-heading`), as unlock note F15
@@ -974,7 +982,9 @@ scale would also be a finding of the Android review
       whose recovery phrase the tester has, whose `key_unlock_policy`
       is `background-compatible` (as for R above), and that is not Stay
       reachable.
-      On Chats, fire `REFUSE_IDENTITY` and then `RESTART`, so that K1
+      First note whether the Peers page lists nothing and whether the
+      Trust page lists nothing: step 3 uses both notes. Then, on
+      Chats, fire `REFUSE_IDENTITY` and then `RESTART`, so that K1
       rises.
       1. Before anything on K1 is touched, `adb shell dumpsys window`
          shows `FLAG_SECURE` (`SECURE`) in the flags of InterWeave's
@@ -994,21 +1004,72 @@ scale would also be a finding of the Android review
          the launch, the run is void, not failed: K1 is kept only while
          the process lives, and the hook left the record able to open,
          so a new process opens Chats. Run it again.
-      3. From that K1, enter the phrase on R2. The restore matches and
-         goes to R4. After R4's continue, Chats shows and the client
-         runs: `adb shell dumpsys activity services
+      3. Clear the log (`adb logcat -c`). Then, from that K1, enter
+         the phrase on R2. The restore matches and
+         goes to R4. After R4's continue, the client runs. If the phone
+         knows no address and no peer, Connect to someone opens:
+         onboarding's third step (`design/2026-10-22-add-a-peer.md`
+         §5.1). Chats may show first, while the start reads the peer
+         list and the trust set, and Connect to someone then replaces
+         Chats. Connect to someone with Chats before it, or without, is
+         correct, not a failure. Otherwise, Chats shows and stays. In
+         both cases, `adb shell dumpsys activity services
          org.interweave.human` lists the Service, and `logcat -s
          interweave` shows the start succeeding. No second K1 rises,
-         then or at the next launch. The step fails if the Service is
-         not listed, if logcat does not show the start succeeding, or
-         if a second K1 rises, then or at the next launch.
+         then or at the next launch. Which case applies is read from
+         the trace, not from the screen. The phone's screen and keys
+         are not touched until the trace has been read, so that the
+         last `page=` line is the client's own and not a page the
+         tester opened. After R4's continue, the
+         trace writes `connect=owed` while the start reads the peer
+         list and the trust set. Wait, for at most 30 seconds, until
+         the last `connect=` line is no longer `connect=owed` (on the
+         A40 this took under a second). Then read the last `connect=`
+         line and the last `page=` line as one pair. When Connect opens,
+         the trace writes `page=connect` just before `connect=open`.
+         `connect=open` with `page=connect` is Connect opening.
+         `connect=settled` with `page=conversations` is Chats
+         staying, and so is `connect=not-owed` with
+         `page=conversations`. A start writes `connect=not-owed` when
+         the restore did not write the marker that says Connect is
+         owed. `connect=deferred` with
+         `page=conversations` means that the start could not read
+         the peer list or the trust set, so
+         Chats opens without Connect (`design/2026-10-22-add-a-peer.md`
+         §5.1); then only the Connect
+         part of the step is void, not passed, and the step is run
+         again. The step fails if any of these holds: the Service is
+         not listed; logcat does not show the start succeeding; a
+         second K1 rises, then or at the next launch; after 30
+         seconds the last `connect=` line is still `connect=owed`;
+         the pair is none of the four pairs above (`connect=open`
+         with `page=connect`, and `connect=settled`,
+         `connect=not-owed` or `connect=deferred` with
+         `page=conversations`); the pair is `connect=open` with
+         `page=connect` on a phone whose Peers page or Trust page,
+         or both, listed something before the hooks; or the pair is
+         Chats staying on a phone whose Peers page and Trust page
+         both listed nothing before the hooks. There is one
+         exception to that last case. If, on such a phone, the pair
+         is `connect=not-owed` with `page=conversations` and
+         `logcat -s interweave` shows a line that contains
+         `the connect-owed marker:` and was logged between the
+         clear of the log at the start of this step and R4's
+         continue, the marker write failed. A line with that text
+         from any other time does not count, because the app logs
+         the same text when it fails to remove the marker. The
+         build accepts a failed marker write and opens Chats without
+         Connect
+         (`apps/human-android/src/onboard.rs`, `connect_owed`). The
+         Connect part of the step is then void, not passed, as for
+         `connect=deferred`.
       Each result is reported with how it was seen: by the focus
       trace, by the flag read through `dumpsys`, or rendered. K1 and
       R2 are secured (step 1), so a screenshot of them is black, as
       item 2 says of R2: what
       they show is read on the phone or from the accessibility tree (a
       `uiautomator dump`), and a screenshot is evidence only for Chats
-      after R4.
+      or Connect to someone after R4.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the

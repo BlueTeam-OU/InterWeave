@@ -663,24 +663,26 @@ check green. `tools/checks/check_yamux_muxer.sh` is the guard, because
 `cargo-deny` structurally cannot be; its `--help` carries the mechanism,
 the advisory id, and why banning the version would not work.
 
-**A THIRD GAP is in the database's own grammar, live since 2026-11-09.**
-A RustSec patched range names crate VERSIONS, and `cargo-deny` matches
-the version in `Cargo.lock` against it; a feature of a patched version
-that compiles a different source tree is invisible to that match.
-RUSTSEC-2026-0459 (SQLite before 3.54.0, uninitialized page-cache memory
-from a `-wal` of another page size) is patched at `libsqlite3-sys >=
-0.39.0`, so devex-tooling's `rusqlite` 0.41 bump (#602, merged
-295cf217a on 2026-11-09) answers it for the check — while the human
-store's `bundled-sqlcipher-vendored-openssl` build of that very version
-compiles `sqlcipher-src` 419.0.6, SQLite 3.53.4, which the advisory
-names as still affected. No check here can see it: the lock names a
-patched version and the advisory is answered. The residual is carried
-by name in the plan's §21 record with its re-check trigger (a
-`sqlcipher-src` whose lock version's build metadata names
-`sqlite-3.54.0` or later; the crate's major is the SQLCipher release,
-not the SQLite one), and the lesson is the rule: when an advisory's
-text names a feature build, read the C source version the graph
-actually compiles, not the crate version the range clears.
+**A THIRD GAP is in the database's own grammar, met from 2026-11-09 to
+2026-11-12.** A RustSec patched range names crate VERSIONS, and
+`cargo-deny` matches the version in `Cargo.lock` against it; a feature
+of a patched version that compiles a different source tree is invisible
+to that match. RUSTSEC-2026-0459 (SQLite before 3.54.0, uninitialized
+page-cache memory from a `-wal` of another page size) was patched at
+`libsqlite3-sys >= 0.39.0`, so devex-tooling's `rusqlite` 0.41 bump
+(#602, merged 295cf217a on 2026-11-09) answered it for the check — while
+the human store's `bundled-sqlcipher-vendored-openssl` build of that
+very version compiled `sqlcipher-src` 419.0.6, SQLite 3.53.4, which the
+advisory named as still affected. No check here could see it, and the
+residual was carried by name in the plan's §21 record. It closed when
+RustSec published the source crate's own advisory, RUSTSEC-2026-0502,
+which turned the tree checks red on every head, and devex-tooling's
+`rusqlite` 0.42 bump answered it: `libsqlite3-sys` 0.40.0 compiles
+`sqlcipher-src` 420.0.0, SQLCipher 4.20.0 on SQLite 3.54.1. The lesson
+stays the rule: when an advisory's text names a feature build, read the
+C source version the graph actually compiles (the build metadata of the
+`-src` crate's lock version; its major is the SQLCipher release, not the
+SQLite one), not the crate version the range clears.
 
 ### Licence headers are checked
 
