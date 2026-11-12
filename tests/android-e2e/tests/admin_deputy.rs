@@ -2,10 +2,13 @@
 // Copyright 2026 Andrea Benetton
 //! TM-42 (threat-model.md, "Android remote message triggers admin
 //! action"): a remote message reaching the app's own client cannot act
-//! as its admin port. D, a desktop daemon the Android side trusts, sends
+//! as its admin port. D, a desktop daemon, sends
 //! the Android side's `human` endpoint admin requests as raw direct
 //! payloads (trust a stranger, revoke `human`, add the stranger's
 //! address, shut down) and as one `HumanChatV2` message. The Android
+//! side's profile trusts a placeholder peer rather than D, so D's sends
+//! are refused until the case has read its baseline and trusted D
+//! through its admin port; D retries each until it is accepted. The Android
 //! half is `interweave-android-e2e-cases`' `admin_shaped` case, run on
 //! the app's own client: the facade, store and hub the app's service
 //! composed. It asserts that every payload was handed to the facade (the
@@ -180,9 +183,14 @@ async fn admin_deputy<A: Device>(mut android: A) {
     ))
     .await;
     android.reach(port);
+    // The case trusts D once its baseline is read: until then the
+    // profile's one trusted peer is a placeholder no one runs.
+    let placeholder = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a PeerId");
     android.start(&example(
         "human-android.yaml",
-        &d.peer,
+        &placeholder,
         WILDCARD,
         Some(&format!("{d_listen}/p2p/{}", d.peer.as_str())),
     ));
@@ -234,10 +242,16 @@ async fn admin_deputy<A: Device>(mut android: A) {
         )
         .expect("a payload"),
     ));
-    let log = || format!("D:\n{}\nandroid:\n{}", d.log(), android.log());
+    let log = |closed: &str| {
+        format!(
+            "D's close: {closed}\nD:\n{}\nandroid:\n{}",
+            d.log(),
+            android.log()
+        )
+    };
     for (id, payload) in sends {
-        // Until a route exists; each send is then accepted at the
-        // endpoint, never refused before the facade could see it.
+        // Refused until the case trusts D, then accepted at the endpoint:
+        // D's half asserts nothing is refused once a route exists.
         let until = tokio::time::Instant::now() + PATIENCE;
         loop {
             match session.send_direct(to.clone(), id, payload.clone()).await {
@@ -245,21 +259,25 @@ async fn admin_deputy<A: Device>(mut android: A) {
                     assert_eq!(endpoint, human(), "accepted at the human endpoint");
                     break;
                 }
-                // The refusal is not printed: it can carry a peer's
-                // identity (`send_until_routed`'s note).
+                // Every refusal before the gate opens is expected, so the
+                // last one tells nothing: the logs say why.
                 Err(_) => assert!(
                     tokio::time::Instant::now() < until,
                     "no route to the Android side\n{}",
-                    log()
+                    log("not sent")
                 ),
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
-    let closed = close_exchange(&session, &android.peer(), ADMIN_SHAPED_CLOSE).await;
-    let out = run.passed(log);
+    let closed = match close_exchange(&session, &android.peer(), ADMIN_SHAPED_CLOSE).await {
+        Ok(()) => "accepted".to_owned(),
+        // A field-less class: its name is all a refusal carries.
+        Err(e) => format!("refused, {e:?}"),
+    };
+    let out = run.passed(|| log(&closed));
     eprintln!(
-        "admin_deputy: close {closed:?}, handed {:?}",
+        "admin_deputy: close {closed}, handed {:?}",
         out.get(keys::HANDED)
     );
     android.stop();

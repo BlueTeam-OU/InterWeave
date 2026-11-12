@@ -10,17 +10,29 @@
 //! runtime down, and one `HumanChatV2` message whose text is the trust
 //! request ([`admin_text`]).
 //!
+//! The baseline is taken before anything can be handed. This side's
+//! profile does not trust the desktop, so every send of its is refused
+//! until the case itself trusts it through the admin port, once the
+//! facade holds its `human` lease and the baseline is read. The desktop
+//! retries until accepted. Without that gate, a payload accepted before
+//! the baseline could be acted on before it, and a revoke would be read
+//! as the baseline's own lease epoch.
+//!
 //! What the case asserts:
+//! - Nothing was handed before the baseline, and the desktop is not yet
+//!   trusted then.
 //! - Every payload was handed to the facade as its bytes. This is the
 //!   control showing the would-be deputy was given them.
-//! - Read afterwards through this side's own admin port, the trust list,
-//!   the endpoint leases and the bootstrap addresses are as they were
-//!   before, the baseline taken once the facade holds its `human` lease,
-//!   so a revoke shows as that lease gone or under a new epoch. The stranger is neither trusted nor addressed, and the
+//! - Read afterwards through this side's own admin port, the endpoint
+//!   leases and the bootstrap addresses are as they were at the
+//!   baseline, and the trust list differs only by the desktop the case
+//!   trusted. So a revoke shows as the `human` lease gone or under a new
+//!   epoch. The stranger is neither trusted nor addressed, and the
 //!   runtime still answers.
-//! - The positive control: the same reads see a change made through the
-//!   admin port itself (the stranger trusted, then untrusted again). So
-//!   "unchanged" is a comparison that can fail.
+//! - The positive controls: the same reads see each kind of change made
+//!   through the admin port itself, the stranger trusted and untrusted,
+//!   its address added and removed, and last the `human` lease revoked.
+//!   So "unchanged" is a comparison that can fail in each of its parts.
 //!
 //! The case ends on the desktop's [`crate::closing`] message, so that on
 //! a device its process outlives the desktop's acceptance of every send
@@ -30,19 +42,27 @@
 //! the app's process (threat-model.md's residual), or a message the
 //! facade drained after the reads.
 
+use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use interweave_human_chat_protocol::HumanChatV2;
 use interweave_local_client_api::{
-    AdminBinding, AdminCapability, AdminPort as _, DataSessionBinding, TrustChange,
+    AddressChange, AdminBinding, AdminCapability, AdminPort as _, DataSessionBinding, TrustChange,
 };
-use interweave_transport_api::TransportIdentity;
+use interweave_transport_api::{EndpointId, TransportIdentity};
 use serde_json::{Map, Value};
 
 use crate::{AppClient, DEFAULT_DEADLINE, closing, keys};
 
 /// The serial of the desktop's close: the case ends when it is handed.
 pub const CLOSE_SERIAL: u8 = 0x2a;
+
+/// The stranger's address in the add-address request and in the
+/// control's own add: a private range, which the add floor admits
+/// (ADR-0052 rule 2), so a deputy acting on the request would succeed.
+/// A special-use host such as TEST-NET is refused by that floor, and an
+/// add of one would show nothing whoever made it.
+const STRANGER_ADDRESS: &str = "/ip4/10.255.255.7/tcp/4001/p2p/";
 
 /// Every admin request a remote sends as a raw direct payload, in the
 /// local IPC's own JSON shape (`LOCAL-IPC.md`): trust `stranger`, revoke
@@ -57,7 +77,7 @@ pub fn admin_shaped(stranger: &TransportIdentity) -> Vec<Vec<u8>> {
         r#"{"type":"request","id":"b","method":"admin.endpoints.revoke","params":{"endpoint":"human"}}"#
             .to_owned(),
         format!(
-            r#"{{"type":"request","id":"c","method":"admin.peers.add_address","params":{{"peer":"{peer}","address":"/ip4/192.0.2.7/tcp/4001/p2p/{peer}"}}}}"#
+            r#"{{"type":"request","id":"c","method":"admin.peers.add_address","params":{{"peer":"{peer}","address":"{STRANGER_ADDRESS}{peer}"}}}}"#
         ),
         r#"{"type":"request","id":"d","method":"admin.shutdown"}"#.to_owned(),
     ]
@@ -77,7 +97,8 @@ pub fn admin_text(stranger: &TransportIdentity) -> String {
 /// The arguments of [`crate::cases::ADMIN_SHAPED`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminShapedArgs {
-    /// The desktop peer the requests come from, trusted by this side.
+    /// The desktop peer the requests come from. This side's profile does
+    /// not trust it: the case does, once its baseline is read.
     pub desktop: TransportIdentity,
     /// The peer the requests try to trust and address: trusted by no one.
     pub stranger: TransportIdentity,
@@ -124,17 +145,18 @@ impl AdminShapedArgs {
 
 /// What this side's admin port says of the state a remote request would
 /// change: the trust list, every endpoint with its lease, and the
-/// bootstrap addresses (without `dialled`, which the desktop's own
-/// connection may flip).
-#[derive(Debug, PartialEq, Eq)]
+/// bootstrap addresses with their source. A list's `dialled` flag is
+/// left out: it follows the profile's provider setting, which no remote
+/// request names.
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct State {
-    trusted: Vec<String>,
+    trusted: BTreeSet<String>,
     leases: String,
     addresses: Vec<String>,
 }
 
-/// A refusal is not printed: it can carry a peer's identity, as
-/// `send_until_routed` says.
+/// A refusal is reported by which read it was: a case's result is text,
+/// and the read's name is what tells the runs apart.
 async fn state(port: &impl interweave_local_client_api::AdminPort) -> Result<State, String> {
     let trust = port
         .trust()
@@ -192,16 +214,32 @@ pub(crate) fn admin_shaped_case<B: DataSessionBinding + AdminBinding>(
         }
     };
     let stranger = args.stranger.as_str().to_owned();
-    if !before.trusted.contains(&args.desktop.as_str().to_owned()) {
+    let desktop = args.desktop.as_str().to_owned();
+    if before.trusted.contains(&desktop) {
         return Err(format!(
-            "the control: this side trusts the desktop, and its list is {:?}",
+            "the gate: this side's profile must not trust the desktop, and its list is {:?}",
             before.trusted
         ));
     }
     if before.trusted.contains(&stranger) || before.addresses.iter().any(|a| a.contains(&stranger))
     {
-        return Err("the stranger is already trusted or addressed before anything was sent".into());
+        return Err("the stranger is already trusted or addressed at the baseline".into());
     }
+    // With the desktop untrusted nothing of its can be accepted, so this
+    // fails only on a profile or harness that let one through.
+    if !client.handed().is_empty() {
+        return Err("a payload was handed to the facade before the baseline".into());
+    }
+    let set = |peer: &TransportIdentity, allowed: bool| {
+        crate::block_on(port.set_trust(peer.clone(), allowed))
+            .and_then(|r| r.map_err(|_| "a trust change through the port was refused".to_owned()))
+    };
+    // The gate opens: from here the desktop's sends are accepted.
+    if !matches!(set(&args.desktop, true)?, TrustChange::Set) {
+        return Err("trusting the desktop through the port was not applied".into());
+    }
+    let mut expected = before.clone();
+    expected.trusted.insert(desktop);
 
     // Every payload handed to the facade, the close last. The chat
     // message is found by its parsed text: in its envelope the request's
@@ -210,8 +248,9 @@ pub(crate) fn admin_shaped_case<B: DataSessionBinding + AdminBinding>(
     let text = admin_text(&args.stranger);
     let close = closing(CLOSE_SERIAL).1.into_bytes();
     loop {
-        // Running the hub's loop is what lets the facade drain; an error
-        // here is the service stopping, which is a failure in itself.
+        // The facade drains on its own threads. Reading the hub keeps
+        // this view attached, and an error is the service stopping,
+        // which is a failure in itself.
         client.updates(Duration::from_millis(100))?;
         let handed = client.handed();
         let has = |bytes: &[u8]| handed.iter().any(|h| h.bytes == bytes);
@@ -236,35 +275,60 @@ pub(crate) fn admin_shaped_case<B: DataSessionBinding + AdminBinding>(
     }
 
     let after = crate::block_on(state(&port))??;
-    if after != before {
+    if after != expected {
         return Err(format!(
-            "a remote message changed this side's state:\nbefore {before:?}\nafter  {after:?}"
+            "a remote message changed this side's state:\nexpected {expected:?}\nafter    {after:?}"
         ));
     }
     // The client still runs: a shutdown request did not reach the service.
     client.updates(Duration::ZERO)?;
 
-    // The positive control: the same reads see a change made through the
-    // admin port, which is then put back.
-    let set = |allowed: bool| {
-        crate::block_on(port.set_trust(args.stranger.clone(), allowed))
-            .and_then(|r| r.map_err(|_| "the control's trust change was refused".to_owned()))
-    };
-    if !matches!(set(true)?, TrustChange::Set) {
-        return Err("the control's trust change was refused".into());
+    // The positive controls: the same reads see each kind of change made
+    // through the admin port, each put back but the last.
+    if !matches!(set(&args.stranger, true)?, TrustChange::Set) {
+        return Err("the control's trust change was not applied".into());
     }
     let changed = crate::block_on(state(&port))??;
-    let undone = set(false);
+    let undone = set(&args.stranger, false);
     if !changed.trusted.contains(&stranger) {
         return Err(format!(
             "the control: a trust change through the admin port is not seen by the same read: {changed:?}"
         ));
     }
     if !matches!(undone?, TrustChange::Set) {
-        return Err("the control's trust change back was refused".into());
+        return Err("the control's trust change back was not applied".into());
     }
-    if crate::block_on(state(&port))?? != before {
-        return Err("the control's trust change was not put back".into());
+    let address = format!("{STRANGER_ADDRESS}{stranger}");
+    let added = crate::block_on(port.add_bootstrap_address(address.clone()))?
+        .map_err(|_| "the control's address add was refused".to_owned())?;
+    if added != AddressChange::Added {
+        return Err(format!(
+            "the control's address add was not applied: {added:?}"
+        ));
+    }
+    let changed = crate::block_on(state(&port))??;
+    let undone = crate::block_on(port.remove_bootstrap_address(address))?
+        .map_err(|_| "the control's address removal was refused".to_owned());
+    if !changed.addresses.iter().any(|a| a.contains(&stranger)) {
+        return Err(format!(
+            "the control: an address added through the admin port is not seen by the same read: {changed:?}"
+        ));
+    }
+    if undone? != AddressChange::Removed {
+        return Err("the control's address removal was not applied".into());
+    }
+    if crate::block_on(state(&port))?? != expected {
+        return Err("the controls' changes were not put back".into());
+    }
+    // Last, since the facade has to lease `human` again after it.
+    let human = EndpointId::parse("human").map_err(|_| "`human` is an endpoint id".to_owned())?;
+    crate::block_on(port.revoke_endpoint(human))?
+        .map_err(|_| "the control's revoke was refused".to_owned())?;
+    let revoked = crate::block_on(state(&port))??;
+    if revoked.leases == expected.leases {
+        return Err(format!(
+            "the control: a revoke through the admin port is not seen by the same read: {revoked:?}"
+        ));
     }
     let mut out = Map::new();
     out.insert(keys::HANDED.to_owned(), (raw.len() + 1).to_string().into());
