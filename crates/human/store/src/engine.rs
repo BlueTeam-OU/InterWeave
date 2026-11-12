@@ -10,15 +10,18 @@
 //! that is not: `PRAGMA key` fails with `SQLCipher`'s generic "An error
 //! occurred with PRAGMA key or rekey" (`SQLITE_ERROR`, extended 1). Once
 //! per process, so a loop in one process never sees it. Measured over
-//! 1500 fresh processes of eight threads each: bare rusqlite opens
-//! failed in 7, and in none with one open made first; the store's own
-//! `open_profile` without this start failed in 5, and with it in none
-//! (`tests/first_open_race.rs`).
+//! 1500 fresh processes of eight threads each, the store's own
+//! `open_profile` failed in 5 without this start and in none with it
+//! (`tests/first_open_race.rs`, the second figure; the first needs the
+//! start taken out). A one-off probe of bare rusqlite opens, kept in no
+//! test, failed in 7 and in none with one open made first (PR #641).
 //!
 //! The first open here runs on one thread behind a [`Once`], which
 //! returns only after the whole of `sqlite3_initialize`, the `SQLCipher`
 //! half included; every other open waits on it. Nothing in the store
-//! opens a connection any other way (`no_connection_is_opened_past_the_engine`).
+//! opens a connection any other way, and every open here goes through
+//! `started` (`no_connection_is_opened_past_the_engine`,
+//! `every_open_here_waits_for_the_start`).
 
 use std::path::Path;
 use std::sync::Once;
@@ -27,19 +30,17 @@ use rusqlite::{Connection, OpenFlags};
 
 static STARTED: Once = Once::new();
 
-/// The engine started, `SQLCipher` included, before this returns.
-fn start() {
-    STARTED.call_once(|| {
-        // A failure here is the engine's and every later open reports
-        // its own; what this call is for is the start it ran to the end.
-        drop(Connection::open_in_memory());
-    });
+/// `open`, run once the engine has started, `SQLCipher` included.
+fn started<T>(open: impl FnOnce() -> T) -> T {
+    // A failure of this first open is the engine's, and every later open
+    // reports its own; what it is for is the start it ran to the end.
+    STARTED.call_once(|| drop(Connection::open_in_memory()));
+    open()
 }
 
 /// [`Connection::open`], after the engine has started.
 pub(crate) fn open(path: impl AsRef<Path>) -> rusqlite::Result<Connection> {
-    start();
-    Connection::open(path)
+    started(|| Connection::open(path))
 }
 
 /// [`Connection::open_with_flags`], after the engine has started.
@@ -47,14 +48,12 @@ pub(crate) fn open_with_flags(
     path: impl AsRef<Path>,
     flags: OpenFlags,
 ) -> rusqlite::Result<Connection> {
-    start();
-    Connection::open_with_flags(path, flags)
+    started(|| Connection::open_with_flags(path, flags))
 }
 
 /// [`Connection::open_in_memory`], after the engine has started.
 pub(crate) fn open_in_memory() -> rusqlite::Result<Connection> {
-    start();
-    Connection::open_in_memory()
+    started(Connection::open_in_memory)
 }
 
 #[cfg(test)]
@@ -86,5 +85,29 @@ mod tests {
             }
         }
         assert!(found.is_empty(), "opened past crate::engine: {found:#?}");
+    }
+
+    /// The other half: in this file, every `Connection::open*` outside
+    /// the start's own is what a `started(...)` runs, so no wrapper
+    /// opens before the engine has started. A wrapper written as a bare
+    /// `Connection::open*` fails this.
+    #[test]
+    fn every_open_here_waits_for_the_start() {
+        let text = include_str!("engine.rs");
+        let code = &text[..text.find("#[cfg(test)]").expect("the tests module")];
+        let bare: Vec<(usize, &str)> = code
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| !line.trim_start().starts_with("//"))
+            .filter(|(_, line)| line.contains("Connection::open"))
+            .filter(|(_, line)| !line.contains("started(") && !line.contains("call_once("))
+            .map(|(n, line)| (n + 1, line.trim()))
+            .collect();
+        assert!(bare.is_empty(), "opened before the start: {bare:#?}");
+        let wrappers = code
+            .lines()
+            .filter(|line| line.contains("started(") && line.contains("Connection::open"))
+            .count();
+        assert_eq!(wrappers, 3, "open, open_with_flags and open_in_memory");
     }
 }
