@@ -2,11 +2,17 @@
 // Copyright 2026 Andrea Benetton
 //! The recovery-phrase word picker's state (design/2026-10-19-android-
 //! identity.md §4): one position at a time, entered by letters from an
-//! in-app keypad, narrowed to the words of a list, and filled only by the
-//! person's tap on a word. Pure: no IME, no text field and no clipboard
-//! exist here, which is the point (android-key-custody.md's recovery-screen
-//! rules) -- the view draws keys, chips and positions from this and
-//! returns taps.
+//! in-app keypad, narrowed to the words of a list, and filled by a word
+//! among the current suggestions, taken by the person: a tap on its chip,
+//! or a hardware Enter while typing ([`WordPicker::enter_chip`], design
+//! section 8). Enter is judged on the letters applied, which a page shown
+//! a moment earlier may not have caught up with; a word outside the
+//! suggestions is refused (`a_single_match_is_still_a_chip_never_filled_by_itself`,
+//! `a_count_row_offers_no_chip_to_choose`).
+//! Pure: no IME, no text field and no clipboard exist here, which is the
+//! point (android-key-custody.md's recovery-screen rules) -- the view
+//! draws keys, chips and positions from this and returns the person's
+//! taps and keys.
 //!
 //! The word list is the caller's: the platform hands in BIP-39's English
 //! list, sorted as BIP-39 publishes it, and the tests a short one. Nothing
@@ -117,7 +123,8 @@ impl WordPicker {
     }
 
     /// What the suggestions row shows. Nothing is ever chosen here: a
-    /// single match is still a chip the person taps (§4).
+    /// single match is still a chip the person takes, by a tap or by
+    /// Enter (§4, §8).
     #[must_use]
     pub fn suggestions(&self) -> Suggestions {
         let matches = self.matches();
@@ -207,10 +214,11 @@ impl PhraseEntry {
         self.positions.get(position).copied().flatten()
     }
 
-    /// The person tapped `chip`: it fills the current position if it is
-    /// one of the current suggestions, and the entry moves to the next
-    /// empty position (or stays, when none is left). A word that is not a
-    /// current chip is refused: only a word the person saw is entered.
+    /// The person took `chip`, by a tap or by Enter: it fills the current
+    /// position if it is one of the current suggestions, and the entry
+    /// moves to the next empty position (or stays, when none is left). A
+    /// word that is not a current suggestion is refused (the tests named
+    /// in the module doc).
     pub fn choose(&mut self, chip: &str) -> bool {
         let Some(word) = self.picker.chip(chip) else {
             return false;
