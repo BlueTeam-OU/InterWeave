@@ -226,8 +226,10 @@ impl Screens {
     /// the reader has drawn by then: a person who leaves while it opens
     /// (design/2026-11-04-long-message.md A5). Passes once the trace
     /// shows the reader's page and then the conversation's again, focus
-    /// on a Read the whole message. The step carries `read`, and
-    /// `drawn`, whether the reader's rows were drawn before it closed.
+    /// back on the opened row's Open the whole message. The step carries `read`; `drawn`,
+    /// whether the reader's rows were drawn before it closed; and
+    /// `enter-at` and `back-at`, the phone's time of day as each key's
+    /// `input` was launched, to set beside the trace's logcat times.
     /// `on_row` runs once focus is on the row, before the keys: a
     /// recording started there spans the keys and not the TABs.
     ///
@@ -252,15 +254,30 @@ impl Screens {
         let read = self.focus.clone();
         on_row();
         let from = self.seen.len();
+        // Each key's launch stamped on the phone's clock, the clock its
+        // logcat stamps the trace by: a run's Back-to-close and how long
+        // the first screen showed are read from the two together. The
+        // Enter's stamp comes just before its launch and the Back's just
+        // after, so the sleep alone sits between the two launches.
         let keys = format!(
-            "input keyevent KEYCODE_ENTER & sleep {:.3}; input keyevent KEYCODE_BACK; wait",
+            "echo enter-at $(date +%T.%N); input keyevent KEYCODE_ENTER & sleep {:.3}; input keyevent KEYCODE_BACK & echo back-at $(date +%T.%N); wait",
             after.as_secs_f64()
         );
         let reader = format!("{TRACE}page=reader");
         let conversation = format!("{TRACE}page=conversation");
+        let mut stamps = Vec::new();
         let closed = self
             .adb_ok(&["shell", &keys])
-            .map(drop)
+            .map(|said| {
+                // Only the two stamps: any other line of the shell's must
+                // not overwrite a field of the step.
+                stamps = said
+                    .lines()
+                    .filter_map(|l| l.split_once(' '))
+                    .filter(|(k, _)| matches!(*k, "enter-at" | "back-at"))
+                    .map(|(k, v)| (k.to_owned(), v.trim().to_owned()))
+                    .collect();
+            })
             .and_then(|()| self.wait_all(from, &["page=reader", "page=conversation"], patience))
             .and_then(|()| {
                 let lines = &self.seen[from..];
@@ -276,11 +293,13 @@ impl Screens {
             })
             .and_then(|()| self.settle().map(drop))
             .and_then(|()| {
-                if self.focus.starts_with("read:") {
+                // Its own row's control, not any: a conversation of several
+                // cut rows has an earlier one to land on by mistake.
+                if self.focus == read {
                     Ok(())
                 } else {
                     Err(format!(
-                        "focus left on {:?}, not a Read the whole message",
+                        "focus left on {:?}, not the opened row's {read:?}",
                         self.focus
                     ))
                 }
@@ -293,6 +312,9 @@ impl Screens {
             "drawn".to_owned(),
             Value::String(if drawn { "yes" } else { "no" }.to_owned()),
         );
+        for (key, at) in stamps {
+            out.insert(key, Value::String(at));
+        }
         out
     }
 
