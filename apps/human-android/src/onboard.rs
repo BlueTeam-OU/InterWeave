@@ -1067,7 +1067,7 @@ fn one(effect: Effect) -> Vec<Effect> {
 /// written costs only Connect: Chats opens, with its no-reach notice.
 fn connect_owed(o: &Onboarding) {
     if let Err(why) = onboarding::set_connect_owed(&o.app_data_dir, PROFILE, true) {
-        log(&format!("the connect-owed marker: {why:?}"));
+        log(&format!("writing the connect-owed marker: {why:?}"));
     }
 }
 

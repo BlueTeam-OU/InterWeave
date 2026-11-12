@@ -4928,8 +4928,32 @@ two builds no value in six runs of six without the note and every
 value in six of six with it, and the paragraph's conclusion stands:
 neither result is a rule, and a deployment that wants the note asks
 for it in its own first turn. Carried: S32 (a)'s other six cells on
-2.1.322, a build after 2.1.322, and the rate beyond six runs a cell
-over the two builds.
+2.1.322 (run 2026-11-12, the next note), a build after 2.1.322, and
+the rate beyond six runs a cell over the two builds.
+
+**Dated note, 2026-11-12 (SPIKE-001 S32 (a)'s other six cells on
+Claude Code 2.1.322, rust-services-dev, facts 108–112, #636).** The
+note above carried "S32 (a)'s other six cells on 2.1.322". They were
+run on 2026-11-12, three runs each, by the same driver on the same
+setup. The host compacted at the same window, at the same points and
+to the same sizes as on 2.1.311 (fact 108), so the compaction step
+reads as the pin's in all eight cells. The counts read as the pin's in
+part. With the note every value was kept, through one compaction in
+six runs of six and through two in three runs of three at the bound
+(fact 111), and without it two compactions left no value in three runs
+of three (fact 110): the 2.1.311 counts, or better. Without it one
+compaction kept four of the six values in one run of six and none in
+the other five, where 2.1.311 kept all six in three runs of six (fact
+109), and three runs a cell a build do not show that the build moved
+that rate. Over the two builds: without the note one compaction kept
+all six values in three runs of twelve, some in two and none in seven,
+and two compactions kept a value in no run of twelve; with it every
+first summary held all six, in twenty-four runs of twenty-four, and
+two compactions kept them in eleven runs of twelve. The conclusion
+stands: neither result is a rule, and a deployment that wants the note
+asks for it in its own first turn. Carried: whether the build moved
+the rate at which one compaction keeps an un-noted body, a build after
+2.1.322, and the rate beyond six runs a cell over the two builds.
 
 Carried by name, from SPIKE-001 (not established, 2026-10-03):
 marketplace distribution — measured 2026-10-22 for the development-flag

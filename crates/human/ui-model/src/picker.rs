@@ -144,6 +144,19 @@ impl WordPicker {
             Suggestions::Count { exact, .. } => exact.filter(|w| *w == chip),
         }
     }
+
+    /// The chip Enter takes while typing (design section 8): the only
+    /// suggestion, or the whole word typed, which leads the row; else
+    /// none. Judged here, on the letters applied, so an Enter queued
+    /// behind letters the page has not shown yet still sees them (j261).
+    #[must_use]
+    pub fn enter_chip(&self) -> Option<&'static str> {
+        match self.suggestions() {
+            Suggestions::Words([only]) => Some(*only),
+            Suggestions::Words(words) => words.first().copied().filter(|w| *w == self.typed),
+            Suggestions::Count { exact, .. } => exact,
+        }
+    }
 }
 
 impl fmt::Debug for WordPicker {
@@ -340,6 +353,33 @@ mod tests {
         assert!(!entry.choose("carbon"), "not shown as a chip");
         assert!(entry.choose("car"));
         assert_eq!(entry.word(0), Some("car"));
+    }
+
+    #[test]
+    fn enter_takes_the_only_chip_or_the_whole_word_typed_and_else_nothing() {
+        let mut picker = WordPicker::new(WORDS);
+        assert_eq!(picker.enter_chip(), None, "nothing typed");
+        picker.press('a');
+        assert_eq!(picker.enter_chip(), None, "a count with no whole word");
+        for letter in "bs".chars() {
+            picker.press(letter);
+        }
+        assert_eq!(picker.enter_chip(), None, "four chips, none the letters");
+        picker.press('o');
+        assert_eq!(picker.enter_chip(), Some("absorb"), "the only chip");
+        picker.clear();
+        for letter in "car".chars() {
+            picker.press(letter);
+        }
+        assert_eq!(picker.enter_chip(), Some("car"), "beside a count");
+        // The whole word leading a row of chips: act, action, actor.
+        let mut picker = WordPicker::new(&["act", "action", "actor", "bean"]);
+        for letter in "ac".chars() {
+            picker.press(letter);
+        }
+        assert_eq!(picker.enter_chip(), None, "three chips, none the letters");
+        picker.press('t');
+        assert_eq!(picker.enter_chip(), Some("act"));
     }
 
     #[test]
