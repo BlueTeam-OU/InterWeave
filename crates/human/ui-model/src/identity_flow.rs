@@ -944,8 +944,10 @@ impl IdentityFlow {
         };
         match outcome {
             // Still held: the start goes on under it, and the root ends
-            // the hold once the start decided ([`Self::decided`]).
+            // the hold once the start decided ([`Self::decided`]). A
+            // failure an earlier seal left is no longer true (#651 F3).
             Ok(()) => {
+                *notice = None;
                 self.drop_created();
                 vec![Effect::VoidPaper(false), Effect::StartService]
             }
@@ -1353,6 +1355,13 @@ mod tests {
         flow.cancelled_step();
         assert!(!flow.start_held(), "a cancelled seal prompt");
         assert_eq!(flow.primary(), [Effect::Seal]);
+        assert!(flow.notice().is_some(), "control: the failure still said");
+        assert_eq!(
+            flow.sealed(Ok(())),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        assert!(flow.start_held());
+        assert_eq!(flow.notice(), None, "a seal that worked says no failure");
     }
 
     #[test]
