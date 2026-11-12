@@ -5984,8 +5984,12 @@ daemons each behind its own NAT in one user namespace (#352, 0a3ef6b7,
 2026-10-22), which is S13's bridge proof. Rows written by other lanes:
 C-02 and TM-48 (architect-cto, #335), TM-30 and TM-32's bridge half
 (rust-services-dev-02, #336), and Stage 21's TM-52 to TM-56 (rust-ui-dev,
-§29). Of the matrix's rows six name no test yet: S12's five device rows
-(TM-25, TM-26, TM-42, TM-43, TM-47) and C-04, each below; every other
+§29). Of the matrix's rows two name no test: TM-57, rust-ui-dev's and the
+one empty row, and C-04, carried whole, below (A 2026-11-12 — until
+p2p-network-dev-02's rows of that day this said six named no test yet,
+S12's five device rows (TM-25, TM-26, TM-42, TM-43, TM-47) and C-04, and
+had not counted TM-57 since #563 added that row on 2026-11-05; S12's five
+now name tests, below); every other
 row's tests exist, and `check_security_matrix.py` runs in the `tree
 checks` job, a required context, so clause (a)'s guard is in place.
 
@@ -6072,7 +6076,23 @@ none is the status value's, which stays on this stage.
   change and fingerprint enrolment invalidated no key, none being bound
   to authentication, the invalidated-key case of a `user-presence`
   profile left to §20's carry. Both rows read `—` since, their limit
-  cells naming the record; S12's open rows are the others named above.
+  cells naming the record; S12's open rows were the others named above
+  until 2026-11-12, when p2p-network-dev-02 filled them
+  (`tests/SECURITY-MATRIX.md`; `check_security_matrix.py --strict` counts
+  none of the six empty): TM-25, TM-26, TM-43 and TM-47 read `—`, each
+  naming the device cases and host tests that already ran (the A40's
+  records of 2026-10-22 and 2026-11-03 to 05, the Pixel 9a's of
+  2026-10-20) with a limit cell — TM-26's device transfer from API 31
+  among the limits, no phone at hand reaching it; TM-42 names a new case,
+  `tests/android-e2e/tests/admin_deputy.rs` (admin-shaped requests from a
+  desktop daemon, raw and as a chat message, reach the app's client and
+  change no trust, lease or bootstrap address, a real admin change seen
+  as the control), passed on the stand-in and not yet run on a device,
+  which needs an APK carrying the case and the Pixel on wireless adb;
+  and S21-12's step reads `owner`, its cases named and one item owed,
+  a `user-presence` seed key invalidated on a device, which needs the
+  owner's hand and their word to wipe the phone and is carried at the
+  close if that window does not come.
 - **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
   notification content and the clients' own logs as a shadow archive
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
