@@ -7143,7 +7143,11 @@ owner:
   (`tests/android-e2e/runs/2026-11-10-pixel-9a-a40-wifi-fresh-pair-through-scan.md`,
   #608). The file names what it does not prove: one code each way and
   one run, which address each scan added (the peer cache was on), and
-  the one-sided step with B trusting first. Carried beside it, to
+  the one-sided step with B trusting first; a code the camera cannot
+  read, or a damaged one, was not tried; the try counts in each
+  closed window were printed and not asserted, so a window of one try
+  would pass; and the address was never withheld, so the run does not
+  show that one is needed. Carried beside it, to
   p2p-network-dev-02, by architect-cto's word in this note: the Add
   page's address field is not this row's route (architect-cto's
   ruling of 2026-11-09, REPLY 01a1bfb4, as the run file cites it), two
