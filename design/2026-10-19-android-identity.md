@@ -1053,11 +1053,14 @@ scale would also be a finding of the Android review
          exception to that last case. If, on such a phone, the pair
          is `connect=not-owed` with `page=conversations` and
          `logcat -s interweave` shows a line that contains
-         `the connect-owed marker:` and was logged between the
-         clear of the log at the start of this step and R4's
+         `writing the connect-owed marker:` and that was logged between
+         the clear of the log at the start of this step and R4's
          continue, the marker write failed. A line with that text
-         from any other time does not count, because the app logs
-         the same text when it fails to remove the marker. The
+         from any other time does not count, because such a line
+         comes from another creation or restore. A line that contains
+         `clearing the connect-owed marker:` does not count either:
+         the app logs that text when it fails to remove the marker,
+         not when a write fails. The
          build accepts a failed marker write and opens Chats without
          Connect
          (`apps/human-android/src/onboard.rs`, `connect_owed`). The
