@@ -928,6 +928,164 @@ async fn a_human_chat_envelope_is_notified_as_its_decoded_text() {
     }
 }
 
+/// The widest legal card name across two daemons, and one byte more (plan
+/// §19, SPIKE-001's size-limits carry; unit-tested in channel-core's
+/// `the_widest_legal_card_name_fits_and_one_byte_more_does_not`).
+///
+/// A name of 64 scalars of four bytes is 256 bytes, exactly
+/// `MAX_META_VALUE_BYTES`, and it must reach the model whole as
+/// `meta.card_name`, byte for byte on the host line. One byte more cannot
+/// reach the meta bound from a peer: 257 bytes is 65 scalars at least, so
+/// the card parser refuses it first, as `name`. The bridge hands its host
+/// nothing for it, and counts it. The 257-byte card is signed over its
+/// own canonical bytes, so the name is its only fault. The text sent
+/// after it is the control: it is the next notification, so no event for
+/// the refused card was written before it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_widest_legal_card_name_reaches_the_model_whole_and_one_byte_more_is_dropped() {
+    use ed25519_dalek::Signer as _;
+    use interweave_human_chat_protocol::{
+        CardDraft, CardRoute, MAX_CARD_NAME_SCALARS, MEDIA_TYPE_V2, build_card,
+        canonical_card_bytes,
+    };
+    let (a, a_daemon, a_peer, b, b_daemon, b_peer) = two_daemons().await;
+    let daemons = [&a_daemon, &b_daemon];
+    let mut bridge = Bridge::start(&a);
+    bridge.wait_leased(&daemons).await;
+    let b_human = session(&b, human()).await;
+    let card_payload = |card: &str| {
+        Payload::new(
+            Some(MediaType::parse(MEDIA_TYPE_V2).expect("a media type")),
+            card.as_bytes().to_vec(),
+            MAX_PAYLOAD_BYTES,
+        )
+        .expect("a payload")
+    };
+
+    // U+1D49C, four bytes in UTF-8, unchanged by NFC.
+    let widest = "\u{1D49C}".repeat(MAX_CARD_NAME_SCALARS);
+    assert_eq!(widest.len(), 256, "64 scalars of four bytes");
+    let key = ed25519_dalek::SigningKey::from_bytes(&[69; 32]);
+    let route = CardRoute {
+        source_peer: &b_peer,
+        source_endpoint: &human(),
+    };
+    let card = build_card(
+        &format!("{:032x}", 69),
+        CardDraft {
+            name: &widest,
+            surname: None,
+            photo: None,
+        },
+        key.verifying_key().to_bytes(),
+        route,
+        None,
+        |m| key.sign(m).to_bytes(),
+    )
+    .expect("the widest name is within bounds");
+
+    send_payload_until_accepted(&b_human, &a_peer, claude(), &card_payload(&card), &daemons).await;
+    let (n, line) = bridge.notification_line().await;
+    assert_eq!(n["meta"]["app_kind"], json!("contact_card"), "{line}");
+    assert_eq!(n["content"], json!(""), "a card is meta alone");
+    let name = n["meta"]["card_name"].as_str().expect("card_name");
+    assert_eq!(name.len(), 256, "whole");
+    assert_eq!(name, widest, "as sent");
+    // On the line itself, raw UTF-8 and unescaped: the bytes the host reads.
+    assert!(
+        line.contains(&format!("\"card_name\":\"{widest}\"")),
+        "{line}"
+    );
+    let event = serde_json::to_string(
+        &json!({"kind": "direct", "content": n["content"], "meta": n["meta"]}),
+    )
+    .expect("serializes");
+    let pulled = serde_json::to_string(&event).expect("serializes").len() - 2;
+    eprintln!(
+        "size: a {}-byte card name made a {}-byte push line and a {pulled}-byte pulled form; meta.card_name {} bytes",
+        widest.len(),
+        line.len(),
+        name.len()
+    );
+
+    // One byte more, signed for what it carries.
+    let longer = format!("{widest}x");
+    let mut envelope: Value = serde_json::from_str(&card).expect("the card is JSON");
+    let multihash = b_peer
+        .as_str()
+        .parse::<libp2p::PeerId>()
+        .expect("a PeerId")
+        .to_bytes();
+    let canonical = |name: &str| {
+        canonical_card_bytes(name, None, None, &multihash, human().as_str()).expect("encodable")
+    };
+    let verifies = |message: &[u8], signature_b64: &str| {
+        use base64::Engine as _;
+        let bytes: [u8; 64] = base64::engine::general_purpose::STANDARD
+            .decode(signature_b64)
+            .expect("base64")
+            .try_into()
+            .expect("64 bytes");
+        key.verifying_key()
+            .verify_strict(message, &ed25519_dalek::Signature::from_bytes(&bytes))
+            .is_ok()
+    };
+    // The control for the route bytes built here: the builder's own
+    // signature on the widest card verifies over them, so they are the
+    // bytes a receiver verifies on this route.
+    assert!(
+        verifies(
+            &canonical(&widest),
+            envelope["card"]["signature"].as_str().expect("a signature")
+        ),
+        "the hand-built canonical bytes are build_card's"
+    );
+    let message = canonical(&longer);
+    {
+        use base64::Engine as _;
+        let signature =
+            base64::engine::general_purpose::STANDARD.encode(key.sign(&message).to_bytes());
+        envelope["card"]["name"] = json!(longer);
+        envelope["card"]["signature"] = json!(signature);
+    }
+    // The name is the 257-byte card's only fault: its signature verifies
+    // over its own canonical bytes on the route it is sent on, built from
+    // the name the envelope carries, not from what was signed.
+    assert!(
+        verifies(
+            &canonical(envelope["card"]["name"].as_str().expect("a name")),
+            envelope["card"]["signature"].as_str().expect("a signature")
+        ),
+        "signed for what it carries"
+    );
+    let over = serde_json::to_string(&envelope).expect("serializes");
+    assert_eq!(longer.len(), 257);
+    assert_eq!(longer.chars().count(), MAX_CARD_NAME_SCALARS + 1);
+    send_payload_until_accepted(&b_human, &a_peer, claude(), &card_payload(&over), &daemons).await;
+    let control = "after the 257-byte card";
+    send_until_accepted(&b_human, &a_peer, claude(), control, &daemons).await;
+    let (n, _) = bridge.notification_line().await;
+    assert_eq!(
+        n["content"],
+        json!(control),
+        "the refused card wrote no event before the control"
+    );
+    let dropped = bridge.status().await["dropped_cards"].clone();
+    eprintln!("size: a 257-byte card name: no event; status.dropped_cards {dropped}");
+    // Every reason of the closed set is written, zero included, so the
+    // loop below cannot pass on a map that lost one.
+    assert_eq!(dropped["name"], json!(1), "{dropped}");
+    assert_eq!(
+        dropped.as_object().map(serde_json::Map::len),
+        Some(12),
+        "{dropped}"
+    );
+    for (reason, count) in dropped.as_object().expect("an object") {
+        let want = u64::from(reason == "name");
+        assert_eq!(count, &json!(want), "{reason}: {dropped}");
+    }
+}
+
 /// The human client's own facade on a home's daemon: its store and its
 /// IPC binding, leased on that daemon's `human`, driven as a composition
 /// root drives it.
