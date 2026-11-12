@@ -478,7 +478,7 @@ Not established by S32 (a):
 - **Cells not run:** `small-note-d2` and `small-plain-d2`, until 2026-11-11 (facts 97 and 98).
 - **Other content:** prose that is not generated from a small vocabulary, and facts other than these six kinds.
 - **Other instructions:** a note asked for by the bridge's own `instructions` rather than by the first user turn.
-- **Other models and builds:** a model other than `claude-sonnet-5-5`, and a build other than 2.1.311.
+- **Other models and builds:** a model other than `claude-sonnet-5-5`, and a build other than 2.1.311, until 2026-11-11 for the two small cells at two compactions, run on 2.1.322 (facts 104 to 106); the other six cells were not run on that build.
 - **Rates:** the rate at which values are kept, beyond three runs a cell.
 - **Recovery:** whether a model allowed to read files recovers a lost value from the transcript the summary names (fact 91).
 
