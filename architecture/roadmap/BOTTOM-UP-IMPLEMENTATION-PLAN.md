@@ -4967,7 +4967,7 @@ past; each carries a pointer here.
   Carried: a build after 2.1.322, and whether the gate in the 2.1.322
   binary is still the era check read from 2.1.286's (fact 36), which
   was not read from that binary (fact 99; A 2026-11-12, this carried
-  the later build alone).
+  the later build alone). Read since, the note below.
 - **S32 (b)'s "not established: the real bridge with daemons in the
   stub's place … and another model or build"** was run for four of
   its 33 cells, five runs each, with the release bridge across two
@@ -4980,8 +4980,43 @@ past; each carries a pointer here.
   user turn asks for replies. Every reply answered the question and
   reached the peer, with no `READY` sent and no call refused, neither
   difference from S32 (b) established at five runs a cell (fact 102).
-  Carried: the other 29 cells on 2.1.322 or with the real bridge,
-  another model, and the rest of S32 (b)'s list as it stands.
+  Carried: the other 29 cells on 2.1.322 or with the real bridge
+  (eight run since, the note below), another model, and the rest of
+  S32 (b)'s list as it stands.
+
+**Dated note, 2026-11-12 (SPIKE-001 S34, rust-services-dev, Claude
+Code 2.1.322, the fleet's pin, facts 107–111, #635).** Both items the
+note above carried were taken up, at architect-cto's request.
+
+- **The gate in the 2.1.322 binary** was read by fact 36's method, and
+  not measured: it is still the era check, second among the gate's
+  checks, straight after the capability check and before every check a
+  flag or a setting reaches; the refusal's reason and the session's
+  notice are unchanged, and the permission relay's server filter still
+  excludes a modern-era connection (fact 107). So "the bridge stays
+  legacy" rests on the measurement of fact 99 and on that reading.
+  Carried: a build after 2.1.322, and that the code read is the code
+  that runs on every path.
+- **Eight more of S32 (b)'s 33 cells** were run with the release
+  bridge across two daemons on 2.1.322, five runs each: a greeting and
+  a request to call `status` joining a tool-calling turn, and a
+  question and a greeting arriving during a text-only turn, each with
+  the answer sentence in the first user turn and in the server's
+  instructions. Each gave S32 (b)'s reply count. The first-turn
+  sentence got a reply in 20 runs of 20, the joined turns included
+  (facts 108 and 110); in the server's instructions it got one in 10
+  of 10 where the message started a turn of its own and in 0 of 10
+  where it joined a tool-calling turn (facts 109 and 110). No call was
+  refused (fact 111). The first turn's other output reached the peer
+  as it had with the stub: `READY` in 6 of the 10 joined first-turn
+  runs, and the count in 4 of 5 replies to a greeting told in the
+  first turn. So the conclusion stands for twelve cells on the real
+  bridge: the first user turn asks for replies, and that turn's other
+  output may reach the peer. Carried: the other 21 cells on
+  2.1.322 or with the real bridge (the nine with nothing said, the six
+  of the second first-turn wording, and six of the fourteen asked for,
+  left out for the cost), another model, and the rest of S32 (b)'s
+  list as it stands.
 
 ## 20. Stage 17 — Android human client
 
