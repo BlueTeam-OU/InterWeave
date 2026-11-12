@@ -78,8 +78,11 @@ fn the_first_opens_of_two_threads_both_open() {
             .env("FIRST_OPEN_CHILD", "1")
             .output()
             .expect("run the child");
-        if !out.status.success() {
-            failed.push((run, String::from_utf8_lossy(&out.stdout).into_owned()));
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        // A filter that matches nothing exits 0 having opened nothing, so
+        // a pass is the child's own test reported passed, not the status.
+        if !out.status.success() || !stdout.contains("test result: ok. 1 passed") {
+            failed.push((run, stdout));
         }
     }
     assert!(
