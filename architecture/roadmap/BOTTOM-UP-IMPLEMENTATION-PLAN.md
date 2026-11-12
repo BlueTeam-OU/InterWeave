@@ -6045,8 +6045,12 @@ daemons each behind its own NAT in one user namespace (#352, 0a3ef6b7,
 2026-10-22), which is S13's bridge proof. Rows written by other lanes:
 C-02 and TM-48 (architect-cto, #335), TM-30 and TM-32's bridge half
 (rust-services-dev-02, #336), and Stage 21's TM-52 to TM-56 (rust-ui-dev,
-§29). Of the matrix's rows six name no test yet: S12's five device rows
-(TM-25, TM-26, TM-42, TM-43, TM-47) and C-04, each below; every other
+§29). Of the matrix's rows two name no test: TM-57, rust-ui-dev's and the
+one empty row, and C-04, carried whole, below (A 2026-11-12 — until
+p2p-network-dev-02's rows of that day this said six named no test yet,
+S12's five device rows (TM-25, TM-26, TM-42, TM-43, TM-47) and C-04, and
+had not counted TM-57 since #563 added that row on 2026-11-05; S12's five
+now name tests, below); every other
 row's tests exist, and `check_security_matrix.py` runs in the `tree
 checks` job, a required context, so clause (a)'s guard is in place.
 
@@ -6133,7 +6137,23 @@ none is the status value's, which stays on this stage.
   change and fingerprint enrolment invalidated no key, none being bound
   to authentication, the invalidated-key case of a `user-presence`
   profile left to §20's carry. Both rows read `—` since, their limit
-  cells naming the record; S12's open rows are the others named above.
+  cells naming the record; S12's open rows were the others named above
+  until 2026-11-12, when p2p-network-dev-02 filled them
+  (`tests/SECURITY-MATRIX.md`; `check_security_matrix.py --strict` counts
+  none of the six empty): TM-25, TM-26, TM-43 and TM-47 read `—`, each
+  naming the device cases and host tests that already ran (the A40's
+  records of 2026-10-22 and 2026-11-03 to 05, the Pixel 9a's of
+  2026-10-20) with a limit cell — TM-26's device transfer from API 31
+  among the limits, no phone at hand reaching it; TM-42 names a new case,
+  `tests/android-e2e/tests/admin_deputy.rs` (admin-shaped requests from a
+  desktop daemon, raw and as a chat message, reach the app's client and
+  change no trust, lease or bootstrap address, a real admin change seen
+  as the control), passed on the stand-in and not yet run on a device,
+  which needs an APK carrying the case and the Pixel on wireless adb;
+  and S21-12's step reads `owner`, its cases named and one item owed,
+  a `user-presence` seed key invalidated on a device, which needs the
+  owner's hand and their word to wipe the phone and is carried at the
+  close if that window does not come.
 - **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
   notification content and the clients' own logs as a shadow archive
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
@@ -6399,8 +6419,29 @@ a reload of any other field is a later ADR on a shown need. The carry is met
 when a test shows SIGHUP producing SIGTERM's stop sequence and exiting with
 the status it reads from the unit file, asserting that `SuccessExitStatus=`
 and `RestartForceExitStatus=` both name it (so the daemon and the unit cannot
-drift apart), and the service/autostart lifecycle row shows the restart; until
-then it is open, not decided-as-met. Supervision units: met by §28 step 4's
+drift apart), and the service/autostart lifecycle row shows the restart.
+**Met** (read from `main` at ac621e95f by architect-cto, 2026-11-12; A
+2026-11-12 — until then this ended "until then it is open, not
+decided-as-met", which had been false since p2p-network-dev's #324 merged on
+2026-10-21, 08b4d9e6a): the daemon exits `RESTART_EXIT` (75, `EX_TEMPFAIL`) on
+SIGHUP and the unit names 75 in both `RestartForceExitStatus=` and
+`SuccessExitStatus=`, with no `ExecReload=`; §16 (11)'s exit-code list,
+`main.rs`'s doc and the unit's comment carry the status;
+`tests/desktop-e2e/tests/daemon.rs::sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status`
+reads the status from the unit file, refusing a unit whose two directives
+differ or name one of 0–3, and shows the stop's lines in SIGTERM's order after
+the SIGHUP line, both sockets unlinked, the lock kept, and on the next start
+the same PeerId with a fresh lease epoch, the SIGTERM case beside it as the
+control (exit 0); and the service/autostart lifecycle row
+(`packaging/linux/README.md`, the census of #533, 2026-11-03) is met by
+`tests/desktop-e2e/tests/user_units.rs::the_installed_daemon_unit_starts_restarts_on_sighup_and_stops`,
+run in CI's `rust` job under the runner's user manager: the installed unit,
+sent SIGHUP, ends with the status the template names, is restarted no sooner
+than `RestartSec=` with no failure logged, and serves the same PeerId with a
+fresh epoch, the control (SIGKILL) restarted and logged as a failure. Not
+shown by either test: a start at a person's login, CI's manager lingering and
+no login being made — the lifecycle row's own stated limit, not this carry's.
+Supervision units: met by §28 step 4's
 two user units, their CI cover p2p-network-dev's (the split above). flock on
 NFS homes: p2p-network-dev's (the split above).
 
