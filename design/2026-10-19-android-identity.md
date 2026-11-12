@@ -205,10 +205,11 @@ after the other. "Word 7 of 24" heads each entry.
   foot of the scrolling area over the fixed picker (§4; string
   `IdCheckWrong`). It says which position, and to compare with the
   paper. The entry clears, and two actions appear:
-  - try again (stays on C3): it removes the error and both actions.
-    The entry is already clear. The error also stays while the person
-    types, until the next word is taken: a right word removes it, and
-    a wrong one shows it again for that position;
+  - try again (stays on C3): it removes the error and both actions,
+    and nothing else. The wrong word cleared the entry, and letters
+    the person typed since then stay. The error also stays while the
+    person types, until the next word is taken: a right word removes
+    it, and a wrong one shows it again for that position;
   - show my words again (→ C2, with the same two positions on return).
 - There is no limit on tries, and no way past C3 without two right
   words.
@@ -618,8 +619,9 @@ access.
     typing mode, an exception to "a press sets navigating", as closing
     the discard dialog is: the person is back to entering letters.
   - The same exception holds on R2 and C3 for a chip that fills a
-    position, for a grid position chosen to edit and for C3's Try
-    again, by a tap or by Enter or Space: the screen is in typing mode
+    position, for a wrong word on C3 (a chip that fills nothing), for
+    a grid position chosen to edit and for C3's Try again, by a tap or
+    by Enter or Space: the screen is in typing mode
     afterwards, with focus as the focus rules below say. If the screen
     were navigating instead, the next Enter would press the key that
     focus went to and add a letter the person did not choose.
@@ -658,8 +660,8 @@ access.
   screen reader's when one reaches the app. A screen reader would also
   hear nothing, because no live region announces it (Nielsen's
   heuristic 9, help users recognise and recover from errors; WCAG
-  3.3.1, error identification). Typing loses nothing: the screen stays
-  in typing mode (above). A hardware letter acts as its key wherever
+  3.3.1, error identification). Typing loses nothing: the screen is
+  in typing mode afterwards, however the word was taken (above). A hardware letter acts as its key wherever
   focus is, and with the entry clear, Enter and Space do nothing.
   Tab then reaches `TryAgain`, then `IdShowAgain`, by §8's C3 order.
 - When C3's Try again removes the error, focus goes to the keypad's
@@ -1004,14 +1006,15 @@ scale would also be a finding of the Android review
       burst.
     - After a chip fills a position, whether by a tap or by Enter on
       the focused chip, focus is on the first enabled key and Enter does
-      nothing.
+      nothing, except as the next two bullets say.
     - On C3, a wrong word taken by Enter puts focus on
       `IdCheckWrong`, in view. A hardware letter then enters a letter,
       and Enter and Space do nothing. Tab from it reaches `TryAgain`,
       then `IdShowAgain`. Try again pressed by Enter removes the error
       and puts focus on the first enabled key, and the next Enter does
-      nothing. After a wrong word, a right word puts focus on the
-      first enabled key.
+      nothing. After a wrong word, typing "c" and then Try again
+      leaves "c" in the letters. After a wrong word, a right word puts
+      focus on the first enabled key.
     - On R2, with positions 1 to 23 filled and 24 current, a chip
       taken by Enter fills 24 and puts focus on `IdCheckWords`, now
       enabled, and the next Enter runs the check. With position 3
