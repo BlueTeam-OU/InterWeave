@@ -657,7 +657,9 @@ included (110). With it, the model listed all six in nine runs of nine
 and every value was kept, through one compaction in six runs of six
 and through two in three runs of three at the bound, where 2.1.311
 lost one run of three; that 2.1.322 keeps a noted value more reliably
-is not shown, one loss in six runs there and none in three here (111).
+is not shown: at two compactions, one loss in six runs on 2.1.311 (89,
+98) and none in six on 2.1.322 (106, 111), or, at the bound alone, one
+in three against none in three (111).
 Where a fact sat did not decide whether it was kept: the one partial
 run kept one head fact, one middle fact and both end facts, and every
 other run kept all six or none at each compaction recorded; of 108
