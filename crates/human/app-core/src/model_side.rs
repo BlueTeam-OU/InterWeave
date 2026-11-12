@@ -165,6 +165,19 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.model.connect_owed();
     }
 
+    /// This start gives an owed Connect up -- the 10 s bound passed, or
+    /// at a launch the person opened something from Chats first
+    /// (add-a-peer §5.1) -- and the surface draws it at once: the trace
+    /// says `connect=deferred` and a driver waits on it, and no turn may
+    /// follow to draw it. True when Connect was still owed.
+    pub fn connect_defer(&mut self) -> bool {
+        let deferred = self.model.connect_defer();
+        if deferred {
+            self.surface.render(&self.model);
+        }
+        deferred
+    }
+
     /// Whether a transport daemon serves the profile, as the root sees
     /// it: the facade cannot tell a missing daemon from any other failed
     /// open, the root can.

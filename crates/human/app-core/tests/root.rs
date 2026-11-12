@@ -2171,3 +2171,16 @@ async fn the_trust_page_opened_in_p_up_says_the_line_seen_once() {
     root.pump(1).await;
     assert!(seen(&opened).is_empty(), "not P-up: nothing to see");
 }
+
+/// A start that gives an owed Connect up draws it at once, with no turn
+/// after it (add-a-peer §5.1: the trace's `connect=deferred` at the
+/// bound). Mutation: dropping the render fails here.
+#[test]
+fn a_connect_given_up_is_drawn_at_once() {
+    use interweave_human_ui_model::ConnectPhase;
+    let mut side = ModelSide::new(Scripted::default(), Opened::default());
+    side.connect_owed();
+    assert!(side.connect_defer());
+    assert_eq!(side.surface().phase_shown, Some(ConnectPhase::Deferred));
+    assert!(!side.connect_defer(), "decided: said once");
+}
