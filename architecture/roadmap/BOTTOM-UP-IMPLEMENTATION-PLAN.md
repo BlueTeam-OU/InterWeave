@@ -5090,9 +5090,10 @@ the measured one, five runs a cell, 55 runs in all.
 
 So one wording held where the leak was measured: the answer sentence
 followed by the scope sentence, in the first user turn. The rule the
-S34 note states is unchanged, and the bridge too; the sentence for
-`packaging/claude-plugin/INSTALL.md`'s headless bullet is proposed to
-architect-cto. Carried: the scope sentence in the cells S35 did not
+S34 note states is unchanged, and the bridge too;
+`packaging/claude-plugin/INSTALL.md`'s headless bullet now gives the
+scope sentence straight after the answer sentence, with "reply" kept
+out of the work as a second measure, as architect-cto accepted. Carried: the scope sentence in the cells S35 did not
 run (an idle wait, a question, other work), why two request runs of
 the 20 joined to a tool turn got no reply, the rate beyond five runs a
 cell, another model, a build after 2.1.322, and a conversation longer

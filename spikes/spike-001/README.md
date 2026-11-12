@@ -924,7 +924,7 @@ The table is `python3 s35_reply.py table` over the committed runs. "First turn's
 
 Not established by S35: each fact's own, above; the scope sentence with other first-turn work, with a question, in a message that starts a turn of its own after an idle wait (where S32 (b)'s control sent `READY` in 5 of 5, fact 94), or with the sentence only in the server's instructions; whether the scope sentence and "write" together do better than either, which no cell separates from placement (`prompta` changed both and the position); the rate beyond five runs a cell; a model other than `claude-sonnet-5-5`; a build after 2.1.322; and a conversation longer than one turn.
 
-What this changes in the bridge: nothing. For a deployment, one wording held in the three cells where the leak was measured: the answer sentence followed by the scope sentence, in the first user turn (fact 119). Its sentence for INSTALL.md's headless bullet is a proposal to architect-cto, and not an edit here.
+What this changes in the bridge: nothing. For a deployment, one wording held in the three cells where the leak was measured: the answer sentence followed by the scope sentence, in the first user turn (fact 119). INSTALL.md's headless bullet now gives it straight after the answer sentence, with "reply" kept out of the work as a second measure (fact 118), as architect-cto accepted.
 
 ## Where the architecture disagrees
 
@@ -976,7 +976,7 @@ The documents are listed by document and sentence. Amending them is architect-ct
   - **The control** leaked in 11 of its 14 replies (fact 117).
   - **"Write" for "reply"** kept `READY` out where the message joined a tool-calling turn, 10 replies in 10 runs (fact 118).
   - **A scope sentence after the answer sentence** kept `READY` and the count out in all three cells, 15 replies in 15 runs, with "reply" left in the work (fact 119). Placing both sentences after the work did as well, with 14 replies in 15 (fact 120).
-  - **What still holds:** why a greeting during a counting turn got the count stays not established; what S35 shows is a wording under which it did not, over five runs a cell. Whether the documents name the scope sentence, and INSTALL.md's sentence, is architect-cto's to decide.
+  - **What still holds:** why a greeting during a counting turn got the count stays not established; what S35 shows is a wording under which it did not, over five runs a cell. Whether the other documents name the scope sentence is architect-cto's to decide. *Amended 2026-11-12* for INSTALL.md: its headless bullet now gives the scope sentence after the answer sentence, and "So the advice stands" gave way to what fact 118 shows of "reply" kept out of the work.
 
 ## Not established
 
