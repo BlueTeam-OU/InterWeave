@@ -4964,7 +4964,10 @@ past; each carries a pointer here.
   2026-07-28 revision was skipped with the same line and the legacy
   control registered and delivered, one run each (fact 99), and the
   release bridge connected legacy in 20 sessions of 20 (fact 100).
-  Carried: a build after 2.1.322.
+  Carried: a build after 2.1.322, and whether the gate in the 2.1.322
+  binary is still the era check read from 2.1.286's (fact 36), which
+  was not read from that binary (fact 99; A 2026-11-12, this carried
+  the later build alone).
 - **S32 (b)'s "not established: the real bridge with daemons in the
   stub's place … and another model or build"** was run for four of
   its 33 cells, five runs each, with the release bridge across two
