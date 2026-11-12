@@ -982,8 +982,9 @@ scale would also be a finding of the Android review
       whose recovery phrase the tester has, whose `key_unlock_policy`
       is `background-compatible` (as for R above), and that is not Stay
       reachable.
-      On Chats, fire `REFUSE_IDENTITY` and then `RESTART`, so that K1
-      rises.
+      On Chats, note whether Peers lists nothing and whether Trust
+      lists nothing (step 3 needs both). Then fire `REFUSE_IDENTITY`
+      and then `RESTART`, so that K1 rises.
       1. Before anything on K1 is touched, `adb shell dumpsys window`
          shows `FLAG_SECURE` (`SECURE`) in the flags of InterWeave's
          window. Read it again on R2, opened by K1's primary, before a
@@ -1013,22 +1014,29 @@ scale would also be a finding of the Android review
          both cases, `adb shell dumpsys activity services
          org.interweave.human` lists the Service, and `logcat -s
          interweave` shows the start succeeding. No second K1 rises,
-         then or at the next launch. Before you fire the hooks above,
-         note whether Peers lists nothing and whether Trust lists
-         nothing. Which case applies is read from the trace's
-         `connect=` line after R4's continue, not by waiting on the
-         screen. `connect=open` followed by `page=connect` is Connect
-         opening. `connect=settled` is Chats staying.
-         `connect=deferred` means that a read failed, so Chats opens
-         without Connect (§5.1); then only the Connect part of the
-         step is void, not passed, and the step is run again. The
-         step fails if any of these holds: the Service is not listed;
-         logcat does not show the start succeeding; a second K1
-         rises, then or at the next launch; `connect=open` is not
-         followed by `page=connect`; `page=connect` follows
-         `connect=settled`; or the `connect=` line after R4's
-         continue is `connect=settled` on a phone whose Peers and
-         Trust both listed nothing before the hooks.
+         then or at the next launch. Which case applies is read from
+         the trace, not from the screen. After R4's continue, the
+         trace writes `connect=owed` while the start reads the peer
+         list and the trust set. Wait until the last `connect=` line
+         is something else, for at most 30 seconds (on the A40 it
+         took under a second). Then read the last `connect=` line and
+         the last `page=` line together; when Connect opens, the
+         trace writes `page=connect` just before `connect=open`.
+         `connect=open` with `page=connect` is Connect opening.
+         `connect=settled` with `page=conversations` is Chats
+         staying. `connect=deferred` means that a read failed, so
+         Chats opens without Connect (§5.1); then only the Connect
+         part of the step is void, not passed, and the step is run
+         again. The step fails if any of these holds: the Service is
+         not listed; logcat does not show the start succeeding; a
+         second K1 rises, then or at the next launch; after 30
+         seconds the last `connect=` line is still `connect=owed`;
+         the last `connect=` line is `connect=open` and the last
+         `page=` line is not `page=connect`; the last `connect=` line
+         is `connect=settled` and the last `page=` line is
+         `page=connect`; or the last `connect=` line is
+         `connect=settled` on a phone whose Peers and Trust both
+         listed nothing before the hooks.
       Each result is reported with how it was seen: by the focus
       trace, by the flag read through `dumpsys`, or rendered. K1 and
       R2 are secured (step 1), so a screenshot of them is black, as
