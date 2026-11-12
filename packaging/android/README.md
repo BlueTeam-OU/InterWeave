@@ -326,7 +326,9 @@ still waits on.
   run (§21's S12 and the two cases above).
 - The same PeerId from the same store across an update in place:
   neither v0.1.0 nor v0.2.0 can make an identity on a fresh install,
-  so the two device records above could not run it.
+  so the two 2026-11-05 device records above could not run it, and
+  by §22's baseline rule it runs from v0.3.0, the first release that
+  onboards, to the release after it.
 - The self-tests sign minimal APKs with throwaway keys made at test
   time; the release key and a real `assembleRelease` APK meet the
   scripts only in the run itself. The tag and archive checks are tested
