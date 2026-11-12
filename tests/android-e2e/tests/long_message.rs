@@ -403,6 +403,11 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
 /// list's opening on the A40 and before its bar is due at 0.5 s.
 const BACK_AFTER: Duration = Duration::from_millis(200);
 
+/// The same past the first go and the bar: design/2026-11-04-long-message.md
+/// section 5.4's run of about 0.6 s, on the shapes the A40 opens in about
+/// 0.5 and 0.75 s (device-runs/2026-11-12-samsung-a40-pixel-9a.md).
+const BACK_PAST_FIRST_GO: Duration = Duration::from_millis(600);
+
 /// A person who presses Back while the reader opens: the list shape sent
 /// as in the timed case, its Read the whole message pressed, and Back
 /// [`BACK_AFTER`] later. The reader closes to its conversation with focus
@@ -410,8 +415,8 @@ const BACK_AFTER: Duration = Duration::from_millis(200);
 /// the case prints whether the reader's rows were drawn before it closed.
 ///
 /// With `INTERWEAVE_ANDROID_SHOTS` set, the screen is recorded across the
-/// two keys to `back-during-opening.mp4` there, for the person who
-/// checks that no opening bar showed: the trace says which page was
+/// two keys to `back-<shape>-<ms>ms.mp4` there, for the person who
+/// checks whether an opening bar showed: the trace says which page was
 /// drawn, not what the screen showed on it.
 ///
 /// What this does NOT prove: the gap between the two keys as the view
@@ -420,6 +425,37 @@ const BACK_AFTER: Duration = Duration::from_millis(200);
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
 async fn on_a_device_back_while_the_reader_opens_closes_it_to_its_conversation() {
+    back_while_opening(&["list"], BACK_AFTER).await;
+}
+
+/// The same with Back [`BACK_PAST_FIRST_GO`] after the press: on heading
+/// autolinks and reference link, the shapes section 5.4 names, and on
+/// the two stress shapes. Alone in a conversation the first two open
+/// within about 0.4 s on the A40 (2026-11-12), so their Back lands after
+/// the rows are in; the stress shapes' openings run past the first go
+/// and the bar, so theirs lands inside the opening. Each closes to its
+/// conversation with focus back on its row. The case
+/// prints each key's phone time beside the trace's (`enter-at`,
+/// `back-at`), from which the run's Back-to-close is read against the
+/// logcat, and the recording shows whether the bar was up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
+async fn on_a_device_back_past_the_first_go_closes_the_reader_to_its_conversation() {
+    back_while_opening(
+        &[
+            "heading autolinks",
+            "reference link",
+            "distinct headings",
+            "distinct links",
+        ],
+        BACK_PAST_FIRST_GO,
+    )
+    .await;
+}
+
+/// Each of `names`' shapes sent in turn, its Read the whole message
+/// pressed and Back `after` later ([`Screens::read_whole_then_back`]).
+async fn back_while_opening(names: &[&str], after: Duration) {
     let shots = std::env::var_os("INTERWEAVE_ANDROID_SHOTS").map(PathBuf::from);
     let Rig {
         serial,
@@ -429,59 +465,68 @@ async fn on_a_device_back_while_the_reader_opens_closes_it_to_its_conversation()
         mut sender,
         mut screens,
     } = Rig::start().await;
-    let (name, text) = shapes()
-        .into_iter()
-        .find(|(name, _)| *name == "list")
-        .expect("the list shape");
-    assert!(cut_in_row(&text), "the {name} shape is cut in its row");
-    sender.send(&phone_peer, 1, text, || d.log()).await;
-    let back = tokio::task::block_in_place(|| {
-        let s = screens.open_conversation(PATIENCE);
-        passed(&s, &screens);
-        let on_phone = "/data/local/tmp/interweave-back-during-opening.mp4";
-        let mut recording = None;
-        let back = screens.read_whole_then_back(&[], BACK_AFTER, PATIENCE, || {
-            recording = shots.as_ref().map(|_| {
-                let child = Command::new("adb")
-                    .args([
-                        "-s",
-                        &serial,
-                        "shell",
-                        "screenrecord",
-                        "--time-limit",
-                        "4",
-                        on_phone,
-                    ])
-                    .spawn()
-                    .expect("adb screenrecord");
-                // screenrecord takes a moment to start its encoder.
-                std::thread::sleep(Duration::from_secs(1));
-                child
+    let mut opened: Vec<String> = Vec::new();
+    for (serial_no, name) in (1u8..).zip(names) {
+        let (name, text) = shapes()
+            .into_iter()
+            .find(|(shape, _)| shape == name)
+            .unwrap_or_else(|| panic!("the {name} shape"));
+        assert!(cut_in_row(&text), "the {name} shape is cut in its row");
+        sender.send(&phone_peer, serial_no, text, || d.log()).await;
+        let back = tokio::task::block_in_place(|| {
+            if opened.is_empty() {
+                let s = screens.open_conversation(PATIENCE);
+                passed(&s, &screens);
+            }
+            let on_phone = "/data/local/tmp/interweave-back-during-opening.mp4";
+            let mut recording = None;
+            let back = screens.read_whole_then_back(&opened, after, PATIENCE, || {
+                recording = shots.as_ref().map(|_| {
+                    let child = Command::new("adb")
+                        .args([
+                            "-s",
+                            &serial,
+                            "shell",
+                            "screenrecord",
+                            "--time-limit",
+                            "4",
+                            on_phone,
+                        ])
+                        .spawn()
+                        .expect("adb screenrecord");
+                    // screenrecord takes a moment to start its encoder.
+                    std::thread::sleep(Duration::from_secs(1));
+                    child
+                });
             });
+            if let (Some(mut child), Some(dir)) = (recording, &shots) {
+                child.wait().expect("screenrecord ended");
+                let file = format!("back-{name}-{}ms.mp4", after.as_millis()).replace(' ', "-");
+                let pulled = Command::new("adb")
+                    .args(["-s", &serial, "pull", on_phone])
+                    .arg(dir.join(file))
+                    .status()
+                    .expect("adb pull");
+                let removed = Command::new("adb")
+                    .args(["-s", &serial, "shell", "rm", "-f", on_phone])
+                    .status()
+                    .expect("adb rm");
+                assert!(
+                    pulled.success() && removed.success(),
+                    "the recording pulled and removed"
+                );
+            }
+            back
         });
-        if let (Some(mut child), Some(dir)) = (recording, &shots) {
-            child.wait().expect("screenrecord ended");
-            let to = dir.join("back-during-opening.mp4");
-            let pulled = Command::new("adb")
-                .args(["-s", &serial, "pull", on_phone])
-                .arg(&to)
-                .status()
-                .expect("adb pull");
-            let removed = Command::new("adb")
-                .args(["-s", &serial, "shell", "rm", "-f", on_phone])
-                .status()
-                .expect("adb rm");
-            assert!(
-                pulled.success() && removed.success(),
-                "the recording pulled and removed"
-            );
-        }
-        back
-    });
-    passed(&back, &screens);
-    println!(
-        "Back {BACK_AFTER:?} after Read the whole message on {name}: closed to its conversation; rows drawn before it closed: {}",
-        back.get("drawn").and_then(|v| v.as_str()).unwrap_or("?")
-    );
+        passed(&back, &screens);
+        let field = |key: &str| back.get(key).and_then(|v| v.as_str()).unwrap_or("?");
+        println!(
+            "Back {after:?} after Read the whole message on {name}: closed to its conversation; rows drawn before it closed: {}; Enter launched {}, Back launched {} (phone time)",
+            field("drawn"),
+            field("enter-at"),
+            field("back-at"),
+        );
+        opened.push(field("read").to_owned());
+    }
     Rig::stop(sender, phone, d).await;
 }
