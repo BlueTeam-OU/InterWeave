@@ -773,8 +773,11 @@ impl IdentityFlow {
     }
 
     /// R2: edit a grid position; chosen from the full list, the list
-    /// closes onto the picker.
+    /// closes onto the picker. Behind the discard dialog it does nothing.
     pub fn edit(&mut self, position: usize) {
+        if self.discard_asked() {
+            return;
+        }
         if let Screen::R2 {
             entry,
             notice,
@@ -806,6 +809,9 @@ impl IdentityFlow {
     /// A chip tapped on C3 or R2. On C3 a right word moves to the next
     /// position or to C4; a wrong one shows which position and clears.
     pub fn choose(&mut self, chip: &str) -> Vec<Effect> {
+        if self.words_held() {
+            return Vec::new();
+        }
         match &mut self.screen {
             Screen::R2 { entry, notice, .. } => {
                 if entry.choose(chip) {
@@ -1065,7 +1071,19 @@ impl IdentityFlow {
         }
     }
 
+    /// While the discard dialog or R2's full list shows, no letter, chip
+    /// or Enter reaches the words behind it. The view refuses them too,
+    /// but it judges the page it last showed: inputs queued in one batch
+    /// with the Back or the list's opening reach the flow after it, and
+    /// only the flow, applying them in order, knows (j261, #634 F1).
+    fn words_held(&self) -> bool {
+        self.discard_asked() || self.reviewing()
+    }
+
     fn picker_mut(&mut self) -> Option<&mut WordPicker> {
+        if self.words_held() {
+            return None;
+        }
         match &mut self.screen {
             Screen::C3(check) => Some(&mut check.picker),
             Screen::R2 { entry, .. } => Some(entry.picker_mut()),
@@ -1808,6 +1826,104 @@ mod tests {
         assert!(flow.waiting(), "control: the check is pending");
         flow.review_words(true);
         assert!(!flow.reviewing(), "never over a check");
+    }
+
+    /// Behind the discard dialog and over R2's full list nothing the
+    /// keypad sends reaches the words: a letter, Delete, Clear, a chip,
+    /// Enter, a grid position (#634 F1). Each is an input queued behind
+    /// the Back in one batch, which the view cannot refuse.
+    #[test]
+    fn no_letter_chip_or_enter_reaches_the_words_behind_the_dialog_or_the_list() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        assert!(flow.press('z'));
+        assert!(flow.press('e'));
+        flow.back();
+        assert!(flow.discard_asked(), "control: the dialog is up");
+        assert_eq!(flow.enter(), []);
+        assert_eq!(flow.choose("zebra"), []);
+        assert!(!flow.press('b'));
+        flow.delete();
+        flow.clear_letters();
+        flow.edit(3);
+        assert_eq!(
+            flow.entry().and_then(|e| e.word(0)),
+            None,
+            "no word behind it"
+        );
+        assert_eq!(flow.picker().map(WordPicker::typed), Some("ze"));
+        assert_eq!(flow.chips_taken(), 0);
+        flow.discard(false);
+        flow.enter();
+        assert_eq!(
+            flow.entry().and_then(|e| e.word(0)),
+            Some("zebra"),
+            "control: with the dialog closed Enter takes it"
+        );
+
+        flow.review_words(true);
+        assert!(flow.reviewing(), "control: the list is open");
+        assert!(!flow.press('b'));
+        assert_eq!(flow.picker().map(WordPicker::typed), Some(""));
+        flow.edit(0);
+        assert!(!flow.reviewing(), "a position chosen still closes the list");
+        flow.clear_letters();
+        assert!(flow.press('b'), "control: the list closed, b is a letter");
+
+        // C3 behind its dialog.
+        let mut flow = created_at_c2();
+        flow.primary();
+        assert!(flow.press('g'));
+        flow.back();
+        assert!(flow.discard_asked());
+        assert_eq!(flow.enter(), []);
+        assert_eq!(flow.check(), Some((6, None)), "galaxy not taken");
+        flow.discard(false);
+        flow.enter();
+        assert_eq!(flow.check(), Some((18, None)), "control: taken once closed");
+    }
+
+    /// The count a page carries for section 8's focus rule: R2 counts a
+    /// chip the entry took, never one it refused; C3 counts every chip
+    /// of its picker, right or wrong; Enter counts as the chip it takes,
+    /// and an Enter that takes nothing counts nothing (#634 F3).
+    #[test]
+    fn chips_taken_counts_each_chip_a_page_took() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        assert_eq!(flow.choose("zebra"), []);
+        assert_eq!(flow.chips_taken(), 0, "R2: a chip not on the picker");
+        assert!(flow.press('z'));
+        flow.enter();
+        assert_eq!(
+            flow.chips_taken(),
+            0,
+            "R2: zebra and zone, Enter takes nothing"
+        );
+        assert_eq!(flow.entry().and_then(|e| e.word(0)), None);
+        assert!(flow.press('o'));
+        flow.enter();
+        assert_eq!(flow.chips_taken(), 1, "R2: Enter took the only chip");
+        assert_eq!(flow.entry().and_then(|e| e.word(0)), Some("zone"));
+        enter(&mut flow, "acid");
+        assert_eq!(flow.chips_taken(), 2, "R2: a chip tapped");
+
+        let mut flow = created_at_c2();
+        flow.primary();
+        enter(&mut flow, "habit");
+        assert_eq!(flow.check(), Some((6, Some(6))), "control: a wrong word");
+        assert_eq!(flow.chips_taken(), 1, "C3: a wrong word counts");
+        flow.try_again();
+        assert!(flow.press('g'));
+        flow.enter();
+        assert_eq!(
+            flow.check(),
+            Some((18, None)),
+            "C3: Enter took the right word"
+        );
+        assert_eq!(flow.chips_taken(), 2);
     }
 
     #[test]
