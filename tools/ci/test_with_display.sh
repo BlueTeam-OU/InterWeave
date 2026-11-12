@@ -23,10 +23,23 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 UNDER_TEST="$SCRIPT_DIR/with_display.sh"
 [[ -f "$UNDER_TEST" ]] || { echo "test: $UNDER_TEST not found" >&2; exit 1; }
 
-# python3 restores INT's default for the signal cases and stands in for
+# python3 restores the signals' defaults for the signal cases and stands in for
 # setsid's syscall; without it those cases would fail as a missing
 # command rather than on the logic, so say so instead.
 command -v python3 >/dev/null || { echo "test_with_display: python3 is needed (the signal cases and the setsid stub)" >&2; exit 1; }
+
+# A run that inherits HUP or TERM ignored (nohup, or a launcher that set
+# it) hands the ignore to the wrapper and to every stub, and bash can
+# neither trap nor reset a signal ignored at its entry: the HUP case then
+# waits out its command and the wrapper's TERMs reach no Xvfb stub. So the
+# suite runs once more with the signals it sends at their defaults, as a
+# CI step's shell has them; the marker keeps that to one re-exec.
+if [[ -z "${TEST_WITH_DISPLAY_SIGNALS_DEFAULT:-}" ]]; then
+    TEST_WITH_DISPLAY_SIGNALS_DEFAULT=1 exec python3 -c 'import os, signal, sys
+for s in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM): signal.signal(s, signal.SIG_DFL)
+os.execvp(sys.argv[1], sys.argv[1:])' bash "${BASH_SOURCE[0]}" "$@"
+fi
+unset TEST_WITH_DISPLAY_SIGNALS_DEFAULT
 
 failures=0
 SANDBOX_TMPDIR="${TMPDIR-}"
@@ -302,7 +315,8 @@ refused "an AT-SPI registry that never answers" "the AT-SPI registry did not ans
 # terminal's Ctrl-C sends it: the command is ended at once, not left to
 # finish, and Xvfb with it. The wrapper is started through a launcher
 # that restores INT's default, since a background job of this script
-# starts with INT ignored and a shell cannot trap what it began ignoring.
+# starts with INT ignored and a shell cannot trap what it began ignoring
+# (HUP and TERM were reset for the whole run at the top).
 # sig_case <signal> <exit> <command> <name> [<stop-seconds>]; SIG_REPEAT=N
 # sends the signal N more times, 0.3s apart (Ctrl-C held down during the
 # stop), and the caller's environment carries `stop_by` and `stopping`,
