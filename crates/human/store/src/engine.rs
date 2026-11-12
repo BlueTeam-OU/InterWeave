@@ -89,8 +89,9 @@ mod tests {
 
     /// The other half: in this file, every `Connection::open*` outside
     /// the start's own is what a `started(...)` runs, so no wrapper
-    /// opens before the engine has started. A wrapper written as a bare
-    /// `Connection::open*` fails this.
+    /// opens before the engine has started, and the start is that open.
+    /// A wrapper written as a bare `Connection::open*`, or the start's
+    /// open taken out of its `Once`, fails this.
     #[test]
     fn every_open_here_waits_for_the_start() {
         let text = include_str!("engine.rs");
@@ -109,5 +110,14 @@ mod tests {
             .filter(|line| line.contains("started(") && line.contains("Connection::open"))
             .count();
         assert_eq!(wrappers, 3, "open, open_with_flags and open_in_memory");
+        // The start itself: one open, the whole of the Once's body. Taken
+        // out or emptied, the wrappers above would wait on nothing.
+        let start = code
+            .lines()
+            .filter(|line| {
+                line.trim() == "STARTED.call_once(|| drop(Connection::open_in_memory()));"
+            })
+            .count();
+        assert_eq!(start, 1, "the Once opens the engine once");
     }
 }
