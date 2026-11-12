@@ -221,6 +221,81 @@ impl Screens {
         self.answer("close_reader", closed)
     }
 
+    /// The first Read the whole message TAB reaches whose focus key is
+    /// not in `opened`, pressed, and Back sent `after` the press whatever
+    /// the reader has drawn by then: a person who leaves while it opens
+    /// (design/2026-11-04-long-message.md A5). Passes once the trace
+    /// shows the reader's page and then the conversation's again, focus
+    /// on a Read the whole message. The step carries `read`, and
+    /// `drawn`, whether the reader's rows were drawn before it closed.
+    /// `on_row` runs once focus is on the row, before the keys: a
+    /// recording started there spans the keys and not the TABs.
+    ///
+    /// The two keys go from one shell, the ENTER's `input` started in the
+    /// background, so the gap between them is `after` give or take the
+    /// difference between the two `input`s' start-up, not `after` plus
+    /// one start-up as two adb calls would make it.
+    pub fn read_whole_then_back(
+        &mut self,
+        opened: &[String],
+        after: Duration,
+        patience: Duration,
+        on_row: impl FnOnce(),
+    ) -> Step {
+        let name = "read_whole_then_back";
+        let reached = self.tab_until("a Read the whole message not yet opened", READ_TABS, |f| {
+            f.starts_with("read:") && !opened.iter().any(|o| o == f)
+        });
+        if let Err(why) = reached {
+            return step(name, false, why);
+        }
+        let read = self.focus.clone();
+        on_row();
+        let from = self.seen.len();
+        let keys = format!(
+            "input keyevent KEYCODE_ENTER & sleep {:.3}; input keyevent KEYCODE_BACK; wait",
+            after.as_secs_f64()
+        );
+        let reader = format!("{TRACE}page=reader");
+        let conversation = format!("{TRACE}page=conversation");
+        let closed = self
+            .adb_ok(&["shell", &keys])
+            .map(drop)
+            .and_then(|()| self.wait_all(from, &["page=reader", "page=conversation"], patience))
+            .and_then(|()| {
+                let lines = &self.seen[from..];
+                let opened_at = lines.iter().position(|l| *l == reader);
+                let back_at = lines.iter().rposition(|l| *l == conversation);
+                match (opened_at, back_at) {
+                    (Some(o), Some(b)) if o < b => Ok(()),
+                    _ => Err(format!(
+                        "the conversation's page did not follow the reader's; {}",
+                        self.where_now()
+                    )),
+                }
+            })
+            .and_then(|()| self.settle().map(drop))
+            .and_then(|()| {
+                if self.focus.starts_with("read:") {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "focus left on {:?}, not a Read the whole message",
+                        self.focus
+                    ))
+                }
+            });
+        let drawn_line = format!("{TRACE}reader=drawn ");
+        let drawn = self.seen[from..].iter().any(|l| l.starts_with(&drawn_line));
+        let mut out = self.answer(name, closed);
+        out.insert("read".to_owned(), Value::String(read));
+        out.insert(
+            "drawn".to_owned(),
+            Value::String(if drawn { "yes" } else { "no" }.to_owned()),
+        );
+        out
+    }
+
     /// Show my address, its code drawn (`show=shown`), then Back to
     /// Peers. The code's text is not read here: the screen is secured
     /// and the trace carries none of it, so the other phone's field gets

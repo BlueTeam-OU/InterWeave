@@ -253,39 +253,78 @@ fn shot(serial: &str, dir: &Path, name: &str) {
     std::fs::write(dir.join(format!("{name}.png")), out.stdout).expect("the shot written");
 }
 
+/// The case's two ends: D on this host's loopback, the app provisioned
+/// with D as its one peer and started from the launcher, and D's person
+/// ready to send.
+struct Rig {
+    serial: String,
+    phone: AdbDevice,
+    d: Desktop,
+    phone_peer: TransportIdentity,
+    sender: Sender,
+    screens: Screens,
+}
+
+impl Rig {
+    async fn start() -> Self {
+        let serial = std::env::var("ANDROID_SERIAL").expect("ANDROID_SERIAL names the phone");
+        let mut phone = AdbDevice::connect();
+        let mut d = Desktop::new();
+        let (d_peer, phone_peer) = (d.peer.clone(), phone.peer());
+        let d_port = free_port(Ipv4Addr::LOCALHOST);
+        let d_listen = format!("/ip4/127.0.0.1/tcp/{d_port}");
+        d.start(&example("human-desktop.yaml", &phone_peer, &d_listen, None))
+            .await;
+        phone.reach(d_port);
+        phone.start(&example(
+            "human-android.yaml",
+            &d_peer,
+            WILDCARD,
+            Some(&format!("{d_listen}/p2p/{}", d_peer.as_str())),
+        ));
+        phone.stop();
+
+        let mut sender = Sender::new(d.binding());
+        sender
+            .until(
+                "D's session ready",
+                || d.log(),
+                |s| matches!(s.client.session_state(), SessionState::Ready { .. }),
+            )
+            .await;
+
+        let mut screens = Screens::new(&serial);
+        let launched = tokio::task::block_in_place(|| screens.launch(PATIENCE));
+        passed(&launched, &screens);
+        Self {
+            serial,
+            phone,
+            d,
+            phone_peer,
+            sender,
+            screens,
+        }
+    }
+
+    async fn stop(mut sender: Sender, mut phone: AdbDevice, mut d: Desktop) {
+        Box::pin(sender.client.close()).await;
+        phone.stop();
+        d.stop().await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
 async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end() {
-    let serial = std::env::var("ANDROID_SERIAL").expect("ANDROID_SERIAL names the phone");
     let shots = std::env::var_os("INTERWEAVE_ANDROID_SHOTS").map(PathBuf::from);
-    let mut phone = AdbDevice::connect();
-    let mut d = Desktop::new();
-    let (d_peer, phone_peer) = (d.peer.clone(), phone.peer());
-    let d_port = free_port(Ipv4Addr::LOCALHOST);
-    let d_listen = format!("/ip4/127.0.0.1/tcp/{d_port}");
-    d.start(&example("human-desktop.yaml", &phone_peer, &d_listen, None))
-        .await;
-    phone.reach(d_port);
-    phone.start(&example(
-        "human-android.yaml",
-        &d_peer,
-        WILDCARD,
-        Some(&format!("{d_listen}/p2p/{}", d_peer.as_str())),
-    ));
-    phone.stop();
-
-    let mut sender = Sender::new(d.binding());
-    sender
-        .until(
-            "D's session ready",
-            || d.log(),
-            |s| matches!(s.client.session_state(), SessionState::Ready { .. }),
-        )
-        .await;
-
-    let mut screens = Screens::new(&serial);
-    let launched = tokio::task::block_in_place(|| screens.launch(PATIENCE));
-    passed(&launched, &screens);
+    let Rig {
+        serial,
+        phone,
+        d,
+        phone_peer,
+        mut sender,
+        mut screens,
+    } = Rig::start().await;
 
     let mut opened: Vec<String> = Vec::new();
     // Each shape's line is printed once it is measured, so a later
@@ -356,7 +395,93 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
         report(&row);
     }
 
-    Box::pin(sender.client.close()).await;
-    phone.stop();
-    d.stop().await;
+    Rig::stop(sender, phone, d).await;
+}
+
+/// When Back reaches the reader after Read the whole message: ux-
+/// designer's figure for the A/B of 2026-11-11, about 0.2 s, inside the
+/// list's opening on the A40 and before its bar is due at 0.5 s.
+const BACK_AFTER: Duration = Duration::from_millis(200);
+
+/// A person who presses Back while the reader opens: the list shape sent
+/// as in the timed case, its Read the whole message pressed, and Back
+/// [`BACK_AFTER`] later. The reader closes to its conversation with focus
+/// back on the row's Read the whole message, so the press was not lost;
+/// the case prints whether the reader's rows were drawn before it closed.
+///
+/// With `INTERWEAVE_ANDROID_SHOTS` set, the screen is recorded across the
+/// two keys to `back-during-opening.mp4` there, for the person who
+/// checks that no opening bar showed: the trace says which page was
+/// drawn, not what the screen showed on it.
+///
+/// What this does NOT prove: the gap between the two keys as the view
+/// saw them -- it is the phone shell's, give or take the two `input`
+/// commands' start-up -- or when the opening yielded to the Back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
+async fn on_a_device_back_while_the_reader_opens_closes_it_to_its_conversation() {
+    let shots = std::env::var_os("INTERWEAVE_ANDROID_SHOTS").map(PathBuf::from);
+    let Rig {
+        serial,
+        phone,
+        d,
+        phone_peer,
+        mut sender,
+        mut screens,
+    } = Rig::start().await;
+    let (name, text) = shapes()
+        .into_iter()
+        .find(|(name, _)| *name == "list")
+        .expect("the list shape");
+    assert!(cut_in_row(&text), "the {name} shape is cut in its row");
+    sender.send(&phone_peer, 1, text, || d.log()).await;
+    let back = tokio::task::block_in_place(|| {
+        let s = screens.open_conversation(PATIENCE);
+        passed(&s, &screens);
+        let on_phone = "/data/local/tmp/interweave-back-during-opening.mp4";
+        let mut recording = None;
+        let back = screens.read_whole_then_back(&[], BACK_AFTER, PATIENCE, || {
+            recording = shots.as_ref().map(|_| {
+                let child = Command::new("adb")
+                    .args([
+                        "-s",
+                        &serial,
+                        "shell",
+                        "screenrecord",
+                        "--time-limit",
+                        "4",
+                        on_phone,
+                    ])
+                    .spawn()
+                    .expect("adb screenrecord");
+                // screenrecord takes a moment to start its encoder.
+                std::thread::sleep(Duration::from_secs(1));
+                child
+            });
+        });
+        if let (Some(mut child), Some(dir)) = (recording, &shots) {
+            child.wait().expect("screenrecord ended");
+            let to = dir.join("back-during-opening.mp4");
+            let pulled = Command::new("adb")
+                .args(["-s", &serial, "pull", on_phone])
+                .arg(&to)
+                .status()
+                .expect("adb pull");
+            let removed = Command::new("adb")
+                .args(["-s", &serial, "shell", "rm", "-f", on_phone])
+                .status()
+                .expect("adb rm");
+            assert!(
+                pulled.success() && removed.success(),
+                "the recording pulled and removed"
+            );
+        }
+        back
+    });
+    passed(&back, &screens);
+    println!(
+        "Back {BACK_AFTER:?} after Read the whole message on {name}: closed to its conversation; rows drawn before it closed: {}",
+        back.get("drawn").and_then(|v| v.as_str()).unwrap_or("?")
+    );
+    Rig::stop(sender, phone, d).await;
 }
