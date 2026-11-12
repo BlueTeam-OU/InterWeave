@@ -1013,16 +1013,27 @@ scale would also be a finding of the Android review
          both cases, `adb shell dumpsys activity services
          org.interweave.human` lists the Service, and `logcat -s
          interweave` shows the start succeeding. No second K1 rises,
-         then or at the next launch. The step fails if the Service is
-         not listed, if logcat does not show the start succeeding, or
-         if a second K1 rises, then or at the next launch.
+         then or at the next launch. Before the hooks, note whether
+         Peers and Trust each list nothing. Which case the start found
+         is read from the trace's `connect=` line after R4's continue,
+         not by waiting on the screen: `connect=open`, followed by
+         `page=connect`, is Connect opening; `connect=settled` is
+         Chats staying; `connect=deferred` is a read that failed, so
+         Chats opens without Connect (§5.1), and the Connect part of
+         the step is void, not passed: run it again. The step fails
+         if the Service is not listed, if logcat does not show the
+         start succeeding, if a second K1 rises, then or at the next
+         launch, if `connect=open` is not followed by `page=connect`,
+         if `page=connect` follows `connect=settled`, or if
+         `connect=settled` follows on a phone whose Peers and Trust
+         both listed nothing before the hooks.
       Each result is reported with how it was seen: by the focus
       trace, by the flag read through `dumpsys`, or rendered. K1 and
       R2 are secured (step 1), so a screenshot of them is black, as
       item 2 says of R2: what
       they show is read on the phone or from the accessibility tree (a
       `uiautomator dump`), and a screenshot is evidence only for Chats
-      after R4.
+      or Connect to someone after R4.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
