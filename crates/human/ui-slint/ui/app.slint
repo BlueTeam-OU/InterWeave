@@ -458,6 +458,9 @@ export struct IdentityPage {
     // "{n} words fit these letters" while more than four match.
     matches: string,
     chips: [string],
+    // How many chips the flow has taken, a tap's or Enter's: a page whose
+    // count moved shows one just taken (section 8's focus rule).
+    chips-taken: int,
     // The letters in QWERTY rows of 10, 9 and 7, and in alphabetical
     // rows of 7 for a narrow screen: the view picks by width (section
     // 4.3). Rows, so a shorter row centres under the first.
@@ -2082,6 +2085,9 @@ component IdentityScreen inherits FocusScope {
     callback delete-letter();
     callback clear-word();
     callback chip(string);
+    // Enter while typing: the flow judges it on the letters it has
+    // applied, which may be ahead of this page (j261).
+    callback enter();
     callback slot(int);
     callback dialog(bool);
     // R2's words as a full list: open (true) or, the text back to 130 %
@@ -2323,7 +2329,9 @@ component IdentityScreen inherits FocusScope {
     // on its stop.
     property <bool> dialog-shown;
     property <string> notice-shown;
-    property <bool> chip-taken;
+    // The page's chip count as last seen: a page whose count moved shows a
+    // chip just taken, by a tap or by Enter, which the flow judged.
+    property <int> chips-shown;
     // The full list (section 8): it opens on the current position's row;
     // closed by a row, focus goes to the first enabled key, typing; by
     // the text falling to 130 % or below, to the grid's current position;
@@ -2357,6 +2365,7 @@ component IdentityScreen inherits FocusScope {
     }
     init => {
         root.dialog-shown = root.page.dialog;
+        root.chips-shown = root.page.chips-taken;
         root.notice-shown = root.page.notice;
         root.review-shown = root.page.review;
         root.screen-shown = root.page.screen;
@@ -2379,7 +2388,7 @@ component IdentityScreen inherits FocusScope {
             root.review-shown = root.page.review;
             let notice-new = root.page.notice != "" && root.page.notice != root.notice-shown;
             root.notice-shown = root.page.notice;
-            root.chip-taken = false;
+            root.chips-shown = root.page.chips-taken;
             root.row-chosen = false;
             root.font-closed = false;
             if (root.page.picker) {
@@ -2406,7 +2415,7 @@ component IdentityScreen inherits FocusScope {
             let font = root.font-closed;
             root.row-chosen = false;
             root.font-closed = false;
-            root.chip-taken = false;
+            root.chips-shown = root.page.chips-taken;
             if (root.page.review) {
                 root.go(1, root.page.current);
             } else if (row) {
@@ -2431,8 +2440,8 @@ component IdentityScreen inherits FocusScope {
         }
         let notice-new = root.page.notice != "" && root.page.notice != root.notice-shown;
         root.notice-shown = root.page.notice;
-        let chip = root.chip-taken;
-        root.chip-taken = false;
+        let chip = root.page.chips-taken != root.chips-shown;
+        root.chips-shown = root.page.chips-taken;
         if (root.dialog-shown) {
             root.dialog-shown = false;
             root.typing = root.saved-typing;
@@ -2447,7 +2456,6 @@ component IdentityScreen inherits FocusScope {
     }
     function take(word: string) {
         root.typing = false;
-        root.chip-taken = true;
         root.chip(word);
     }
     // Enter and Space follow the last input (section 8). Typing -- the
@@ -2474,8 +2482,11 @@ component IdentityScreen inherits FocusScope {
         root.typing = false;
         root.key(letter);
     }
-    // The rule's Enter: the only chip, or the whole word typed, which
-    // leads the row.
+    // The rule's Enter as this page shows it: the only chip, or the whole
+    // word typed, which leads the row. The flow takes the chip
+    // (WordPicker::enter_chip); this only decides whether an Enter with
+    // no control focused is the rule's at all, which no letter in flight
+    // can change, since a letter opens typing.
     function enter-takes() -> bool {
         return root.page.picker && root.page.chips.length > 0
             && (root.page.chips.length == 1 || root.page.chips[0] == root.page.typed);
@@ -2485,10 +2496,9 @@ component IdentityScreen inherits FocusScope {
         // from R2, typing still) Enter presses the focused control.
         if (!root.typing || !root.page.picker || root.page.dialog || root.page.review) { return reject; }
         if (event.text == Key.Return) {
-            if (root.enter-takes()) {
-                root.take(root.page.chips[0]);
-                root.typing = true;
-            }
+            // Asked even when this page shows no such chip: letters typed
+            // in the same batch may not be on it yet (j261).
+            root.enter();
             return accept;
         }
         if (event.text == " ") { return accept; }
@@ -2532,7 +2542,8 @@ component IdentityScreen inherits FocusScope {
         }
         // Enter with no control focused: the suggestion rule's.
         if (event.text == Key.Return && root.enter-takes()) {
-            root.take(root.page.chips[0]);
+            root.typing = false;
+            root.enter();
             return accept;
         }
         reject
@@ -4076,6 +4087,7 @@ export component AppWindow inherits Window {
     callback identity-delete();
     callback identity-clear();
     callback identity-chip(string);
+    callback identity-enter();
     callback identity-slot(int);
     callback identity-dialog(bool);
     callback identity-review(bool);
@@ -10433,6 +10445,7 @@ export component AppWindow inherits Window {
             delete-letter => { root.identity-delete(); }
             clear-word => { root.identity-clear(); }
             chip(word) => { root.identity-chip(word); }
+            enter => { root.identity-enter(); }
             slot(i) => { root.identity-slot(i); }
             dialog(delete) => { root.identity-dialog(delete); }
             review(open) => { root.identity-review(open); }

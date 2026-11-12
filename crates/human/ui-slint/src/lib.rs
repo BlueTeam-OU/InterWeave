@@ -1755,6 +1755,8 @@ impl View {
         let i = Rc::clone(&input);
         w.on_identity_chip(move |word| i(IdentityInput::Chip(word.to_string())));
         let i = Rc::clone(&input);
+        w.on_identity_enter(move || i(IdentityInput::Enter));
+        let i = Rc::clone(&input);
         w.on_identity_slot(move |slot| {
             if let Ok(slot) = usize::try_from(slot) {
                 i(IdentityInput::Slot(slot));

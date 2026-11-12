@@ -446,7 +446,7 @@ impl Opener for AndroidOpener {
         {
             // Left set, Connect is decided again at the next start, and
             // opens only if the device still knows no one.
-            log(&format!("the connect-owed marker: {why:?}"));
+            log(&format!("clearing the connect-owed marker: {why:?}"));
         }
     }
 
