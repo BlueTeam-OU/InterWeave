@@ -2463,14 +2463,11 @@ impl View {
             step: slint::Timer::default(),
             bar: slint::Timer::default(),
         };
-        let budgets = self.opening_budgets;
-        if opening.build.borrow_mut().advance(budgets.first_go) {
-            self.opening = Some(opening);
-            self.reader_built();
-            return;
-        }
-        // Nothing for half a second, then the bar until the rows are
-        // drawn (section 3, `ReaderOpening`).
+        // Nothing for half a second from the press's take, then the bar
+        // until the rows are drawn (section 3, `ReaderOpening`): started
+        // before the first go, since a timer's deadline is set when it
+        // starts and the first go holds the loop for up to its budget
+        // (#643 F2). An opening done within the first go drops it unfired.
         let window = swipe::weak(&self.window);
         opening
             .bar
@@ -2479,6 +2476,12 @@ impl View {
                     window.set_reader_opening_shown(true);
                 }
             });
+        let budgets = self.opening_budgets;
+        if opening.build.borrow_mut().advance(budgets.first_go) {
+            self.opening = Some(opening);
+            self.reader_built();
+            return;
+        }
         let (build, shared, seq) = (
             Rc::clone(&opening.build),
             Rc::clone(&self.shared),
