@@ -35,8 +35,14 @@ App 48833554, test 4db8c691, signer `26d1eb18`.
 `on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end`,
 six rounds: five passed (626 to 662 s each); round 2 lost its adb link
 (exit 255 on wireless) and is left out. Open, ms, median (min-max) of
-five, beside the A/B candidate of the same source
-(`2026-11-12-samsung-a40-pixel-9a.md`, overflow checks off):
+five, beside the A/B candidate (`2026-11-12-samsung-a40-pixel-9a.md`:
+source 6c8765943 with the opening's budgets patched to #643's values,
+overflow checks off). The two columns differ in source as well as in
+profile: between 6c8765943 and 6e52954cb, #643 moved an opening's end
+past the first go from a queued input to a flag taken once the queue
+drains, and started the bar's timer before the first go. Only openings
+that run past the first go reach either change, which here are the two
+stress shapes.
 
 | shape | release profile | candidate |
 |---|---|---|
@@ -52,8 +58,12 @@ five, beside the A/B candidate of the same source
 | distinct links | **1,311** (1,309-1,325) | 1,298 |
 
 End reached the body's last line in one frame on every shape, at most
-65 ms formatted and 24 ms source. The release settings move no shape by
-more than its own spread except the two stress shapes, by 13 and 38 ms.
+65 ms formatted and 24 ms source. No shape moves by more than its own
+spread except distinct headings, by 38 ms (spreads 27 and 29 ms);
+distinct links moves 13 ms, inside its 16 ms spread. The eight shapes
+built within the first go compare the profile alone, and it moves none
+of them past its spread; distinct headings' 38 ms is the profile and
+#643's change together, and this run does not separate them.
 
 ## Back while the reader opens
 
@@ -102,7 +112,8 @@ further; the probes are not in the tree.
 
 | case | result |
 |---|---|
-| the release profile changes the reader's open | no shape by more than 38 ms |
+| the release profile moves the reader's open, shapes built within the first go | none past its spread |
+| the same, the stress shapes | distinct headings by 38 ms, source and profile not separated |
 | End within 1 s, every shape | yes, one frame |
 | Back 0.2 s into an opening closes it to the conversation | yes |
 | Back 0.6 s into an opening closes it to the conversation | yes, every shape and round |
