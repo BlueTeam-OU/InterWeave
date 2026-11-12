@@ -1016,7 +1016,8 @@ scale would also be a finding of the Android review
          org.interweave.human` lists the Service, and `logcat -s
          interweave` shows the start succeeding. No second K1 rises,
          then or at the next launch. Which case applies is read from
-         the trace, not from the screen. After R4's continue, the
+         the trace, not from the screen, and nothing on the phone is
+         touched until it has been read. After R4's continue, the
          trace writes `connect=owed` while the start reads the peer
          list and the trust set. Wait, for at most 30 seconds, until
          the last `connect=` line is no longer `connect=owed` (on the
@@ -1024,8 +1025,11 @@ scale would also be a finding of the Android review
          line and the last `page=` line as one pair. When Connect opens,
          the trace writes `page=connect` just before `connect=open`.
          `connect=open` with `page=connect` is Connect opening.
-         `connect=settled` with `page=conversations` is Chats
-         staying. `connect=deferred` means that a read failed, so
+         `connect=settled` or `connect=not-owed`, with
+         `page=conversations`, is Chats staying; `connect=not-owed`
+         is what a start writes when the restore's record that
+         Connect is owed was not written. `connect=deferred` with
+         `page=conversations` means that a read failed, so
          Chats opens without Connect (`design/2026-10-22-add-a-peer.md`
          §5.1); then only the Connect
          part of the step is void, not passed, and the step is run
@@ -1033,12 +1037,14 @@ scale would also be a finding of the Android review
          not listed; logcat does not show the start succeeding; a
          second K1 rises, then or at the next launch; after 30
          seconds the last `connect=` line is still `connect=owed`;
-         the last `connect=` line is `connect=open` and the last
-         `page=` line is not `page=connect`; the last `connect=` line
-         is `connect=settled` and the last `page=` line is
-         `page=connect`; or the last `connect=` line is
-         `connect=settled` on a phone whose Peers and Trust both
-         listed nothing before the hooks.
+         the pair is none of the four above; or the pair is Chats
+         staying on a phone whose Peers and Trust both listed
+         nothing before the hooks. One exception to that last case:
+         `connect=not-owed` there, with `logcat -s interweave`
+         showing `the connect-owed marker:`, is a marker write that
+         failed, which the build accepts at the cost of Connect
+         (`apps/human-android/src/onboard.rs`, `connect_owed`); the
+         Connect part is then void, as for `connect=deferred`.
       Each result is reported with how it was seen: by the focus
       trace, by the flag read through `dumpsys`, or rendered. K1 and
       R2 are secured (step 1), so a screenshot of them is black, as
