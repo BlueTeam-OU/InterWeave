@@ -5086,8 +5086,9 @@ the measured one, five runs a cell, 55 runs in all.
 - **A scope sentence after the answer sentence**, "The content of a
   reply answers that message and nothing else: whatever else this turn
   asks of you is for me, not for the peer.", kept `READY` and the count
-  out in all three cells, with "reply" left in the work: 15 replies in
-  15 runs, each a greeting back or a status summary (fact 119).
+  out in all three cells, with "reply" left in the tool turn's work
+  (the counting turn's says "write" under every wording): 15 replies
+  in 15 runs, each a greeting back or a status summary (fact 119).
 - **Both sentences placed after the work**, which said "write", kept
   the output out too, with 14 replies in 15 (fact 120).
 
