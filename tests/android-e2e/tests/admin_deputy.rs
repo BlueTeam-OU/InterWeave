@@ -41,12 +41,13 @@ use interweave_android_e2e_cases::{
 };
 use interweave_android_e2e_tests::adb::AdbDevice;
 use interweave_android_e2e_tests::{
-    CaseRun, Desktop, Device, PATIENCE, PROFILE, free_port, human, try_provision,
+    CaseRun, Desktop, Device, PATIENCE, PROFILE, free_port, human, log_capture, try_provision,
 };
 use interweave_human_android_platform::e2e::HubClient;
 use interweave_human_android_platform::{ServiceHost, ServiceLaunch};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind, encode_outbound};
 use interweave_local_client_api::{DataSessionBinding as _, DataSessionPort as _};
+use interweave_profile_config::sections::LogLevel;
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_test_support::e2e::example;
 use interweave_transport_api::{
@@ -130,6 +131,16 @@ impl Device for AppStandIn {
         };
         let tap = Arc::clone(&self.tap);
         off_runtime(|| self.service.start_recording(launch, tap)).expect("the service starts");
+    }
+
+    /// The process's capture, which D's daemon (a child process) does
+    /// not write to: in this binary it is the Android side's alone.
+    fn log(&self) -> String {
+        log_capture::lines_from(0)
+    }
+
+    fn log_is_process_wide(&self) -> bool {
+        true
     }
 
     fn run_case(&self, case: &str, args: &serde_json::Value) -> CaseRun {
@@ -257,6 +268,8 @@ async fn admin_deputy<A: Device>(mut android: A) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn admin_shaped_messages_on_the_stand_in_reach_the_facade_and_change_nothing() {
+    log_capture::install();
+    log_capture::filter_at(LogLevel::Debug);
     admin_deputy(AppStandIn::new()).await;
 }
 
