@@ -13,11 +13,12 @@
 //! the app's own client: the facade, store and hub the app's service
 //! composed. It asserts that every payload was handed to the facade (the
 //! control showing the would-be deputy got them). It then asserts that
-//! the trust list, endpoint leases and bootstrap addresses, read through
-//! the Android side's own admin port, are unchanged. A change made
-//! through that port is seen by the same reads (the positive control).
-//! D's half asserts here that each send was accepted at the endpoint,
-//! so nothing was refused before the facade could see it.
+//! the endpoint leases and bootstrap addresses, read through the Android
+//! side's own admin port, are unchanged, and the trust list changed only
+//! by D, whom the case trusted. Positive controls: a trust change, an
+//! address add and a revoke of `human`, each made through that port,
+//! are seen by the same reads. D's half retries each send until it is
+//! accepted, and asserts the endpoint that accepted it was `human`.
 //!
 //! Two runs. On the host, the Android side is a stand-in for the app's
 //! process: the app's own `ServiceHost` over the embedded runtime,
@@ -250,23 +251,30 @@ async fn admin_deputy<A: Device>(mut android: A) {
         )
     };
     for (id, payload) in sends {
-        // Refused until the case trusts D, then accepted at the endpoint:
-        // D's half asserts nothing is refused once a route exists.
+        // Refused until the case trusts D, so every refusal is retried
+        // until accepted; the case, not D, checks each reached the facade.
+        // A case that ended first cannot trust D any more: its answer,
+        // not a routing timeout, says why.
         let until = tokio::time::Instant::now() + PATIENCE;
         loop {
-            match session.send_direct(to.clone(), id, payload.clone()).await {
-                Ok(endpoint) => {
-                    assert_eq!(endpoint, human(), "accepted at the human endpoint");
-                    break;
-                }
-                // Every refusal before the gate opens is expected, so the
-                // last one tells nothing: the logs say why.
-                Err(_) => assert!(
-                    tokio::time::Instant::now() < until,
-                    "no route to the Android side\n{}",
-                    log("not sent")
-                ),
+            if let Ok(endpoint) = session.send_direct(to.clone(), id, payload.clone()).await {
+                assert_eq!(endpoint, human(), "accepted at the human endpoint");
+                break;
             }
+            // Every refusal before the gate opens is expected, so the last
+            // one tells nothing: the case's answer and the logs say why.
+            assert!(
+                !run.is_finished(),
+                "the Android side ended before accepting a send: {}\n{}",
+                run.so_far(),
+                log("not sent")
+            );
+            assert!(
+                tokio::time::Instant::now() < until,
+                "no route to the Android side ({})\n{}",
+                run.so_far(),
+                log("not sent")
+            );
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
