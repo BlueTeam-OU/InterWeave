@@ -1061,6 +1061,114 @@ fn enter_queued_behind_the_discard_dialog_takes_nothing() {
     assert_eq!(page.typed(), "act");
 }
 
+/// Type `word`'s letters on `flow` until it is a chip, then take it.
+fn take_word(flow: &mut interweave_human_ui_model::IdentityFlow, word: &str) {
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    for letter in word.chars() {
+        if flow.picker().and_then(|p| p.chip(word)).is_some() {
+            break;
+        }
+        apply_identity(flow, IdentityInput::Key(letter));
+    }
+    apply_identity(flow, IdentityInput::Chip(word.to_owned()));
+}
+
+impl Identity {
+    /// TAB until `control` has focus, at most once round the page.
+    fn focus_on(&mut self, control: &str) {
+        let line = format!("ui-trace focus=identity-{control}");
+        for _ in 0..80 {
+            if self.last() == line {
+                return;
+            }
+            self.tab();
+        }
+        panic!("{control} never took focus");
+    }
+}
+
+/// Check my words, pressed by a Return queued behind the Escape that
+/// asks the discard dialog, checks nothing: in the order the keys came,
+/// the dialog was up (#634 review, pre-existing 1).
+#[test]
+fn check_queued_behind_the_discard_dialog_checks_nothing() {
+    use interweave_human_ui_model::{Effect, IdentityFlow, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    use slint::platform::Key;
+    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    apply_identity(&mut flow, IdentityInput::Secondary);
+    apply_identity(&mut flow, IdentityInput::Primary);
+    for word in &WORDS[..24] {
+        take_word(&mut flow, word);
+    }
+    assert!(
+        flow.entry()
+            .is_some_and(interweave_human_ui_model::PhraseEntry::complete),
+        "control: full"
+    );
+    let mut page = Identity::new(flow);
+    page.focus_on("primary");
+    page.burst(&letters_then("", &[Key::Escape, Key::Return]));
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Back, IdentityInput::Primary],
+        "control: the stale page let the Return through"
+    );
+    assert!(page.flow.discard_asked(), "the dialog stays up");
+    assert_eq!(page.flow.screen(), ScreenId::R2);
+    page.flow.discard(false);
+    assert_eq!(
+        page.flow.primary(),
+        [Effect::Check(WORDS[..24].join(" "))],
+        "no check was started behind the dialog"
+    );
+}
+
+/// C3's Try again and Show words again, pressed by a Return queued
+/// behind the Escape that asks the discard dialog, do nothing (#634
+/// review, pre-existing 1).
+#[test]
+fn c3s_try_again_queued_behind_the_discard_dialog_does_nothing() {
+    c3s_action_queued_behind_the_dialog(
+        "secondary",
+        &interweave_human_ui_slint::IdentityInput::Secondary,
+    );
+}
+
+/// As above, for Show words again.
+#[test]
+fn c3s_show_words_again_queued_behind_the_discard_dialog_does_nothing() {
+    c3s_action_queued_behind_the_dialog(
+        "tertiary",
+        &interweave_human_ui_slint::IdentityInput::Tertiary,
+    );
+}
+
+fn c3s_action_queued_behind_the_dialog(
+    control: &str,
+    input: &interweave_human_ui_slint::IdentityInput,
+) {
+    use interweave_human_ui_model::ScreenId;
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_c3();
+    take_word(&mut page.flow, "galaxy");
+    take_word(&mut page.flow, "habit");
+    assert_eq!(page.flow.check(), Some((20, Some(20))), "control: wrong");
+    page.settle();
+    page.take();
+    page.focus_on(control);
+    page.burst(&letters_then("", &[Key::Escape, Key::Return]));
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Back, input.clone()],
+        "control: the stale page let the Return through"
+    );
+    assert!(page.flow.discard_asked(), "the dialog stays up");
+    assert_eq!(page.flow.screen(), ScreenId::C3);
+    assert_eq!(page.flow.check(), Some((20, Some(20))), "nothing acted");
+}
+
 /// C3 by keyboard: letters and Enter in one burst take the word and move
 /// to the second position, focus on the first enabled key (#634 F3).
 #[test]
