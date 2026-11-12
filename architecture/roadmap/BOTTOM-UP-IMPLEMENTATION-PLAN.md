@@ -5066,8 +5066,8 @@ it with no event and no count under any reason, so the count is what
 tells the two refusals apart. Still carried: a second host.
 
 **Dated note, 2026-11-12 (SPIKE-001 S35, rust-services-dev, Claude
-Code 2.1.322, the fleet's pin, facts 117–120).** The leak the note
-above carried was taken up, at architect-cto's request: whether a
+Code 2.1.322, the fleet's pin, facts 117–120).** The leak the S34
+note (#635) above carried was taken up, at architect-cto's request: whether a
 first-turn wording keeps that turn's other output away from the peer
 while keeping the reply rate. With the release bridge across two
 daemons, in the three cells where S34 measured it (a greeting and a
@@ -5090,7 +5090,7 @@ the measured one, five runs a cell, 55 runs in all.
 
 So one wording held where the leak was measured: the answer sentence
 followed by the scope sentence, in the first user turn. The rule the
-note above states is unchanged, and the bridge too; the sentence for
+S34 note states is unchanged, and the bridge too; the sentence for
 `packaging/claude-plugin/INSTALL.md`'s headless bullet is proposed to
 architect-cto. Carried: the scope sentence in the cells S35 did not
 run (an idle wait, a question, other work), why two request runs of
