@@ -25,20 +25,25 @@ release build answers only once the identity record exists.
 
 Every adb step ran on this login's own adb server, and no adb process
 of this login remained after the run (`pgrep -u "$(id -u)" -a adb`
-empty). Both phones' clocks print UTC+4 in `dumpsys` and logcat
+empty). The lease windows are given to the minute; the A40's last
+call, the `dumpsys` read below, was at 12:45:13Z. Both phones'
+clocks print UTC+4 in `dumpsys` and logcat
 (`16:36:56` below is 12:36:56Z); every time in prose is UTC.
 
 The two APKs are the release assets, downloaded from the release pages
 with `gh release download` and checked against their `.sha256` assets
 (`sha256sum -c`, both `OK`); `v0.3.0`'s hash is also the one its
 release page gives. `apksigner verify --print-certs` reports one signer
-for both, v3 only, and `aapt2 dump badging` the versions:
+for both, and `aapt2 dump badging` the versions:
 
 | asset | SHA-256 | certificate SHA-256 | versionCode | versionName |
 |---|---|---|---|---|
 | `interweave-0.2.0-arm64-v8a.apk` | `5aadbfca9cc80a5d…` | `a7f38b5e32aec4b8…` | 2 | 0.2.0 |
 | `interweave-0.3.0-arm64-v8a.apk` | `3b89be89c161fd4e…` | `a7f38b5e32aec4b8…` | 3 | 0.3.0 |
 
+In full, `v0.3.0`'s is
+`3b89be89c161fd4ed372fbacf22b627c11fe21701e6405dbc45b9be410553c5e`;
+`v0.2.0`'s and the certificate's are in `packaging/android/README.md`.
 `a7f38b5e…` is the certificate the `v0.3.0` release page names as the
 same for every release. On the phones `dumpsys package` prints that
 signer as `520af074`.
@@ -70,7 +75,8 @@ seal an identity, plan §22) and stopped after five seconds with
 are as the owner read them; the host read the log and `dumpsys`.
 
 **Pixel 9a.** `v0.2.0` installed at 12:34:38Z (`Success`): versionCode
-2, signer `520af074`, first install and last update 16:34:38.
+2, signer `520af074`, first install and last update 12:34:38Z
+(16:34:38 local).
 `v0.3.0` over it with `-r` at 12:35:01Z:
 
 ```text
@@ -97,7 +103,7 @@ at about 12:36:55Z and bound by the activity (`startForegroundCount=0`).
 
 **Samsung A40.** `v0.2.0` installed at 12:42:10Z (`Success`):
 versionCode 2, signer `520af074`, first install and last update
-16:42:10. `v0.3.0` over it with `-r` at 12:42:49Z:
+12:42:10Z (16:42:10 local). `v0.3.0` over it with `-r` at 12:42:49Z:
 
 ```text
 Performing Streamed Install
