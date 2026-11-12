@@ -5042,6 +5042,29 @@ note above carried were taken up, at architect-cto's request.
   left out for the cost), another model, and the rest of S32 (b)'s
   list as it stands.
 
+**Dated note, 2026-11-12 (rust-services-dev, the release bridge
+across two daemons, no host).** The carried item "a 256-byte card name
+across real daemons", unit-tested until then in channel-core's
+`the_widest_legal_card_name_fits_and_one_byte_more_does_not`, was
+measured by `tests/desktop-e2e/tests/claude_channel.rs`'s
+`the_widest_legal_card_name_reaches_the_model_whole_and_one_byte_more_is_dropped`,
+the shipped bridge on A and a data session on B's `human`, one run.
+A card whose name is 64 scalars of four bytes, 256 bytes, reached the
+bridge's host as one event with `content` empty and `meta.card_name`
+the name as sent, 256 bytes, written raw and unescaped on the host
+line; that line was 847 bytes, and the event's pulled form 858. A
+card one byte longer, 257 bytes and 65 scalars, signed over its own
+canonical bytes so that the name was its only fault, cannot reach the
+bridge's meta bound from a peer: the card parser refuses it first, as
+`name`. The bridge wrote no event for it, the text sent after it being
+the next notification, and `status.dropped_cards` counted it under
+`name` and nothing else. Two mutations, one run each, made the test
+fail: the meta bound refusing at 256 bytes rather than past it left
+the widest card with no event at all; the parser admitting 65 scalars
+let the longer card past it to the bridge's own bound, which refused
+it with no event and no count under any reason, so the count is what
+tells the two refusals apart. Still carried: a second host.
+
 ## 20. Stage 17 — Android human client
 
 ### Prerequisites
