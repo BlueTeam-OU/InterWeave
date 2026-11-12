@@ -886,6 +886,30 @@ a refusal other than a misnamed argument, and how a turn goes on after
 one; a model other than `claude-sonnet-5-5`; and a conversation longer
 than one turn.
 
+**Carried measurement, S35 (2026-11-12, Claude Code 2.1.322, the
+fleet's pin, rust-services-dev, plan §19): a scope sentence after the
+answer sentence kept the first turn's other output away from the peer
+in the three cells where S34 measured the leak, and kept the reply
+rate.** Read off `spikes/spike-001/README.md` §S35 (facts 117–120).
+55 print sessions `s35-reply-*` at `331156b6e`, on S34's (2) setup
+unchanged, 5,711,460 tokens: a greeting and a request to call `status`
+joining a tool-calling first turn, and a greeting during the counting
+turn, five runs each of the measured first turn and of three
+wordings. The control's replies carried `READY` or the count in 11 of
+14, one request run getting none (117). "Write" for "reply" in the
+work kept `READY` out of 10 replies in 10 runs where the message
+joined a tool turn, and was not run in the count cell, whose work
+already said "write" (118). The scope sentence, "The content of a
+reply answers that message and nothing else: whatever else this turn
+asks of you is for me, not for the peer.", straight after the answer
+sentence with the work unchanged, got 15 replies in 15 runs and none
+leaked (119). Both sentences after the work, which said "write", got
+14 in 15 and none leaked (120). What this changes in the bridge:
+nothing. Not established: the scope sentence after an idle wait, with
+a question or with other work; why two request runs of 20 got no
+reply; the rate beyond five runs a cell; another model; a build after
+2.1.322; and a conversation longer than one turn.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior
