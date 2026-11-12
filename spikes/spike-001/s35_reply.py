@@ -19,7 +19,8 @@ user turn differs, by ``<told>``:
                ``prompt``'s says "reply"; ``tool`` only, since its
                ``text`` turn is ``prompt``'s word for word
   ``prompts``  ``prompt`` with SCOPE after the answer sentence, the work
-               unchanged ("reply with the single word READY" kept)
+               unchanged ("reply with the single word READY" kept in the
+               ``tool`` work; the ``text`` work says "write" as ``prompt``'s does)
   ``prompta``  the work first, saying "write", then the answer sentence
                and SCOPE after it: placement, with both changes
 

@@ -752,7 +752,11 @@ tool with an effect; a message in a conversation longer than one turn;
 and, for both parts, a model other than `claude-sonnet-5-5` and a
 build other than 2.1.311 (all eight of (a)'s cells run on 2.1.322,
 above; four of (b)'s cells run on 2.1.322 with the release bridge and
-two daemons by S33, below).
+two daemons by S33, below; three wordings of the first user turn run
+there by S35, below, in the three cells where that turn's other output
+had reached the peer, a scope sentence after the answer sentence
+keeping `READY` and the count out, while why a greeting during a counting turn got the count stays not
+established).
 
 **Carried measurement, S33 (2026-11-11, Claude Code 2.1.322, the
 fleet's pin, rust-services-dev, plan §19): the revision is still not
@@ -810,7 +814,8 @@ listed whether the gate in the 2.1.322 binary is still the era check
 fact 36 read, which S34 has since read from that binary, below);
 S32 (b)'s other 29 cells on 2.1.322 or with the real bridge (`none`,
 `promptw`, and every `greet`, `task` and `text` cell; eight of them
-run since by S34, below, and 21 not); what made the `READY` leak and
+run since by S34 and two by S35, below, and 19 not); what made the
+`READY` leak and
 the misnamed argument absent;
 whether a reply changes with what `status` answers, the bridge
 reporting the drivers' scratch configuration directory as not private
@@ -877,7 +882,8 @@ turn and expects that turn's other output to reach the peer. Not
 established: that the code read is the code that runs on every path,
 one gate function found and fact 99's run taking it; a build after
 2.1.322; the 21 cells not run on 2.1.322 or with the real bridge, the
-nine `none`, the six `promptw` and the six left out; whether the first
+nine `none`, the six `promptw` and the six left out (two of the
+`promptw` run since by S35, below, and 19 not); whether the first
 turn's own work would be done again for a request that is not the
 work's tool; why the count leaks into a greeting's reply and not a
 question's; whether a private configuration directory changes a reply,
@@ -899,7 +905,9 @@ wordings. The control's replies carried `READY` or the count in 11 of
 14, one request run getting none (117). "Write" for "reply" in the
 work kept `READY` out of 10 replies in 10 runs where the message
 joined a tool turn, and was not run in the count cell, whose work
-already said "write" (118). The scope sentence, "The content of a
+already said "write" (118); those runs are S32 (b)'s
+`promptw-greet-tool` and `promptw-task-tool`, so fourteen of its 33
+cells are run on 2.1.322 with the bridge and 19 are not. The scope sentence, "The content of a
 reply answers that message and nothing else: whatever else this turn
 asks of you is for me, not for the peer.", straight after the answer
 sentence with the work unchanged, got 15 replies in 15 runs and none
