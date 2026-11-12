@@ -46,10 +46,14 @@ use interweave_transport_api::{
 };
 use serde_json::{Map, Value};
 
+mod admin_deputy;
 mod human_chat;
 mod pairing;
 mod store;
 
+pub use admin_deputy::{
+    AdminShapedArgs, CLOSE_SERIAL as ADMIN_SHAPED_CLOSE, admin_shaped, admin_text,
+};
 pub use human_chat::{
     AppClient, Handed, HumanChatArgs, Recording, RecordingSession, Tap, chat_text,
     desktop_message_id, parse_payloads,
@@ -138,6 +142,9 @@ pub mod keys {
     /// joined by [`super::UNREAD_SEPARATOR`] ([`super::unread_ids`]
     /// splits them).
     pub const UNREAD: &str = "unread";
+    /// [`super::cases::ADMIN_SHAPED`]: how many admin-shaped payloads
+    /// the facade was handed and the state survived, as TEXT.
+    pub const HANDED: &str = "handed";
     /// [`RESULT`] of a case that held.
     pub const PASS: &str = "pass";
     /// [`RESULT`] of a case that did not, or could not run.
@@ -185,6 +192,12 @@ pub mod cases {
     /// `HumanChatV2` with the desktop on the app's own client, both ways,
     /// plain and `;ce=br`. Arguments: [`super::HumanChatArgs`].
     pub const HUMAN_CHAT: &str = "human_chat";
+
+    /// TM-42: admin requests from the desktop, raw and as a chat message,
+    /// handed to the app's own client and changing nothing an admin port
+    /// would. Arguments: [`super::AdminShapedArgs`]; answers
+    /// [`super::keys::HANDED`].
+    pub const ADMIN_SHAPED: &str = "admin_shaped";
 
     /// Plan §29 (e), the first device row: an address added for a trusted
     /// peer through the binding is dialled, and survives a restart as an
@@ -255,7 +268,7 @@ pub mod cases {
     /// The cases a runner must have the app's service serving for in
     /// full -- runtime, store, facade and hub -- handing the case
     /// [`super::CaseCtx::client`].
-    pub const NEED_THE_CLIENT: &[&str] = &[HUMAN_CHAT];
+    pub const NEED_THE_CLIENT: &[&str] = &[HUMAN_CHAT, ADMIN_SHAPED];
 }
 
 /// How long a case waits for a route, a message or a notice when its
@@ -453,6 +466,20 @@ fn dispatch<B: DataSessionBinding + AdminBinding>(
                 client.as_mut(),
                 &args,
                 &ctx.app_data_dir,
+            )?);
+        }
+        cases::ADMIN_SHAPED => {
+            let args = AdminShapedArgs::from_json(&args)?;
+            let binding = ctx
+                .binding
+                .ok_or_else(|| "no runtime is serving: start the app's service first".to_owned())?;
+            let mut client = ctx.client.ok_or_else(|| {
+                "the app's client is not serving: start the app's service first".to_owned()
+            })?;
+            out.extend(admin_deputy::admin_shaped_case(
+                &binding,
+                client.as_mut(),
+                &args,
             )?);
         }
         other => return Err(format!("no case is named {other:?}")),
