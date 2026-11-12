@@ -20,7 +20,7 @@ use interweave_human_core::RowId;
 use interweave_human_ui_model::{
     ConversationKey, Intent, RuntimeHost, UiModel, UiText, placeholder_en,
 };
-use interweave_human_ui_slint::{View, ViewEvent};
+use interweave_human_ui_slint::{INPUT_CAP, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use std::time::Duration;
@@ -1664,6 +1664,41 @@ fn a_slow_opening_shows_nothing_then_its_bar_until_the_rows_are_in() {
         "no bar once the rows are in"
     );
     assert_eq!(view.window().get_reader_link_rows().row_count(), 3000);
+}
+
+/// The end of an opening is not a press: built while the queue holds
+/// `INPUT_CAP` presses the root has not taken, the rows still come in at
+/// the next take, and nothing more is counted refused (#643 F1).
+#[test]
+fn an_opening_that_ends_with_the_queue_full_still_shows_its_rows() {
+    let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &many_places()));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "control: still opening"
+    );
+    for _ in 0..=INPUT_CAP {
+        view.window().invoke_send();
+    }
+    assert_eq!(view.refused_inputs(), 1, "control: the queue is full");
+    // Every row built while nothing is taken.
+    for _ in 0..200 {
+        after(16);
+    }
+    while !view.take_events(&model).is_empty() {}
+    assert_eq!(view.refused_inputs(), 1, "the end is not refused");
+    assert_eq!(view.window().get_reader_link_rows().row_count(), 3000);
+    assert!(
+        labelled(&view, text(UiText::ReaderOpening)).is_empty(),
+        "no bar once the rows are in"
+    );
 }
 
 /// A body built within the first go opens with its rows, no turn taken

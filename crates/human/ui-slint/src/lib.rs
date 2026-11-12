@@ -317,9 +317,6 @@ enum Input {
     OpenWhole(ItemKey, bool),
     /// The reader's Back, or Escape.
     ReaderClosed,
-    /// The rows of the reader opening as `seq` are all built
-    /// ([`Opening`]).
-    ReaderBuilt(u64),
     /// The notice's action, with the notice that was shown.
     Notice(SessionNotice),
     /// A link's control, with the destination as rendered: the model
@@ -447,6 +444,12 @@ struct Shared {
     /// flag: every take closes a conversation's snackbar while that
     /// conversation is off screen.)
     pane_moved: bool,
+    /// The reader opening whose rows its step timer has all built, as
+    /// its `seq` ([`Opening`]): held outside the queue, since the timer
+    /// tells it once and a full queue would refuse it as a press, leaving
+    /// the reader empty for good (#643 F1). Taken once the queue has
+    /// drained, so a close or another opening in it comes first.
+    reader_built: Option<u64>,
     notice: Option<SessionNotice>,
     /// A notice shown once in Chats' notice slot, under any session notice
     /// and the offline line, until its Close: what a discard of the store
@@ -2109,10 +2112,7 @@ impl View {
                         out.push(ViewEvent::IdentifierCopied(key));
                     }
                 }
-                Input::MessageCopied
-                | Input::OpenWhole(..)
-                | Input::ReaderClosed
-                | Input::ReaderBuilt(_) => {
+                Input::MessageCopied | Input::OpenWhole(..) | Input::ReaderClosed => {
                     out.extend(self.long_message_input(&input));
                 }
                 Input::Link(destination) => {
@@ -2233,6 +2233,10 @@ impl View {
     /// The end of a take, once the queue has drained: the selection
     /// rendered, an off-screen snackbar closed and what is on screen read.
     fn take_drained(&mut self, model: &UiModel, out: &mut Vec<ViewEvent>) {
+        let built = self.shared.borrow_mut().reader_built.take();
+        if built.is_some() && built == self.opening.as_ref().map(|opening| opening.seq) {
+            self.reader_built();
+        }
         // A selection is shown by the take that resolves it. A root renders
         // and then takes, so a press that yields no intent -- nothing
         // unread, or the window unfocused -- gives the root no reason for
@@ -2403,16 +2407,6 @@ impl View {
                 self.open_reader(*key, *as_source);
                 None
             }
-            Input::ReaderBuilt(seq) => {
-                if self
-                    .opening
-                    .as_ref()
-                    .is_some_and(|opening| opening.seq == *seq)
-                {
-                    self.reader_built();
-                }
-                None
-            }
             Input::ReaderClosed => {
                 if let Some(open) = self.close_reader() {
                     // Back on the row's Open the whole message, the
@@ -2498,7 +2492,7 @@ impl View {
                     .try_borrow_mut()
                     .is_ok_and(|mut build| build.advance(budgets.turn));
                 if done {
-                    enqueue(&shared, Input::ReaderBuilt(seq));
+                    flag(&shared, |shared| shared.reader_built = Some(seq));
                 }
             },
         );
