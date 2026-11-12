@@ -27,7 +27,8 @@ with its native library compiled at the root `Cargo.toml`'s
 `[profile.release]` settings, passed as `CARGO_PROFILE_DEV_*`: opt-level
 3, thin LTO, one codegen unit, debug 1, overflow checks **on**, debug
 assertions off, no incremental. rustc's command lines were read to carry
-`-C opt-level=3 -C codegen-units=1 -C debuginfo=1 -C overflow-checks=on`.
+`-C opt-level=3 -C codegen-units=1 -C debuginfo=1 -C overflow-checks=on`;
+the LTO setting was not read there.
 App 48833554, test 4db8c691, signer `26d1eb18`.
 
 ## The reader's open, five rounds (17:46 to 18:47Z)
@@ -82,8 +83,13 @@ message.
 
 **0.6 s, four shapes**
 (`on_a_device_back_past_the_first_go_closes_the_reader_to_its_conversation`,
-04aafce7a; two shapes three rounds 18:51 to 19:05Z, four shapes three
-rounds 19:10 to 19:38Z, all passed, recorded):
+committed after the runs as 04aafce7a; the first three rounds,
+18:51 to 19:05Z, ran an earlier form of it on heading autolinks and
+reference link only, the next three, 19:10 to 19:38Z, the four shapes;
+all passed, recorded. The case as run accepted focus on any row's Open
+the whole message and stamped the Back just before its launch; since
+411214b42 and 9b3a49736 it asks for the opened row's and stamps after
+the launch, and that form has not run on the phone):
 
 | shape | Back arrived | closed | close after Back | rows drawn first |
 |---|---|---|---|---|
@@ -92,12 +98,13 @@ rounds 19:10 to 19:38Z, all passed, recorded):
 | distinct headings | 676 ms | 1,636 ms | 960 ms | no; rows never drawn in two of three |
 | distinct links | 657-679 ms | 1,553-1,569 ms | 874-908 ms | no |
 
-Alone in a conversation heading autolinks and reference link open in
-0.25 and 0.41 s, so their Back lands after the rows. On the stress
+In these runs heading autolinks and reference link had their rows
+drawn at 249-263 and 384-417 ms (the trace's `reader=drawn`), so their
+Back lands after the rows. On the stress
 shapes it lands inside the opening: the recordings show the empty
 reader, then the opening's indeterminate bar moving, and the close only
 when the build ends, 0.87 to 0.96 s after the Back. Every close is to the
-conversation, focus on the row's Open the whole message.
+conversation, focus on an Open the whole message (the check as run).
 
 **Where the Back is held.** Two probe builds (21:10Z, app 6025fae2; and
 21:34Z, app 80840ce0, the opening's step timer at 16 ms instead of 1 ms)
