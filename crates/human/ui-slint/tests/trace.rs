@@ -800,6 +800,19 @@ impl Identity {
         self.settle();
     }
 
+    /// Keys dispatched in one batch, before the inputs they queued are
+    /// applied: as an event loop that drains every pending input event
+    /// before its timers run hands them over.
+    fn burst(&mut self, keys: &[slint::SharedString]) {
+        use slint::platform::WindowEvent;
+        let window = self.view.window().window();
+        for text in keys {
+            window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+            window.dispatch_event(WindowEvent::KeyReleased { text: text.clone() });
+        }
+        self.settle();
+    }
+
     fn tab(&mut self) {
         self.key(slint::platform::Key::Tab);
     }
@@ -829,6 +842,19 @@ impl Identity {
 
     fn last(&self) -> String {
         self.said.borrow().last().cloned().unwrap_or_default()
+    }
+
+    /// The word the restore holds at `position`.
+    fn word(&self, position: usize) -> Option<&'static str> {
+        self.flow.entry().and_then(|entry| entry.word(position))
+    }
+
+    /// The letters typed at the position being entered.
+    fn typed(&self) -> String {
+        self.flow
+            .picker()
+            .map(|picker| picker.typed().to_owned())
+            .unwrap_or_default()
     }
 
     /// What the page's controls did since the last call.
@@ -942,8 +968,13 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
     page.enter();
     assert_eq!(
         page.take(),
-        [IdentityInput::Delete, IdentityInput::Key('a')]
+        [
+            IdentityInput::Delete,
+            IdentityInput::Key('a'),
+            IdentityInput::Enter
+        ]
     );
+    assert_eq!(page.typed(), "a", "no chip taken, no key pressed");
     for letter in ["c", "t"] {
         page.key(letter);
     }
@@ -955,16 +986,47 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
         "control: act, action, actor"
     );
     page.enter();
-    assert_eq!(page.take(), [IdentityInput::Chip("act".to_owned())]);
+    assert_eq!(page.take(), [IdentityInput::Enter]);
+    assert_eq!(page.word(1), Some("act"));
     // Still typing after the rule's Enter: Space and Enter add nothing to
     // the key focus went to.
     page.key(" ");
     page.enter();
-    assert_eq!(page.take(), [], "typing: Space and Enter press no key");
+    assert_eq!(page.take(), [IdentityInput::Enter], "Space sends nothing");
+    assert_eq!(page.typed(), "", "typing: Space and Enter press no key");
     // TAB is navigating again: Enter presses the focused key, w after q.
     page.tab();
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Key('w')]);
+}
+
+/// Enter judged on the letters typed, not on the page shown: letters and
+/// Enter that reach the window before the page is rebuilt for them take
+/// the whole-word chip all the same (j261).
+#[test]
+fn enter_takes_the_whole_word_typed_before_the_page_caught_up() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    let keys: Vec<slint::SharedString> = ["a", "c", "t"]
+        .into_iter()
+        .map(Into::into)
+        .chain([slint::platform::Key::Return.into()])
+        .collect();
+    page.burst(&keys);
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('a'),
+            IdentityInput::Key('c'),
+            IdentityInput::Key('t'),
+            IdentityInput::Enter,
+        ]
+    );
+    let entry = page.flow.entry().expect("still R2");
+    assert_eq!(entry.word(0), Some("act"), "the whole word was taken");
+    assert_eq!(entry.picker().typed(), "");
+    // The chip's focus rule followed the page that showed it taken.
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
 }
 
 /// The platform's text size: 14 px is 100 %, as Android's font scale
@@ -993,10 +1055,8 @@ fn r2s_grid_is_a_full_list_behind_a_button_over_130_percent() {
         page.key(letter);
     }
     page.enter();
-    assert_eq!(
-        page.take().last(),
-        Some(&IdentityInput::Chip("act".to_owned()))
-    );
+    assert_eq!(page.take().last(), Some(&IdentityInput::Enter));
+    assert_eq!(page.word(0), Some("act"));
     assert_eq!(
         page.flow
             .entry()
@@ -1092,7 +1152,8 @@ fn r2s_grid_is_a_full_list_behind_a_button_over_130_percent() {
     assert_eq!(page.last(), "ui-trace focus=identity-key");
     // In typing mode: Enter is the suggestion rule's, taking "act".
     page.enter();
-    assert_eq!(page.take(), [IdentityInput::Chip("act".to_owned())]);
+    assert_eq!(page.take(), [IdentityInput::Enter]);
+    assert_eq!(page.word(0), Some("act"));
 
     // The text back to 100 % closes the list onto the grid.
     page.backtab();
@@ -1222,13 +1283,8 @@ fn the_discard_dialog_takes_focus_holds_it_and_gives_it_back() {
     let mut page = Identity::at_r2();
     page.key("o");
     page.enter();
-    assert_eq!(
-        page.take(),
-        [
-            IdentityInput::Key('o'),
-            IdentityInput::Chip("oak".to_owned())
-        ]
-    );
+    assert_eq!(page.take(), [IdentityInput::Key('o'), IdentityInput::Enter]);
+    assert_eq!(page.word(0), Some("oak"));
     // Focus on w, the second key.
     page.tab();
     page.key(Key::Escape);
@@ -1332,13 +1388,8 @@ fn a_row_whose_word_no_letter_continues_focuses_delete() {
     text_size(&mut page, 28.0);
     page.key("o");
     page.enter();
-    assert_eq!(
-        page.take(),
-        [
-            IdentityInput::Key('o'),
-            IdentityInput::Chip("oak".to_owned())
-        ]
-    );
+    assert_eq!(page.take(), [IdentityInput::Key('o'), IdentityInput::Enter]);
+    assert_eq!(page.word(0), Some("oak"));
     tab_to(&mut page, "ui-trace focus=identity-review");
     page.enter();
     page.backtab();
@@ -1359,7 +1410,8 @@ fn a_row_whose_word_no_letter_continues_focuses_delete() {
     // Typing: Enter is the suggestion rule's, taking the whole word, not
     // the focused delete.
     page.enter();
-    assert_eq!(page.take(), [IdentityInput::Chip("oak".to_owned())]);
+    assert_eq!(page.take(), [IdentityInput::Enter]);
+    assert_eq!(page.word(0), Some("oak"));
 }
 
 /// Back from R2 that K1 opened puts focus on K1's "Enter my phrase"
@@ -1465,7 +1517,8 @@ fn r2_and_c3_open_on_the_first_enabled_key_typing() {
     page.enter();
     page.key(" ");
     page.enter();
-    assert_eq!(page.take(), [], "typing: nothing to take, q not pressed");
+    assert_eq!(page.take(), [IdentityInput::Enter, IdentityInput::Enter]);
+    assert_eq!(page.typed(), "", "typing: nothing to take, q not pressed");
     for letter in ["a", "c"] {
         page.key(letter);
     }
@@ -1474,7 +1527,16 @@ fn r2_and_c3_open_on_the_first_enabled_key_typing() {
     page.enter();
     assert_eq!(
         page.take(),
-        [IdentityInput::Key('a'), IdentityInput::Key('c')],
+        [
+            IdentityInput::Key('a'),
+            IdentityInput::Key('c'),
+            IdentityInput::Enter,
+            IdentityInput::Enter
+        ],
+    );
+    assert_eq!(
+        page.typed(),
+        "ac",
         "three words fit ac: Enter and Space take nothing"
     );
     page.key("t");
@@ -1482,22 +1544,23 @@ fn r2_and_c3_open_on_the_first_enabled_key_typing() {
     page.key(" ");
     assert_eq!(
         page.take(),
-        [
-            IdentityInput::Key('t'),
-            IdentityInput::Chip("act".to_owned())
-        ],
-        "the whole word's chip, then Space nothing"
+        [IdentityInput::Key('t'), IdentityInput::Enter],
+        "Space sends nothing"
     );
+    assert_eq!(page.word(0), Some("act"), "the whole word's chip");
+    assert_eq!(page.typed(), "", "then Space nothing");
 }
 
 /// C3 opens on the first enabled key, typing, as R2 does (section 8).
 #[test]
 fn c3_opens_on_the_first_enabled_key_typing() {
+    use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_c3();
     assert_eq!(page.last(), "ui-trace focus=identity-key");
     page.enter();
     page.key(" ");
-    assert_eq!(page.take(), [], "C3 opens typing too");
+    assert_eq!(page.take(), [IdentityInput::Enter]);
+    assert_eq!(page.typed(), "", "C3 opens typing too: q not pressed");
 }
 
 /// Back from R2 puts focus on R1's "Enter my words", which opened it
@@ -1525,10 +1588,11 @@ fn back_from_r2_focuses_what_opened_it() {
         [
             IdentityInput::Primary,
             IdentityInput::Key('o'),
-            IdentityInput::Chip("oak".to_owned())
+            IdentityInput::Enter
         ],
         "control: R2 again, a word entered"
     );
+    assert_eq!(page.word(0), Some("oak"));
     page.key(Key::Escape);
     assert!(page.flow.discard_asked(), "control: a word entered");
     page.tab();
@@ -1576,12 +1640,10 @@ fn closing_the_dialog_restores_the_mode_of_backs_moment() {
     page.enter();
     assert_eq!(
         page.take(),
-        [
-            IdentityInput::Key('o'),
-            IdentityInput::Chip("oak".to_owned())
-        ],
+        [IdentityInput::Key('o'), IdentityInput::Enter],
         "control: typing, a word entered, focus on q"
     );
+    assert_eq!(page.word(0), Some("oak"));
     page.key(Key::Escape);
     assert!(page.flow.discard_asked(), "control: the dialog shows");
     page.tab();
@@ -1592,9 +1654,13 @@ fn closing_the_dialog_restores_the_mode_of_backs_moment() {
     page.enter();
     assert_eq!(
         page.take(),
-        [IdentityInput::Back, IdentityInput::Back],
-        "typing again: Enter presses no key"
+        [
+            IdentityInput::Back,
+            IdentityInput::Back,
+            IdentityInput::Enter
+        ],
     );
+    assert_eq!(page.typed(), "", "typing again: Enter presses no key");
 }
 
 /// Arrows move focus to the nearest stop their way (section 8), a
