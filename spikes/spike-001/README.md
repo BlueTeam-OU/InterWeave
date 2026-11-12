@@ -634,7 +634,7 @@ No probe was cited, and none was counted. A first attempt at `small-plain-d2-1` 
     - **Where a fact sat:** each run recalled every fact at the head, middle and end (6 of 6 at each position). In `small-plain-d2`, none were recalled at any position (fact 90's counts, for these two cells).
     - **No other value:** of the 36 questions, 18 answers held the value and 18 were "unknown", and none held another value. This is fact 91 again.
 
-Not established by these two cells: what S32 (a) does not establish, apart from its "cells not run". In particular, the rate at which values are kept beyond three runs a cell, and the host's own window. These runs used 2.1.311, not the fleet's current pin, 2.1.322.
+Not established by these two cells: what S32 (a) does not establish, apart from its "cells not run". In particular, the rate at which values are kept beyond three runs a cell, and the host's own window. These runs used 2.1.311, not the fleet's current pin, 2.1.322; the same two cells on 2.1.322 are in the section after S33 (facts 104 to 106).
 
 What this changes in the bridge: nothing. The bridge delivers an event whole. What it changes for a deployment is S32 (a)'s counts: without the note, two compactions kept no value in six runs of six; with it, they kept every value in five runs of six.
 
@@ -687,6 +687,55 @@ Not established by S33: each fact's own, above.
 
 What this changes in the bridge: nothing. The bridge stays in the legacy era, which 2.1.322 still registers (facts 99 and 100). A deployment says the answer sentence in the first user turn, as INSTALL.md says: on 2.1.322 with the real bridge, the sentence only in the server's instructions again got no reply from a message that joined a tool-calling turn (fact 101).
 
+## S32 (a)'s two small cells at two compactions on the fleet's pin, 2.1.322 (plan §19)
+
+Run on 2026-11-11 by `s32_compact.py` at `663e21757`, at architect-cto's request, after #626. The fleet's pin is 2.1.322, and every S32 (a) count above is on 2.1.311, so these runs repeat the two cells that carry the recommendation, `small-plain-d2` and `small-note-d2`, on 2.1.322. The driver is the one facts 97 and 98 ran, with one change: `663e21757` added a `-b<build>` segment to the run name, so these runs sit beside the 2.1.311 runs and do not replace them. A name whose build is not the one `SPIKE_CLAUDE` reports is refused. Everything else is the setup of facts 97 and 98:
+- the stub;
+- `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000`;
+- `--model claude-sonnet-5-5`;
+- Claude Code 2.1.322, installed into a scratch `HOME` and named with `SPIKE_CLAUDE`; each run's `run.json` records `claude_version` 2.1.322.
+
+The first run, `small-plain-d2-b2.1.322-1`, was run alone, to stop if the host compacted at another point. It did not, so the other five followed in one detached campaign. At `663e21757` the driver stamped a run's `tree` with `HEAD` alone (since `e41874b4a` it also records `tree_dirty`, the paths that differed from it). All six started between 19:54 and 19:59 UTC (`started_at`), after `663e21757` was committed and before any tracked file changed, so the stamp names the code that ran. Each run records exit status 0, the process group empty after the close, and `target_replaced` true.
+
+| Run | What it varies | Outcome |
+|---|---|---|
+| `s32-compact-small-plain-d2-b2.1.322-1` to `-3` | event 1 of 2,048 bytes; `plain`; two compactions | values recalled: 0, 0 and 0 of 6 |
+| `s32-compact-small-note-d2-b2.1.322-1` to `-3` | event 1 of 2,048 bytes; `note`; two compactions | 6, 6 and 6 of 6 |
+
+| Cell | Runs | Tokens a run | Tokens in all | `totalCostUSD` in all |
+|---|---|---|---|---|
+| `small-plain-d2` on 2.1.322 | 3 | 780,577 to 780,878 | 2,342,116 | 5.53 |
+| `small-note-d2` on 2.1.322 | 3 | 782,120 to 782,707 | 2,347,356 | 5.57 |
+| **these runs** | 6 | | **4,689,472** | 11.10 |
+
+No probe was run, and no run was discarded.
+
+104. On 2.1.322, the host compacted these two cells at the same point and to the same size as on 2.1.311.
+    - **The window:** each run's debug log has `effectiveWindow=180000`, as on 2.1.311.
+    - **Where:** in every run the first compaction came with event 3 and the second with event 4, as in facts 97 and 98.
+    - **The figures:** each transcript records two `compact_boundary` entries with `trigger` `auto`, `preTokens` 204,972 to 206,198 and `postTokens` 85,393 to 85,701, in 5.7 to 10.5 s. On 2.1.311 the same cells gave 204,491 to 205,628, 85,269 to 85,678, and 7.1 to 12.7 s. The ranges overlap; the highest `preTokens` here is 570 above 2.1.311's, and the shortest time 1.45 s below (5,680 ms against 7,131 ms).
+    - **The recall turn's prompt** was 123,769 to 124,382 tokens (123,506 to 123,841 on 2.1.311).
+    - **Tokens a run** were 1,272 to 4,145 more than on 2.1.311's runs of the same cell.
+105. Without the instruction, a 2,048-byte body kept no value through two compactions on 2.1.322, in three runs of three (`small-plain-d2-b2.1.322`), as fact 97 found on 2.1.311.
+    - **The summaries:** in every run, neither summary held any of the six values, and the model answered "unknown" six times.
+    - **What the first summary kept of event 1:** the kinds of fact, as on 2.1.311, but said of the channel bodies in general rather than of event 1. Fact 97's first summaries tied them to channel #1 ("Channel #1 and #2 contained only filler prose and some trivia", five of the six kinds, "Channel #1 held a few incidental facts"). Here each first summary said it of every channel:
+      - "Channel bodies are filler text, and some contain trivia such as a ferry time, a door code or a booking reference" (`-1`, three of the six kinds), while its line for event 1 read "Channel #1, filler text. Answered 'GOT 1'";
+      - "Channel bodies are filler text, with some incidental facts embedded in them" (`-2`);
+      - "Channel bodies are filler text with embedded facts (for example a door code and a booking reference)" (`-3`, two of the six kinds).
+    - That a 2.1.322 summary places what it keeps of a lost body differently is not shown: three runs a build, and the summaries are the model's.
+106. Asked to note an event's facts before going on, a 2,048-byte body kept every value through two compactions on 2.1.322, in three runs of three (`small-note-d2-b2.1.322`), as fact 98 found on 2.1.311.
+    - **The note:** each reply to event 1 listed all six facts with their values, under a line such as "Facts stated in channel #1".
+    - **The summaries:** both of each run's summaries held all six values. The model recalled all six, with no tool call.
+    - **How they were kept:** `-1` listed them under "Channel #1 facts" in the first summary and as the facts it "recorded" for channel #1 in the second; `-2` under "I noted these facts" in the first and "From #1" in the second; `-3` under "Facts from channel #1, which I already reported" in the first and "Facts from channel #1, already reported" in the second.
+    - **Where a fact sat:** each `note` run recalled every fact at the head, middle and end (2 of 2 at each); the `plain` runs recalled none at any position.
+    - **No other value:** of the 36 questions, 18 answers held the value and 18 were "unknown", and none held another value, as in fact 91.
+
+**Whether the 2.1.311 counts can be read as the pin's.** For these two cells, yes: the counts are the same, 0 of 18 values without the note and 18 of 18 with it, at the same window and the same compaction points (facts 104 to 106). For the other S32 (a) cells, not measured: they were not run on 2.1.322, and the reading rests on the compaction step being unchanged, which fact 104 shows for these two cells only. Together with facts 97 and 98, on the two builds: two compactions without the note kept no value in six runs of six, and with it kept every value in six runs of six.
+
+Not established by these runs: what facts 97 and 98 do not establish; the other S32 (a) cells on 2.1.322; a build after 2.1.322; and the rate at which values are kept beyond six runs a cell over the two builds.
+
+What this changes in the bridge: nothing. For a deployment on the fleet's pin, S32 (a)'s advice stands: ask, in the first turn, for an event's facts to be noted before going on.
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049). Each bullet quotes its sentence as the document stood when the section naming it was written. A bullet ending *Amended* quotes a sentence the document has since replaced, on the date given, and is kept as the record of what was found.
@@ -712,6 +761,7 @@ The documents are listed by document and sentence. Amending them is architect-ct
   - **Without the instruction:** in the six runs that ended at one compaction, it kept every value in three and some in a fourth (facts 87 and 90). Over the first compactions of all twelve runs without it, four kept every value, one some and seven none (facts 87, 88 and 97). Two compactions kept none in six runs of six, at both sizes (facts 88 and 97).
   - **With the instruction:** asking the session to note an event's facts kept every value through one compaction in six runs of six, and through two in five runs of six (facts 89 and 98).
   - **What still holds:** the summaries are still the model's, and neither result is a rule. What the host's own window keeps stays not established (S32's "not established").
+  - **On the fleet's pin:** the two small cells at two compactions gave the same counts on 2.1.322: none of the six values in three runs of three without the instruction, and all six in three of three with it, at the same window and the same compaction points (facts 104 to 106). The other cells were not run on that build. *Amended 2026-11-11*, in each document named in these three bullets and in `architecture/plugin/INSTRUCTIONS.md` and `architecture/roadmap/SPIKES.md`.
 - **`architecture/plugin/CLAUDE-CODE-CHANNEL.md`** §Delivery condition, "Not run, the carried list §Content and plan §19 carry too: … what a summary keeps of a body that carries meaning": run by S32 (a), facts 86 to 91, and 97 and 98 for its two small cells at two compactions, with the limits above.
 - **`architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md`** §19, the exit gate's carried list, "still carried: … from S31 … what a summary keeps of a body that carries meaning": as the two bullets above.
 

@@ -21,7 +21,7 @@ with the first user turn written 5 s after the start. The plugin's binary
 is s32_compact_stub.py, whose event k is the text the driver writes for
 it. No run has daemons. A run is named
 
-  <size>-<note>-d<depth>[-w<window>]-<N>
+  <size>-<note>-d<depth>[-w<window>][-b<build>]-<N>
 
   <size>    ``large``: event 1, the target, is a line of the bridge's bound
             (327,680 bytes); ``small``: a line of 2,048 bytes
@@ -35,7 +35,13 @@ it. No run has daemons. A run is named
   <window>  CLAUDE_CODE_AUTO_COMPACT_WINDOW for the session, read from the
             binary as the window compaction is sized by; ``w0`` sets none,
             the host's own; omitted, WINDOW
+  <build>   the Claude Code version the run must be on, for a build
+            other than 2.1.311, the one S32 (a) first ran; refused when
+            SPIKE_CLAUDE reports another
   <N>       the run's number in its cell
+
+A run whose directory under runs/ already exists is refused before it
+starts: a re-run under a committed name would replace that evidence.
 
 The prose is made from a small vocabulary by a generator seeded per run
 (the seed is recorded); a fact is a sentence with a place of its own and
@@ -58,6 +64,7 @@ import sys
 import tempfile
 import time
 
+from s28_era import tree_stamp
 from spike_common import CLAUDE, REPO, child_env, claude_version, raw_dir
 from s19_channels import long_term_token, seed_config
 from s22_org_channels import ALLOW, DROP_IN, MARKETPLACE, PLUGIN, cli, private_etc, purge_if_token, scrub, \
@@ -222,11 +229,16 @@ def filler_event(rng, nonce, index, size):
 
 
 def spec_of(name):
-    m = re.fullmatch(r"(large|small)-(plain|note)-d([12])(?:-w(\d+))?-([123])", name)
+    # The -b<build> segment names a build other than the one S32 (a) first
+    # ran (2.1.311), so a second build's runs sit beside the first's
+    # rather than over them; main refuses a name whose build is not the
+    # one measured.
+    m = re.fullmatch(r"(large|small)-(plain|note)-d([12])(?:-w(\d+))?(?:-b(\d+\.\d+\.\d+))?-([123])", name)
     if not m:
         return None
     window = WINDOW if m.group(4) is None else int(m.group(4))
     return {"size": m.group(1), "note": m.group(2), "depth": int(m.group(3)), "window": window,
+            "build": m.group(5),
             "model": MODELS["sonnet"], "answer_s": 600,
             "env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": str(window)} if window else {}}
 
@@ -426,15 +438,17 @@ def run_session(spec, scratch, out, config, workdir, policy, nonce, rng, facts, 
 
 def main() -> int:
     if len(sys.argv) != 2 or spec_of(sys.argv[1]) is None:
-        raise SystemExit(f"usage: SPIKE_CLAUDE=<binary> {sys.argv[0]} <large|small>-<plain|note>-d<1|2>[-w<window>]-<N>")
+        raise SystemExit(f"usage: SPIKE_CLAUDE=<binary> {sys.argv[0]} <large|small>-<plain|note>-d<1|2>[-w<window>][-b<build>]-<N>")
     if not os.environ.get("SPIKE_CLAUDE"):
         raise SystemExit("set SPIKE_CLAUDE: S32 names the build it measures")
     name = sys.argv[1]
     spec = spec_of(name)
     version = claude_version()
+    if spec["build"] is not None and spec["build"] != version:
+        raise SystemExit(f"the name says build {spec['build']}, SPIKE_CLAUDE is {version}")
     run = "s32-compact-" + name
-    head = subprocess.run(["git", "rev-parse", "--short=9", "HEAD"], capture_output=True, text=True,
-                          cwd=REPO).stdout.strip()
+    if (HERE / "runs" / run).exists():
+        raise SystemExit(f"runs/{run} exists: move it aside or name another run")
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="s32-")).resolve()
     if scratch == REPO or REPO in scratch.parents:
@@ -447,7 +461,7 @@ def main() -> int:
     order = rng.sample(range(6), 6)
     content, offsets = target_event(rng, nonce, SIZES[spec["size"]], facts, order)
     positions = {facts[i]["template"]: pos for i, pos in zip(order, ("head", "head", "middle", "middle", "end", "end"))}
-    record = {"run": run, "tree": head, "claude_version": version, "nonce": nonce, "seed": seed,
+    record = {"run": run, **tree_stamp(), "claude_version": version, "nonce": nonce, "seed": seed,
               "model_flag": spec["model"], "env_set": spec["env"], "first_turn": FIRST[spec["note"]],
               "size": spec["size"], "target_bytes": SIZES[spec["size"]], "filler_bytes": BOUND,
               "depth": spec["depth"], "window": spec["window"], "recall_head": RECALL_HEAD,
