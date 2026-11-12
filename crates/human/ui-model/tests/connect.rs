@@ -767,7 +767,11 @@ fn a_start_that_gives_connect_up_is_deferred_and_the_late_reads_open_nothing() {
     assert_eq!(late.connect_phase(), ConnectPhase::Deferred);
     late.trust_settings_mut().read(Ok(trust_list(&me, &[])));
     late.addresses_read(Ok(list(&[])));
-    assert_eq!(late.connect_turn(), None, "both lists empty, and still not open");
+    assert_eq!(
+        late.connect_turn(),
+        None,
+        "both lists empty, and still not open"
+    );
     assert_eq!(late.connect_phase(), ConnectPhase::Deferred);
     assert!(late.connect().is_none());
 

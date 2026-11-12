@@ -148,7 +148,10 @@ mod tests {
         assert!(!c4.bound_passed(2_000 + BOUND_MS - 1));
         assert!(c4.bound_passed(2_000 + BOUND_MS));
         c4.committed(5_000);
-        assert!(c4.bound_passed(2_000 + BOUND_MS), "a second commit moves nothing");
+        assert!(
+            c4.bound_passed(2_000 + BOUND_MS),
+            "a second commit moves nothing"
+        );
     }
 
     /// While a prompt is up nothing shows; a grant starts the 1 s again
