@@ -341,7 +341,10 @@ first point where the opening takes input: the end of the first turn,
 or the next gap between turns. It then closes the reader as at any
 other time: the conversation is where it was, focus goes to the row's
 Open the whole message (§9), and the opening stops. Pressing Open the
-whole message again starts the opening from the beginning.
+whole message again starts the opening from the beginning. In the
+points below, "Back" means Back or Escape: on the desktop, Escape that
+no control inside uses is Back itself, as on the card pages, so a
+second Escape acts on the conversation as Escape there does.
 
 - A Back pressed during the first turn never lets the bar show, in
   either of two cases. Either the first screen is built within the
