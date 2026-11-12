@@ -1052,13 +1052,14 @@ scale would also be a finding of the Android review
          both listed nothing before the hooks. There is one
          exception to that last case. If, on such a phone, the pair
          is `connect=not-owed` with `page=conversations` and
-         `logcat -s interweave` shows a line containing
-         `the connect-owed marker:` logged after the log was cleared
-         at the start of this step and before R4's continue,
-         the marker write failed. A line with that text from any
-         other time does not count: a failed clear of the marker
-         logs the same text. The build accepts that failure and
-         opens Chats without Connect
+         `logcat -s interweave` shows a line that contains
+         `the connect-owed marker:` and was logged between the
+         clear of the log at the start of this step and R4's
+         continue, the marker write failed. A line with that text
+         from any other time does not count, because the app logs
+         the same text when it fails to remove the marker. The
+         build accepts a failed marker write and opens Chats without
+         Connect
          (`apps/human-android/src/onboard.rs`, `connect_owed`). The
          Connect part of the step is then void, not passed, as for
          `connect=deferred`.
