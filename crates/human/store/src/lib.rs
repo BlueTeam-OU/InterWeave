@@ -46,6 +46,7 @@
 #![forbid(unsafe_code)]
 
 pub mod at_rest;
+mod engine;
 pub mod identity_key;
 pub mod key_custody;
 pub mod records;

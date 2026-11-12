@@ -1169,7 +1169,7 @@ fn generated_columns_compute_what_we_wrote(
         .map_err(migration_error)?;
 
     for generated in shape.generated {
-        let scratch = Connection::open_in_memory()?;
+        let scratch = crate::engine::open_in_memory()?;
         scratch.execute_batch(&sql).map_err(|e| {
             StoreError::Migration(format!("table `{}` will not rebuild: {e}", shape.name))
         })?;

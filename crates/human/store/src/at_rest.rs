@@ -406,7 +406,7 @@ pub fn open_read_only(
 ) -> Result<Connection, StoreError> {
     let names = Names::of(paths);
     let key = read_key(paths, cipher)?.ok_or(StoreError::AtRest(AtRestRecovery::KeyMissing))?;
-    let conn = Connection::open_with_flags(
+    let conn = crate::engine::open_with_flags(
         names.db(),
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
@@ -429,7 +429,7 @@ pub fn open_writable_for_tests(
 ) -> Result<Connection, StoreError> {
     let names = Names::of(paths);
     let key = read_key(paths, cipher)?.ok_or(StoreError::AtRest(AtRestRecovery::KeyMissing))?;
-    let conn = Connection::open_with_flags(names.db(), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let conn = crate::engine::open_with_flags(names.db(), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     apply_key(&conn, &key)?;
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))?;
     Ok(conn)
@@ -554,7 +554,7 @@ fn export(names: &Names, key: &StoreKey) -> Result<(), StoreError> {
             .open(&encrypting)
             .map_err(io)?;
     }
-    let plain = Connection::open(names.db())?;
+    let plain = crate::engine::open(names.db())?;
     let version: i64 = plain.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let path = encrypting
         .to_str()
@@ -591,7 +591,7 @@ fn export(names: &Names, key: &StoreKey) -> Result<(), StoreError> {
 /// synced.
 fn scrub(names: &Names) -> Result<(), StoreError> {
     if content(names)? == Content::Plaintext {
-        let plain = Connection::open(names.db())?;
+        let plain = crate::engine::open(names.db())?;
         plain.pragma_update(None, "secure_delete", true)?;
         let tables: Vec<String> = plain
             .prepare(
@@ -644,7 +644,7 @@ fn take_copy(names: &Names) -> Result<(), StoreError> {
 /// -- requiring the current shape stranded it in recovery mode and made
 /// the discard take it (#377 review F1).
 fn copy_opens(path: &Path, key: &StoreKey) -> bool {
-    let Ok(conn) = Connection::open_with_flags(
+    let Ok(conn) = crate::engine::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     ) else {
