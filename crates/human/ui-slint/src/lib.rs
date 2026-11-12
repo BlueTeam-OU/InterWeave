@@ -1531,11 +1531,20 @@ impl View {
     /// What the person has opened from Chats, as a count that moves with
     /// each opening, a menu open now included: a launch's owed Connect
     /// opens over Chats only while it has not moved since the start ran
-    /// (add-a-peer section 5.1).
+    /// (add-a-peer section 5.1). An opening still queued counts already,
+    /// so the turn that takes it cannot open Connect over it unseen (#651
+    /// F2); its take moves it from queued to taken and the count stays.
     #[must_use]
     pub fn opened_from_chats(&self) -> u64 {
         let menu = self.window.get_chats_menu_open() || self.window.get_menu_open();
-        self.opened_from_chats * 2 + u64::from(menu)
+        let queued = self
+            .shared
+            .borrow()
+            .inputs
+            .iter()
+            .map(|input| u64::from(opens_from_chats(input)))
+            .sum::<u64>();
+        (self.opened_from_chats + queued) * 2 + u64::from(menu)
     }
 
     /// The window, to show it or to inspect its tree.

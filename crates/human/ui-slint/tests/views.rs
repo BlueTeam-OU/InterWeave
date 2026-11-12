@@ -5398,9 +5398,13 @@ fn opening_something_from_chats_moves_its_count() {
     view.render(&model);
     assert_eq!(view.opened_from_chats(), start, "control: a render alone");
     let key = direct(&peer());
-    let _ = open(&mut view, &mut model, &key);
+    view.select(key.clone());
+    let queued = view.opened_from_chats();
+    assert_ne!(queued, start, "a conversation, still queued (#651 F2)");
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
     let opened = view.opened_from_chats();
-    assert_ne!(opened, start, "a conversation");
+    assert_eq!(opened, queued, "its take moves the count no further");
     view.window().set_chats_menu_open(true);
     assert_ne!(view.opened_from_chats(), opened, "Chats' menu, open now");
     view.window().set_chats_menu_open(false);
