@@ -107,7 +107,7 @@ further; the probes are not in the tree.
 | Back 0.2 s into an opening closes it to the conversation | yes |
 | Back 0.6 s into an opening closes it to the conversation | yes, every shape and round |
 | the close within 1 s of the Back | yes; on the stress shapes by 40 to 130 ms only |
-| the close does not wait for the opening's build | **no**: on the stress shapes the Back is held until the build ends |
+| the close at the next gap between turns (design 2026-11-04 §5.4) | **no**: on the stress shapes the Back is held until the build ends, 0.87 to 0.96 s; ux-designer ruled it a miss of §5.4 (2026-11-12) and the fix is job j107 |
 
 ## What it does not show
 
