@@ -192,6 +192,34 @@ pub fn prompt_line(prompt: Prompt) -> String {
     format!("{PREFIX} prompt={kind}")
 }
 
+/// A moment of a held C4's or R4's start (add-a-peer section 5.1), said
+/// so a run times the hold from the trace (section 8 item 12): the 1 s
+/// from the press, the bound from the seal's success on C4, a launch's
+/// 10 s from the service's start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Start {
+    /// Continue pressed on C4 or R4: the screen holds.
+    Pressed,
+    /// C4's seal succeeded: the identity is committed.
+    Sealed,
+    /// `ConnectStarting` shows under the held Continue.
+    Starting,
+    /// The network service runs: a start succeeded.
+    Running,
+}
+
+/// The line for `start`.
+#[must_use]
+pub fn start_line(start: Start) -> String {
+    let kind = match start {
+        Start::Pressed => "pressed",
+        Start::Sealed => "sealed",
+        Start::Starting => "starting",
+        Start::Running => "running",
+    };
+    format!("{PREFIX} start={kind}")
+}
+
 /// Where the lines go, and what was last said shown.
 pub(crate) struct Tracer {
     sink: Rc<dyn Fn(&str)>,
@@ -265,6 +293,28 @@ impl Tracer {
             (self.sink)(&format!("{PREFIX} warns={kind}"));
         }
         self.warns = warns;
+    }
+
+    /// An identity screen is over the window, as last said: what is drawn
+    /// under it is not shown.
+    pub(crate) const fn covered(&self) -> bool {
+        self.identity.is_some()
+    }
+
+    /// The page last said shown.
+    pub(crate) const fn page_said(&self) -> &'static str {
+        self.before.page
+    }
+
+    /// The identity screen went, uncovering `page`: said as a render of
+    /// it would say it. True when the page changed, which owes a
+    /// statement of focus.
+    pub(crate) fn uncover(&mut self, page: &'static str) -> bool {
+        let now = Shown {
+            page,
+            ..self.before.clone()
+        };
+        self.render(now)
     }
 
     /// Where the lines go, for one said from outside a render: the
@@ -593,5 +643,13 @@ mod tests {
         assert_eq!(prompt_line(Prompt::Unlock), "ui-trace prompt=unlock");
         assert_eq!(prompt_line(Prompt::Granted), "ui-trace prompt=granted");
         assert_eq!(prompt_line(Prompt::Cancelled), "ui-trace prompt=cancelled");
+    }
+
+    #[test]
+    fn each_moment_of_a_held_start_has_its_line() {
+        assert_eq!(start_line(Start::Pressed), "ui-trace start=pressed");
+        assert_eq!(start_line(Start::Sealed), "ui-trace start=sealed");
+        assert_eq!(start_line(Start::Starting), "ui-trace start=starting");
+        assert_eq!(start_line(Start::Running), "ui-trace start=running");
     }
 }

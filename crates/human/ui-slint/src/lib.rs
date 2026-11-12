@@ -19,7 +19,7 @@
 // crate-level `forbid` refuses. The workspace's `deny` still holds every
 // handwritten line in this crate.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -55,7 +55,7 @@ mod swipe;
 mod trace;
 mod unlock;
 #[cfg(feature = "ui-trace")]
-pub use trace::{Prompt as TracedPrompt, prompt_line};
+pub use trace::{Prompt as TracedPrompt, Start as TracedStart, prompt_line, start_line};
 mod window_marks;
 
 pub use cards::{PhotoPick, PhotoRequest};
@@ -130,6 +130,31 @@ pub fn invoke_on_window(task: impl FnOnce() + Send + 'static) -> bool {
 /// re-entering one.
 pub fn defer(task: impl FnOnce() + 'static) {
     slint::Timer::single_shot(std::time::Duration::ZERO, task);
+}
+
+/// Run `task` on the window's thread once `delay` has passed: a wake the
+/// root asks for itself, so the app names no Slint crate (the
+/// human-layering check, rule 4).
+pub fn after(delay: std::time::Duration, task: impl FnOnce() + 'static) {
+    slint::Timer::single_shot(delay, task);
+}
+
+/// One wake the root moves: started again it replaces the one before, and
+/// stopped nothing runs -- a held C4's or R4's next change of its clock
+/// (add-a-peer section 5.1).
+#[derive(Default)]
+pub struct Wake(slint::Timer);
+
+impl Wake {
+    /// Run `task` once `delay` has passed, in place of any wake pending.
+    pub fn at(&self, delay: std::time::Duration, task: fn()) {
+        self.0.start(slint::TimerMode::SingleShot, delay, task);
+    }
+
+    /// No wake pending.
+    pub fn stop(&self) {
+        self.0.stop();
+    }
 }
 
 /// The Activity the platform hands `android_main`: what [`init_android`]
@@ -914,6 +939,18 @@ enum Page {
     Connect,
 }
 
+/// What a launch's owed Connect must not cover (add-a-peer section 5.1):
+/// a conversation, the settings, Peers or a card page opened.
+const fn opens_from_chats(input: &Input) -> bool {
+    matches!(
+        input,
+        Input::Select(_)
+            | Input::TrustPage(true)
+            | Input::PeersPage(true)
+            | Input::Cards(cards::CardsInput::Open(_))
+    )
+}
+
 /// The reference view: one window, bound to a [`UiModel`].
 pub struct View {
     window: AppWindow,
@@ -940,8 +977,13 @@ pub struct View {
     measured_for: (f32, f32),
     /// What the last render showed, to announce what changed since.
     seen: Seen,
-    /// Which of the two announcement slots the next announcement goes in.
-    next_slot_b: bool,
+    /// How many times the person opened something from Chats: a
+    /// conversation, the settings, Peers, a card page.
+    opened_from_chats: u64,
+    /// Which of the two announcement slots the next announcement goes in:
+    /// a cell, so the identity page, shown through a shared view, says
+    /// its held start's line in the same region.
+    next_slot_b: Cell<bool>,
     /// A take changed the conversation shown and has not rendered it yet.
     selection_unrendered: bool,
     shown: Option<ConversationKey>,
@@ -1021,6 +1063,14 @@ pub struct View {
     /// Where the trace goes and what it last said was shown.
     #[cfg(feature = "ui-trace")]
     trace: Option<trace::Tracer>,
+    /// The page a render drew under an identity screen, said when the
+    /// screen goes: a page the screen covers is not on screen, so a run
+    /// reading `page=` sees the first page shown after Continue, never
+    /// Chats under a held C4 and then Connect (add-a-peer section 5.1).
+    /// The page only: the other lines say what the model holds whatever
+    /// covers it.
+    #[cfg(feature = "ui-trace")]
+    trace_covered: Option<&'static str>,
     /// Where a message's shown time comes from.
     clock: clock::Clock,
     /// The monotonic time a leaving row closes by: `Instant::now`, or a
@@ -1317,8 +1367,9 @@ impl View {
             },
             frame_tasks: None,
             seen: Seen::default(),
-            next_slot_b: false,
+            next_slot_b: Cell::new(false),
             selection_unrendered: false,
+            opened_from_chats: 0,
             shown: None,
             focused: false,
             page: Page::Conversation,
@@ -1351,6 +1402,8 @@ impl View {
             undo_closed_seen: None,
             #[cfg(feature = "ui-trace")]
             trace: None,
+            #[cfg(feature = "ui-trace")]
+            trace_covered: None,
         })
     }
 
@@ -1411,8 +1464,16 @@ impl View {
         screen: Option<interweave_human_ui_model::ScreenId>,
         page: Option<&IdentityPage>,
     ) {
-        if let Some(tracer) = self.trace.as_mut() {
-            tracer.identity(screen, page.is_some_and(identity::warns_active_elsewhere));
+        let Some(tracer) = self.trace.as_mut() else {
+            return;
+        };
+        tracer.identity(screen, page.is_some_and(identity::warns_active_elsewhere));
+        // The screen went: the page drawn under it is the one shown now.
+        if !tracer.covered()
+            && let Some(page) = self.trace_covered.take()
+            && tracer.uncover(page)
+        {
+            self.trace_focus_settled();
         }
     }
 
@@ -1443,7 +1504,7 @@ impl View {
             Page::Connect => "connect",
         };
         let handles = &mut self.peer_lists.block_handles;
-        let now = trace::shown(
+        let mut now = trace::shown(
             page,
             model.connect_phase(),
             model.connectivity(),
@@ -1452,12 +1513,29 @@ impl View {
             model.trust_settings(),
             |p| handles.of(p),
         );
+        // Under an identity screen the page waits for the screen to go
+        // (`trace_identity`); the rest is said as it changes.
+        if let Some(tracer) = self.trace.as_ref()
+            && tracer.covered()
+        {
+            self.trace_covered = Some(std::mem::replace(&mut now.page, tracer.page_said()));
+        }
         // A page that came without a focus move -- a conversation opened
         // from Chats, focus left on its row -- says no focus line of its
         // own (j98, 3b item 4).
         if self.trace.as_mut().is_some_and(|tracer| tracer.render(now)) {
             self.trace_focus_settled();
         }
+    }
+
+    /// What the person has opened from Chats, as a count that moves with
+    /// each opening, a menu open now included: a launch's owed Connect
+    /// opens over Chats only while it has not moved since the start ran
+    /// (add-a-peer section 5.1).
+    #[must_use]
+    pub fn opened_from_chats(&self) -> u64 {
+        let menu = self.window.get_chats_menu_open() || self.window.get_menu_open();
+        self.opened_from_chats * 2 + u64::from(menu)
     }
 
     /// The window, to show it or to inspect its tree.
@@ -1668,8 +1746,17 @@ impl View {
             self.trace_focus_settled();
         }
         if let Some(page) = page {
+            // A held start's line is said once, when it comes, politely
+            // (add-a-peer section 5.1); a page drawn again with it still
+            // there says nothing more.
+            let starting = page.starting.clone();
+            let said_before = self.window.get_identity_active()
+                && self.window.get_identity().starting == starting;
             self.window.set_identity(page);
             self.window.set_identity_active(true);
+            if !starting.is_empty() && !said_before {
+                self.announce(starting.into());
+            }
         } else {
             let focused_on_it =
                 self.window.get_identity_active() && on_identity_page(&self.window.get_focus_id());
@@ -1999,6 +2086,7 @@ impl View {
                 }
                 Err(input) => input,
             };
+            self.opened_from_chats += u64::from(opens_from_chats(&input));
             match input {
                 Input::Select(key) => {
                     // A conversation picked in the list beside the trust
@@ -3322,16 +3410,16 @@ impl View {
     /// F4): an item's own status is not a live region, or a list of fifty
     /// would speak fifty times. Two slots take turns, so an announcement
     /// equal to the last one is still a change a screen reader hears.
-    fn announce(&mut self, said: String) {
+    fn announce(&self, said: String) {
         let (said, cleared) = (SharedString::from(said), SharedString::new());
-        if self.next_slot_b {
+        if self.next_slot_b.get() {
             self.window.set_announcement_a(cleared);
             self.window.set_announcement_b(said);
         } else {
             self.window.set_announcement_b(cleared);
             self.window.set_announcement_a(said);
         }
-        self.next_slot_b = !self.next_slot_b;
+        self.next_slot_b.set(!self.next_slot_b.get());
     }
 
     /// The trust settings (`human-client-ui.md` §8): the allowlist with

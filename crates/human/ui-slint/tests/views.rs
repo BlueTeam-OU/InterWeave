@@ -5348,3 +5348,64 @@ fn after_a_discard_focus_is_on_the_discards_notice() {
         );
     }
 }
+
+/// A held start's line is said once, politely, when it comes: drawn
+/// again it says nothing more (add-a-peer §5.1). Mutation: announcing on
+/// every showing fails here.
+#[test]
+fn a_held_starts_line_is_announced_once() {
+    let mut view = view();
+    resize(&view, 390.0);
+    view.render(&UiModel::new());
+    settle();
+    let said = |view: &View| {
+        format!(
+            "{}{}",
+            view.window().get_announcement_a(),
+            view.window().get_announcement_b()
+        )
+    };
+    let held = interweave_human_ui_slint::IdentityPage {
+        primary: "Continue".into(),
+        ..interweave_human_ui_slint::IdentityPage::default()
+    };
+    view.show_identity(Some(held.clone()));
+    assert_eq!(said(&view), "", "control: nothing to say yet");
+    let starting = interweave_human_ui_slint::IdentityPage {
+        starting: "Starting InterWeave…".into(),
+        ..held
+    };
+    view.show_identity(Some(starting.clone()));
+    assert_eq!(said(&view), "Starting InterWeave…");
+    view.window().set_announcement_a("".into());
+    view.window().set_announcement_b("".into());
+    view.show_identity(Some(starting));
+    assert_eq!(said(&view), "", "drawn again: said once");
+}
+
+/// What a launch's owed Connect must not cover moves the count: a
+/// conversation opened, the settings opened, a menu open (add-a-peer
+/// §5.1). A render alone moves nothing. Mutation: dropping `Select` from
+/// the counted inputs, or the menus, fails here.
+#[test]
+fn opening_something_from_chats_moves_its_count() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    settle();
+    let start = view.opened_from_chats();
+    view.render(&model);
+    assert_eq!(view.opened_from_chats(), start, "control: a render alone");
+    let key = direct(&peer());
+    let _ = open(&mut view, &mut model, &key);
+    let opened = view.opened_from_chats();
+    assert_ne!(opened, start, "a conversation");
+    view.window().set_chats_menu_open(true);
+    assert_ne!(view.opened_from_chats(), opened, "Chats' menu, open now");
+    view.window().set_chats_menu_open(false);
+    assert_eq!(view.opened_from_chats(), opened);
+    view.window().invoke_open_trust();
+    let _ = intents(&mut view, &mut model);
+    assert_ne!(view.opened_from_chats(), opened, "the settings");
+}
