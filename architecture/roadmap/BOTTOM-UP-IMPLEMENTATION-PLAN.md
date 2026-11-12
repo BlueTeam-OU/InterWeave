@@ -5009,7 +5009,7 @@ past; each carries a pointer here.
   S32 (b)'s list as it stands.
 
 **Dated note, 2026-11-12 (SPIKE-001 S34, rust-services-dev, Claude
-Code 2.1.322, the fleet's pin, facts 107–111, #635).** Both items the
+Code 2.1.322, the fleet's pin, facts 107 and 113–116, #635).** Both items the
 note above carried were taken up, at architect-cto's request.
 
 - **The gate in the 2.1.322 binary** was read by fact 36's method, and
@@ -5028,10 +5028,10 @@ note above carried were taken up, at architect-cto's request.
   the answer sentence in the first user turn and in the server's
   instructions. Each gave S32 (b)'s reply count. The first-turn
   sentence got a reply in 20 runs of 20, the joined turns included
-  (facts 108 and 110); in the server's instructions it got one in 10
+  (facts 113 and 115); in the server's instructions it got one in 10
   of 10 where the message started a turn of its own and in 0 of 10
-  where it joined a tool-calling turn (facts 109 and 110). No call was
-  refused (fact 111). The first turn's other output reached the peer
+  where it joined a tool-calling turn (facts 114 and 115). No call was
+  refused (fact 116). The first turn's other output reached the peer
   as it had with the stub: `READY` in 6 of the 10 joined first-turn
   runs, and the count in 4 of 5 replies to a greeting told in the
   first turn. So the conclusion stands for twelve cells on the real

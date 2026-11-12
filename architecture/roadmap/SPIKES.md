@@ -826,7 +826,7 @@ binary and not measured, the channel gate is still the era check,
 second among its checks; and with the release bridge across two
 daemons, eight more of S32 (b)'s cells gave the reply counts they had
 with a stub on 2.1.311.** Read off `spikes/spike-001/README.md` §S34
-(facts 107–111, #635). (1) reads the gate by fact 36's method from the
+(facts 107 and 113–116, #635). (1) reads the gate by fact 36's method from the
 `claude` on the login's `PATH`, no session started (`s34_gate.py`,
 `runs/s34-gate/read.json`): the script finds the function by the era
 refusal's reason and not by its minified name, and run on the 2.1.311
@@ -852,21 +852,21 @@ asked for were left out for the cost: `prompt-task-text`,
 sentence got a reply where the message joined a tool-calling turn in
 10 runs of 10; what went to the peer was `READY` for the greeting in 5
 of 5, and for the request a summary of the turn's own three `status`
-calls in 4 of 5 and `READY` in one, S32 (b)'s counts (108). The
+calls in 4 of 5 and `READY` in one, S32 (b)'s counts (113). The
 sentence in the server's instructions alone got no reply there in 10
 runs of 10, the model making its three `status` calls and ending the
 turn with `READY`, and in four of the five request runs writing that
-the message did not come from the user (109). A message arriving
+the message did not come from the user (114). A message arriving
 during a text-only turn started a turn of its own and got a reply in
 20 runs of 20, told either way: a question was answered in 10 of 10
 and a greeting told by the instructions in 5 of 5, and a greeting told
 in the first turn got a reply carrying that turn's count in 4 of 5,
-where S32 (b)'s same cell carried it in 8 of 10 (110). No call was
+where S32 (b)'s same cell carried it in 8 of 10 (115). No call was
 refused in the 40 runs and every `reply` named `content`: over the two
 `plugin-question` cells S32 (b) found misnaming in, none of 10 on
 2.1.322 with the bridge, this campaign's and S33's, against 3 of 10
 with the stub on 2.1.311, which five runs a cell and another build do
-not establish as a difference (111). So in these eight cells neither
+not establish as a difference (116). So in these eight cells neither
 the build nor the stub in the bridge's place made a difference to the
 reply counts, and with S33's four that is twelve of S32 (b)'s 33
 cells, eleven with its count and `plugin-question-tool` at 0 of 5
