@@ -976,7 +976,7 @@ The documents are listed by document and sentence. Amending them is architect-ct
   - **The control** leaked in 11 of its 14 replies (fact 117).
   - **"Write" for "reply"** kept `READY` out where the message joined a tool-calling turn, 10 replies in 10 runs (fact 118).
   - **A scope sentence after the answer sentence** kept `READY` and the count out in all three cells, 15 replies in 15 runs, with "reply" left in the work (fact 119). Placing both sentences after the work did as well, with 14 replies in 15 (fact 120).
-  - **What still holds:** why a greeting during a counting turn got the count stays not established; what S35 shows is a wording under which it did not, over five runs a cell. Whether the other documents name the scope sentence is architect-cto's to decide. *Amended 2026-11-12* for INSTALL.md: its headless bullet now gives the scope sentence after the answer sentence, and "So the advice stands" gave way to what fact 118 shows of "reply" kept out of the work.
+  - **What still holds:** why a greeting during a counting turn got the count stays not established; what S35 shows is a wording under which it did not, over five runs a cell. *Amended 2026-11-12* in the architecture: the release-bridge paragraph of §Delivery condition gives S35's counts and quotes the scope sentence, and each carried list points at it and keeps the "why" open. *Amended 2026-11-12* for INSTALL.md: its headless bullet now gives the scope sentence after the answer sentence, and "So the advice stands" gave way to what fact 118 shows of "reply" kept out of the work.
 
 ## Not established
 
