@@ -79,11 +79,13 @@ def table():
         if leaked:
             c["leaked"].append(r["run"].rsplit("-", 1)[1])
         # The first turn's own work still done, read where the record
-        # holds it whole: a tool turn's result says READY (a text turn's
-        # result is cut at 300 characters, inside the count).
+        # holds it whole: a tool turn's result ENDS in a paragraph that is
+        # READY and nothing else. A mention does not count: a result that
+        # narrates sending READY to the peer is not the work (a text
+        # turn's result is cut at 300 characters, inside the count).
         first = r["results"][0] if r["results"] else {}
-        c["work"] = None if r["arrival"] == "text" else \
-            c["work"] + bool(re.search(r"\bREADY\b", first.get("result") or ""))
+        last = (first.get("result") or "").strip().split("\n\n")[-1].strip()
+        c["work"] = None if r["arrival"] == "text" else c["work"] + (last == "READY")
         for res in r["results"]:
             u = res.get("usage") or {}
             c["tokens"] += sum(u.get(k) or 0 for k in ("input_tokens", "cache_creation_input_tokens",

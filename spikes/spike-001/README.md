@@ -892,11 +892,11 @@ Run on 2026-11-12 between 19:34 and 20:28 UTC by `s35_reply.py`, at architect-ct
 
 **Why three cells and three wordings:** the estimate was 5.7M tokens from S34's per-run sums, under twice S34's 3.60M, so the set was run as asked. The 55 runs spent 5,711,460 tokens, by S32 (b)'s sum.
 
-The table is `python3 s35_reply.py table` over the committed runs. "First turn's READY" counts the `tool` runs whose turn wrote `READY` at its end, the first turn's own work done; a `text` run's result is cut at 300 characters, inside the count, so it is not read there.
+The table is `python3 s35_reply.py table` over the committed runs. "First turn's READY" counts the `tool` runs whose result ends in a paragraph that is `READY` alone, the first turn's own work done, and not a result that only mentions it; a `text` run's result is cut at 300 characters, inside the count, so it is not read there.
 
 | Cell (told-message-arrival) | Runs | Replies | Leaks | First turn's READY | Tokens |
 |---|---|---|---|---|---|
-| `prompt-greet-tool` | 5 | 5 | 5 (-1, -2, -3, -4, -5) | 5 | 601,062 |
+| `prompt-greet-tool` | 5 | 5 | 5 (-1, -2, -3, -4, -5) | 3 | 601,062 |
 | `promptw-greet-tool` | 5 | 5 | 0 | 5 | 578,805 |
 | `prompts-greet-tool` | 5 | 5 | 0 | 5 | 622,799 |
 | `prompta-greet-tool` | 5 | 5 | 0 | 5 | 561,529 |
@@ -920,7 +920,7 @@ The table is `python3 s35_reply.py table` over the committed runs. "First turn's
     - **Placement:** the sentences after the work kept the output away as the scope sentence did before it, and did not raise the reply rate. Over five runs a cell, 14 of 15 against 15 of 15 does not separate the two placements.
     - **Not established:** why two of S35's 20 request runs got no reply (the control's `-3` and this one), where S34 and S32 (b) got 5 of 5 each in the control's cell. Neither wrote any text about the message.
 
-**Common to all 55.** No call was refused, and the bridge answered every `reply` without `isError`; the only error it sent was its `-32601` to `server/discover`, the negotiation fact 100 records. The peer received every reply as sent, 53 of 53. Every `tool` turn wrote `READY` at its end, so no wording stopped the first turn's own work there. The median time from the event to the reply was 13.9 to 15.8 s in the `tool` cells and 5.8 to 9.1 s in the `text` cells.
+**Common to all 55.** No call was refused, and the bridge answered every `reply` without `isError`; the only error it sent was its `-32601` to `server/discover`, the negotiation fact 100 records. The peer received every reply as sent, 53 of 53. Every `tool` turn of the three wordings wrote `READY` at its end, so none of them stopped the first turn's own work there; of the control's 10, 8 did. In `prompt-greet-tool-2` the result's `READY` is followed by a paragraph saying it was sent to the peer too, and `prompt-greet-tool-4`'s result only says it sent `READY` to the peer and wrote none of its own. The median time from the event to the reply was 13.9 to 15.8 s in the `tool` cells and 5.8 to 9.1 s in the `text` cells.
 
 Not established by S35: each fact's own, above; the scope sentence with other first-turn work, with a question, in a message that starts a turn of its own after an idle wait (where S32 (b)'s control sent `READY` in 5 of 5, fact 94), or with the sentence only in the server's instructions; whether the scope sentence and "write" together do better than either, which no cell separates from placement (`prompta` changed both and the position); the rate beyond five runs a cell; a model other than `claude-sonnet-5-5`; a build after 2.1.322; and a conversation longer than one turn.
 
