@@ -123,10 +123,14 @@ esac
 EOF
 printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/dbus-daemon"
 # setsid: a real new session and process group, so the signal case below
-# exercises the group the wrapper signals, on any host.
+# exercises the group the wrapper signals, on any host. PIPE and XFSZ go
+# back to their defaults, as the real setsid leaves them: python3 ignores
+# both at its start and the exec would hand that on to the whole session.
 cat > "$BIN/setsid" <<'EOF'
 #!/usr/bin/env bash
-exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+exec python3 -c 'import os, signal, sys
+for s in (signal.SIGPIPE, signal.SIGXFSZ): signal.signal(s, signal.SIG_DFL)
+os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
 EOF
 chmod +x "$BIN"/*
 
@@ -154,7 +158,8 @@ CMD="$SANDBOX/cmd"
 cat > "$CMD" <<EOF
 #!/usr/bin/env bash
 { echo "DISPLAY=\${DISPLAY-unset}"; echo "WAYLAND_DISPLAY=\${WAYLAND_DISPLAY-unset}"
-  echo "a11y-before-cmd=\$([[ -e $SANDBOX/a11y-on ]] && echo yes || echo no)"; } > "$SANDBOX/cmd-ran"
+  echo "a11y-before-cmd=\$([[ -e $SANDBOX/a11y-on ]] && echo yes || echo no)"
+  sed -n 's/^SigIgn:[[:space:]]*/sigign=/p' /proc/\$\$/status 2>/dev/null; } > "$SANDBOX/cmd-ran"
 exit "\${1:-0}"
 EOF
 chmod +x "$CMD"
@@ -232,6 +237,14 @@ reset; run "$CMD" 3
 if [[ "$got" -eq 3 && -e "$SANDBOX/cmd-ran" ]]; then pass "the command runs and its exit status is the wrapper's (3)"
 else fail "the command should run and exit 3, got $got" "$out"; fi
 if [[ -e "$SANDBOX/bus-ran" ]]; then pass "  inside dbus-run-session"; else fail "dbus-run-session was not used" "$out"; fi
+# The command inherits no ignore the stubs made (the setsid stub's python3
+# ignores PIPE and XFSZ at its start): HUP PIPE TERM XFSZ, 0x1005001. Not
+# INT: the wrapper starts the session as a `&` job, which bash runs with
+# INT and QUIT ignored under the real setsid as well.
+cmd_ign="$(sed -n 's/^sigign=//p' "$SANDBOX/cmd-ran" 2>/dev/null)"
+if [[ ! -r /proc/$$/status ]]; then pass "  (no /proc: the command's ignored signals are not read)"
+elif [[ -n "$cmd_ign" ]] && (( (0x$cmd_ign & 0x1005001) == 0 )); then pass "  the command starts with no signal of those it may be sent ignored"
+else fail "the command started with signals ignored (SigIgn ${cmd_ign:-unread})" "$(cat "$SANDBOX/cmd-ran" 2>/dev/null)"; fi
 # The bus's own environment is what its activated services inherit: the
 # AT-SPI launcher marks DISPLAY's root window and writes the
 # toolkit-accessibility setting through GSettings.
