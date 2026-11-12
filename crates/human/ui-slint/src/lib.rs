@@ -419,8 +419,9 @@ struct Shared {
     conversations: HashMap<i32, ConversationKey>,
     items: HashMap<i32, Pressable>,
     /// The open reader's two forms and its links, swapped and pressed
-    /// from its callbacks.
-    reader: Option<reader::Forms>,
+    /// from its callbacks: a cell of its own, borrowed apart from this
+    /// one while the source form is built ([`reader::Forms::source`]).
+    reader: Rc<RefCell<Option<reader::Forms>>>,
     /// When the press that opens the reader reached the view, for the
     /// trace's time to its first frame.
     #[cfg(feature = "ui-trace")]
@@ -443,6 +444,12 @@ struct Shared {
     /// flag: every take closes a conversation's snackbar while that
     /// conversation is off screen.)
     pane_moved: bool,
+    /// The reader opening whose rows its step timer has all built, as
+    /// its `seq` ([`Opening`]): held outside the queue, since the timer
+    /// tells it once and a full queue would refuse it as a press, leaving
+    /// the reader empty for good (#643 F1). Taken once the queue has
+    /// drained, so a close or another opening in it comes first.
+    reader_built: Option<u64>,
     notice: Option<SessionNotice>,
     /// A notice shown once in Chats' notice slot, under any session notice
     /// and the offline line, until its Close: what a discard of the store
@@ -1040,6 +1047,12 @@ pub struct View {
     age_due: Option<u64>,
     /// The message the reader shows, while it is open.
     reader: Option<reader::Open>,
+    /// The reader's rows while they are built, in turns past the first go.
+    opening: Option<Opening>,
+    /// The last opening's [`Opening::seq`].
+    opening_seq: u64,
+    /// How long an opening builds before a turn, and in each turn.
+    opening_budgets: OpeningBudgets,
     /// What runs once the next frame has been drawn
     /// ([`View::after_next_frame`]); `None` until the window's one
     /// rendering notifier is set.
@@ -1159,6 +1172,7 @@ impl View {
         window.set_show_formatted_label(text(UiText::ShowFormatted));
         window.set_open_whole_label(text(UiText::OpenWholeMessage));
         window.set_copy_message_label(text(UiText::CopyMessage));
+        window.set_reader_opening_label(text(UiText::ReaderOpening));
         window.set_code_font(code_font());
         window.set_app_options_label(text(UiText::AppOptions));
         window.set_back_label(text(UiText::BackToConversations));
@@ -1295,6 +1309,12 @@ impl View {
             age_timer: slint::Timer::default(),
             age_due: None,
             reader: None,
+            opening: None,
+            opening_seq: 0,
+            opening_budgets: OpeningBudgets {
+                first_go: OPENING_FIRST_GO,
+                turn: OPENING_TURN,
+            },
             frame_tasks: None,
             seen: Seen::default(),
             next_slot_b: false,
@@ -2213,6 +2233,10 @@ impl View {
     /// The end of a take, once the queue has drained: the selection
     /// rendered, an off-screen snackbar closed and what is on screen read.
     fn take_drained(&mut self, model: &UiModel, out: &mut Vec<ViewEvent>) {
+        let built = self.shared.borrow_mut().reader_built.take();
+        if built.is_some() && built == self.opening.as_ref().map(|opening| opening.seq) {
+            self.reader_built();
+        }
         // A selection is shown by the take that resolves it. A root renders
         // and then takes, so a press that yields no intent -- nothing
         // unread, or the window unfocused -- gives the root no reason for
@@ -2400,7 +2424,10 @@ impl View {
     }
 
     /// Open the reader on `key` in the form its row showed (section 4.3):
-    /// both forms built now, so Show source swaps them at once.
+    /// its app bar at once, its formatted rows in one go of up to
+    /// [`OPENING_FIRST_GO`], then a turn of up to [`OPENING_TURN`] at a
+    /// time until all are built ([`reader::Formatting`]), the source's
+    /// after.
     fn open_reader(&mut self, key: ItemKey, as_source: bool) {
         let (Some(item), Some(handle)) = (
             self.shown_items.get(&key),
@@ -2408,60 +2435,159 @@ impl View {
         ) else {
             return;
         };
-        let forms = self.reader_forms(item);
         let title = match (&item.direction, &item.author) {
             (Direction::Inbound, Some(peer)) => short_peer(peer.as_str()),
             _ => placeholder_en::text(UiText::You).to_owned(),
         };
-        self.window.set_reader_rows(if as_source {
-            forms.source.clone()
-        } else {
-            forms.formatted.clone()
-        });
+        let sent = reader::sent(&self.clock, item.local_at);
+        let build = Rc::new(RefCell::new(Build {
+            window: slint::ComponentHandle::clone_strong(&self.window),
+            formatting: Some(reader::Formatting::new(item, &sent, &image_text)),
+            known: HashMap::new(),
+            source: Some((item.source.clone(), sent)),
+            told: false,
+        }));
+        self.close_reader();
+        self.window.set_reader_rows(ModelRc::default());
+        self.window.set_reader_link_rows(ModelRc::default());
         self.window.set_reader_as_source(as_source);
-        let link_rows: Vec<i32> = forms
-            .link_rows
-            .iter()
-            .map(|&row| i32::try_from(row).unwrap_or(i32::MAX))
-            .collect();
-        self.window
-            .set_reader_link_rows(ModelRc::new(VecModel::from(link_rows)));
         self.window.set_reader_title(title.into());
         self.window.set_reader_handle(handle);
         self.window.set_reader_open(true);
-        self.shared.borrow_mut().reader = Some(forms);
         self.reader = Some(reader::Open { key, handle });
-        #[cfg(feature = "ui-trace")]
-        self.trace_reader_drawn();
+        self.opening_seq += 1;
+        let opening = Opening {
+            seq: self.opening_seq,
+            build,
+            as_source,
+            step: slint::Timer::default(),
+            bar: slint::Timer::default(),
+        };
+        // Nothing for half a second from the press's take, then the bar
+        // until the rows are drawn (section 3, `ReaderOpening`): started
+        // before the first go, since a timer's deadline is set when it
+        // starts and the first go holds the loop for up to its budget
+        // (#643 F2). An opening done within the first go drops it unfired.
+        let window = swipe::weak(&self.window);
+        opening
+            .bar
+            .start(slint::TimerMode::SingleShot, OPENING_BAR_AFTER, move || {
+                if let Some(window) = window.upgrade() {
+                    window.set_reader_opening_shown(true);
+                }
+            });
+        let budgets = self.opening_budgets;
+        if opening.build.borrow_mut().advance(budgets.first_go) {
+            self.opening = Some(opening);
+            self.reader_built();
+            return;
+        }
+        let (build, shared, seq) = (
+            Rc::clone(&opening.build),
+            Rc::clone(&self.shared),
+            opening.seq,
+        );
+        opening.step.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(1),
+            move || {
+                let done = build
+                    .try_borrow_mut()
+                    .is_ok_and(|mut build| build.advance(budgets.turn));
+                if done {
+                    flag(&shared, |shared| shared.reader_built = Some(seq));
+                }
+            },
+        );
+        self.opening = Some(opening);
     }
 
-    /// `item`'s reader rows, both forms, each piece measured.
+    /// The opening reader's rows, all built: shown, with its links, and
+    /// the source form built after the first frame that shows them, so
+    /// Show source swaps at once. Where no frame is told (the testing
+    /// backend), Show source builds it.
+    fn reader_built(&mut self) {
+        let Some(opening) = self.opening.take() else {
+            return;
+        };
+        drop((opening.step, opening.bar));
+        self.window.set_reader_opening_shown(false);
+        let (formatting, source) = {
+            let mut build = opening.build.borrow_mut();
+            (build.formatting.take(), build.source.take())
+        };
+        let Some(formatting) = formatting else {
+            return;
+        };
+        let (formatted, links, link_rows) = formatting.done();
+        let shown_rows = link_rows_model(&link_rows);
+        let (source, sent) = source.unwrap_or_default();
+        let weak = swipe::weak(&self.window);
+        let forms = reader::Forms::new((formatted.clone(), links, link_rows), move || {
+            let Some(window) = weak.upgrade() else {
+                return ModelRc::default();
+            };
+            let measures = Measures::new(&window);
+            reader::source(&source, &sent, |pieces| {
+                pieces_by_measure(pieces, &|line| measures.height(line, Measured::Source))
+            })
+        });
+        let cell = Rc::clone(&self.shared.borrow().reader);
+        *cell.borrow_mut() = Some(forms);
+        self.window.set_reader_rows(if opening.as_source {
+            reader::Forms::source(&cell).unwrap_or_default()
+        } else {
+            formatted
+        });
+        self.window.set_reader_link_rows(shown_rows);
+        #[cfg(feature = "ui-trace")]
+        self.trace_reader_drawn();
+        // Queued after the trace's, which times the frame before it.
+        if !opening.as_source {
+            self.after_next_frame(move || {
+                reader::Forms::source(&cell);
+            });
+        }
+    }
+
+    /// `item`'s reader rows, each piece measured, in one go: the
+    /// formatted form now, the source's when asked for.
     fn reader_forms(&self, item: &MessageItem) -> reader::Forms {
         let sent = reader::sent(&self.clock, item.local_at);
-        let window = &self.window;
-        let forms = reader::forms(
-            item,
-            &sent,
-            &image_text,
-            |lines| {
-                by_measure(body_lines(lines), &|line| {
-                    measured(window, line, Measured::Line)
-                })
-            },
-            |pieces| pieces_by_measure(pieces, &|line| measured(window, line, Measured::Source)),
-            |label| label_pieces(window, label),
-        );
-        window.set_measure_line(BodyLine::default());
-        forms
+        let mut build = Build {
+            window: slint::ComponentHandle::clone_strong(&self.window),
+            formatting: Some(reader::Formatting::new(item, &sent, &image_text)),
+            known: HashMap::new(),
+            source: None,
+            told: false,
+        };
+        build.step(usize::MAX);
+        let formatted = build
+            .formatting
+            .take()
+            .map(reader::Formatting::done)
+            .unwrap_or_default();
+        let (window, source) = (swipe::weak(&self.window), item.source.clone());
+        reader::Forms::new(formatted, move || {
+            let Some(window) = window.upgrade() else {
+                return ModelRc::default();
+            };
+            let measures = Measures::new(&window);
+            reader::source(&source, &sent, |pieces| {
+                pieces_by_measure(pieces, &|line| measures.height(line, Measured::Source))
+            })
+        })
     }
 
     /// Close the reader, if open, saying which message it showed.
     fn close_reader(&mut self) -> Option<reader::Open> {
+        self.opening = None;
+        self.window.set_reader_opening_shown(false);
         let open = self.reader.take()?;
         self.window.set_reader_open(false);
         self.window
             .set_reader_rows(ModelRc::new(VecModel::<generated::ReaderRow>::default()));
-        self.shared.borrow_mut().reader = None;
+        *self.shared.borrow().reader.borrow_mut() = None;
         Some(open)
     }
 
@@ -2818,17 +2944,25 @@ impl View {
         }
         self.bodies.clear();
         self.measured_for = basis;
-        if let Some(key) = self.reader.as_ref().map(|open| open.key)
-            && let Some(item) = self.shown_items.get(&key)
-        {
-            let forms = self.reader_forms(item);
-            self.window
-                .set_reader_rows(if self.window.get_reader_as_source() {
-                    forms.source.clone()
-                } else {
-                    forms.formatted.clone()
-                });
-            self.shared.borrow_mut().reader = Some(forms);
+        if let Some(key) = self.reader.as_ref().map(|open| open.key) {
+            if self.opening.is_some() {
+                self.open_reader(key, self.window.get_reader_as_source());
+            } else if let Some(item) = self.shown_items.get(&key) {
+                let forms = self.reader_forms(item);
+                let formatted = forms.formatted.clone();
+                // Measured again, a line may be in more pieces or fewer,
+                // and every control after it on another row.
+                self.window
+                    .set_reader_link_rows(link_rows_model(&forms.link_rows));
+                let cell = Rc::clone(&self.shared.borrow().reader);
+                *cell.borrow_mut() = Some(forms);
+                self.window
+                    .set_reader_rows(if self.window.get_reader_as_source() {
+                        reader::Forms::source(&cell).unwrap_or_default()
+                    } else {
+                        formatted
+                    });
+            }
         }
     }
 
@@ -3479,6 +3613,15 @@ impl View {
         said.flatten()
     }
 
+    /// Build every reader opening by these budgets instead of
+    /// [`OPENING_FIRST_GO`] and [`OPENING_TURN`]: for a test, which
+    /// cannot rely on how long a build takes on the host. Zero builds one
+    /// step a call.
+    #[doc(hidden)]
+    pub fn set_opening_budgets(&mut self, first_go: Duration, turn: Duration) {
+        self.opening_budgets = OpeningBudgets { first_go, turn };
+    }
+
     /// Whether an Accept snackbar's clock is polling: for a test.
     #[doc(hidden)]
     #[must_use]
@@ -4121,36 +4264,37 @@ fn connect_long_message(window: &generated::AppWindow, shared: &Rc<RefCell<Share
     window.on_reader_close(move || enqueue(&s, Input::ReaderClosed));
     // The first link control at or after a row of the reader's formatted
     // form, by its index; -1 for none.
-    let s = Rc::clone(shared);
+    let forms = Rc::clone(&shared.borrow().reader);
     window.on_reader_link_from(move |row| {
-        let shared = s.borrow();
-        let rows = shared
-            .reader
-            .as_ref()
-            .map_or(&[][..], |forms| &forms.link_rows[..]);
+        let forms = forms.borrow();
+        let rows = forms.as_ref().map_or(&[][..], |forms| &forms.link_rows[..]);
         let row = usize::try_from(row).unwrap_or(0);
         rows.iter()
             .position(|&at| at >= row)
             .map_or(-1, |index| i32::try_from(index).unwrap_or(-1))
     });
-    // The other form at once, built as the reader opened: the scroll
-    // is kept at its share right after this returns.
-    let (s, weak) = (Rc::clone(shared), swipe::weak(window));
+    // The other form, built now if the frame after the opening has not
+    // built it yet: the scroll is kept at its share right after this
+    // returns.
+    let (forms, weak) = (Rc::clone(&shared.borrow().reader), swipe::weak(window));
     window.on_reader_switch(move || {
-        let (Some(window), Some(forms)) = (weak.upgrade(), &s.borrow().reader) else {
+        let Some(window) = weak.upgrade() else {
             return;
         };
         let as_source = !window.get_reader_as_source();
-        window.set_reader_rows(if as_source {
-            forms.source.clone()
+        let rows = if as_source {
+            reader::Forms::source(&forms)
         } else {
-            forms.formatted.clone()
-        });
-        window.set_reader_as_source(as_source);
+            forms.borrow().as_ref().map(|forms| forms.formatted.clone())
+        };
+        if let Some(rows) = rows {
+            window.set_reader_rows(rows);
+            window.set_reader_as_source(as_source);
+        }
     });
-    let s = Rc::clone(shared);
+    let (s, forms) = (Rc::clone(shared), Rc::clone(&shared.borrow().reader));
     window.on_reader_link(move |index| {
-        let pressed = s.borrow().reader.as_ref().and_then(|forms| {
+        let pressed = forms.borrow().as_ref().and_then(|forms| {
             usize::try_from(index)
                 .ok()
                 .and_then(|i| forms.links.get(i).cloned())
@@ -4295,7 +4439,7 @@ fn body_lines(lines: &[body::Line]) -> Vec<BodyLine> {
 const ITEM_EXTENT: f32 = 8_000.0;
 
 /// What `measure-text` lays a text out as.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Measured {
     /// A body line: its text, or a code line's fill.
     Line,
@@ -4303,6 +4447,167 @@ enum Measured {
     Source,
     /// A link control's label.
     Label,
+}
+
+/// Each link control's row in the reader, as the window takes them.
+fn link_rows_model(rows: &[usize]) -> ModelRc<i32> {
+    let rows: Vec<i32> = rows
+        .iter()
+        .map(|&row| i32::try_from(row).unwrap_or(i32::MAX))
+        .collect();
+    ModelRc::new(VecModel::from(rows))
+}
+
+/// How long an opening reader shows nothing before its bar (design
+/// 2026-11-04-long-message.md section 3: "nothing below 0.5 s").
+const OPENING_BAR_AFTER: Duration = Duration::from_millis(500);
+
+/// A reader opening: its rows built turn by turn by `step`, and the
+/// bar `bar` shows once [`OPENING_BAR_AFTER`] has passed. Dropped, both
+/// stop.
+struct Opening {
+    /// Which opening this is: a reader opened again before the last
+    /// one's rows were built is told apart from it.
+    seq: u64,
+    build: Rc<RefCell<Build>>,
+    as_source: bool,
+    step: slint::Timer,
+    bar: slint::Timer,
+}
+
+/// What one reader's rows are built from, between steps.
+struct Build {
+    window: AppWindow,
+    /// Taken once every row is in.
+    formatting: Option<reader::Formatting>,
+    known: HashMap<(Measured, MeasureKey), f32>,
+    /// The source as received and the line the reader starts with, for
+    /// the source form.
+    source: Option<(String, (String, String))>,
+    /// Whether the step that put the last row in has been told.
+    told: bool,
+}
+
+impl Build {
+    /// The formatted rows built on for `room` bytes of text
+    /// ([`reader::Formatting::step`]); whether every row is in.
+    fn step(&mut self, room: usize) -> bool {
+        let Some(formatting) = self.formatting.as_mut() else {
+            return true;
+        };
+        let measures = Measures::with(&self.window, std::mem::take(&mut self.known));
+        let done = formatting.step(
+            room,
+            |lines| {
+                by_measure(body_lines(lines), &|line| {
+                    measures.height(line, Measured::Line)
+                })
+            },
+            |label| label_pieces(&measures, label),
+        );
+        self.known = measures.known.take();
+        done
+    }
+
+    /// [`step`](Self::step) on until every row is in or `budget` has
+    /// passed, one step at least: true at the call that puts the last row
+    /// in, and false at every one after, so that call is told once.
+    fn advance(&mut self, budget: Duration) -> bool {
+        if self.told {
+            return false;
+        }
+        let started = std::time::Instant::now();
+        loop {
+            self.told = self.step(reader::STEP_BYTES);
+            if self.told || started.elapsed() >= budget {
+                return self.told;
+            }
+        }
+    }
+}
+
+/// How long an opening builds before it first lets the window draw: a
+/// body built within it opens in one go, its first frame the rows, and
+/// takes no turn of the event loop, each of which costs the opening a
+/// wake and maybe a frame (A5 on the A40, 2026-11-11: list 433 to 559 ms
+/// at 32 KiB a turn). Short of [`OPENING_BAR_AFTER`], so the window
+/// draws, and a Back pressed meanwhile is taken, before the bar is due.
+const OPENING_FIRST_GO: Duration = Duration::from_millis(400);
+
+/// How long each later turn builds: the bar drawn between turns, so the
+/// person sees it move, with few turns.
+const OPENING_TURN: Duration = Duration::from_millis(50);
+
+/// The two budgets an opening builds by ([`OPENING_FIRST_GO`],
+/// [`OPENING_TURN`]).
+#[derive(Clone, Copy)]
+struct OpeningBudgets {
+    first_go: Duration,
+    turn: Duration,
+}
+
+/// How tall `window`'s layout draws a text, for one build of a body's
+/// rows: each distinct line asked of the layout once, since a body
+/// repeats them -- one label per link to one destination, a heading per
+/// autolink -- and each ask is a layout of the window (the reader's
+/// opening, design/2026-11-04-long-message.md A5). Kept for one build
+/// only: a text size or scale changed since measures differently.
+struct Measures<'w> {
+    window: &'w AppWindow,
+    known: RefCell<HashMap<(Measured, MeasureKey), f32>>,
+}
+
+/// Every field of a `BodyLine` that `measure-text` reads, hashable:
+/// `joined` and `continues` are not among them, so a line measures the
+/// same wherever a run of lines breaks.
+#[derive(PartialEq, Eq, Hash)]
+struct MeasureKey {
+    // `LineKind` is generated without `Hash`: its discriminant stands in.
+    kind: i32,
+    level: i32,
+    depth: i32,
+    quoted: bool,
+    marker: SharedString,
+    text: SharedString,
+}
+
+impl<'w> Measures<'w> {
+    fn new(window: &'w AppWindow) -> Self {
+        Self::with(window, HashMap::new())
+    }
+
+    /// Measures that know what `known` measured, in the same build.
+    fn with(window: &'w AppWindow, known: HashMap<(Measured, MeasureKey), f32>) -> Self {
+        Self {
+            window,
+            known: RefCell::new(known),
+        }
+    }
+
+    /// How tall the layout draws `line` as `what` (app.slint
+    /// `measure-text`).
+    fn height(&self, line: &BodyLine, what: Measured) -> f32 {
+        let key = MeasureKey {
+            kind: line.kind as i32,
+            level: line.level,
+            depth: line.depth,
+            quoted: line.quoted,
+            marker: line.marker.clone(),
+            text: line.text.clone(),
+        };
+        *self
+            .known
+            .borrow_mut()
+            .entry((what, key))
+            .or_insert_with(|| measured(self.window, line, what))
+    }
+}
+
+impl Drop for Measures<'_> {
+    /// The layout's measuring line emptied, so it holds no body's text.
+    fn drop(&mut self) {
+        self.window.set_measure_line(BodyLine::default());
+    }
 }
 
 /// How tall `window`'s layout draws `line` as `what` (app.slint
@@ -4315,13 +4620,12 @@ fn measured(window: &AppWindow, line: &BodyLine, what: Measured) -> f32 {
 }
 
 /// A link control's label as `LinkButton` draws it: all of it, never cut,
-/// in pieces each `window`'s layout measures within [`ITEM_EXTENT`]
+/// in pieces each `measures`' layout measures within [`ITEM_EXTENT`]
 /// (HUMAN-CHAT.md Bounds, A 2026-11-07 (ii)).
-fn label_pieces(window: &AppWindow, label: &str) -> ModelRc<SharedString> {
+fn label_pieces(measures: &Measures<'_>, label: &str) -> ModelRc<SharedString> {
     let pieces = pieces_by_measure(vec![label.to_owned()], &|line| {
-        measured(window, line, Measured::Label)
+        measures.height(line, Measured::Label)
     });
-    window.set_measure_line(BodyLine::default());
     ModelRc::new(VecModel::from(
         pieces
             .into_iter()
@@ -4410,14 +4714,14 @@ fn drawn_body(item: &MessageItem, window: &AppWindow) -> DrawnBody {
         text
     };
     let formatted_plain = with_line(&shown_line);
+    let measures = Measures::new(window);
     let lines = by_measure(body_lines(&body.lines), &|line| {
-        measured(window, line, Measured::Line)
+        measures.height(line, Measured::Line)
     });
     let (source_pieces, source_shown) = cut::source(&item.source);
     let source_pieces = pieces_by_measure(source_pieces, &|line| {
-        measured(window, line, Measured::Source)
+        measures.height(line, Measured::Source)
     });
-    window.set_measure_line(BodyLine::default());
     let source_cut_line = cut_line(source_shown);
     let source_plain = with_line(&source_cut_line);
     let source_pieces: Vec<SharedString> = source_pieces.into_iter().map(Into::into).collect();
@@ -4429,7 +4733,7 @@ fn drawn_body(item: &MessageItem, window: &AppWindow) -> DrawnBody {
             let label = body::link_label(destination);
             Some(LinkRow {
                 index: i32::try_from(index).ok()?,
-                pieces: label_pieces(window, &label),
+                pieces: label_pieces(&measures, &label),
                 label: label.into(),
             })
         })

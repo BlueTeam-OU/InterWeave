@@ -20,9 +20,11 @@ use interweave_human_core::RowId;
 use interweave_human_ui_model::{
     ConversationKey, Intent, RuntimeHost, UiModel, UiText, placeholder_en,
 };
-use interweave_human_ui_slint::{View, ViewEvent};
+use interweave_human_ui_slint::{INPUT_CAP, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
+use std::time::Duration;
+
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle as _, Model as _};
 
@@ -1576,6 +1578,344 @@ fn tab_from_the_reader_scroll_area_starts_at_the_screen() {
 fn tab_from_a_reader_with_no_links_goes_to_back() {
     let (mut view, mut model) = reader_on(&paragraphs(200));
     assert_eq!(key_settled(&mut view, &mut model, Key::Tab), "reader-back");
+}
+
+/// Show source in an open reader shows the source: the formatted form is
+/// built as the reader opens and the source's when first asked for, here
+/// by the switch (the testing backend tells no frame, after which it is
+/// built otherwise), and its rows are the body's markup and all, joined
+/// as the source is; Show formatted gives the formatted rows back.
+#[test]
+fn show_source_in_the_reader_shows_the_source_built_when_asked() {
+    let body = format!("{}end", "**bold** ".repeat(600));
+    let (mut view, mut model) = reader_on(&body);
+    let formatted = reader_text(&view);
+    assert!(
+        formatted.iter().skip(1).all(|t| !t.contains("**")),
+        "control: the formatted form draws no markup"
+    );
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_as_source());
+    assert_eq!(reader_text(&view)[1..].concat(), body, "the source, whole");
+    view.window().invoke_reader_switch();
+    let _ = intents(&mut view, &mut model);
+    assert!(!view.window().get_reader_as_source());
+    assert_eq!(reader_text(&view), formatted, "the formatted rows again");
+}
+
+/// A body of 3,000 links to as many places: its rows take several steps
+/// to build (`reader::STEP_BYTES` in `src/reader.rs`).
+fn many_places() -> String {
+    (0..3000)
+        .map(|i| format!("[a](https://e.org/{i})"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Advance the clock by `ms` and run what is due.
+fn after(ms: u64) {
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(ms));
+    slint::platform::update_timers_and_animations();
+}
+
+/// A reader whose rows take more than a turn to build opens at once with
+/// no rows; shows nothing for half a second, then its bar, labelled
+/// `ReaderOpening`, under the app bar; and once every row is in, the rows
+/// and no bar (section 3's "reader opening" state).
+#[test]
+fn a_slow_opening_shows_nothing_then_its_bar_until_the_rows_are_in() {
+    let opening = text(UiText::ReaderOpening);
+    let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &many_places()));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_open(), "the reader opens at once");
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "its rows to come"
+    );
+    after(400);
+    assert!(labelled(&view, opening).is_empty(), "nothing below 0.5 s");
+    after(200);
+    assert_eq!(labelled(&view, opening).len(), 1, "the bar from 0.5 s");
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "control: the rows are not in yet"
+    );
+    let mut turns = 0;
+    while view.window().get_reader_rows().row_count() == 0 {
+        turns += 1;
+        assert!(turns < 200, "the rows never came");
+        after(16);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert!(
+        labelled(&view, opening).is_empty(),
+        "no bar once the rows are in"
+    );
+    assert_eq!(view.window().get_reader_link_rows().row_count(), 3000);
+}
+
+/// The end of an opening is not a press: built while the queue holds
+/// `INPUT_CAP` presses the root has not taken, the rows still come in at
+/// the next take, and nothing more is counted refused (#643 F1).
+#[test]
+fn an_opening_that_ends_with_the_queue_full_still_shows_its_rows() {
+    let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &many_places()));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "control: still opening"
+    );
+    for _ in 0..=INPUT_CAP {
+        view.window().invoke_send();
+    }
+    assert_eq!(view.refused_inputs(), 1, "control: the queue is full");
+    // Every row built while nothing is taken.
+    for _ in 0..200 {
+        after(16);
+    }
+    while !view.take_events(&model).is_empty() {}
+    assert_eq!(view.refused_inputs(), 1, "the end is not refused");
+    assert_eq!(view.window().get_reader_link_rows().row_count(), 3000);
+    assert!(
+        labelled(&view, text(UiText::ReaderOpening)).is_empty(),
+        "no bar once the rows are in"
+    );
+}
+
+/// A body built within the first go opens with its rows, no turn taken
+/// and no bar (`OPENING_FIRST_GO` in `src/lib.rs`): the first go here
+/// unbounded, so the host's speed does not decide the test.
+#[test]
+fn a_body_built_within_the_first_go_opens_with_its_rows() {
+    let mut view = view();
+    view.set_opening_budgets(Duration::MAX, Duration::ZERO);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &many_places()));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_open());
+    assert_eq!(
+        view.window().get_reader_link_rows().row_count(),
+        3000,
+        "every row in at the open"
+    );
+    after(600);
+    assert!(
+        labelled(&view, text(UiText::ReaderOpening)).is_empty(),
+        "no bar"
+    );
+}
+
+/// A Back pressed while the reader opens closes it at once: the opening
+/// stops, its bar never shows, and no later turn puts rows in.
+#[test]
+fn a_back_while_the_reader_opens_closes_it_and_no_bar_shows() {
+    let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &many_places()));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    after(200);
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "control: still opening"
+    );
+    view.window().invoke_reader_close();
+    let _ = intents(&mut view, &mut model);
+    assert!(!view.window().get_reader_open(), "closed at the Back");
+    for _ in 0..50 {
+        after(16);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert!(!view.window().get_reader_open(), "no turn opens it again");
+    assert!(
+        !view.window().get_reader_opening_shown(),
+        "the bar never shows"
+    );
+    assert_eq!(view.window().get_reader_rows().row_count(), 0);
+}
+
+/// Rows built a step at a time are the rows one go builds: a run of
+/// lines is cut between steps only before a line that starts afresh, so
+/// no piece is measured apart from the line it continues. One go is what
+/// a text size changed in place builds; changed and changed back, the
+/// reader holds the rows one go gives at the size it opened at.
+#[test]
+fn rows_built_in_steps_are_the_rows_built_in_one_go() {
+    let font = |view: &View, size: f32| {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(size)));
+    };
+    let rows = |view: &View| -> Vec<(String, String, bool, bool, String)> {
+        let rows = view.window().get_reader_rows();
+        (0..rows.row_count())
+            .filter_map(|i| rows.row_data(i))
+            .map(|r| {
+                (
+                    format!("{:?}", r.kind),
+                    r.line.text.to_string(),
+                    r.line.joined,
+                    r.line.continues,
+                    r.text.to_string(),
+                )
+            })
+            .collect()
+    };
+    let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    font(&view, 14.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    let body = vec!["word ".repeat(700); 40].join("\n\n");
+    model.received(received(1, &alice, &body));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "control: built in steps"
+    );
+    let mut turns = 0;
+    while view.window().get_reader_rows().row_count() == 0 {
+        turns += 1;
+        assert!(turns < 200, "the rows never came");
+        after(16);
+        let _ = intents(&mut view, &mut model);
+    }
+    let stepped = rows(&view);
+    assert!(
+        stepped.iter().any(|(_, _, joined, _, _)| *joined),
+        "control: lines in pieces"
+    );
+    let built = view.window().get_reader_rows();
+    font(&view, 15.0);
+    slint::platform::update_timers_and_animations();
+    let _ = intents(&mut view, &mut model);
+    font(&view, 14.0);
+    slint::platform::update_timers_and_animations();
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        view.window().get_reader_rows() != built,
+        "control: built again, in one go"
+    );
+    assert_eq!(rows(&view), stepped);
+}
+
+/// Each link's row, as the window holds it for TAB, is that link's
+/// control after a text size changed in place: measured again, the lines
+/// before the controls are in more pieces, and every control on another
+/// row.
+#[test]
+fn the_link_rows_follow_the_rows_measured_again() {
+    let font = |view: &View, size: f32| {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(size)));
+    };
+    // Each link's row and the row the window says, by link.
+    let rows = |view: &View| -> (Vec<i32>, Vec<i32>) {
+        let rows = view.window().get_reader_rows();
+        let links: Vec<i32> = (0..rows.row_count())
+            .filter_map(|i| rows.row_data(i).map(|r| (i, r)))
+            .filter(|(_, r)| format!("{:?}", r.kind) == "Link")
+            .map(|(i, _)| i32::try_from(i).expect("few"))
+            .collect();
+        let said = view.window().get_reader_link_rows();
+        (
+            links,
+            (0..said.row_count())
+                .filter_map(|i| said.row_data(i))
+                .collect(),
+        )
+    };
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 4000.0));
+    font(&view, 14.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    let body = (0..6)
+        .map(|i| format!("{} [a](https://e.org/{i})", "W".repeat(1500)))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    model.received(received(1, &alice, &body));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    let (links, said) = rows(&view);
+    assert_eq!(links.len(), 6, "control: a control per link");
+    assert_eq!(said, links, "as the reader opened");
+    font(&view, 42.0);
+    slint::platform::update_timers_and_animations();
+    let _ = intents(&mut view, &mut model);
+    let (again, said) = rows(&view);
+    assert_ne!(again, links, "control: the controls moved");
+    assert_eq!(said, again, "measured again");
+}
+
+/// Escape while the reader is opening closes it, and the rows built for
+/// it never open it again.
+#[test]
+fn escape_while_the_reader_opens_closes_it_for_good() {
+    let mut view = view();
+    // Stepped from the first go, so the host's speed does not decide
+    // whether it is still opening at 0.6 s (#643 review).
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(411.0, 891.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &many_places()));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    after(600);
+    assert_eq!(
+        labelled(&view, text(UiText::ReaderOpening)).len(),
+        1,
+        "control: still opening"
+    );
+    key(&view, Key::Escape);
+    let _ = intents(&mut view, &mut model);
+    assert!(!view.window().get_reader_open());
+    for _ in 0..50 {
+        after(16);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert!(!view.window().get_reader_open(), "closed for good");
+    assert!(labelled(&view, text(UiText::ReaderOpening)).is_empty());
 }
 
 /// The source form has no link control: TAB from its scroll area goes

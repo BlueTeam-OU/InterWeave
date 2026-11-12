@@ -1058,6 +1058,28 @@ component WaitMark inherits Rectangle {
     }
 }
 
+// An indeterminate progress bar, 4 px under an app bar: a third of its
+// width sliding across it, and standing still -- still shown -- under
+// reduced motion (design 2026-11-04-long-message section 3,
+// `ReaderOpening`).
+component LoadBar inherits Rectangle {
+    in property <string> label;
+    in property <bool> still;
+    height: 4px;
+    background: Palette.surface-variant;
+    clip: true;
+    accessible-role: progress-indicator;
+    accessible-label: Drawn.spoken(root.label);
+    Rectangle {
+        y: 0;
+        width: parent.width / 3;
+        height: parent.height;
+        background: Palette.primary;
+        x: root.still ? 0px
+            : (mod(animation-tick() / 1ms, 1500) / 1500) * (parent.width * 4 / 3) - parent.width / 3;
+    }
+}
+
 // One of the window's marks (start-window section 8's look): the progress
 // row, the indicator alone, 24 px with 8 px above and below; a line; or
 // the failure or limit row, its text centred in body medium -- `error` for
@@ -4594,6 +4616,10 @@ export component AppWindow inherits Window {
     // in the mode shown; whether that is the source; its title, the
     // sender as the conversation shows them.
     in property <bool> reader-open;
+    // The reader's rows are still being built half a second after it
+    // opened: its bar shows, labelled so (section 3).
+    in property <bool> reader-opening-shown;
+    in property <string> reader-opening-label;
     in property <[ReaderRow]> reader-rows;
     in property <bool> reader-as-source;
     in property <string> reader-title;
@@ -8831,6 +8857,10 @@ export component AppWindow inherits Window {
                                     focused(k) => { root.focus-id = k; }
                                 }
                             }
+                        }
+                        if root.reader-opening-shown: LoadBar {
+                            label: root.reader-opening-label;
+                            still: root.reduced-motion;
                         }
                         // The scroll area, which takes focus as the reader
                         // opens, so arrows and Page keys scroll at once

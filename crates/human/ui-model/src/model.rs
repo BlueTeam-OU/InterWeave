@@ -7,6 +7,7 @@
 //! facade does.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::sync::OnceLock;
 
 use interweave_human_chat_protocol::{HumanChatV2, Rendered, is_allowed_link_scheme, render};
 use interweave_human_client_api::{
@@ -649,6 +650,12 @@ struct Item {
     rows: Vec<(Table, RowId)>,
     envelope: HumanChatV2,
     body: Rendered,
+    /// `body`'s preview, worked out the first time the conversation list
+    /// asks for it: the list is built on every render, and the preview
+    /// walks the whole body for its first line, which for a body at the
+    /// envelope's bound is most of the reader's opening time (design
+    /// 2026-11-04-long-message.md A5). `body` is fixed once the item is.
+    preview: OnceLock<crate::preview::Preview>,
     author: Option<TransportIdentity>,
     route_label: Option<RouteLabel>,
     outbound: Option<OutboundStatus>,
@@ -1342,7 +1349,10 @@ impl UiModel {
                 body: item.body.clone(),
                 local_at: item.local_at,
                 card: item.card.is_some(),
-                preview: summaries::held_preview(&item.body),
+                preview: item
+                    .preview
+                    .get_or_init(|| summaries::held_preview(&item.body))
+                    .clone(),
             };
             let summary = by
                 .entry(&item.conversation)
@@ -2018,6 +2028,7 @@ impl UiModel {
                 direction: Direction::Outbound,
                 rows: vec![(Table::Pending, row)],
                 body: render(&envelope.text),
+                preview: OnceLock::new(),
                 envelope,
                 author: None,
                 route_label,
@@ -2269,6 +2280,7 @@ fn inbound_item(
         direction: Direction::Inbound,
         rows: vec![row],
         body: render(&envelope.text),
+        preview: OnceLock::new(),
         envelope,
         author: Some(author),
         route_label,
