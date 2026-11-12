@@ -1045,8 +1045,8 @@ scale would also be a finding of the Android review
          with `page=connect`, and `connect=settled`,
          `connect=not-owed` or `connect=deferred` with
          `page=conversations`); the pair is `connect=open` with
-         `page=connect` on a phone whose Peers page or Trust page
-         listed something before the hooks; or the pair is
+         `page=connect` on a phone whose Peers page or Trust page,
+         or both, listed something before the hooks; or the pair is
          Chats staying on a phone whose Peers page and Trust page
          both listed nothing before the hooks. There is one
          exception to that last case. If, on such a phone, the pair
