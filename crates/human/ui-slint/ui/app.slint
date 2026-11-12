@@ -2485,8 +2485,11 @@ component IdentityScreen inherits FocusScope {
     // The rule's Enter as this page shows it: the only chip, or the whole
     // word typed, which leads the row. The flow takes the chip
     // (WordPicker::enter_chip); this only decides whether an Enter with
-    // no control focused is the rule's at all, which no letter in flight
-    // can change, since a letter opens typing.
+    // no control focused is the rule's at all. A hardware letter in
+    // flight opens typing, so its Enter is the flow's; a tapped one sets
+    // navigating and moves no focus, so a Return behind it presses the
+    // key that held focus and never reaches this (trace.rs
+    // a_return_burst_behind_a_tapped_key_presses_the_focused_control).
     function enter-takes() -> bool {
         return root.page.picker && root.page.chips.length > 0
             && (root.page.chips.length == 1 || root.page.chips[0] == root.page.typed);

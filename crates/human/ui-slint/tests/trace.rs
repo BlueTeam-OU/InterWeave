@@ -1169,6 +1169,59 @@ fn c3s_action_queued_behind_the_dialog(
     assert_eq!(page.flow.check(), Some((20, Some(20))), "nothing acted");
 }
 
+/// A keypad key tapped and a hardware Return in one burst: a tap sets
+/// navigating mode (design section 8), so the Return presses the
+/// focused control -- here q, which R2 opened on and which "ac" leaves
+/// disabled, so nothing -- and a tap moves no focus. The Return never
+/// reaches the rule for an Enter with no control focused, which judges
+/// the page last shown (`enter-takes` in app.slint, #634 review risk 1).
+#[test]
+fn a_return_burst_behind_a_tapped_key_presses_the_focused_control() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::{Key, PointerEventButton, WindowEvent};
+    let mut page = Identity::at_r2();
+    page.burst(&letters_then("ac", &[]));
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Key('a'), IdentityInput::Key('c')]
+    );
+    let key = ElementHandle::find_by_accessible_label(page.view.window(), "t")
+        .find(|e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Button))
+        .expect("the t key");
+    let (at, size) = (key.absolute_position(), key.size());
+    let position = slint::LogicalPosition::new(at.x + size.width / 2.0, at.y + size.height / 2.0);
+    let window = page.view.window().window();
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+    page.burst(&letters_then("", &[Key::Return]));
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Key('t')],
+        "the Return pressed the focused, disabled q: no Enter was sent"
+    );
+    assert_eq!(page.word(0), None, "navigating: Enter takes no chip");
+    assert_eq!(page.typed(), "act");
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-key",
+        "a key held focus"
+    );
+    // Control: the focus is a live key, so TAB from it and Enter press
+    // the next key, w, which a tapped t would not have led to.
+    page.burst(&letters_then("", &[Key::Backspace; 3]));
+    assert_eq!(page.typed(), "", "control: every letter but x enabled");
+    page.take();
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')], "focus was on q");
+}
+
 /// C3 by keyboard: letters and Enter in one burst take the word and move
 /// to the second position, focus on the first enabled key (#634 F3).
 #[test]
