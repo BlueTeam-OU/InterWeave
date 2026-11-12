@@ -46,12 +46,23 @@ import android.util.Log
  *
  * The Service registers the receiver while it runs, asking the sender for
  * DUMP, which adb's shell holds.
+ *
+ * Two hooks are armed from the launch instead, since a first run's C4 and
+ * R4 are held before any Service runs (add-a-peer section 8 item 12):
+ * [HOLD_READS_MS] holds the next start's address and trust reads, each
+ * answering that many ms after it was asked, and [HOLD_START_MS] holds the
+ * next service start that long before it runs, once each:
+ *
+ *     adb shell am start -n org.interweave.human/.MainActivity --ei holdReadsMs 2000
+ *     adb shell am start -n org.interweave.human/.MainActivity --ei holdStartMs 12000
  */
 internal object DebugHooks {
     const val RESTART = "org.interweave.human.debug.RESTART"
     const val REFUSE_STORE = "org.interweave.human.debug.REFUSE_STORE"
     const val REFUSE_STORE_KEY = "org.interweave.human.debug.REFUSE_STORE_KEY"
     const val REFUSE_IDENTITY = "org.interweave.human.debug.REFUSE_IDENTITY"
+    const val HOLD_READS_MS = "holdReadsMs"
+    const val HOLD_START_MS = "holdStartMs"
     private const val TAG = "interweave"
 
     /** The native side of [REFUSE_STORE]: the debug library's alone. */
@@ -62,6 +73,20 @@ internal object DebugHooks {
 
     /** The native side of [REFUSE_IDENTITY]: the debug library's alone. */
     @JvmStatic private external fun refuseNextIdentity()
+
+    /** The native side of [HOLD_READS_MS]: the debug library's alone. */
+    @JvmStatic private external fun holdNextStartReads(ms: Int)
+
+    /** The native side of [HOLD_START_MS]: the debug library's alone. */
+    @JvmStatic private external fun holdNextStart(ms: Int)
+
+    /** Arm the launch's hooks from [intent]'s extras, before anything starts. */
+    fun fromLaunch(intent: Intent?) {
+        val reads = intent?.getIntExtra(HOLD_READS_MS, 0) ?: 0
+        val start = intent?.getIntExtra(HOLD_START_MS, 0) ?: 0
+        if (reads > 0) holdNextStartReads(reads)
+        if (start > 0) holdNextStart(start)
+    }
 
     /** Hear the hooks on the main thread while [service] runs; the unregistration. */
     // Below API 33 registerReceiver takes no exported flag: a receiver

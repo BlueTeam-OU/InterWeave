@@ -81,6 +81,14 @@ mod platform_log;
     )
 )]
 mod identity_hook;
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; jni.rs takes it on Android"
+    )
+)]
+mod start_hook;
 // On every target, so the host tests what a check answers for a kept K1.
 #[cfg_attr(
     not(target_os = "android"),
