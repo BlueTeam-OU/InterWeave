@@ -211,9 +211,10 @@ policy or allowlist, and the permission relay excludes a modern
 connection as well. A modern `tools/list` result without `resultType`
 is rejected, while a discover result without it was accepted (run d). So fact 3 holds on this build, and the bridge
 stays legacy, as it is (`apps/claude-channel/src/mcp.rs`). A build
-after 2.1.286 was not established by S23; S28 measured the same on
-2.1.317 (fact 65) and S33 on 2.1.322 (fact 99), their carried
-measurements below, and a build after 2.1.322 is not established
+after 2.1.286 was not established by S23; S28 ran a and b again on
+2.1.317 (fact 65) and S33 on 2.1.322 (fact 99), with the same
+outcome, their carried measurements below; c, d and the binary read
+were not repeated, and a build after 2.1.322 is not established
 (A 2026-11-12, this stopped at 2.1.286).
 
 **Carried measurement, S24 (2026-10-24, Claude Code 2.1.286,
