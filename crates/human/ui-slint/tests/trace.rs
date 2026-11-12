@@ -1171,23 +1171,30 @@ fn c3s_action_queued_behind_the_dialog(
 
 /// A keypad key tapped and a hardware Return in one burst: a tap sets
 /// navigating mode (design section 8), so the Return presses the
-/// focused control -- here q, which R2 opened on and which "ac" leaves
-/// disabled, so nothing -- and a tap moves no focus. The Return never
-/// reaches the rule for an Enter with no control focused, which judges
-/// the page last shown (`enter-takes` in app.slint, #634 review risk 1).
+/// focused control -- here q, which R2 opened on and which "act" leaves
+/// disabled, so nothing -- and a tap moves no focus. The page the Return
+/// meets shows "act" whole beside two longer chips, so the rule for an
+/// Enter with no control focused (`enter-takes` in app.slint) would say
+/// yes there, and the flow, holding "acti", would take "action": the
+/// Return never reaches that rule (#634 review risk 1; #644 F1).
 #[test]
 fn a_return_burst_behind_a_tapped_key_presses_the_focused_control() {
     use interweave_human_ui_slint::IdentityInput;
     use slint::platform::{Key, PointerEventButton, WindowEvent};
     let mut page = Identity::at_r2();
-    page.burst(&letters_then("ac", &[]));
+    page.burst(&letters_then("act", &[]));
     assert_eq!(
         page.take(),
-        [IdentityInput::Key('a'), IdentityInput::Key('c')]
+        [
+            IdentityInput::Key('a'),
+            IdentityInput::Key('c'),
+            IdentityInput::Key('t')
+        ]
     );
-    let key = ElementHandle::find_by_accessible_label(page.view.window(), "t")
+    assert_eq!(page.word(0), None, "control: three chips, none taken");
+    let key = ElementHandle::find_by_accessible_label(page.view.window(), "i")
         .find(|e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Button))
-        .expect("the t key");
+        .expect("the i key");
     let (at, size) = (key.absolute_position(), key.size());
     let position = slint::LogicalPosition::new(at.x + size.width / 2.0, at.y + size.height / 2.0);
     let window = page.view.window().window();
@@ -1202,19 +1209,19 @@ fn a_return_burst_behind_a_tapped_key_presses_the_focused_control() {
     page.burst(&letters_then("", &[Key::Return]));
     assert_eq!(
         page.take(),
-        [IdentityInput::Key('t')],
+        [IdentityInput::Key('i')],
         "the Return pressed the focused, disabled q: no Enter was sent"
     );
     assert_eq!(page.word(0), None, "navigating: Enter takes no chip");
-    assert_eq!(page.typed(), "act");
+    assert_eq!(page.typed(), "acti");
     assert_eq!(
         page.last(),
         "ui-trace focus=identity-key",
         "a key held focus"
     );
     // Control: the focus is a live key, so TAB from it and Enter press
-    // the next key, w, which a tapped t would not have led to.
-    page.burst(&letters_then("", &[Key::Backspace; 3]));
+    // the next key, w, which a tapped i would not have led to.
+    page.burst(&letters_then("", &[Key::Backspace; 4]));
     assert_eq!(page.typed(), "", "control: every letter but x enabled");
     page.take();
     page.tab();
