@@ -211,7 +211,9 @@ after the other. "Word 7 of 24" heads each entry.
     the person typed since then stay in the letters display. Typing
     does not remove the error: it stays until the next word is taken.
     Then a right word removes it, and a wrong one shows it again,
-    naming the position of the word just taken;
+    naming the position of the word just taken. Both actions show
+    exactly while the error shows: typing leaves them, and whatever
+    removes the error removes them too;
   - show my words again (→ C2, with the same two positions on return).
 - There is no limit on tries, and no way past C3 without two right
   words.
@@ -677,8 +679,8 @@ access.
 - When a chip fills R2's only remaining empty position, by any input,
   focus goes to the primary action, `IdCheckWords`, now enabled, and
   the screen is navigating, so Enter or Space presses it. The same holds when a
-  chip replaces a word in a phrase with no empty position, after an
-  edit. There is no next position to type into, and checking is the
+  chip replaces a word while no position is empty, after an edit or
+  after letters typed once every position was filled (§4 item 2). There is no next position to type into, and checking is the
   person's next step. Why an early press is safe: the check's result
   depends only on the words. A failed check keeps every word (§6). A
   valid phrase goes to R3, which asks whether the PeerId is the one
