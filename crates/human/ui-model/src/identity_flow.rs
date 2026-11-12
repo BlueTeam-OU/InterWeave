@@ -822,7 +822,7 @@ impl IdentityFlow {
         }
     }
 
-    /// A chip tapped on C3 or R2. On C3 a right word moves to the next
+    /// A chip taken on C3 or R2, by a tap or by [`Self::enter`]. On C3 a right word moves to the next
     /// position or to C4; a wrong one shows which position and clears.
     pub fn choose(&mut self, chip: &str) -> Vec<Effect> {
         if self.words_held() {

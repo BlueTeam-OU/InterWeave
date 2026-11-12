@@ -2,11 +2,13 @@
 // Copyright 2026 Andrea Benetton
 //! The recovery-phrase word picker's state (design/2026-10-19-android-
 //! identity.md §4): one position at a time, entered by letters from an
-//! in-app keypad, narrowed to the words of a list, and filled only by the
-//! person's tap on a word. Pure: no IME, no text field and no clipboard
-//! exist here, which is the point (android-key-custody.md's recovery-screen
-//! rules) -- the view draws keys, chips and positions from this and
-//! returns taps.
+//! in-app keypad, narrowed to the words of a list, and filled only by a
+//! word the person chose from the chips shown: a tap on it, or a hardware
+//! Enter while typing ([`WordPicker::enter_chip`], design section 8).
+//! Pure: no IME, no text field and no clipboard exist here, which is the
+//! point (android-key-custody.md's recovery-screen rules) -- the view
+//! draws keys, chips and positions from this and returns the person's
+//! taps and keys.
 //!
 //! The word list is the caller's: the platform hands in BIP-39's English
 //! list, sorted as BIP-39 publishes it, and the tests a short one. Nothing
@@ -117,7 +119,8 @@ impl WordPicker {
     }
 
     /// What the suggestions row shows. Nothing is ever chosen here: a
-    /// single match is still a chip the person taps (§4).
+    /// single match is still a chip the person takes, by a tap or by
+    /// Enter (§4, §8).
     #[must_use]
     pub fn suggestions(&self) -> Suggestions {
         let matches = self.matches();
@@ -207,7 +210,7 @@ impl PhraseEntry {
         self.positions.get(position).copied().flatten()
     }
 
-    /// The person tapped `chip`: it fills the current position if it is
+    /// The person took `chip`, by a tap or by Enter: it fills the current position if it is
     /// one of the current suggestions, and the entry moves to the next
     /// empty position (or stays, when none is left). A word that is not a
     /// current chip is refused: only a word the person saw is entered.
