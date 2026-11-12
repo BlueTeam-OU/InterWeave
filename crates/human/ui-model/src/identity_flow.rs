@@ -527,9 +527,10 @@ impl IdentityFlow {
     // --- the person's actions ------------------------------------------
 
     /// The screen's primary action. Behind the discard dialog it does
-    /// nothing: the dialog's own buttons are its only actions, and a
+    /// nothing: Back and the dialog's buttons are what act there, and a
     /// press queued in one batch behind the Back that opened it reaches
-    /// the flow after it (#634 review, pre-existing 1).
+    /// the flow after it (`no_screen_action_runs_behind_the_dialog`;
+    /// trace.rs `check_queued_behind_the_discard_dialog_checks_nothing`).
     pub fn primary(&mut self) -> Vec<Effect> {
         if self.discard_asked() {
             return Vec::new();
