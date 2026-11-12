@@ -526,8 +526,15 @@ impl IdentityFlow {
 
     // --- the person's actions ------------------------------------------
 
-    /// The screen's primary action.
+    /// The screen's primary action. Behind the discard dialog it does
+    /// nothing: Back and the dialog's buttons are what act there, and a
+    /// press queued in one batch behind the Back that opened it reaches
+    /// the flow after it (`no_screen_action_runs_behind_the_dialog`;
+    /// trace.rs `check_queued_behind_the_discard_dialog_checks_nothing`).
     pub fn primary(&mut self) -> Vec<Effect> {
+        if self.discard_asked() {
+            return Vec::new();
+        }
         // The way to the first word waits for the lock (Try again).
         if self.unheld
             && matches!(
@@ -738,17 +745,27 @@ impl IdentityFlow {
     }
 
     /// C3, after a wrong word: "Try again" takes the error away; the entry
-    /// is already clear.
+    /// is already clear. Behind the discard dialog it does nothing, as
+    /// [`Self::primary`].
     pub fn try_again(&mut self) {
-        if let Screen::C3(check) = &mut self.screen {
+        if let Screen::C3(check) = &mut self.screen
+            && !check.discard_asked
+        {
             check.wrong = None;
         }
     }
 
     /// C3, after a wrong word: show the words again (→ C2); the same two
-    /// positions are asked on return.
+    /// positions are asked on return. Behind the discard dialog it does
+    /// nothing, as [`Self::primary`].
     pub fn show_words_again(&mut self) {
-        if matches!(self.screen, Screen::C3(_)) {
+        if matches!(
+            self.screen,
+            Screen::C3(Check {
+                discard_asked: false,
+                ..
+            })
+        ) {
             self.screen = Screen::C2;
         }
     }
@@ -806,7 +823,7 @@ impl IdentityFlow {
         }
     }
 
-    /// A chip tapped on C3 or R2. On C3 a right word moves to the next
+    /// A chip taken on C3 or R2, by a tap or by [`Self::enter`]. On C3 a right word moves to the next
     /// position or to C4; a wrong one shows which position and clears.
     pub fn choose(&mut self, chip: &str) -> Vec<Effect> {
         if self.words_held() {
@@ -1882,6 +1899,52 @@ mod tests {
         flow.discard(false);
         flow.enter();
         assert_eq!(flow.check(), Some((18, None)), "control: taken once closed");
+    }
+
+    /// The screen's actions behind the discard dialog: R2's Check my
+    /// words, C3's Try again and Show words again do nothing until the
+    /// dialog closes, then act (#634 review, pre-existing 1).
+    #[test]
+    fn no_screen_action_runs_behind_the_dialog() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        flow.back();
+        assert!(flow.discard_asked(), "control: the dialog is up");
+        assert_eq!(flow.primary(), [], "no check behind the dialog");
+        assert!(flow.discard_asked(), "the dialog stays");
+        flow.discard(false);
+        assert_eq!(
+            flow.primary(),
+            [Effect::Check(words().join(" "))],
+            "control: with the dialog closed Check runs"
+        );
+
+        let mut flow = created_at_c2();
+        flow.primary();
+        enter(&mut flow, "habit");
+        assert_eq!(flow.check(), Some((6, Some(6))), "control: a wrong word");
+        assert!(flow.press('g'));
+        flow.back();
+        assert!(flow.discard_asked(), "control: letters typed ask first");
+        flow.try_again();
+        assert_eq!(flow.check(), Some((6, Some(6))), "Try again held");
+        flow.show_words_again();
+        assert_eq!(flow.screen(), ScreenId::C3, "Show words again held");
+        assert!(flow.discard_asked(), "the dialog stays");
+        flow.discard(false);
+        flow.try_again();
+        assert_eq!(flow.check(), Some((6, None)), "control: Try again runs");
+        flow.back();
+        assert!(flow.discard_asked(), "control: g still typed");
+        flow.discard(false);
+        flow.show_words_again();
+        assert_eq!(
+            flow.screen(),
+            ScreenId::C2,
+            "control: Show words again runs"
+        );
     }
 
     /// The count a page carries for section 8's focus rule: R2 counts a
