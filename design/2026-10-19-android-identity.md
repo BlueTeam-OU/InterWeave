@@ -17,6 +17,11 @@ Revised the same day: in portrait R2's grid sits above a fixed picker
 (§4, §8, acceptance 13), at rust-ui-dev-01's height figures (REPLY
 01a1a333). And: what "Show all my words" opens (§4 item 4, §8,
 acceptance 2 and 15), at rust-ui-dev-01's QUESTION 01a1a34d.
+Revised 2026-11-12: a tap on a key is typing and moves no focus, and
+a chip or a position chosen by any input returns typing (§4 item 2,
+§8, acceptance 15), at rust-ui-dev-01's QUESTION 01a1d095. Until then a
+tap set navigating, so a hardware Return after tapping t pressed the
+key that held focus, a key the person had not chosen (#644).
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -383,7 +388,8 @@ The picker, from its top:
      sooner.
    - Tapping a chip fills the position and moves to the next empty
      one. Nothing ever fills itself: even a single remaining match is
-     a chip the person taps, so no word is entered without being seen.
+     a chip the person taps, or takes with Enter while typing (§8), so
+     no word is entered without being seen.
 3. **The keypad:** the 26 letters in QWERTY rows (10, 9, 7). Its last
    row holds two keys: one deletes the last letter, one clears the
    position.
@@ -558,24 +564,36 @@ access.
   does: across a keypad row, between rows, and between the grid's
   positions. Tab and Shift+Tab follow the order above.
 - What Enter and Space do depends on the last input:
-  - **Typing** — the last input was a hardware letter, Backspace, or
-    an Enter that acted under this rule. Enter takes the only
-    suggestion when exactly one is shown, or the whole-word chip when
-    the letters typed are a word; otherwise it does nothing. Space
+  - **Typing** — the last input was a hardware letter, Backspace, an
+    Enter that acted under this rule, or a tap on a letter key, the
+    delete key or the clear key. A tapped key is typing too: the
+    person is entering letters, by finger instead of by keyboard, and
+    a Return that follows means the word, not a key they never chose.
+    Enter takes the only suggestion when exactly one is shown, or the
+    whole-word chip when the letters typed are a word; otherwise it
+    does nothing. Space
     does nothing: no word holds a space, and a Space typed between
     words must not press whichever key holds focus.
-  - **Navigating** — the last input was Tab, an arrow, a tap, or a
-    press of a control. Enter and Space press the focused control, as
-    on every other screen.
+  - **Navigating** — the last input was Tab, an arrow, a tap on any
+    other control, or a press of a control by Enter or Space, a key's
+    included. Enter and Space press the focused control, as on every
+    other screen. A key pressed by Enter stays navigating, so a person
+    who moves through the keypad can press one key twice ("pp").
   - Every other input leaves the mode as it was: Space, an Enter that
-    did nothing, Back and Escape. Closing the discard dialog (§7),
-    however it is closed, returns the screen to the mode it was in
-    when Back was pressed.
+    did nothing, a tap on a disabled key, Back and Escape. Closing the
+    discard dialog (§7), however it is closed, returns the screen to
+    the mode it was in when Back was pressed.
   - The full list (§4 item 4) has no keypad and is always navigating:
     Enter and Space press the focused row or arrow, and letters and
     Backspace do nothing. Choosing a row, by any input, returns R2 in
     typing mode, an exception to "a press sets navigating", as closing
     the discard dialog is: the person is back to entering letters.
+  - The same exception holds on R2 and C3 for a chip that fills a
+    position and for a grid position chosen to edit, by a tap or by
+    Enter or Space: the screen is in typing mode afterwards, with focus
+    as the list below says. Navigating there would make the next
+    Return press the key focus went to and add a letter the person did
+    not choose.
   - A screen opens as typing. Either way the focus ring is drawn on
     the focused control, so the person sees what Enter would press
     once they move.
@@ -585,8 +603,21 @@ access.
   a row is chosen, to the keypad's first enabled key (the delete key
   when the word put back leaves no letter enabled), in typing mode;
   when a font change closes it, to the grid's current position.
-- When R2 or C3 opens, and after a chip fills a position, focus goes
-  to the keypad's first enabled key.
+- A tap moves no focus. Focus stays on the control that held it,
+  as Android's touch mode keeps it (a button is not focusable in touch
+  mode), and the focus ring stays drawn there, so a person who goes
+  back to the keyboard continues from where they were. Where a tap
+  opens, closes or changes something, the rules below say where focus
+  goes, as for any other input.
+- When R2 or C3 opens, and after a chip fills a position, by any
+  input, focus goes to the keypad's first enabled key.
+- When a grid position is chosen to edit, by any input, focus goes as
+  for a row chosen from the full list: to the keypad's first enabled
+  key, or to the delete key when the word put back leaves no letter
+  enabled.
+- When the focused chip leaves the suggestions row because the letters
+  changed, by a tap, a hardware letter or Backspace, focus goes to the
+  keypad's first enabled key. The mode is the one the input set.
 - When a refused start raises a screen in place of the one the person
   was on or was opening, focus goes to that screen's heading, which
   is focusable for this. The screens are K1 (§3.4) and the store's R
@@ -886,8 +917,23 @@ scale would also be a finding of the Android review
       "car" chip, and Space then does nothing. While typing, the focus
       ring shows on the focused control.
     - After a Tab to a key, and after an arrow to a key, Enter and
-      Space each press that key; after a tap on a key, Enter presses
-      the focused control.
+      Space each press that key, and a second Enter presses it again.
+    - On a newly opened R2, a tap on t leaves focus on the first
+      enabled key, and Enter and Space then do nothing. After taps on
+      c, a and r, Enter takes the "car" chip. After a Tab to a key and
+      a tap on another key, Enter does not press the focused key.
+      After taps on c, a, r and g, a tap on the delete key, then
+      Enter, takes the "car" chip; a tap on the clear key, then
+      Enter, does nothing. Each holds too when the last tap and the
+      Return arrive in one burst.
+    - After a chip fills a position, by a tap and by Enter on the
+      focused chip, focus is on the first enabled key and Enter does
+      nothing.
+    - With position 5 filled, a tap on it puts focus on the first
+      enabled key (the delete key when none is enabled), and Enter
+      then takes the whole-word chip, so position 5 keeps its word.
+    - With focus on a chip after a Tab, a tap on a letter that removes
+      that chip from the row moves focus to the first enabled key.
     - Backspace deletes the last letter.
     - At 200 %, `IdReviewWords` opens the full list with focus on the
       current position's row. Back, Escape and the app bar arrow each
