@@ -1718,6 +1718,20 @@ impl UiModel {
         }
     }
 
+    /// This start gives Connect up before its reads decided it: the 10 s
+    /// bound passed with them unanswered, or, at a launch, the person
+    /// opened something from Chats first (§5.1). Deferred as a failed
+    /// read defers it -- reads that answer later open nothing, and the
+    /// next start decides again -- and said as nothing else: true only
+    /// when Connect was still owed, so a decided start stays as it was.
+    pub fn connect_defer(&mut self) -> bool {
+        if self.connect != ConnectState::Owed {
+            return false;
+        }
+        self.connect = ConnectState::Decided { deferred: true };
+        true
+    }
+
     /// Where this start stands on Connect: owed until both reads answer,
     /// then open, settled or deferred. A person who left it is settled,
     /// the platform told so at the next turn.
