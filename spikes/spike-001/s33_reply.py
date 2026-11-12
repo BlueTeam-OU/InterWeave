@@ -4,13 +4,20 @@
 the real claude-channel bridge across two daemons in place of the stub
 (the README's "Not established by S32 (b)").
 
-    python3 s33_reply.py <told>-question-<arrival>-<N>
+    python3 s33_reply.py <told>-<message>-<arrival>-<N>
     python3 s33_reply.py table     # the committed runs, per cell
 
   <told>     ``prompt`` (the answer sentence in the first user turn) or
              ``plugin`` (only in the server's instructions)
-  <arrival>  ``idle`` (the message starts a turn of its own) or ``tool``
-             (it joins a turn making ``status`` calls)
+  <message>  S32 (b)'s ``greet``, ``question`` or ``task``; S33 ran
+             ``question`` only
+  <arrival>  ``idle`` (the message starts a turn of its own), ``tool``
+             (it joins a turn making ``status`` calls) or ``text`` (it
+             comes during a turn writing text alone); S33 ran ``idle``
+             and ``tool``
+
+s34_reply.py runs the same code as the series ``s34`` (S32 (b)'s other
+cells), its runs written as ``runs/s34-reply-*`` and tabled apart.
 
 The session is S32 (b)'s, run by its own code: ``s32_reply.spec_of``
 words the first turn, ``s32_reply.run_session`` starts the print
@@ -27,7 +34,7 @@ differs:
   stub did.
 - **The message comes from a peer**: S16's two daemons on this host's
   private address, the far peer a second bridge on daemon B, which sends
-  S32's ``question`` text to endpoint ``claude`` when run_session's
+  the cell's S32 message to endpoint ``claude`` when run_session's
   trigger appears. A reply is S32's (a ``reply`` call with the event's
   token, not refused) that the bridge answered without ``isError`` and
   that the peer received.
@@ -60,24 +67,25 @@ from s31_print import dashed
 
 HERE = pathlib.Path(__file__).resolve().parent
 TOLD = ("prompt", "plugin")
-ARRIVALS = ("idle", "tool")
+MESSAGES = tuple(s32_reply.MESSAGES)
+ARRIVALS = s32_reply.ARRIVALS
 
 
 def spec_of(name):
-    m = re.fullmatch(rf"({'|'.join(TOLD)})-question-({'|'.join(ARRIVALS)})-([1-9]\d?)", name)
+    m = re.fullmatch(rf"({'|'.join(TOLD)})-({'|'.join(MESSAGES)})-({'|'.join(ARRIVALS)})-([1-9]\d?)", name)
     return s32_reply.spec_of(name) if m else None
 
 
-def committed_runs():
-    for path in sorted((HERE / "runs").glob("s33-reply-*/evidence.md")):
+def committed_runs(series):
+    for path in sorted((HERE / "runs").glob(f"{series}-reply-*/evidence.md")):
         m = re.search(r"## Run\n\n```json\n(.*?)\n```", path.read_text(), re.S)
         if m:
             yield json.loads(m.group(1))
 
 
-def table():
+def table(series):
     cells = {}
-    for r in committed_runs():
+    for r in committed_runs(series):
         if not r.get("passed"):
             continue
         c = cells.setdefault(r["cell"], {"runs": 0, "replies": 0, "after": [], "joined": 0, "tokens": 0})
@@ -102,17 +110,18 @@ def table():
     print(f"\ntokens: {sum(c['tokens'] for c in cells.values()):,}")
 
 
-def main() -> int:
+def main(series="s33") -> int:
     if sys.argv[1:] == ["table"]:
-        table()
+        table(series)
         return 0
     if len(sys.argv) != 2 or spec_of(sys.argv[1]) is None:
-        raise SystemExit(f"usage: {sys.argv[0]} <{'|'.join(TOLD)}>-question-<{'|'.join(ARRIVALS)}>-<N>")
+        raise SystemExit(f"usage: {sys.argv[0]} "
+                         f"<{'|'.join(TOLD)}>-<{'|'.join(MESSAGES)}>-<{'|'.join(ARRIVALS)}>-<N>")
     if os.environ.get("SPIKE_CLAUDE"):
         raise SystemExit("unset SPIKE_CLAUDE: S33 measures the claude on PATH")
     name = sys.argv[1]
     spec = spec_of(name)
-    run = "s33-reply-" + name
+    run = f"{series}-reply-" + name
 
     subprocess.run(["cargo", "build", "-q", "-j", "2", "--release", "-p", "interweave-claude-channel"], check=True,
                    cwd=REPO)
@@ -129,9 +138,9 @@ def main() -> int:
         raise SystemExit("TMPDIR must be outside the repository")
 
     nonce = secrets.token_hex(4)
-    message = s32_reply.MESSAGES["question"].format(nonce=nonce)
+    message = s32_reply.MESSAGES[spec["message"]].format(nonce=nonce)
     record = {"run": run, **stamp, "claude_version": claude_version(), "nonce": nonce,
-              "cell": name.rsplit("-", 1)[0], "told": spec["told"], "message_kind": "question",
+              "cell": name.rsplit("-", 1)[0], "told": spec["told"], "message_kind": spec["message"],
               "arrival": spec["arrival"], "first_turn": spec["first"], "message": message,
               "instructions_added": spec["extra_instructions"], "bridge": "release claude-channel at the tree",
               "proxy_tool_delay_ms": s32_reply.TOOL_DELAY_MS if spec["arrival"] == "tool" else 0}
