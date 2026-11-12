@@ -15,8 +15,8 @@ use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboard
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::{
-    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, TouchSettings, View, defer, init_android,
-    invoke_on_window,
+    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, ShowOpen, TouchSettings, View, defer,
+    init_android, invoke_on_window,
 };
 
 use crate::jni::{PROFILE, log};
@@ -109,6 +109,19 @@ thread_local! {
     // The window, for Back, whether the chats or the identity screens
     // show.
     static VIEW: RefCell<Option<Rc<RefCell<View>>>> = const { RefCell::new(None) };
+    // Whether Show my address is open on this window, read without
+    // borrowing the view, which may be borrowed when a frame's off runs.
+    static SHOW_OPEN: RefCell<Option<ShowOpen>> = const { RefCell::new(None) };
+}
+
+/// Whether Show my address is open on this Activity's window, its
+/// addresses perhaps drawn: `onboard::secure_off` then leaves
+/// `FLAG_SECURE` on. Android-only wiring with no automated test of its
+/// own: `ShowOpen` is ui-slint's (`the_open_state_follows_openings_and_closings`),
+/// the decision `ready_check::secure_may_clear`'s, and no device case
+/// ends a K1 over an open Show, which needs a restore (#619 F1).
+pub(crate) fn show_open() -> bool {
+    SHOW_OPEN.with(|slot| slot.borrow().as_ref().is_some_and(ShowOpen::get))
 }
 
 /// `Native.back`: the platform's Back, given to the window; when no screen
@@ -273,6 +286,21 @@ pub(crate) fn focus_locked_notice() {
 
 static NOTICE_FOCUS: AtomicBool = AtomicBool::new(false);
 
+/// K1 over the window that shows, for a start the Service made that
+/// answered `RecoveryRequired` (onboard.rs, `recovery_refused`); with no
+/// window, nothing here: the next window's check answers recovery for the
+/// K1 kept, and that window opens it (`ready_state`).
+pub(crate) fn raise_recovery() {
+    let Some(view) = VIEW.with(|view| view.borrow().clone()) else {
+        return;
+    };
+    if view.try_borrow_mut().is_err() {
+        defer(raise_recovery);
+        return;
+    }
+    crate::onboard::raise_recovery(&view);
+}
+
 fn apply_notice_focus() {
     let applied = VIEW.with(|view| {
         view.borrow().as_ref().map(|view| {
@@ -418,7 +446,7 @@ impl Opener for AndroidOpener {
         {
             // Left set, Connect is decided again at the next start, and
             // opens only if the device still knows no one.
-            log(&format!("the connect-owed marker: {why:?}"));
+            log(&format!("clearing the connect-owed marker: {why:?}"));
         }
     }
 
@@ -595,14 +623,15 @@ fn android_main(app: AndroidApp) {
     view.on_haptic(|| HAPTIC.raise());
     // Show my address draws this device's addresses only in a secured
     // window, as the phrase pages do (add-a-peer §5.4).
-    view.guard_show(|on| {
+    let show_open = view.guard_show(|on| {
         use crate::onboard::{ASKS, ask};
-        ASKS.push(if on {
-            ask::SHOW_SECURE
+        if on {
+            ASKS.push(ask::SHOW_SECURE);
         } else {
-            ask::SECURE_OFF
-        });
+            crate::onboard::secure_off();
+        }
     });
+    SHOW_OPEN.with(|slot| *slot.borrow_mut() = Some(show_open));
     // Scan a code: the Activity's camera, on while the viewfinder is open
     // (add-a-peer §5.5), offered only on a phone that has one.
     view.camera_hook(|on| {
@@ -670,5 +699,6 @@ fn android_main(app: AndroidApp) {
     // it on its next send. The session stays the Service's.
     ROOT.with(|root| root.borrow_mut().take());
     VIEW.with(|slot| slot.borrow_mut().take());
+    SHOW_OPEN.with(|slot| slot.borrow_mut().take());
     log("android_main: the Activity's views end");
 }

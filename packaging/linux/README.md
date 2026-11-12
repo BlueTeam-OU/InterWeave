@@ -40,10 +40,15 @@ promises such a client, and what the client owes itself, is
 ## Installing and uninstalling
 
 `install.sh` and `uninstall.sh` are run as the account that will run the
-profile, and write nothing outside its home: the four programs
+profile, need no root and change nothing system-wide; they write only that
+account's own files: the four programs
 (`transport-daemon`, `transportctl`, `human-desktop` and the command-line
 human client `interweave-human`) into `~/.local/bin`,
-the two templates into `${XDG_CONFIG_HOME:-~/.config}/systemd/user`.
+the two templates into `${XDG_CONFIG_HOME:-~/.config}/systemd/user`
+(outside the home when `XDG_CONFIG_HOME` is), and on uninstall the
+removal of InterWeave's own unit links, persistent under that directory
+and runtime under the account's `$XDG_RUNTIME_DIR/systemd/user` (normally
+`/run/user/<uid>/systemd/user`).
 From the release archive, whose `bin/` and `systemd/` sit beside the
 scripts:
 
@@ -108,7 +113,17 @@ that list does not classify fails the archive too -- and `claude-plugin/`, the C
 bridge inside it. `install.sh` does not install the plugin; Claude Code adds
 it, from a copy of `claude-plugin/` kept where it stays, with
 `claude plugin marketplace add <that copy>` and then
-`claude plugin install interweave@interweave`. Its SHA-256 is on the
+`claude plugin install interweave@interweave`. Installed, the plugin
+receives nothing yet: without the development flag, a Claude Code session
+registers its channel only when started with
+`--channels plugin:interweave@interweave` (or, non-interactively, sent the
+`channel_enable` control request) on a host whose managed settings list
+`{"plugin": "interweave", "marketplace": "interweave"}` in
+`allowedChannelPlugins` (beside `"channelsEnabled": true`, which a Team or
+Enterprise login, or one that is not claude.ai, also needs); `claude-plugin/interweave/README.md` in this
+archive names that entry and the development flag, and the repository's
+`packaging/claude-plugin/INSTALL.md` gives the settings and the start as
+its steps 7 and 8. The archive's SHA-256 is on the
 release page and in the `.sha256` file beside it, and the same sources
 and `SOURCE_DATE_EPOCH` give the same bytes. The first build of it is
 `evidence/2026-10-20-release-archive.md`.
@@ -119,7 +134,7 @@ every one against 2.35 before packing, and starts each in a clean image
 of that glibc before anything is published. A local build is made
 against whatever glibc the builder has.
 
-From v0.1.1 the archive and its `.sha256` are signed: a `.minisig` beside
+From v0.2.0 the archive and its `.sha256` are signed: a `.minisig` beside
 each, made with the archive key whose public half is
 `packaging/release-keys.toml`'s `archive.minisign_public_key` on `main`,
 and the release run's provenance attestation names the run that built

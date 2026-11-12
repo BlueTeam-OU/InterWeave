@@ -222,7 +222,10 @@ allow = [
     # WTFPL is one arm of libtomcrypt's dual licence (the other is
     # public domain, which has no SPDX term). libtomcrypt 1.18.2 is new
     # to the graph: `sqlcipher-src` ships its sources, but
-    # `libsqlite3-sys` 0.39.1's build compiles `sqlcipher.c` alone, and
+    # `libsqlite3-sys` 0.39.1's build compiles `sqlcipher.c` alone (and
+    # 0.40.0's, a byte-identical `build.rs`, with `sqlcipher-src`
+    # 420.0.0 under `rusqlite` 0.42, the bump for RUSTSEC-2026-0502,
+    # whose licence declaration is the same conjunction), and
     # under `bundled-sqlcipher-vendored-openssl` SQLCipher's crypto
     # provider is OpenSSL. So no libtomcrypt code is linked, and the
     # term is admitted because the crate's declaration is a conjunction.

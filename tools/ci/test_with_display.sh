@@ -23,10 +23,30 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 UNDER_TEST="$SCRIPT_DIR/with_display.sh"
 [[ -f "$UNDER_TEST" ]] || { echo "test: $UNDER_TEST not found" >&2; exit 1; }
 
-# python3 restores INT's default for the signal cases and stands in for
+# python3 restores the signals' defaults for the signal cases and stands in for
 # setsid's syscall; without it those cases would fail as a missing
 # command rather than on the logic, so say so instead.
 command -v python3 >/dev/null || { echo "test_with_display: python3 is needed (the signal cases and the setsid stub)" >&2; exit 1; }
+
+# A run that inherits HUP or TERM ignored (nohup, or a launcher that set
+# it) hands the ignore to the wrapper and to every stub, and bash can
+# neither trap nor reset a signal ignored at its entry: the HUP case then
+# waits out its command and the wrapper's TERMs reach no Xvfb stub. So the
+# suite runs once more with the signals it sends at their defaults, as a
+# CI step's shell has them; the marker keeps that to one re-exec.
+# PIPE and XFSZ too: python3 ignores both at its start, and an ignore
+# survives exec, so the launcher would otherwise hand them on itself.
+if [[ -z "${TEST_WITH_DISPLAY_SIGNALS_DEFAULT:-}" ]]; then
+    TEST_WITH_DISPLAY_SIGNALS_DEFAULT=1 exec python3 -c 'import os, signal, sys
+for s in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGPIPE, signal.SIGXFSZ): signal.signal(s, signal.SIG_DFL)
+os.execvp(sys.argv[1], sys.argv[1:])' bash "${BASH_SOURCE[0]}" "$@"
+fi
+unset TEST_WITH_DISPLAY_SIGNALS_DEFAULT
+# HUP INT PIPE TERM XFSZ (1 2 13 15 25), none ignored from here on.
+if [[ -r /proc/$$/status ]]; then
+    sigign=$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$/status)
+    (( 0x${sigign:-0} & 0x1005003 )) && { echo "test_with_display: signals still ignored after the reset (SigIgn $sigign)" >&2; exit 1; }
+fi
 
 failures=0
 SANDBOX_TMPDIR="${TMPDIR-}"
@@ -103,10 +123,14 @@ esac
 EOF
 printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/dbus-daemon"
 # setsid: a real new session and process group, so the signal case below
-# exercises the group the wrapper signals, on any host.
+# exercises the group the wrapper signals, on any host. PIPE and XFSZ go
+# back to their defaults, as the real setsid leaves them: python3 ignores
+# both at its start and the exec would hand that on to the whole session.
 cat > "$BIN/setsid" <<'EOF'
 #!/usr/bin/env bash
-exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+exec python3 -c 'import os, signal, sys
+for s in (signal.SIGPIPE, signal.SIGXFSZ): signal.signal(s, signal.SIG_DFL)
+os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
 EOF
 chmod +x "$BIN"/*
 
@@ -134,7 +158,8 @@ CMD="$SANDBOX/cmd"
 cat > "$CMD" <<EOF
 #!/usr/bin/env bash
 { echo "DISPLAY=\${DISPLAY-unset}"; echo "WAYLAND_DISPLAY=\${WAYLAND_DISPLAY-unset}"
-  echo "a11y-before-cmd=\$([[ -e $SANDBOX/a11y-on ]] && echo yes || echo no)"; } > "$SANDBOX/cmd-ran"
+  echo "a11y-before-cmd=\$([[ -e $SANDBOX/a11y-on ]] && echo yes || echo no)"
+  sed -n 's/^SigIgn:[[:space:]]*/sigign=/p' /proc/\$\$/status 2>/dev/null; } > "$SANDBOX/cmd-ran"
 exit "\${1:-0}"
 EOF
 chmod +x "$CMD"
@@ -212,6 +237,14 @@ reset; run "$CMD" 3
 if [[ "$got" -eq 3 && -e "$SANDBOX/cmd-ran" ]]; then pass "the command runs and its exit status is the wrapper's (3)"
 else fail "the command should run and exit 3, got $got" "$out"; fi
 if [[ -e "$SANDBOX/bus-ran" ]]; then pass "  inside dbus-run-session"; else fail "dbus-run-session was not used" "$out"; fi
+# The command inherits no ignore the stubs made (the setsid stub's python3
+# ignores PIPE and XFSZ at its start): HUP PIPE TERM XFSZ, 0x1005001. Not
+# INT: the wrapper starts the session as a `&` job, which bash runs with
+# INT and QUIT ignored under the real setsid as well.
+cmd_ign="$(sed -n 's/^sigign=//p' "$SANDBOX/cmd-ran" 2>/dev/null)"
+if [[ ! -r /proc/$$/status ]]; then pass "  (no /proc: the command's ignored signals are not read)"
+elif [[ -n "$cmd_ign" ]] && (( (0x$cmd_ign & 0x1005001) == 0 )); then pass "  the command starts with no signal of those it may be sent ignored"
+else fail "the command started with signals ignored (SigIgn ${cmd_ign:-unread})" "$(cat "$SANDBOX/cmd-ran" 2>/dev/null)"; fi
 # The bus's own environment is what its activated services inherit: the
 # AT-SPI launcher marks DISPLAY's root window and writes the
 # toolkit-accessibility setting through GSettings.
@@ -302,7 +335,8 @@ refused "an AT-SPI registry that never answers" "the AT-SPI registry did not ans
 # terminal's Ctrl-C sends it: the command is ended at once, not left to
 # finish, and Xvfb with it. The wrapper is started through a launcher
 # that restores INT's default, since a background job of this script
-# starts with INT ignored and a shell cannot trap what it began ignoring.
+# starts with INT ignored and a shell cannot trap what it began ignoring
+# (HUP and TERM were reset for the whole run at the top).
 # sig_case <signal> <exit> <command> <name> [<stop-seconds>]; SIG_REPEAT=N
 # sends the signal N more times, 0.3s apart (Ctrl-C held down during the
 # stop), and the caller's environment carries `stop_by` and `stopping`,
@@ -312,7 +346,7 @@ sig_case() {
     local sig="$1" want="$2" cmd="$3" name="$4" stop="${5:-5}" wrapper got took start sleeper
     reset
     stop_by=0 stopping=1 PATH="$BIN:$PATH" WITH_DISPLAY_READY_SECONDS=1 WITH_DISPLAY_STOP_SECONDS="$stop" \
-        python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp(sys.argv[1], sys.argv[1:])' \
+        python3 -c 'import os, signal, sys; [signal.signal(s, signal.SIG_DFL) for s in (signal.SIGINT, signal.SIGPIPE, signal.SIGXFSZ)]; os.execvp(sys.argv[1], sys.argv[1:])' \
         bash "$UNDER_TEST" "$cmd" >/dev/null 2>&1 &
     wrapper=$!
     for ((i = 0; i < 50; i++)); do [[ -s "$SANDBOX/sleeper-pid" ]] && break; sleep 0.1; done

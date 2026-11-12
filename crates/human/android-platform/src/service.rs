@@ -190,10 +190,12 @@ pub struct ServiceHost {
     /// How many starts' custody steps ran: a start whose reseal ran again
     /// owes the P-up notice again (unlock note section 4).
     unlock_starts: std::sync::atomic::AtomicU64,
-    /// Armed by [`refuse_next_store_open`](Self::refuse_next_store_open):
-    /// the debug build's stand-in for a store that needs recovery.
+    /// Armed by [`refuse_next_store_open`](Self::refuse_next_store_open)
+    /// or [`invalidate_next_store_key`](Self::invalidate_next_store_key):
+    /// the debug build's stand-in for a store that needs recovery, or
+    /// whose key the Keystore invalidated; the last armed wins.
     #[cfg(feature = "dev-stand-ins")]
-    refuse_store: std::sync::atomic::AtomicBool,
+    refuse_store: Mutex<Option<StartRefused>>,
 }
 
 impl Default for ServiceHost {
@@ -222,7 +224,7 @@ impl ServiceHost {
             unlock: Mutex::new(None),
             unlock_starts: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "dev-stand-ins")]
-            refuse_store: std::sync::atomic::AtomicBool::new(false),
+            refuse_store: Mutex::new(None),
         }
     }
 
@@ -234,8 +236,26 @@ impl ServiceHost {
     /// restart after it opens.
     #[cfg(feature = "dev-stand-ins")]
     pub fn refuse_next_store_open(&self) {
-        self.refuse_store
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.arm_store_refusal(StartRefused::StoreNeedsRecovery);
+    }
+
+    /// Refuse the next start's store open as one whose key the Keystore
+    /// invalidated, once, leaving the files and the key as they are: the
+    /// debug build's adb hook for K (identity note section 10 item 15),
+    /// since the phone invalidates a key only when its screen lock goes.
+    /// K's discard is then a real one, and the restart after it opens a
+    /// new store.
+    #[cfg(feature = "dev-stand-ins")]
+    pub fn invalidate_next_store_key(&self) {
+        self.arm_store_refusal(StartRefused::StoreKeyInvalidated);
+    }
+
+    #[cfg(feature = "dev-stand-ins")]
+    fn arm_store_refusal(&self, refused: StartRefused) {
+        *self
+            .refuse_store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(refused);
     }
 
     /// The profile's store for a start, or the refusal a start answers.
@@ -252,11 +272,13 @@ impl ServiceHost {
         cipher: &dyn KeyCipher,
     ) -> Result<HumanStore, StartRefused> {
         #[cfg(feature = "dev-stand-ins")]
-        if self
+        if let Some(refused) = self
             .refuse_store
-            .swap(false, std::sync::atomic::Ordering::SeqCst)
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
         {
-            return Err(StartRefused::StoreNeedsRecovery);
+            return Err(refused);
         }
         HumanStore::open_profile(paths, cipher, StoreOptions::default()).map_err(|e| classify(&e))
     }

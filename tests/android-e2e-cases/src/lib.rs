@@ -81,6 +81,10 @@ pub mod keys {
     /// instrumentation's status as a string, so a structured one would
     /// arrive as a string on a device and as structure on the stand-in.
     pub const SENT: &str = "sent";
+    /// The direct messages from the desktop this side's facade committed,
+    /// as it parsed them, its close included (`human_chat`): a JSON
+    /// array, as TEXT, as [`SENT`] is.
+    pub const RECEIVED: &str = "received";
     /// The runtime root the embedded runtime's private directories lie
     /// under (`trust_boundary`).
     pub const ROOT: &str = "runtime_root";

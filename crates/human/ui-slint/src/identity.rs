@@ -15,6 +15,10 @@ use slint::{ModelRc, SharedString, VecModel};
 
 use crate::generated::{IdKey, IdKeyRow, IdScreen, IdSlot, IdentityPage};
 
+/// K1's heading as the focus trace names it: a refused start that raises
+/// K1 puts focus on it (section 8).
+pub(crate) const K1_HEADING: &str = "k1-heading";
+
 /// QWERTY rows of 10, 9 and 7 (section 4.3).
 const QWERTY: [&str; 3] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
 /// Alphabetical rows of seven, for a screen narrower than 340.
@@ -39,6 +43,9 @@ pub enum IdentityInput {
     Clear,
     /// A suggestion chip.
     Chip(String),
+    /// Enter while typing: the flow takes the chip the letters applied
+    /// before it leave, if any (section 8).
+    Enter,
     /// A position in R2's grid.
     Slot(usize),
     /// The discard dialog: delete the words (`true`) or continue.
@@ -87,6 +94,7 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
             Vec::new()
         }
         IdentityInput::Chip(word) => flow.choose(&word),
+        IdentityInput::Enter => flow.enter(),
         IdentityInput::Slot(position) => {
             flow.edit(position);
             Vec::new()
@@ -341,6 +349,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         None => {}
     }
 
+    page.chips_taken = flow.chips_taken().cast_signed();
     if let Some(picker) = flow.picker() {
         page.picker = true;
         page.typed = picker.typed().into();
@@ -393,7 +402,10 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             page.secondary = text(UiText::IdR3No).into();
             page.footnote = text(UiText::IdR3NoPeerId).into();
         }
-        ScreenId::K1 => page.footnote = text(UiText::IdQLost).into(),
+        ScreenId::K1 => {
+            page.heading_key = K1_HEADING.into();
+            page.footnote = text(UiText::IdQLost).into();
+        }
         ScreenId::S1 if flow.waiting() => page.waiting = text(UiText::IdGoingOffline).into(),
         _ => {}
     }

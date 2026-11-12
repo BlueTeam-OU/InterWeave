@@ -73,6 +73,7 @@ import sys
 import tempfile
 import time
 
+from s28_era import tree_stamp
 from spike_common import CLAUDE, REPO, child_env, claude_version, raw_dir
 from s19_channels import long_term_token, seed_config
 from s22_org_channels import ALLOW, DROP_IN, MARKETPLACE, PLUGIN, TOOL, cli, private_etc, purge_if_token, scrub, \
@@ -394,8 +395,9 @@ def main() -> int:
     if spec.get("build") and spec["build"] != version:
         raise SystemExit(f"{name} names build {spec['build']}, SPIKE_CLAUDE is {version}")
     run = "s31-" + name
-    head = subprocess.run(["git", "rev-parse", "--short=9", "HEAD"], capture_output=True, text=True,
-                          cwd=REPO).stdout.strip()
+    # A re-run under a committed name would replace that evidence.
+    if (HERE / "runs" / run).exists():
+        raise SystemExit(f"runs/{run} exists: move it aside or name another run")
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="s31-")).resolve()
     if scratch == REPO or REPO in scratch.parents:
@@ -404,7 +406,7 @@ def main() -> int:
 
     nonce = secrets.token_hex(4)
     words = [secrets.choice(WORDS) + str(secrets.randbelow(90) + 10) for _ in spec["sizes"]]
-    record = {"run": run, "tree": head, "claude_version": version, "nonce": nonce, "kind": spec["kind"],
+    record = {"run": run, **tree_stamp(), "claude_version": version, "nonce": nonce, "kind": spec["kind"],
               "model_flag": spec.get("model"), "env_set": spec.get("env", {}),
               "first_turn": spec.get("first", GOT), "stub_sizes": spec["sizes"], "stub_filler": spec.get("filler"),
               "stub_words": words, "stub_tool_delay_ms": spec.get("tool_delay_ms", 0)}

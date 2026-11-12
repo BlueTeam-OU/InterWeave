@@ -30,7 +30,8 @@
 //!   before** (the gate's "connect", read as a connection that carries a
 //!   message).
 //!   Each trusts nobody. Step 1: each adds the other's address, in place
-//!   of the scan, and for a window no message either sends is accepted
+//!   of the scan -- by the binding, or on the phones by the app's own Add
+//!   page (below) -- and for a window no message either sends is accepted
 //!   and none arrives. Step 2: A trusts B and B does not, and still
 //!   nothing crosses either way. A's row may end reading `connected`
 //!   as its last outcome (the stand-ins and one phone run, 2026-10-24),
@@ -40,6 +41,16 @@
 //!   and a message crosses each way: the positive control. The step had
 //!   the addresses step 1 added. This row's profile keeps the shipped
 //!   peer cache and Kademlia, so another source is not excluded.
+//!
+//! The second row has a third run, on two devices through the app's own
+//! screens: step 1's add is made on each phone's Add page by Scan, its
+//! camera reading the code the other phone's Show holds open, and
+//! answered `added` there (`src/screen.rs`), the trust step left by Back
+//! with nothing trusted, and the app stopped before the window's cases;
+//! steps 2 and 3 trust by the binding, as the other runs do. A person
+//! faces the phones for each scan. The field route is not this row's:
+//! key events cannot type a `PeerId`'s capitals on Slint 1.18.1
+//! (`apps/human-android/README.md`).
 //!
 //! Two runs of each: on two host stand-ins over this host's private
 //! address (ADR-0052 refuses a loopback add), and on two devices
@@ -52,8 +63,10 @@
 //! made: each side's case removes an address an earlier run added, and
 //! says so. No port is reversed on either phone, before or after.
 //!
-//! What this does NOT prove, by name: the Scan screen (the add is the
-//! binding's function in its place); a dial at boot, which the product
+//! What this does NOT prove, by name: the Scan screen on the stand-ins
+//! and in the first device run (the add is the binding's function in its
+//! place); the Add field's typed route; a trust given
+//! on a screen (both rows trust by the binding); a dial at boot, which the product
 //! does not make; the cache rows with Kademlia on, the shipped set; the one-sided step in the other
 //! direction (B trusting first); a LAN that isolates its clients; and,
 //! on the stand-ins, a radio, a process death (a dropped host runs its
@@ -69,6 +82,7 @@ use interweave_android_e2e_cases::{
     AddedAddressArgs, AwaitPeerArgs, PairArgs, PairExpect, PeerCacheArgs, cases, keys,
 };
 use interweave_android_e2e_tests::adb::{AdbDevice, reboot_and_await};
+use interweave_android_e2e_tests::screen::Screens;
 use interweave_android_e2e_tests::wifi::{listening_at, reversed_on, until_listening};
 use interweave_android_e2e_tests::{
     Device, HostStandIn, PATIENCE, PROFILE, free_port, log_capture,
@@ -385,9 +399,71 @@ fn pair_step<D: Device>(
     [on_a.result(), on_b.result()]
 }
 
+/// How long one screen's answer may take: Peers reads two lists, and the
+/// add writes and answers, over the phone's own runtime.
+const SCREEN_PATIENCE: Duration = Duration::from_secs(30);
+
+/// How long a scan may take: a person holds the scanning phone's camera
+/// to the other phone's code.
+const SCAN_PATIENCE: Duration = Duration::from_secs(180);
+
+/// Who makes the second row's step-1 add.
+#[derive(Debug, Clone, Copy)]
+enum FirstAdd<'s> {
+    /// The `pair` case, through the binding.
+    Binding,
+    /// Each phone's own Add page, scanning the other phone's Show code:
+    /// A's and B's `adb -s` serials.
+    Screens { a: &'s str, b: &'s str },
+}
+
+/// The phone with `scanner` adds the phone with `shower` through the
+/// app's screens: `shower` holds Show my address open, `scanner` goes
+/// Chats, Peers, the Add page, Scan, the camera reads the code and the
+/// add answers `added`, then Back from its trust step with nothing
+/// trusted, and `shower` closes Show. A step that fails ends the row
+/// naming it, with both traces read so far.
+fn scan_on_screens(scanner: &str, shower: &str, log: impl Fn() -> String) {
+    let mut scanning = Screens::new(scanner);
+    let mut showing = Screens::new(shower);
+    let passed = |on: &str, screens: &Screens, s: serde_json::Map<String, serde_json::Value>| {
+        assert_eq!(
+            s.get(keys::RESULT).and_then(serde_json::Value::as_str),
+            Some(keys::PASS),
+            "on {on}'s screens: {s:?}\nthe trace: {:#?}\n{}",
+            screens.trace(),
+            log()
+        );
+    };
+    for (on, screens) in [(shower, &mut showing), (scanner, &mut scanning)] {
+        let s = screens.launch(SCREEN_PATIENCE);
+        passed(on, screens, s);
+        let s = screens.open_peers(SCREEN_PATIENCE);
+        passed(on, screens, s);
+    }
+    let s = showing.hold_show(SCREEN_PATIENCE);
+    passed(shower, &showing, s);
+    let s = scanning.open_add(SCREEN_PATIENCE);
+    passed(scanner, &scanning, s);
+    println!("now: hold {scanner}'s camera to the code {shower} shows");
+    let s = scanning.add_by_scan(SCAN_PATIENCE);
+    passed(scanner, &scanning, s);
+    // Back on the trust step closes it with no peer trusted (Peers'
+    // `Close`): the row's step 1 trusts nobody, which `pair` checks.
+    let s = scanning.leave_add(SCREEN_PATIENCE);
+    passed(scanner, &scanning, s);
+    let s = showing.close_show(SCREEN_PATIENCE);
+    passed(shower, &showing, s);
+}
+
 /// The second row: two fresh sides exchange messages after both trust,
 /// and not before; each apart step lasts `window` from each side's start.
-fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, window: Duration) {
+fn fresh_pair_connects_after_trust<D: Device>(
+    a: &mut Side<D>,
+    b: &mut Side<D>,
+    window: Duration,
+    first_add: FirstAdd<'_>,
+) {
     let (a_peer, b_peer) = (a.device.peer(), b.device.peer());
     a.device.start(&profile(&b_peer, a.at.port(), false));
     b.device.start(&profile(&a_peer, b.at.port(), false));
@@ -407,12 +483,24 @@ fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, 
         b_peer.as_str(),
         b.address()
     );
-    let (a_at, b_at) = (a.address(), b.address());
+    let (a_at, b_at) = match first_add {
+        FirstAdd::Binding => (Some(a.address()), Some(b.address())),
+        FirstAdd::Screens { a: on_a, b: on_b } => {
+            scan_on_screens(on_a, on_b, || log(a, b));
+            scan_on_screens(on_b, on_a, || log(a, b));
+            // The app's process ended, so each window's case starts its
+            // own, as every other step's does.
+            a.device.kill();
+            b.device.kill();
+            println!("added on the screens: A scanned B's code, B scanned A's");
+            (None, None)
+        }
+    };
     let [on_a, on_b] = pair_step(
         &mut *a,
         &mut *b,
-        &step(&b_peer, Some(b_at), false, PairExpect::Apart(window)),
-        &step(&a_peer, Some(a_at), false, PairExpect::Apart(window)),
+        &step(&b_peer, b_at, false, PairExpect::Apart(window)),
+        &step(&a_peer, a_at, false, PairExpect::Apart(window)),
     );
     passed(&on_a, "A, neither trusting", &log(a, b));
     passed(&on_b, "B, neither trusting", &log(a, b));
@@ -516,7 +604,7 @@ fn on_stand_ins_two_fresh_profiles_connect_after_both_trust_and_not_before() {
     let ip = require_private_interface_v4();
     let mut a = Side::new(HostStandIn::new(), ip);
     let mut b = Side::new(HostStandIn::new(), ip);
-    fresh_pair_connects_after_trust(&mut a, &mut b, Duration::from_secs(5));
+    fresh_pair_connects_after_trust(&mut a, &mut b, Duration::from_secs(5), FirstAdd::Binding);
 }
 
 /// Phone A's `adb -s` serial.
@@ -632,6 +720,30 @@ fn on_two_phones_two_fresh_profiles_connect_after_both_trust_and_not_before() {
     let (mut a, mut b) = phones();
     // Each case starts its own process and runtime, a few seconds apart
     // on the two phones: the window outlasts both starts.
-    fresh_pair_connects_after_trust(&mut a, &mut b, Duration::from_secs(15));
+    fresh_pair_connects_after_trust(&mut a, &mut b, Duration::from_secs(15), FirstAdd::Binding);
+    none_reversed();
+}
+
+/// The second row with step 1's add made on each phone's own Add page,
+/// each scanning the other's Show code: the debug APK (the screens'
+/// trace is its `ui-trace` feature), the screen lock off, app data
+/// cleared on both, the camera granted, on API 33 and later the
+/// notifications too (the prompt takes the keys at the first launch
+/// otherwise), and a person to face the phones.
+#[test]
+#[ignore = "needs two devices on one LAN with cleared app data, the camera (and on API 33+ notifications) granted and no screen lock, adb, the debug and androidTest builds on both, and a person to face them"]
+fn on_two_phones_two_fresh_profiles_added_on_their_screens_connect_after_both_trust_and_not_before()
+{
+    let (mut a, mut b) = phones();
+    let (serial_a, serial_b) = (env(SERIAL_A), env(SERIAL_B));
+    fresh_pair_connects_after_trust(
+        &mut a,
+        &mut b,
+        Duration::from_secs(15),
+        FirstAdd::Screens {
+            a: &serial_a,
+            b: &serial_b,
+        },
+    );
     none_reversed();
 }

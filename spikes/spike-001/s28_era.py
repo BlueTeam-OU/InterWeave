@@ -55,21 +55,36 @@ SETTLE_S = 45
 AFTER_DECISION_S = 25
 
 
-def main() -> int:
+def tree_stamp():
+    """The tree a run ran at: HEAD, and every path that differed from it
+    when the run started (the runs directory aside, which a campaign
+    fills as it goes). HEAD alone names a tree that may not hold the
+    driver that ran: two S33 runs said c6e80e04b, which has no
+    s33_reply.py (PR #628's review, F2)."""
+    git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True, cwd=REPO).stdout
+    dirty = [line[3:] for line in git("status", "--porcelain", "--untracked-files=all").splitlines()
+             if not line[3:].startswith("spikes/spike-001/runs/")]
+    return {"tree": git("rev-parse", "--short=9", "HEAD").strip(), "tree_dirty": dirty[:40],
+            "tree_dirty_count": len(dirty)}
+
+
+def main(series: str = "s28") -> int:
+    """``series`` names the run directories: S33 re-runs these rows on a
+    later build under its own name (s33_era.py)."""
     if len(sys.argv) != 2 or sys.argv[1] not in RUNS:
         raise SystemExit(f"usage: {sys.argv[0]} {{{'|'.join(RUNS)}}}")
     if os.environ.get("SPIKE_CLAUDE"):
-        raise SystemExit("unset SPIKE_CLAUDE: S28 measures the claude on PATH")
+        raise SystemExit(f"unset SPIKE_CLAUDE: {series.upper()} measures the claude on PATH")
     name = sys.argv[1]
     spec = RUNS[name]
-    run = "s28-" + name
+    run = f"{series}-{name}"
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="spike001s28-")).resolve()
     if scratch == REPO or REPO in scratch.parents:
         scratch.rmdir()
         raise SystemExit("TMPDIR must be outside the repository")
     nonce = secrets.token_hex(4)
-    record = {"run": run, "claude_binary_version": claude_version(), "stub_era": spec["era"],
+    record = {"run": run, **tree_stamp(), "claude_binary_version": claude_version(), "stub_era": spec["era"],
               "negotiation": spec["negotiation"], "nonce": nonce}
     passed = False
     pid = None

@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 use i_slint_backend_testing::ElementHandle;
 use interweave_human_client_api::{
-    AddressAnswer, AddressList, AddressOrigin, AddressOutcome, PeerAddress, ShowAddresses,
-    TrustList, TrustRow,
+    AddressAnswer, AddressList, AddressOrigin, AddressOutcome, AddressRefused, PeerAddress,
+    ShowAddresses, TrustList, TrustRow,
 };
 use interweave_human_ui_model::{
     ContactView, Intent, RouteView, RuntimeHost, TrustChange, UiModel, UiText, placeholder_en,
@@ -596,6 +596,50 @@ fn a_screen_change_says_where_focus_stands() {
     );
 }
 
+/// R raised by a refused start: the trace names its heading's own key,
+/// which is what identity note section 10 item 15 reads, and nothing
+/// else once it settled.
+#[test]
+fn a_raised_r_says_its_heading() {
+    use interweave_human_ui_model::{StoreRecovery, StoreScreen};
+    use interweave_human_ui_slint::store_page;
+    let settle = || {
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(100));
+            slint::platform::update_timers_and_animations();
+        }
+    };
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let model = UiModel::new();
+    view.render(&model);
+    settle();
+
+    let first = said.borrow().len();
+    let r = store_page(&StoreRecovery::new(StoreScreen::Recovery, 1));
+    let title = r.title.to_string();
+    view.show_identity(Some(r));
+    view.raise_identity_heading();
+    // A headless window makes the heading, inside an `if`, only when the
+    // tree is walked; a real one draws first.
+    let _ = ElementHandle::find_by_accessible_label(view.window(), &title).count();
+    settle();
+    let focus: Vec<String> = said.borrow()[first..]
+        .iter()
+        .filter(|l| l.starts_with("ui-trace focus="))
+        .cloned()
+        .collect();
+    assert!(
+        !focus.is_empty() && focus.iter().all(|l| l == "ui-trace focus=r-heading"),
+        "R's heading, and only it, in {:#?}",
+        said.borrow()[first..].to_vec()
+    );
+}
+
 /// Welcome's two actions: TAB steps through them in reading order and
 /// round again, Shift+TAB back, and neither reaches the window behind.
 #[test]
@@ -756,6 +800,19 @@ impl Identity {
         self.settle();
     }
 
+    /// Keys dispatched in one batch, before the inputs they queued are
+    /// applied: as an event loop that drains every pending input event
+    /// before its timers run hands them over.
+    fn burst(&mut self, keys: &[slint::SharedString]) {
+        use slint::platform::WindowEvent;
+        let window = self.view.window().window();
+        for text in keys {
+            window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+            window.dispatch_event(WindowEvent::KeyReleased { text: text.clone() });
+        }
+        self.settle();
+    }
+
     fn tab(&mut self) {
         self.key(slint::platform::Key::Tab);
     }
@@ -785,6 +842,19 @@ impl Identity {
 
     fn last(&self) -> String {
         self.said.borrow().last().cloned().unwrap_or_default()
+    }
+
+    /// The word the restore holds at `position`.
+    fn word(&self, position: usize) -> Option<&'static str> {
+        self.flow.entry().and_then(|entry| entry.word(position))
+    }
+
+    /// The letters typed at the position being entered.
+    fn typed(&self) -> String {
+        self.flow
+            .picker()
+            .map(|picker| picker.typed().to_owned())
+            .unwrap_or_default()
     }
 
     /// What the page's controls did since the last call.
@@ -898,8 +968,13 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
     page.enter();
     assert_eq!(
         page.take(),
-        [IdentityInput::Delete, IdentityInput::Key('a')]
+        [
+            IdentityInput::Delete,
+            IdentityInput::Key('a'),
+            IdentityInput::Enter
+        ]
     );
+    assert_eq!(page.typed(), "a", "no chip taken, no key pressed");
     for letter in ["c", "t"] {
         page.key(letter);
     }
@@ -911,16 +986,98 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
         "control: act, action, actor"
     );
     page.enter();
-    assert_eq!(page.take(), [IdentityInput::Chip("act".to_owned())]);
+    assert_eq!(page.take(), [IdentityInput::Enter]);
+    assert_eq!(page.word(1), Some("act"));
     // Still typing after the rule's Enter: Space and Enter add nothing to
     // the key focus went to.
     page.key(" ");
     page.enter();
-    assert_eq!(page.take(), [], "typing: Space and Enter press no key");
+    assert_eq!(page.take(), [IdentityInput::Enter], "Space sends nothing");
+    assert_eq!(page.typed(), "", "typing: Space and Enter press no key");
     // TAB is navigating again: Enter presses the focused key, w after q.
     page.tab();
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Key('w')]);
+}
+
+/// Enter judged on the letters typed, not on the page shown: letters and
+/// Enter that reach the window before the page is rebuilt for them take
+/// the whole-word chip all the same (j261).
+#[test]
+fn enter_takes_the_whole_word_typed_before_the_page_caught_up() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    // Off the first key, so the chip's focus rule has somewhere to move.
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-key", "control: w");
+    page.burst(&letters_then("act", &[slint::platform::Key::Return]));
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('a'),
+            IdentityInput::Key('c'),
+            IdentityInput::Key('t'),
+            IdentityInput::Enter,
+        ]
+    );
+    assert_eq!(page.word(0), Some("act"), "the whole word was taken");
+    assert_eq!(page.typed(), "");
+    // The chip's focus rule followed the page that showed it taken: on
+    // q, the first enabled key, so TAB and Enter press w, not e.
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')]);
+}
+
+/// `word`'s letters, then `keys`, as one burst gives them.
+fn letters_then(word: &str, keys: &[slint::platform::Key]) -> Vec<slint::SharedString> {
+    word.chars()
+        .map(|letter| slint::SharedString::from(letter.to_string()))
+        .chain(keys.iter().map(|key| (*key).into()))
+        .collect()
+}
+
+/// An Enter queued behind the Escape that asks the discard dialog takes
+/// nothing: in the order the keys came, the dialog was up (#634 F1).
+#[test]
+fn enter_queued_behind_the_discard_dialog_takes_nothing() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    page.burst(&letters_then("act", &[Key::Escape, Key::Return]));
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('a'),
+            IdentityInput::Key('c'),
+            IdentityInput::Key('t'),
+            IdentityInput::Back,
+            IdentityInput::Enter,
+        ],
+        "control: the stale page let the Enter through"
+    );
+    assert!(page.flow.discard_asked());
+    assert_eq!(page.word(0), None, "no word taken behind the dialog");
+    assert_eq!(page.typed(), "act");
+}
+
+/// C3 by keyboard: letters and Enter in one burst take the word and move
+/// to the second position, focus on the first enabled key (#634 F3).
+#[test]
+fn c3s_enter_takes_the_word_typed() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_c3();
+    page.tab();
+    page.burst(&letters_then("gal", &[slint::platform::Key::Return]));
+    assert_eq!(page.take().last(), Some(&IdentityInput::Enter));
+    assert_eq!(
+        page.flow.check(),
+        Some((20, None)),
+        "galaxy, the right word"
+    );
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')], "focus was on q");
 }
 
 /// The platform's text size: 14 px is 100 %, as Android's font scale
@@ -949,10 +1106,8 @@ fn r2s_grid_is_a_full_list_behind_a_button_over_130_percent() {
         page.key(letter);
     }
     page.enter();
-    assert_eq!(
-        page.take().last(),
-        Some(&IdentityInput::Chip("act".to_owned()))
-    );
+    assert_eq!(page.take().last(), Some(&IdentityInput::Enter));
+    assert_eq!(page.word(0), Some("act"));
     assert_eq!(
         page.flow
             .entry()
@@ -1048,7 +1203,8 @@ fn r2s_grid_is_a_full_list_behind_a_button_over_130_percent() {
     assert_eq!(page.last(), "ui-trace focus=identity-key");
     // In typing mode: Enter is the suggestion rule's, taking "act".
     page.enter();
-    assert_eq!(page.take(), [IdentityInput::Chip("act".to_owned())]);
+    assert_eq!(page.take(), [IdentityInput::Enter]);
+    assert_eq!(page.word(0), Some("act"));
 
     // The text back to 100 % closes the list onto the grid.
     page.backtab();
@@ -1178,13 +1334,8 @@ fn the_discard_dialog_takes_focus_holds_it_and_gives_it_back() {
     let mut page = Identity::at_r2();
     page.key("o");
     page.enter();
-    assert_eq!(
-        page.take(),
-        [
-            IdentityInput::Key('o'),
-            IdentityInput::Chip("oak".to_owned())
-        ]
-    );
+    assert_eq!(page.take(), [IdentityInput::Key('o'), IdentityInput::Enter]);
+    assert_eq!(page.word(0), Some("oak"));
     // Focus on w, the second key.
     page.tab();
     page.key(Key::Escape);
@@ -1288,13 +1439,8 @@ fn a_row_whose_word_no_letter_continues_focuses_delete() {
     text_size(&mut page, 28.0);
     page.key("o");
     page.enter();
-    assert_eq!(
-        page.take(),
-        [
-            IdentityInput::Key('o'),
-            IdentityInput::Chip("oak".to_owned())
-        ]
-    );
+    assert_eq!(page.take(), [IdentityInput::Key('o'), IdentityInput::Enter]);
+    assert_eq!(page.word(0), Some("oak"));
     tab_to(&mut page, "ui-trace focus=identity-review");
     page.enter();
     page.backtab();
@@ -1315,7 +1461,8 @@ fn a_row_whose_word_no_letter_continues_focuses_delete() {
     // Typing: Enter is the suggestion rule's, taking the whole word, not
     // the focused delete.
     page.enter();
-    assert_eq!(page.take(), [IdentityInput::Chip("oak".to_owned())]);
+    assert_eq!(page.take(), [IdentityInput::Enter]);
+    assert_eq!(page.word(0), Some("oak"));
 }
 
 /// Back from R2 that K1 opened puts focus on K1's "Enter my phrase"
@@ -1421,7 +1568,8 @@ fn r2_and_c3_open_on_the_first_enabled_key_typing() {
     page.enter();
     page.key(" ");
     page.enter();
-    assert_eq!(page.take(), [], "typing: nothing to take, q not pressed");
+    assert_eq!(page.take(), [IdentityInput::Enter, IdentityInput::Enter]);
+    assert_eq!(page.typed(), "", "typing: nothing to take, q not pressed");
     for letter in ["a", "c"] {
         page.key(letter);
     }
@@ -1430,7 +1578,16 @@ fn r2_and_c3_open_on_the_first_enabled_key_typing() {
     page.enter();
     assert_eq!(
         page.take(),
-        [IdentityInput::Key('a'), IdentityInput::Key('c')],
+        [
+            IdentityInput::Key('a'),
+            IdentityInput::Key('c'),
+            IdentityInput::Enter,
+            IdentityInput::Enter
+        ],
+    );
+    assert_eq!(
+        page.typed(),
+        "ac",
         "three words fit ac: Enter and Space take nothing"
     );
     page.key("t");
@@ -1438,22 +1595,23 @@ fn r2_and_c3_open_on_the_first_enabled_key_typing() {
     page.key(" ");
     assert_eq!(
         page.take(),
-        [
-            IdentityInput::Key('t'),
-            IdentityInput::Chip("act".to_owned())
-        ],
-        "the whole word's chip, then Space nothing"
+        [IdentityInput::Key('t'), IdentityInput::Enter],
+        "Space sends nothing"
     );
+    assert_eq!(page.word(0), Some("act"), "the whole word's chip");
+    assert_eq!(page.typed(), "", "then Space nothing");
 }
 
 /// C3 opens on the first enabled key, typing, as R2 does (section 8).
 #[test]
 fn c3_opens_on_the_first_enabled_key_typing() {
+    use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_c3();
     assert_eq!(page.last(), "ui-trace focus=identity-key");
     page.enter();
     page.key(" ");
-    assert_eq!(page.take(), [], "C3 opens typing too");
+    assert_eq!(page.take(), [IdentityInput::Enter]);
+    assert_eq!(page.typed(), "", "C3 opens typing too: q not pressed");
 }
 
 /// Back from R2 puts focus on R1's "Enter my words", which opened it
@@ -1481,10 +1639,11 @@ fn back_from_r2_focuses_what_opened_it() {
         [
             IdentityInput::Primary,
             IdentityInput::Key('o'),
-            IdentityInput::Chip("oak".to_owned())
+            IdentityInput::Enter
         ],
         "control: R2 again, a word entered"
     );
+    assert_eq!(page.word(0), Some("oak"));
     page.key(Key::Escape);
     assert!(page.flow.discard_asked(), "control: a word entered");
     page.tab();
@@ -1532,12 +1691,10 @@ fn closing_the_dialog_restores_the_mode_of_backs_moment() {
     page.enter();
     assert_eq!(
         page.take(),
-        [
-            IdentityInput::Key('o'),
-            IdentityInput::Chip("oak".to_owned())
-        ],
+        [IdentityInput::Key('o'), IdentityInput::Enter],
         "control: typing, a word entered, focus on q"
     );
+    assert_eq!(page.word(0), Some("oak"));
     page.key(Key::Escape);
     assert!(page.flow.discard_asked(), "control: the dialog shows");
     page.tab();
@@ -1548,9 +1705,13 @@ fn closing_the_dialog_restores_the_mode_of_backs_moment() {
     page.enter();
     assert_eq!(
         page.take(),
-        [IdentityInput::Back, IdentityInput::Back],
-        "typing again: Enter presses no key"
+        [
+            IdentityInput::Back,
+            IdentityInput::Back,
+            IdentityInput::Enter
+        ],
     );
+    assert_eq!(page.typed(), "", "typing again: Enter presses no key");
 }
 
 /// Arrows move focus to the nearest stop their way (section 8), a
@@ -1778,6 +1939,179 @@ fn the_discards_and_the_p_up_notice_are_named() {
             "ui-trace notice=store-discarded",
             "ui-trace notice=unlock-pending",
             "ui-trace notice=none",
+        ],
+        "in {said:#?}"
+    );
+}
+
+/// A typed add refused is an answer the trace says, as a result is: a
+/// driver waiting on the add fails on it instead of on its patience
+/// (A40, 2026-11-09: a `PeerId` typed by key events lost its capitals and
+/// the refusal printed nothing). The same refusal again is said again,
+/// after the `none` the next Add's send clears it with.
+#[test]
+fn a_refused_add_is_said_each_time() {
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    let me = peer();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    let _ = intents(&mut view, &mut model);
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: Vec::new(),
+    }));
+    model.addresses_read(Ok(AddressList::default()));
+    view.render(&model);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    let lowered = format!("/ip4/192.168.1.30/tcp/4001/p2p/{}", peer().as_str()).to_lowercase();
+    view.window().invoke_address_edited(lowered.clone().into());
+    for _ in 0..2 {
+        press(&view, text(UiText::AddAction));
+        assert_eq!(
+            intents(&mut view, &mut model),
+            vec![Intent::AddAddresses(vec![lowered.clone()])]
+        );
+        model.addresses_added(
+            std::slice::from_ref(&lowered),
+            Ok(AddressAnswer {
+                outcome: AddressOutcome::Refused(AddressRefused::Grammar),
+                list: Ok(AddressList::default()),
+            }),
+        );
+        view.render(&model);
+    }
+
+    let said = said.borrow();
+    let answers: Vec<&String> = said
+        .iter()
+        .filter(|l| l.starts_with("ui-trace add=") || l.starts_with("ui-trace note="))
+        .collect();
+    assert_eq!(
+        answers,
+        [
+            "ui-trace add=waiting",
+            "ui-trace note=refused:grammar",
+            "ui-trace add=waiting",
+            "ui-trace note=none",
+            "ui-trace note=refused:grammar",
+        ],
+        "in {said:#?}"
+    );
+    for line in said.iter() {
+        assert!(!line.contains("192.168.1.30"), "{line:?}");
+    }
+}
+
+/// The same note set again with nothing between is said again: Add
+/// pressed twice on an empty field sets `address-needed` twice and never
+/// `none` (trace.rs's note count, #608 F4).
+#[test]
+fn the_same_note_set_twice_is_said_twice() {
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let mut model = UiModel::new();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    let _ = intents(&mut view, &mut model);
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(peer()),
+        allowed: Vec::new(),
+    }));
+    model.addresses_read(Ok(AddressList::default()));
+    view.render(&model);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    for _ in 0..2 {
+        press(&view, text(UiText::AddAction));
+        assert!(intents(&mut view, &mut model).is_empty(), "nothing to send");
+        view.render(&model);
+    }
+    let said = said.borrow();
+    let notes: Vec<&String> = said
+        .iter()
+        .filter(|l| l.starts_with("ui-trace note="))
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            "ui-trace note=address-needed",
+            "ui-trace note=address-needed"
+        ],
+        "in {said:#?}"
+    );
+}
+
+/// The scan's own sets are said again too: a scan control pressed twice
+/// with the field filled says `scan-after-field` twice, and the same
+/// refused code scanned twice says its refusal twice (#608 F8).
+#[test]
+fn a_scan_note_set_twice_is_said_twice() {
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    view.camera_hook(|_| {});
+    let mut model = UiModel::new();
+    let me = peer();
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    let _ = intents(&mut view, &mut model);
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me.clone()),
+        allowed: Vec::new(),
+    }));
+    model.addresses_read(Ok(AddressList::default()));
+    view.render(&model);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(true, false, false);
+    view.render(&model);
+
+    let typed = format!("/ip4/192.168.1.30/tcp/4001/p2p/{}", peer().as_str());
+    view.window().invoke_address_edited(typed.into());
+    let _ = intents(&mut view, &mut model);
+    for _ in 0..2 {
+        press(&view, text(UiText::ScanCode));
+        assert!(intents(&mut view, &mut model).is_empty(), "nothing to send");
+    }
+    view.window().invoke_address_edited("".into());
+    let _ = intents(&mut view, &mut model);
+    let own = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", me.as_str());
+    for _ in 0..2 {
+        press(&view, text(UiText::ScanCode));
+        let _ = intents(&mut view, &mut model);
+        assert!(view.window().get_viewfinder_open(), "the scanner opens");
+        view.camera_read(&own);
+        assert!(intents(&mut view, &mut model).is_empty(), "nothing to send");
+    }
+
+    let said = said.borrow();
+    let notes: Vec<&String> = said
+        .iter()
+        .filter(|l| l.starts_with("ui-trace note="))
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            "ui-trace note=scan-after-field",
+            "ui-trace note=scan-after-field",
+            "ui-trace note=none",
+            "ui-trace note=refused:own-address",
+            "ui-trace note=refused:own-address",
         ],
         "in {said:#?}"
     );

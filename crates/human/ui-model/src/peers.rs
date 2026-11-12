@@ -745,7 +745,7 @@ enum Check {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct AddPage {
     field: String,
-    note: Option<AddNote>,
+    note: note_slot::NoteSlot,
     result: Option<AddResult>,
     blocks: Vec<TrustBlock>,
     scanning: bool,
@@ -762,8 +762,58 @@ struct AddPage {
     /// The lines an add left unknown -- its answer lost and the read back
     /// failed: a retry of them that writes nothing leaves them so (§5.7).
     unknown: Option<Vec<String>>,
-    /// Bumped at every note set, so the same note twice is still news.
-    notes: u64,
+}
+
+mod note_slot {
+    use super::AddNote;
+
+    /// The add page's note and a count of every set of one, so the same
+    /// note set twice is still news to the view. The fields are private
+    /// to this module, so writing the note past the count does not
+    /// compile. Replacing a page's whole slot would still get round it.
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    pub(super) struct NoteSlot {
+        note: Option<AddNote>,
+        sets: u64,
+    }
+
+    impl NoteSlot {
+        pub(super) fn set(&mut self, note: AddNote) {
+            self.note = Some(note);
+            self.sets = self.sets.wrapping_add(1);
+        }
+
+        /// The note gone; the count stays, so the next set is news.
+        pub(super) fn clear(&mut self) {
+            self.note = None;
+        }
+
+        pub(super) const fn get(&self) -> Option<&AddNote> {
+            self.note.as_ref()
+        }
+
+        pub(super) const fn sets(&self) -> u64 {
+            self.sets
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{AddNote, NoteSlot};
+
+        #[test]
+        fn a_note_set_after_a_clear_is_counted_on_from_before_it() {
+            let mut slot = NoteSlot::default();
+            slot.set(AddNote::AddressNeeded);
+            slot.clear();
+            assert_eq!((slot.get(), slot.sets()), (None, 1));
+            slot.set(AddNote::AddressNeeded);
+            assert_eq!(
+                (slot.get(), slot.sets()),
+                (Some(&AddNote::AddressNeeded), 2)
+            );
+        }
+    }
 }
 
 /// The Peers page and its add page, as a view renders them.
@@ -1223,11 +1273,11 @@ impl Peers {
         };
         let lines = lines_of(&text);
         let empty = lines.is_empty();
-        match page.note {
-            Some(AddNote::AddressNeeded) if !empty => page.note = None,
-            Some(AddNote::ScanAfterField) if empty => page.note = None,
+        match page.note.get() {
+            Some(AddNote::AddressNeeded) if !empty => page.note.clear(),
+            Some(AddNote::ScanAfterField) if empty => page.note.clear(),
             // A scan's own line goes at an edit of the field (§5.5).
-            Some(ref note) if note.is_scan_line() && text != page.field => page.note = None,
+            Some(note) if note.is_scan_line() && text != page.field => page.note.clear(),
             _ => {}
         }
         // An add left unknown speaks for the lines it sent: an edit away
@@ -1244,9 +1294,9 @@ impl Peers {
         // still unknown, since the first write may have landed (§5.7;
         // `an_unknown_add_edited_away_and_back_is_still_unknown_on_a_retry`).
         if page.unknown.as_ref().is_some_and(|sent| *sent != lines)
-            && matches!(page.note, Some(AddNote::Unknown { .. }))
+            && matches!(page.note.get(), Some(AddNote::Unknown { .. }))
         {
-            page.note = None;
+            page.note.clear();
         }
         page.field = text;
     }
@@ -1295,7 +1345,7 @@ impl Peers {
             );
             return None;
         }
-        page.note = None;
+        page.note.clear();
         Some(self.send(lines, LineSource::Typed))
     }
 
@@ -1317,14 +1367,13 @@ impl Peers {
         }
         page.scan_from = Some(control);
         // A scan's own line goes at the next scan press (§5.5).
-        if page.note.as_ref().is_some_and(AddNote::is_scan_line) {
-            page.note = None;
+        if page.note.get().is_some_and(AddNote::is_scan_line) {
+            page.note.clear();
         }
         if lines_of(&page.field).is_empty() {
             page.scanning = true;
         } else {
-            page.note = Some(AddNote::ScanAfterField);
-            self.ask_focus(PeersFocus::Note);
+            self.page_note(AddNote::ScanAfterField, PeersFocus::Note);
         }
     }
 
@@ -1482,11 +1531,10 @@ impl Peers {
                 .or_else(|| own_line(&lines, own.as_ref()).map(|l| (l, Refusal::OwnAddress)))
         };
         if let Some((line, why)) = refused {
-            page.note = Some(AddNote::Refused { line, why });
-            self.ask_focus(PeersFocus::Note);
+            self.page_note(AddNote::Refused { line, why }, PeersFocus::Note);
             return (ScanVerdict::Taken, None);
         }
-        page.note = None;
+        page.note.clear();
         let intent = self.send(lines, LineSource::Scanned);
         // The scanner gone, focus waits on Add, read as waiting (§5.3).
         self.ask_focus(PeersFocus::AddButton);
@@ -2296,8 +2344,7 @@ impl Peers {
 
     fn page_note(&mut self, note: AddNote, focus: PeersFocus) {
         if let Some(page) = self.page.as_mut() {
-            page.note = Some(note);
-            page.notes = page.notes.wrapping_add(1);
+            page.note.set(note);
         }
         self.ask_focus(focus);
     }
@@ -2326,7 +2373,7 @@ impl Peers {
             .cloned()
             .collect();
         page.field.clear();
-        page.note = None;
+        page.note.clear();
         for peer in peers {
             if Some(peer) == own.as_ref()
                 || trust_allows(trust, peer)
@@ -2596,7 +2643,7 @@ impl Peers {
         let note_on_show = self
             .page
             .as_ref()
-            .is_some_and(|p| matches!(p.note, Some(AddNote::Unknown { .. })));
+            .is_some_and(|p| matches!(p.note.get(), Some(AddNote::Unknown { .. })));
         if let Some(lines) = self.page.as_mut().and_then(|p| p.unknown.take())
             && note_on_show
         {
@@ -3160,13 +3207,13 @@ impl Peers {
     pub fn add_note_said(&self) -> (Option<&AddNote>, u64) {
         self.page
             .as_ref()
-            .map_or((None, 0), |p| (p.note.as_ref(), p.notes))
+            .map_or((None, 0), |p| (p.note.get(), p.note.sets()))
     }
 
     /// The note on the add page.
     #[must_use]
     pub fn add_page_note(&self) -> Option<&AddNote> {
-        self.page.as_ref()?.note.as_ref()
+        self.page.as_ref()?.note.get()
     }
 
     /// The note under Peers' Add an address.

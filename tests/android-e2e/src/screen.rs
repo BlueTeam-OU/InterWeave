@@ -126,7 +126,7 @@ impl Screens {
                 })
             })
             .and_then(|()| match last_of(&self.seen, "page=") {
-                Some("conversations") => Ok(()),
+                Some("conversations") => self.app_takes_keys(),
                 Some("connect") => Err(format!(
                     "the app settled on Connect, which a phone with no peer and no trust entry owes; the driver starts from Chats and does not leave Connect, which writes the profile; {}",
                     self.where_now()
@@ -335,22 +335,30 @@ impl Screens {
     /// The field route: `line` typed into the address field (one line:
     /// `input text` types no newline, and the field splits on newlines
     /// alone), Add pressed, the add answered `added` and its trust step
-    /// drawn.
+    /// drawn. A note the add page shows instead -- a refusal, a failure
+    /// -- or another result (`unchanged`, `checked`) ends the wait at
+    /// once, named.
     pub fn add_by_field(&mut self, line: &str, patience: Duration) -> Step {
         let name = "add_by_field";
         if !typable(line) {
             return step(
                 name,
                 false,
-                format!("{line:?} holds a character `input text` would mangle"),
+                format!(
+                    "{line:?} holds a character `input text` would mangle or key events \
+                     cannot type (a capital or a shifted symbol: the Slint 1.18.1 limit)"
+                ),
             );
         }
         let added = self
             .tab_to("address-field")
             .and_then(|()| self.adb_ok(&["shell", "input", "text", line]).map(drop))
+            .and_then(|()| self.tab_to("add-action"))
             .and_then(|()| {
-                self.press(
-                    "add-action",
+                let from = self.seen.len();
+                self.key("KEYCODE_ENTER")?;
+                self.wait_answer(
+                    from,
                     &["add=added lines=1", "page=peers-add-trust"],
                     patience,
                 )
@@ -361,18 +369,34 @@ impl Screens {
     /// The camera route: Scan pressed, the viewfinder open, and the add
     /// answered `added` with its trust step drawn once the camera read
     /// the other phone's code -- which needs the phones facing each
-    /// other, and the camera granted.
+    /// other, and the camera granted. A note the add page shows -- the
+    /// camera denied, the code refused -- or another result (`unchanged`
+    /// on a phone already holding the address, `checked`) ends the wait,
+    /// named, as on the field route.
     pub fn add_by_scan(&mut self, patience: Duration) -> Step {
         let scanned = self.tab_to("scan-code").and_then(|()| {
             let from = self.seen.len();
             self.key("KEYCODE_ENTER")?;
-            self.wait_all(from, &["page=peers-scan"], patience)?;
-            self.wait_all(from, &["page=peers-add-trust"], patience)?;
-            // A scan adds every line the code carries: how many is the
-            // other phone's, so only the kind is asked.
-            self.wait_prefix(from, "add=added lines=", patience)
+            self.wait_scanned(from, patience)
         });
         self.answer("add_by_scan", scanned)
+    }
+
+    /// A scan's answer among the trace's lines from `from` on: the scan
+    /// page, the trust step and the add's `added`, or a note or another
+    /// result seen first.
+    fn wait_scanned(&mut self, from: usize, patience: Duration) -> Result<(), String> {
+        self.wait_answer(from, &["page=peers-scan"], patience)?;
+        self.wait_answer(from, &["page=peers-add-trust"], patience)?;
+        // A scan adds every line the code carries: how many is the
+        // other phone's, so only the kind is asked -- and any result
+        // ends the wait, since `unchanged` draws the trust step too.
+        self.wait_until(patience, |seen| {
+            result_in(&seen[from..])
+                .is_none()
+                .then(|| "add= result".to_owned())
+        })?;
+        answered(&self.seen[from..], &[]).unwrap_or_else(Err)
     }
 
     /// The trust step's one block: Trust pressed, and the block trusted.
@@ -769,13 +793,17 @@ impl Screens {
         })
     }
 
-    /// Wait until a line starting with `prefix` is among the trace's
-    /// lines from index `from` on.
-    fn wait_prefix(&mut self, from: usize, prefix: &str, patience: Duration) -> Result<(), String> {
-        let start = format!("{TRACE}{prefix}");
-        self.wait_until(patience, |seen| {
-            (!seen[from..].iter().any(|l| l.starts_with(&start))).then(|| format!("{prefix:?}..."))
-        })
+    /// Every one of `wants` seen from `from` on, or an add page's note
+    /// or a result other than `added` seen first, which fails the wait
+    /// naming it: a note is the add's answer as much as a result is.
+    fn wait_answer(
+        &mut self,
+        from: usize,
+        wants: &[&str],
+        patience: Duration,
+    ) -> Result<(), String> {
+        self.wait_until(patience, |seen| answered(&seen[from..], wants).err())?;
+        answered(&self.seen[from..], wants).unwrap_or_else(Err)
     }
 
     /// Poll until `missing` says nothing is missing, or fail naming what
@@ -854,6 +882,31 @@ impl Screens {
             std::thread::sleep(Duration::from_secs(1));
         }
         Ok(())
+    }
+
+    /// The app's window is the one key events reach. A system window in
+    /// front -- the platform's permission prompt the app raises at launch
+    /// on API 33+ while notifications are not granted, the notification
+    /// shade, a keyguard -- takes every key the driver sends, and the
+    /// trace then says nothing at all: fail here naming it instead.
+    fn app_takes_keys(&self) -> Result<(), String> {
+        let (window, app) = crate::platform::input_focus(&self.dump(&["window"])?)?;
+        let ours = format!("{PACKAGE}/");
+        if window.as_deref().is_some_and(|w| w.starts_with(&ours)) {
+            return Ok(());
+        }
+        let prompt = app
+            .as_deref()
+            .is_some_and(|a| a.contains("GrantPermissionsActivity"));
+        Err(format!(
+            "key events go to window {window:?} (focused app {app:?}), not the app's{}",
+            if prompt {
+                ": the platform's permission prompt is in front; after a pm clear on API 33+ \
+                 grant android.permission.POST_NOTIFICATIONS before the run"
+            } else {
+                ""
+            }
+        ))
     }
 
     /// `dumpsys <args>` on this serial, whole ([`crate::platform::dump_ended`]).
@@ -949,13 +1002,39 @@ pub fn app_lines(log: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether `input text` types `line` as it is: it reads `%s` as a space
-/// and the device shell would read its metacharacters.
+/// Whether `input text` types `line` as it is: it reads `%s` as a space,
+/// the device shell would read its metacharacters, and it sends key
+/// events, whose Shift the app's Slint 1.18.1 backend drops
+/// (apps/human-android/README.md): no capital and no shifted symbol
+/// reaches the field. A `PeerId` has capitals, so the field route cannot
+/// take one over adb until that bump; a lowercased one is refused as not
+/// an address (A40 and Pixel, 2026-11-08/09).
 fn typable(line: &str) -> bool {
     !line.is_empty()
         && line
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | ':' | '-' | '_'))
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '/' | '.' | '-'))
+}
+
+/// The first add-page note among trace `lines`, by kind: `none` is not
+/// one, since Add pressed again clears the last note before its answer.
+fn note_in(lines: &[String]) -> Option<&str> {
+    lines.iter().find_map(|l| {
+        l.strip_prefix(TRACE)?
+            .strip_prefix("note=")
+            .filter(|kind| *kind != "none")
+    })
+}
+
+/// The first add result among trace `lines`, after its `add=`: a kind
+/// and its `lines=` (`unchanged lines=1`). `add=waiting` and `add=none`
+/// carry no `lines=` and are not one.
+fn result_in(lines: &[String]) -> Option<&str> {
+    lines.iter().find_map(|l| {
+        l.strip_prefix(TRACE)?
+            .strip_prefix("add=")
+            .filter(|r| r.contains(" lines="))
+    })
 }
 
 /// `mInputShown` out of `dumpsys input_method`, the first one printed:
@@ -986,6 +1065,30 @@ fn step(case: &str, passed: bool, detail: String) -> Step {
     );
     out.insert(keys::DETAIL.to_owned(), Value::String(detail));
     out
+}
+
+/// An add's answer among `seen`, the trace's lines since its key press:
+/// `Ok` with the answer once a note or a result other than `added`
+/// shows -- the failure naming it, whatever else is missing -- or once
+/// every one of `wants` shows; `Err` naming what is still missing while
+/// none has.
+fn answered(seen: &[String], wants: &[&str]) -> Result<Result<(), String>, String> {
+    if let Some(kind) = note_in(seen) {
+        return Ok(Err(format!("answered note={kind}")));
+    }
+    if let Some(result) = result_in(seen).filter(|r| !r.starts_with("added ")) {
+        return Ok(Err(format!("answered add={result}")));
+    }
+    let missing: Vec<&str> = wants
+        .iter()
+        .filter(|w| !seen.contains(&format!("{TRACE}{w}")))
+        .copied()
+        .collect();
+    if missing.is_empty() {
+        Ok(Ok(()))
+    } else {
+        Err(format!("{missing:?}"))
+    }
 }
 
 #[cfg(test)]
@@ -1056,9 +1159,22 @@ mod tests {
 
     #[test]
     fn only_an_address_input_text_types_as_it_is_is_typed() {
-        assert!(typable("/ip4/192.168.100.6/tcp/4001/p2p/12D3KooWExample"));
-        assert!(typable("/ip6/fe80::1/udp/4001/quic-v1"));
-        for line in ["", "a b", "a%sb", "a;b", "a'b", "a\nb", "a$b", "a&b"] {
+        assert!(typable("/ip4/192.168.100.6/tcp/4001/p2p"));
+        assert!(typable("/dns4/peer-1.example/udp/4001/quic-v1"));
+        for line in [
+            "",
+            "a b",
+            "a%sb",
+            "a;b",
+            "a'b",
+            "a\nb",
+            "a$b",
+            "a&b",
+            // Key events lose Shift: a capital, `:` and `_` arrive changed.
+            "/ip4/192.168.100.6/tcp/4001/p2p/12D3KooWExample",
+            "/ip6/fe80::1/udp/4001/quic-v1",
+            "a_b",
+        ] {
             assert!(!typable(line), "{line:?}");
         }
     }
@@ -1069,10 +1185,19 @@ mod tests {
         call.contains(crate::platform::dump_command(&[])[0])
     }
 
+    /// Key focus on the app's own window, as the Pixel printed it.
+    const APP_FOCUS: &str = "  mCurrentFocus=Window{1a2b u0 org.interweave.human/org.interweave.human.MainActivity}\n  mFocusedApp=ActivityRecord{77 u0 org.interweave.human/.MainActivity t9}";
+
     /// A stand-in adb in a scratch directory: a `dumpsys window` shows
     /// the keyguard for its first `locked` calls, logcat holds `trace`,
     /// and every call is appended to `calls`, one line each.
     fn stand_in(locked: u32, trace: &str) -> (tempfile::TempDir, Screens) {
+        stand_in_focus(locked, trace, APP_FOCUS)
+    }
+
+    /// [`stand_in`], its `dumpsys window` printing `focus` too: the
+    /// `mCurrentFocus=` and `mFocusedApp=` lines.
+    fn stand_in_focus(locked: u32, trace: &str, focus: &str) -> (tempfile::TempDir, Screens) {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path().display();
@@ -1083,6 +1208,7 @@ case "$*" in
   *dumpsys*)
     n=$(grep -c dumpsys {d}/calls)
     if [ "$n" -le {locked} ]; then echo "  isKeyguardShowing=true"; else echo "  isKeyguardShowing=false"; fi
+    printf '%s\n' "{focus}"
     echo IW_END=0 ;;
   *logcat\ -d*) printf '%s\n' "{trace}" ;;
 esac
@@ -1134,6 +1260,68 @@ esac
         );
     }
 
+    /// `wait_answer` ends on a note, named, on the wanted lines alone,
+    /// and fails naming what never came (#608 F3, F6).
+    #[test]
+    fn an_adds_wait_ends_on_its_note_or_its_results() {
+        let wants = ["add=added lines=1", "page=peers-add-trust"];
+        let patience = Duration::from_millis(50);
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace focus=add-action\nui-trace note=refused:grammar",
+        );
+        let why = s.wait_answer(0, &wants, patience).unwrap_err();
+        // The note's own answer, not a timeout whose trace tail shows it.
+        assert!(why.starts_with("answered note=refused:grammar"), "{why}");
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace add=added lines=1\nui-trace page=peers-add-trust",
+        );
+        assert_eq!(s.wait_answer(0, &wants, patience), Ok(()));
+        // The wait itself fails, not a read after it.
+        let (_dir, mut s) = stand_in(0, "ui-trace add=added lines=1");
+        let why = s.wait_answer(0, &wants, patience).unwrap_err();
+        assert!(
+            why.contains("page=peers-add-trust") && why.contains("within"),
+            "{why}"
+        );
+    }
+
+    /// `add_by_scan`'s wait ends on the add page's note, named, before
+    /// the scan page or after it, and passes on the scan's results.
+    #[test]
+    fn a_scans_wait_ends_on_its_note_or_its_results() {
+        let patience = Duration::from_millis(50);
+        let (_dir, mut s) = stand_in(0, "ui-trace focus=scan-code\nui-trace note=camera-denied");
+        let why = s.wait_scanned(0, patience).unwrap_err();
+        assert!(why.starts_with("answered note=camera-denied"), "{why}");
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace page=peers-scan\nui-trace note=refused:own-address",
+        );
+        let why = s.wait_scanned(0, patience).unwrap_err();
+        assert!(
+            why.starts_with("answered note=refused:own-address"),
+            "{why}"
+        );
+        let (_dir, mut s) = stand_in(
+            0,
+            "ui-trace page=peers-scan\nui-trace note=none\nui-trace page=peers-add-trust\nui-trace add=added lines=2",
+        );
+        assert_eq!(s.wait_scanned(0, patience), Ok(()));
+        // Any other result is the scan's answer, named, not a timeout
+        // (#608 F13): after the trust step or before it.
+        for trace in [
+            "ui-trace page=peers-scan\nui-trace page=peers-add-trust\nui-trace add=unchanged lines=2",
+            "ui-trace page=peers-scan\nui-trace add=checked lines=1\nui-trace page=peers-add-trust",
+        ] {
+            let (_dir, mut s) = stand_in(0, trace);
+            let why = s.wait_scanned(0, Duration::from_secs(2)).unwrap_err();
+            assert!(why.starts_with("answered add="), "{why}");
+            assert!(!why.contains("within"), "{why}");
+        }
+    }
+
     #[test]
     fn no_am_start_runs_behind_a_keyguard() {
         let (dir, mut s) = stand_in(u32::MAX, "ui-trace page=conversations");
@@ -1148,6 +1336,45 @@ esac
         assert!(!calls.iter().any(|c| c.contains("am start")), "{calls:?}");
     }
 
+    /// `launch` ends on the app's own window taking the keys, and fails
+    /// naming a system window in front -- the permission prompt with
+    /// what grants it, or any other -- once the start decided (#608 F15).
+    #[test]
+    fn a_launch_fails_naming_a_system_window_that_takes_the_keys() {
+        let trace = "ui-trace page=conversations\nui-trace connect=settled";
+        let patience = Duration::from_millis(200);
+        let (_dir, mut s) = stand_in(0, trace);
+        let r = s.launch(patience);
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::PASS)), "{r:?}");
+        let detail = |r: &Step| {
+            r.get(keys::DETAIL)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
+        let prompt = "  mCurrentFocus=Window{2e297f1 u0 NotificationShade}\n  mFocusedApp=ActivityRecord{145622583 u0 com.android.permissioncontroller/.permission.ui.GrantPermissionsActivity t2046}";
+        let (_dir, mut s) = stand_in_focus(0, trace, prompt);
+        let r = s.launch(patience);
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
+        let why = detail(&r);
+        assert!(
+            why.contains("NotificationShade")
+                && why.contains("GrantPermissionsActivity")
+                && why.contains("POST_NOTIFICATIONS"),
+            "{why}"
+        );
+        // Another window: named, with no grant to suggest.
+        let shade = "  mCurrentFocus=Window{2e297f1 u0 NotificationShade}\n  mFocusedApp=ActivityRecord{77 u0 org.interweave.human/.MainActivity t9}";
+        let (_dir, mut s) = stand_in_focus(0, trace, shade);
+        let r = s.launch(patience);
+        assert_eq!(r.get(keys::RESULT), Some(&json!(keys::FAIL)), "{r:?}");
+        let why = detail(&r);
+        assert!(
+            why.contains("NotificationShade") && !why.contains("POST_NOTIFICATIONS"),
+            "{why}"
+        );
+    }
+
     #[test]
     fn a_launch_to_identity_waits_for_the_unlock_before_it_starts() {
         let (dir, mut s) = stand_in(2, "ui-trace identity=w");
@@ -1160,6 +1387,89 @@ esac
             .expect("an am start");
         let dumps = calls[..start].iter().filter(|c| dumps(c)).count();
         assert!(dumps >= 3, "the start after the keyguard went: {calls:?}");
+    }
+
+    #[test]
+    fn a_note_is_found_by_its_kind_and_nothing_else_is() {
+        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(note_in(&lines(&["ui-trace add=waiting"])), None);
+        assert_eq!(note_in(&lines(&["ui-trace notice=none"])), None);
+        assert_eq!(note_in(&lines(&["ui-trace note=none"])), None);
+        assert_eq!(
+            note_in(&lines(&[
+                "ui-trace note=none",
+                "ui-trace add=waiting",
+                "ui-trace focus=address-field",
+                "ui-trace note=refused:grammar",
+            ])),
+            Some("refused:grammar")
+        );
+    }
+
+    /// `add_by_field`'s doc: a note the add page shows ends the wait at
+    /// once, named, whatever the wanted lines are doing (#608 F3).
+    #[test]
+    fn a_note_ends_an_adds_wait_named_and_results_alone_pass_it() {
+        let lines = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let wants = ["add=added lines=1", "page=peers-add-trust"];
+        assert_eq!(
+            answered(
+                &lines(&["ui-trace focus=add-action", "ui-trace note=refused:grammar"]),
+                &wants
+            ),
+            Ok(Err("answered note=refused:grammar".to_owned())),
+            "the note, with every wanted line missing"
+        );
+        assert_eq!(
+            answered(
+                &lines(&[
+                    "ui-trace add=added lines=1",
+                    "ui-trace page=peers-add-trust",
+                    "ui-trace note=failed",
+                ]),
+                &wants
+            ),
+            Ok(Err("answered note=failed".to_owned())),
+            "a note beside the results still fails"
+        );
+        assert_eq!(
+            answered(
+                &lines(&[
+                    "ui-trace add=waiting",
+                    "ui-trace add=unchanged lines=1",
+                    "ui-trace page=peers-add-trust",
+                ]),
+                &wants
+            ),
+            Ok(Err("answered add=unchanged lines=1".to_owned())),
+            "another result ends the wait, named (#608 F13)"
+        );
+        assert_eq!(
+            answered(
+                &lines(&["ui-trace add=waiting", "ui-trace add=none"]),
+                &wants
+            ),
+            Err("[\"add=added lines=1\", \"page=peers-add-trust\"]".to_owned()),
+            "waiting and none are no result"
+        );
+        assert_eq!(
+            answered(
+                &lines(&[
+                    "ui-trace add=added lines=1",
+                    "ui-trace page=peers-add-trust"
+                ]),
+                &wants
+            ),
+            Ok(Ok(()))
+        );
+        assert_eq!(
+            answered(
+                &lines(&["ui-trace add=added lines=1", "ui-trace note=none"]),
+                &wants
+            ),
+            Err("[\"page=peers-add-trust\"]".to_owned()),
+            "still waiting, naming what is missing"
+        );
     }
 
     #[test]

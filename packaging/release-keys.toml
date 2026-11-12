@@ -16,19 +16,19 @@
 
 [tag]
 # The tag key's primary-key fingerprint: 40 hex digits, no spaces.
-fingerprint = "220728A8B44731A93CFF8969FA651DF333C31A0C"
+fingerprint = "7FB9C27BAA313CAE4C1F9485ACCFA5D9BC9B4F61"
 # Its public key, ASCII-armoured (`gpg --armor --export <fingerprint>`),
 # holding that one key and no other.
 public_key = """
 -----BEGIN PGP PUBLIC KEY BLOCK-----
 
-mDMEauDSoRYJKwYBBAHaRw8BAQdAhDyI+o+7NdCvu3BDpI8GIHJRtdrkDLyM1HUq
-jHRxtCG0KUludGVyV2VhdmUgcmVsZWFzZSB0YWdzIDx5b3VAZXhhbXBsZS5vcmc+
-iJMEExYKADsWIQQiByiotEcxqTz/iWn6ZR3zM8MaDAUCauDSoQIbAwULCQgHAgIi
-AgYVCgkICwIEFgIDAQIeBwIXgAAKCRD6ZR3zM8MaDFYrAQDTtXUHGoV+xKPF4w6a
-ZbIqZ5yJ0Jt1mnTD1MSjTl00ugD/UNGMNvRQWRF0ziXK+asQPusIzXAmJA8ZbCsM
-tf2JfgA=
-=cAXy
+mDMEavNyjhYJKwYBBAHaRw8BAQdAc+ZcgYVwci7u5G00cPxgIJ+XUR1t4XwpqvJL
+Cv+hMbC0PUludGVyV2VhdmUgcmVsZWFzZSB0YWdzIDIwMjYtMTEgPGFuZHJlYS5i
+ZW5ldHRvbkBibHVldGVhbS5lZT6IkwQTFgoAOxYhBH+5wnuqMTyuTB+UhazPpdm8
+m09hBQJq83KOAhsDBQsJCAcCAiICBhUKCQgLAgQWAgMBAh4HAheAAAoJEKzPpdm8
+m09hmWwA/RaC/lAjtIWGRVA+mIcjfwCwQB4ltC/ErYZNC+ebfDifAQC9fVJkY+sb
+d+hSwJ0NIcvP+r0yQbePyS5DgCylfeurCA==
+=b8Bg
 -----END PGP PUBLIC KEY BLOCK-----
 """
 

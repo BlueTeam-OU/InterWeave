@@ -23,6 +23,7 @@ Every closed stage has a closing record in the [implementation plan](./architect
 | 15 | 2026-10-06 | the desktop human client as one binary, proved without a person against two real daemons: process kill, restart, storage failure, trust mutation over the admin socket, and the accessibility tree read over AT-SPI | plan §18 |
 | 16 | 2026-10-06 | the Claude Code Channel bridge: a stdio MCP server holding one endpoint lease, turning direct and broadcast messages into channel notifications with provenance-only metadata, exchanging messages with a far peer from inside an installed Claude Code | plan §19 |
 | 17 | 2026-10-22 | the Android human client: the APK hosting the embedded runtime, the Keystore-sealed identity, recovery, the device-run records, the design review's six rounds | plan §20 |
+| 20 | 2026-10-19 | automated clients as first-party consumers (ran beside Stage 17, ADR-0055): the conformance suite for what the transport promises an automated client, `transportctl`'s identity verbs and the Linux user units; the client program itself is the deployment's | plan §28 |
 | 21 | 2026-10-25 | contacts, cards and the encrypted store (ran beside Stages 17, 18 and 19): a contact built from a card the counterparty sends and the person accepts, signed by its identity's key; the human store ciphertext at rest under a platform-sealed key; a peer added by address and one's own shown as a QR; the command-line human client | plan §29 |
 
 Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21) and, since Stage 17 closed on 2026-10-22, Stages 19 and 21 ran beside Stage 18; Stage 21 closed 2026-10-25 on §29's closing record, and Stage 19 runs beside Stage 18; the status value names the lowest open stage.
@@ -38,6 +39,10 @@ Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migrati
 `apps/human-android` is the Android client Stage 17 built: its APK draws the client's views and hosts the profile's runtime in-process — the embedded transport (`crates/transport/embedded`) inside its foreground network service, with the identity seed sealed by a key held in the Android Keystore; its device runs on a Pixel 9a (API 37) and a Samsung A40 (API 30) are recorded under `apps/human-android/device-runs/`, and what the stage did not prove is carried by name in the plan's §20 closing record.
 
 Trust changes made through the admin socket persist in the profile's state directory, never in its configuration file, and survive a daemon restart.
+
+## Releases
+
+Releases are published on the repository's [release pages](https://github.com/BlueTeam-OU/InterWeave/releases): a Linux archive (x86_64) and an Android APK (`arm64-v8a`, Android 11 or later), each page carrying the hashes of its files and the checks a reader can run on them. From `v0.2.0` the archive runs on glibc 2.35 or later and is signed; `v0.1.0`'s archive is unsigned and its desktop client needs glibc 2.43. Every release ships under one Semantic Versioning version, the root `Cargo.toml`'s ([ADR-0065](./architecture/adr/0065-every-interweave-version-is-a-semantic-versioning-2-0-0-version.md)); from `v0.2.0` the tag is signed with the owner's tag key and the archive with the project's minisign key, both pinned in `packaging/release-keys.toml`, the release run holding a tag to the pin of its tagged commit and to `main`'s, and a tag signed by an earlier key (`v0.2.0`'s) being checked against the pin of its own tagged commit, since the tag key was rotated before `v0.3.0` ([ADR-0066](./architecture/adr/0066-every-release-is-signed-the-tag-by-the-owner-s-key-the-linux-archive-by-a-minisign-key-both-verified-against-a-pin-on-main.md)); the Android app is in no store and is updated by hand from those pages ([ADR-0057](./architecture/adr/0057-android-is-distributed-from-the-project-release-page-with-no-store-and-no-google-play-services.md)). Until `1.0.0` a MINOR release may break what the previous one relied on, and its notes say so when it does. The plan's §22 records each release: its tag, what moved and what its gate measured.
 
 ## What InterWeave is
 
@@ -147,6 +152,9 @@ Stage 16  Claude Channel bridge
 Stage 17  Android
 Stage 18  adversarial/security gate
 Stage 19  packaging/release
+Stage 20  automated clients + one-host deployment (plan §28)
+Stage 21  contacts, cards, encrypted store (plan §29)
+Stage 22  several user identities (plan §30; recorded, not opened)
 ```
 
 In particular, Kademlia, AutoNAT, Relay, and DCUtR may not be activated before Stage 5's root dial/security funnel is implemented and green.

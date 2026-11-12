@@ -794,6 +794,139 @@ fn a_screen_going_with_focus_on_it_hands_focus_to_what_it_covered() {
     );
 }
 
+/// The identity page `page`, raised by a refused start, as the root
+/// shows it: focus settles once its heading exists.
+fn raise(view: &View, page: interweave_human_ui_slint::IdentityPage) {
+    let title = page.title.to_string();
+    view.show_identity(Some(page));
+    view.raise_identity_heading();
+    // A headless window makes the heading, inside an `if`, only when the
+    // tree is walked; a real one draws first.
+    let _ = labelled(view, &title).len();
+    settle();
+    settle();
+}
+
+/// A refused start that raises R, K or K1 puts focus on the screen's
+/// heading -- over Chats, and over a conversation whose composer had it
+/// -- and the first TAB reaches its primary action, Shift+TAB the heading
+/// again (design/2026-10-19-android-identity.md section 8, acceptance
+/// item 15). A page shown again that no start raised -- R staying after
+/// its own Try again is refused -- leaves focus where it was; and R going
+/// with focus on its heading hands focus to Chats' heading (unlock note
+/// F15).
+#[test]
+fn a_raised_store_or_recovery_screen_opens_on_its_heading() {
+    use interweave_human_ui_model::{
+        IdentityFlow, RecoveryReason, Start, StoreRecovery, StoreScreen,
+    };
+    let store = |screen| interweave_human_ui_slint::store_page(&StoreRecovery::new(screen, 1));
+    let backtab = |view: &View| {
+        let key: slint::SharedString = Key::Backtab.into();
+        let window = view.window().window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text: key });
+        settle();
+        view.window().get_focus_id().to_string()
+    };
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    view.render(&model);
+    settle();
+    let under = tab(&view);
+    assert!(
+        !under.is_empty() && under != "r-heading",
+        "control: focus on Chats, {under}"
+    );
+
+    raise(&view, store(StoreScreen::Recovery));
+    assert_eq!(view.window().get_focus_id(), "r-heading", "R over Chats");
+    let _ = tab(&view);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "identity-primary",
+        "the first TAB: Try again"
+    );
+    assert_eq!(backtab(&view), "r-heading", "Shift+TAB: the heading");
+    let _ = tab(&view);
+    settle();
+
+    // Try again refused, R stays: shown again, not raised.
+    view.show_identity(Some(store(StoreScreen::Recovery)));
+    settle();
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "identity-primary",
+        "R staying keeps focus on Try again"
+    );
+
+    assert_eq!(backtab(&view), "r-heading", "control: on the heading");
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "R going from its heading: Chats' heading"
+    );
+
+    open(&mut view, &mut model, &direct(&alice));
+    tab_to(&view, "composer");
+    raise(&view, store(StoreScreen::Recovery));
+    assert_eq!(
+        view.window().get_focus_id(),
+        "r-heading",
+        "R over the composer"
+    );
+
+    // R's discard's restart refused for the key: K in place of R, the
+    // page already up.
+    let _ = tab(&view);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "identity-primary",
+        "control: off the heading"
+    );
+    raise(&view, store(StoreScreen::KeyLost));
+    assert_eq!(view.window().get_focus_id(), "k-heading", "K in place of R");
+    let _ = tab(&view);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "identity-primary",
+        "the first TAB: Delete stored data…"
+    );
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+
+    let expected = TransportIdentity::parse("12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e")
+        .expect("a PeerId");
+    let k1 = IdentityFlow::new(
+        &["act", "bean", "cabin"],
+        Start::Recovery {
+            reason: RecoveryReason::Key,
+            expected: Some(expected),
+            new_keys: false,
+        },
+    );
+    raise(&view, interweave_human_ui_slint::identity_page(&k1));
+    assert_eq!(view.window().get_focus_id(), "k1-heading", "K1");
+    let _ = tab(&view);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "identity-primary",
+        "the first TAB: Enter my phrase"
+    );
+}
+
 /// A discard's restart opens on Chats, prompt granted or cancelled (unlock
 /// note section 11, L1; A16 bullet 1): the conversation R covered, with
 /// the data the discard deleted, is gone, and so is a page over it.

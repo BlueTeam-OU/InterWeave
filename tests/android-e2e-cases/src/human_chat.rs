@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use interweave_human_app_core::{Command, ModelSide, Opener, Update};
 use interweave_human_chat_protocol::HumanChatV2;
-use interweave_human_client_api::OutboundStatus;
+use interweave_human_client_api::{Origin, OutboundStatus, Received};
 use interweave_human_ui_model::{
     ConversationKey, Direction, ItemStatus, UiModel, ViewEvent, WindowEvent, WindowInput,
 };
@@ -368,6 +368,9 @@ struct Seen {
     started: bool,
     /// Each send the facade committed, as committed.
     sent: Vec<HumanChatV2>,
+    /// Each direct message from the desktop the facade committed, as it
+    /// parsed it: what the desktop sent, as this side decoded it.
+    received: Vec<HumanChatV2>,
 }
 
 /// One step of the window's loop: apply what came, run a turn, hand the
@@ -376,11 +379,17 @@ fn step(
     client: &mut dyn AppClient,
     side: &mut ModelSide<Script, NoLinks>,
     seen: &mut Seen,
+    desktop: &TransportIdentity,
 ) -> Result<(), String> {
     for update in client.updates(Duration::from_millis(100))? {
         match &update {
             Update::Started(_) => seen.started = true,
             Update::Sent { envelope, .. } => seen.sent.push(envelope.clone()),
+            Update::Received(Received {
+                origin: Origin::Direct { peer, .. },
+                envelope,
+                ..
+            }) if peer == desktop => seen.received.push(envelope.clone()),
             _ => {}
         }
         side.apply(update);
@@ -398,12 +407,13 @@ fn step_until(
     client: &mut dyn AppClient,
     side: &mut ModelSide<Script, NoLinks>,
     seen: &mut Seen,
+    desktop: &TransportIdentity,
     until: Instant,
     what: &str,
     done: impl Fn(&UiModel, &Seen) -> bool,
 ) -> Result<(), String> {
     loop {
-        step(client, side, seen)?;
+        step(client, side, seen, desktop)?;
         if done(side.model(), seen) {
             return Ok(());
         }
@@ -430,6 +440,7 @@ pub(crate) fn human_chat(
         client,
         &mut side,
         &mut seen,
+        &args.desktop,
         until,
         "the store's windowed start for the view",
         |_, seen| seen.started,
@@ -439,7 +450,7 @@ pub(crate) fn human_chat(
     // the window's, so a draft queued now would be sent first. The opening
     // is taken in the turn that applies it.
     while side.surface_mut().opens.is_some() {
-        step(client, &mut side, &mut seen)?;
+        step(client, &mut side, &mut seen, &args.desktop)?;
         if Instant::now() >= until {
             return Err("the conversation was never opened".to_owned());
         }
@@ -456,7 +467,7 @@ pub(crate) fn human_chat(
         queue.push_back(Step::PressSend(key.clone()));
         let mut last_press = Instant::now();
         loop {
-            step(client, &mut side, &mut seen)?;
+            step(client, &mut side, &mut seen, &args.desktop)?;
             if seen.sent.iter().any(|e| e.text == text) {
                 break;
             }
@@ -489,6 +500,7 @@ pub(crate) fn human_chat(
         client,
         &mut side,
         &mut seen,
+        &args.desktop,
         until,
         "both messages accepted at the desktop and both answers shown",
         |model, _| {
@@ -518,6 +530,7 @@ pub(crate) fn human_chat(
         client,
         &mut side,
         &mut seen,
+        &args.desktop,
         until,
         "the route indicator",
         |model, _| model.path(&key).is_some(),
@@ -534,6 +547,7 @@ pub(crate) fn human_chat(
         client,
         &mut side,
         &mut seen,
+        &args.desktop,
         until,
         "the desktop's close",
         |model, _| {
@@ -559,6 +573,15 @@ pub(crate) fn human_chat(
         .map(|e| serde_json::to_value(e).map_err(|e| format!("an envelope: {e}")))
         .collect::<Result<Vec<_>, _>>()?;
     out.insert(keys::SENT.to_owned(), Value::Array(sent).to_string().into());
+    let received = seen
+        .received
+        .iter()
+        .map(|e| serde_json::to_value(e).map_err(|e| format!("an envelope: {e}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    out.insert(
+        keys::RECEIVED.to_owned(),
+        Value::Array(received).to_string().into(),
+    );
     Ok(out)
 }
 
