@@ -281,6 +281,10 @@ pub struct IdentityFlow {
     /// `identity-keys/` (item 12). Kept for the flow, since K1 is rebuilt
     /// when Back leaves R2.
     new_keys: bool,
+    /// How many chips C3 and R2 have taken, a tap's or Enter's: the page
+    /// carries it, so the window sees a chip taken in the page that
+    /// shows it rather than guessing at the press (j261).
+    chips_taken: u32,
 }
 
 impl IdentityFlow {
@@ -314,6 +318,7 @@ impl IdentityFlow {
             unheld: false,
             start_notice: None,
             new_keys,
+            chips_taken: 0,
         }
     }
 
@@ -805,6 +810,7 @@ impl IdentityFlow {
             Screen::R2 { entry, notice, .. } => {
                 if entry.choose(chip) {
                     *notice = None;
+                    self.chips_taken += 1;
                 }
                 Vec::new()
             }
@@ -812,6 +818,7 @@ impl IdentityFlow {
                 let Some(word) = check.picker.chip(chip) else {
                     return Vec::new();
                 };
+                self.chips_taken += 1;
                 let position = check.positions[check.done];
                 check.picker.clear();
                 let right = self.words.is_some_and(|words| words[position] == word);
@@ -828,6 +835,24 @@ impl IdentityFlow {
             }
             _ => Vec::new(),
         }
+    }
+
+    /// Enter while typing on C3 or R2 (design section 8): it takes the
+    /// chip [`WordPicker::enter_chip`] names, as a tap on it would, and
+    /// otherwise does nothing. Applied in order behind the letters before
+    /// it, so the letters it judges are the ones typed (j261).
+    pub fn enter(&mut self) -> Vec<Effect> {
+        match self.picker().and_then(WordPicker::enter_chip) {
+            Some(word) => self.choose(word),
+            None => Vec::new(),
+        }
+    }
+
+    /// How many chips have been taken: a page whose count moved shows one
+    /// just taken.
+    #[must_use]
+    pub fn chips_taken(&self) -> u32 {
+        self.chips_taken
     }
 
     // --- the platform's answers ----------------------------------------
