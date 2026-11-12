@@ -99,10 +99,12 @@ pub fn shapes() -> Vec<(&'static str, String)> {
         format!("| h | i |\n|---|---|\n{}", row.repeat(TABLE_ROWS - 1))
     });
     out.insert(3, ("table", table));
-    // Where each link, or each heading, differs: no line's measure is the
-    // one before's, so the reader lays out every one of them (the reader's
-    // measures are cached by what the layout reads). Before the reference
-    // link, whose controls are the most.
+    // Where each heading, or each link's control, differs, so the reader
+    // lays out every one of them (its measures are cached by what the
+    // layout reads): each heading line is its own destination, and each
+    // link control's label names its own. The links' paragraph draws only
+    // their labels, "a a a ...", so its pieces repeat and are measured
+    // once. Before the reference link, whose controls are the most.
     let distinct = |piece: fn(usize) -> String| largest(|n| (0..n).map(piece).collect());
     let at = out.len() - 1;
     out.insert(

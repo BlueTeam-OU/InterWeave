@@ -13,8 +13,9 @@ sends each shape of `tests/android-e2e/src/long.rs` to the app over adb
 reverse, and the case presses the row's Open the whole message by key
 and reads the debug build's trace (`reader=drawn`, `reader=end`). Since
 cd9b93b2c the shapes add two stress shapes, distinct headings and
-distinct links, whose rows are all different text, so no measure is
-reused (j95, design/2026-11-04-long-message.md A5).
+distinct links: every heading, and every link's control, is different
+text, so none of their measures is reused; the links' paragraph pieces
+repeat (j95, design/2026-11-04-long-message.md A5).
 
 ## The batch's debug build, one run each (2026-11-11 and 2026-11-12)
 

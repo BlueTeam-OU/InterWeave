@@ -1889,6 +1889,9 @@ fn the_link_rows_follow_the_rows_measured_again() {
 #[test]
 fn escape_while_the_reader_opens_closes_it_for_good() {
     let mut view = view();
+    // Stepped from the first go, so the host's speed does not decide
+    // whether it is still opening at 0.6 s (#643 review).
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
     view.window()
         .window()
         .set_size(slint::LogicalSize::new(411.0, 891.0));
