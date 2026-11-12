@@ -310,7 +310,12 @@ still waits on.
   first-run profile (plan §22, "The published Android releases cannot
   onboard a new user"; every build writes it since #569). By §22's baseline rule that half runs from the first
   published release that onboards a new user to the release after it,
-  and is a limit of this row until then.
+  and is a limit of this row until then. That first release is v0.3.0:
+  its published APK updated the published v0.2.0 in place on both
+  phones on 2026-11-12 (`Success`, versionCode 2 to 3, one signer, the
+  first-install time kept), and each phone so updated then made an
+  identity and started the service
+  ([`evidence/2026-11-12-v0-3-0-update-in-place-from-v0-2-0.md`](evidence/2026-11-12-v0-3-0-update-in-place-from-v0-2-0.md)).
 
 ## What this does not prove
 
