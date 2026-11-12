@@ -927,7 +927,12 @@ scale would also be a finding of the Android review
       focus key, which the build adds for each of R, K and K1:
       `r-heading`, `k-heading` and `k1-heading` (rust-ui-dev-01,
       2026-11-10). Any other value fails,
-      `focus=none` and `focus=?` included. Run it three times, on a profile whose
+      `focus=none` and `focus=?` included. One exception: a launch
+      makes a new window, whose focus is empty until the heading takes
+      it, so a `focus=none` logged in the same millisecond, just before
+      the heading's key, is that empty start and does not fail. The
+      trace reads the focus property, not frames (rust-ui-dev-01's
+      REPLY 01a1ce5b). Run it three times, on a profile whose
       `key_unlock_policy` is `background-compatible`, so that no
       start raises an unlock prompt. Each
       of the first two runs fires the debug hook `REFUSE_STORE` and
@@ -953,7 +958,8 @@ scale would also be a finding of the Android review
       reaches the store. That start is refused again and R stays, and
       focus stays on Try again, as it did after the restart. Then
       press Shift+Tab to put focus back on R's heading (the trace shows
-      `focus=r-heading`), and fire `RESTART` again. The hook refuses
+      `focus=r-heading`; where adb cannot send Shift+Tab, as on
+      Android 11, Tab round the cycle to it), and fire `RESTART` again. The hook refuses
       only once, so this start runs, and R leaves the screen while
       focus is on its heading. The trace then names Chats' list
       heading (`focus=conversations-heading`), as unlock note F15
@@ -996,7 +1002,10 @@ scale would also be a finding of the Android review
          so a new process opens Chats. Run it again.
       3. From that K1, enter the phrase on R2. The restore matches and
          goes to R4. After R4's continue, Chats shows and the client
-         runs: `adb shell dumpsys activity services
+         runs. If the phone knows no peer, Connect to someone shows
+         after Chats, as onboarding's third step
+         (`design/2026-10-22-add-a-peer.md` §4). That is correct, not a
+         failure. Either way, `adb shell dumpsys activity services
          org.interweave.human` lists the Service, and `logcat -s
          interweave` shows the start succeeding. No second K1 rises,
          then or at the next launch. The step fails if the Service is
