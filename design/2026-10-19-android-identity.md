@@ -26,6 +26,17 @@ item 2, §8, acceptance 15), at rust-ui-dev-01's QUESTION 01a1d095.
 Before this revision, a tap set navigating, so a hardware Enter after
 tapping t pressed the key that held focus, a key the person had not
 chosen (#644).
+Revised later on 2026-11-12, at the owner's ask, for two gaps that
+#645's review rounds carried. First, after a wrong word on C3, focus
+goes to `IdCheckWrong`, not to the keypad. Before, the chip rule and
+the error-banner rule each named a target, and neither said which
+won. The rules now also say where focus goes when Try again removes
+the error (§3.2, §8). Second, on R2 the "next empty" position now
+wraps after 24 to the lowest empty one. When a chip leaves no
+position empty, focus goes to the primary action, `IdCheckWords`,
+with the screen navigating. Before, §4 named no next position for
+that case, and §8 named no focus (§4 item 2, §8, acceptance 4 and
+15).
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -195,7 +206,14 @@ after the other. "Word 7 of 24" heads each entry.
   foot of the scrolling area over the fixed picker (§4; string
   `IdCheckWrong`). It says which position, and to compare with the
   paper. The entry clears, and two actions appear:
-  - try again (stays on C3);
+  - try again (stays on C3): it removes the error and both actions,
+    and nothing else. The wrong word cleared the entry, and the letters
+    the person typed since then stay in the letters display. Typing
+    does not remove the error: it stays until the next word is taken.
+    Then a right word removes it, and a wrong one shows it again,
+    naming the position of the word just taken. Both actions show
+    for exactly as long as the error shows: typing does not remove
+    them, and whatever removes the error removes them too;
   - show my words again (→ C2, with the same two positions on return).
 - There is no limit on tries, and no way past C3 without two right
   words.
@@ -391,7 +409,13 @@ The picker, from its top:
      comes down to four or fewer by the fourth letter, and often
      sooner.
    - Tapping a chip fills the position and moves to the next empty
-     one. Nothing ever fills itself: even a single remaining match is
+     one. On R2 that is the next empty position by number, wrapping
+     after 24 to the lowest empty one. When no position is empty, the
+     position just filled stays current, its letters display is
+     empty, and the primary is enabled (§3.3). Letters typed then
+     start a replacement for that position's word, as on an edit: the
+     word stays until a chip replaces it. Nothing ever fills itself:
+     even a single remaining match is
      a chip the person taps, or takes with Enter while typing (§8), so
      no word is entered without being seen.
 3. **The keypad:** the 26 letters in QWERTY rows (10, 9, 7). Its last
@@ -600,11 +624,16 @@ access.
     typing mode, an exception to "a press sets navigating", as closing
     the discard dialog is: the person is back to entering letters.
   - The same exception holds on R2 and C3 for a chip that fills a
-    position and for a grid position chosen to edit, by a tap or by
-    Enter or Space: the screen is in typing mode afterwards, with focus
-    as the focus rules below say. If the screen were navigating
-    instead, the next Enter would press the key that focus went to and
-    add a letter the person did not choose.
+    position, for a wrong word on C3 (a chip that fills nothing), for
+    a grid position chosen to edit and for C3's Try again, by a tap or
+    by Enter or Space: the screen is in typing mode afterwards, with
+    focus as the focus rules below say. If the screen
+    were navigating instead, the next Enter would press the key that
+    focus went to and add a letter the person did not choose.
+  - There is one exception to that exception: a chip that leaves no
+    R2 position empty sets navigating, with focus on `IdCheckWords`
+    (below). No word is left to type, so the next Enter can only mean
+    "check".
   - A screen opens as typing. Either way the focus ring is drawn on
     the focused control, so the person sees what Enter would press
     once they move.
@@ -624,7 +653,43 @@ access.
   opens, closes or changes something, the rules below say where focus
   goes, as for any other input.
 - When R2 or C3 opens, and after a chip fills a position, by any
-  input, focus goes to the keypad's first enabled key.
+  input, focus goes to the keypad's first enabled key. There are two
+  exceptions, each in a rule of its own below: a wrong word on C3,
+  and a chip that leaves no R2 position empty.
+- After a wrong word on C3, focus goes to `IdCheckWrong`, which is
+  focusable for this, and the scrolling area brings `IdCheckWrong`
+  into view. A second wrong word puts focus on it again. This is the
+  error-banner rule below, and it wins over the chip rule. Why: the
+  error is the one thing the person must read before the next try.
+  With focus on the keypad, the error is outside the person's
+  attention, and, once TalkBack reaches the app, outside TalkBack's
+  too: TalkBack would say nothing of it, because no live region
+  announces it (Nielsen's
+  heuristic 9, help users recognise and recover from errors; WCAG
+  3.3.1, error identification). Typing loses nothing: the screen is
+  in typing mode afterwards, however the word was taken (above). A
+  typed hardware letter acts as its key wherever focus is, and with
+  the entry clear, Enter and Space do nothing. From `IdCheckWrong`,
+  Tab reaches `TryAgain`, then `IdShowAgain`, in the C3 order above.
+- When C3's Try again removes the error, focus goes to the keypad's
+  first enabled key, in typing mode. The keypad is what the person
+  uses next. The error's text and both its actions are gone, so focus
+  cannot stay on them. When a right word removes the error, the chip
+  rule above already puts focus on the first enabled key.
+- When a chip fills R2's only remaining empty position, by any input,
+  focus goes to the primary action, `IdCheckWords`, now enabled, and
+  the screen is navigating, so Enter or Space presses it. The same
+  holds when a chip replaces a word while no position is empty, after
+  an edit or after letters were typed with every position filled (§4
+  item 2). There is no next position to type into, and checking is
+  the person's next step. Why an early press is safe: the check's result
+  depends only on the words. A failed check keeps every word (§6). A
+  valid phrase goes to R3, which asks whether the PeerId is the one
+  the person wrote down. After K1, a valid phrase restores only the
+  PeerId the record names (§3.4). So a second Enter pressed before
+  the person meant to check loses nothing they would get by waiting. This is a
+  hypothesis for the device run, falsified if a person who presses
+  Enter twice does not expect the check.
 - When a grid position is chosen to edit, by any input, focus goes as
   for a row chosen from the full list: to the keypad's first enabled
   key, or to the delete key when the word put back leaves no letter
@@ -655,7 +720,8 @@ access.
   runs. Focus stays where it was, so after Try again it stays on Try
   again, as unlock note F11 says for a cancelled prompt
   (`design/2026-11-05-unlock-policy-pending.md`).
-- After an error banner appears, focus goes to the banner.
+- After an error banner appears, focus goes to the banner. C3's
+  `IdCheckWrong` counts as one (above).
 - After a dialog closes, focus returns to what opened it. The discard
   dialog's `IdDiscard` leaves the screen instead, and §7 names where
   focus goes then.
@@ -805,8 +871,9 @@ landscape:
    which gives the canonical PeerId with no spaces, checked by pasting
    it into Trust's field.
 4. C3 asks two positions. A wrong word shows `IdCheckWrong` and clears
-   the entry. Two right words reach C4. Continue starts the service and
-   opens Connect when both reads succeed with no address and no trusted
+   the entry. Try again removes the error and both actions, and so
+   does a right word. Two right words reach C4. Continue starts the
+   service and opens Connect when both reads succeed with no address and no trusted
    peer, Chats when either list has an entry, and Chats with no Connect
    when either read fails (a test hook).
 5. Back from C2 and returning shows the same words. Process death
@@ -948,7 +1015,20 @@ scale would also be a finding of the Android review
       burst.
     - After a chip fills a position, whether by a tap or by Enter on
       the focused chip, focus is on the first enabled key and Enter does
-      nothing.
+      nothing, except as the next two bullets say.
+    - On C3, a wrong word taken by Enter puts focus on
+      `IdCheckWrong`, in view. A hardware letter then enters a letter,
+      and Enter and Space do nothing. Tab from it reaches `TryAgain`,
+      then `IdShowAgain`. Try again pressed by Enter removes the error
+      and puts focus on the first enabled key, and the next Enter does
+      nothing. After a wrong word, typing "c" and then pressing Try
+      again leaves "c" in the letters display. After a wrong word, a right word puts
+      focus on the first enabled key.
+    - On R2, with positions 1 to 23 filled and 24 current, a chip
+      taken by Enter fills 24 and puts focus on `IdCheckWords`, now
+      enabled, and the next Enter runs the check. With position 3
+      empty and 24 current, a chip taken by Enter fills 24 and makes
+      3 current, with focus on the first enabled key.
     - With position 5 filled, a tap on it puts focus on the first
       enabled key (the delete key when none is enabled), and Enter
       then takes the whole-word chip, so position 5 keeps its word.
