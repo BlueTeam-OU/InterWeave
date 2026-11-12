@@ -32,12 +32,19 @@ command -v python3 >/dev/null || { echo "test_build_previous_builds: python3 is 
 # waits on a build nothing ends. So the suite runs once more with the
 # signals it sends at their defaults, as a CI step's shell has them; the
 # marker keeps that to one re-exec.
+# PIPE and XFSZ too: python3 ignores both at its start, and an ignore
+# survives exec, so the launcher would otherwise hand them on itself.
 if [[ -z "${TEST_BUILD_PREVIOUS_BUILDS_SIGNALS_DEFAULT:-}" ]]; then
     TEST_BUILD_PREVIOUS_BUILDS_SIGNALS_DEFAULT=1 exec python3 -c 'import os, signal, sys
-for s in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM): signal.signal(s, signal.SIG_DFL)
+for s in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGPIPE, signal.SIGXFSZ): signal.signal(s, signal.SIG_DFL)
 os.execvp(sys.argv[1], sys.argv[1:])' bash "${BASH_SOURCE[0]}" "$@"
 fi
 unset TEST_BUILD_PREVIOUS_BUILDS_SIGNALS_DEFAULT
+# HUP INT PIPE TERM XFSZ (1 2 13 15 25), none ignored from here on.
+if [[ -r /proc/$$/status ]]; then
+    sigign=$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$/status)
+    (( 0x${sigign:-0} & 0x1005003 )) && { echo "test_build_previous_builds: signals still ignored after the reset (SigIgn $sigign)" >&2; exit 1; }
+fi
 
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
@@ -276,7 +283,7 @@ for sig in INT:130 TERM:143; do
     touch "$SANDBOX/cargo-hangs"
     printf '%s\n' "stage13-45ba3928 $SHA_A" > "$SANDBOX/list"
     PATH="$BIN:$SYS_PATH" TMPDIR="$SANDBOX/tmp" RUNNER_TEMP="" \
-        python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+        python3 -c 'import os, signal, sys; [signal.signal(s, signal.SIG_DFL) for s in (signal.SIGINT, signal.SIGPIPE, signal.SIGXFSZ)]; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
         bash "$UNDER_TEST" --list "$SANDBOX/list" "$SANDBOX/out" >"$SANDBOX/sig-out" 2>&1 &
     pid=$!
     for _ in $(seq 100); do [[ -e "$SANDBOX/cargo-started" ]] && break; sleep 0.1; done

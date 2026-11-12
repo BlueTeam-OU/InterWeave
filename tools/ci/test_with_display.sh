@@ -34,12 +34,19 @@ command -v python3 >/dev/null || { echo "test_with_display: python3 is needed (t
 # waits out its command and the wrapper's TERMs reach no Xvfb stub. So the
 # suite runs once more with the signals it sends at their defaults, as a
 # CI step's shell has them; the marker keeps that to one re-exec.
+# PIPE and XFSZ too: python3 ignores both at its start, and an ignore
+# survives exec, so the launcher would otherwise hand them on itself.
 if [[ -z "${TEST_WITH_DISPLAY_SIGNALS_DEFAULT:-}" ]]; then
     TEST_WITH_DISPLAY_SIGNALS_DEFAULT=1 exec python3 -c 'import os, signal, sys
-for s in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM): signal.signal(s, signal.SIG_DFL)
+for s in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGPIPE, signal.SIGXFSZ): signal.signal(s, signal.SIG_DFL)
 os.execvp(sys.argv[1], sys.argv[1:])' bash "${BASH_SOURCE[0]}" "$@"
 fi
 unset TEST_WITH_DISPLAY_SIGNALS_DEFAULT
+# HUP INT PIPE TERM XFSZ (1 2 13 15 25), none ignored from here on.
+if [[ -r /proc/$$/status ]]; then
+    sigign=$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$/status)
+    (( 0x${sigign:-0} & 0x1005003 )) && { echo "test_with_display: signals still ignored after the reset (SigIgn $sigign)" >&2; exit 1; }
+fi
 
 failures=0
 SANDBOX_TMPDIR="${TMPDIR-}"
@@ -326,7 +333,7 @@ sig_case() {
     local sig="$1" want="$2" cmd="$3" name="$4" stop="${5:-5}" wrapper got took start sleeper
     reset
     stop_by=0 stopping=1 PATH="$BIN:$PATH" WITH_DISPLAY_READY_SECONDS=1 WITH_DISPLAY_STOP_SECONDS="$stop" \
-        python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp(sys.argv[1], sys.argv[1:])' \
+        python3 -c 'import os, signal, sys; [signal.signal(s, signal.SIG_DFL) for s in (signal.SIGINT, signal.SIGPIPE, signal.SIGXFSZ)]; os.execvp(sys.argv[1], sys.argv[1:])' \
         bash "$UNDER_TEST" "$cmd" >/dev/null 2>&1 &
     wrapper=$!
     for ((i = 0; i < 50; i++)); do [[ -s "$SANDBOX/sleeper-pid" ]] && break; sleep 0.1; done
