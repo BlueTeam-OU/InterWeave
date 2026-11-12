@@ -22,8 +22,7 @@ import shutil
 import sys
 
 ERA_REASON = b'reason:"connection negotiated a modern protocol revision with no unsolicited notification path"'
-NOTICE = re.compile(rb'Zn?\.kind==="era"\?`(Channel messages from "\$\{[^}]+\}" are unavailable: [^`]*)`'
-                    rb'|kind==="era"\?`(Channel messages from "\$\{[^}]+\}" are unavailable: [^`]*)`')
+NOTICE = re.compile(rb'kind==="era"\?`(Channel messages from "\$\{[^}]+\}" are unavailable: [^`]*)`')
 RELAY = re.compile(rb'function \w+\(\w+,\w+,\w+\)\{return \w+\.filter\(\(\w+\)=>[^;]{0,400}?'
                    rb'"claude/channel/permission"[^;]{0,200}?protocolEra[^;]{0,40}?\)\}')
 
@@ -49,7 +48,7 @@ def main() -> int:
     hard = re.search(rb'function \w+\(\w+\)\{return \w+==="provider"\|\|[^}]*\}', data)
     out["hard_skip_kinds"] = re.findall(r'"(\w+)"', hard.group(0).decode()) if hard else None
 
-    notices = sorted({(m.group(1) or m.group(2)).decode() for m in NOTICE.finditer(data)})
+    notices = sorted({m.group(1).decode() for m in NOTICE.finditer(data)})
     out["era_notice"] = notices
     out["era_reason_copies"] = data.count(ERA_REASON)
     relays = sorted({m.group(0).decode() for m in RELAY.finditer(data)})
