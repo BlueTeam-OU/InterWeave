@@ -5039,7 +5039,8 @@ note above carried were taken up, at architect-cto's request.
   output may reach the peer. Carried: the other 21 cells on
   2.1.322 or with the real bridge (the nine with nothing said, the six
   of the second first-turn wording, and six of the fourteen asked for,
-  left out for the cost), another model, and the rest of S32 (b)'s
+  left out for the cost; S35, the note of 2026-11-12 below, has since
+  run two of the second wording's six, which leaves 19), another model, and the rest of S32 (b)'s
   list as it stands.
 
 **Dated note, 2026-11-12 (rust-services-dev, the release bridge
@@ -5080,6 +5081,8 @@ the measured one, five runs a cell, 55 runs in all.
 - **"Write" for "reply" in the work** kept `READY` out where the
   message joined a tool-calling turn, 10 replies in 10 runs; it says
   nothing of the count, whose work already said "write" (fact 118).
+  Those are two cells of S32 (b)'s second first-turn wording, so 14 of
+  its 33 cells are run on the real bridge and 19 are carried.
 - **A scope sentence after the answer sentence**, "The content of a
   reply answers that message and nothing else: whatever else this turn
   asks of you is for me, not for the peer.", kept `READY` and the count
