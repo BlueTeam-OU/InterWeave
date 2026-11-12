@@ -1,0 +1,33 @@
+{
+  "binary": "2.1.322",
+  "sha256": "bfb3703ad5380242328459bc62ada4bde8ae7ba57c6e1eeadb9c00e08874c478",
+  "read_not_measured": true,
+  "version": "2.1.322",
+  "gate_head": "function HYt(e,r,n,i)",
+  "gate_checks_in_order": [
+    "capability",
+    "era",
+    "provider",
+    "disabled",
+    "policy",
+    "session",
+    "marketplace",
+    "allowlist",
+    "allowlist"
+  ],
+  "gate_era_clause": true,
+  "hard_skip_kinds": [
+    "provider",
+    "disabled",
+    "capability",
+    "era"
+  ],
+  "era_notice": [
+    "Channel messages from \"${yo.name}\" are unavailable: this connection's protocol version has no channel delivery path"
+  ],
+  "era_reason_copies": 1,
+  "permission_relay_filters": [
+    "function ddi(n,e,o){return n.filter((r)=>r.type===\"connected\"&&e(r.name)&&X4t(r.capabilities,\"claude/channel\")&&X4t(r.capabilities,\"claude/channel/permission\")&&o(r.name)&&r.protocolEra!==\"modern\")}"
+  ],
+  "relay_excludes_modern": true
+}

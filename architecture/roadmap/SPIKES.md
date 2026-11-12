@@ -805,17 +805,85 @@ legacy era, which 2.1.322 still registers, and a deployment that
 needs every message answered says the sentence in its first user
 turn, as `architecture/plugin/INSTRUCTIONS.md` §What the instructions
 leave to the deployment already says. Not established: a build after
-2.1.322; whether the gate in the 2.1.322 binary is still the era
-check fact 36 read, which was not read from that binary; the era rows
-beyond one run each; S32 (b)'s other 29 cells on 2.1.322 or with the
-real bridge (`none`, `promptw`, and every `greet`, `task` and `text`
-cell); what made the `READY` leak and the misnamed argument absent;
+2.1.322; the era rows beyond one run each (until 2026-11-12 this also
+listed whether the gate in the 2.1.322 binary is still the era check
+fact 36 read, which S34 has since read from that binary, below);
+S32 (b)'s other 29 cells on 2.1.322 or with the real bridge (`none`,
+`promptw`, and every `greet`, `task` and `text` cell; eight of them
+run since by S34, below, and 21 not); what made the `READY` leak and
+the misnamed argument absent;
 whether a reply changes with what `status` answers, the bridge
 reporting the drivers' scratch configuration directory as not private
 in the ten `tool` runs, where a deployment's would be private; whether
 the bridge offered the seven tools S32's stub served, the proxy's
 record keeping the `tools/list` answer by name only;
 a model other than `claude-sonnet-5-5`; and a conversation longer
+than one turn.
+
+**Carried measurement, S34 (2026-11-12, Claude Code 2.1.322, the
+fleet's pin, rust-services-dev, plan §19): read from the 2.1.322
+binary and not measured, the channel gate is still the era check,
+second among its checks; and with the release bridge across two
+daemons, eight more of S32 (b)'s cells gave the reply counts they had
+with a stub on 2.1.311.** Read off `spikes/spike-001/README.md` §S34
+(facts 107 and 113–116, #635). (1) reads the gate by fact 36's method from the
+`claude` on the login's `PATH`, no session started (`s34_gate.py`,
+`runs/s34-gate/read.json`): the script finds the function by the era
+refusal's reason and not by its minified name, and run on the 2.1.311
+binary it found the same order, notice and filter. The era is the
+gate's second check, straight after the capability check and before
+the provider, the remote switch, the organisation's policy, the
+session's channel list, the marketplace and the allowlist, so no flag
+or setting reaches past it; the debug reason is the line fact 99's run
+logged and the session notice is fact 36's word for word; an era skip
+is one of four kinds, with the capability, the provider and the remote
+switch, that also remove a handler an earlier connection of the same
+server registered, which was not read on 2.1.286; and the permission
+relay's server filter still excludes a modern-era connection (107).
+(2) is 40 print sessions `s34-reply-*`, five in each of eight cells
+S33 had not run: a greeting and a request to call `status` joining a
+tool-calling turn, and a question and a greeting arriving during a
+text-only turn, each told `prompt` and `plugin`; on S33's (2) setup
+unchanged, 3,601,215 tokens, one trial at `ee99ab72b` and the other 39
+at `3c661c46d`, the driver the same at both. Six of the fourteen cells
+asked for were left out for the cost: `prompt-task-text`,
+`plugin-task-text` and the `greet` and `task` × `idle` cells told
+`prompt` and `plugin`, each 5 of 5 on the stub. The first-turn
+sentence got a reply where the message joined a tool-calling turn in
+10 runs of 10; what went to the peer was `READY` for the greeting in 5
+of 5, and for the request a summary of the turn's own three `status`
+calls in 4 of 5 and `READY` in one, S32 (b)'s counts (113). The
+sentence in the server's instructions alone got no reply there in 10
+runs of 10, the model making its three `status` calls and ending the
+turn with `READY`, and in four of the five request runs writing that
+the message did not come from the user (114). A message arriving
+during a text-only turn started a turn of its own and got a reply in
+20 runs of 20, told either way: a question was answered in 10 of 10
+and a greeting told by the instructions in 5 of 5, and a greeting told
+in the first turn got a reply carrying that turn's count in 4 of 5,
+where S32 (b)'s same cell carried it in 8 of 10 (115). No call was
+refused in the 40 runs and every `reply` named `content`: over the two
+`plugin-question` cells S32 (b) found misnaming in, none of 10 on
+2.1.322 with the bridge, this campaign's and S33's, against 3 of 10
+with the stub on 2.1.311, which five runs a cell and another build do
+not establish as a difference (116). So in these eight cells neither
+the build nor the stub in the bridge's place made a difference to the
+reply counts, and with S33's four that is twelve of S32 (b)'s 33
+cells, eleven with its count and `plugin-question-tool` at 0 of 5
+against 1 of 10. What this changes in the bridge: nothing. It stays in
+the legacy era, which the 2.1.322 gate still requires before any other
+check, and a deployment says the answer sentence in its first user
+turn and expects that turn's other output to reach the peer. Not
+established: that the code read is the code that runs on every path,
+one gate function found and fact 99's run taking it; a build after
+2.1.322; the 21 cells not run on 2.1.322 or with the real bridge, the
+nine `none`, the six `promptw` and the six left out; whether the first
+turn's own work would be done again for a request that is not the
+work's tool; why the count leaks into a greeting's reply and not a
+question's; whether a private configuration directory changes a reply,
+every `status` answer in the 20 `tool` runs reporting it not private;
+a refusal other than a misnamed argument, and how a turn goes on after
+one; a model other than `claude-sonnet-5-5`; and a conversation longer
 than one turn.
 
 ---
