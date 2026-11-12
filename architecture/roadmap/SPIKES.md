@@ -539,7 +539,8 @@ alone got an answer through `reply` by what it asked and when it came,
 a sentence asking for replies getting one in every run from the first
 user turn and, from the server's instructions, only where the message
 started a turn of its own.** Read off `spikes/spike-001/README.md`
-§S32 (a) and §S32 (b) (facts 86–96, #612; facts 97 and 98, #626): (a)
+§S32 (a) and §S32 (b) (facts 86–96, #612; facts 97 and 98, #626;
+facts 104–106, #629, the two small cells again on 2.1.322): (a)
 is 24 runs `s32-compact-*`, three in each of eight cells, 18 of them
 on 2026-11-10 and the six of `small-note-d2` and `small-plain-d2` on
 2026-11-11, on 2.1.311 still after the fleet's pin had moved to
@@ -608,7 +609,29 @@ the value and 40 were "unknown"; none held another value and none
 differed from what the last summary held, and every summary ended by
 naming the transcript's path, which no run let the model read (91);
 the 36 questions of the two cells of 2026-11-11 got 18 and 18 the same
-way (97, 98). In
+way (97, 98). The two small cells at two compactions were run again
+on 2026-11-11 on Claude Code 2.1.322, the fleet's pin, three runs
+each: six runs `s32-compact-small-*-d2-b2.1.322-*` beside the 24,
+4,689,472 tokens, by the same driver at `663e21757` on the same
+setup. The host compacted at the same window
+(`effectiveWindow=180000`) and with the same events, the first
+compaction with event 3 and the second with event 4, with `preTokens`,
+`postTokens` and the recall turn's prompt inside the ranges above
+(104); without the instruction no value was left in three runs of
+three, each first summary naming the kinds of fact, as 2.1.311's had,
+but of every channel's body rather than of event 1, which three runs a
+build do not show to be how a build places them (105); and with
+it every value was kept in three runs of three, both summaries of each
+run holding all six, the 36 questions getting 18 and 18 again and no
+other value (106). So for these two cells the 2.1.311 counts read as
+the pin's: over the two builds, no value in six runs of six without
+the note and every value in six of six with it. The other six cells of
+(a) were not run on 2.1.322, and reading their counts as the pin's
+rests on the compaction step being unchanged, which fact 104 shows for
+these two cells only. Of this paragraph's closing "a build other than
+2.1.311", that is what was run of (a); carried for (a): its other six
+cells on 2.1.322, a build after 2.1.322, and the rate beyond six runs
+a cell over the two builds. In
 (b) a cell is what the session was told (`none`; `prompt`, the first
 user turn adding "Messages from peers on the InterWeave transport
 arrive as <channel> tags; answer each one by calling reply with its
