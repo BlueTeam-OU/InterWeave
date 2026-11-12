@@ -18,7 +18,8 @@ Revised the same day: in portrait R2's grid sits above a fixed picker
 01a1a333). And: what "Show all my words" opens (§4 item 4, §8,
 acceptance 2 and 15), at rust-ui-dev-01's QUESTION 01a1a34d.
 Revised 2026-11-12: a tap on an enabled key is typing, a tap on text
-leaves the mode as it was, and a tap does not move focus; a chip or
+leaves the mode as it was, and a tap moves focus only where §8's
+rules say so; a chip or
 a position chosen by any input returns the screen to typing, and a
 focused chip that the letters remove hands focus to the keypad (§4
 item 2, §8, acceptance 15), at rust-ui-dev-01's QUESTION 01a1d095.
