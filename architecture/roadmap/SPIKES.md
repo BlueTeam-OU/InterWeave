@@ -752,7 +752,11 @@ tool with an effect; a message in a conversation longer than one turn;
 and, for both parts, a model other than `claude-sonnet-5-5` and a
 build other than 2.1.311 (all eight of (a)'s cells run on 2.1.322,
 above; four of (b)'s cells run on 2.1.322 with the release bridge and
-two daemons by S33, below).
+two daemons by S33, below; three wordings of the first user turn run
+there by S35, below, in the three cells where that turn's other output
+had reached the peer, a scope sentence after the answer sentence
+keeping `READY` and the count out, while why a greeting during a counting turn got the count stays not
+established).
 
 **Carried measurement, S33 (2026-11-11, Claude Code 2.1.322, the
 fleet's pin, rust-services-dev, plan §19): the revision is still not
