@@ -27,6 +27,7 @@ mod peers;
 mod picker;
 mod presence;
 pub mod preview;
+mod start_hold;
 mod store_recovery;
 mod trust;
 mod unlock;
@@ -73,6 +74,7 @@ pub use peers::{
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
+pub use start_hold::{BOUND_MS, STARTING_AFTER_MS, StartHold};
 pub use store_recovery::{
     DiscardConfirmation, DiscardKind, Effect as StoreEffect, Phase as StorePhase, StoreRecovery,
     StoreScreen,

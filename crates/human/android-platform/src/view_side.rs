@@ -22,6 +22,7 @@
 //! (a refused or discarded store's rows never come back).
 
 use interweave_human_app_core::{ModelSide, Opener, Surface};
+use interweave_human_ui_model::ConnectPhase;
 
 use crate::hub::{StoreAnswer, StoreGeneration, ToView, UnlockSaid};
 
@@ -177,6 +178,35 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
         if let Some(said) = self.unlock {
             self.side.unlock_facts(said.facts, said.start, said.seen);
         }
+    }
+
+    /// Whether the start a held C4 or R4 waits on has decided which screen
+    /// opens (add-a-peer §5.1). `asked_at` is the hub's
+    /// [`store_generation`](crate::Hub::store_generation) read before
+    /// the start was asked, so an earlier start's answer, which a view
+    /// attaching hears again, decides nothing. Decided when the start was
+    /// refused -- for the person, whose locked notice Chats shows, or by
+    /// any later answer other than an opened store -- and, once the service
+    /// runs, when nothing is owed (the start's success decides) or the
+    /// model's reads settled, opened or deferred Connect.
+    #[must_use]
+    pub fn start_decided(&self, asked_at: StoreGeneration) -> bool {
+        if self.authentication {
+            return true;
+        }
+        if let Some((answer, generation)) = self.store
+            && generation > asked_at
+            && answer != StoreAnswer::Opened
+        {
+            return true;
+        }
+        self.running && self.side.model().connect_phase() != ConnectPhase::Owed
+    }
+
+    /// Whether the service runs, as the hub last said.
+    #[must_use]
+    pub const fn running(&self) -> bool {
+        self.running
     }
 
     /// The model side, for the root's turn.
@@ -576,5 +606,70 @@ mod tests {
     fn a_listing_that_failed_is_said_to_the_root() {
         let mut side = view_side();
         assert_eq!(side.apply(ToView::ListingFailed), Err(ListingFailed));
+    }
+
+    /// The held start decides on its own answers only (add-a-peer §5.1):
+    /// a refusal said for it, or the service running with nothing owed or
+    /// the reads settled. An earlier start's answer heard again at the
+    /// attach, and a running service whose owed reads are unanswered,
+    /// decide nothing. Mutation: dropping the generation's comparison, or
+    /// the phase's, fails here.
+    #[test]
+    fn a_held_start_decides_on_its_own_answers_only() {
+        use interweave_human_client_api::{AddressList, TrustList};
+
+        use crate::hub::{StoreGeneration, StoreRefusal};
+
+        let asked_at = StoreGeneration::default();
+        let earlier = (StoreAnswer::Refused(StoreRefusal::Recovery), asked_at);
+
+        // Nothing owed: the start's success decides.
+        let mut not_owed = view_side();
+        not_owed
+            .apply(ToView::Store(earlier.0, earlier.1))
+            .expect("applied");
+        assert!(!not_owed.start_decided(asked_at), "an earlier answer");
+        not_owed.apply(ToView::Running(true)).expect("applied");
+        assert!(not_owed.start_decided(asked_at), "running, nothing owed");
+
+        // Owed: running is not enough; the reads decide.
+        let mut owed = ViewSide::new(|| {
+            let mut side = ModelSide::new(Blank, Blank);
+            side.connect_owed();
+            side
+        });
+        owed.apply(ToView::Running(true)).expect("applied");
+        assert!(!owed.start_decided(asked_at), "owed, the reads unanswered");
+        owed.side_mut().apply(Update::TrustRead(Ok(TrustList {
+            local_peer: None,
+            allowed: Vec::new(),
+        })));
+        owed.side_mut().apply(Update::AddressesRead(Ok(AddressList {
+            addresses: Vec::new(),
+        })));
+        let _ = owed.side_mut().turn();
+        assert!(owed.start_decided(asked_at), "the reads settled it");
+
+        // Refused, for the store or for the person: decided, not running.
+        let mut refused = view_side();
+        // A start answered after the ask: the hub counts it past `asked_at`.
+        let hub = crate::Hub::new();
+        hub.set_store_answer(StoreAnswer::Opened);
+        let later = hub.store_generation();
+        assert!(later > asked_at, "control");
+        refused
+            .apply(ToView::Store(StoreAnswer::OtherRefusal, later))
+            .expect("applied");
+        assert!(refused.start_decided(asked_at));
+        let mut opened = view_side();
+        opened
+            .apply(ToView::Store(StoreAnswer::Opened, later))
+            .expect("applied");
+        assert!(!opened.start_decided(asked_at), "opened: the service says");
+        let mut locked = view_side();
+        locked
+            .apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        assert!(locked.start_decided(asked_at), "locked: Chats' notice");
     }
 }

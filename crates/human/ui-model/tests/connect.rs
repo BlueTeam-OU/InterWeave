@@ -752,3 +752,41 @@ fn the_test_hook_opens_connect_and_leaving_closes_it() {
     let _ = model.connect_input(ConnectInput::Leave);
     assert!(model.connect().is_none(), "left");
 }
+
+/// The 10 s bound, or a launch's person who opened something first,
+/// gives an owed Connect up: deferred, and the reads that answer later
+/// open nothing (§5.1). A start that already decided is not changed by
+/// it, and one that owes nothing stays so.
+#[test]
+fn a_start_that_gives_connect_up_is_deferred_and_the_late_reads_open_nothing() {
+    let me = peer();
+    let mut late = UiModel::new();
+    late.connect_owed();
+    start_reads(&mut late);
+    assert!(late.connect_defer(), "owed: given up");
+    assert_eq!(late.connect_phase(), ConnectPhase::Deferred);
+    late.trust_settings_mut().read(Ok(trust_list(&me, &[])));
+    late.addresses_read(Ok(list(&[])));
+    assert_eq!(
+        late.connect_turn(),
+        None,
+        "both lists empty, and still not open"
+    );
+    assert_eq!(late.connect_phase(), ConnectPhase::Deferred);
+    assert!(late.connect().is_none());
+
+    let mut control = UiModel::new();
+    control.connect_owed();
+    start_reads(&mut control);
+    control.trust_settings_mut().read(Ok(trust_list(&me, &[])));
+    control.addresses_read(Ok(list(&[])));
+    assert_eq!(control.connect_turn(), Some(ConnectGate::Open), "control");
+
+    let mut open = connect_open(&me);
+    assert!(!open.connect_defer(), "open: decided already");
+    assert_eq!(open.connect_phase(), ConnectPhase::Open);
+
+    let mut not_owed = UiModel::new();
+    assert!(!not_owed.connect_defer());
+    assert_eq!(not_owed.connect_phase(), ConnectPhase::NotOwed);
+}

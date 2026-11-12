@@ -3,9 +3,13 @@
 package org.interweave.human
 
 import android.app.Service
+import android.content.Intent
 
 /** The release build has no test hooks: the debug source set's are its own. */
 internal object DebugHooks {
     @Suppress("UNUSED_PARAMETER")
     fun register(service: Service, restart: () -> Unit): () -> Unit = {}
+
+    @Suppress("UNUSED_PARAMETER")
+    fun fromLaunch(intent: Intent?) {}
 }

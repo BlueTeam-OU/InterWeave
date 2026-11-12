@@ -308,6 +308,17 @@ fn log_key_refused(host: &ServiceHost) {
 }
 
 fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
+    // The debug build's start hook: a start that has not answered yet
+    // (add-a-peer §8 item 12). Off the Service's main thread, as all of
+    // this is.
+    let held = crate::start_hook::take();
+    if !held.is_zero() {
+        log(&format!(
+            "start hook: the start waits {} ms",
+            held.as_millis()
+        ));
+        std::thread::sleep(held);
+    }
     // The profile first: a first run's identity is provisioned under the
     // unlock policy it configures.
     if let Err(code) = provision(app_data_dir) {
@@ -606,6 +617,57 @@ extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextIdentity<'call
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::identity_hook::arm();
         log("identity hook: the next start answers that recovery is required");
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `DebugHooks.holdNextStart(ms)`, the debug build's hook for add-a-peer
+/// §8 item 12's start that has not answered within the bound, armed from
+/// the launch's extras (`DebugHooks.fromLaunch`): the next service start
+/// waits `ms` before it runs, once. Debug only, as
+/// [`Java_org_interweave_human_DebugHooks_refuseNextStoreOpen`].
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_holdNextStart<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    ms: jint,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        let held = std::time::Duration::from_millis(u64::try_from(ms).unwrap_or(0));
+        crate::start_hook::arm(held);
+        log(&format!("start hook: the next start waits {ms} ms"));
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `DebugHooks.holdNextStartReads(ms)`, the debug build's hook for
+/// add-a-peer §8 item 12: the next start's address and trust reads each
+/// answer `ms` after they were asked, once. Debug only, as
+/// [`Java_org_interweave_human_DebugHooks_refuseNextStoreOpen`].
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_holdNextStartReads<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    ms: jint,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        let held = std::time::Duration::from_millis(u64::try_from(ms).unwrap_or(0));
+        ServiceHost::global().hub().hold_next_start_reads(held);
+        log(&format!(
+            "reads hook: the next start's reads answer {ms} ms after they are asked"
+        ));
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

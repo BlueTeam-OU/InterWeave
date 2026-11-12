@@ -225,6 +225,22 @@ pub struct Hub {
     /// Held by a test: every command waits on it before it is carried out.
     #[cfg(feature = "test-hooks")]
     held: Mutex<Option<Receiver<()>>>,
+    /// The debug build's hold of the next start's address and trust reads
+    /// ([`Self::hold_next_start_reads`]).
+    #[cfg(feature = "dev-stand-ins")]
+    reads_hold: Mutex<ReadsHold>,
+}
+
+/// The next start's two reads, held: each answer reaches the view no
+/// sooner than `hold` after its read was asked, once (add-a-peer §8
+/// item 12's hook). DEBUG BUILDS ONLY.
+#[cfg(feature = "dev-stand-ins")]
+#[derive(Debug, Default)]
+struct ReadsHold {
+    hold: Option<std::time::Duration>,
+    /// When the address read and the trust read were asked, while armed.
+    addresses: Option<std::time::Instant>,
+    trust: Option<std::time::Instant>,
 }
 
 impl Default for Hub {
@@ -245,7 +261,71 @@ impl Hub {
             notices: Notices::default(),
             #[cfg(feature = "test-hooks")]
             held: Mutex::new(None),
+            #[cfg(feature = "dev-stand-ins")]
+            reads_hold: Mutex::new(ReadsHold::default()),
         }
+    }
+
+    /// Hold the next start's address read and trust read: each answer
+    /// reaches the view `hold` after its read was asked, once each -- the
+    /// debug build's adb hook for add-a-peer §8 item 12, whose timings
+    /// a real phone answers in under a second. The facade's thread waits
+    /// out the hold, as the store's hooks wait (`test_hooks`), so nothing
+    /// else it carries out runs meanwhile. DEBUG BUILDS ONLY.
+    #[cfg(feature = "dev-stand-ins")]
+    pub fn hold_next_start_reads(&self, hold: std::time::Duration) {
+        *self
+            .reads_hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = ReadsHold {
+            hold: Some(hold),
+            ..ReadsHold::default()
+        };
+    }
+
+    /// A read the hold counts from: asked now.
+    #[cfg(feature = "dev-stand-ins")]
+    fn read_asked(&self, command: &Command) {
+        let mut reads = self
+            .reads_hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if reads.hold.is_none() {
+            return;
+        }
+        let at = match command {
+            Command::ReadAddresses => &mut reads.addresses,
+            Command::ReadTrust => &mut reads.trust,
+            _ => return,
+        };
+        at.get_or_insert_with(std::time::Instant::now);
+    }
+
+    /// How long `update` waits before it reaches the view: what is left
+    /// of the hold since its read was asked, taken once; nothing for any
+    /// other update.
+    #[cfg(feature = "dev-stand-ins")]
+    fn read_held(&self, update: &Update) -> std::time::Duration {
+        let mut reads = self
+            .reads_hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(hold) = reads.hold else {
+            return std::time::Duration::ZERO;
+        };
+        let asked = match update {
+            Update::AddressesRead(_) => reads.addresses.take(),
+            Update::TrustRead(_) => reads.trust.take(),
+            _ => None,
+        };
+        let Some(asked) = asked else {
+            return std::time::Duration::ZERO;
+        };
+        // Once each: the hold ends when both answers have been reads.
+        if reads.addresses.is_none() && reads.trust.is_none() {
+            *reads = ReadsHold::default();
+        }
+        hold.saturating_sub(asked.elapsed())
     }
 
     fn commands(&self) -> MutexGuard<'_, Commands> {
@@ -325,6 +405,8 @@ impl Hub {
     /// # Errors
     /// The command, when no facade takes it.
     pub fn command(&self, command: Command) -> Result<(), Command> {
+        #[cfg(feature = "dev-stand-ins")]
+        self.read_asked(&command);
         let commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
         match commands.sender.as_ref() {
             Some(sender) => sender.send(command).map_err(|e| e.0),
@@ -552,8 +634,12 @@ impl Hub {
         }
     }
 
-    /// The start answers said so far.
-    pub(crate) fn store_generation(&self) -> StoreGeneration {
+    /// The start answers said so far. Read before a start is asked, an
+    /// answer counted higher is that start's or a later one's, never the
+    /// earlier answer an attaching view hears again (add-a-peer §5.1's
+    /// held start, [`crate::ViewSide::start_decided`]).
+    #[must_use]
+    pub fn store_generation(&self) -> StoreGeneration {
         self.slot().generation
     }
 
@@ -598,6 +684,8 @@ impl Hub {
     /// notice when no window has the person's focus: the notice counts
     /// committed rows, a retired facade's included.
     pub(crate) fn update(&self, generation: u64, update: Update) {
+        #[cfg(feature = "dev-stand-ins")]
+        std::thread::sleep(self.read_held(&update));
         if matches!(update, Update::Received(_)) && !self.focused() {
             self.notices.received();
         }
@@ -1227,5 +1315,41 @@ mod tests {
         assert_ne!(before, after);
         hub.listed(new, after, listed());
         assert!(hub.wants_listing(new).is_none(), "paid by the later one");
+    }
+
+    /// The debug build's reads hold: each answer waits what is left of the
+    /// hold since its read was asked, once each, and nothing else waits
+    /// (add-a-peer §8 item 12's hook). Mutation: counting from the answer
+    /// rather than the ask, or holding a second time, fails here.
+    #[cfg(feature = "dev-stand-ins")]
+    #[test]
+    fn the_reads_hold_counts_from_the_ask_and_is_taken_once() {
+        use interweave_human_client_api::AddressList;
+        use std::time::Duration;
+
+        let hub = Hub::new();
+        let list = || {
+            Update::AddressesRead(Ok(AddressList {
+                addresses: Vec::new(),
+            }))
+        };
+        assert_eq!(hub.read_held(&list()), Duration::ZERO, "unarmed");
+        hub.hold_next_start_reads(Duration::from_millis(400));
+        assert_eq!(hub.read_held(&list()), Duration::ZERO, "not asked yet");
+        let _ = hub.command(Command::ReadAddresses);
+        let _ = hub.command(Command::ReadTrust);
+        std::thread::sleep(Duration::from_millis(150));
+        let left = hub.read_held(&list());
+        assert!(
+            left > Duration::ZERO && left <= Duration::from_millis(250),
+            "{left:?}"
+        );
+        assert_eq!(hub.read_held(&list()), Duration::ZERO, "once");
+        let trust = Update::TrustRead(Err(interweave_human_client_api::TrustProblem::Unavailable));
+        assert!(
+            hub.read_held(&trust) > Duration::ZERO,
+            "the trust read, held too"
+        );
+        assert_eq!(hub.read_held(&trust), Duration::ZERO, "once");
     }
 }

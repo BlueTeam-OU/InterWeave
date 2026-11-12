@@ -197,6 +197,17 @@ fn screen_id(screen: ScreenId) -> IdScreen {
     }
 }
 
+/// C4 or R4 held after Continue: Continue disabled at once, and the
+/// root's 1 s line under it (add-a-peer section 5.1).
+fn held_start(flow: &IdentityFlow, page: &mut IdentityPage) {
+    if flow.start_held() {
+        page.primary_enabled = false;
+    }
+    if flow.starting() {
+        page.starting = text(UiText::ConnectStarting).into();
+    }
+}
+
 /// The page for the flow's current screen.
 #[must_use]
 pub fn page(flow: &IdentityFlow) -> IdentityPage {
@@ -295,6 +306,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             .map(text),
     );
     page.primary = primary.map(text).unwrap_or_default().into();
+    held_start(flow, &mut page);
 
     if screen == ScreenId::W && flow.void_paper() {
         page.notice = text(UiText::IdVoidPaper).into();
@@ -679,6 +691,11 @@ mod tests {
         assert_eq!(page(&flow).primary, en(UiText::IdS1Unlock));
         assert_ne!(en(UiText::IdS1Unlock), en(UiText::IdContinue));
 
+        let flow = at_c4();
+        assert_eq!(page(&flow).primary, en(UiText::IdContinue));
+    }
+
+    fn at_c4() -> IdentityFlow {
         let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
         apply(&mut flow, IdentityInput::Primary);
         flow.created(words(), mine(), [3, 9]);
@@ -696,7 +713,35 @@ mod tests {
             flow.choose(word);
         }
         assert_eq!(flow.screen(), ScreenId::C4, "control: at C4");
-        assert_eq!(page(&flow).primary, en(UiText::IdContinue));
+        flow
+    }
+
+    /// A held C4 keeps Continue in its place, disabled, and shows
+    /// `ConnectStarting` under it only once the root says so; a failed
+    /// seal gives Continue back with nothing under it (add-a-peer §5.1).
+    /// Mutation: dropping either assignment in `page` fails here.
+    #[test]
+    fn a_held_continue_is_disabled_and_carries_the_starting_line_when_told() {
+        let mut flow = at_c4();
+        let before = page(&flow);
+        assert!(
+            before.primary_enabled && before.starting.is_empty(),
+            "control"
+        );
+        apply(&mut flow, IdentityInput::Primary);
+        let held = page(&flow);
+        assert_eq!(held.primary, en(UiText::IdContinue), "Continue stays");
+        assert!(!held.primary_enabled, "disabled at once");
+        assert!(held.starting.is_empty(), "nothing before the 1 s");
+        flow.set_starting(true);
+        assert_eq!(page(&flow).starting, en(UiText::ConnectStarting));
+        assert!(
+            page(&flow).waiting.is_empty(),
+            "under Continue, not in its place"
+        );
+        flow.sealed(Err(interweave_human_ui_model::StepFailed::Storage));
+        let failed = page(&flow);
+        assert!(failed.primary_enabled && failed.starting.is_empty());
     }
 
     #[test]

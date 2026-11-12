@@ -193,6 +193,13 @@ enum Screen {
     C3(Check),
     C4 {
         notice: Option<Notice>,
+        /// Continue was pressed: the screen holds, Continue disabled,
+        /// until the root says the start decided (add-a-peer §5.1).
+        held: bool,
+        /// The root's clock says `ConnectStarting` shows under the held
+        /// Continue ([`crate::StartHold::starting`]); cleared at each
+        /// press.
+        starting: bool,
     },
     R1,
     R2 {
@@ -214,6 +221,10 @@ enum Screen {
     },
     R4 {
         peer: Option<TransportIdentity>,
+        /// As C4's.
+        held: bool,
+        /// As C4's.
+        starting: bool,
     },
     K1 {
         reason: RecoveryReason,
@@ -415,7 +426,7 @@ impl IdentityFlow {
         match &self.screen {
             Screen::C2 | Screen::C4 { .. } | Screen::S2 => self.peer.as_ref(),
             Screen::R3 { derived, .. } => Some(derived),
-            Screen::R4 { peer } => peer.as_ref(),
+            Screen::R4 { peer, .. } => peer.as_ref(),
             _ => None,
         }
     }
@@ -424,7 +435,7 @@ impl IdentityFlow {
     #[must_use]
     pub fn notice(&self) -> Option<&Notice> {
         match &self.screen {
-            Screen::C4 { notice }
+            Screen::C4 { notice, .. }
             | Screen::R2 { notice, .. }
             | Screen::R3 { notice, .. }
             | Screen::S1 { notice, .. } => notice.as_ref(),
@@ -569,18 +580,23 @@ impl IdentityFlow {
                 });
                 Vec::new()
             }
+            // Held: a second press does nothing (§5.1).
+            Screen::C4 { held: true, .. } | Screen::R4 { held: true, .. } => Vec::new(),
             Screen::C4 {
                 notice: Some(Notice::VoidPaper),
+                held,
+                starting,
             } => {
+                *held = true;
+                *starting = false;
                 self.drop_created();
-                self.screen = Screen::Done;
-                vec![
-                    Effect::VoidPaper(false),
-                    Effect::StartService,
-                    Effect::OpenChats,
-                ]
+                vec![Effect::VoidPaper(false), Effect::StartService]
             }
-            Screen::C4 { .. } => vec![Effect::Seal],
+            Screen::C4 { held, starting, .. } => {
+                *held = true;
+                *starting = false;
+                vec![Effect::Seal]
+            }
             Screen::R1 => {
                 self.screen = Self::r2(self.list, Origin::Fresh);
                 Vec::new()
@@ -598,13 +614,10 @@ impl IdentityFlow {
                 Some(phrase) => vec![Effect::RestoreConfirmed(phrase, derived.clone())],
                 None => Vec::new(),
             },
-            Screen::R4 { .. } => {
-                self.screen = Screen::Done;
-                vec![
-                    Effect::VoidPaper(false),
-                    Effect::StartService,
-                    Effect::OpenChats,
-                ]
+            Screen::R4 { held, starting, .. } => {
+                *held = true;
+                *starting = false;
+                vec![Effect::VoidPaper(false), Effect::StartService]
             }
             // A record that names no readable PeerId offers no restore:
             // the phrase-only path never runs over a record that exists
@@ -852,7 +865,11 @@ impl IdentityFlow {
                 check.wrong = None;
                 check.done += 1;
                 if check.done == check.positions.len() {
-                    self.screen = Screen::C4 { notice: None };
+                    self.screen = Screen::C4 {
+                        notice: None,
+                        held: false,
+                        starting: false,
+                    };
                 }
                 Vec::new()
             }
@@ -917,21 +934,28 @@ impl IdentityFlow {
 
     /// The seal of C4: done, or why not (nothing was changed).
     pub fn sealed(&mut self, outcome: Result<(), StepFailed>) -> Vec<Effect> {
-        let Screen::C4 { notice } = &mut self.screen else {
+        let Screen::C4 {
+            notice,
+            held,
+            starting,
+        } = &mut self.screen
+        else {
             return Vec::new();
         };
         match outcome {
+            // Still held: the start goes on under it, and the root ends
+            // the hold once the start decided ([`Self::decided`]). A
+            // failure an earlier seal left is no longer true (#651 F3).
             Ok(()) => {
+                *notice = None;
                 self.drop_created();
-                self.screen = Screen::Done;
-                vec![
-                    Effect::VoidPaper(false),
-                    Effect::StartService,
-                    Effect::OpenChats,
-                ]
+                vec![Effect::VoidPaper(false), Effect::StartService]
             }
+            // C4 stays, Continue (Try again) enabled again (§5.1).
             Err(failed) => {
                 *notice = Some(failed.into());
+                *held = false;
+                *starting = false;
                 Vec::new()
             }
         }
@@ -993,12 +1017,20 @@ impl IdentityFlow {
                     Origin::Recovery { expected, .. } => Some(expected.clone()),
                     Origin::Fresh => None,
                 };
-                self.screen = Screen::R4 { peer };
+                self.screen = Screen::R4 {
+                    peer,
+                    held: false,
+                    starting: false,
+                };
                 Vec::new()
             }
             (Screen::R3 { derived, .. }, Ok(())) => {
                 let peer = Some(derived.clone());
-                self.screen = Screen::R4 { peer };
+                self.screen = Screen::R4 {
+                    peer,
+                    held: false,
+                    starting: false,
+                };
                 Vec::new()
             }
             (
@@ -1024,9 +1056,75 @@ impl IdentityFlow {
     /// was committed and the screen stays, with its words, and no notice:
     /// the person chose not to. R2's check gives the primary action back.
     pub fn cancelled_step(&mut self) {
-        if let Screen::R2 { checking, .. } = &mut self.screen {
-            *checking = false;
+        match &mut self.screen {
+            Screen::R2 { checking, .. } => *checking = false,
+            // The seal's prompt, cancelled: C4 as it was, Continue enabled
+            // again (§5.1).
+            Screen::C4 { held, starting, .. } => {
+                *held = false;
+                *starting = false;
+            }
+            _ => {}
         }
+    }
+
+    /// C4 or R4 holds after Continue, Continue disabled, until the start
+    /// decides (add-a-peer §5.1).
+    #[must_use]
+    pub const fn start_held(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::C4 { held: true, .. } | Screen::R4 { held: true, .. }
+        )
+    }
+
+    /// Whether `ConnectStarting` shows under the held Continue, as the
+    /// root's clock says: 1 s after the press with no decision, and not
+    /// while a system prompt is up (§5.1).
+    pub fn set_starting(&mut self, shown: bool) {
+        if let Screen::C4 {
+            held: true,
+            starting,
+            ..
+        }
+        | Screen::R4 {
+            held: true,
+            starting,
+            ..
+        } = &mut self.screen
+        {
+            *starting = shown;
+        }
+    }
+
+    /// `ConnectStarting` and its progress mark show under Continue: held,
+    /// and the root said so. Never on a screen that is not held, so a
+    /// failed seal's Try again shows nothing under it (§8 item 12).
+    #[must_use]
+    pub const fn starting(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::C4 {
+                held: true,
+                starting: true,
+                ..
+            } | Screen::R4 {
+                held: true,
+                starting: true,
+                ..
+            }
+        )
+    }
+
+    /// The start under a held C4 or R4 decided which screen opens --
+    /// Connect or Chats, which the root shows: the flow is over. Nothing
+    /// on a screen that is not held.
+    pub fn decided(&mut self) -> Vec<Effect> {
+        if !self.start_held() {
+            return Vec::new();
+        }
+        self.screen = Screen::Done;
+        vec![Effect::OpenChats]
     }
 
     /// S1's prompt: granted, or cancelled/denied (back on S1, nothing
@@ -1217,15 +1315,53 @@ mod tests {
         assert_eq!(flow.back(), [], "C4 has no Back");
         assert_eq!(flow.screen(), ScreenId::C4);
         assert_eq!(flow.primary(), [Effect::Seal]);
+        assert!(
+            flow.start_held(),
+            "Continue disabled at once, before the seal answers"
+        );
+        assert_eq!(flow.primary(), [], "a second press does nothing");
         assert_eq!(
             flow.sealed(Ok(())),
-            [
-                Effect::VoidPaper(false),
-                Effect::StartService,
-                Effect::OpenChats
-            ]
+            [Effect::VoidPaper(false), Effect::StartService]
         );
+        assert_eq!(flow.screen(), ScreenId::C4, "held until the start decides");
+        assert!(flow.start_held());
+        assert_eq!(flow.decided(), [Effect::OpenChats]);
         assert_eq!(flow.screen(), ScreenId::Done);
+        assert_eq!(flow.decided(), [], "said once");
+    }
+
+    /// A seal that fails, or whose prompt was cancelled, gives C4 back
+    /// with Continue enabled and nothing under it (§5.1; §8 item 12's
+    /// failed seal). Mutation: leaving `held` set in either arm fails
+    /// here.
+    #[test]
+    fn a_failed_or_cancelled_seal_gives_continue_back_with_nothing_under_it() {
+        let mut flow = created_at_c2();
+        flow.primary();
+        enter(&mut flow, "galaxy");
+        enter(&mut flow, "saddle");
+        assert_eq!(flow.primary(), [Effect::Seal]);
+        flow.set_starting(true);
+        assert!(flow.starting(), "control: shown while held");
+        assert_eq!(flow.sealed(Err(StepFailed::Storage)), []);
+        assert!(!flow.start_held());
+        assert!(!flow.starting(), "nothing under Try again");
+        assert_eq!(flow.decided(), [], "not held: nothing to decide");
+        assert_eq!(flow.screen(), ScreenId::C4);
+
+        assert_eq!(flow.primary(), [Effect::Seal], "Try again");
+        assert!(!flow.starting(), "a press clears the line");
+        flow.cancelled_step();
+        assert!(!flow.start_held(), "a cancelled seal prompt");
+        assert_eq!(flow.primary(), [Effect::Seal]);
+        assert!(flow.notice().is_some(), "control: the failure still said");
+        assert_eq!(
+            flow.sealed(Ok(())),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        assert!(flow.start_held());
+        assert_eq!(flow.notice(), None, "a seal that worked says no failure");
     }
 
     #[test]
@@ -1367,12 +1503,13 @@ mod tests {
         assert_eq!(flow.peer(), Some(&mine()), "R4 shows what was restored");
         assert_eq!(
             flow.primary(),
-            [
-                Effect::VoidPaper(false),
-                Effect::StartService,
-                Effect::OpenChats
-            ]
+            [Effect::VoidPaper(false), Effect::StartService]
         );
+        assert!(flow.start_held());
+        assert_eq!(flow.primary(), [], "a second press does nothing");
+        assert_eq!(flow.screen(), ScreenId::R4);
+        assert_eq!(flow.decided(), [Effect::OpenChats]);
+        assert_eq!(flow.screen(), ScreenId::Done);
     }
 
     #[test]
@@ -1764,13 +1901,14 @@ mod tests {
         assert_eq!(flow.notice(), Some(&Notice::VoidPaper));
         assert_eq!(
             flow.primary(),
-            [
-                Effect::VoidPaper(false),
-                Effect::StartService,
-                Effect::OpenChats
-            ],
+            [Effect::VoidPaper(false), Effect::StartService],
             "Continue opens what the phone holds, and seals nothing"
         );
+        assert!(
+            flow.start_held(),
+            "held until the start decides, as any Continue"
+        );
+        assert_eq!(flow.decided(), [Effect::OpenChats]);
     }
 
     #[test]

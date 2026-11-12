@@ -21,14 +21,15 @@ use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{self, RecordName, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
 use interweave_human_android_platform::{
-    Expected, IdentityRefused, locked_status, opening_needs_presence, reseal_needs_presence,
+    Expected, IdentityRefused, ServiceHost, StoreGeneration, locked_status, opening_needs_presence,
+    reseal_needs_presence,
 };
 use interweave_human_ui_model::{
     Admit, Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
-    StepFailed,
+    StartHold, StepFailed,
 };
 use interweave_human_ui_slint::{
-    IdentityInput, View, apply_identity, defer, identity_page, invoke_on_window,
+    IdentityInput, View, Wake, apply_identity, defer, identity_page, invoke_on_window,
 };
 use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustBoundary};
 
@@ -37,7 +38,7 @@ use crate::keystore::KeystoreCipher;
 use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end, secure_may_clear};
 use crate::unlock_route::{Route, UnlockRoute};
 #[cfg(feature = "ui-trace")]
-use interweave_human_ui_slint::{TracedPrompt, prompt_line};
+use interweave_human_ui_slint::{TracedPrompt, TracedStart, prompt_line, start_line};
 
 /// Where the window starts, as `Native.identityState` answers it.
 pub(crate) mod state {
@@ -557,7 +558,18 @@ struct Onboarding {
     offline_asked: bool,
     /// The service was asked to start (BIND, ONLINE or RESTART).
     service_asked: bool,
-    /// Called once the flow hands over to the chats.
+    /// The clock of a C4 or R4 held after Continue (add-a-peer §5.1),
+    /// from the press until the start decides.
+    hold: Option<StartHold>,
+    /// The hub's count of start answers before the service was asked: a
+    /// held start decides on answers counted past it only.
+    asked_at: StoreGeneration,
+    /// `done` was called: the chats are attached under a held C4 or R4,
+    /// so the start's reads run while the screen holds.
+    handed: bool,
+    /// Called once the flow hands over to the chats -- or, under a held
+    /// C4 or R4, once the service is asked, so the start's reads run while
+    /// the screen holds and the first screen shown is the one they decide.
     done: Rc<dyn Fn()>,
 }
 
@@ -619,6 +631,9 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         lock,
         offline_asked: false,
         service_asked: false,
+        hold: None,
+        asked_at: StoreGeneration::default(),
+        handed: false,
         done: Rc::new(done),
     };
     drop(platform);
@@ -672,6 +687,9 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         lock,
         offline_asked: false,
         service_asked: false,
+        hold: None,
+        asked_at: StoreGeneration::default(),
+        handed: false,
         done: Rc::new(|| {}),
     };
     drop(platform);
@@ -711,6 +729,9 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         lock: None,
         offline_asked: false,
         service_asked: false,
+        hold: None,
+        asked_at: StoreGeneration::default(),
+        handed: false,
         done: Rc::new(|| {}),
     };
     drop(platform);
@@ -731,7 +752,20 @@ fn input_later(input: IdentityInput) {
     let effects = ONBOARDING.with(|slot| {
         slot.borrow_mut()
             .as_mut()
-            .map(|o| apply_identity(&mut o.flow, input))
+            .map(|o| {
+                let was_held = o.flow.start_held();
+                let effects = apply_identity(&mut o.flow, input);
+                // Continue on C4 or R4: the screen holds from the press.
+                // The bound counts from it unless a seal must commit the
+                // identity first (§5.1, the bound).
+                if o.flow.start_held() && !was_held {
+                    let committed = !effects.contains(&Effect::Seal);
+                    o.hold = Some(StartHold::pressed(now_ms(), committed));
+                    #[cfg(feature = "ui-trace")]
+                    log(&start_line(TracedStart::Pressed));
+                }
+                effects
+            })
             .unwrap_or_default()
     });
     run(effects);
@@ -843,32 +877,41 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
         let effects = ONBOARDING.with(|slot| {
             slot.borrow_mut()
                 .as_mut()
-                .map(|o| match o.gate.prompted(granted, now_ms()) {
-                    // The prompt a key operation waited on.
-                    Prompted::Resume(effect) => vec![effect],
-                    Prompted::Dropped(
-                        Effect::RestoreRecorded(_) | Effect::RestoreConfirmed(..),
-                    ) => {
-                        o.flow.cancelled_step();
-                        Vec::new()
+                .map(|o| {
+                    if granted && let Some(hold) = o.hold.as_mut() {
+                        hold.prompt_granted(now_ms());
                     }
-                    // A cancelled service start ends the flow with nothing
-                    // started: the person is offline, the window says why,
-                    // and its Unlock raises the prompt again (#309
-                    // acceptance 10; the custody doc's failure list).
-                    Prompted::Dropped(Effect::StartService) => {
-                        o.service_asked = true;
-                        await_authentication(o.over.start_ask());
-                        // C4's or R4's continue ends on Chats with the
-                        // notice focused; S2's Done on Settings, which
-                        // keeps its own (identity note §10 item 10).
-                        crate::activity::focus_locked_notice();
-                        Vec::new()
+                    match o.gate.prompted(granted, now_ms()) {
+                        // The prompt a key operation waited on.
+                        Prompted::Resume(effect) => vec![effect],
+                        // A cancelled restore gives R2's check back; a cancelled seal
+                        // leaves C4 as it was, Continue enabled again (§5.1).
+                        Prompted::Dropped(
+                            Effect::RestoreRecorded(_)
+                            | Effect::RestoreConfirmed(..)
+                            | Effect::Seal,
+                        ) => {
+                            o.flow.cancelled_step();
+                            Vec::new()
+                        }
+                        // A cancelled service start ends the flow with nothing
+                        // started: the person is offline, the window says why,
+                        // and its Unlock raises the prompt again (#309
+                        // acceptance 10; the custody doc's failure list).
+                        Prompted::Dropped(Effect::StartService) => {
+                            o.service_asked = true;
+                            await_authentication(o.over.start_ask());
+                            // C4's or R4's continue ends on Chats with the
+                            // notice focused -- the held screen's start is
+                            // decided, refused -- S2's Done on Settings, which
+                            // keeps its own (identity note §10 item 10).
+                            crate::activity::focus_locked_notice();
+                            o.flow.decided()
+                        }
+                        Prompted::Dropped(_) => Vec::new(),
+                        // S1's own prompt.
+                        Prompted::NotHeld => o.flow.prompted(granted),
                     }
-                    // A cancelled seal leaves C4 as it was.
-                    Prompted::Dropped(_) => Vec::new(),
-                    // S1's own prompt.
-                    Prompted::NotHeld => o.flow.prompted(granted),
                 })
                 .unwrap_or_default()
         });
@@ -950,6 +993,11 @@ fn one(effect: Effect) -> Vec<Effect> {
         let effect = match o.gate.admit(effect, now_ms()) {
             Admit::Run(effect) => effect,
             Admit::Prompt => {
+                // The person's time, not the app's: a held screen's clock
+                // stops while the prompt is up (§5.1).
+                if let Some(hold) = o.hold.as_mut() {
+                    hold.prompt_shown(now_ms());
+                }
                 route_state().asked();
                 ask_unlock();
                 return Vec::new();
@@ -998,6 +1046,12 @@ fn one(effect: Effect) -> Vec<Effect> {
                 if outcome.is_ok() {
                     o.creation = None;
                     connect_owed(o);
+                    // C4's commit: the bound counts from here (§5.1).
+                    if let Some(hold) = o.hold.as_mut() {
+                        hold.committed(now_ms());
+                    }
+                    #[cfg(feature = "ui-trace")]
+                    log(&start_line(TracedStart::Sealed));
                 }
                 o.flow.sealed(outcome)
             }
@@ -1072,6 +1126,12 @@ fn connect_owed(o: &Onboarding) {
 }
 
 /// Show the page for the flow's screen, or hand over once it is done.
+/// A C4 or R4 held after Continue stays shown while its start runs: the
+/// chats attach under it once the service is asked, and the hand-over
+/// waits for [`start_decided`], so the first screen shown is Connect or
+/// Chats, not Chats and then Connect (add-a-peer §5.1). `FLAG_SECURE` is
+/// left as it was meanwhile: it is cleared from the hand-over below, as
+/// before, so the decided page is the next to change it.
 /// The flow does not end while the presence gate holds an effect, or the
 /// prompt's answer would find nothing to resume (#309 F1); its end asks
 /// the service back whenever the flow stopped it or a first run awaits it,
@@ -1079,9 +1139,23 @@ fn connect_owed(o: &Onboarding) {
 /// set by the Activity before any word, is cleared only once a frame
 /// without the flow's page has been drawn (F3).
 fn render() {
-    let handover = ONBOARDING.with(|slot| {
+    let step = ONBOARDING.with(|slot| {
         let mut slot = slot.borrow_mut();
         let o = slot.as_mut()?;
+        // A hold the flow gave back -- a failed seal, a cancelled seal
+        // prompt -- ends its clock: nothing shows under Try again.
+        if !o.flow.start_held() {
+            o.hold = None;
+        }
+        let now = now_ms();
+        if let Some(hold) = &o.hold {
+            let starting = hold.starting(now);
+            #[cfg(feature = "ui-trace")]
+            if starting && !o.flow.starting() {
+                log(&start_line(TracedStart::Starting));
+            }
+            o.flow.set_starting(starting);
+        }
         // Said before the page is set, so a page's line comes before any
         // ask its showing leads to (SECURE_OFF after `identity=closed`).
         let page = (o.flow.screen() != ScreenId::Done).then(|| identity_page(&o.flow));
@@ -1091,8 +1165,17 @@ fn render() {
             .trace_identity(Some(o.flow.screen()), page.as_ref());
         if let Some(page) = page {
             o.view.borrow().show_identity(Some(page));
+            schedule_hold(o.hold.as_ref(), now);
+            // Held with the service asked: the chats attach under the
+            // screen now, so the start's reads run while it holds and the
+            // first screen shown is the one they decide (§5.1).
+            if o.flow.start_held() && o.service_asked && !o.handed {
+                o.handed = true;
+                return Some(Step::Attach(Rc::clone(&o.done)));
+            }
             return None;
         }
+        schedule_hold(None, now);
         o.view.borrow().show_identity(None);
         if o.gate.holding() {
             return None;
@@ -1104,30 +1187,122 @@ fn render() {
         if !cleared {
             log("no frame notifier: FLAG_SECURE stays on for this window");
         }
-        Some((Rc::clone(&o.done), o.over, o.service_asked))
+        Some(Step::Handover {
+            done: Rc::clone(&o.done),
+            over: o.over,
+            start_asked: o.service_asked,
+            handed: o.handed,
+        })
     });
-    if let Some((done, over, start_asked)) = handover {
-        ONBOARDING.with(|slot| slot.borrow_mut().take());
-        // A K1 a refused start kept while Show my phrase showed is still
-        // owed when Show my phrase ends: `raise_recovery` held back for it.
-        let mut raise = false;
-        if let Ok(mut platform) = PLATFORM.lock()
-            && let Some(platform) = platform.as_mut()
-        {
-            match at_flow_end(over, platform.kept, start_asked) {
-                AtFlowEnd::Drop => {
-                    platform.start = None;
-                    platform.kept = false;
-                }
-                AtFlowEnd::Keep => {}
-                AtFlowEnd::Raise => raise = true,
-            }
+    let (done, over, start_asked, handed) = match step {
+        None => return,
+        Some(Step::Attach(done)) => {
+            done();
+            return;
         }
-        done();
-        if raise {
-            invoke_on_window(crate::activity::raise_recovery);
+        Some(Step::Handover {
+            done,
+            over,
+            start_asked,
+            handed,
+        }) => (done, over, start_asked, handed),
+    };
+    ONBOARDING.with(|slot| slot.borrow_mut().take());
+    // A K1 a refused start kept while Show my phrase showed is still
+    // owed when Show my phrase ends: `raise_recovery` held back for it.
+    let mut raise = false;
+    if let Ok(mut platform) = PLATFORM.lock()
+        && let Some(platform) = platform.as_mut()
+    {
+        match at_flow_end(over, platform.kept, start_asked) {
+            AtFlowEnd::Drop => {
+                platform.start = None;
+                platform.kept = false;
+            }
+            AtFlowEnd::Keep => {}
+            AtFlowEnd::Raise => raise = true,
         }
     }
+    if !handed {
+        done();
+    }
+    if raise {
+        invoke_on_window(crate::activity::raise_recovery);
+    }
+}
+
+/// What a render leaves to do once the flow's slot is let go.
+enum Step {
+    /// Attach the chats under a held C4 or R4.
+    Attach(Rc<dyn Fn()>),
+    /// The flow is over: hand over, attaching the chats unless a held
+    /// screen attached them already.
+    Handover {
+        done: Rc<dyn Fn()>,
+        over: Over,
+        start_asked: bool,
+        handed: bool,
+    },
+}
+
+thread_local! {
+    /// Wakes a held C4 or R4 when its clock next changes what it shows or
+    /// decides: the 1 s line, the 10 s bound.
+    static HOLD_TIMER: Wake = Wake::default();
+}
+
+/// The hold's next wake, or none.
+fn schedule_hold(hold: Option<&StartHold>, now: u64) {
+    HOLD_TIMER.with(|timer| match hold.and_then(|hold| hold.next_change(now)) {
+        Some(at) => timer.at(Duration::from_millis(at.saturating_sub(now)), hold_tick),
+        None => timer.stop(),
+    });
+}
+
+/// The held screen's clock changed something: drawn again, and past the
+/// bound the root's turn ends the hold ([`hold_bound_passed`]).
+fn hold_tick() {
+    render();
+    if hold_bound_passed() {
+        crate::activity::turn_soon();
+    }
+}
+
+/// The hub's count of answers before a held C4's or R4's start was
+/// asked, while one is held with its start asked; `None` otherwise. The
+/// root asks it each turn ([`start_decided`]).
+pub(crate) fn held_start() -> Option<StoreGeneration> {
+    ONBOARDING.with(|slot| {
+        let o = slot.try_borrow().ok()?;
+        let o = o.as_ref()?;
+        (o.flow.start_held() && o.service_asked && o.hold.is_some()).then_some(o.asked_at)
+    })
+}
+
+/// The held screen's 10 s bound has passed (§5.1).
+pub(crate) fn hold_bound_passed() -> bool {
+    ONBOARDING.with(|slot| {
+        slot.try_borrow().is_ok_and(|o| {
+            o.as_ref()
+                .and_then(|o| o.hold.as_ref())
+                .is_some_and(|hold| hold.bound_passed(now_ms()))
+        })
+    })
+}
+
+/// The start under a held C4 or R4 decided -- Connect or Chats, which
+/// the root's model shows -- or the bound passed: the screen goes, and
+/// the flow hands over. Called by the root after its turn, outside any
+/// borrow of the flow.
+pub(crate) fn start_decided() {
+    let effects = ONBOARDING.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .map(|o| o.flow.decided())
+            .unwrap_or_default()
+    });
+    run(effects);
+    render();
 }
 
 /// `FLAG_SECURE` off, once a frame without the flow was drawn or Show my
@@ -1164,6 +1339,8 @@ pub(crate) fn secure_off() {
 fn ask_service(o: &mut Onboarding) {
     o.lock = None;
     o.service_asked = true;
+    // Before the ask: an answer counted past this is this start's.
+    o.asked_at = ServiceHost::global().hub().store_generation();
     clear_authentication();
     person_asked();
     ASKS.push(o.over.start_ask());

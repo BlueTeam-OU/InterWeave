@@ -1423,6 +1423,9 @@ ui_texts! {
     ConnectDoneTrustUnknown => "You added an address. InterWeave could not check whether you trust this peer.",
     /// Connect after Show drew this device's addresses.
     ConnectDoneShown => "The other person can now add your address. You still need to add their address.",
+    /// Under C4's or R4's Continue once the screen has been held for 1 s
+    /// (§5.1): the app is starting; claims no connection and no time.
+    ConnectStarting => "Starting InterWeave…",
     /// THE START WINDOW (design/2026-10-27-start-window.md §9, and
     /// contact-cards §10 for the last three; every value below
     /// language-culture-en's, REPLY 01a180d6): the line

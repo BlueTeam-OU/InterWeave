@@ -2284,3 +2284,70 @@ fn a_scan_note_set_twice_is_said_twice() {
         "in {said:#?}"
     );
 }
+
+/// A page drawn under an identity screen is said when the screen goes,
+/// so the first `page=` after a held C4's Continue is the page shown --
+/// Connect -- never Chats under the screen and then Connect (add-a-peer
+/// §5.1, §8 item 12). What else changed is said as it changes.
+/// Mutation: saying the covered page at its render fails here.
+#[test]
+fn a_page_under_an_identity_screen_is_said_when_the_screen_goes() {
+    use interweave_human_ui_model::ScreenId;
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let to = Rc::clone(&said);
+    view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+    let page = |said: &Rc<RefCell<Vec<String>>>| {
+        said.borrow()
+            .iter()
+            .filter(|l| l.starts_with("ui-trace page="))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    view.trace_identity(Some(ScreenId::C4), None);
+    let mut model = UiModel::new();
+    model.connect_owed();
+    view.render(&model);
+    assert_eq!(page(&said), Vec::<String>::new(), "Chats, covered: unsaid");
+    assert!(
+        said.borrow().iter().any(|l| l == "ui-trace connect=owed"),
+        "the rest is said: {:#?}",
+        said.borrow()
+    );
+    // Both start reads answered on two empty lists: Connect opens.
+    let _ = model.read_addresses();
+    let _ = model.trust_settings_mut().opened();
+    model
+        .trust_settings_mut()
+        .read(Ok(interweave_human_client_api::TrustList {
+            local_peer: Some(peer()),
+            allowed: Vec::new(),
+        }));
+    model.addresses_read(Ok(interweave_human_client_api::AddressList {
+        addresses: Vec::new(),
+    }));
+    assert_eq!(
+        model.connect_turn(),
+        Some(interweave_human_ui_model::ConnectGate::Open),
+        "control"
+    );
+    view.render(&model);
+    assert_eq!(
+        page(&said),
+        Vec::<String>::new(),
+        "Connect, covered: unsaid"
+    );
+    view.trace_identity(Some(ScreenId::Done), None);
+    let lines = said.borrow().clone();
+    let closed = lines
+        .iter()
+        .position(|l| l == "ui-trace identity=closed")
+        .expect("the screen went");
+    assert_eq!(page(&said), ["ui-trace page=connect"], "{lines:#?}");
+    assert!(
+        lines[closed..].iter().any(|l| l == "ui-trace page=connect"),
+        "after the screen went"
+    );
+}

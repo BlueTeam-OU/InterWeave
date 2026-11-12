@@ -492,6 +492,10 @@ export struct IdentityPage {
     primary-danger: bool,
     // A progress line in place of the primary action ("Going offline…").
     waiting: string,
+    // Under a held C4's or R4's disabled Continue, once the screen has
+    // been held for 1 s with no decision: `ConnectStarting`, with an
+    // indeterminate mark beside it (add-a-peer section 5.1).
+    starting: string,
     secondary: string,
     // The store's recovery screen: the secondary deletes stored data,
     // outlined in `error`.
@@ -3019,6 +3023,28 @@ component IdentityScreen inherits FocusScope {
             focus-wanted: root.want-seg == 6;
             pressed => { root.typing = false; root.primary(); }
             focused(k) => { root.took(k, 6, 0); }
+        }
+        // Under the primary it belongs to, not in its place: Continue keeps
+        // its place and its focus while the start is held (section 5.1).
+        // Said once, politely, by the root's live region; the mark stands
+        // still under reduced motion, and the text alone says it.
+        if root.page.starting != "": HorizontalLayout {
+            alignment: center;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                WaitMark { still: Touch.reduced-motion; }
+            }
+            Text {
+                text: root.page.starting;
+                font-size: Type.body-medium;
+                color: Palette.on-surface-variant;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+                vertical-alignment: center;
+                accessible-role: text;
+                accessible-label: Drawn.spoken(self.text);
+            }
         }
         if root.page.secondary != "": HorizontalLayout {
             alignment: center;

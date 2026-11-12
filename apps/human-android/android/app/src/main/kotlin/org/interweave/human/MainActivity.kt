@@ -81,7 +81,12 @@ class MainActivity : NativeActivity() {
         // first creation, after Back finished the last instance or from a
         // notification, and a bundle restored from another process after
         // its death (review 4), told by this process's token.
-        if (savedInstanceState?.getString(CREATED_IN) != PROCESS_TOKEN) Native.launched()
+        if (savedInstanceState?.getString(CREATED_IN) != PROCESS_TOKEN) {
+            Native.launched()
+            // The debug build's launch hooks (add-a-peer 8 item 12); the
+            // release build's DebugHooks arms nothing.
+            DebugHooks.fromLaunch(intent)
+        }
         super.onCreate(savedInstanceState)
         // Scan a code is offered only on a phone with a camera; the app
         // installs without one (add-a-peer 5.5, the camera not required).

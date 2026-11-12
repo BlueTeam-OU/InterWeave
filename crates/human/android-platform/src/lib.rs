@@ -26,6 +26,7 @@ mod profile;
 pub mod service;
 #[cfg(feature = "dev-stand-ins")]
 pub mod stand_in;
+pub mod start_rules;
 pub mod view_side;
 
 pub use hub::{

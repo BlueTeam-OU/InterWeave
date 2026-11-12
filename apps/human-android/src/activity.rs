@@ -11,12 +11,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use interweave_human_android_platform::start_rules::{Launch, StartRules};
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
-use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent, WindowEvent};
+use interweave_human_ui_model::{
+    BOUND_MS, ConnectPhase, RuntimeHost, UiModel, ViewEvent, WindowEvent,
+};
 use interweave_human_ui_slint::{
-    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, ShowOpen, TouchSettings, View, defer,
-    init_android, invoke_on_window,
+    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, ShowOpen, TouchSettings, View, after,
+    defer, init_android, invoke_on_window,
 };
 
 use crate::jni::{PROFILE, log};
@@ -459,6 +462,11 @@ struct Root {
     view: Rc<RefCell<View>>,
     side: ViewSide<AndroidSurface, AndroidOpener>,
     link: ViewLink,
+    /// The rules of a start with Connect owed (add-a-peer section 5.1;
+    /// android-platform's `start_rules` says them and tests them).
+    rules: StartRules,
+    /// The root's clock for those rules.
+    epoch: Instant,
 }
 
 impl Root {
@@ -483,6 +491,46 @@ impl Root {
             }),
             view,
             link,
+            rules: StartRules::new(),
+            epoch: Instant::now(),
+        }
+    }
+
+    /// A launch's owed Connect, given up once 10 s passed since its
+    /// service ran or the person opened something from Chats (§5.1).
+    /// Asked before the turn; an opening the turn has yet to take is
+    /// counted already, so the reads it settles open nothing over it.
+    fn launch_rule(&mut self) {
+        let owed = self.side.running()
+            && self.side.side().model().connect_phase() == ConnectPhase::Owed
+            && crate::onboard::held_start().is_none();
+        let opened = self.view.borrow().opened_from_chats();
+        let now = u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+        match self.rules.launch(owed, opened, now) {
+            Launch::Armed => after(Duration::from_millis(BOUND_MS), turn),
+            Launch::GiveUp => {
+                self.side.side_mut().connect_defer();
+            }
+            Launch::Idle | Launch::Waiting => {}
+        }
+    }
+
+    /// A held C4's or R4's start, decided or past its bound: the screen
+    /// goes (§5.1). Asked after the turn, whose reads may have decided it.
+    fn held_rule(&mut self) {
+        let Some(asked_at) = crate::onboard::held_start() else {
+            return;
+        };
+        if crate::onboard::hold_bound_passed() {
+            // Deferred now, so the trace says it for this start; a service
+            // that has not answered makes its own model when it does, and
+            // that one is deferred at once.
+            self.side.side_mut().connect_defer();
+            let refused = !self.side.running() && self.side.start_decided(asked_at);
+            self.rules.bound_passed(asked_at, refused);
+            crate::onboard::start_decided();
+        } else if self.side.start_decided(asked_at) {
+            crate::onboard::start_decided();
         }
     }
 
@@ -497,6 +545,20 @@ impl Root {
                 log("the message store could not be listed");
             }
         }
+        let side = &self.side;
+        let pumped = self
+            .rules
+            .pumped(side.running(), |asked_at| side.start_decided(asked_at));
+        if pumped.started {
+            #[cfg(feature = "ui-trace")]
+            log(&interweave_human_ui_slint::start_line(
+                interweave_human_ui_slint::TracedStart::Running,
+            ));
+        }
+        if pumped.defer {
+            self.side.side_mut().connect_defer();
+        }
+        self.launch_rule();
         // The last start's answer: the store's screen in place of the
         // chats, gone once a start opened the store or the restart after a
         // discard was refused elsewhere (ADR-0060; store::follow).
@@ -504,7 +566,10 @@ impl Root {
         if self.link.lost() {
             // Detached by the hub: attach again, and start from a listing.
             let view = Rc::clone(&self.view);
+            let mut rules = std::mem::take(&mut self.rules);
+            rules.reattached();
             *self = Self::attach(view);
+            self.rules = rules;
             defer(turn);
             return;
         }
@@ -536,6 +601,7 @@ impl Root {
                 }
             }
         }
+        self.held_rule();
     }
 }
 
@@ -543,6 +609,11 @@ thread_local! {
     // The window side, on the Activity's thread only; the facade thread
     // reaches it through `invoke_on_window`, which runs on this thread.
     static ROOT: RefCell<Option<Root>> = const { RefCell::new(None) };
+}
+
+/// A turn of the window side, soon: a held screen's bound passed.
+pub(crate) fn turn_soon() {
+    defer(turn);
 }
 
 /// One turn of the window side, if it is there and not already turning.
