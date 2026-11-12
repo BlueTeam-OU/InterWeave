@@ -585,9 +585,11 @@ access.
     stays navigating, so a person who moves through the keypad can
     press one key twice ("pp").
   - Every other input leaves the mode as it was: a Space or an Enter
-    that did nothing, a tap on a disabled key, a tap on a stop that
-    only shows text (the position, the letters, the match count, C3's
-    title and body) or on no control at all, Back and Escape. Such a
+    that did nothing, a tap on a disabled key, a tap on text that
+    does nothing when tapped (the position, the letters, the match
+    count, C3's title and body, and the text of a banner, a notice or
+    `IdCheckWrong`, its actions apart) or on no control at all, Back
+    and Escape. Such a
     tap acts on nothing, so it must not turn the next Enter into a
     press of a key the person did not choose. Closing the
     discard dialog (§7), however it is closed, returns the screen to
@@ -627,6 +629,9 @@ access.
   for a row chosen from the full list: to the keypad's first enabled
   key, or to the delete key when the word put back leaves no letter
   enabled.
+- When the letters disable the focused key, focus stays on it: a
+  disabled key keeps its place in the focus order (below), so nothing
+  moves under the person.
 - When the focused chip leaves the suggestions row because the letters
   changed, by a tap, a hardware letter or Backspace, focus goes to the
   keypad's first enabled key. The mode is the one the input set.
@@ -931,14 +936,15 @@ scale would also be a finding of the Android review
     - After a Tab to a key, and after an arrow to a key, Enter and
       Space each press that key, and a second Enter presses it again.
     - On a newly opened R2, a tap on t leaves focus on q, the key that
-      held it, now disabled, and Enter and Space then do nothing. After taps on
-      c, a and r, Enter takes the "car" chip. After a Tab to a key and
+      held it, now disabled, and Enter and Space then do nothing.
+      After taps on c, a and r, Enter takes the "car" chip. After a Tab to a key and
       a tap on another key, Enter does not press the focused key.
       After taps on c, a, r and g, a tap on the delete key, then
       Enter, takes the "car" chip; a tap on the clear key, then
-      Enter, does nothing. Each holds too when the last tap and the
-      Enter arrive in one burst. After taps on c, a and r and a tap
-      on the letters display, Enter takes the "car" chip.
+      Enter, does nothing. After taps on c, a and r and a tap on the
+      letters display, Enter takes the "car" chip. Every check in this
+      bullet holds too when the last tap and the Enter arrive in one
+      burst.
     - After a chip fills a position, whether by a tap or by Enter on
       the focused chip, focus is on the first enabled key and Enter does
       nothing.
