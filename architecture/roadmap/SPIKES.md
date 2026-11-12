@@ -544,7 +544,8 @@ a sentence asking for replies getting one in every run from the first
 user turn and, from the server's instructions, only where the message
 started a turn of its own.** Read off `spikes/spike-001/README.md`
 §S32 (a) and §S32 (b) (facts 86–96, #612; facts 97 and 98, #626;
-facts 104–106, #629, the two small cells again on 2.1.322): (a)
+facts 104–106, #629, the two small cells again on 2.1.322; facts
+108–112, #636, the other six on 2.1.322): (a)
 is 24 runs `s32-compact-*`, three in each of eight cells, 18 of them
 on 2026-11-10 and the six of `small-note-d2` and `small-plain-d2` on
 2026-11-11, on 2.1.311 still after the fleet's pin had moved to
@@ -630,12 +631,53 @@ run holding all six, the 36 questions getting 18 and 18 again and no
 other value (106). So for these two cells the 2.1.311 counts read as
 the pin's: over the two builds, no value in six runs of six without
 the note and every value in six of six with it. The other six cells of
-(a) were not run on 2.1.322, and reading their counts as the pin's
-rests on the compaction step being unchanged, which fact 104 shows for
-these two cells only. Of this paragraph's closing "a build other than
-2.1.311", that is what was run of (a); carried for (a): its other six
-cells on 2.1.322, a build after 2.1.322, and the rate beyond six runs
-a cell over the two builds. In
+(a) were run on 2.1.322 on 2026-11-12, three runs each: 18 runs
+`s32-compact-*-b2.1.322-*` beside those, 10,841,121 tokens (10,830,992
+for the same cells on 2.1.311), by the same driver at `20e48edc4` on
+the same setup, the first run alone, to stop if the host compacted at
+another point, which it did not (until 2026-11-12 this said the six
+were not run on 2.1.322, and that reading their counts as the pin's
+rested on the compaction step being unchanged, which fact 104 showed
+for the two small cells only). The host compacted at the same window
+(`effectiveWindow=180000`) and at the same points as on 2.1.311, the
+first compaction with event 2 and the second with event 3 at the bound
+and the one compaction with event 3 at 2,048 bytes, with `preTokens`
+204,442 to 206,066 and `postTokens` 85,355 to 85,900, the highest 97
+above 2.1.311's for these cells, and the recall turn's prompt 123,537
+to 124,630 tokens (108). Without the instruction, one compaction kept
+four of the six values in one run of six and none in the other five,
+where 2.1.311 had kept all six in three runs of six and two of six in
+a fourth: over the two builds, of twelve runs that ended at one
+compaction, three kept all six values, two kept some and seven kept
+none; that the build moved the rate is not shown, at three runs a cell
+a build and with 2.1.311's own runs going from all six to none within
+one cell (109). Without it, two compactions left no value in three
+runs of three at the bound, the one whose first summary held all six
+included (110). With it, the model listed all six in nine runs of nine
+and every value was kept, through one compaction in six runs of six
+and through two in three runs of three at the bound, where 2.1.311
+lost one run of three; that 2.1.322 keeps a noted value more reliably
+is not shown, one loss in six runs there and none in three here (111).
+Where a fact sat did not decide whether it was kept: the one partial
+run kept one head fact, one middle fact and both end facts, and every
+other run kept all six or none at each compaction recorded; of 108
+questions, 58 answers held the value and 50 were "unknown", none held
+another value and none differed from what the last summary held (112).
+So the compaction step reads as the pin's in all eight cells (104,
+108), and the counts in part: with the note the same or better, every
+first summary of the pin's twelve `note` runs holding all six values
+and two compactions keeping them in six runs of six (106, 111);
+without it and two compactions the same, no value in six runs of six
+(105, 110); without it and one compaction fewer, one run of six
+keeping any value where three of six kept all six on 2.1.311 (109).
+Over the two builds, without the note a body's values may not survive
+one compaction and survived two in no run of twelve; with it every
+first summary held them, in twenty-four runs of twenty-four, and two
+compactions kept them in eleven runs of twelve. Of this paragraph's
+closing "a build other than 2.1.311", that is what was run of (a);
+carried for (a): whether the build moved the rate at which one
+compaction keeps an un-noted body, a build after 2.1.322, and the rate
+beyond six runs a cell over the two builds. In
 (b) a cell is what the session was told (`none`; `prompt`, the first
 user turn adding "Messages from peers on the InterWeave transport
 arrive as <channel> tags; answer each one by calling reply with its
@@ -706,8 +748,9 @@ turn of their own misnamed the argument, where no other run that
 called `reply` did; a peer's request for a
 tool with an effect; a message in a conversation longer than one turn;
 and, for both parts, a model other than `claude-sonnet-5-5` and a
-build other than 2.1.311 (four of (b)'s cells run on 2.1.322 with the
-release bridge and two daemons by S33, below).
+build other than 2.1.311 (all eight of (a)'s cells run on 2.1.322,
+above; four of (b)'s cells run on 2.1.322 with the release bridge and
+two daemons by S33, below).
 
 **Carried measurement, S33 (2026-11-11, Claude Code 2.1.322, the
 fleet's pin, rust-services-dev, plan §19): the revision is still not
