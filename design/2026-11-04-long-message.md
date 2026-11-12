@@ -39,6 +39,11 @@ figure in A3; and for architect-cto's DECISION 01a1ab12-5459: a line
 is a drawn line, and the renderer's ceiling is held per drawn item
 (§5.1, §6, A4).
 
+Revised 2026-11-12 (ux-designer's job j118) for rust-ui-dev-02's A/B
+of the reader's opening on the A40 (REPLY 01a1cfc2), whose candidate
+landed as the opening (ux-designer's REPLY 01a1cfc3): what Back and
+Escape do while the reader opens (§3, §5.4, §9, A5).
+
 **What this note revises.** For a body past §6's bound, it replaces
 the look spec's edge case "A very long message"
 (`design/2026-10-16-android-look.md` §8); for a body within the bound,
@@ -122,7 +127,7 @@ mode shown.
 | whole in the mode shown | the body in that mode, as today | not offered from this mode |
 | cut, formatted | the preview (§4.1), the cut line (§4.2), Open the whole message (§4.3) | the whole body, formatted |
 | cut, source | the source's preview, the cut line, Open the whole message | the whole source |
-| reader opening | — | its first screen within A5's figure (§10); nothing below 0.5 s, then an indeterminate progress bar under the app bar, labelled `ReaderOpening` (§8), until the first screen is drawn |
+| reader opening | — | its first screen within A5's figure (§10); nothing below 0.5 s, then an indeterminate progress bar under the app bar, labelled `ReaderOpening` (§8), until the first screen is drawn; Back or Escape closes it (§5.4) |
 | row gone while the reader is open | — | the reader closes (§5.4) |
 
 A sent message is treated as a received one: the person may have
@@ -322,6 +327,35 @@ Escape closes the reader, and the conversation is where it was: the
 row in the mode it was in when the reader opened, whatever mode the
 reader was switched to, so its Open the whole message is there for
 focus to return to (§9).
+
+**While the reader opens.** The reader builds its first screen in one
+go of at most 0.4 s, during which the app takes no input, then in
+turns of 50 ms with input taken between them (rust-ui-dev-02's A/B on
+the A40, REPLY 01a1cfc2; this opening keeps under 0.5 s every shape
+that opened within it before, A5). A Back or Escape pressed at any
+time between Open the whole message and the first screen drawn,
+the app bar's Back included, is never lost. It is honoured at the
+first point the opening takes input: the end of the first go, or the
+next turn. It then closes the reader as at any other time: the
+conversation is where it was, focus goes to the row's Open the whole
+message (§9), and the opening stops; Open the whole message again
+starts it from the beginning.
+
+- A Back pressed during the first go never lets the bar show: either
+  the first screen is built within the go, which ends the opening, or
+  the go ends before the bar's 0.5 s and the Back closes the reader
+  there. In the first case the first screen may be drawn for a moment
+  before the reader closes (0.26 s on the list shape, A5); this is
+  accepted as the cost of the first go, and A5 reports the time it
+  shows.
+- A Back pressed later, while the bar shows, closes the reader at the
+  next turn; the bar goes with it.
+- Each Back is one step, as everywhere on the platform: a second Back
+  pressed after the first, while the reader is still opening, is
+  honoured after the reader closes and acts on the conversation, as a
+  Back there does.
+- What the message is does not change: it stays read or unread as §7
+  says, as if the reader had opened and closed.
 
 The reader also closes, with no message of its own, when its row
 leaves the conversation. Only the person's own act can cause it: on a
@@ -580,7 +614,7 @@ Show source and Show formatted reuse the row's existing labels.
 | case | focus goes to | check |
 |---|---|---|
 | Open the whole message pressed (button or menu) | the reader's first content element: on Android, TalkBack's focus on the app bar's title (the sender), then `ReaderSent` next; on the desktop, the scroll area, so arrows and Page keys scroll at once | A6 |
-| Reader closed (Back, Escape) | the row's Open the whole message button | A6; A7 after a mode switch |
+| Reader closed (Back, Escape), opened or still opening (§5.4) | the row's Open the whole message button | A6; A7 after a mode switch; A5 while opening |
 | Reader closed because its row left (§5.4) | stays where the person's act in the list left it | A7 |
 | Tab from the reader's scroll area (desktop) | if the person scrolled the body since focus came there, the first link control starting at or below the top of the screen, else the body's first; otherwise the body's first link control; with no link control, Back; a link control is shown from its top (Keyboard, below) | A6 |
 | Tab from one of the reader's link controls (desktop) | the next link control in body order, laid out or not, shown from its top; after the last, Back | A6 |
@@ -743,6 +777,20 @@ it, those checks are blocked, never passed.
   comes back to ux-designer, not changed quietly. Precondition: the
   toolkit offers the scroll bar and the fast-scroll thumb of §5.1; a
   missing one is reported, not built around.
+  Back while the reader opens (§5.4), with the screen recorded: on the
+  list shape, Back about 0.2 s after Open the whole message (inside
+  the first go); on heading autolinks and on reference link, Back
+  about 0.6 s after (past the first go and the bar's 0.5 s, before the
+  first screen); on the desktop, Escape at the same two times. Each
+  time: no Back is lost, the reader closes within 1 s of the Back,
+  focus is on the row's Open the whole message, and the conversation
+  is where it was; inside the first go no frame shows the bar; past
+  it, the bar goes with the reader. The build reports, for each run,
+  the time from the Back to the close and how long the first screen
+  showed. Run so far: the list shape on the A40, 2026-11-12 (REPLY
+  01a1cfc2): first screen at 347 ms, closed 0.26 s after it, focus
+  back, no bar, no Back lost. Not run yet, and carried rather than
+  failed: the two stress shapes and the desktop.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
   on the desktop and TalkBack on the Pixel.
 - **A7** The reader's row removed while it is open, the app sent to
