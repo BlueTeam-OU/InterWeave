@@ -1003,11 +1003,14 @@ scale would also be a finding of the Android review
          the process lives, and the hook left the record able to open,
          so a new process opens Chats. Run it again.
       3. From that K1, enter the phrase on R2. The restore matches and
-         goes to R4. After R4's continue, Chats shows and the client
-         runs. If the phone knows no peer, Connect to someone shows
-         after Chats. It is onboarding's third step
-         (`design/2026-10-22-add-a-peer.md` §4), and it is correct
-         there, not a failure. Either way, `adb shell dumpsys activity services
+         goes to R4. After R4's continue, the client runs. If the phone
+         knows no address and no peer, Connect to someone opens:
+         onboarding's third step (`design/2026-10-22-add-a-peer.md`
+         §5.1). Chats may show first, while the start reads the peer
+         list and the trust set, and Connect to someone then replaces
+         Chats. Connect to someone with Chats before it, or without, is
+         correct, not a failure. Otherwise, Chats shows and stays. In
+         both cases, `adb shell dumpsys activity services
          org.interweave.human` lists the Service, and `logcat -s
          interweave` shows the start succeeding. No second K1 rises,
          then or at the next launch. The step fails if the Service is
