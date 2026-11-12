@@ -6358,8 +6358,29 @@ a reload of any other field is a later ADR on a shown need. The carry is met
 when a test shows SIGHUP producing SIGTERM's stop sequence and exiting with
 the status it reads from the unit file, asserting that `SuccessExitStatus=`
 and `RestartForceExitStatus=` both name it (so the daemon and the unit cannot
-drift apart), and the service/autostart lifecycle row shows the restart; until
-then it is open, not decided-as-met. Supervision units: met by §28 step 4's
+drift apart), and the service/autostart lifecycle row shows the restart.
+**Met** (read from `main` at ac621e95f by architect-cto, 2026-11-12; A
+2026-11-12 — until then this ended "until then it is open, not
+decided-as-met", which had been false since p2p-network-dev's #324 merged on
+2026-10-21, 08b4d9e6a): the daemon exits `RESTART_EXIT` (75, `EX_TEMPFAIL`) on
+SIGHUP and the unit names 75 in both `RestartForceExitStatus=` and
+`SuccessExitStatus=`, with no `ExecReload=`; §16 (11)'s exit-code list,
+`main.rs`'s doc and the unit's comment carry the status;
+`tests/desktop-e2e/tests/daemon.rs::sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status`
+reads the status from the unit file, refusing a unit whose two directives
+differ or name one of 0–3, and shows the stop's lines in SIGTERM's order after
+the SIGHUP line, both sockets unlinked, the lock kept, and on the next start
+the same PeerId with a fresh lease epoch, the SIGTERM case beside it as the
+control (exit 0); and the service/autostart lifecycle row
+(`packaging/linux/README.md`, the census of #533, 2026-11-03) is met by
+`tests/desktop-e2e/tests/user_units.rs::the_installed_daemon_unit_starts_restarts_on_sighup_and_stops`,
+run in CI's `rust` job under the runner's user manager: the installed unit,
+sent SIGHUP, ends with the status the template names, is restarted no sooner
+than `RestartSec=` with no failure logged, and serves the same PeerId with a
+fresh epoch, the control (SIGKILL) restarted and logged as a failure. Not
+shown by either test: a start at a person's login, CI's manager lingering and
+no login being made — the lifecycle row's own stated limit, not this carry's.
+Supervision units: met by §28 step 4's
 two user units, their CI cover p2p-network-dev's (the split above). flock on
 NFS homes: p2p-network-dev's (the split above).
 
