@@ -782,7 +782,7 @@ No probe was run, and no run was discarded. The same cells cost 10,830,992 token
     - **The note:** each reply to event 1 listed all six facts with their values, under a line such as "Facts stated in this channel that I may be asked about later" (the large cells) or "Facts stated in channel #1" (two small runs).
     - **The summaries:** every summary of these nine runs held all six values (twelve summaries), and the model recalled all six, with no tool call.
     - **Two compactions:** three runs of three kept every value, against two of three on 2.1.311. Fact 89's `large-note-d2-3` lost all six at the second summary, and no run here did. Over the two builds, the note kept every value through two compactions in five of six large runs. With facts 98 and 106, that is eleven of twelve runs at two compactions.
-    - That 2.1.322 keeps a noted value more reliably is not shown: one loss in six runs on 2.1.311, none in three here.
+    - That 2.1.322 keeps a noted value more reliably is not shown: at two compactions, one loss in six runs on 2.1.311 (facts 89 and 98) and none in six on 2.1.322 (this fact and fact 106), or, at the bound alone, one in three against none in three.
 112. Where a fact sat did not decide whether it was kept, and a model asked for a value its summary had not kept answered "unknown" and did not guess, on 2.1.322 as on 2.1.311 (eighteen runs).
     - **The counts:** recalled at head, middle and end, of six each per cell:
 
