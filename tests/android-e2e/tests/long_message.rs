@@ -430,9 +430,9 @@ async fn on_a_device_back_while_the_reader_opens_closes_it_to_its_conversation()
 
 /// The same with Back [`BACK_PAST_FIRST_GO`] after the press: on heading
 /// autolinks and reference link, the shapes section 5.4 names, and on
-/// the two stress shapes. Alone in a conversation the first two open
-/// within about 0.4 s on the A40 (2026-11-12), so their Back lands after
-/// the rows are in; the stress shapes' openings run past the first go
+/// the two stress shapes. As the first and second rows of their
+/// conversation the first two had their rows drawn within about 0.42 s
+/// on the A40 (2026-11-12), so their Back lands after the rows are in; the stress shapes' openings run past the first go
 /// and the bar, so theirs lands inside the opening. Each closes to its
 /// conversation with focus back on its row. The case
 /// prints each key's phone time beside the trace's (`enter-at`,

@@ -256,9 +256,9 @@ impl Screens {
         let from = self.seen.len();
         // Each key's launch stamped on the phone's clock, the clock its
         // logcat stamps the trace by: a run's Back-to-close and how long
-        // the first screen showed are read from the two together. Each
-        // stamp follows its key's launch, so the sleep alone sits between
-        // the two launches.
+        // the first screen showed are read from the two together. The
+        // Enter's stamp comes just before its launch and the Back's just
+        // after, so the sleep alone sits between the two launches.
         let keys = format!(
             "echo enter-at $(date +%T.%N); input keyevent KEYCODE_ENTER & sleep {:.3}; input keyevent KEYCODE_BACK & echo back-at $(date +%T.%N); wait",
             after.as_secs_f64()

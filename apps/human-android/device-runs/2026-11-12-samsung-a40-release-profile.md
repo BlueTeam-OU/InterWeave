@@ -100,7 +100,10 @@ the launch, and that form has not run on the phone):
 
 In these runs heading autolinks and reference link had their rows
 drawn at 249-263 and 384-417 ms (the trace's `reader=drawn`), so their
-Back lands after the rows. On the stress
+Back lands after the rows. The timed case above draws the same shapes
+at 513 and 752 ms on the same build: there they are the eighth and
+eleventh of eleven messages, here the first and second. That the place
+is the difference is not measured. On the stress
 shapes it lands inside the opening: the recordings show the empty
 reader, then the opening's indeterminate bar moving, and the close only
 when the build ends, 0.87 to 0.96 s after the Back. Every close is to the
