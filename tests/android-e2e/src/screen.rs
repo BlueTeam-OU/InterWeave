@@ -256,9 +256,11 @@ impl Screens {
         let from = self.seen.len();
         // Each key's launch stamped on the phone's clock, the clock its
         // logcat stamps the trace by: a run's Back-to-close and how long
-        // the first screen showed are read from the two together.
+        // the first screen showed are read from the two together. Each
+        // stamp follows its key's launch, so the sleep alone sits between
+        // the two launches.
         let keys = format!(
-            "echo enter-at $(date +%T.%N); input keyevent KEYCODE_ENTER & sleep {:.3}; echo back-at $(date +%T.%N); input keyevent KEYCODE_BACK; wait",
+            "echo enter-at $(date +%T.%N); input keyevent KEYCODE_ENTER & sleep {:.3}; input keyevent KEYCODE_BACK & echo back-at $(date +%T.%N); wait",
             after.as_secs_f64()
         );
         let reader = format!("{TRACE}page=reader");
@@ -267,9 +269,12 @@ impl Screens {
         let closed = self
             .adb_ok(&["shell", &keys])
             .map(|said| {
+                // Only the two stamps: any other line of the shell's must
+                // not overwrite a field of the step.
                 stamps = said
                     .lines()
                     .filter_map(|l| l.split_once(' '))
+                    .filter(|(k, _)| matches!(*k, "enter-at" | "back-at"))
                     .map(|(k, v)| (k.to_owned(), v.trim().to_owned()))
                     .collect();
             })
