@@ -982,9 +982,10 @@ scale would also be a finding of the Android review
       whose recovery phrase the tester has, whose `key_unlock_policy`
       is `background-compatible` (as for R above), and that is not Stay
       reachable.
-      On Chats, note whether Peers lists nothing and whether Trust
-      lists nothing (step 3 needs both). Then fire `REFUSE_IDENTITY`
-      and then `RESTART`, so that K1 rises.
+      First note whether the Peers page lists nothing and whether the
+      Trust page lists nothing: step 3 uses both notes. Then, on
+      Chats, fire `REFUSE_IDENTITY` and then `RESTART`, so that K1
+      rises.
       1. Before anything on K1 is touched, `adb shell dumpsys window`
          shows `FLAG_SECURE` (`SECURE`) in the flags of InterWeave's
          window. Read it again on R2, opened by K1's primary, before a
@@ -1017,15 +1018,16 @@ scale would also be a finding of the Android review
          then or at the next launch. Which case applies is read from
          the trace, not from the screen. After R4's continue, the
          trace writes `connect=owed` while the start reads the peer
-         list and the trust set. Wait until the last `connect=` line
-         is something else, for at most 30 seconds (on the A40 it
-         took under a second). Then read the last `connect=` line and
-         the last `page=` line together; when Connect opens, the
-         trace writes `page=connect` just before `connect=open`.
+         list and the trust set. Wait, for at most 30 seconds, until
+         the last `connect=` line is no longer `connect=owed` (on the
+         A40 this took under a second). Then read the last `connect=`
+         line and the last `page=` line as one pair. When Connect opens,
+         the trace writes `page=connect` just before `connect=open`.
          `connect=open` with `page=connect` is Connect opening.
          `connect=settled` with `page=conversations` is Chats
          staying. `connect=deferred` means that a read failed, so
-         Chats opens without Connect (§5.1); then only the Connect
+         Chats opens without Connect (`design/2026-10-22-add-a-peer.md`
+         §5.1); then only the Connect
          part of the step is void, not passed, and the step is run
          again. The step fails if any of these holds: the Service is
          not listed; logcat does not show the start succeeding; a
