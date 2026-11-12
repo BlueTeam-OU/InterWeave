@@ -226,7 +226,7 @@ impl Screens {
     /// the reader has drawn by then: a person who leaves while it opens
     /// (design/2026-11-04-long-message.md A5). Passes once the trace
     /// shows the reader's page and then the conversation's again, focus
-    /// on a Read the whole message. The step carries `read`; `drawn`,
+    /// back on the opened row's Open the whole message. The step carries `read`; `drawn`,
     /// whether the reader's rows were drawn before it closed; and
     /// `enter-at` and `back-at`, the phone's time of day as each key's
     /// `input` was launched, to set beside the trace's logcat times.
@@ -288,11 +288,13 @@ impl Screens {
             })
             .and_then(|()| self.settle().map(drop))
             .and_then(|()| {
-                if self.focus.starts_with("read:") {
+                // Its own row's control, not any: a conversation of several
+                // cut rows has an earlier one to land on by mistake.
+                if self.focus == read {
                     Ok(())
                 } else {
                     Err(format!(
-                        "focus left on {:?}, not a Read the whole message",
+                        "focus left on {:?}, not the opened row's {read:?}",
                         self.focus
                     ))
                 }
