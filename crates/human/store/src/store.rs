@@ -313,7 +313,7 @@ impl HumanStore {
             )));
         }
 
-        let conn = Connection::open(path)?;
+        let conn = crate::engine::open(path)?;
         // THE KEY BEFORE ANY STATEMENT: SQLCipher takes it only ahead of the
         // connection's first read, and every pragma below reads page 1.
         if let Some(key) = key {
@@ -395,7 +395,7 @@ impl HumanStore {
     /// # Errors
     /// Returns [`StoreError`] if the schema cannot be created.
     pub fn open_in_memory(options: StoreOptions) -> Result<Self, StoreError> {
-        let conn = Connection::open_in_memory()?;
+        let conn = crate::engine::open_in_memory()?;
         Self::from_connection(conn, options)
     }
 
@@ -2172,7 +2172,7 @@ mod walk_plan_tests {
     /// a sort of the whole table on every page reads as.
     #[test]
     fn the_inbound_walk_reads_its_index_not_a_sort() {
-        let mut conn = rusqlite::Connection::open_in_memory().expect("in-memory database");
+        let mut conn = crate::engine::open_in_memory().expect("in-memory database");
         crate::schema::migrate(&mut conn).expect("a fresh database migrates");
         for (sql, index) in [
             (WALK_UNREAD, "unread_inbound_by_received"),
