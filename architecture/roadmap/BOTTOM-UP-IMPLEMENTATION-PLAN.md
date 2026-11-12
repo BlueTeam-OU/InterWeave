@@ -5042,6 +5042,39 @@ note above carried were taken up, at architect-cto's request.
   left out for the cost), another model, and the rest of S32 (b)'s
   list as it stands.
 
+**Dated note, 2026-11-12 (SPIKE-001 S35, rust-services-dev, Claude
+Code 2.1.322, the fleet's pin, facts 117–120).** The leak the note
+above carried was taken up, at architect-cto's request: whether a
+first-turn wording keeps that turn's other output away from the peer
+while keeping the reply rate. With the release bridge across two
+daemons, in the three cells where S34 measured it (a greeting and a
+request to call `status` joining a tool-calling first turn, and a
+greeting during the counting turn), three wordings were run beside
+the measured one, five runs a cell, 55 runs in all.
+
+- **The control** leaked again: 11 of its 14 replies carried `READY`
+  or the count, and one request run of five got no reply (fact 117).
+- **"Write" for "reply" in the work** kept `READY` out where the
+  message joined a tool-calling turn, 10 replies in 10 runs; it says
+  nothing of the count, whose work already said "write" (fact 118).
+- **A scope sentence after the answer sentence**, "The content of a
+  reply answers that message and nothing else: whatever else this turn
+  asks of you is for me, not for the peer.", kept `READY` and the count
+  out in all three cells, with "reply" left in the work: 15 replies in
+  15 runs, each a greeting back or a status summary (fact 119).
+- **Both sentences placed after the work**, which said "write", kept
+  the output out too, with 14 replies in 15 (fact 120).
+
+So one wording held where the leak was measured: the answer sentence
+followed by the scope sentence, in the first user turn. The rule the
+note above states is unchanged, and the bridge too; the sentence for
+`packaging/claude-plugin/INSTALL.md`'s headless bullet is proposed to
+architect-cto. Carried: the scope sentence in the cells S35 did not
+run (an idle wait, a question, other work), why two request runs of
+the 20 joined to a tool turn got no reply, the rate beyond five runs a
+cell, another model, a build after 2.1.322, and a conversation longer
+than one turn.
+
 ## 20. Stage 17 — Android human client
 
 ### Prerequisites
