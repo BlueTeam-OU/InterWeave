@@ -59,4 +59,6 @@ interweave-human-transport-client = { path = "../../crates/human/transport-clien
 interweave-human-ui-model = { path = "../../crates/human/ui-model" }
 # paths.rs: the relay's PeerIds, read back, and the cases' runtime.
 libp2p = { workspace = true }
+# cluster_bound.rs: D's person's card, signed with a test-only key.
+ed25519-dalek = { workspace = true }
 tokio = { workspace = true }
