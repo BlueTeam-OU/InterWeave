@@ -955,6 +955,38 @@ component ActionButton inherits FocusScope {
     }
 }
 
+// One line of text that may be a peer's or a person's: elided at its end
+// and drawn inside its own box. Slint 1.18.1 clips a Text to its box only
+// under `overflow: clip` (i-slint-core textlayout/sharedparley.rs,
+// draw_text); under `elide` a character's ink above or below the line is
+// drawn wherever it reaches. A character at the cluster bound, 31 marks
+// stacked on one letter, drew them about 280 px above a Chats row and the
+// conversation's title, over the row above and into the status bar
+// (tests/android-e2e/runs/2026-11-13-samsung-a40-cluster-bound.md). The
+// box clips them, as a wrapped Text is clipped already; tests/compile.rs
+// holds every elided Text to a clipping box.
+component OneLine inherits Rectangle {
+    in property <string> text;
+    in property <length> font-size: Type.body-large;
+    in property <int> font-weight: 400;
+    in property <brush> ink: Palette.on-surface;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: top;
+    clip: true;
+    HorizontalLayout {
+        Text {
+            text: root.text;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            color: root.ink;
+            overflow: elide;
+            horizontal-alignment: root.horizontal-alignment;
+            vertical-alignment: root.vertical-alignment;
+            accessible-role: none;
+        }
+    }
+}
+
 // A heading that takes keyboard and screen-reader focus and does
 // nothing when activated (swipe spec section 7): where focus goes once
 // the rows below it are gone, so focus is never lost.
@@ -987,17 +1019,21 @@ component FocusHeading inherits FocusScope {
     // The layout is the only child counted for the heading's size, so it
     // takes its text's height; the ring is placed, and not counted.
     VerticalLayout {
-        HorizontalLayout {
-            Text {
-                text: root.text;
-                font-weight: root.font-weight;
-                font-size: root.font-size;
-                color: Palette.on-surface;
-                wrap: root.wraps ? word-wrap : no-wrap;
-                min-height: self.preferred-height;
-                overflow: root.wraps ? clip : elide;
-                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                accessible-role: none;
+        // Clipped as OneLine is, for the one-line heading's elided text.
+        Rectangle {
+            clip: true;
+            HorizontalLayout {
+                Text {
+                    text: root.text;
+                    font-weight: root.font-weight;
+                    font-size: root.font-size;
+                    color: Palette.on-surface;
+                    wrap: root.wraps ? word-wrap : no-wrap;
+                    min-height: self.preferred-height;
+                    overflow: root.wraps ? clip : elide;
+                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                    accessible-role: none;
+                }
             }
         }
     }
@@ -4073,15 +4109,13 @@ component OpenRow inherits FocusScope {
                 hue: root.hue;
             }
         }
-        Text {
+        OneLine {
             horizontal-stretch: 1;
             text: root.text;
             font-size: Type.body-large;
-            color: Palette.on-surface;
-            overflow: elide;
+            ink: Palette.on-surface;
             vertical-alignment: center;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-            accessible-role: none;
         }
     }
     TapArea { tapped => { root.pressed(); } }
@@ -5707,22 +5741,18 @@ export component AppWindow inherits Window {
                                     alignment: center;
                                     // The row's label and description already
                                     // say these.
-                                    Text {
+                                    OneLine {
                                         text: row.title;
                                         font-size: Type.body-large;
                                         font-weight: row.unread != "" ? 700 : 400;
-                                        color: Palette.on-surface;
-                                        overflow: elide;
+                                        ink: Palette.on-surface;
                                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                                        accessible-role: none;
                                     }
-                                    Text {
+                                    OneLine {
                                         text: row.preview;
                                         font-size: Type.body-medium;
-                                        color: Palette.on-surface-variant;
-                                        overflow: elide;
+                                        ink: Palette.on-surface-variant;
                                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                                        accessible-role: none;
                                     }
                                 }
                                 if !root.rtl: VerticalLayout {
@@ -8950,12 +8980,11 @@ export component AppWindow inherits Window {
                             VerticalLayout {
                                 horizontal-stretch: 1;
                                 alignment: center;
-                                Text {
+                                OneLine {
                                     text: root.reader-title;
                                     font-size: Type.title-medium;
                                     font-weight: 500;
-                                    color: Palette.on-surface;
-                                    overflow: elide;
+                                    ink: Palette.on-surface;
                                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                     accessible-role: text;
                                     accessible-label: Drawn.spoken(self.text);

@@ -266,6 +266,143 @@ fn the_spoken_scan_refuses_a_text_not_wrapped() {
     );
 }
 
+/// Every elided `Text` in the views is drawn inside a box that clips it:
+/// its parent a layout, and that layout's parent an element binding
+/// `clip: true`. Slint 1.18.1 clips a Text to its own box only under
+/// `overflow: clip`, so under `elide` a character at the cluster bound drew
+/// its 31 stacked marks about 280 px above a Chats row and the
+/// conversation's title, into the status bar
+/// (tests/android-e2e/runs/2026-11-13-samsung-a40-cluster-bound.md).
+/// Mutation: `clip: true` taken off `OneLine` or `FocusHeading`'s box.
+#[test]
+fn every_elided_text_is_clipped_to_its_box() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/app.slint");
+    let source = std::fs::read_to_string(&path).expect("app.slint");
+    let lines: Vec<&str> = source.lines().collect();
+    let (checked, missing) = elide_scan(&lines);
+    // Two when this was written, `OneLine`'s and `FocusHeading`'s: a
+    // floor, so a scan that stops finding them fails rather than checks
+    // nothing.
+    assert!(checked >= 2, "the scan found only {checked} elided Texts");
+    assert!(
+        missing.is_empty(),
+        "an elided Text not in a clipping box:\n{}",
+        missing.join("\n")
+    );
+}
+
+/// The elided Texts the scan checked, and each one it refuses: an
+/// `overflow` naming `elide` outside a Text, or a Text whose parent is not
+/// a layout inside an element binding `clip: true`.
+fn elide_scan(lines: &[&str]) -> (usize, Vec<String>) {
+    let mut checked = 0_usize;
+    let mut missing = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        let code = code_of(line);
+        let Some(value) = code
+            .trim_start()
+            .strip_prefix("overflow")
+            .and_then(|rest| rest.trim_start().strip_prefix(':'))
+        else {
+            continue;
+        };
+        if !value.contains("elide") {
+            continue;
+        }
+        let place = |what: &str| format!("{}: {what}", at + 1);
+        let Some(open) = element_start(lines, at) else {
+            missing.push(place("no element opens above it"));
+            continue;
+        };
+        if element_name(lines[open]) != Some("Text") {
+            missing.push(place("elide outside a Text"));
+            continue;
+        }
+        checked += 1;
+        let layout = element_start(lines, open);
+        let in_layout = layout
+            .and_then(|l| element_name(lines[l]))
+            .is_some_and(|name| name.ends_with("Layout"));
+        let boxed = layout
+            .and_then(|l| element_start(lines, l))
+            .is_some_and(|b| binds_clip_true(lines, b));
+        if !(in_layout && boxed) {
+            missing.push(format!("{}: {}", open + 1, lines[open].trim()));
+        }
+    }
+    (checked, missing)
+}
+
+/// Whether the element opening at `open` binds `clip: true` itself, not
+/// in a child.
+fn binds_clip_true(lines: &[&str], open: usize) -> bool {
+    let mut depth = 0_i32;
+    for line in &lines[open + 1..] {
+        if depth == 0 && code_of(line).trim() == "clip: true;" {
+            return true;
+        }
+        depth += braces(line, '{') - braces(line, '}');
+        if depth < 0 {
+            return false;
+        }
+    }
+    false
+}
+
+/// The elide scan passes a Text in a layout in a clipping box, and refuses
+/// one whose box does not clip, one with no layout between, a clip bound
+/// only in a child, and an elide outside a Text.
+#[test]
+fn the_elide_scan_refuses_an_unclipped_elided_text() {
+    let clipped = [
+        "Rectangle {",
+        "    clip: true;",
+        "    HorizontalLayout {",
+        "        Text {",
+        "            overflow: elide;",
+        "        }",
+        "    }",
+        "}",
+    ];
+    assert_eq!(elide_scan(&clipped), (1, Vec::new()));
+    let open = [
+        "Rectangle {",
+        "    clip: false;",
+        "    HorizontalLayout {",
+        "        Text {",
+        "            overflow: root.wraps ? clip : elide;",
+        "        }",
+        "    }",
+        "}",
+    ];
+    assert_eq!(elide_scan(&open), (1, vec!["4: Text {".to_owned()]));
+    let no_layout = [
+        "Rectangle {",
+        "    clip: true;",
+        "    Text {",
+        "        overflow: elide;",
+        "    }",
+        "}",
+    ];
+    assert_eq!(elide_scan(&no_layout), (1, vec!["3: Text {".to_owned()]));
+    let child_clip = [
+        "Rectangle {",
+        "    HorizontalLayout {",
+        "        Rectangle { clip: true; }",
+        "        Text {",
+        "            overflow: elide;",
+        "        }",
+        "    }",
+        "}",
+    ];
+    assert_eq!(elide_scan(&child_clip), (1, vec!["4: Text {".to_owned()]));
+    let not_text = ["Foo {", "    overflow: elide;", "}"];
+    assert_eq!(
+        elide_scan(&not_text),
+        (0, vec!["2: elide outside a Text".to_owned()])
+    );
+}
+
 /// The line that opens the element holding line `at`: walking up, the
 /// first `{` not closed in between.
 fn element_start(lines: &[&str], at: usize) -> Option<usize> {
