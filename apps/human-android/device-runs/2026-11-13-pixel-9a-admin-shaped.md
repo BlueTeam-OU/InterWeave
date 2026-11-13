@@ -29,7 +29,7 @@ The host side, `admin_deputy` and `target/debug/transport-daemon`, was
 built from the same tree.
 
 Main has moved since: `crates/human/android-platform` (the start rules,
-the hub) and `apps/human-android/src/activity.rs` changed after
+the hub, its e2e `HubClient` the case drives, the view side) and `apps/human-android/src/activity.rs` changed after
 `260a2a43c`. This run is of `260a2a43c`, not of those changes.
 
 ## The phone before the run
@@ -50,7 +50,7 @@ INTERWEAVE_ANDROID_INSTRUMENTATION=org.interweave.human.test/org.interweave.huma
 ```
 
 **2026-11-13 21:13:52Z to 21:14:08Z: passed** (`1 passed`, 11.52 s in
-the test). D's line: `admin_deputy: close accepted, handed Some(String("5"))`.
+the test). The test's line: `admin_deputy: close accepted, handed Some(String("5"))`.
 
 What passing means, by the test and the case as written at `260a2a43c`:
 
@@ -78,7 +78,8 @@ What passing means, by the test and the case as written at `260a2a43c`:
 None of these ran the case; each is listed so the one pass above is
 not read as the first try.
 
-- 20:33Z: failed at the harness before any device call:
+- 20:33Z: failed at the desktop's start, after `AdbDevice::connect` had
+  run the `identity` case twice and force-stopped the app between them:
   `target/debug/transport-daemon is missing` (the host's daemon had not
   been built in this tree).
 - 20:41Z: the wireless-debugging port had moved (`adb connect` failed),
