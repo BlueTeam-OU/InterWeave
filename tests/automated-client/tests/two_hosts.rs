@@ -31,7 +31,7 @@ use interweave_automated_client_tests::{Client, ClientConfig};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
 use interweave_test_support::e2e::netns::{self, Net};
 use interweave_test_support::e2e::{Daemon, Home, PATIENCE, free_port, private_tempdir};
-use interweave_transport_api::{MessageId, TransportIdentity};
+use interweave_transport_api::{EndpointId, MessageId, TransportError, TransportIdentity};
 
 const ENDPOINT: &str = "automation";
 const CLIENT_KIND: &str = "automated-test-client";
@@ -467,4 +467,156 @@ async fn an_idle_connection_the_far_host_cannot_dial_back_outlives_the_idle_time
     drop((at_a, from_b));
     a.stop().await;
     b.stop().await;
+}
+
+/// What [`after_a_close`] saw at B, the side with no entry for A.
+#[derive(Debug)]
+struct AfterAClose {
+    /// B's `dial failed` lines in the watch after the close (no send yet)
+    /// and in the watch after the link returned.
+    dials: [usize; 2],
+    /// What B's send to A answered while the link was down, and how long
+    /// the answer took; `None` when nothing was sent.
+    sent: Option<(Result<EndpointId, TransportError>, Duration)>,
+    /// Whether B's gate scheduled a retry for A while the link was down.
+    retry_scheduled: bool,
+    /// B's log, for a failing assertion.
+    log: String,
+}
+
+/// The fleet's shape again (only A holds an entry), closed by the link's
+/// loss; `send` says whether B's client sends to A while the link is
+/// down. When `learnable`, each host also holds a private address on its
+/// loopback (`netns::add_unrouted_address`): A's is advertised by its
+/// Identify and admitted into B's address book, since B then holds a
+/// private listener of the family (ADR-0052 rule 3), and B has no route
+/// to it -- an address of A on a network B is not on, as a host's LAN
+/// address is to a host at another site. The overlay's own address is
+/// never learned: Identify withholds `100.64.0.0/10` and rule 2 refuses
+/// it from a peer, so without `learnable` B's book for A stays empty.
+async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
+    if learnable {
+        netns::add_unrouted_address(Net::A, "10.99.0.1/24");
+        netns::add_unrouted_address(Net::B, "10.88.0.2/24");
+    }
+    let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
+    until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
+    let from_b = b.client().await;
+    // Identify runs at establishment at both ends; a second is margin.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let dials = |b: &Host| b.log().matches("dial failed").count();
+    let connected = dials(&b);
+
+    netns::overlay_down();
+    until_both(&a, &b, false, CLOSE, "both closed on the link's loss").await;
+    tokio::time::sleep(WATCH).await;
+    let closed = dials(&b);
+
+    let answered = if send {
+        let started = tokio::time::Instant::now();
+        let answer = from_b.send_once(&a.peer, id(1), "after the close").await;
+        Some((answer, started.elapsed()))
+    } else {
+        None
+    };
+    let before_up = dials(&b);
+    let retry_scheduled = b.log().contains("retry scheduled");
+
+    // A redials by its entry once the link returns; B's dials in the
+    // watch after that are what the link's return started at B.
+    netns::overlay_up();
+    until_both(&a, &b, true, PATIENCE, "A redialled once the link returned").await;
+    tokio::time::sleep(WATCH).await;
+    let returned = dials(&b) - before_up;
+    let log = b.log();
+
+    drop(from_b);
+    a.stop().await;
+    b.stop().await;
+    AfterAClose {
+        dials: [closed - connected, returned],
+        sent: answered,
+        retry_scheduled,
+        log,
+    }
+}
+
+/// How soon "at once" is: a send with nothing to dial is answered by the
+/// runtime's own book, with no socket opened -- milliseconds measured;
+/// the bound is load margin, far under the send's dial horizon (10 s).
+const AT_ONCE: Duration = Duration::from_secs(2);
+
+const NO_ADDRESS_AFTER_A_CLOSE: &str =
+    "the_side_with_no_address_never_dials_and_its_send_is_answered_peer_unknown_at_once";
+
+/// `CONNECTIVITY.md` §14's sentence on the hold, measured where it holds:
+/// B never learned an address for A, so after the close it dials nothing
+/// -- neither in the watch after it nor when the link returns -- and its
+/// send is answered `PeerUnknown` at once. The control for the two cases
+/// below: the same hosts and close, with no address B could learn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_side_with_no_address_never_dials_and_its_send_is_answered_peer_unknown_at_once() {
+    if !netns::in_overlay(NO_ADDRESS_AFTER_A_CLOSE) {
+        return;
+    }
+    let seen = after_a_close(false, true).await;
+    let (answer, took) = seen.sent.as_ref().expect("sent");
+    assert!(
+        matches!(answer, Err(TransportError::PeerUnknown)) && *took < AT_ONCE,
+        "{seen:?}"
+    );
+    assert_eq!(seen.dials, [0, 0], "{}", seen.log);
+    assert!(!seen.retry_scheduled, "{}", seen.log);
+}
+
+const LEARNED_NO_SEND: &str = "the_side_that_learned_an_address_dials_nothing_until_it_sends";
+
+/// B learned A's private address from A's Identify, and sends nothing:
+/// a close schedules no retry (`record_connection_closed` releases the
+/// slot and nothing else), so B dials nothing after the close, nor when
+/// the link returns -- the network addition lifts a held-off peer's
+/// backoff, and B holds none for A. The case below is the positive
+/// control that the dial count is live in this shape.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_side_that_learned_an_address_dials_nothing_until_it_sends() {
+    if !netns::in_overlay(LEARNED_NO_SEND) {
+        return;
+    }
+    let seen = after_a_close(true, false).await;
+    assert_eq!(seen.dials, [0, 0], "{}", seen.log);
+    assert!(!seen.retry_scheduled, "{}", seen.log);
+}
+
+const LEARNED_SEND: &str = "the_side_that_learned_an_address_dials_it_on_a_send_and_retries";
+
+/// B learned A's private address, and its client sends to A after the
+/// close: the send is not answered `PeerUnknown` -- B's book holds an
+/// address, so the runtime dials it once (`DIRECT.md`'s usable-candidate
+/// case) and answers `PeerUnreachable` when the dial fails. That failure
+/// schedules a retry like any dial's (30 s, doubling to five minutes),
+/// so from the send on B redials A from its book: here the link's return
+/// lifts the backoff and the scheduler dials at once. An unrouted
+/// address fails in milliseconds; one the network drops silently holds
+/// the send until the dial fails or the send's dial horizon (10 s)
+/// passes, which this case does not measure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
+    if !netns::in_overlay(LEARNED_SEND) {
+        return;
+    }
+    let seen = after_a_close(true, true).await;
+    let (answer, _) = seen.sent.as_ref().expect("sent");
+    assert!(
+        matches!(answer, Err(TransportError::PeerUnreachable)),
+        "{seen:?}"
+    );
+    assert_eq!(seen.dials[0], 0, "no dial before the send\n{}", seen.log);
+    assert!(seen.retry_scheduled, "{}", seen.log);
+    // The scheduler's own dial, told apart from the send's: a failure of
+    // a dial the scheduler made is rescheduled under its origin.
+    assert!(
+        seen.log.contains("origin=\"connection_manager\""),
+        "a retry when the link returned\n{}",
+        seen.log
+    );
 }
