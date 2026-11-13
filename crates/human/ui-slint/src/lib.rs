@@ -190,6 +190,9 @@ pub fn init_android(
 ) -> Result<(), String> {
     use slint::android::android_activity::{MainEvent, PollEvent};
     slint::android::init_with_event_listener(app, move |polled| {
+        if let PollEvent::Main(MainEvent::InputAvailable) = polled {
+            input::arrived(Instant::now());
+        }
         if let PollEvent::Main(main) = polled {
             match main {
                 MainEvent::GainedFocus => event(ActivityEvent::Focus(true)),
@@ -201,6 +204,53 @@ pub fn init_android(
         }
     })
     .map_err(|e| e.to_string())
+}
+
+/// When input last reached the window's event loop from the platform, on
+/// the loop's thread: what an opening reader yields to between its turns
+/// (`OPENING_INPUT_QUIET`). Only Android records it, where the loop takes
+/// one platform event per pass and a turn sits between two passes.
+mod input {
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+
+    thread_local! {
+        static LAST: Cell<Option<Instant>> = const { Cell::new(None) };
+    }
+
+    /// Input reached the loop `at`.
+    #[cfg_attr(
+        not(all(feature = "android", target_os = "android")),
+        allow(
+            dead_code,
+            reason = "recorded by the Android event listener, and by tests"
+        )
+    )]
+    pub(crate) fn arrived(at: Instant) {
+        LAST.with(|last| last.set(Some(at)));
+    }
+
+    /// Whether input reached the loop less than `quiet` before `now`.
+    pub(crate) fn seen_within(quiet: Duration, now: Instant) -> bool {
+        LAST.with(Cell::get)
+            .is_some_and(|at| now.saturating_duration_since(at) < quiet)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn input_holds_an_opening_for_the_quiet_window_only() {
+            let quiet = Duration::from_millis(40);
+            let at = Instant::now();
+            assert!(!seen_within(quiet, at), "nothing recorded holds nothing");
+            arrived(at);
+            assert!(seen_within(quiet, at));
+            assert!(seen_within(quiet, at + Duration::from_millis(39)));
+            assert!(!seen_within(quiet, at + quiet));
+        }
+    }
 }
 
 /// End the event loop: [`WindowHandle::run`] returns.
@@ -2584,13 +2634,28 @@ impl View {
             Rc::clone(&self.shared),
             opening.seq,
         );
+        // A repeated timer is due again from the moment it fires, so a turn
+        // longer than its interval leaves it due as the turn ends, and the
+        // loop would start the next turn before taking anything. So after
+        // each turn, and after the first go, the step lets the loop go
+        // round once without building; and it builds nothing while input
+        // reached the loop within `OPENING_INPUT_QUIET`, since a key goes
+        // through the loop more than once (the keyboard's pre-dispatch,
+        // its release, the Activity's Back) and each pass waited out a turn
+        // (j107 on the A40: a Back's release reached the Activity 0.68 s
+        // after it was pressed, and the close two turns after that).
+        let rest = Cell::new(true);
         opening.step.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(1),
             move || {
+                if rest.replace(false) || input::seen_within(OPENING_INPUT_QUIET, Instant::now()) {
+                    return;
+                }
                 let done = build
                     .try_borrow_mut()
                     .is_ok_and(|mut build| build.advance(budgets.turn));
+                rest.set(true);
                 if done {
                     flag(&shared, |shared| shared.reader_built = Some(seq));
                 }
@@ -3719,6 +3784,14 @@ impl View {
         self.opening_budgets = OpeningBudgets { first_go, turn };
     }
 
+    /// Input reached the event loop from the platform `at`, as Android's
+    /// event listener records it: for a test, which has no platform input
+    /// and holds an opening by a time to come.
+    #[doc(hidden)]
+    pub fn platform_input_at(&self, at: Instant) {
+        input::arrived(at);
+    }
+
     /// Whether an Accept snackbar's clock is polling: for a test.
     #[doc(hidden)]
     #[must_use]
@@ -4634,6 +4707,14 @@ const OPENING_FIRST_GO: Duration = Duration::from_millis(400);
 /// How long each later turn builds: the bar drawn between turns, so the
 /// person sees it move, with few turns.
 const OPENING_TURN: Duration = Duration::from_millis(50);
+
+/// How long an opening builds nothing after input reached the event loop:
+/// the rest of a key's passes -- the keyboard's pre-dispatch returning
+/// it, the release after the press, the Activity's Back coming back to
+/// the window -- follow within a few milliseconds of each other on the
+/// A40 (j107), and a turn between two of them delays the next by the
+/// turn.
+const OPENING_INPUT_QUIET: Duration = Duration::from_millis(40);
 
 /// The two budgets an opening builds by ([`OPENING_FIRST_GO`],
 /// [`OPENING_TURN`]).
