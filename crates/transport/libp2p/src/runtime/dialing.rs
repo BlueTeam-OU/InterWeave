@@ -2000,8 +2000,9 @@ pub(super) fn retirable<'a>(
 /// `ConnectedPoint` with its role override applied, so a hole punch's
 /// connection -- dialled at both ends, `ConnectedPoint::Dialer` at both
 /// -- reads as dialer at exactly one, as Noise's initiator does.
-/// `ConnectedPoint::to_endpoint` ignores the override, so it is not
-/// used here.
+/// `ConnectedPoint::to_endpoint` and `ConnectedPoint::is_dialer`
+/// ignore the override, so neither is used here. Pinned by
+/// `the_dialer_role_reads_the_role_override`.
 pub(super) fn holds_dialer_role(endpoint: &libp2p::core::ConnectedPoint) -> bool {
     match endpoint {
         libp2p::core::ConnectedPoint::Dialer { role_override, .. } => role_override.is_dialer(),
@@ -2423,6 +2424,31 @@ mod tests {
             local_ip: None,
             dialer: false,
         }
+    }
+
+    /// A hole punch's connection is `ConnectedPoint::Dialer` at both
+    /// ends, one of them with the listener's role override: the dialer
+    /// role is read from the override, so exactly one end holds it; a
+    /// plain dial and a plain listen read as they look.
+    #[test]
+    fn the_dialer_role_reads_the_role_override() {
+        use libp2p::core::transport::PortUse;
+        use libp2p::core::{ConnectedPoint, Endpoint};
+        let address: Multiaddr = "/ip4/10.0.0.1/tcp/4001".parse().expect("valid");
+        let dialer = |role_override| ConnectedPoint::Dialer {
+            address: address.clone(),
+            role_override,
+            port_use: PortUse::Reuse,
+        };
+        assert!(super::holds_dialer_role(&dialer(Endpoint::Dialer)));
+        assert!(
+            !super::holds_dialer_role(&dialer(Endpoint::Listener)),
+            "the punch's overridden end is no dialer"
+        );
+        assert!(!super::holds_dialer_role(&ConnectedPoint::Listener {
+            local_addr: address.clone(),
+            send_back_addr: address.clone(),
+        }));
     }
 
     /// TWO DIALS CROSSING: each end sees its own dial established

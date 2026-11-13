@@ -87,9 +87,14 @@
 //! could never be found dead. Such a refusal therefore CLOSES the
 //! connection, as a missed ping does, and is reported once by name
 //! ([`KeepaliveEvent::Refused`]) for the relay driver to put in the
-//! reservation's detail. A relayed data-plane peer that refuses is kept
-//! and counted: the rule is the control peers' (§14, A 2026-10-25), and
-//! every profile able to hold a circuit answers ping.
+//! reservation's detail. A relayed or held data-plane peer that refuses
+//! is kept and counted: the rule is the control peers' (§14, A
+//! 2026-10-25), and every profile able to hold a circuit answers ping.
+//! A refusal so kept is REMEMBERED for its connection: should the peer
+//! become a control peer later, the handler's pinger has already given
+//! up and will not report again, so the switch closes the connection
+//! and reports the refusal then
+//! (`a_held_peer_that_refused_ping_is_closed_once_it_becomes_a_control_peer`).
 //!
 //! BOTH ENDS PING because both must notice. A client that closes its end
 //! of a dead path cannot tell the relay -- the FIN goes nowhere -- and a

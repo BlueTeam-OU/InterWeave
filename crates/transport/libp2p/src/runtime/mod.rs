@@ -3168,10 +3168,12 @@ impl SwarmRuntime {
                         // set: one direct connection per data-plane peer
                         // kept past the idle timeout and pinged
                         // (`relay_keepalive`'s module note). Named again
-                        // after EVERY event rather than the two that move
-                        // the set today, so a later writer of the set
-                        // cannot leave the hold stale; `set_held` sends
-                        // nothing when nothing changed. Off, the field
+                        // after every Swarm event that reaches settlement,
+                        // not only the establishment and the close:
+                        // `settle_outcome` is the one writer of what the
+                        // choice reads, and an event of any kind it settles
+                        // is followed by this; `set_held` sends nothing
+                        // when nothing changed. Off, the field
                         // may still exist for a relay role, and holds
                         // nothing.
                         if config.hold_data_plane
