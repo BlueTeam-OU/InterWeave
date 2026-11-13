@@ -296,6 +296,11 @@ pub struct IdentityFlow {
     /// carries it, so the window sees a chip taken in the page that
     /// shows it rather than guessing at the press (j261).
     chips_taken: u32,
+    /// How many grid positions R2 has opened to edit, from the grid or
+    /// the full list: as with `chips_taken`, the page carries it, so the
+    /// window hands focus to the keypad on the page that shows the
+    /// position chosen (design section 8).
+    positions_chosen: u32,
 }
 
 impl IdentityFlow {
@@ -330,6 +335,7 @@ impl IdentityFlow {
             start_notice: None,
             new_keys,
             chips_taken: 0,
+            positions_chosen: 0,
         }
     }
 
@@ -818,6 +824,7 @@ impl IdentityFlow {
             entry.edit(position);
             *notice = None;
             *reviewing = false;
+            self.positions_chosen += 1;
         }
     }
 
@@ -893,6 +900,13 @@ impl IdentityFlow {
     #[must_use]
     pub fn chips_taken(&self) -> u32 {
         self.chips_taken
+    }
+
+    /// How many grid positions R2 has opened to edit: a page whose count
+    /// moved shows one just chosen.
+    #[must_use]
+    pub fn positions_chosen(&self) -> u32 {
+        self.positions_chosen
     }
 
     // --- the platform's answers ----------------------------------------
@@ -2125,6 +2139,29 @@ mod tests {
             "C3: Enter took the right word"
         );
         assert_eq!(flow.chips_taken(), 2);
+    }
+
+    /// The count a page carries for a position chosen to edit (section
+    /// 8): every edit R2 makes counts, the same position again included,
+    /// and one behind the discard dialog, which edits nothing, does not.
+    #[test]
+    fn positions_chosen_counts_each_edit_r2_made() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        assert_eq!(flow.positions_chosen(), 0, "R2 opens on none chosen");
+        enter(&mut flow, "acid");
+        flow.edit(0);
+        assert_eq!(flow.positions_chosen(), 1);
+        flow.edit(0);
+        assert_eq!(flow.positions_chosen(), 2, "the same position again");
+        flow.review_words(true);
+        flow.edit(3);
+        assert_eq!(flow.positions_chosen(), 3, "a row of the full list");
+        assert_eq!(flow.back(), []);
+        assert!(flow.discard_asked(), "control: the dialog is up");
+        flow.edit(1);
+        assert_eq!(flow.positions_chosen(), 3, "nothing edited behind it");
     }
 
     #[test]
