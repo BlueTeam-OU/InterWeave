@@ -36,6 +36,12 @@ pub const TO_VIEW: usize = 256;
 /// What a view is sent.
 #[derive(Debug)]
 pub enum ToView {
+    /// The hub's count of the start whose [`ToView::Running`]`(true)`
+    /// follows: sent just before it, at a start and at an attach while one
+    /// runs, so a view that attaches again -- or a window made again --
+    /// tells the start it saw before from a later one (add-a-peer §5.1: a
+    /// window made again while the service runs is not a launch).
+    Start(u64),
     /// Whether the network service runs: the Android counterpart of the
     /// desktop's "a daemon serves this profile". A view seeing `false`
     /// shows that, and holds no rows until a listing arrives.
@@ -150,6 +156,8 @@ impl Viewer {
 struct Slot {
     viewer: Option<Viewer>,
     running: bool,
+    /// The count of the start that runs, while one does.
+    start: u64,
     /// Whether the platform gives this app network access, as the
     /// Service last said; access is assumed until it says otherwise.
     network: bool,
@@ -168,6 +176,7 @@ impl Default for Slot {
         Self {
             viewer: None,
             running: false,
+            start: 0,
             network: true,
             authentication: false,
             store: None,
@@ -355,6 +364,9 @@ impl Hub {
         let mut slot = self.slot();
         // A new viewer starts from what runs now; the listing follows from
         // the facade's next turn.
+        if slot.running {
+            viewer.send(ToView::Start(slot.start));
+        }
         viewer.send(ToView::Running(slot.running));
         viewer.send(ToView::NetworkAccess(slot.network));
         viewer.send(ToView::AuthenticationNeeded(slot.authentication));
@@ -468,7 +480,7 @@ impl Hub {
         // Said under the commands lock, as `retire` and `ended` say
         // theirs: an old facade's stop cannot then say "not running" after
         // this start (#483 F2). The order is commands, then the slot, everywhere.
-        self.say_running(true);
+        self.say_running(Some(generation));
         drop(commands);
         generation
     }
@@ -494,7 +506,7 @@ impl Hub {
         commands.generation = None;
         commands.sender = None;
         // Under the lock that decided it (see `started`).
-        self.say_running(false);
+        self.say_running(None);
         drop(commands);
     }
 
@@ -511,7 +523,7 @@ impl Hub {
         if commands.current(generation) {
             commands.generation = None;
             commands.sender = None;
-            self.say_running(false);
+            self.say_running(None);
         } else if commands.generation.is_some() {
             // Generations only grow and a start makes its own current,
             // so a current one that is not this is newer.
@@ -528,14 +540,21 @@ impl Hub {
         self.commands().alive > 0
     }
 
-    fn say_running(&self, running: bool) {
+    /// Say whether a facade runs: `Some` with its generation, which is
+    /// the start's count a view is told, or `None`.
+    fn say_running(&self, start: Option<u64>) {
         let mut slot = self.slot();
-        slot.running = running;
+        slot.running = start.is_some();
+        if let Some(start) = start {
+            slot.start = start;
+        }
         if let Some(viewer) = slot.viewer.as_mut() {
             // Listed again from the new facade's first turn: rows the
             // last one showed may have changed while none ran.
             viewer.listed = false;
-            if !viewer.send(ToView::Running(running)) {
+            let said = start.is_none_or(|start| viewer.send(ToView::Start(start)))
+                && viewer.send(ToView::Running(start.is_some()));
+            if !said {
                 slot.viewer = None;
             }
         }
@@ -798,16 +817,59 @@ mod tests {
         hub.listed(g, hub.wants_listing(g).unwrap_or(0), listed());
         hub.update(g, Update::Diagnostics(Diagnostics::default()));
         let taken = link.take();
-        assert!(matches!(taken[0], ToView::Running(true)), "{taken:?}");
+        assert!(matches!(taken[0], ToView::Start(s) if s == g), "{taken:?}");
+        assert!(matches!(taken[1], ToView::Running(true)), "{taken:?}");
         assert!(
-            matches!(&taken[1], ToView::Update(u) if matches!(**u, Update::Started(_))),
+            matches!(&taken[2], ToView::Update(u) if matches!(**u, Update::Started(_))),
             "{taken:?}"
         );
         assert!(
-            matches!(&taken[2], ToView::Update(u) if matches!(**u, Update::Diagnostics(_))),
+            matches!(&taken[3], ToView::Update(u) if matches!(**u, Update::Diagnostics(_))),
             "{taken:?}"
         );
-        assert_eq!(taken.len(), 3, "the pre-listing update was not sent");
+        assert_eq!(taken.len(), 4, "the pre-listing update was not sent");
+    }
+
+    /// A view attached again, or a window made again, hears the count of
+    /// the start that runs before it hears that one runs, the same count
+    /// while that start runs and another once a later one does: what lets
+    /// the Activity's root tell the start it saw before from a later one
+    /// (add-a-peer §5.1). Mutation: sending no count at an attach, or the
+    /// count after `Running(true)`, fails the first two asserts.
+    #[test]
+    fn a_view_attached_again_hears_which_start_runs_first() {
+        let hub = Hub::new();
+        let (_, wake) = counting();
+        let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let g = hub.started(commands);
+        let mut link = hub.attach(wake.clone());
+        let taken = link.take();
+        assert!(
+            matches!(taken[..], [ToView::Start(s), ToView::Running(true), ..] if s == g),
+            "{taken:?}"
+        );
+        let mut again = hub.attach(wake.clone());
+        assert!(
+            matches!(again.take()[..], [ToView::Start(s), ToView::Running(true), ..] if s == g),
+            "the same start, attached again"
+        );
+        hub.retire(g);
+        let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let later = hub.started(commands);
+        assert_ne!(later, g);
+        let taken = again.take();
+        assert!(
+            matches!(
+                taken[..],
+                [ToView::Running(false), ToView::Start(s), ToView::Running(true), ..] if s == later
+            ),
+            "{taken:?}"
+        );
+        let mut last = hub.attach(wake);
+        assert!(
+            matches!(last.take()[..], [ToView::Start(s), ToView::Running(true), ..] if s == later),
+            "a later start's count at an attach"
+        );
     }
 
     /// The unlock note's section 4: the P-up line seen is kept for its

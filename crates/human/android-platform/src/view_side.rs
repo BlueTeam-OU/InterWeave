@@ -44,6 +44,9 @@ pub struct ViewSide<S: Surface, O: Opener> {
     store: Option<(StoreAnswer, StoreGeneration)>,
     /// Whether the service runs, as the hub last said.
     running: bool,
+    /// The count of the start the hub last said runs; `None` until one
+    /// has.
+    start: Option<u64>,
     /// The unlock facts, as the hub last said them.
     unlock: Option<UnlockSaid>,
     /// The model the last stop set aside, stopped: shown again if the
@@ -63,6 +66,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             authentication: false,
             store: None,
             running: false,
+            start: None,
             unlock: None,
             kept: None,
         }
@@ -111,6 +115,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                     self.show_kept();
                 }
             }
+            ToView::Start(start) => self.start = Some(start),
             ToView::NetworkAccess(allowed) => {
                 self.network = allowed;
                 self.side.network_access(allowed);
@@ -207,6 +212,14 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     #[must_use]
     pub const fn running(&self) -> bool {
         self.running
+    }
+
+    /// The count of the start that runs, while one does: the hub says it
+    /// before it says the service runs, so it is never an earlier start's
+    /// while [`running`](Self::running) is true.
+    #[must_use]
+    pub const fn start(&self) -> Option<u64> {
+        if self.running { self.start } else { None }
     }
 
     /// The model side, for the root's turn.

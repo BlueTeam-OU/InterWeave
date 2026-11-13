@@ -112,7 +112,7 @@ fn a_started_service_gives_a_view_its_listing_then_a_ready_session() {
     let mut link = attach(&service);
     let first = link.take();
     assert!(
-        matches!(first.first(), Some(ToView::Running(true))),
+        matches!(first[..], [ToView::Start(_), ToView::Running(true), ..]),
         "the view hears the service runs first: {first:?}"
     );
     let mut listed = first.iter().any(is_listing);

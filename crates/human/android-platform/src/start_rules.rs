@@ -14,13 +14,21 @@
 //! count began: when Chats showed at this launch, or when a later start
 //! in the same process was asked for. An opening made before the service
 //! ran counts, and so does one closed again.
+//!
+//! A view attached again, or a window made again while the service runs,
+//! is not a launch: it shows what this start decided -- Connect if it was
+//! open, Chats if the start deferred or settled it -- and while the start
+//! has not decided, the bound goes on from the service's start and what
+//! the earlier window opened still counts. The rules are the process's,
+//! the Activity's root keeping one for every window it makes.
 
 use interweave_human_app_core::{Command, Opener, Surface};
 use interweave_human_ui_model::{BOUND_MS, ConnectPhase};
 
 use crate::{StoreGeneration, ViewSide};
 
-/// The root's state for those two rules, carried across a reattach.
+/// The root's state for those two rules, carried across a reattach and
+/// into a window made again.
 #[derive(Debug, Default)]
 pub struct StartRules {
     running: bool,
@@ -28,11 +36,36 @@ pub struct StartRules {
     /// that service's model is deferred when it runs.
     defer_next: Option<StoreGeneration>,
     /// The view's count of what was opened from Chats when the count
-    /// began ([`count_from`](Self::count_from)).
+    /// began ([`count_from`](Self::count_from)), or when this window's
+    /// view was made ([`new_window`](Self::new_window)).
     counted_from: u64,
+    /// The view's count at the last turn, so a window made again knows
+    /// whether the one before it opened anything.
+    last_opened: u64,
+    /// Something was opened from Chats since the count began, in a window
+    /// since replaced.
+    opened_before: bool,
     /// A start with Connect owed: when its service ran, in the root's
     /// milliseconds.
     owed_since: Option<u64>,
+    /// The bound's clock is running and the window that armed its wake
+    /// may be gone: the next turn within the bound arms one again.
+    rearm: bool,
+    /// The hub's count of the start these rules last saw run.
+    start: Option<u64>,
+    /// What that start decided about an owed Connect, once it did.
+    decided: Option<Decided>,
+}
+
+/// What a start decided about an owed Connect, which a model made again
+/// in that start -- a reattach, a window made again -- shows too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Decided {
+    /// Connect opened: a model made again opens it again from the reads,
+    /// and the launch rule leaves it be.
+    Open,
+    /// Deferred or settled: Chats, a model made again deferred at once.
+    Chats,
 }
 
 /// What one pump's messages did to the service's running state.
@@ -67,6 +100,9 @@ pub struct Turned {
     pub launch: Launch,
     /// The model side's commands, for the facade.
     pub commands: Vec<Command>,
+    /// Wake the root after this many milliseconds: the bound's end, at
+    /// [`Launch::Armed`] or in a window made again while the bound runs.
+    pub wake_in_ms: Option<u64>,
 }
 
 impl StartRules {
@@ -77,7 +113,12 @@ impl StartRules {
             running: false,
             defer_next: None,
             counted_from: 0,
+            last_opened: 0,
+            opened_before: false,
             owed_since: None,
+            rearm: false,
+            start: None,
+            decided: None,
         }
     }
 
@@ -86,6 +127,22 @@ impl StartRules {
     /// count now.
     pub const fn count_from(&mut self, opened: u64) {
         self.counted_from = opened;
+        self.last_opened = opened;
+        self.opened_before = false;
+    }
+
+    /// A window was made, its view's count `opened`: the first of the
+    /// process, or one made again after the system ended the last. Its
+    /// count starts here, what the last window opened since the count
+    /// began still counting; the service's state is read afresh, the
+    /// start's clock and decision kept until a later start runs.
+    pub const fn new_window(&mut self, opened: u64) {
+        if self.last_opened != self.counted_from {
+            self.opened_before = true;
+        }
+        self.counted_from = opened;
+        self.last_opened = opened;
+        self.reattached();
     }
 
     /// One turn of the root, after the hub's messages were applied: these
@@ -102,37 +159,92 @@ impl StartRules {
         opened: u64,
         now_ms: u64,
     ) -> Turned {
-        let pumped = self.pumped(side.running(), |asked_at| side.start_decided(asked_at));
+        let pumped = self.pumped(side.running(), side.start(), |asked_at| {
+            side.start_decided(asked_at)
+        });
         if pumped.defer {
             side.side_mut().connect_defer();
         }
-        let owed =
-            side.running() && side.side().model().connect_phase() == ConnectPhase::Owed && !held;
+        // A start that opened Connect opens it again in a model made
+        // again, from the reads, however long they take.
+        let owed = side.running()
+            && side.side().model().connect_phase() == ConnectPhase::Owed
+            && !held
+            && self.decided.is_none();
         let launch = self.launch(owed, opened, now_ms);
         if launch == Launch::GiveUp {
             side.side_mut().connect_defer();
         }
+        let wake_in_ms = self.wake(launch, now_ms);
+        let commands = side.side_mut().turn();
+        self.remember(side);
+        self.last_opened = opened;
         Turned {
             started: pumped.started,
             launch,
-            commands: side.side_mut().turn(),
+            commands,
+            wake_in_ms,
+        }
+    }
+
+    /// What the running start's model decided about Connect, kept for a
+    /// model made again in that start. Called after each turn, and after
+    /// anything else that defers it.
+    pub fn remember<S: Surface, O: Opener>(&mut self, side: &ViewSide<S, O>) {
+        if !side.running() {
+            return;
+        }
+        match side.side().model().connect_phase() {
+            ConnectPhase::Open => self.decided = Some(Decided::Open),
+            ConnectPhase::Deferred | ConnectPhase::Settled => self.decided = Some(Decided::Chats),
+            ConnectPhase::Owed | ConnectPhase::NotOwed => {}
+        }
+    }
+
+    /// When the root is to wake for the bound: at its start, or at the
+    /// first turn within it in a window made again, for what is left.
+    const fn wake(&mut self, launch: Launch, now_ms: u64) -> Option<u64> {
+        match (launch, self.owed_since) {
+            (Launch::Armed, _) => {
+                self.rearm = false;
+                Some(BOUND_MS)
+            }
+            (Launch::Waiting, Some(since)) if self.rearm => {
+                self.rearm = false;
+                Some(BOUND_MS.saturating_sub(now_ms.saturating_sub(since)))
+            }
+            _ => None,
         }
     }
 
     /// After the hub's messages: whether the service started, and whether
-    /// its model is the one a passed bound deferred. `refused` says
-    /// whether the start asked at a generation was refused, which is what
-    /// `ViewSide::start_decided` answers while the service does not run;
-    /// a refused start drops the deferral, so the next start owes Connect
-    /// again (#651 F1).
+    /// its model is the one a passed bound deferred, or a model made again
+    /// in a start that deferred or settled Connect. `start` is the hub's
+    /// count of the start that runs, `None` while none does. `refused`
+    /// says whether the start asked at a generation was refused, which is
+    /// what `ViewSide::start_decided` answers while the service does not
+    /// run; a refused start drops the deferral, so the next start owes
+    /// Connect again (#651 F1).
     pub fn pumped(
         &mut self,
         running: bool,
+        start: Option<u64>,
         refused: impl FnOnce(StoreGeneration) -> bool,
     ) -> Pumped {
         let started = running && !self.running;
         self.running = running;
-        let defer = started && self.defer_next.take().is_some();
+        let mut defer = started && self.defer_next.take().is_some();
+        if started {
+            if start.is_some() && start == self.start {
+                // The same start, seen again: what it decided stands.
+                defer |= self.decided == Some(Decided::Chats);
+            } else {
+                // A later start decides afresh, its bound from its own run.
+                self.start = start;
+                self.decided = None;
+                self.owed_since = None;
+            }
+        }
         if !running && self.defer_next.is_some_and(refused) {
             self.defer_next = None;
         }
@@ -158,7 +270,7 @@ impl StartRules {
             self.owed_since = None;
             return Launch::Idle;
         }
-        if opened != self.counted_from {
+        if opened != self.counted_from || self.opened_before {
             self.owed_since = None;
             return Launch::GiveUp;
         }
@@ -179,11 +291,13 @@ impl StartRules {
     }
 
     /// The hub detached the view and it attached again: the service's
-    /// state is read afresh; a deferral owed and where the count of
-    /// openings began are kept, as it is the same launch.
+    /// state is read afresh. It is the same launch: a deferral owed, where
+    /// the count of openings began, the bound's clock and what the start
+    /// decided are kept (add-a-peer §5.1), the clock until a later start
+    /// runs.
     pub const fn reattached(&mut self) {
         self.running = false;
-        self.owed_since = None;
+        self.rearm = true;
     }
 }
 
@@ -223,9 +337,9 @@ mod tests {
     fn a_bound_passed_before_the_service_answered_defers_its_model_once() {
         let mut rules = StartRules::new();
         let asked = StoreGeneration::default();
-        assert_eq!(rules.pumped(false, |_| false), Pumped::default());
+        assert_eq!(rules.pumped(false, None, |_| false), Pumped::default());
         rules.bound_passed(asked, false);
-        let ran = rules.pumped(true, |_| false);
+        let ran = rules.pumped(true, Some(1), |_| false);
         assert_eq!(
             ran,
             Pumped {
@@ -233,10 +347,14 @@ mod tests {
                 defer: true
             }
         );
-        assert_eq!(rules.pumped(true, |_| false), Pumped::default(), "once");
-        assert_eq!(rules.pumped(false, |_| false), Pumped::default());
         assert_eq!(
-            rules.pumped(true, |_| false),
+            rules.pumped(true, Some(1), |_| false),
+            Pumped::default(),
+            "once"
+        );
+        assert_eq!(rules.pumped(false, None, |_| false), Pumped::default());
+        assert_eq!(
+            rules.pumped(true, Some(2), |_| false),
             Pumped {
                 started: true,
                 defer: false
@@ -251,13 +369,13 @@ mod tests {
         let asked = StoreGeneration::default();
         rules.bound_passed(asked, false);
         let mut seen = None;
-        let _ = rules.pumped(false, |at| {
+        let _ = rules.pumped(false, None, |at| {
             seen = Some(at);
             true
         });
         assert_eq!(seen, Some(asked), "asked about the held start");
         assert_eq!(
-            rules.pumped(true, |_| false),
+            rules.pumped(true, Some(1), |_| false),
             Pumped {
                 started: true,
                 defer: false
@@ -270,16 +388,16 @@ mod tests {
     fn a_start_refused_in_the_turn_its_bound_passed_defers_nothing() {
         let mut rules = StartRules::new();
         rules.bound_passed(StoreGeneration::default(), true);
-        assert!(!rules.pumped(true, |_| false).defer);
+        assert!(!rules.pumped(true, Some(1), |_| false).defer);
     }
 
     #[test]
     fn a_bound_passed_with_the_service_running_defers_no_later_start() {
         let mut rules = StartRules::new();
-        let _ = rules.pumped(true, |_| false);
+        let _ = rules.pumped(true, Some(1), |_| false);
         rules.bound_passed(StoreGeneration::default(), false);
-        let _ = rules.pumped(false, |_| false);
-        assert!(!rules.pumped(true, |_| false).defer);
+        let _ = rules.pumped(false, None, |_| false);
+        assert!(!rules.pumped(true, Some(2), |_| false).defer);
     }
 
     #[test]
@@ -287,7 +405,7 @@ mod tests {
         let mut rules = StartRules::new();
         rules.bound_passed(later(), false);
         rules.reattached();
-        assert!(rules.pumped(true, |_| false).defer);
+        assert!(rules.pumped(true, Some(1), |_| false).defer);
     }
 
     #[test]
@@ -338,7 +456,11 @@ mod tests {
         assert_eq!(rules.launch(false, 0, 5), Launch::Idle);
         assert_eq!(rules.launch(true, 0, BOUND_MS + 5), Launch::Armed);
         rules.reattached();
-        assert_eq!(rules.launch(true, 0, BOUND_MS + 6), Launch::Armed);
+        assert_eq!(
+            rules.launch(true, 0, BOUND_MS + 6),
+            Launch::Waiting,
+            "a reattach is not nothing owed"
+        );
     }
 
     /// A reattach is the same launch: what was opened before it still
@@ -354,12 +476,26 @@ mod tests {
     }
 
     fn owed_side() -> ViewSide<Blank, Blank> {
+        let mut side = unread_side(1);
+        read_empty(&mut side);
+        side
+    }
+
+    /// A model of start `start` with Connect owed and its reads not yet
+    /// answered: a fresh attach's, or a window's made again.
+    fn unread_side(start: u64) -> ViewSide<Blank, Blank> {
         let mut side = ViewSide::new(|| {
             let mut side = ModelSide::new(Blank, Blank);
             side.connect_owed();
             side
         });
+        side.apply(ToView::Start(start)).expect("applied");
         side.apply(ToView::Running(true)).expect("applied");
+        side
+    }
+
+    /// Both reads answer with empty lists: the model's turn opens Connect.
+    fn read_empty(side: &mut ViewSide<Blank, Blank>) {
         let me = ProfileIdentity::generate()
             .transport_identity()
             .expect("a peer id");
@@ -373,7 +509,6 @@ mod tests {
         for read in reads {
             side.apply(ToView::Update(Box::new(read))).expect("applied");
         }
-        side
     }
 
     /// The queued case (add-a-peer §8 item 12): the reads came in with
@@ -408,5 +543,147 @@ mod tests {
         let mut side = owed_side();
         let turned = rules.turn(&mut side, true, 1, 0);
         assert_eq!(turned.launch, Launch::Idle);
+    }
+
+    /// add-a-peer §8 item 12: a view attached again is the same launch,
+    /// so the bound goes on from the start's success and passing it gives
+    /// Connect up, the wake armed again for what is left. Mutation:
+    /// `reattached` clearing the clock, as #658 did, arms it again here.
+    #[test]
+    fn a_reattach_past_the_bound_gives_connect_up() {
+        let mut rules = StartRules::new();
+        rules.count_from(0);
+        let mut side = unread_side(1);
+        let turned = rules.turn(&mut side, false, 0, 0);
+        assert_eq!(turned.launch, Launch::Armed);
+        assert_eq!(turned.wake_in_ms, Some(BOUND_MS));
+
+        rules.reattached();
+        let mut again = unread_side(1);
+        let turned = rules.turn(&mut again, false, 0, 4_000);
+        assert_eq!(turned.launch, Launch::Waiting, "the same clock");
+        assert_eq!(
+            turned.wake_in_ms,
+            Some(BOUND_MS - 4_000),
+            "woken at its end"
+        );
+        assert_eq!(
+            rules.turn(&mut again, false, 0, 5_000).wake_in_ms,
+            None,
+            "once"
+        );
+        let turned = rules.turn(&mut again, false, 0, BOUND_MS);
+        assert_eq!(turned.launch, Launch::GiveUp);
+        assert_eq!(again.side().model().connect_phase(), ConnectPhase::Deferred);
+    }
+
+    /// A later start, seen after the view attached again, runs a bound of
+    /// its own: the clock goes on only within one start.
+    #[test]
+    fn a_later_start_seen_at_a_reattach_starts_its_own_bound() {
+        let mut rules = StartRules::new();
+        let mut side = unread_side(1);
+        assert_eq!(rules.turn(&mut side, false, 0, 0).launch, Launch::Armed);
+        rules.reattached();
+        let mut later = unread_side(2);
+        assert_eq!(
+            rules.turn(&mut later, false, 0, BOUND_MS).launch,
+            Launch::Armed
+        );
+        let mut same = unread_side(2);
+        rules.reattached();
+        assert_eq!(
+            rules.turn(&mut same, false, 0, BOUND_MS + 1).launch,
+            Launch::Waiting,
+            "control: the same start goes on"
+        );
+    }
+
+    /// A window made again while the service runs shows what the start
+    /// decided (add-a-peer §5.1): a deferred Connect stays deferred though
+    /// the fresh model's reads would open it. Control: a later start's
+    /// reads open it. Mutation: forgetting the decision at `new_window`
+    /// opens Connect over Chats.
+    #[test]
+    fn a_window_made_again_keeps_a_deferred_connect_deferred() {
+        let mut rules = StartRules::new();
+        rules.new_window(0);
+        let mut side = unread_side(1);
+        let _ = rules.turn(&mut side, false, 0, 0);
+        assert_eq!(
+            rules.turn(&mut side, false, 0, BOUND_MS).launch,
+            Launch::GiveUp
+        );
+
+        rules.new_window(0);
+        let mut again = unread_side(1);
+        read_empty(&mut again);
+        let _ = rules.turn(&mut again, false, 0, BOUND_MS + 1);
+        assert_eq!(again.side().model().connect_phase(), ConnectPhase::Deferred);
+
+        rules.new_window(0);
+        let mut later = unread_side(2);
+        read_empty(&mut later);
+        let _ = rules.turn(&mut later, false, 0, BOUND_MS + 2);
+        assert_eq!(
+            later.side().model().connect_phase(),
+            ConnectPhase::Open,
+            "control: a later start decides afresh"
+        );
+    }
+
+    /// The other half: a start that opened Connect opens it again in a
+    /// window made again, past the bound and whatever the new window's
+    /// count. Mutation: letting the launch rule judge that model defers it.
+    #[test]
+    fn a_window_made_again_opens_connect_its_start_opened() {
+        let mut rules = StartRules::new();
+        rules.new_window(0);
+        let mut side = owed_side();
+        let _ = rules.turn(&mut side, false, 0, 0);
+        assert_eq!(side.side().model().connect_phase(), ConnectPhase::Open);
+
+        rules.new_window(7);
+        let mut again = unread_side(1);
+        let turned = rules.turn(&mut again, false, 9, BOUND_MS * 3);
+        assert_eq!(turned.launch, Launch::Idle);
+        read_empty(&mut again);
+        let _ = rules.turn(&mut again, false, 9, BOUND_MS * 3 + 1);
+        assert_eq!(again.side().model().connect_phase(), ConnectPhase::Open);
+    }
+
+    /// What the window before opened from Chats, before the service ran,
+    /// still counts in the window made after it. Control: nothing opened,
+    /// the clock is armed. Mutation: dropping the earlier window's count
+    /// at `new_window` arms the clock in both.
+    #[test]
+    fn what_an_earlier_window_opened_still_counts() {
+        for (opened, expect) in [(0, Launch::Armed), (2, Launch::GiveUp)] {
+            let mut rules = StartRules::new();
+            rules.new_window(0);
+            let mut starting = ViewSide::new(|| ModelSide::new(Blank, Blank));
+            let _ = rules.turn(&mut starting, false, opened, 0);
+            rules.new_window(0);
+            let mut side = unread_side(1);
+            assert_eq!(
+                rules.turn(&mut side, false, 0, 10).launch,
+                expect,
+                "{opened}"
+            );
+        }
+    }
+
+    /// A later start the person asked for counts from its ask, whatever an
+    /// earlier window opened.
+    #[test]
+    fn a_later_ask_counts_from_itself_after_a_window_made_again() {
+        let mut rules = StartRules::new();
+        rules.new_window(0);
+        let mut starting = ViewSide::new(|| ModelSide::new(Blank, Blank));
+        let _ = rules.turn(&mut starting, false, 2, 0);
+        rules.new_window(0);
+        rules.count_from(1);
+        let mut side = unread_side(1);
+        assert_eq!(rules.turn(&mut side, false, 1, 10).launch, Launch::Armed);
     }
 }
