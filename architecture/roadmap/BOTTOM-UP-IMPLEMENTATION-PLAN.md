@@ -7566,8 +7566,10 @@ owner:
   three closed: as this entry was written, a desktop body past the
   renderer's height panicked it. Since #565, merged 2026-11-06, a body
   past 2,000 grapheme clusters or 40 lines is drawn in the conversation
-  as its preview and whole only in the reader, no drawn item passing the
-  renderer's item extent, and since #652 TM-57's row names the tests,
+  as its preview and whole only in the reader; since #583, merged
+  2026-11-07, a piece is split by its measured extent, so no drawn item
+  passes the 8,000-pixel item extent (`HUMAN-CHAT.md`, Bounds); and
+  since #652 TM-57's row names the tests,
   the long shapes opened on the A40 among them
   (`apps/human-android/device-runs/2026-11-12-samsung-a40-release-profile.md`,
   a debug APK with its library at the release profile); what that row
