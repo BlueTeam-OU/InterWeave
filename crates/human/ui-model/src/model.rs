@@ -7,7 +7,7 @@
 //! facade does.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use interweave_human_chat_protocol::{HumanChatV2, Rendered, is_allowed_link_scheme, render};
 use interweave_human_client_api::{
@@ -263,8 +263,10 @@ pub struct MessageItem {
     /// Whether a kept row holds this message too: an unread re-sent copy
     /// of a kept message shows both (agreed U1b).
     pub kept: bool,
-    /// The text, rendered within the subset.
-    pub body: Rendered,
+    /// The text, rendered within the subset: shared with the item it
+    /// shows, since a body at the envelope's bound is a tree of thousands
+    /// of blocks and every render lists the conversation's items.
+    pub body: Arc<Rendered>,
     /// The text as written: always viewable (`human-client-ui.md` §4).
     pub source: String,
     /// The authenticated sender of an inbound message, or `None` for
@@ -330,8 +332,9 @@ pub struct LastMessage {
     /// Its status's label.
     pub label: LabelKey,
     /// The text, rendered within the subset: the preview is its first
-    /// line, as the conversation draws it.
-    pub body: Rendered,
+    /// line, as the conversation draws it. Shared with its item, as
+    /// [`MessageItem::body`] is.
+    pub body: Arc<Rendered>,
     /// The local time it reached this app: never the time a sender
     /// asserts.
     pub local_at: u64,
@@ -649,7 +652,11 @@ struct Item {
     /// attached to it (agreed U1). Empty once only this session holds it.
     rows: Vec<(Table, RowId)>,
     envelope: HumanChatV2,
-    body: Rendered,
+    /// Shared with the [`MessageItem`]s and [`LastMessage`]s every render
+    /// lists: cloned, the tree of a body at the envelope's bound cost a
+    /// render 10-20 ms on the host per long message, and the A40's Back
+    /// out of an opening reader waited for a render (j107).
+    body: Arc<Rendered>,
     /// `body`'s preview, worked out the first time the conversation list
     /// asks for it: the list is built on every render, and the preview
     /// walks the whole body for its first line, which for a body at the
@@ -2041,7 +2048,7 @@ impl UiModel {
                 conversation,
                 direction: Direction::Outbound,
                 rows: vec![(Table::Pending, row)],
-                body: render(&envelope.text),
+                body: Arc::new(render(&envelope.text)),
                 preview: OnceLock::new(),
                 envelope,
                 author: None,
@@ -2293,7 +2300,7 @@ fn inbound_item(
         conversation,
         direction: Direction::Inbound,
         rows: vec![row],
-        body: render(&envelope.text),
+        body: Arc::new(render(&envelope.text)),
         preview: OnceLock::new(),
         envelope,
         author: Some(author),
