@@ -6153,8 +6153,12 @@ none is the status value's, which stays on this stage.
   change no lease or bootstrap address and no trust but the desktop the
   case trusts through the admin port after its baseline, since the
   Android profile refuses every send from a desktop it does not trust,
-  a real admin change seen as the control), passed on the stand-in and not yet run on a device,
-  which needs an APK carrying the case and the Pixel on wireless adb;
+  a real admin change seen as the control), passed on the stand-in and,
+  since 2026-11-13, on the Pixel 9a (API 37), a debug build of
+  `260a2a43c` over adb's tunnel, no radio network and no build after
+  that commit (#664,
+  `apps/human-android/device-runs/2026-11-13-pixel-9a-admin-shaped.md`;
+  A 2026-11-13 — until that run this said "not yet run on a device");
   and S21-12's step reads `owner`, its cases named and one item owed,
   a `user-presence` seed key invalidated on a device, which needs the
   owner's hand and their word to wipe the phone and is carried at the
