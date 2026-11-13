@@ -6045,12 +6045,15 @@ daemons each behind its own NAT in one user namespace (#352, 0a3ef6b7,
 2026-10-22), which is S13's bridge proof. Rows written by other lanes:
 C-02 and TM-48 (architect-cto, #335), TM-30 and TM-32's bridge half
 (rust-services-dev-02, #336), and Stage 21's TM-52 to TM-56 (rust-ui-dev,
-§29). Of the matrix's rows two name no test: TM-57, rust-ui-dev's and the
-one empty row, and C-04, carried whole, below (A 2026-11-12 — until
-p2p-network-dev-02's rows of that day this said six named no test yet,
-S12's five device rows (TM-25, TM-26, TM-42, TM-43, TM-47) and C-04, and
-had not counted TM-57 since #563 added that row on 2026-11-05; S12's five
-now name tests, below); every other
+§29). Of the matrix's rows one names no test: C-04, carried whole, below
+(A 2026-11-12 — until p2p-network-dev-02's rows of that day this said six
+named no test yet, S12's five device rows (TM-25, TM-26, TM-42, TM-43,
+TM-47) and C-04, and had not counted TM-57 since #563 added that row on
+2026-11-05; S12's five now name tests, below, and TM-57, rust-ui-dev's
+and the one empty row after them, names ten since #652 of 2026-11-12,
+the cut's, the reader's and two device cases run on the A40, so
+`check_security_matrix.py --strict` counts no empty row and one
+carried); every other
 row's tests exist, and `check_security_matrix.py` runs in the `tree
 checks` job, a required context, so clause (a)'s guard is in place.
 
@@ -6147,8 +6150,10 @@ none is the status value's, which stays on this stage.
   among the limits, no phone at hand reaching it; TM-42 names a new case,
   `tests/android-e2e/tests/admin_deputy.rs` (admin-shaped requests from a
   desktop daemon, raw and as a chat message, reach the app's client and
-  change no trust, lease or bootstrap address, a real admin change seen
-  as the control), passed on the stand-in and not yet run on a device,
+  change no lease or bootstrap address and no trust but the desktop the
+  case trusts through the admin port after its baseline, since the
+  Android profile refuses every send from a desktop it does not trust,
+  a real admin change seen as the control), passed on the stand-in and not yet run on a device,
   which needs an APK carrying the case and the Pixel on wireless adb;
   and S21-12's step reads `owner`, its cases named and one item owed,
   a `user-presence` seed key invalidated on a device, which needs the
@@ -7557,7 +7562,19 @@ owner:
   on the phone (a desktop body past the renderer's height panics it,
   TM-57, j92); and a reply whose target lies beyond the held rows read
   as `unavailable` on the command line, the store lookup by message id
-  architect-cto's to decide (j462).
+  architect-cto's to decide (j462). (A 2026-11-13 — the second of the
+  three closed: as this entry was written, a desktop body past the
+  renderer's height panicked it. Since #565, merged 2026-11-06, a body
+  past 2,000 grapheme clusters or 40 lines is drawn in the conversation
+  as its preview and whole only in the reader; since #583, merged
+  2026-11-07, a piece is split by its measured extent, so no drawn item
+  passes the 8,000-pixel item extent (`HUMAN-CHAT.md`, Bounds); and
+  since #652 TM-57's row names the tests,
+  the long shapes opened on the A40 among them
+  (`apps/human-android/device-runs/2026-11-12-samsung-a40-release-profile.md`,
+  a debug APK with its library at the release profile); what that row
+  leaves unproved is in its limit cell. The pane on a release APK and
+  the reply's target stay as written.)
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review
