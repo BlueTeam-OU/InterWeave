@@ -15,7 +15,7 @@ the phone's clock read UTC+4, and its log lines and screens show that.
 | Device | Samsung Galaxy A40 SM-A405FN, `samsung/a40eea/a40:11/RP1A.200720.012/A405FNXXU4CWC3:user/release-keys`, Android 11, **API 30** |
 | Link | Wireless adb, on this login's own adb server under the `samsung-a40` lease; no adb process of this login remained after any run (`pgrep -u "$(id -u)" -a adb` empty). `stay_on_while_plugged_in` read 7 before and after every run and was not changed. |
 | Before | The phone held rust-ui-dev-02's debug build (app `d0209344`, test `4db8c691`, another signer). rust-ui-dev-02 and p2p-network-dev-02 released the phone (REPLY 01a1d3ba-2170, 01a1d3ba-45bf), and both packages were uninstalled on the owner's word. |
-| Build under test | The app at main `41bb631b9`; the branch then added only `tests/android-e2e`, so it was the same app. Its later commits (the owed Connect's launch rule, j268) change the app but no drawing of a peer's text, and this run is not of them. `./gradlew --rerun-tasks assembleDebug assembleDebugAndroidTest`, with the native library compiled at the root `Cargo.toml`'s `[profile.release]` settings passed as `CARGO_PROFILE_DEV_*` (opt-level 3, thin LTO, one codegen unit, debug 1, overflow checks **on**, debug assertions off, no incremental). This is the 2026-11-12 A40 record's method: a release APK carries no trace and no case entry, so the case cannot drive one. rustc's command lines were not read; the control's overflow panic below shows the overflow checks were on. App sha256 `077e4183462eb1fd2f1636055d716f3a4c6512d8a9e37309e9b953e9580eb163`, androidTest `1efb4b1552d428095f93774ee0bc7a24bce9fb38369b6e431d236227f9b9af2b`, signer certificate SHA-256 `18f39ab0…`. |
+| Build under test | The app at main `41bb631b9`; the branch then added only `tests/android-e2e`, so it was the same app. Its later commits change the app (the owed Connect's launch rule, j268; a proposal's row unclipped at rest, j270; every elided label clipped to its box, j271, two of them drawing a peer's text), and this run is not of them. `./gradlew --rerun-tasks assembleDebug assembleDebugAndroidTest`, with the native library compiled at the root `Cargo.toml`'s `[profile.release]` settings passed as `CARGO_PROFILE_DEV_*` (opt-level 3, thin LTO, one codegen unit, debug 1, overflow checks **on**, debug assertions off, no incremental). This is the 2026-11-12 A40 record's method: a release APK carries no trace and no case entry, so the case cannot drive one. rustc's command lines were not read; the control's overflow panic below shows the overflow checks were on. App sha256 `077e4183462eb1fd2f1636055d716f3a4c6512d8a9e37309e9b953e9580eb163`, androidTest `1efb4b1552d428095f93774ee0bc7a24bce9fb38369b6e431d236227f9b9af2b`, signer certificate SHA-256 `18f39ab0…`. |
 | Control: the build is the one installed | After each install, `sha256sum` of each package's `base.apk` on the phone (its `pm path`) was the built APK's, both hashes above, for every run counted here. |
 | Control build | The same source and settings, with `cluster.rs`'s `too_long` returning false, so no character is ever replaced. It is a probe, not in the tree. App sha256 `da17702a63a5e27fea4b97b66af348a5b3a95a2f971821170553488fc1bea5e4`, same signer, installed with `install -r` over the build above; its `base.apk` read the same on the phone. |
 | Host side | `tests/android-e2e` on this branch, D a desktop `transport-daemon` on this host's loopback. Command: `cargo test -p interweave-android-e2e-tests --test cluster_bound -- --include-ignored --test-threads 1 --nocapture`, with `ANDROID_SERIAL`, `INTERWEAVE_ANDROID_INSTRUMENTATION=org.interweave.human.test/org.interweave.human.test.E2eCase` and `INTERWEAVE_ANDROID_SHOTS` set. |
@@ -50,18 +50,21 @@ was dropped: the body, read and not kept, and the accepted card's row
 are gone from the store by then, so Chats was drawn empty.
 
 **At the bound, in a one-line label, the marks spilled out of the
-line.** In the Chats row (step 1) and in the conversation's title
-(steps 4 and 5), the 31 stacked accents rose about 280 px above their
-line, over the name above and into the status bar. In wrapped text (the
-body, the proposal, the notices) the same character was drawn with
-about two marks. Nothing crashed and nothing past the bound was drawn,
-but a peer's name or text at the bound painted outside its row in those
-two places. The cause was every elided label: Slint 1.18.1 clips a Text
-to its box only under `overflow: clip`, which wrapped text has. Since
-this run every elided Text is drawn in a clipping box (ui-slint's
-`OneLine` and `FocusHeading`), `tests/compile.rs` holds each one to it
-and `tests/one_line_clip.rs` measures the desktop's Chats row; no phone
-has run it since.
+line.** In the Chats row (step 1) the 31 stacked accents rose from the
+preview over the row's own name and stopped at the row's top edge,
+which the row's clip cut. From the conversation's title (steps 4 and
+5), which nothing clipped, they ran up through the status bar and off
+the top of the screen. In wrapped text (the body, the proposal, the
+notices) the same character was drawn with about two marks. Nothing
+crashed and nothing past the bound was drawn, but a peer's name or
+text at the bound painted outside its line in those two places, and
+outside the screen's own area in the title. The cause was every elided
+label: Slint 1.18.1 clips a Text to its box only under
+`overflow: clip`, which wrapped text has. Since this run every elided
+Text is drawn in a clipping box (ui-slint's `OneLine` and
+`FocusHeading`), `tests/compile.rs` holds each one to it and
+`tests/one_line_clip.rs` measures the desktop's Chats preview staying
+in its line; no phone has run it since.
 
 ## The control: no replacement
 
