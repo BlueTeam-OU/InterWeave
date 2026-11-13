@@ -955,6 +955,41 @@ component ActionButton inherits FocusScope {
     }
 }
 
+// One line of text that may be a peer's or a person's: elided at its end
+// and drawn inside its own box. Slint 1.18.1 clips a Text to its box only
+// under `overflow: clip` (i-slint-core textlayout/sharedparley.rs,
+// draw_text); under `elide` a character's ink above or below the line is
+// drawn wherever it reaches, up to the nearest clipping ancestor. On the
+// A40 (tests/android-e2e/runs/2026-11-13-samsung-a40-cluster-bound.md) a
+// character at the cluster bound, 31 marks stacked on one letter, ran
+// from a Chats preview over the row's name to the row's own clip, and
+// from the conversation's title, which nothing clipped, through the
+// status bar. The box clips them to the line, as a wrapped Text is
+// clipped already: measured on the desktop (tests/one_line_clip.rs), not
+// re-run on a phone; tests/compile.rs holds every elided Text to a
+// clipping box.
+component OneLine inherits Rectangle {
+    in property <string> text;
+    in property <length> font-size: Type.body-large;
+    in property <int> font-weight: 400;
+    in property <brush> ink: Palette.on-surface;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: top;
+    clip: true;
+    HorizontalLayout {
+        Text {
+            text: root.text;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            color: root.ink;
+            overflow: elide;
+            horizontal-alignment: root.horizontal-alignment;
+            vertical-alignment: root.vertical-alignment;
+            accessible-role: none;
+        }
+    }
+}
+
 // A heading that takes keyboard and screen-reader focus and does
 // nothing when activated (swipe spec section 7): where focus goes once
 // the rows below it are gone, so focus is never lost.
@@ -987,17 +1022,21 @@ component FocusHeading inherits FocusScope {
     // The layout is the only child counted for the heading's size, so it
     // takes its text's height; the ring is placed, and not counted.
     VerticalLayout {
-        HorizontalLayout {
-            Text {
-                text: root.text;
-                font-weight: root.font-weight;
-                font-size: root.font-size;
-                color: Palette.on-surface;
-                wrap: root.wraps ? word-wrap : no-wrap;
-                min-height: self.preferred-height;
-                overflow: root.wraps ? clip : elide;
-                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                accessible-role: none;
+        // Clipped as OneLine is, for the one-line heading's elided text.
+        Rectangle {
+            clip: true;
+            HorizontalLayout {
+                Text {
+                    text: root.text;
+                    font-weight: root.font-weight;
+                    font-size: root.font-size;
+                    color: Palette.on-surface;
+                    wrap: root.wraps ? word-wrap : no-wrap;
+                    min-height: self.preferred-height;
+                    overflow: root.wraps ? clip : elide;
+                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                    accessible-role: none;
+                }
             }
         }
     }
@@ -4073,15 +4112,13 @@ component OpenRow inherits FocusScope {
                 hue: root.hue;
             }
         }
-        Text {
+        OneLine {
             horizontal-stretch: 1;
             text: root.text;
             font-size: Type.body-large;
-            color: Palette.on-surface;
-            overflow: elide;
+            ink: Palette.on-surface;
             vertical-alignment: center;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-            accessible-role: none;
         }
     }
     TapArea { tapped => { root.pressed(); } }
@@ -4152,7 +4189,14 @@ component ProposalEntry inherits Rectangle {
                     duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                     easing: ease-out;
                 }
-                clip: true;
+                // Not clipped at rest: Slint's TAB skips a control a clip
+                // other than the list's hides, so a card taller than the
+                // window lost Decline and Update contact below it (the
+                // A40, 2026-11-13; tests/cards.rs,
+                // `every_control_of_a_proposal_taller_than_the_window_is_a_tab_stop`).
+                // A swipe that moves the card clips it to the row's
+                // rounded shape; no test reads that half.
+                clip: self.offset != 0px;
                 border-radius: 12px;
                 // Accept toward the line's end, Decline toward its start
                 // (design section 5.4.4), mirrored right to left; a way
@@ -4329,6 +4373,18 @@ export component AppWindow inherits Window {
         root.menu-open = false;
         root.details-open = false;
         root.menu-closed-seq += 1;
+    }
+    // How many times either menu was opened, closed again or not: a
+    // launch's owed Connect does not open over Chats once one was
+    // (add-a-peer section 5.1), so the count moves at the opening.
+    out property <int> menus-opened;
+    public function open-overflow-menu() {
+        root.menu-open = true;
+        root.menus-opened += 1;
+    }
+    public function open-chats-menu() {
+        root.chats-menu-open = true;
+        root.menus-opened += 1;
     }
 
     // The device's network state: its full text, and Chats' subtitle in
@@ -5420,7 +5476,7 @@ export component AppWindow inherits Window {
                             focus-key: "app-options";
                             focus-seq: root.chats-menu-closed-seq;
                             focus-wanted: true;
-                            pressed => { root.chats-menu-open = true; }
+                            pressed => { root.open-chats-menu(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
@@ -5484,7 +5540,7 @@ export component AppWindow inherits Window {
                             focus-key: "app-options";
                             focus-seq: root.chats-menu-closed-seq;
                             focus-wanted: true;
-                            pressed => { root.chats-menu-open = true; }
+                            pressed => { root.open-chats-menu(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
@@ -5689,22 +5745,18 @@ export component AppWindow inherits Window {
                                     alignment: center;
                                     // The row's label and description already
                                     // say these.
-                                    Text {
+                                    OneLine {
                                         text: row.title;
                                         font-size: Type.body-large;
                                         font-weight: row.unread != "" ? 700 : 400;
-                                        color: Palette.on-surface;
-                                        overflow: elide;
+                                        ink: Palette.on-surface;
                                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                                        accessible-role: none;
                                     }
-                                    Text {
+                                    OneLine {
                                         text: row.preview;
                                         font-size: Type.body-medium;
-                                        color: Palette.on-surface-variant;
-                                        overflow: elide;
+                                        ink: Palette.on-surface-variant;
                                         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                                        accessible-role: none;
                                     }
                                 }
                                 if !root.rtl: VerticalLayout {
@@ -7673,7 +7725,7 @@ export component AppWindow inherits Window {
                             focus-key: "more-options";
                             focus-seq: root.menu-closed-seq;
                             focus-wanted: true;
-                            pressed => { root.menu-open = true; }
+                            pressed => { root.open-overflow-menu(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
@@ -7702,7 +7754,7 @@ export component AppWindow inherits Window {
                             focus-key: "more-options";
                             focus-seq: root.menu-closed-seq;
                             focus-wanted: true;
-                            pressed => { root.menu-open = true; }
+                            pressed => { root.open-overflow-menu(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
@@ -8932,12 +8984,11 @@ export component AppWindow inherits Window {
                             VerticalLayout {
                                 horizontal-stretch: 1;
                                 alignment: center;
-                                Text {
+                                OneLine {
                                     text: root.reader-title;
                                     font-size: Type.title-medium;
                                     font-weight: 500;
-                                    color: Palette.on-surface;
-                                    overflow: elide;
+                                    ink: Palette.on-surface;
                                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                                     accessible-role: text;
                                     accessible-label: Drawn.spoken(self.text);

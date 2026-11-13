@@ -3331,6 +3331,7 @@ dependencies = [
 name = "interweave-android-e2e-tests"
 version = "0.3.0"
 dependencies = [
+ "ed25519-dalek",
  "interweave-android-e2e-cases",
  "interweave-human-android-platform",
  "interweave-human-chat-protocol",

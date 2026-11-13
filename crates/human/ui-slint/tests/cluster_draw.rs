@@ -8,7 +8,8 @@
 //! frame as the event loop does. One test in this binary, since a process
 //! holds one window's event loop.
 //!
-//! What this cannot prove: the phone, which draws with another renderer,
+//! What this cannot prove: the phone, whose window and renderer are its
+//! own (`tests/android-e2e/tests/cluster_bound.rs`, a device case),
 //! or Show source, which `views.rs` holds to the same replacement.
 
 #![cfg(feature = "desktop")]

@@ -4929,3 +4929,82 @@ fn no_focus_ring_on_the_contacts_list_covers_a_neighbour() {
         "{checked:?}"
     );
 }
+
+/// Every control of a proposal taller than the list's window is a TAB
+/// stop: Copy `PeerId`, the same-name note's link, Decline and Update
+/// contact, in that order. Slint's TAB skips a control hidden by a
+/// clipping ancestor other than a `Flickable`, and the row clipped
+/// always, for its swipe, so with the card's end below the window
+/// Decline and Update contact were never reached (the Samsung A40,
+/// 2026-11-13, `tests/android-e2e/runs/2026-11-13-samsung-a40-cluster-bound.md`,
+/// Not counted). Mutation: the row's `clip: true` back.
+#[test]
+fn every_control_of_a_proposal_taller_than_the_window_is_a_tab_stop() {
+    use slint::platform::Key;
+    let mut view = view();
+    // Phone-wide, short and at Android's 200 % text (28 px): the card is
+    // taller than the window, so some of it is always out of the list's.
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 640.0));
+    let mut model = UiModel::new();
+    model.contacts_listed(vec![contact("c1", "Ada", P), contact("c2", "Ada", Q)]);
+    model.card_received(proposal(
+        1,
+        P,
+        card("Ada King", true),
+        ProposalContext {
+            updates: Some(ContactRef {
+                contact_id: "c1".to_owned(),
+                name: "Ada".to_owned(),
+            }),
+            same_name: vec![ContactRef {
+                contact_id: "c2".to_owned(),
+                name: "Ada".to_owned(),
+            }],
+            key: KeyView::Same,
+            values: interweave_human_ui_model::ValueChanges {
+                new_name: Some("Ada King".to_owned()),
+                photo: interweave_human_ui_model::PhotoChange::New,
+                ..interweave_human_ui_model::ValueChanges::default()
+            },
+            ..context()
+        },
+    ));
+    let _ = shown(&mut view, &mut model, P);
+    // The case this is about: the card is taller than the window, so
+    // wherever the list stands part of it is out of view.
+    let cards: Vec<ElementHandle> =
+        ElementHandle::find_by_element_type_name(view.window(), "ProposalCard").collect();
+    assert_eq!(cards.len(), 1, "one card");
+    let tall = cards[0].size().height;
+    assert!(
+        tall > 640.0,
+        "the card is {tall} px tall, inside the window"
+    );
+    // TAB from the window's start, as a person does: a stop is reached
+    // or skipped by the walk, never by a focus request.
+    let walk: Vec<String> = (0..12)
+        .map(|_| {
+            key(&view, Key::Tab);
+            settle();
+            view.window().get_focus_id().to_string()
+        })
+        .collect();
+    let copy = walk
+        .iter()
+        .position(|k| k == "proposal-copy:0")
+        .unwrap_or_else(|| panic!("Copy PeerId reached: {walk:?}"));
+    assert_eq!(
+        walk[copy + 1..copy + 4],
+        [
+            "proposal-contact:0:2",
+            "proposal-decline:0",
+            "proposal-accept:0"
+        ],
+        "Copy PeerId, the link, Decline, Update contact: {walk:?}"
+    );
+}

@@ -204,6 +204,23 @@ impl Screens {
         self.timed("reader_end", ended)
     }
 
+    /// The first card proposal's Accept TAB reaches, pressed, and focus
+    /// settled after it. The trace has no line for a card's outcome, so
+    /// the step answers that the press was taken, not what it did: the
+    /// caller reads the screen.
+    pub fn accept_card(&mut self, patience: Duration) -> Step {
+        let pressed = self
+            .press("proposal-accept:", &[], patience)
+            .and_then(|()| self.settle().map(drop));
+        self.answer("accept_card", pressed)
+    }
+
+    /// Back from a conversation to Chats.
+    pub fn back_to_conversations(&mut self, patience: Duration) -> Step {
+        let left = self.back(&["page=conversations"], patience);
+        self.answer("back_to_conversations", left)
+    }
+
     /// Back from the reader to its conversation, focus on the row's Read
     /// the whole message (section 5.4).
     pub fn close_reader(&mut self, patience: Duration) -> Step {
