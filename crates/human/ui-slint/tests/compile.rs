@@ -270,8 +270,8 @@ fn the_spoken_scan_refuses_a_text_not_wrapped() {
 /// its parent a layout, and that layout's parent an element binding
 /// `clip: true`. Slint 1.18.1 clips a Text to its own box only under
 /// `overflow: clip`, so under `elide` a character at the cluster bound drew
-/// its 31 stacked marks about 280 px above a Chats row and the
-/// conversation's title, into the status bar
+/// its 31 stacked marks up to the nearest clipping ancestor: over a Chats
+/// row's name, and from the conversation's title through the status bar
 /// (tests/android-e2e/runs/2026-11-13-samsung-a40-cluster-bound.md).
 /// Mutation: `clip: true` taken off `OneLine` or `FocusHeading`'s box.
 #[test]

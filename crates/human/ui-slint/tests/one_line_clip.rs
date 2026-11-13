@@ -4,7 +4,9 @@
 //! label's box, drawn by the desktop's own window and software renderer.
 //! Slint 1.18.1 clips a Text to its box only under `overflow: clip`, and
 //! an elided line drew a character of one letter and 31 stacked marks
-//! about 280 px above a Chats row on the Galaxy A40
+//! up to its nearest clipping ancestor: over a Chats row's name to the
+//! row's clip, and from the conversation's title through the status bar,
+//! on the Galaxy A40
 //! (tests/android-e2e/runs/2026-11-13-samsung-a40-cluster-bound.md).
 //! The Chats list is drawn twice, its one row's preview a plain letter
 //! and then that character, and every pixel that differs lies within one
@@ -12,8 +14,9 @@
 //! test in this binary, since a process holds one window's event loop.
 //!
 //! What this cannot prove: the phone's renderer (Skia, the same shared
-//! text drawing, `cluster_bound.rs` a device case), and the other
-//! one-line labels, which `compile.rs` holds to the same clipping box.
+//! text drawing, `cluster_bound.rs` a device case, not re-run since), and
+//! the other one-line labels, the conversation's title among them, which
+//! `compile.rs` holds to the same clipping box.
 
 #![cfg(feature = "desktop")]
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]

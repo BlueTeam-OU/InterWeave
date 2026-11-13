@@ -959,12 +959,15 @@ component ActionButton inherits FocusScope {
 // and drawn inside its own box. Slint 1.18.1 clips a Text to its box only
 // under `overflow: clip` (i-slint-core textlayout/sharedparley.rs,
 // draw_text); under `elide` a character's ink above or below the line is
-// drawn wherever it reaches. A character at the cluster bound, 31 marks
-// stacked on one letter, drew them about 280 px above a Chats row and the
-// conversation's title, over the row above and into the status bar
-// (tests/android-e2e/runs/2026-11-13-samsung-a40-cluster-bound.md). The
-// box clips them, as a wrapped Text is clipped already; tests/compile.rs
-// holds every elided Text to a clipping box.
+// drawn wherever it reaches, up to the nearest clipping ancestor. On the
+// A40 (tests/android-e2e/runs/2026-11-13-samsung-a40-cluster-bound.md) a
+// character at the cluster bound, 31 marks stacked on one letter, ran
+// from a Chats preview over the row's name to the row's own clip, and
+// from the conversation's title, which nothing clipped, through the
+// status bar. The box clips them to the line, as a wrapped Text is
+// clipped already: measured on the desktop (tests/one_line_clip.rs), not
+// re-run on a phone; tests/compile.rs holds every elided Text to a
+// clipping box.
 component OneLine inherits Rectangle {
     in property <string> text;
     in property <length> font-size: Type.body-large;
