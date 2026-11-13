@@ -531,6 +531,12 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     // another path than the reply's: waited for, then counted, so the
     // send's own line is never read as one the link's return started.
     // A send answered at once dialled nothing, and nothing is awaited.
+    // The wait reads `retry scheduled` as "its `dial failed` is logged":
+    // the runtime pushes a failed dial's event in the turn that settles
+    // it and drains the gate's retry note at the top of the next
+    // (`runtime/mod.rs`, `drain_notes`), and composition logs them in
+    // that order. A runtime that drained the note first would break
+    // this reading, and the watch's below.
     if let Some((Err(TransportError::PeerUnreachable), _)) = answered {
         until_logged(&b, "retry scheduled").await;
     }
@@ -542,7 +548,8 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     netns::overlay_up();
     until_both(&a, &b, true, PATIENCE, "A redialled once the link returned").await;
     // The watch, ended early by the line a scheduler dial's failure
-    // writes (a failed dial's own `origin` is the one that dialled).
+    // writes (a failed dial's own `origin` is the one that dialled),
+    // which by the order above follows that dial's `dial failed`.
     let deadline = tokio::time::Instant::now() + WATCH;
     while tokio::time::Instant::now() < deadline && !b.log().contains(SCHEDULER_DIAL) {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -627,15 +634,16 @@ const LEARNED_NO_SEND: &str = "the_side_that_learned_an_address_dials_nothing_un
 /// a close schedules no retry (`record_connection_closed` releases the
 /// slot and nothing else), so B dials nothing after the close, nor when
 /// the link returns -- the network addition lifts a held-off peer's
-/// backoff, and B holds none for A. That B held the address all along
-/// is the probe's: a send after a second loss, once both watches are
-/// read, is answered `PeerUnreachable`, which an empty book answers
-/// `PeerUnknown` (the first case). The learning is read after the
-/// watches rather than before them, since a send would start the
-/// retries the watches look for; what B learned at the first connection
-/// it learned again at the second, from the same Identify. The case
-/// below is the positive control that the dial count is live in this
-/// shape.
+/// backoff, and B holds none for A. The probe -- a send after a second
+/// loss, once both watches are read, answered `PeerUnreachable`, which
+/// an empty book answers `PeerUnknown` (the first case) -- shows B held
+/// an address for A by the SECOND close, and no more: it is read after
+/// the watches, since a send would start the retries they look for.
+/// That B has learned it within the first connection's second, before
+/// the first close and so through both watches, is the case below's
+/// evidence (its first send, before the link returns, is answered
+/// `PeerUnreachable`), not this run's. The case below is also the
+/// positive control that the dial count is live in this shape.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_side_that_learned_an_address_dials_nothing_until_it_sends() {
     if !netns::in_overlay(LEARNED_NO_SEND) {
