@@ -72,6 +72,8 @@ impl AppClient for HubClient {
                     return Err("the app's service stopped".to_owned());
                 }
                 ToView::Running(false)
+                // Which start runs: the case waits on whether one does.
+                | ToView::Start(_)
                 | ToView::NetworkAccess(true)
                 | ToView::AuthenticationNeeded(false)
                 // What the person's Trust page says of the unlock policy:

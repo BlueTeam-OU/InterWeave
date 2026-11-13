@@ -8,13 +8,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use interweave_human_android_platform::start_rules::{Launch, StartRules};
+use interweave_human_android_platform::start_rules::StartRules;
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
-use interweave_human_ui_model::{BOUND_MS, RuntimeHost, UiModel, ViewEvent, WindowEvent};
+use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::{
     ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, ShowOpen, TouchSettings, View, after,
     defer, init_android, invoke_on_window,
@@ -456,28 +456,42 @@ impl Opener for AndroidOpener {
     }
 }
 
+/// The rules of a start with Connect owed (add-a-peer section 5.1;
+/// android-platform's `start_rules` says them and tests them). The
+/// process's, not a window's: a window the system ends and makes again
+/// while the service runs is not a launch, and shows what the start
+/// decided, its bound going on and what the earlier window opened still
+/// counting.
+static RULES: Mutex<StartRules> = Mutex::new(StartRules::new());
+
+/// The clock of those rules, the process's as they are.
+static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+fn rules() -> MutexGuard<'static, StartRules> {
+    // Each of the rules' calls leaves them whole: nothing half-written.
+    RULES.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 struct Root {
     view: Rc<RefCell<View>>,
     side: ViewSide<AndroidSurface, AndroidOpener>,
     link: ViewLink,
-    /// The rules of a start with Connect owed (add-a-peer section 5.1;
-    /// android-platform's `start_rules` says them and tests them).
-    rules: StartRules,
-    /// The root's clock for those rules.
-    epoch: Instant,
 }
 
 impl Root {
+    /// A window's root: Chats shows at it from here, and what is opened
+    /// from it counts against an owed Connect (add-a-peer §5.1), together
+    /// with what an earlier window of this start opened.
+    fn new_window(view: Rc<RefCell<View>>) -> Self {
+        rules().new_window(view.borrow().opened_from_chats());
+        Self::attach(view)
+    }
+
     fn attach(view: Rc<RefCell<View>>) -> Self {
         let link = ServiceHost::global().hub().attach(Arc::new(|| {
             invoke_on_window(turn);
         }));
         let surface = Rc::clone(&view);
-        // Chats shows at this launch from here: what is opened from it
-        // counts against an owed Connect (add-a-peer §5.1). A reattach
-        // keeps the rules it had, and with them where the count began.
-        let mut rules = StartRules::new();
-        rules.count_from(view.borrow().opened_from_chats());
         Self {
             // Each fresh model -- a service restart makes one -- asks the
             // marker again, so a Connect a start left undecided is owed to
@@ -494,8 +508,6 @@ impl Root {
             }),
             view,
             link,
-            rules,
-            epoch: Instant::now(),
         }
     }
 
@@ -503,7 +515,7 @@ impl Root {
     /// against its owed Connect from here, not from the launch (§5.1).
     fn start_asked(&mut self) {
         let opened = self.view.borrow().opened_from_chats();
-        self.rules.count_from(opened);
+        rules().count_from(opened);
     }
 
     /// A held C4's or R4's start, decided or past its bound: the screen
@@ -518,7 +530,10 @@ impl Root {
             // that one is deferred at once.
             self.side.side_mut().connect_defer();
             let refused = !self.side.running() && self.side.start_decided(asked_at);
-            self.rules.bound_passed(asked_at, refused);
+            let mut carried = rules();
+            carried.bound_passed(asked_at, refused);
+            carried.remember(&self.side);
+            drop(carried);
             crate::onboard::start_decided();
         } else if self.side.start_decided(asked_at) {
             crate::onboard::start_decided();
@@ -542,13 +557,12 @@ impl Root {
         crate::store::follow(&self.view, self.side.store_answer());
         if self.link.lost() {
             // Detached by the hub: attach again, and start from a listing.
-            // The rules go with the view: a deferral they owe is the next
-            // model's, which the fresh attach makes.
+            // The same launch: a deferral the rules owe is the next
+            // model's, which the fresh attach makes, and the start's bound
+            // and decision go on.
             let view = Rc::clone(&self.view);
-            let mut rules = std::mem::take(&mut self.rules);
-            rules.reattached();
+            rules().reattached();
             *self = Self::attach(view);
-            self.rules = rules;
             defer(turn);
             return;
         }
@@ -557,17 +571,17 @@ impl Root {
         // opening the turn has yet to take is counted already, so the
         // reads it settles open nothing over it.
         let opened = self.view.borrow().opened_from_chats();
-        let now = u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let now = u64::try_from(EPOCH.elapsed().as_millis()).unwrap_or(u64::MAX);
         let held = crate::onboard::held_start().is_some();
-        let turned = self.rules.turn(&mut self.side, held, opened, now);
+        let turned = rules().turn(&mut self.side, held, opened, now);
         if turned.started {
             #[cfg(feature = "ui-trace")]
             log(&interweave_human_ui_slint::start_line(
                 interweave_human_ui_slint::TracedStart::Running,
             ));
         }
-        if turned.launch == Launch::Armed {
-            after(Duration::from_millis(BOUND_MS), turn);
+        if let Some(wait) = turned.wake_in_ms {
+            after(Duration::from_millis(wait), turn);
         }
         for command in turned.commands {
             if let Err(command) = hub.command(command) {
@@ -773,7 +787,7 @@ fn android_main(app: AndroidApp) {
                 });
             });
             let view = Rc::clone(&view);
-            ROOT.with(|root| *root.borrow_mut() = Some(Root::attach(view)));
+            ROOT.with(|root| *root.borrow_mut() = Some(Root::new_window(view)));
             defer(turn);
         }
     };
