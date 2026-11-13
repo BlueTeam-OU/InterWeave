@@ -233,6 +233,13 @@ impl Screens {
     /// `on_row` runs once focus is on the row, before the keys: a
     /// recording started there spans the keys and not the TABs.
     ///
+    /// With `second`, a second Back follows the first by that long, and
+    /// the step passes once the trace shows the reader's page, the
+    /// conversation's and then the chat list's: the first Back closed the
+    /// reader and the second acted on the conversation, neither lost nor
+    /// merged (section 5.4); focus is then the list's, not the row's, and
+    /// the step adds `back2-at`.
+    ///
     /// The two keys go from one shell, the ENTER's `input` started in the
     /// background, so the gap between them is `after` give or take the
     /// difference between the two `input`s' start-up, not `after` plus
@@ -241,6 +248,7 @@ impl Screens {
         &mut self,
         opened: &[String],
         after: Duration,
+        second: Option<Duration>,
         patience: Duration,
         on_row: impl FnOnce(),
     ) -> Step {
@@ -259,12 +267,24 @@ impl Screens {
         // the first screen showed are read from the two together. The
         // Enter's stamp comes just before its launch and the Back's just
         // after, so the sleep alone sits between the two launches.
+        let again = second.map_or_else(String::new, |gap| {
+            format!(
+                " sleep {:.3}; input keyevent KEYCODE_BACK & echo back2-at $(date +%T.%N);",
+                gap.as_secs_f64()
+            )
+        });
         let keys = format!(
-            "echo enter-at $(date +%T.%N); input keyevent KEYCODE_ENTER & sleep {:.3}; input keyevent KEYCODE_BACK & echo back-at $(date +%T.%N); wait",
+            "echo enter-at $(date +%T.%N); input keyevent KEYCODE_ENTER & sleep {:.3}; input keyevent KEYCODE_BACK & echo back-at $(date +%T.%N);{again} wait",
             after.as_secs_f64()
         );
         let reader = format!("{TRACE}page=reader");
         let conversation = format!("{TRACE}page=conversation");
+        let list = format!("{TRACE}page=conversations");
+        let pages: &[&str] = if second.is_some() {
+            &["page=reader", "page=conversation", "page=conversations"]
+        } else {
+            &["page=reader", "page=conversation"]
+        };
         let mut stamps = Vec::new();
         let closed = self
             .adb_ok(&["shell", &keys])
@@ -274,25 +294,30 @@ impl Screens {
                 stamps = said
                     .lines()
                     .filter_map(|l| l.split_once(' '))
-                    .filter(|(k, _)| matches!(*k, "enter-at" | "back-at"))
+                    .filter(|(k, _)| matches!(*k, "enter-at" | "back-at" | "back2-at"))
                     .map(|(k, v)| (k.to_owned(), v.trim().to_owned()))
                     .collect();
             })
-            .and_then(|()| self.wait_all(from, &["page=reader", "page=conversation"], patience))
+            .and_then(|()| self.wait_all(from, pages, patience))
             .and_then(|()| {
                 let lines = &self.seen[from..];
                 let opened_at = lines.iter().position(|l| *l == reader);
                 let back_at = lines.iter().rposition(|l| *l == conversation);
-                match (opened_at, back_at) {
-                    (Some(o), Some(b)) if o < b => Ok(()),
+                let left_at = lines.iter().rposition(|l| *l == list);
+                match (opened_at, back_at, left_at) {
+                    (Some(o), Some(b), None) if o < b && second.is_none() => Ok(()),
+                    (Some(o), Some(b), Some(l)) if o < b && b < l && second.is_some() => Ok(()),
                     _ => Err(format!(
-                        "the conversation's page did not follow the reader's; {}",
+                        "the pages did not follow each other as the Backs ask ({pages:?}); {}",
                         self.where_now()
                     )),
                 }
             })
             .and_then(|()| self.settle().map(drop))
             .and_then(|()| {
+                if second.is_some() {
+                    return Ok(());
+                }
                 // Its own row's control, not any: a conversation of several
                 // cut rows has an earlier one to land on by mistake.
                 if self.focus == read {
