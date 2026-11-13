@@ -6045,12 +6045,15 @@ daemons each behind its own NAT in one user namespace (#352, 0a3ef6b7,
 2026-10-22), which is S13's bridge proof. Rows written by other lanes:
 C-02 and TM-48 (architect-cto, #335), TM-30 and TM-32's bridge half
 (rust-services-dev-02, #336), and Stage 21's TM-52 to TM-56 (rust-ui-dev,
-§29). Of the matrix's rows two name no test: TM-57, rust-ui-dev's and the
-one empty row, and C-04, carried whole, below (A 2026-11-12 — until
-p2p-network-dev-02's rows of that day this said six named no test yet,
-S12's five device rows (TM-25, TM-26, TM-42, TM-43, TM-47) and C-04, and
-had not counted TM-57 since #563 added that row on 2026-11-05; S12's five
-now name tests, below); every other
+§29). Of the matrix's rows one names no test: C-04, carried whole, below
+(A 2026-11-12 — until p2p-network-dev-02's rows of that day this said six
+named no test yet, S12's five device rows (TM-25, TM-26, TM-42, TM-43,
+TM-47) and C-04, and had not counted TM-57 since #563 added that row on
+2026-11-05; S12's five now name tests, below, and TM-57, rust-ui-dev's
+and the one empty row after them, names ten since #652 of 2026-11-12,
+the cut's, the reader's and two device cases run on the A40, so
+`check_security_matrix.py --strict` counts no empty row and one
+carried); every other
 row's tests exist, and `check_security_matrix.py` runs in the `tree
 checks` job, a required context, so clause (a)'s guard is in place.
 
