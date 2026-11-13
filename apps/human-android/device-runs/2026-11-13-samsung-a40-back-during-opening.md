@@ -75,7 +75,9 @@ the two stress shapes.
 
 - `ui-slint` (4257d77f3, c3f15adf5): the opening rests one pass of the
   loop after its first go and after each turn. It builds nothing for
-  150 ms after the event listener sees platform input.
+  150 ms after the event listener sees platform input. Since 17234e2fe,
+  run after this record's runs, that hold lasts at most 300 firings in a
+  row.
 - `ui-model` (e80a1e345): each item's parsed body is shared with the lists
   a render asks for, not copied. The host render above is about 0.3 ms.
 
