@@ -63,7 +63,7 @@ async fn disconnected_within(hold_data_plane: bool, window: Duration) -> bool {
         }
     };
     let far_peer =
-        TransportIdentity::parse(&far.local_peer_id().to_base58()).expect("a valid peer id");
+        TransportIdentity::parse(far.local_peer_id().to_base58()).expect("a valid peer id");
     let far_task = tokio::spawn(async move {
         loop {
             let _ = far.select_next_some().await;
