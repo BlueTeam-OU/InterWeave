@@ -624,7 +624,9 @@ access.
     chip, a grid position and Try again keep the exceptions below
     however they are activated.
   - Every other input leaves the mode as it was: Back, Escape, a Space
-    or an Enter that did nothing, and a tap on a disabled key, on text
+    or an Enter that did nothing, a screen reader's activate action on
+    a disabled key (it does nothing, as the tap does), and a tap on a
+    disabled key, on text
     that does nothing when tapped (the position, the letters, the
     match count, C3's title and body, and the text of a banner, a
     notice or `IdCheckWrong` but not their actions), or on no control
@@ -1053,11 +1055,16 @@ scale would also be a finding of the Android review
       hardware keyboard, focus moved to the p key and p activated,
       the letters show "ap", and the next Enter presses p again
       ("app"). In typing mode, that Enter would do nothing, since many
-      words begin "ap". This check needs the platform's accessibility
-      tree: on
-      Android it is blocked, not passed, until the build exposes one
-      to TalkBack (the plan's TalkBack carry to the release gate); on
-      the desktop it is run with Orca.
+      words begin "ap". On a device this check needs the platform's
+      accessibility tree, and it is blocked, not passed, on both
+      clients: on Android until the build exposes one to TalkBack (the
+      plan's TalkBack carry to the release gate), and on the desktop
+      until it shows the identity screens, which it does not today.
+      Until then, the check is a host test on Slint's testing backend
+      that invokes the p key's accessible default action, as
+      `crates/human/ui-slint/tests/cards.rs` drives its controls. That
+      test is rust-ui-dev's to write, and it is a dependency of this
+      check.
     - At 200 %, `IdReviewWords` opens the full list with focus on the
       current position's row. Back, Escape and the app bar arrow each
       close it with nothing changed, no discard dialog and focus on
@@ -1188,44 +1195,51 @@ scale would also be a finding of the Android review
          interweave` shows the start succeeding. No second K1 rises,
          then or at the next launch. Which case applies is read from
          the trace, not from the screen. The phone's screen and keys
-         are not touched until the trace has been read, so that the
-         last `page=` line is the client's own and not a page the
-         tester opened. After R4's continue, the
+         are not touched until the trace has been read, so that every
+         line after R4's continue is the client's own and not a page
+         the tester opened. After R4's continue, the
          trace writes `connect=owed` while the start reads the peer
-         list and the trust set, and writes no `page=` line until R4
-         leaves the screen. Wait,
-         for at most 30 seconds, until
-         the last `connect=` line is no longer `connect=owed` (on the
-         A40 this took under a second). Then read the last `connect=`
-         line and the last `page=` line as one pair. When Connect opens,
-         the trace writes `page=connect` just before `connect=open`.
-         `connect=open` with `page=connect` is Connect opening.
-         `connect=settled` with `page=conversations` is Chats
-         staying, and so is `connect=not-owed` with
-         `page=conversations`. A start writes `connect=not-owed` when
-         the restore did not write the marker that says Connect is
-         owed. `connect=deferred` with
-         `page=conversations` means that the start could not read
-         the peer list or the trust set within the 10 s bound, so
+         list and the trust set. While R4 covers the window, the trace
+         writes no `page=` line; it writes `identity=closed` when R4
+         leaves the screen, and then a `page=` line only if the page
+         under R4 differs from the last one written. K1 rose over
+         Chats, so the last `page=` line already names Chats
+         (`page=conversations`), and Chats after R4 writes no new
+         `page=` line. Wait, for at most 30 seconds, until the trace
+         has written `identity=closed` and the last `connect=` line is
+         no longer `connect=owed` (on the A40 this took under a
+         second). Then read the last `connect=` line, and whether a
+         `page=connect` line follows `identity=closed`.
+         `connect=open`, with `page=connect` after `identity=closed`,
+         is Connect opening. `connect=settled` with no `page=` line
+         after `identity=closed` is Chats staying, and so is
+         `connect=not-owed` with no such line. A start writes
+         `connect=not-owed` when the restore did not write the marker
+         that says Connect is owed. `connect=deferred` with no such
+         line means that the start could not read the peer list or
+         the trust set within the 10 s bound, so
          Chats opens without Connect (`design/2026-10-22-add-a-peer.md`
          §5.1); then only the Connect
          part of the step is void, not passed, and the step is run
          again. The step fails if any of these holds: the Service is
          not listed; logcat does not show the start succeeding; a
          second K1 rises, then or at the next launch; after 30
-         seconds the last `connect=` line is still `connect=owed`;
-         after R4's continue, a `page=conversations` line comes before
-         a `page=connect` line (Chats, then Connect over it);
-         the pair is none of the four pairs above (`connect=open`
-         with `page=connect`, and `connect=settled`,
-         `connect=not-owed` or `connect=deferred` with
-         `page=conversations`); the pair is `connect=open` with
-         `page=connect` on a phone whose Peers page or Trust page,
-         or both, listed something before the hooks; or the pair is
+         seconds the trace has not written `identity=closed`, or the
+         last `connect=` line is still `connect=owed`; the last
+         `connect=` line written before `identity=closed` is
+         `connect=owed` and a `connect=open` follows it (R4 went
+         before the start decided: Chats, then Connect over it);
+         the result is none of the four above (`connect=open` with
+         `page=connect` after `identity=closed`, and
+         `connect=settled`, `connect=not-owed` or `connect=deferred`
+         with no `page=` line after it); the result is Connect opening
+         on a phone whose Peers page or Trust page,
+         or both, listed something before the hooks; or the result is
          Chats staying on a phone whose Peers page and Trust page
          both listed nothing before the hooks. There is one
-         exception to that last case. If, on such a phone, the pair
-         is `connect=not-owed` with `page=conversations` and
+         exception to that last case. If, on such a phone, the result
+         is `connect=not-owed` with no `page=` line after
+         `identity=closed`, and
          `logcat -s interweave` shows a line that contains
          `writing the connect-owed marker:` and that was logged between
          the clear of the log at the start of this step and R4's
