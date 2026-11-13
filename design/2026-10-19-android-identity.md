@@ -1202,17 +1202,20 @@ scale would also be a finding of the Android review
          list and the trust set. While R4 covers the window, the trace
          writes no `page=` line; it writes `identity=closed` when R4
          leaves the screen, and then a `page=` line only if the page
-         under R4 differs from the last one written. K1 rose over
-         Chats, so the last `page=` line already names Chats
-         (`page=conversations`), and Chats after R4 writes no new
-         `page=` line. Wait, for at most 30 seconds, until the trace
+         under R4 differs from the last one written. Step 3 runs in
+         the window that step 2's launch made, which wrote no `page=`
+         line before K1 covered it, so Chats after R4 writes
+         `page=conversations` after `identity=closed`; a K1 raised
+         over a window that had shown Chats writes no new `page=`
+         line. Either is Chats, so Chats is read as no `page=connect`
+         line after `identity=closed`. Wait, for at most 30 seconds, until the trace
          has written `identity=closed` and the last `connect=` line is
          no longer `connect=owed` (on the A40 this took under a
          second). Then read the last `connect=` line, and whether a
          `page=connect` line follows `identity=closed`.
          `connect=open`, with `page=connect` after `identity=closed`,
-         is Connect opening. `connect=settled` with no `page=` line
-         after `identity=closed` is Chats staying, and so is
+         is Connect opening. `connect=settled` with no `page=connect`
+         line after `identity=closed` is Chats staying, and so is
          `connect=not-owed` with no such line. A start writes
          `connect=not-owed` when the restore did not write the marker
          that says Connect is owed. `connect=deferred` with no such
@@ -1232,13 +1235,13 @@ scale would also be a finding of the Android review
          the result is none of the four above (`connect=open` with
          `page=connect` after `identity=closed`, and
          `connect=settled`, `connect=not-owed` or `connect=deferred`
-         with no `page=` line after it); the result is Connect opening
+         with no `page=connect` line after it); the result is Connect opening
          on a phone whose Peers page or Trust page,
          or both, listed something before the hooks; or the result is
          Chats staying on a phone whose Peers page and Trust page
          both listed nothing before the hooks. There is one
          exception to that last case. If, on such a phone, the result
-         is `connect=not-owed` with no `page=` line after
+         is `connect=not-owed` with no `page=connect` line after
          `identity=closed`, and
          `logcat -s interweave` shows a line that contains
          `writing the connect-owed marker:` and that was logged between
