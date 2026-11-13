@@ -609,9 +609,10 @@ thread_local! {
 
 /// A later start was asked for (`onboard::person_asked`), from any
 /// thread: on the window's, once no turn holds the root, what is opened
-/// from Chats counts from there. The asks come from a store screen, an
-/// identity screen or a system prompt, each over Chats, so nothing can be
-/// opened from Chats between the ask and this. No root yet: the attach
+/// from Chats counts from there. That is at least one hop of the event
+/// loop after the ask, so an opening queued within it counts as one made
+/// before the ask. Most asks come from a screen or a prompt over Chats;
+/// a discard shows Chats just before its ask. No root yet: the attach
 /// that makes one starts the count itself.
 pub(crate) fn start_asked() {
     fn now() {
