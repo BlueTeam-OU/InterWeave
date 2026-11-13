@@ -132,3 +132,54 @@ allowlist is that list. The fleet's own record
 of its carrier names endpoints by label today and changes by proposal
 to fabric-coordinator. Propagation: decisions 1, 4 and 5; this note; the log
 row; the digest entry.
+
+### Amendment 2026-11-13 — An idle connection to a peer that cannot dial back is held
+
+The fleet's second host reaches the first over a private overlay, and
+the first cannot be dialled from it, so a login on the second host
+sends only over a connection the first host dialled. The owner asked
+on 2026-11-13 whether such a host can send at all. Read from main, a
+send reuses an open direct connection whichever side dialled it;
+with none it answers `PeerUnknown` at once when it holds no address
+for the peer, and with an address it answers `PeerUnreachable` as
+`CONNECTIVITY.md` §12 says of a send to a not-connected peer with a
+known path, at once while the gate holds the peer and otherwise
+after one dial; the IPC server answers `Timeout` instead when the
+request's deadline passes first (`LOCAL-IPC.md`). p2p-network-dev-01 measured
+the rest (GZCoord `01a1d39c-4ddc`, main a04400b39, two daemons on
+loopback): an idle direct connection stayed on one socket for 180 s,
+past the 60 s idle timeout, but by a side effect — the pinned
+`libp2p-gossipsub` 0.50.0 parks an outbound stream per connection —
+and by no rule of ours; after the far daemon restarts, the side
+holding the static-bootstrap entry redials in about a second and the
+other side never does.
+
+architect-cto's recommendation to the owner was to make the kept
+connection a rule with a test, beside the public port the owner
+directed for the second host (which is the deployment's, on the
+fabric's side of decision 7's line). The owner said yes on
+2026-11-13, first to p2p-network-dev-01, who built the hold
+(`SubstrateConfig::hold_data_plane`, on in every profile, #657 merged
+c94f6be69), and again in architect-cto's session that evening. The
+engineering rule — one direct connection per data-plane peer, chosen
+alike at both ends, pinged, closed on a missed ping — landed with the
+code as `transport/libp2p/CONNECTIVITY.md` §14's A 2026-11-13.
+
+This amendment is the decision's record on the consumer's side, which
+#657 did not carry: decision 2 gains the promise and what it does not
+promise (no redial by the side that holds no address), and decision
+5b names the one-sided deployment and the case of
+`tests/automated-client` that holds it, saying in as many words that
+the case shows the property with gossipsub present and that the
+mechanism's proof is `held_data_plane.rs`. Nothing a reader of the
+earlier text relied on is changed: before it, the record promised
+nothing about an idle connection.
+
+Not proved, as §14 names: the same-connection choice over two real
+Swarms; a real NAT's mapping expiring or a carrier drop; an outage
+long enough for the dial backoff to delay the reconnect; an idle
+period past 180 s on two real hosts; the ping's cost on a phone.
+
+Propagation: decisions 2 and 5b; `clients/automated/AUTOMATED-CLIENT.md`
+§2 (a promise row) and §5; this note; the log row; the README row;
+the digest entry and its keyword-table row.
