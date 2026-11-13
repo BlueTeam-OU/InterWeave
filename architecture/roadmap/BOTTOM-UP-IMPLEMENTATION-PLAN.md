@@ -7562,7 +7562,17 @@ owner:
   on the phone (a desktop body past the renderer's height panics it,
   TM-57, j92); and a reply whose target lies beyond the held rows read
   as `unavailable` on the command line, the store lookup by message id
-  architect-cto's to decide (j462).
+  architect-cto's to decide (j462). (A 2026-11-13 — the second of the
+  three closed: as this entry was written, a desktop body past the
+  renderer's height panicked it. Since #565, merged 2026-11-06, a body
+  past 2,000 grapheme clusters or 40 lines is drawn in the conversation
+  as its preview and whole only in the reader, no drawn item passing the
+  renderer's item extent, and since #652 TM-57's row names the tests,
+  the long shapes opened on the A40 among them
+  (`apps/human-android/device-runs/2026-11-12-samsung-a40-release-profile.md`,
+  a debug APK with its library at the release profile); what that row
+  leaves unproved is in its limit cell. The pane on a release APK and
+  the reply's target stay as written.)
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review
