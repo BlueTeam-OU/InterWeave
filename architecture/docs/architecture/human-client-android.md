@@ -113,11 +113,11 @@ language-culture's):
    lease; in this posture it owns a store and no runtime, and it is not
    promoted to a foreground service — there is no runtime to keep alive. The
    person's own data is never withheld for want of a network.
-4. **Revoked while running** (expected, to verify on the device: Android
+4. **Revoked while running** (expected, not yet checked on a device: Android
    kills the process on a runtime-permission revoke). The next launch is
    step 1 or step 3.
 5. **Stay reachable with the permission missing** (a `START_STICKY` restart
-   after a revoke — expected, to verify on the device): the Service posts
+   after a revoke — expected, not yet checked on a device): the Service posts
    ONE notification — network access is off, open the app — and ends the
    foreground service; no retry loop, no silent end. The person opted into
    reachability, and a silent stop would hide the broken promise; the
