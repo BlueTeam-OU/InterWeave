@@ -1209,6 +1209,16 @@ impl Identity {
         });
     }
 
+    /// A screen reader's activate on the button labelled `label`.
+    fn activate(&mut self, label: &str) {
+        use i_slint_backend_testing::AccessibleRole;
+        ElementHandle::find_by_accessible_label(self.view.window(), label)
+            .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+            .unwrap_or_else(|| panic!("no button labelled {label:?}"))
+            .invoke_accessible_default_action();
+        self.settle();
+    }
+
     /// Taps on the buttons labelled `labels`, each applied before the
     /// next, as a finger gives them.
     fn tap(&mut self, labels: &[&str]) {
@@ -1379,22 +1389,86 @@ fn a_tap_on_text_leaves_the_mode_as_it_was() {
     assert_eq!(page.take(), [IdentityInput::Key('w')], "still navigating");
 }
 
-/// A tap on a disabled key acts on nothing, so it leaves the mode as it
-/// was and moves no focus: navigating on w, which "a" disables, a tap on
-/// the disabled z, then Enter presses w, which does nothing.
+/// A tap on a disabled key or the disabled primary acts on nothing, so
+/// it leaves the mode as it was and moves no focus: navigating on w, a
+/// tap on each, then Enter presses w.
 #[test]
 fn a_tap_on_a_disabled_key_leaves_the_mode_as_it_was() {
+    use interweave_human_ui_model::UiText;
+    use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_r2();
-    page.key("a");
     page.tab();
     assert_eq!(page.last(), "ui-trace focus=identity-key", "control: w");
-    page.take();
-    let lines = page.said_count();
-    page.tap(&["z"]);
-    assert_eq!(page.said_count(), lines, "the tap moved no focus");
+    // A fresh R2 enables every key but x, and the primary waits for 24
+    // words: both taps land on a disabled control.
+    page.tap(&["x", text(UiText::IdCheckWords)]);
     page.enter();
-    assert_eq!(page.take(), [], "navigating: the disabled w pressed");
-    assert_eq!(page.typed(), "a");
+    // Navigating, focus still on w: a tap that took focus would press
+    // x or the primary (nothing), one that set typing would send Enter.
+    assert_eq!(page.take(), [IdentityInput::Key('w')]);
+}
+
+/// A screen reader's activate is a press, not a tap (ux-designer,
+/// REPLY 01a1d262): after a tap on a key, delete or clear set typing,
+/// activating the same control sets navigating, so Enter presses the
+/// focused key rather than sending the suggestion rule's Enter.
+#[test]
+fn a_screen_reader_activate_after_a_tap_navigates() {
+    use interweave_human_ui_model::UiText;
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    // Each control is tapped before it is activated: `by-tap` is the
+    // control's own, so only a tap on the same one could leave it set. A
+    // key is a new element on each page, so its tap and activate come in
+    // one batch, before the page is rebuilt.
+    let (delete, clear) = (text(UiText::IdKeyDelete), text(UiText::IdKeyClear));
+    for (taps, control, typed) in [
+        (&["r", "a"][..], "b", "rabb"),
+        (&["a", "c", delete], delete, ""),
+        (&["a", clear, "a"], clear, ""),
+    ] {
+        page.tap(taps);
+        if control == "b" {
+            page.tap_queued("b", false);
+        }
+        page.take();
+        page.activate(control);
+        assert_eq!(page.typed(), typed, "control: {control} acted");
+        page.take();
+        page.enter();
+        assert_ne!(page.take(), [IdentityInput::Enter], "{control}: typing");
+        page.tap(&[text(UiText::IdKeyClear)]);
+        page.take();
+    }
+}
+
+/// Identity acceptance 15, the screen-reader check as a host test
+/// (design section 8): on a newly opened R2, an activate on the disabled
+/// x does nothing and leaves typing, so Enter is the suggestion rule's;
+/// then letters typed with focus on a key, and that key activated, and
+/// the next Enter presses it again. The design's "ap", p, "app" needs a
+/// word list with "ap" words; WORDS has rabbit, so "ra", b, "rabb".
+#[test]
+fn a_screen_reader_activate_then_enter_presses_the_key_again() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    page.activate("x");
+    assert_eq!(page.typed(), "", "control: x is disabled");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Enter], "still typing");
+    // From q along the reading order (q to p, a to l, z x c v) to b.
+    for _ in 0..23 {
+        page.tab();
+    }
+    page.key("r");
+    page.key("a");
+    page.take();
+    page.activate("b");
+    assert_eq!(page.typed(), "rab");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('b')], "navigating, on b");
+    assert_eq!(page.typed(), "rabb");
 }
 
 /// A chip tapped fills the position and returns typing, focus on the
@@ -1481,12 +1555,13 @@ fn a_focused_chip_the_letters_remove_hands_focus_to_the_keypad() {
     assert_eq!(page.take(), [], "p is disabled");
 }
 
-/// A focused chip that stays on the row keeps focus, wherever the row
-/// puts it: on action, second of act, action and actor, "i" leaves it
-/// alone, first, and focus with it. One `Identity` per test: a second
-/// one panics (`init_no_event_loop`).
+/// A focused chip the letters keep holds focus and follows its word
+/// wherever the row puts it: action, second of act, action and actor,
+/// is first and alone after "i", and second again after delete. One
+/// `Identity` per test: a second one panics (`init_no_event_loop`).
 #[test]
 fn a_focused_chip_the_letters_keep_holds_focus() {
+    use interweave_human_ui_model::UiText;
     use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_r2();
     for letter in ["a", "c", "t"] {
@@ -1502,12 +1577,15 @@ fn a_focused_chip_the_letters_keep_holds_focus() {
     // The trace says a focus line once while it holds, so a chip kept is
     // the last line still.
     assert_eq!(page.last(), "ui-trace focus=identity-chip", "on a chip");
-    // Control: from the first chip, Shift+Tab reaches the last grid
-    // position; from the keypad's o it would reach the disabled i.
+    page.tap(&[text(UiText::IdKeyDelete)]);
+    assert_eq!(page.typed(), "act", "control: act, action, actor again");
+    assert_eq!(page.last(), "ui-trace focus=identity-chip", "on a chip");
+    // Focus followed action back to second, so Tab reaches actor; held
+    // at the first chip's index it would reach action.
     page.take();
-    page.backtab();
+    page.tab();
     page.enter();
-    assert_eq!(page.take(), [IdentityInput::Slot(23)], "focus held action");
+    assert_eq!(page.take(), [IdentityInput::Chip("actor".to_owned())]);
 }
 
 /// app.slint's `chip-index` looks at four chips, the most a row holds.

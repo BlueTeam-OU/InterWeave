@@ -1994,6 +1994,11 @@ component NoticeCard inherits Rectangle {
 // disabled control keeps its place), acting on Enter or Space only when
 // it is.
 component IdentityPrimary inherits FocusScope {
+    // Section 8: no tap moves focus. A press the TapArea does not take
+    // (the control disabled, or outside its target) would otherwise reach
+    // this scope, which focuses on click; trace.rs
+    // a_tap_on_a_disabled_key_leaves_the_mode_as_it_was.
+    focus-on-click: false;
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
@@ -2057,6 +2062,11 @@ component IdentityPrimary inherits FocusScope {
 // tap. A disabled key keeps its stop and is marked disabled (section 8).
 // Its look is its children's; the ring is placed, so it sizes nothing.
 component IdentityStop inherits FocusScope {
+    // Section 8: no tap moves focus. A press the TapArea does not take
+    // (the control disabled, or outside its target) would otherwise reach
+    // this scope, which focuses on click; trace.rs
+    // a_tap_on_a_disabled_key_leaves_the_mode_as_it_was.
+    focus-on-click: false;
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
@@ -2382,8 +2392,10 @@ component IdentityScreen inherits FocusScope {
     // the primary that opened it; the dialog takes focus on Continue
     // entering, its default, and gives it and the mode back to what had
     // them; a banner that appears takes it; a chip that fills a
-    // position hands it to the keypad's first enabled key; else it stays
-    // on its stop.
+    // position, or a grid position chosen to edit, hands it to the
+    // keypad's first enabled key; a focused chip follows its word along
+    // the row, or goes to that key when the letters remove it; else it
+    // stays on its stop.
     property <bool> dialog-shown;
     property <string> notice-shown;
     // The page's chip count as last seen: a page whose count moved shows a
