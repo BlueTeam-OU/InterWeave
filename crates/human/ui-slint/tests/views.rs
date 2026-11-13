@@ -5384,10 +5384,10 @@ fn a_held_starts_line_is_announced_once() {
 }
 
 /// What a launch's owed Connect must not cover moves the count: a
-/// conversation opened, the settings opened, a menu opened, closed again
-/// or not (add-a-peer section 5.1). A render alone moves nothing.
-/// Mutation: dropping `Select` from the counted inputs, or the menus'
-/// count, fails here.
+/// conversation opened, the settings opened, a menu opened by its button,
+/// closed again or not (add-a-peer section 5.1). A render alone moves
+/// nothing. Mutation: dropping `Select` from the counted inputs, the
+/// menus' count, or either button's counting opener, fails here.
 #[test]
 fn opening_something_from_chats_moves_its_count() {
     let mut view = view();
@@ -5398,25 +5398,28 @@ fn opening_something_from_chats_moves_its_count() {
     let start = view.opened_from_chats();
     view.render(&model);
     assert_eq!(view.opened_from_chats(), start, "control: a render alone");
-    let key = direct(&peer());
-    view.select(key.clone());
-    let queued = view.opened_from_chats();
-    assert_ne!(queued, start, "a conversation, still queued (#651 F2)");
-    let _ = intents(&mut view, &mut model);
-    view.render(&model);
-    let opened = view.opened_from_chats();
-    assert_eq!(opened, queued, "its take moves the count no further");
-    view.window().invoke_open_chats_menu();
+    labelled(&view, text(UiText::AppOptions))[0].invoke_accessible_default_action();
+    assert!(view.window().get_chats_menu_open(), "the button opened it");
     let menu = view.opened_from_chats();
-    assert_ne!(menu, opened, "Chats' menu opened");
+    assert_ne!(menu, start, "Chats' menu opened");
     view.window().set_chats_menu_open(false);
     assert_eq!(
         view.opened_from_chats(),
         menu,
         "closed again, still counted"
     );
-    view.window().invoke_open_overflow_menu();
-    assert_ne!(view.opened_from_chats(), menu, "a conversation's menu");
+    let key = direct(&peer());
+    view.select(key.clone());
+    let queued = view.opened_from_chats();
+    assert_ne!(queued, menu, "a conversation, still queued (#651 F2)");
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    settle();
+    let opened = view.opened_from_chats();
+    assert_eq!(opened, queued, "its take moves the count no further");
+    labelled(&view, text(UiText::MoreOptions))[0].invoke_accessible_default_action();
+    assert!(view.window().get_menu_open(), "the button opened it");
+    assert_ne!(view.opened_from_chats(), opened, "a conversation's menu");
     let opened = view.opened_from_chats();
     view.window().invoke_open_trust();
     let _ = intents(&mut view, &mut model);
