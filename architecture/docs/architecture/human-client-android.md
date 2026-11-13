@@ -124,17 +124,18 @@ language-culture's):
 5. **Stay reachable with the permission missing** (a `START_STICKY` restart
    after a revoke): the Service posts
    ONE notification — network access is off, open the app — and ends the
-   foreground service; no retry loop, no silent end. One line of this was
-   observed, once, in the run that step 4 names: after the `pm revoke` the
-   Service restarted and logged that it would give one notice and then
-   end. The Service writes that line before it posts the notification and
-   before it ends the foreground service, and the record of the run quotes
-   the line alone. That the notification was posted, that the foreground
-   service ended, that nothing retried afterwards, and what a
-   foreground-only profile does after a revoke have not yet been checked
-   on a device. The
-   person opted into
-   reachability, and a silent stop would hide the broken promise; the
+   foreground service; no retry loop, no silent end. Only one log line of
+   this behaviour has been observed, in one run: the run that step 4
+   describes. After the `pm revoke`, the Service restarted and logged a
+   line with the words `one notice, then end`. In the code, the Service
+   writes that line before it posts the notification and before it ends
+   the foreground service, and the record of the run quotes only that
+   line. Four things have not yet been checked on a device: whether the
+   Service posts the notification, whether the Service ends the
+   foreground service, whether anything retries after the foreground
+   service ends, and what a foreground-only profile does after a revoke.
+   The person opted into reachability, and a silent stop would hide the
+   broken promise; the
    notification is the honest signal, and the refusal is logged with its
    cause (a diagnostic field for it is still to be defined). Stay reachable
    therefore REQUIRES the notification permission: its foreground service
