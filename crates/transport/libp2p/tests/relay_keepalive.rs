@@ -26,6 +26,12 @@
 //!   a switch off for the peer leaves it pinging; and a relayed
 //!   data-plane peer that refuses ping is counted and KEPT, the close
 //!   being the control peers' rule.
+//! - a HELD connection (a data-plane peer's, named by the runtime)
+//!   outlives the idle timeout while a second connection to the same
+//!   peer, not held, closes at it -- the control -- and released, the
+//!   held one closes at it too; held, it is pinged, and a path that goes
+//!   silent under it is CLOSED, held or not; a held peer that refuses
+//!   ping is counted and kept, held without liveness.
 
 #![allow(clippy::expect_used, clippy::panic)]
 
@@ -542,4 +548,167 @@ async fn a_relayed_data_plane_peer_that_refuses_ping_is_counted_and_kept() {
         "kept: the close is the control peers' rule: {counts:?}"
     );
     assert_eq!(counts.missed, 0, "{counts:?}");
+}
+
+/// Drive `near` and `far` for `window` or until `done` holds of the
+/// connections `near` closed, collecting each close's id.
+async fn drive_ids<F: NetworkBehaviour>(
+    near: &mut Swarm<RelayKeepalive>,
+    far: &mut Swarm<F>,
+    closed: &mut Vec<libp2p::swarm::ConnectionId>,
+    window: Duration,
+    done: impl Fn(&[libp2p::swarm::ConnectionId]) -> bool,
+) {
+    let deadline = tokio::time::Instant::now() + window;
+    while !done(closed) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return;
+        }
+        tokio::select! {
+            event = near.select_next_some() => {
+                if let SwarmEvent::ConnectionClosed { connection_id, .. } = event {
+                    closed.push(connection_id);
+                }
+            }
+            _ = far.select_next_some() => {}
+            () = tokio::time::sleep(remaining.min(Duration::from_millis(50))) => {}
+        }
+    }
+}
+
+/// Dial `addr` from `near` and return the connection once it is up.
+async fn connect<F: NetworkBehaviour>(
+    near: &mut Swarm<RelayKeepalive>,
+    far: &mut Swarm<F>,
+    addr: Multiaddr,
+) -> libp2p::swarm::ConnectionId {
+    near.dial(addr).expect("dials");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        tokio::select! {
+            event = near.select_next_some() => {
+                if let SwarmEvent::ConnectionEstablished { connection_id, .. } = event {
+                    return connection_id;
+                }
+            }
+            _ = far.select_next_some() => {}
+            () = tokio::time::sleep_until(deadline) => panic!("no connection within 10 s"),
+        }
+    }
+}
+
+const IDLE: Duration = Duration::from_secs(1);
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_connection_outlives_the_idle_timeout_and_an_unheld_one_does_not() {
+    // The far end keeps nothing alive of its own: it would hold an idle
+    // connection ten minutes, so every close here is the near end's
+    // idle timeout, one second.
+    let mut near = swarm_idle(keepalive(), IDLE);
+    let mut far = swarm(keepalive());
+    let addr = listening(&mut far).await;
+    let held = connect(&mut near, &mut far, addr.clone()).await;
+    let spare = connect(&mut near, &mut far, addr).await;
+    near.behaviour_mut().set_held(HashSet::from([held]));
+    assert_eq!(near.behaviour().held(), &HashSet::from([held]));
+
+    // FIVE IDLE TIMEOUTS: the spare -- THE CONTROL, the same peer over
+    // the same stack, not held -- closes, and the held one stays.
+    let mut closed = Vec::new();
+    drive_ids(&mut near, &mut far, &mut closed, IDLE * 5, |_| false).await;
+    assert_eq!(closed, vec![spare], "only the unheld connection idled out");
+    let counts = near.behaviour().counters();
+    assert!(counts.answered >= 3, "the held one is pinged: {counts:?}");
+    assert_eq!(counts.missed, 0, "{counts:?}");
+
+    // RELEASED, it idles out like any other.
+    near.behaviour_mut().set_held(HashSet::new());
+    drive_ids(&mut near, &mut far, &mut closed, IDLE * 5, |c| c.len() == 2).await;
+    assert_eq!(
+        closed,
+        vec![spare, held],
+        "released, the held one idles out"
+    );
+    assert!(near.behaviour().held().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_connection_whose_path_goes_silent_is_closed() {
+    let mut near = swarm_idle(keepalive(), IDLE);
+    let mut far = swarm(keepalive());
+    let addr = listening(&mut far).await;
+    let Some(Protocol::Tcp(port)) = addr.iter().nth(1) else {
+        panic!("a tcp listener: {addr}");
+    };
+    let silent = Arc::new(AtomicBool::new(false));
+    let through = proxy(([127, 0, 0, 1], port).into(), silent.clone()).await;
+    let held = connect(&mut near, &mut far, through).await;
+    near.behaviour_mut().set_held(HashSet::from([held]));
+    let mut closed = Vec::new();
+    // THE CONTROL: held and answering, it outlives the idle timeout.
+    drive_ids(&mut near, &mut far, &mut closed, IDLE * 3, |_| false).await;
+    assert!(closed.is_empty(), "held past the idle timeout");
+
+    // THE PATH GOES SILENT: held or not, the missed ping closes it --
+    // first failure forgiven, the second's stream timing out at the
+    // upgrade timeout (the module note), so well inside thirty seconds.
+    silent.store(true, Ordering::Release);
+    drive_ids(
+        &mut near,
+        &mut far,
+        &mut closed,
+        Duration::from_secs(30),
+        |c| !c.is_empty(),
+    )
+    .await;
+    assert_eq!(closed, vec![held], "closed for the silence");
+    let counts = near.behaviour().counters();
+    assert_eq!(counts.missed, 1, "as a missed ping: {counts:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_peer_that_refuses_ping_is_counted_and_kept() {
+    let mut near = swarm_idle(keepalive(), IDLE);
+    let mut far = swarm(dummy::Behaviour);
+    let addr = listening(&mut far).await;
+    let held = connect(&mut near, &mut far, addr).await;
+    near.behaviour_mut().set_held(HashSet::from([held]));
+    let mut closed = Vec::new();
+    drive_ids(&mut near, &mut far, &mut closed, IDLE * 4, |_| false).await;
+    let counts = near.behaviour().counters();
+    assert_eq!(counts.unsupported, 1, "{counts:?}");
+    assert!(closed.is_empty(), "kept, held without liveness: {counts:?}");
+}
+
+/// A held peer's refusal is kept only while the peer is no control
+/// peer: once it holds a reservation (`set_relays`), the refusal it
+/// already gave is the control peers' missed liveness -- closed and
+/// reported once -- although the crate's handler, having given up
+/// (`State::Inactive`), will never report it again. THE CONTROL: the
+/// same refusal, kept, before the switch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_peer_that_refused_ping_is_closed_once_it_becomes_a_control_peer() {
+    let mut near = swarm_idle(keepalive(), IDLE);
+    let mut far = swarm(dummy::Behaviour);
+    let far_peer = *far.local_peer_id();
+    let addr = listening(&mut far).await;
+    let held = connect(&mut near, &mut far, addr).await;
+    near.behaviour_mut().set_held(HashSet::from([held]));
+    let mut seen = Seen::default();
+    drive(&mut near, Some(&mut far), &mut seen, IDLE * 4, |_, c| {
+        c.unsupported == 1
+    })
+    .await;
+    drive(&mut near, Some(&mut far), &mut seen, IDLE * 2, |_, _| false).await;
+    assert_eq!(near.behaviour().counters().unsupported, 1);
+    assert_eq!(seen.closed, 0, "held and kept before the switch: {seen:?}");
+
+    near.behaviour_mut().set_relays(HashSet::from([far_peer]));
+    drive(&mut near, Some(&mut far), &mut seen, IDLE * 4, |s, _| {
+        s.closed == 1 && !s.refused.is_empty()
+    })
+    .await;
+    assert_eq!(seen.closed, 1, "closed as a control peer: {seen:?}");
+    assert_eq!(seen.refused, vec![far_peer], "reported once: {seen:?}");
 }
