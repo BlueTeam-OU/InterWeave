@@ -4189,12 +4189,13 @@ component ProposalEntry inherits Rectangle {
                     duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                     easing: ease-out;
                 }
-                // Clipped only while a swipe moves the card, which the clip
-                // keeps inside the row: Slint's TAB skips a control a clip
+                // Not clipped at rest: Slint's TAB skips a control a clip
                 // other than the list's hides, so a card taller than the
-                // window lost Decline and Accept below it (the A40,
-                // 2026-11-13; tests/cards.rs,
+                // window lost Decline and Update contact below it (the
+                // A40, 2026-11-13; tests/cards.rs,
                 // `every_control_of_a_proposal_taller_than_the_window_is_a_tab_stop`).
+                // A swipe that moves the card clips it to the row's
+                // rounded shape; no test reads that half.
                 clip: self.offset != 0px;
                 border-radius: 12px;
                 // Accept toward the line's end, Decline toward its start
