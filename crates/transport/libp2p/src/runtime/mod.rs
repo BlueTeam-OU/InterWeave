@@ -1499,6 +1499,7 @@ impl SwarmRuntime {
         let relay_keepalive_field = crate::relay_keepalive::build_field(
             relay_state.is_some(),
             serving_relays,
+            config.hold_data_plane,
             manager.handle(),
         );
         // DCUtR, under the same ruling and the same switch shape: the
@@ -3159,6 +3160,25 @@ impl SwarmRuntime {
                         // function stays free of the Swarm.
                         for id in refuse {
                             swarm.close_connection(id);
+                        }
+                        // THE HELD DATA-PLANE CONNECTIONS follow the open
+                        // set, which only an establishment or a close
+                        // moves: one direct connection per data-plane
+                        // peer kept past the idle timeout and pinged
+                        // (`relay_keepalive`'s module note). Off, the
+                        // field may still exist for a relay role, and
+                        // holds nothing.
+                        if config.hold_data_plane
+                            && matches!(
+                                &event,
+                                libp2p::swarm::SwarmEvent::ConnectionEstablished { .. }
+                                    | libp2p::swarm::SwarmEvent::ConnectionClosed { .. }
+                            )
+                            && let Some(keepalive) = swarm.relay_keepalive_mut().as_mut()
+                        {
+                            keepalive
+                                .inner_mut()
+                                .set_held(dialing::held_connections(open.iter()));
                         }
                         // A HELD SEND FAILS WITH ITS LAST DIAL: no dial
                         // still in flight to the peer, no relayed route

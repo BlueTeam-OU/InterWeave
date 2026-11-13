@@ -1988,6 +1988,29 @@ pub(super) fn retirable<'a>(
         .collect()
 }
 
+/// The connections to HOLD open past the idle timeout
+/// (`crate::relay_keepalive`'s module note): for each peer with a
+/// direct connection carrying the data plane, exactly one -- the
+/// oldest, the lowest id breaking a tie -- and nothing for any other
+/// connection: a relayed one, one to an infrastructure-only peer, a
+/// peer's second direct one. Pinned by
+/// `exactly_one_direct_data_plane_connection_per_peer_is_held`.
+#[must_use]
+pub(super) fn held_connections<'a>(
+    open: impl Iterator<Item = (&'a libp2p::swarm::ConnectionId, &'a OpenConnection)>,
+) -> std::collections::HashSet<libp2p::swarm::ConnectionId> {
+    let mut oldest: HashMap<&TransportIdentity, (u64, libp2p::swarm::ConnectionId)> =
+        HashMap::new();
+    for (id, connection) in open.filter(|(_, c)| c.is_direct_data_plane()) {
+        let candidate = (connection.since_ms, *id);
+        oldest
+            .entry(&connection.peer)
+            .and_modify(|held| *held = (*held).min(candidate))
+            .or_insert(candidate);
+    }
+    oldest.into_values().map(|(_, id)| id).collect()
+}
+
 /// Listen commands whose bound address has not arrived yet.
 pub(super) type PendingListens =
     HashMap<ListenerId, oneshot::Sender<Result<Multiaddr, super::SubstrateError>>>;
@@ -2219,10 +2242,10 @@ mod tests {
     use super::{
         AdvertisedBoundary, Held, OpenConnection, PathSample, PolicyClosed, announce_path,
         best_path, book_origin, canonical_dial_address, closed_outright, command_origin,
-        commit_path, connections_to_close, flush_held_paths, forget_route, is_permanent_dial_error,
-        learn_advertised, learn_route, path_events, retirable, settle_established_inbound,
-        settle_established_outbound, settle_failed_dial, settle_path, settle_undialable,
-        sweep_policy_closed,
+        commit_path, connections_to_close, flush_held_paths, forget_route, held_connections,
+        is_permanent_dial_error, learn_advertised, learn_route, path_events, retirable,
+        settle_established_inbound, settle_established_outbound, settle_failed_dial, settle_path,
+        settle_undialable, sweep_policy_closed,
     };
     use crate::gated_swarm::AdmittedDial;
     use crate::runtime::messages::{PathChange, PeerPath, SwarmEvent};
@@ -2366,6 +2389,99 @@ mod tests {
             retiring: false,
             local_ip: None,
         }
+    }
+
+    /// One held connection per peer with a direct data-plane one, the
+    /// oldest; a relayed connection, an infrastructure-only peer's and
+    /// a peer's younger direct one are never held, and a peer whose
+    /// held connection closed has the next oldest held.
+    #[test]
+    fn exactly_one_direct_data_plane_connection_per_peer_is_held() {
+        let mut m = ConnectionManager::new(ConnectionPolicy::new(8, 8), 8);
+        let (peer, other) = (ident(RELAY), ident(FAR));
+        let at = |since_ms, path, class, m: &mut ConnectionManager| OpenConnection {
+            since_ms,
+            path,
+            admitted_class: class,
+            ..open_to(&peer, m)
+        };
+        let mut open = HashMap::new();
+        // The peer's oldest connection is RELAYED, so its oldest direct
+        // one (id 3) is held, not its oldest overall nor its newest.
+        open.insert(
+            ConnectionId::new_unchecked(1),
+            at(
+                5,
+                PeerPath::Relayed,
+                ConnectionClass::DataPlaneTrusted,
+                &mut m,
+            ),
+        );
+        open.insert(
+            ConnectionId::new_unchecked(2),
+            at(
+                30,
+                PeerPath::Direct,
+                ConnectionClass::DataPlaneTrusted,
+                &mut m,
+            ),
+        );
+        open.insert(
+            ConnectionId::new_unchecked(3),
+            at(
+                10,
+                PeerPath::Direct,
+                ConnectionClass::DataPlaneTrusted,
+                &mut m,
+            ),
+        );
+        // Another peer, admitted infrastructure-only: never held.
+        open.insert(
+            ConnectionId::new_unchecked(4),
+            OpenConnection {
+                admitted_class: ConnectionClass::ConnectivityInfrastructureOnly,
+                ..open_to(&other, &mut m)
+            },
+        );
+        let held = |open: &HashMap<ConnectionId, OpenConnection>| {
+            let mut ids: Vec<_> = held_connections(open.iter()).into_iter().collect();
+            ids.sort();
+            ids
+        };
+        assert_eq!(held(&open), vec![ConnectionId::new_unchecked(3)]);
+
+        // A tie on age goes to the lower id, so the choice is stable.
+        open.insert(
+            ConnectionId::new_unchecked(5),
+            at(
+                10,
+                PeerPath::Direct,
+                ConnectionClass::DataPlaneTrusted,
+                &mut m,
+            ),
+        );
+        assert_eq!(held(&open), vec![ConnectionId::new_unchecked(3)]);
+
+        // The held one closes: the next oldest direct is held.
+        let _ = open.remove(&ConnectionId::new_unchecked(3));
+        assert_eq!(held(&open), vec![ConnectionId::new_unchecked(5)]);
+
+        // The other peer becomes data-plane on a fresh connection: one
+        // each.
+        open.insert(ConnectionId::new_unchecked(6), open_to(&other, &mut m));
+        assert_eq!(
+            held(&open),
+            vec![
+                ConnectionId::new_unchecked(5),
+                ConnectionId::new_unchecked(6)
+            ]
+        );
+
+        // Only relayed connections left for the peer: nothing held.
+        for id in [2, 5] {
+            let _ = open.remove(&ConnectionId::new_unchecked(id));
+        }
+        assert_eq!(held(&open), vec![ConnectionId::new_unchecked(6)]);
     }
 
     /// A revoked peer keeps its policy class while its event is owed and
