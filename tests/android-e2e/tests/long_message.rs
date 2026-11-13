@@ -546,13 +546,19 @@ async fn back_while_opening(names: &[&str], after: Duration, second: Option<Dura
         });
         passed(&back, &screens);
         let field = |key: &str| back.get(key).and_then(|v| v.as_str()).unwrap_or("?");
+        let (again, ended, second_at) = match second {
+            Some(gap) => (
+                format!(", and again {gap:?} later"),
+                "closed to its conversation, then left it for the chat list",
+                format!(", second Back launched {}", field("back2-at")),
+            ),
+            None => (String::new(), "closed to its conversation", String::new()),
+        };
         println!(
-            "Back {after:?} after Read the whole message on {name}{}: closed to its conversation; rows drawn before it closed: {}; Enter launched {}, Back launched {}, second Back launched {} (phone time)",
-            second.map_or_else(String::new, |gap| format!(", and again {gap:?} later")),
+            "Back {after:?} after Read the whole message on {name}{again}: {ended}; rows drawn before it closed: {}; Enter launched {}, Back launched {}{second_at} (phone time)",
             field("drawn"),
             field("enter-at"),
             field("back-at"),
-            field("back2-at"),
         );
         opened.push(field("read").to_owned());
     }

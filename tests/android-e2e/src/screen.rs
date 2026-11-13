@@ -240,10 +240,10 @@ impl Screens {
     /// merged (section 5.4); focus is then the list's, not the row's, and
     /// the step adds `back2-at`.
     ///
-    /// The two keys go from one shell, the ENTER's `input` started in the
-    /// background, so the gap between them is `after` give or take the
-    /// difference between the two `input`s' start-up, not `after` plus
-    /// one start-up as two adb calls would make it.
+    /// The keys go from one shell, each `input` but the last started in the
+    /// background, so the gap between two is its sleep give or take the
+    /// difference between their `input`s' start-up, not the sleep plus one
+    /// start-up as separate adb calls would make it.
     pub fn read_whole_then_back(
         &mut self,
         opened: &[String],
@@ -289,8 +289,8 @@ impl Screens {
         let closed = self
             .adb_ok(&["shell", &keys])
             .map(|said| {
-                // Only the two stamps: any other line of the shell's must
-                // not overwrite a field of the step.
+                // The keys' stamps alone: any other line of the shell's
+                // must not overwrite a field of the step.
                 stamps = said
                     .lines()
                     .filter_map(|l| l.split_once(' '))
