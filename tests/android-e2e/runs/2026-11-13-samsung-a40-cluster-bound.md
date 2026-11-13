@@ -49,15 +49,19 @@ had an eighth step: a relaunch drawing Chats from the store. That step
 was dropped: the body, read and not kept, and the accepted card's row
 are gone from the store by then, so Chats was drawn empty.
 
-**At the bound, in a one-line label, the marks spill out of the
+**At the bound, in a one-line label, the marks spilled out of the
 line.** In the Chats row (step 1) and in the conversation's title
-(steps 4 and 5), the 31 stacked accents rise about 280 px above their
+(steps 4 and 5), the 31 stacked accents rose about 280 px above their
 line, over the name above and into the status bar. In wrapped text (the
-body, the proposal, the notices) the same character is drawn with
+body, the proposal, the notices) the same character was drawn with
 about two marks. Nothing crashed and nothing past the bound was drawn,
-but a peer's name or text at the bound paints outside its row in those
-two places. This is a finding for the views, not proved here to be the
-only such place.
+but a peer's name or text at the bound painted outside its row in those
+two places. The cause was every elided label: Slint 1.18.1 clips a Text
+to its box only under `overflow: clip`, which wrapped text has. Since
+this run every elided Text is drawn in a clipping box (ui-slint's
+`OneLine` and `FocusHeading`), `tests/compile.rs` holds each one to it
+and `tests/one_line_clip.rs` measures the desktop's Chats row; no phone
+has run it since.
 
 ## The control: no replacement
 
