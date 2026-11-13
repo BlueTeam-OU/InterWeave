@@ -480,6 +480,14 @@ struct AfterAClose {
     sent: Option<(Result<EndpointId, TransportError>, Duration)>,
     /// Whether B's gate scheduled a retry for A while the link was down.
     retry_scheduled: bool,
+    /// What a send from B answered after the link was lost a second
+    /// time, once both watches were read: `PeerUnknown` exactly when B's
+    /// book held no address for A, which nothing can add to while the
+    /// pair is apart.
+    probe: Result<EndpointId, TransportError>,
+    /// Whether a dial B's reconnect scheduler made failed in the watch
+    /// after the link returned.
+    scheduler_dialled: bool,
     /// B's log, for a failing assertion.
     log: String,
 }
@@ -519,6 +527,13 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     } else {
         None
     };
+    // The send's failed dial is logged with its reply already sent, by
+    // another path than the reply's: waited for, then counted, so the
+    // send's own line is never read as one the link's return started.
+    // A send answered at once dialled nothing, and nothing is awaited.
+    if let Some((Err(TransportError::PeerUnreachable), _)) = answered {
+        until_logged(&b, "retry scheduled").await;
+    }
     let before_up = dials(&b);
     let retry_scheduled = b.log().contains("retry scheduled");
 
@@ -526,8 +541,21 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     // watch after that are what the link's return started at B.
     netns::overlay_up();
     until_both(&a, &b, true, PATIENCE, "A redialled once the link returned").await;
-    tokio::time::sleep(WATCH).await;
+    // The watch, ended early by the line a scheduler dial's failure
+    // writes (a failed dial's own `origin` is the one that dialled).
+    let deadline = tokio::time::Instant::now() + WATCH;
+    while tokio::time::Instant::now() < deadline && !b.log().contains(SCHEDULER_DIAL) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     let returned = dials(&b) - before_up;
+    let scheduler_dialled = b.log().contains(SCHEDULER_DIAL);
+
+    netns::overlay_down();
+    until_both(&a, &b, false, CLOSE, "both closed on the second loss").await;
+    let probe = from_b
+        .send_once(&a.peer, id(2), "after the second close")
+        .await;
+    netns::overlay_up();
     let log = b.log();
 
     drop(from_b);
@@ -537,7 +565,27 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
         dials: [closed - connected, returned],
         sent: answered,
         retry_scheduled,
+        probe,
+        scheduler_dialled,
         log,
+    }
+}
+
+/// The line B's gate writes when a dial the reconnect scheduler made
+/// fails: the retry is rescheduled under the failed dial's own origin,
+/// and a send's dial is `manual`.
+const SCHEDULER_DIAL: &str = "origin=\"connection_manager\"";
+
+/// Wait, within the patience, until `host`'s log holds `line`.
+async fn until_logged(host: &Host, line: &str) {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while !host.log().contains(line) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{line:?} never logged\n{}",
+            host.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -567,6 +615,10 @@ async fn the_side_with_no_address_never_dials_and_its_send_is_answered_peer_unkn
     );
     assert_eq!(seen.dials, [0, 0], "{}", seen.log);
     assert!(!seen.retry_scheduled, "{}", seen.log);
+    assert!(
+        matches!(seen.probe, Err(TransportError::PeerUnknown)),
+        "{seen:?}"
+    );
 }
 
 const LEARNED_NO_SEND: &str = "the_side_that_learned_an_address_dials_nothing_until_it_sends";
@@ -575,8 +627,15 @@ const LEARNED_NO_SEND: &str = "the_side_that_learned_an_address_dials_nothing_un
 /// a close schedules no retry (`record_connection_closed` releases the
 /// slot and nothing else), so B dials nothing after the close, nor when
 /// the link returns -- the network addition lifts a held-off peer's
-/// backoff, and B holds none for A. The case below is the positive
-/// control that the dial count is live in this shape.
+/// backoff, and B holds none for A. That B held the address all along
+/// is the probe's: a send after a second loss, once both watches are
+/// read, is answered `PeerUnreachable`, which an empty book answers
+/// `PeerUnknown` (the first case). The learning is read after the
+/// watches rather than before them, since a send would start the
+/// retries the watches look for; what B learned at the first connection
+/// it learned again at the second, from the same Identify. The case
+/// below is the positive control that the dial count is live in this
+/// shape.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_side_that_learned_an_address_dials_nothing_until_it_sends() {
     if !netns::in_overlay(LEARNED_NO_SEND) {
@@ -585,6 +644,10 @@ async fn the_side_that_learned_an_address_dials_nothing_until_it_sends() {
     let seen = after_a_close(true, false).await;
     assert_eq!(seen.dials, [0, 0], "{}", seen.log);
     assert!(!seen.retry_scheduled, "{}", seen.log);
+    assert!(
+        matches!(seen.probe, Err(TransportError::PeerUnreachable)),
+        "B never learned A's address\n{seen:?}"
+    );
 }
 
 const LEARNED_SEND: &str = "the_side_that_learned_an_address_dials_it_on_a_send_and_retries";
@@ -612,11 +675,11 @@ async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
     );
     assert_eq!(seen.dials[0], 0, "no dial before the send\n{}", seen.log);
     assert!(seen.retry_scheduled, "{}", seen.log);
-    // The scheduler's own dial, told apart from the send's: a failure of
-    // a dial the scheduler made is rescheduled under its origin.
+    // The scheduler's own dial, told apart from the send's by the origin
+    // its failure is rescheduled under, and counted: the live control for
+    // the zero counts of the two cases above.
     assert!(
-        seen.log.contains("origin=\"connection_manager\""),
-        "a retry when the link returned\n{}",
-        seen.log
+        seen.scheduler_dialled && seen.dials[1] >= 1,
+        "a retry when the link returned\n{seen:?}"
     );
 }
