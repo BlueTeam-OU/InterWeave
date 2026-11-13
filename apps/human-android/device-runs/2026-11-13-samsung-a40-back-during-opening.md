@@ -38,6 +38,13 @@ APK carries no trace and cannot be timed by the case. Signer `26d1eb18`.
   App 0fda4580.
 - **Clean**: c3f15adf5 as committed. App d0209344.
 
+The Back-to-close figures below are the fix-with-probe build's: the
+logging it adds sits on the path being timed (a line per key, per
+`InputAvailable` and per turn), and the clean build's Back cases were
+run for pass or fail, not timed. 17234e2fe, after these runs, caps the
+input hold at 300 firings in a row; no Back here held an opening that
+long, and it has not run on the phone.
+
 ## Where the Back was held (probe, 2026-11-13 00:35Z)
 
 One round of `on_a_device_back_past_the_first_go_closes_the_reader_to_its_conversation`.
