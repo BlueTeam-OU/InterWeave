@@ -113,13 +113,22 @@ language-culture's):
    lease; in this posture it owns a store and no runtime, and it is not
    promoted to a foreground service — there is no runtime to keep alive. The
    person's own data is never withheld for want of a network.
-4. **Revoked while running** (expected, not yet checked on a device: Android
-   kills the process on a runtime-permission revoke). The next launch is
-   step 1 or step 3.
+4. **Revoked while running.** A revoke of the network permission ends the
+   process (ux-designer's measurement, not repeated here: on the Pixel 9a
+   under GrapheneOS, in stay-reachable mode, `pm revoke` of `INTERNET`
+   ended the process — one recorded run, 2026-11-07, in the thread step 2
+   names). A revoke made from the system's settings, and stock Android,
+   have not yet been checked on a device; the same is expected of both.
+   The next launch is step 1 or step 3.
 5. **Stay reachable with the permission missing** (a `START_STICKY` restart
-   after a revoke — expected, not yet checked on a device): the Service posts
+   after a revoke): the Service posts
    ONE notification — network access is off, open the app — and ends the
-   foreground service; no retry loop, no silent end. The person opted into
+   foreground service; no retry loop, no silent end. Observed once, in the
+   run step 4 names: after the `pm revoke` the Service restarted, gave one
+   notice that there was no network access, and ended. Whether a retry
+   follows later was not watched beyond that run, and what a foreground-only
+   profile does after a revoke has not yet been checked on a device. The
+   person opted into
    reachability, and a silent stop would hide the broken promise; the
    notification is the honest signal, and the refusal is logged with its
    cause (a diagnostic field for it is still to be defined). Stay reachable
