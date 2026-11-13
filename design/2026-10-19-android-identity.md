@@ -625,7 +625,7 @@ access.
     however they are activated.
   - Every other input leaves the mode as it was: Back, Escape, a Space
     or an Enter that did nothing, a screen reader's activate action on
-    a disabled key (it does nothing, as the tap does), and a tap on a
+    a disabled key (it does nothing, as a tap on it does), and a tap on a
     disabled key, on text
     that does nothing when tapped (the position, the letters, the
     match count, C3's title and body, and the text of a banner, a
@@ -1059,10 +1059,11 @@ scale would also be a finding of the Android review
       accessibility tree, and it is blocked, not passed, on both
       clients: on Android until the build exposes one to TalkBack (the
       plan's TalkBack carry to the release gate), and on the desktop
-      until it shows the identity screens, which it does not today.
-      Until then, the check is a host test on Slint's testing backend
-      that invokes the p key's accessible default action, as
-      `crates/human/ui-slint/tests/cards.rs` drives its controls. That
+      until the desktop client shows the identity screens, which it
+      does not today. Until then, the check is a host test on Slint's
+      testing backend that invokes the p key's accessible default
+      action, the way `crates/human/ui-slint/tests/cards.rs` drives
+      its controls. That
       test is rust-ui-dev's to write, and it is a dependency of this
       check.
     - At 200 %, `IdReviewWords` opens the full list with focus on the
@@ -1196,19 +1197,21 @@ scale would also be a finding of the Android review
          then or at the next launch. Which case applies is read from
          the trace, not from the screen. The phone's screen and keys
          are not touched until the trace has been read, so that every
-         line after R4's continue is the client's own and not a page
-         the tester opened. After R4's continue, the
+         line after R4's continue is the client's own and none comes
+         from a page the tester opened. After R4's continue, the
          trace writes `connect=owed` while the start reads the peer
-         list and the trust set. While R4 covers the window, the trace
-         writes no `page=` line; it writes `identity=closed` when R4
-         leaves the screen, and then a `page=` line only if the page
-         under R4 differs from the last one written. Step 3 runs in
-         the window that step 2's launch made, which wrote no `page=`
-         line before K1 covered it, so Chats after R4 writes
-         `page=conversations` after `identity=closed`; a K1 raised
-         over a window that had shown Chats writes no new `page=`
-         line. Either is Chats, so Chats is read as no `page=connect`
-         line after `identity=closed`. Wait, for at most 30 seconds, until the trace
+         list and the trust set. While R4 is on screen, the trace
+         writes no `page=` line. The trace writes `identity=closed`
+         when R4 leaves the screen, and then a `page=` line only if the
+         page under R4 differs from the page of the last `page=` line
+         written. Step 3 runs in the app window that step 2's launch
+         opened. No `page=` line was written in that window before K1
+         covered it, so when Chats shows after R4, the trace writes
+         `page=conversations` after `identity=closed`. When K1 is
+         raised over an app window that had shown Chats, the trace
+         writes no new `page=` line. In both cases the page is Chats,
+         so the tester reads Chats from the absence of a
+         `page=connect` line after `identity=closed`. Wait, for at most 30 seconds, until the trace
          has written `identity=closed` and the last `connect=` line is
          no longer `connect=owed` (on the A40 this took under a
          second). Then read the last `connect=` line, and whether a
@@ -1230,9 +1233,9 @@ scale would also be a finding of the Android review
          seconds the trace has not written `identity=closed`, or the
          last `connect=` line is still `connect=owed`; the last
          `connect=` line written before `identity=closed` is
-         `connect=owed` and a `connect=open` follows it (R4 went
-         before the start decided: Chats, then Connect over it);
-         the result is none of the four above (`connect=open` with
+         `connect=owed` and a `connect=open` follows it (R4 left the
+         screen before the start decided: Chats, then Connect over it);
+         the result is none of the four results above (`connect=open` with
          `page=connect` after `identity=closed`, and
          `connect=settled`, `connect=not-owed` or `connect=deferred`
          with no `page=connect` line after it); the result is Connect opening
