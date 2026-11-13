@@ -71,7 +71,8 @@ enum Decided {
 /// What one pump's messages did to the service's running state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Pumped {
-    /// The service ran now and did not at the last pump.
+    /// A start runs now that did not at the last pump: the service did
+    /// not run then, or a later start (another hub count) runs now.
     pub started: bool,
     /// That start's model is to be deferred at once.
     pub defer: bool,
@@ -93,7 +94,8 @@ pub enum Launch {
 /// What [`StartRules::turn`] did beside the model's commands.
 #[derive(Debug)]
 pub struct Turned {
-    /// The service ran now and did not at the last turn.
+    /// A start runs now that did not at the last turn: the service did
+    /// not run then, or a later start (another hub count) runs now.
     pub started: bool,
     /// What the owed Connect asked: on [`Launch::Armed`] the root wakes
     /// itself once [`BOUND_MS`] has passed.
