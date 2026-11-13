@@ -77,7 +77,29 @@ language-culture's):
    it binds the Service. Notifications are asked only after network is
    granted: network is essential to the product, notifications are optional,
    and a person refuses less when the first ask is the one that matters.
-2. **Granted:** bind, start, continue as today.
+2. **Granted.** What follows depends on whether the grant leaves the
+   process running (A 2026-11-13):
+   - **The process keeps running:** bind, start, continue as today.
+   - **The grant ends the process** (ux-designer's measurement, not
+     repeated here: on the Pixel 9a under GrapheneOS, Allow in the
+     system's network-access dialog ended the process, logged as
+     "permission grant or revoke changed gids", the Activity removed
+     with no saved state — one recorded run, in the thread on the j98
+     review under `.agent-fabric/memory/ux-designer/threads/`): nothing
+     binds. That run was in stay-reachable mode, and no restart was
+     seen: the phone showed the launcher. In foreground-only mode
+     nothing is expected to restart either; that has not yet been
+     checked on a device (the unlock note's A16, run foreground-only,
+     checks whether anything restarts). The next launch is step 1 with the
+     permission held, so no dialog shows and it continues here in a
+     process that keeps running. That launch is a
+     launch as `android-key-custody.md`'s failure behavior defines one,
+     and shows what the store holds: a message read and not kept while
+     access was withheld is gone, as ADR-0044 defines a read (step 3),
+     and no copy of it is kept for the grant's sake.
+
+   Whether stock Android ends the process on a grant, and what a grant
+   made from the app's settings page does, are not checked on a device.
 3. **Denied — the `network_denied` state.** The window shows one state with
    one primary action: it asks again while Android still shows the dialog,
    and otherwise opens the app's settings page; returning to the window
@@ -91,13 +113,23 @@ language-culture's):
    lease; in this posture it owns a store and no runtime, and it is not
    promoted to a foreground service — there is no runtime to keep alive. The
    person's own data is never withheld for want of a network.
-4. **Revoked while running** (expected, to verify on the device: Android
-   kills the process on a runtime-permission revoke). The next launch is
-   step 1 or step 3.
+4. **Revoked while running.** A revoke of the network permission ended the
+   process in the one recorded run (ux-designer's measurement, not repeated
+   here: on the Pixel 9a under GrapheneOS, in stay-reachable mode,
+   `pm revoke` of `INTERNET` ended the process, on 2026-11-07, in the
+   thread that step 2 names). A revoke made from the system's settings, and
+   a revoke on stock Android, have not yet been checked on a device; both
+   are expected to end the process as `pm revoke` did.
+   The next launch is step 1 or step 3.
 5. **Stay reachable with the permission missing** (a `START_STICKY` restart
-   after a revoke — expected, to verify on the device): the Service posts
+   after a revoke): the Service posts
    ONE notification — network access is off, open the app — and ends the
-   foreground service; no retry loop, no silent end. The person opted into
+   foreground service; no retry loop, no silent end. This was observed once,
+   in the run that step 4 names: after the `pm revoke` the Service
+   restarted, posted that one notification, and ended. That run did not
+   watch for a retry after the Service ended, and what a foreground-only
+   profile does after a revoke has not yet been checked on a device. The
+   person opted into
    reachability, and a silent stop would hide the broken promise; the
    notification is the honest signal, and the refusal is logged with its
    cause (a diagnostic field for it is still to be defined). Stay reachable
@@ -176,6 +208,7 @@ Test at minimum:
 - no admin access reachable from message callback graph;
 - same wire fixtures as desktop.
 - API 37+: network access asked before the Service is bound; notifications asked only after network is granted;
+- network granted from the dialog: where the process keeps running, bind and start; where the grant ends the process, nothing restarts by itself (observed in stay-reachable mode, one recorded run; foreground-only: expected, not yet checked on a device), and the next launch shows no dialog and continues at step 2;
 - network denied: the Service opens the store and view hub, starts no runtime, holds no lease, is not a foreground service; read/Keep/Unkeep work, nothing sends or joins;
 - network revoked while running: process death, then step 1 or 3 on the next launch;
 - stay reachable restarted without network access: one notification, then the foreground service ends; no retry;
