@@ -213,7 +213,7 @@
   },
   {
    "name": "libp2p-gossipsub",
-   "version": "0.50.0",
+   "version": "0.50.1",
    "license": "MIT",
    "case": "header",
    "file": "src/lib.rs",
