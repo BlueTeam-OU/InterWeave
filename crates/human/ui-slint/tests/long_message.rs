@@ -1738,10 +1738,10 @@ fn platform_input_holds_an_opening_until_it_is_quiet() {
         0,
         "nothing built while input is recent"
     );
-    // Input now, and then quiet: past the 40 ms window
+    // Input now, and then quiet: past the 150 ms window
     // (`OPENING_INPUT_QUIET`).
     view.platform_input_at(std::time::Instant::now());
-    std::thread::sleep(Duration::from_millis(60));
+    std::thread::sleep(Duration::from_millis(200));
     let passes = passes_to_rows(&mut view, &mut model);
     assert!(passes >= 2, "control: built once quiet, in {passes} passes");
 }

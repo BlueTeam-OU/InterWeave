@@ -4709,12 +4709,15 @@ const OPENING_FIRST_GO: Duration = Duration::from_millis(400);
 const OPENING_TURN: Duration = Duration::from_millis(50);
 
 /// How long an opening builds nothing after input reached the event loop:
-/// the rest of a key's passes -- the keyboard's pre-dispatch returning
-/// it, the release after the press, the Activity's Back coming back to
-/// the window -- follow within a few milliseconds of each other on the
-/// A40 (j107), and a turn between two of them delays the next by the
-/// turn.
-const OPENING_INPUT_QUIET: Duration = Duration::from_millis(40);
+/// a key's passes -- the keyboard's pre-dispatch returning it, the
+/// release after the press, the Activity's Back coming back to the
+/// window -- come a few milliseconds apart, but a release can trail its
+/// press by more than 40 ms (j107 on the A40: a 40 ms window let a turn
+/// in before the release, and the close came 0.25 s after the Back), and
+/// a turn between two passes delays the next by the turn. While the
+/// reader has nothing drawn, building a little later costs the person
+/// nothing they could read.
+const OPENING_INPUT_QUIET: Duration = Duration::from_millis(150);
 
 /// The two budgets an opening builds by ([`OPENING_FIRST_GO`],
 /// [`OPENING_TURN`]).
