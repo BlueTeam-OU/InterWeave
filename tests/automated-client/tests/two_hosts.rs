@@ -190,8 +190,13 @@ async fn hosts_with(
     let mut b = Host::mint(base.path(), "host-b", Net::B, netns::OVERLAY_B);
     a.render(&b, a_entry, listen);
     b.render(&a, b_entry, listen);
-    a.start().await;
+    // B FIRST: A dials B as it starts, and a dial into a host not yet
+    // listening puts B under the 30 s peer backoff, the length of a
+    // test's patience -- A's entry alone (`hosts_with(true, false, ..)`)
+    // then connects nothing in time. With both entries, B's early dial
+    // backs off instead and A's connects.
     b.start().await;
+    a.start().await;
     (base, a, b)
 }
 
