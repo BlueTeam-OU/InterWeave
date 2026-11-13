@@ -37,7 +37,7 @@ position empty, focus goes to the primary action, `IdCheckWords`,
 with the screen navigating. Before, §4 named no next position for
 that case, and §8 named no focus (§4 item 2, §8, acceptance 4 and
 15).
-Revised 2026-11-13: a screen reader's activate on a key is a press,
+Revised 2026-11-13: a screen reader's activate action on a key is a press,
 not a tap, so it sets navigating (§8, acceptance 15), at
 rust-ui-dev-01's QUESTION 01a1d261 (REPLY 01a1d262). And, once #651
 held R4 after Continue, acceptance 15 step 3 expects Connect or Chats
@@ -610,13 +610,14 @@ access.
     words must not press whichever key holds focus.
   - **Navigating** — the last input was Tab, an arrow, a tap on any
     other control that acts, or a press of a control by Enter or Space,
-    a key included. A screen reader's activate (TalkBack's double tap,
-    Orca's activate) is a press, on any control: on a letter key, the
-    delete key or the clear key it sets navigating, though a finger's
-    tap on the same key is typing. A finger's tap chooses a key without
-    moving focus first; a screen-reader user moves focus to the key and
-    then activates it, which is Enter's pattern, and with Orca passing
-    Enter through, a second Enter must press that key again. Enter and
+    a key included. A screen reader's activate action (TalkBack's
+    double tap, Orca's activate) is a press, on any control. On a
+    letter key, the delete key or the clear key, it sets navigating,
+    though a finger's tap on the same key counts as typing. A finger's
+    tap chooses a key without moving focus to it first. A screen-reader
+    user moves focus to the key and then activates it, as a keyboard
+    user does with Enter. Orca does not keep Enter for itself: the app
+    receives it, so the next Enter must press that key again. Enter and
     Space press the focused control, as on every other screen. After a
     key is pressed by Enter, the screen stays navigating, so a person
     who moves through the keypad can press one key twice ("pp"). A
@@ -1050,9 +1051,10 @@ scale would also be a finding of the Android review
     - Backspace deletes the last letter.
     - With a screen reader on a newly opened R2: "a" typed on the
       hardware keyboard, focus moved to the p key and p activated,
-      the letters read "ap", and the next Enter presses p again
-      ("app"). Typing mode would do nothing there, since many words
-      begin "ap". This needs the platform's accessibility tree: on
+      the letters show "ap", and the next Enter presses p again
+      ("app"). In typing mode, that Enter would do nothing, since many
+      words begin "ap". This check needs the platform's accessibility
+      tree: on
       Android it is blocked, not passed, until the build exposes one
       to TalkBack (the plan's TalkBack carry to the release gate); on
       the desktop it is run with Orca.
@@ -1173,13 +1175,13 @@ scale would also be a finding of the Android review
          so a new process opens Chats. Run it again.
       3. Clear the log (`adb logcat -c`). Then, from that K1, enter
          the phrase on R2. The restore matches and
-         goes to R4. After R4's continue, the client runs. If the phone
-         knows no address and no peer, Connect to someone opens:
+         goes to R4. After R4's continue, the client runs. R4 stays on
+         screen, with Continue disabled, while the start reads the peer
+         list and the trust set. If the phone knows no address and no
+         peer, the first page after R4 is Connect to someone:
          onboarding's third step (`design/2026-10-22-add-a-peer.md`
-         §5.1). R4 stays on screen, with Continue disabled, while the
-         start reads the peer list and the trust set, and the first page
-         after it is Connect to someone. Otherwise, Chats shows and
-         stays. Chats and then Connect to someone over it fails the
+         §5.1). Otherwise, the first page after R4 is Chats, and Chats
+         stays. Chats, then Connect to someone over it, fails the
          step. In
          both cases, `adb shell dumpsys activity services
          org.interweave.human` lists the Service, and `logcat -s
@@ -1190,7 +1192,8 @@ scale would also be a finding of the Android review
          last `page=` line is the client's own and not a page the
          tester opened. After R4's continue, the
          trace writes `connect=owed` while the start reads the peer
-         list and the trust set, and `page=` only when R4 goes. Wait,
+         list and the trust set, and writes no `page=` line until R4
+         leaves the screen. Wait,
          for at most 30 seconds, until
          the last `connect=` line is no longer `connect=owed` (on the
          A40 this took under a second). Then read the last `connect=`
@@ -1203,7 +1206,7 @@ scale would also be a finding of the Android review
          the restore did not write the marker that says Connect is
          owed. `connect=deferred` with
          `page=conversations` means that the start could not read
-         the peer list or the trust set within the bound (§5.1), so
+         the peer list or the trust set within the 10 s bound, so
          Chats opens without Connect (`design/2026-10-22-add-a-peer.md`
          §5.1); then only the Connect
          part of the step is void, not passed, and the step is run
