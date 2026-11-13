@@ -70,12 +70,19 @@ cd "$(dirname "$0")/../.."
 # reached. The separation is machine-checked below and held: two
 # `duplicate_cache.insert` in `behaviour.rs`, zero mentions in
 # `protocol.rs`.
-REVIEWED_GOSSIPSUB_VERSION="${INTERWEAVE_REVIEWED_GOSSIPSUB_VERSION:-0.50.0}"
+#
+# RE-ESTABLISHED FOR 0.50.1 (RUSTSEC-2026-0534) by reading the diff from
+# 0.50.0: `protocol.rs` is byte-identical, so the decode rejection above
+# is unchanged; `behaviour.rs` gains one early `continue` in
+# `handle_prune`, skipping a PRUNE for a topic not in `mesh`, which
+# touches neither message handling nor `duplicate_cache` (still two
+# inserts). Only the behaviour digest moved.
+REVIEWED_GOSSIPSUB_VERSION="${INTERWEAVE_REVIEWED_GOSSIPSUB_VERSION:-0.50.1}"
 # Overridable ONLY so the self-test can pin its own fixtures, for the same
 # reason INTERWEAVE_GOSSIPSUB_SRC exists: a self-test that reimplements
 # the comparison cannot fail when the real one is weakened.
 REVIEWED_PROTOCOL_SHA256="${INTERWEAVE_REVIEWED_PROTOCOL_SHA256:-c8353abbe8a944f546d79a12a7795a7477a4855e716918348d786d3ae07f34ca}"
-REVIEWED_BEHAVIOUR_SHA256="${INTERWEAVE_REVIEWED_BEHAVIOUR_SHA256:-129355ebbbcd3033659e4b1ec96fcb73cbbad6c63d14e3a86f98a7917444dde2}"
+REVIEWED_BEHAVIOUR_SHA256="${INTERWEAVE_REVIEWED_BEHAVIOUR_SHA256:-8522c5fce5e8fb0b21996faa80d7cbfede185cc357f3eca6eeea698c08722b93}"
 
 problems=0
 report() {
