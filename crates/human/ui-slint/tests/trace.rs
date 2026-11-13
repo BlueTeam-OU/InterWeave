@@ -1853,8 +1853,14 @@ fn a_banner_that_appears_takes_focus() {
     // Shown again, it stays where the person moved focus.
     page.tab();
     let at = page.last();
+    assert_ne!(at, "ui-trace focus=identity-banner", "control: off it");
     page.settle();
     assert_eq!(page.last(), at);
+    // No tap moves focus (section 8), the banner's text included.
+    let notice = interweave_human_ui_slint::identity_page(&page.flow).notice;
+    page.tap_queued(&notice, true);
+    page.settle();
+    assert_eq!(page.last(), at, "the tap left focus where it was");
 }
 
 /// The discard dialog (section 7): it opens with focus on Continue
@@ -2067,6 +2073,36 @@ fn tab_to(page: &mut Identity, line: &str) {
         page.tab();
     }
     panic!("TAB never reached {line}");
+}
+
+/// No tap moves focus (section 8): a tap on K1's title, a focus stop,
+/// leaves focus where it was.
+#[test]
+fn the_heading_takes_no_tap() {
+    use interweave_human_ui_model::{IdentityFlow, RecoveryReason, Start};
+    use interweave_transport_api::TransportIdentity;
+    let peer = TransportIdentity::parse("12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e")
+        .expect("a PeerId");
+    let mut page = Identity::new(IdentityFlow::new(
+        WORDS,
+        Start::Recovery {
+            reason: RecoveryReason::Key,
+            expected: Some(peer),
+            new_keys: false,
+        },
+    ));
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert!(
+        !shown.heading_key.is_empty(),
+        "control: K1's title is a stop"
+    );
+    // TAB reaches the title, then the primary.
+    tab_to(&mut page, "ui-trace focus=k1-heading");
+    tab_to(&mut page, "ui-trace focus=identity-primary");
+    let at = page.last();
+    page.tap_queued(&shown.title, true);
+    page.settle();
+    assert_eq!(page.last(), at, "the tap left focus where it was");
 }
 
 /// R1, the restore's first screen, with nothing entered.

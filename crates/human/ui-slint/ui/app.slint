@@ -1994,10 +1994,9 @@ component NoticeCard inherits Rectangle {
 // disabled control keeps its place), acting on Enter or Space only when
 // it is.
 component IdentityPrimary inherits FocusScope {
-    // Section 8: no tap moves focus. A press the TapArea does not take
-    // (the control disabled, or outside its target) would otherwise reach
-    // this scope, which focuses on click; trace.rs
-    // a_tap_on_a_disabled_key_leaves_the_mode_as_it_was.
+    // Section 8: no tap moves focus. A press the disabled TapArea does
+    // not take would otherwise reach this scope, which focuses on click;
+    // trace.rs a_tap_on_a_disabled_key_leaves_the_mode_as_it_was.
     focus-on-click: false;
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
@@ -2062,10 +2061,9 @@ component IdentityPrimary inherits FocusScope {
 // tap. A disabled key keeps its stop and is marked disabled (section 8).
 // Its look is its children's; the ring is placed, so it sizes nothing.
 component IdentityStop inherits FocusScope {
-    // Section 8: no tap moves focus. A press the TapArea does not take
-    // (the control disabled, or outside its target) would otherwise reach
-    // this scope, which focuses on click; trace.rs
-    // a_tap_on_a_disabled_key_leaves_the_mode_as_it_was.
+    // Section 8: no tap moves focus. A press the disabled TapArea does
+    // not take would otherwise reach this scope, which focuses on click;
+    // trace.rs a_tap_on_a_disabled_key_leaves_the_mode_as_it_was.
     focus-on-click: false;
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
@@ -2719,6 +2717,9 @@ component IdentityScreen inherits FocusScope {
                 alignment: center;
                 FocusNote {
                     text: root.page.title;
+                    // No tap moves focus (section 8); trace.rs
+                    // a_banner_that_appears_takes_focus, the_heading_takes_no_tap.
+                    focus-on-click: false;
                     font-size: Type.title-large;
                     font-weight: 500;
                     rtl: root.rtl;
@@ -2774,6 +2775,9 @@ component IdentityScreen inherits FocusScope {
                         padding: 12px;
                         FocusNote {
                             text: root.page.notice;
+                            // No tap moves focus (section 8); trace.rs
+                            // a_banner_that_appears_takes_focus, the_heading_takes_no_tap.
+                            focus-on-click: false;
                             ink: Palette.error;
                             rtl: root.rtl;
                             focus-key: "identity-banner";
