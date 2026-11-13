@@ -13,8 +13,12 @@
 //! to it the port adb reverses (`src/adb.rs`), as in `long_message.rs`.
 //! The app must hold no contact, as after a fresh install: a contact a
 //! run before left of the same name or key puts a note before the second
-//! card's Update contact, and focus does not reach that button past the
-//! note's link (the A40, 2026-11-13), so the case could not accept it.
+//! card's Update contact, and on the A40 (2026-11-13) focus did not reach
+//! that button past the note's link, so the case could not accept it.
+//! That was the proposal row's clip, which Slint's TAB stops at; the row
+//! now clips only while a swipe moves it (ui-slint `tests/cards.rs`,
+//! `every_control_of_a_proposal_taller_than_the_window_is_a_tab_stop`),
+//! not yet run on a phone, and the case's steps still expect no note.
 //! D's person sends:
 //!
 //! 1. one body holding a character of 32 code points, one of 33 and one
