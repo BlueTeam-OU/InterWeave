@@ -381,6 +381,33 @@ fn s13_5_remote_text_cannot_invoke_admin_or_recovery_handlers() {
     }
 }
 
+/// Every list the view asks for on a render shares its items' rendered
+/// bodies rather than copying them: a body at the envelope's bound is a
+/// tree of thousands of blocks, and copied it made each render of a
+/// conversation of such messages cost 10-20 ms a message on the host
+/// and kept a Back out of an opening reader waiting on the A40 (j107).
+#[test]
+fn the_lists_share_each_items_rendered_body() {
+    let p = peer();
+    let mut model = UiModel::new();
+    model.unread_listed(vec![inbound(1, &p, envelope(1, "# Title\n\nbody"))]);
+    let key = ConversationKey::Direct {
+        peer: p,
+        endpoint: Some(endpoint("human")),
+    };
+    let first = model.messages(&key);
+    let again = model.messages(&key);
+    assert!(
+        std::sync::Arc::ptr_eq(&first[0].body, &again[0].body),
+        "two listings, one body"
+    );
+    let listed = model.conversations();
+    assert!(
+        std::sync::Arc::ptr_eq(&listed[0].last.body, &first[0].body),
+        "the conversation list's last message is the item's body"
+    );
+}
+
 #[test]
 fn s13_6_the_shared_model_renders_a_fixture_to_one_frozen_shape() {
     // Desktop and Android share this model. What is pinned is the shape a
@@ -395,7 +422,7 @@ fn s13_6_the_shared_model_renders_a_fixture_to_one_frozen_shape() {
         peer: p,
         endpoint: Some(endpoint("human")),
     })[0];
-    let Rendered::Markdown(blocks) = &item.body else {
+    let Rendered::Markdown(blocks) = &*item.body else {
         panic!("rendered as markdown: {:?}", item.body);
     };
     assert_eq!(

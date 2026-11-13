@@ -154,9 +154,9 @@ impl NewestRow {
                 Table::Kept => LabelKey::Kept,
                 _ => LabelKey::Unread,
             },
-            body: Rendered::Markdown(vec![Block::Paragraph(vec![Inline::Text(
-                self.preview.text.clone(),
-            )])]),
+            body: std::sync::Arc::new(Rendered::Markdown(vec![Block::Paragraph(vec![
+                Inline::Text(self.preview.text.clone()),
+            ])])),
             local_at: self.received_at,
             card: self.card,
             preview: self.preview.clone(),

@@ -1666,6 +1666,110 @@ fn a_slow_opening_shows_nothing_then_its_bar_until_the_rows_are_in() {
     assert_eq!(view.window().get_reader_link_rows().row_count(), 3000);
 }
 
+/// A body of `links` links to as many places, for an opening of a known
+/// number of steps.
+fn places(links: usize) -> String {
+    (0..links)
+        .map(|i| format!("[a](https://e.org/{i})"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The reader opened on a body of `links` links, built a step a turn.
+fn opening(links: usize) -> (View, UiModel) {
+    let mut view = view();
+    view.set_opening_budgets(Duration::ZERO, Duration::ZERO);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, &places(links)));
+    open(&mut view, &mut model, &direct(&alice));
+    the(&view, text(UiText::OpenWholeMessage)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_reader_open(), "control: the reader opens");
+    (view, model)
+}
+
+/// How many timer passes an opening takes until its rows are in.
+fn passes_to_rows(view: &mut View, model: &mut UiModel) -> usize {
+    let mut passes = 0;
+    while view.window().get_reader_rows().row_count() == 0 {
+        passes += 1;
+        assert!(passes < 200, "the rows never came");
+        after(1);
+        let _ = intents(view, model);
+    }
+    passes
+}
+
+/// After the first go, and after each turn, the event loop goes round
+/// once with no build, so input waiting since the turn is taken before
+/// the next (j107: a Back held to the build's end on the A40): an
+/// opening of six turns takes twelve passes, a pass of rest before each
+/// (six without it, measured; the turns are `reader::STEP_BYTES`' steps,
+/// so a change of that size changes both figures).
+#[test]
+fn an_opening_rests_one_pass_after_each_turn() {
+    let (mut view, mut model) = opening(3000);
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "control: the first go did not build it all"
+    );
+    let passes = passes_to_rows(&mut view, &mut model);
+    assert_eq!(passes, 12, "six turns, a rest before each");
+}
+
+/// While input reached the loop within the quiet window, an opening
+/// builds nothing: the rest of a key's passes through the loop -- its
+/// release, the Activity's Back -- are taken first; and once it is
+/// quiet the opening goes on.
+#[test]
+fn platform_input_holds_an_opening_until_it_is_quiet() {
+    let (mut view, mut model) = opening(3000);
+    // Recorded as arriving a minute from now: held for the whole test
+    // whatever the host's speed.
+    view.platform_input_at(std::time::Instant::now() + Duration::from_secs(60));
+    for _ in 0..20 {
+        after(1);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert_eq!(
+        view.window().get_reader_rows().row_count(),
+        0,
+        "nothing built while input is recent"
+    );
+    // Input now, and then quiet: past the 150 ms window
+    // (`OPENING_INPUT_QUIET`).
+    view.platform_input_at(std::time::Instant::now());
+    std::thread::sleep(Duration::from_millis(200));
+    let passes = passes_to_rows(&mut view, &mut model);
+    assert!(passes >= 2, "control: built once quiet, in {passes} passes");
+}
+
+/// Input that never stops -- a key held down, a drag -- holds an opening
+/// only so long: after `OPENING_HOLD_PASSES` (300) held firings in a row
+/// it builds a turn anyway, so the rows still come in. The six-turn
+/// opening takes a rest, 300 held firings and a turn each time: 1,812
+/// passes (a cap of 100 would give 612).
+#[test]
+fn input_that_never_stops_holds_an_opening_only_so_long() {
+    let (mut view, mut model) = opening(3000);
+    // Recorded as arriving a minute from now: recent at every firing.
+    view.platform_input_at(std::time::Instant::now() + Duration::from_secs(60));
+    let mut passes = 0;
+    while view.window().get_reader_rows().row_count() == 0 {
+        passes += 1;
+        assert!(passes < 5000, "the rows never came while input kept coming");
+        after(1);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert_eq!(
+        passes,
+        6 * (300 + 2),
+        "six turns, each after 300 held firings"
+    );
+}
+
 /// The end of an opening is not a press: built while the queue holds
 /// `INPUT_CAP` presses the root has not taken, the rows still come in at
 /// the next take, and nothing more is counted refused (#643 F1).

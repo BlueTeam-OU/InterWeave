@@ -408,6 +408,9 @@ const BACK_AFTER: Duration = Duration::from_millis(200);
 /// 0.5 and 0.75 s (device-runs/2026-11-12-samsung-a40-pixel-9a.md).
 const BACK_PAST_FIRST_GO: Duration = Duration::from_millis(600);
 
+/// How long after the first Back the second comes, in the two-Back case.
+const SECOND_BACK: Duration = Duration::from_millis(300);
+
 /// A person who presses Back while the reader opens: the list shape sent
 /// as in the timed case, its Read the whole message pressed, and Back
 /// [`BACK_AFTER`] later. The reader closes to its conversation with focus
@@ -425,7 +428,7 @@ const BACK_PAST_FIRST_GO: Duration = Duration::from_millis(600);
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
 async fn on_a_device_back_while_the_reader_opens_closes_it_to_its_conversation() {
-    back_while_opening(&["list"], BACK_AFTER).await;
+    back_while_opening(&["list"], BACK_AFTER, None).await;
 }
 
 /// The same with Back [`BACK_PAST_FIRST_GO`] after the press: on heading
@@ -449,13 +452,33 @@ async fn on_a_device_back_past_the_first_go_closes_the_reader_to_its_conversatio
             "distinct links",
         ],
         BACK_PAST_FIRST_GO,
+        None,
+    )
+    .await;
+}
+
+/// Two Backs [`SECOND_BACK`] apart, the first [`BACK_PAST_FIRST_GO`]
+/// after the press, on the two stress shapes, whose bar is up by then:
+/// the first closes the reader and the second acts on the conversation,
+/// leaving it for the chat list, neither lost nor merged (design
+/// 2026-11-04-long-message.md section 5.4; ux-designer-01's acceptance
+/// 2 for j107).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
+async fn on_a_device_two_backs_while_the_reader_opens_close_it_then_the_conversation() {
+    back_while_opening(
+        &["distinct headings", "distinct links"],
+        BACK_PAST_FIRST_GO,
+        Some(SECOND_BACK),
     )
     .await;
 }
 
 /// Each of `names`' shapes sent in turn, its Read the whole message
-/// pressed and Back `after` later ([`Screens::read_whole_then_back`]).
-async fn back_while_opening(names: &[&str], after: Duration) {
+/// pressed and Back `after` later, and a second Back `second` after that
+/// ([`Screens::read_whole_then_back`]): the conversation is opened again
+/// for each shape the second Back left.
+async fn back_while_opening(names: &[&str], after: Duration, second: Option<Duration>) {
     let shots = std::env::var_os("INTERWEAVE_ANDROID_SHOTS").map(PathBuf::from);
     let Rig {
         serial,
@@ -474,13 +497,13 @@ async fn back_while_opening(names: &[&str], after: Duration) {
         assert!(cut_in_row(&text), "the {name} shape is cut in its row");
         sender.send(&phone_peer, serial_no, text, || d.log()).await;
         let back = tokio::task::block_in_place(|| {
-            if opened.is_empty() {
+            if opened.is_empty() || second.is_some() {
                 let s = screens.open_conversation(PATIENCE);
                 passed(&s, &screens);
             }
             let on_phone = "/data/local/tmp/interweave-back-during-opening.mp4";
             let mut recording = None;
-            let back = screens.read_whole_then_back(&opened, after, PATIENCE, || {
+            let back = screens.read_whole_then_back(&opened, after, second, PATIENCE, || {
                 recording = shots.as_ref().map(|_| {
                     let child = Command::new("adb")
                         .args([
@@ -501,7 +524,10 @@ async fn back_while_opening(names: &[&str], after: Duration) {
             });
             if let (Some(mut child), Some(dir)) = (recording, &shots) {
                 child.wait().expect("screenrecord ended");
-                let file = format!("back-{name}-{}ms.mp4", after.as_millis()).replace(' ', "-");
+                let twice =
+                    second.map_or_else(String::new, |gap| format!("-then-{}ms", gap.as_millis()));
+                let file =
+                    format!("back-{name}-{}ms{twice}.mp4", after.as_millis()).replace(' ', "-");
                 let pulled = Command::new("adb")
                     .args(["-s", &serial, "pull", on_phone])
                     .arg(dir.join(file))
@@ -520,8 +546,16 @@ async fn back_while_opening(names: &[&str], after: Duration) {
         });
         passed(&back, &screens);
         let field = |key: &str| back.get(key).and_then(|v| v.as_str()).unwrap_or("?");
+        let (again, ended, second_at) = match second {
+            Some(gap) => (
+                format!(", and again {gap:?} later"),
+                "closed to its conversation, then left it for the chat list",
+                format!(", second Back launched {}", field("back2-at")),
+            ),
+            None => (String::new(), "closed to its conversation", String::new()),
+        };
         println!(
-            "Back {after:?} after Read the whole message on {name}: closed to its conversation; rows drawn before it closed: {}; Enter launched {}, Back launched {} (phone time)",
+            "Back {after:?} after Read the whole message on {name}{again}: {ended}; rows drawn before it closed: {}; Enter launched {}, Back launched {}{second_at} (phone time)",
             field("drawn"),
             field("enter-at"),
             field("back-at"),
