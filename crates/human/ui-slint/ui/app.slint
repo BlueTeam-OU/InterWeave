@@ -461,6 +461,9 @@ export struct IdentityPage {
     // How many chips the flow has taken, a tap's or Enter's: a page whose
     // count moved shows one just taken (section 8's focus rule).
     chips-taken: int,
+    // How many grid positions R2 has opened to edit: a page whose count
+    // moved shows one just chosen (section 8's focus rule).
+    positions-chosen: int,
     // The letters in QWERTY rows of 10, 9 and 7, and in alphabetical
     // rows of 7 for a narrow screen: the view picks by width (section
     // 4.3). Rows, so a shorter row centres under the first.
@@ -846,12 +849,20 @@ component ActionButton inherits FocusScope {
     in property <string> detail;
     callback pressed();
     callback focused(string);
+    // Whether the press `pressed` is running for came from a finger:
+    // identity section 8 counts a tap on the keypad's delete or clear key
+    // as typing, and a press by Enter or Space as navigating.
+    out property <bool> by-tap;
     accessible-role: button;
     accessible-label: Drawn.spoken(text);
     accessible-description: Drawn.spoken(detail);
-    accessible-action-default => { root.pressed(); }
+    accessible-action-default => {
+        root.by-tap = false;
+        root.pressed();
+    }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
+            root.by-tap = false;
             root.pressed();
             return accept;
         }
@@ -926,7 +937,12 @@ component ActionButton inherits FocusScope {
             }
         }
     }
-    TapArea { tapped => { root.pressed(); } }
+    TapArea {
+        tapped => {
+            root.by-tap = true;
+            root.pressed();
+        }
+    }
     FocusRing {
         x: -5px;
         y: -5px;
@@ -1978,6 +1994,10 @@ component NoticeCard inherits Rectangle {
 // disabled control keeps its place), acting on Enter or Space only when
 // it is.
 component IdentityPrimary inherits FocusScope {
+    // Section 8: no tap moves focus. A press the disabled TapArea does
+    // not take would otherwise reach this scope, which focuses on click;
+    // trace.rs a_tap_on_a_disabled_key_leaves_the_mode_as_it_was.
+    focus-on-click: false;
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
@@ -2041,6 +2061,10 @@ component IdentityPrimary inherits FocusScope {
 // tap. A disabled key keeps its stop and is marked disabled (section 8).
 // Its look is its children's; the ring is placed, so it sizes nothing.
 component IdentityStop inherits FocusScope {
+    // Section 8: no tap moves focus. A press the disabled TapArea does
+    // not take would otherwise reach this scope, which focuses on click;
+    // trace.rs a_tap_on_a_disabled_key_leaves_the_mode_as_it_was.
+    focus-on-click: false;
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
@@ -2055,13 +2079,25 @@ component IdentityStop inherits FocusScope {
     }
     callback pressed();
     callback focus-taken();
+    // Whether the press `pressed` is running for came from a finger
+    // (section 8: a tapped key is typing, a key pressed by Enter is
+    // navigating).
+    out property <bool> by-tap;
     accessible-role: button;
     accessible-label: Drawn.spoken(root.label);
     accessible-enabled: root.enabled-action;
-    accessible-action-default => { if (root.enabled-action) { root.pressed(); } }
+    accessible-action-default => {
+        if (root.enabled-action) {
+            root.by-tap = false;
+            root.pressed();
+        }
+    }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
-            if (root.enabled-action) { root.pressed(); }
+            if (root.enabled-action) {
+                root.by-tap = false;
+                root.pressed();
+            }
             return accept;
         }
         reject
@@ -2073,7 +2109,10 @@ component IdentityStop inherits FocusScope {
     TapArea {
         enabled: root.enabled-action;
         radius: root.radius;
-        tapped => { root.pressed(); }
+        tapped => {
+            root.by-tap = true;
+            root.pressed();
+        }
     }
     FocusRing {
         x: -5px;
@@ -2351,13 +2390,32 @@ component IdentityScreen inherits FocusScope {
     // the primary that opened it; the dialog takes focus on Continue
     // entering, its default, and gives it and the mode back to what had
     // them; a banner that appears takes it; a chip that fills a
-    // position hands it to the keypad's first enabled key; else it stays
-    // on its stop.
+    // position, or a grid position chosen to edit, hands it to the
+    // keypad's first enabled key; a focused chip follows its word along
+    // the row, or goes to that key when the letters remove it; else it
+    // stays on its stop.
     property <bool> dialog-shown;
     property <string> notice-shown;
     // The page's chip count as last seen: a page whose count moved shows a
     // chip just taken, by a tap or by Enter, which the flow judged.
     property <int> chips-shown;
+    property <int> positions-shown;
+    // The word of the chip that last took focus. Kept here and never
+    // traced (`took` names the kind alone): the chips are rebuilt with
+    // the letters, and focus follows its word, or goes to the keypad
+    // when the letters took it off the row (section 8).
+    property <string> chip-word;
+    // Where `word` stands among the chips, or -1. The row holds at most
+    // four (ui-model's MAX_CHIPS, pinned by trace.rs
+    // the_chip_row_holds_at_most_four), and Slint has no loop in a
+    // function.
+    function chip-index(word: string) -> int {
+        if (root.page.chips.length > 0 && root.page.chips[0] == word) { return 0; }
+        if (root.page.chips.length > 1 && root.page.chips[1] == word) { return 1; }
+        if (root.page.chips.length > 2 && root.page.chips[2] == word) { return 2; }
+        if (root.page.chips.length > 3 && root.page.chips[3] == word) { return 3; }
+        return -1;
+    }
     // The full list (section 8): it opens on the current position's row;
     // closed by a row, focus goes to the first enabled key, typing; by
     // the text falling to 130 % or below, to the grid's current position;
@@ -2392,6 +2450,7 @@ component IdentityScreen inherits FocusScope {
     init => {
         root.dialog-shown = root.page.dialog;
         root.chips-shown = root.page.chips-taken;
+        root.positions-shown = root.page.positions-chosen;
         root.notice-shown = root.page.notice;
         root.review-shown = root.page.review;
         root.screen-shown = root.page.screen;
@@ -2415,6 +2474,7 @@ component IdentityScreen inherits FocusScope {
             let notice-new = root.page.notice != "" && root.page.notice != root.notice-shown;
             root.notice-shown = root.page.notice;
             root.chips-shown = root.page.chips-taken;
+            root.positions-shown = root.page.positions-chosen;
             root.row-chosen = false;
             root.font-closed = false;
             if (root.page.picker) {
@@ -2442,6 +2502,7 @@ component IdentityScreen inherits FocusScope {
             root.row-chosen = false;
             root.font-closed = false;
             root.chips-shown = root.page.chips-taken;
+            root.positions-shown = root.page.positions-chosen;
             if (root.page.review) {
                 root.go(1, root.page.current);
             } else if (row) {
@@ -2466,32 +2527,53 @@ component IdentityScreen inherits FocusScope {
         }
         let notice-new = root.page.notice != "" && root.page.notice != root.notice-shown;
         root.notice-shown = root.page.notice;
-        let chip = root.page.chips-taken != root.chips-shown;
+        // A chip taken or a position chosen, by any input: focus to the
+        // keypad, judged on the page that shows it (section 8).
+        let to-keypad = root.page.chips-taken != root.chips-shown
+            || root.page.positions-chosen != root.positions-shown;
         root.chips-shown = root.page.chips-taken;
+        root.positions-shown = root.page.positions-chosen;
         if (root.dialog-shown) {
             root.dialog-shown = false;
             root.typing = root.saved-typing;
             root.again(root.saved-seg, root.saved-idx);
         } else if (notice-new) {
             root.go(0, root.banner-idx());
-        } else if (chip && root.page.picker) {
+        } else if (to-keypad && root.page.picker) {
             root.keypad();
+        } else if (root.at-seg == 2 && root.page.picker) {
+            // The chips were rebuilt: focus stays on its chip's word,
+            // wherever the row put it, or goes to the keypad when the
+            // letters took that word off the row.
+            let at = root.chip-index(root.chip-word);
+            if (at < 0) {
+                root.keypad();
+            } else {
+                root.again(2, at);
+            }
         } else if (root.at-seg >= 0) {
             root.again(root.at-seg, root.at-idx);
         }
     }
+    // A chip taken, by a tap or a press: typing, an exception to "a press
+    // sets navigating", so the next Enter does not press the key focus
+    // goes to (section 8).
     function take(word: string) {
-        root.typing = false;
+        root.typing = true;
         root.chip(word);
     }
     // Enter and Space follow the last input (section 8). Typing -- the
-    // last was a hardware letter, Backspace or Enter by the suggestion
-    // rule -- Enter takes the only suggestion or the whole-word chip and
-    // otherwise does nothing, and Space does nothing: on the key focus
-    // went to after a chip they would add a letter. Navigating -- TAB, an
-    // arrow, a tap or a press of a control -- they press the focused
-    // control. Space, an Enter that did nothing, and Back leave the mode
-    // as it was; R2 and C3 open typing.
+    // last was a hardware letter, Backspace, Enter by the suggestion
+    // rule, or a tap on an enabled letter key, delete or clear -- Enter
+    // takes the only suggestion or the whole-word chip and otherwise does
+    // nothing, and Space does nothing: on the key focus went to after a
+    // chip they would add a letter. Navigating -- TAB, an arrow, a tap on
+    // any other control that acts, or a press by Enter or Space, a key's
+    // included -- they press the focused control. A chip taken or a
+    // position chosen, by any input, returns typing. Space, an Enter that
+    // did nothing, Back, and a tap that acts on nothing (a disabled key,
+    // text, no control) leave the mode as it was; R2 and C3 open typing.
+    // No tap moves focus.
     property <bool> typing;
     // Over 130 % of the platform's 14 px, strictly (section 4.4). The
     // line sits a little above 18.2 px because 1.3 x 14 as a float is
@@ -2504,18 +2586,16 @@ component IdentityScreen inherits FocusScope {
             root.review(false);
         }
     }
-    function press-key(letter: string) {
-        root.typing = false;
+    function press-key(letter: string, tap: bool) {
+        root.typing = tap;
         root.key(letter);
     }
     // The rule's Enter as this page shows it: the only chip, or the whole
     // word typed, which leads the row. The flow takes the chip
     // (WordPicker::enter_chip); this only decides whether an Enter with
-    // no control focused is the rule's at all. A hardware letter in
-    // flight opens typing, so its Enter is the flow's; a tapped one sets
-    // navigating and moves no focus, so a Return behind it presses the
-    // key that held focus and never reaches this (trace.rs
-    // a_return_burst_behind_a_tapped_key_presses_the_focused_control).
+    // no control focused is the rule's at all. A letter in flight, typed
+    // or tapped, opens typing, so its Enter is the flow's and never
+    // reaches this.
     function enter-takes() -> bool {
         return root.page.picker && root.page.chips.length > 0
             && (root.page.chips.length == 1 || root.page.chips[0] == root.page.typed);
@@ -2637,6 +2717,9 @@ component IdentityScreen inherits FocusScope {
                 alignment: center;
                 FocusNote {
                     text: root.page.title;
+                    // No tap moves focus (section 8); trace.rs
+                    // the_heading_takes_no_tap.
+                    focus-on-click: false;
                     font-size: Type.title-large;
                     font-weight: 500;
                     rtl: root.rtl;
@@ -2692,6 +2775,9 @@ component IdentityScreen inherits FocusScope {
                         padding: 12px;
                         FocusNote {
                             text: root.page.notice;
+                            // No tap moves focus (section 8); trace.rs
+                            // a_banner_that_appears_takes_focus.
+                            focus-on-click: false;
                             ink: Palette.error;
                             rtl: root.rtl;
                             focus-key: "identity-banner";
@@ -2820,7 +2906,9 @@ component IdentityScreen inherits FocusScope {
                                 self.absolute-position, self.width, self.height);
                         }
                         focus-wanted: root.want-seg == 1 && root.want-idx == i;
-                        pressed => { root.typing = false; root.slot(i); }
+                        // A position chosen returns typing (section 8);
+                        // the page that shows it moves focus to the keypad.
+                        pressed => { root.typing = true; root.slot(i); }
                         focus-taken => { root.took("identity-slot:" + i, 1, i); }
                         Rectangle {
                             border-width: slot.current ? 2px : 1px;
@@ -2893,7 +2981,10 @@ component IdentityScreen inherits FocusScope {
                     }
                     focus-wanted: root.want-seg == 2 && root.want-idx == i;
                     pressed => { root.take(word); }
-                    focus-taken => { root.took("identity-chip", 2, i); }
+                    focus-taken => {
+                        root.chip-word = word;
+                        root.took("identity-chip", 2, i);
+                    }
                     Rectangle {
                         border-radius: 8px;
                         border-width: 1px;
@@ -2944,7 +3035,7 @@ component IdentityScreen inherits FocusScope {
                         }
                         focus-wanted: root.want-seg == 3
                             && (root.want-idx == -1 ? key.first : root.want-idx == key.index);
-                        pressed => { root.press-key(key.letter); }
+                        pressed => { root.press-key(key.letter, self.by-tap); }
                         focus-taken => { root.took("identity-key", 3, key.index); }
                         // The key and its letter dim together; the ring does not.
                         Rectangle {
@@ -2979,7 +3070,7 @@ component IdentityScreen inherits FocusScope {
                             self.absolute-position, self.width, self.height);
                     }
                     focus-wanted: root.want-seg == 4;
-                    pressed => { root.typing = false; root.delete-letter(); }
+                    pressed => { root.typing = self.by-tap; root.delete-letter(); }
                     focused(k) => { root.took(k, 4, 0); }
                 }
                 ActionButton {
@@ -2995,7 +3086,7 @@ component IdentityScreen inherits FocusScope {
                             self.absolute-position, self.width, self.height);
                     }
                     focus-wanted: root.want-seg == 5;
-                    pressed => { root.typing = false; root.clear-word(); }
+                    pressed => { root.typing = self.by-tap; root.clear-word(); }
                     focused(k) => { root.took(k, 5, 0); }
                 }
             }

@@ -362,6 +362,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
     }
 
     page.chips_taken = flow.chips_taken().cast_signed();
+    page.positions_chosen = flow.positions_chosen().cast_signed();
     if let Some(picker) = flow.picker() {
         page.picker = true;
         page.typed = picker.typed().into();
