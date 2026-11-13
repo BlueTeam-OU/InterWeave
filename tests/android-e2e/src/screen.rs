@@ -240,10 +240,11 @@ impl Screens {
     /// merged (section 5.4); focus is then the list's, not the row's, and
     /// the step adds `back2-at`.
     ///
-    /// The keys go from one shell, each `input` but the last started in the
-    /// background, so the gap between two is its sleep give or take the
-    /// difference between their `input`s' start-up, not the sleep plus one
-    /// start-up as separate adb calls would make it.
+    /// The keys go from one shell, each `input` started in the background
+    /// and the shell waiting for them all, so the gap between two is the
+    /// sleep between their launches give or take the difference between
+    /// their start-ups, not the sleep plus one start-up as separate adb
+    /// calls would make it.
     pub fn read_whole_then_back(
         &mut self,
         opened: &[String],
