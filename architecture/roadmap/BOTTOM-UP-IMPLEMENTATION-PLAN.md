@@ -6147,8 +6147,10 @@ none is the status value's, which stays on this stage.
   among the limits, no phone at hand reaching it; TM-42 names a new case,
   `tests/android-e2e/tests/admin_deputy.rs` (admin-shaped requests from a
   desktop daemon, raw and as a chat message, reach the app's client and
-  change no trust, lease or bootstrap address, a real admin change seen
-  as the control), passed on the stand-in and not yet run on a device,
+  change no lease or bootstrap address and no trust but the desktop the
+  case trusts through the admin port after its baseline, since the
+  Android profile refuses every send from a desktop it does not trust,
+  a real admin change seen as the control), passed on the stand-in and not yet run on a device,
   which needs an APK carrying the case and the Pixel on wireless adb;
   and S21-12's step reads `owner`, its cases named and one item owed,
   a `user-presence` seed key invalidated on a device, which needs the
