@@ -3492,6 +3492,9 @@ component NameField inherits VerticalLayout {
         color: Palette.on-surface-variant;
         accessible-role: none;
     }
+    // Not clipped, unlike OneLine's box: a TextInput clips its own ink
+    // to its box whatever its text (tests/name_field_clip.rs), so a name
+    // at the cluster bound draws no marks above the field.
     box := Rectangle {
         height: max(56px, input.preferred-height + 24px);
         border-width: input.has-focus || root.error != "" ? 2px : 1px;
