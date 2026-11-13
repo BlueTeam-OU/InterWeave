@@ -14,9 +14,7 @@ use std::time::{Duration, Instant};
 use interweave_human_android_platform::start_rules::{Launch, StartRules};
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
-use interweave_human_ui_model::{
-    BOUND_MS, ConnectPhase, RuntimeHost, UiModel, ViewEvent, WindowEvent,
-};
+use interweave_human_ui_model::{BOUND_MS, RuntimeHost, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::{
     ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, ShowOpen, TouchSettings, View, after,
     defer, init_android, invoke_on_window,
@@ -475,6 +473,11 @@ impl Root {
             invoke_on_window(turn);
         }));
         let surface = Rc::clone(&view);
+        // Chats shows at this launch from here: what is opened from it
+        // counts against an owed Connect (add-a-peer §5.1). A reattach
+        // keeps the rules it had, and with them where the count began.
+        let mut rules = StartRules::new();
+        rules.count_from(view.borrow().opened_from_chats());
         Self {
             // Each fresh model -- a service restart makes one -- asks the
             // marker again, so a Connect a start left undecided is owed to
@@ -491,28 +494,16 @@ impl Root {
             }),
             view,
             link,
-            rules: StartRules::new(),
+            rules,
             epoch: Instant::now(),
         }
     }
 
-    /// A launch's owed Connect, given up once 10 s passed since its
-    /// service ran or the person opened something from Chats (§5.1).
-    /// Asked before the turn; an opening the turn has yet to take is
-    /// counted already, so the reads it settles open nothing over it.
-    fn launch_rule(&mut self) {
-        let owed = self.side.running()
-            && self.side.side().model().connect_phase() == ConnectPhase::Owed
-            && crate::onboard::held_start().is_none();
+    /// A later start was asked for: what is opened from Chats counts
+    /// against its owed Connect from here, not from the launch (§5.1).
+    fn start_asked(&mut self) {
         let opened = self.view.borrow().opened_from_chats();
-        let now = u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
-        match self.rules.launch(owed, opened, now) {
-            Launch::Armed => after(Duration::from_millis(BOUND_MS), turn),
-            Launch::GiveUp => {
-                self.side.side_mut().connect_defer();
-            }
-            Launch::Idle | Launch::Waiting => {}
-        }
+        self.rules.count_from(opened);
     }
 
     /// A held C4's or R4's start, decided or past its bound: the screen
@@ -545,26 +536,14 @@ impl Root {
                 log("the message store could not be listed");
             }
         }
-        let side = &self.side;
-        let pumped = self
-            .rules
-            .pumped(side.running(), |asked_at| side.start_decided(asked_at));
-        if pumped.started {
-            #[cfg(feature = "ui-trace")]
-            log(&interweave_human_ui_slint::start_line(
-                interweave_human_ui_slint::TracedStart::Running,
-            ));
-        }
-        if pumped.defer {
-            self.side.side_mut().connect_defer();
-        }
-        self.launch_rule();
         // The last start's answer: the store's screen in place of the
         // chats, gone once a start opened the store or the restart after a
         // discard was refused elsewhere (ADR-0060; store::follow).
         crate::store::follow(&self.view, self.side.store_answer());
         if self.link.lost() {
             // Detached by the hub: attach again, and start from a listing.
+            // The rules go with the view: a deferral they owe is the next
+            // model's, which the fresh attach makes.
             let view = Rc::clone(&self.view);
             let mut rules = std::mem::take(&mut self.rules);
             rules.reattached();
@@ -573,7 +552,24 @@ impl Root {
             defer(turn);
             return;
         }
-        for command in self.side.side_mut().turn() {
+        // The rules of a start with Connect owed, then the model's turn,
+        // in that order (start_rules::StartRules::turn says why). An
+        // opening the turn has yet to take is counted already, so the
+        // reads it settles open nothing over it.
+        let opened = self.view.borrow().opened_from_chats();
+        let now = u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let held = crate::onboard::held_start().is_some();
+        let turned = self.rules.turn(&mut self.side, held, opened, now);
+        if turned.started {
+            #[cfg(feature = "ui-trace")]
+            log(&interweave_human_ui_slint::start_line(
+                interweave_human_ui_slint::TracedStart::Running,
+            ));
+        }
+        if turned.launch == Launch::Armed {
+            after(Duration::from_millis(BOUND_MS), turn);
+        }
+        for command in turned.commands {
             if let Err(command) = hub.command(command) {
                 // Failed explicitly, so the model lets go of it and says so,
                 // rather than holding it in flight with no answer (owner's
@@ -609,6 +605,30 @@ thread_local! {
     // The window side, on the Activity's thread only; the facade thread
     // reaches it through `invoke_on_window`, which runs on this thread.
     static ROOT: RefCell<Option<Root>> = const { RefCell::new(None) };
+}
+
+/// A later start was asked for (`onboard::person_asked`), from any
+/// thread: on the window's, once no turn holds the root, what is opened
+/// from Chats counts from there. The asks come from a store screen, an
+/// identity screen or a system prompt, each over Chats, so nothing can be
+/// opened from Chats between the ask and this. No root yet: the attach
+/// that makes one starts the count itself.
+pub(crate) fn start_asked() {
+    fn now() {
+        let applied = ROOT.with(|root| {
+            let Ok(mut root) = root.try_borrow_mut() else {
+                return false;
+            };
+            if let Some(root) = root.as_mut() {
+                root.start_asked();
+            }
+            true
+        });
+        if !applied {
+            defer(now);
+        }
+    }
+    invoke_on_window(now);
 }
 
 /// A turn of the window side, soon: a held screen's bound passed.

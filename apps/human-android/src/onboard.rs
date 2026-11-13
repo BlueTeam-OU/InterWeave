@@ -441,6 +441,7 @@ pub(crate) fn launched() {
 /// refusal for the person then prompts (L1).
 pub(crate) fn person_asked() {
     route_state().person_asked();
+    crate::activity::start_asked();
 }
 
 /// A start the Service made was refused until the person authenticates
