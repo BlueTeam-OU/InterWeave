@@ -273,9 +273,9 @@ faults.
 | F7 | a line clears while the Trust page is open, and none takes its place | if it had focus: this device's PeerId field; otherwise unchanged | politely, once: `UnlockApplied` when a P line clears or when D clears because the policy in force changed, `UnlockOldKeyRemoved` when the K line clears; nothing when D clears because the availability mode changed | A9 |
 | F8 | rotation, or the window resized, with focus on a line | the same line | nothing | A10 |
 | F9 | at one start, a line is replaced by another or its text changes: P → D, P → K, K with D → D, reason r → r′, D's locked text → D's running text at the unlock | if a line had focus: the first line now in that place; otherwise unchanged | when a P line ended, `UnlockApplied` first, or when the K line ended, `UnlockOldKeyRemoved` first; then the text of each line that is new or changed, politely, once each | A12 |
-| F10 | §11, L1 and L3: the system prompt rises | the system prompt (the platform's) | the prompt's title, `UnlockPromptTitle` | A14, A17, A18, A19 |
+| F10 | §11, L1 and L3: the system prompt rises | the system prompt (the platform's) | the prompt's title, `UnlockPromptTitle` | A14, A16, A17, A18, A19 |
 | F11 | §11, L1: that prompt cancelled | depending on the restart: on R, its Try again; for S2's Done, "Show recovery phrase"; for a discard's restart, the locked notice on Chats; for a network grant that leaves the process running, the locked notice on the screen the grant was made on (Chats, or a conversation, under its app bar). A grant that ends the process raises no prompt: the next launch is F10, then F12 if cancelled | the focused control, as TalkBack reads it | A15, A16, identity note §10 item 10 |
-| F12 | §11, L2, and L3's prompt cancelled: the locked notice shows at a return after a cancel, or after the prompt of a launch or of another return is cancelled | the locked notice, on the screen the person is on (Chats, or a conversation, under its app bar) | the notice's text, as focus reads it | A17, A18, A19 |
+| F12 | §11, L2, and L3's prompt cancelled: the locked notice shows at a return after a cancel, or after the prompt of a launch or of another return is cancelled | the locked notice, on the screen the person is on (Chats, or a conversation, under its app bar) | the notice's text, as focus reads it | A16, A17, A18, A19 |
 | F13 | §11, L4: the start refused while no window shows | nothing is shown then; at the next launch, F10 (L3); at the next return, F10 (L3), or F12 (L2) after a cancel | — | A19 |
 | F14 | §11: Unlock granted and the client runs again, while the notice has focus | on Chats, the list heading (as F4); in a conversation, its composer | nothing for the notice's leaving | A20 |
 | F15 | §11, L1: R's prompt granted, and R goes with focus inside it | Chats' list heading (as F3, F4); in an open narrow conversation, its header title, never the composer: the person was on R, not writing. A locked notice the start asks for comes first (F11) | the focused control, as TalkBack reads it | A14 |
@@ -430,7 +430,9 @@ authenticating again, so that the 60 s window has closed. Where an item
 needs a refusal the phone cannot produce on demand (a store refusal,
 withheld network access, a background restart), a test hook of
 rust-ui-dev's stands in for it, named in the run's record. Without one,
-that item is blocked, not passed. In every item, connectivity reads
+that item is blocked, not passed. A16's network grant is the
+exception to both: it withholds network access with `adb shell pm
+revoke`, which ends the process, and so starts in a new one. In every item, connectivity reads
 offline while the locked notice shows, and §3's locked rules hold on the
 Trust page (A13).
 - **A14** L1, R's Try again: the system prompt rises by itself, titled
@@ -443,24 +445,30 @@ Trust page (A13).
 - **A15** L1, R's Try again with the prompt cancelled: R stays, with focus
   on Try again and no other change. No prompt rises again until Try
   again is pressed again. Pressing it raises the prompt once.
-- **A16** L1, the prompt cancelled after:
+- **A16** L1, the prompt cancelled after (the network grant's
+  process-ending half is L3, at the next launch):
   - a discard's restart: Chats, offline, with the locked notice focused,
     and neither `StoreDiscarded` nor `StoreRestored` shows. Unlock,
     granted: the locked notice goes, and the discard's notice shows once;
   - a network grant, on the Pixel 9a, where the grant ends the process
-    (§11, "A network grant that ends the process"). Withhold network
-    access (`adb shell pm revoke` of the permission, which ends the
-    process), and open InterWeave, unlocking it if asked. Open a
-    conversation and read one unread message without keeping it. Wait
-    past the 60 s window, then press the `NetworkDenied` notice's
-    action and Allow. The launcher shows,
-    and `adb shell pidof` shows no pid. Open InterWeave: the prompt
-    rises before Chats is online. Cancelled: Chats, offline, with the
-    locked notice focused. The conversation no longer shows the message
-    that was read. On a platform where the grant leaves the process
-    running: the screen the grant was made on, offline, with the locked
-    notice focused in place of the `NetworkDenied` notice, under the
-    conversation's app bar if one was open.
+    (§11, "A network grant that ends the process"). This half is no L1
+    case: what it checks is the next launch, answered as L3 answers a
+    launch. With InterWeave online, have a peer send two messages and
+    leave both unread. Withhold network access (`adb shell pm revoke`
+    of the permission, which ends the process). Open InterWeave and
+    deny the network-access dialog: the `NetworkDenied` notice shows.
+    Unlock if asked. Open the conversation and read both messages, then
+    keep the second. Wait past the 60 s window, then press the
+    `NetworkDenied` notice's action and Allow. The launcher shows, and
+    `adb shell pidof` shows no pid. Open InterWeave: the prompt rises
+    before Chats is online. Cancelled: Chats, offline, with the locked
+    notice focused, and no conversations. Unlock, granted: Chats,
+    online. Open the conversation: the kept message shows, and the
+    message read and not kept does not. On a platform where the grant
+    leaves the process running: the screen the grant was made on,
+    offline, with the locked notice focused in place of the
+    `NetworkDenied` notice, under the conversation's app bar if one was
+    open.
 - **A17** L2 and L3, a return: open a conversation and type a draft.
   Press Home, wait past the 60 s window, and return from Recents. The prompt
   rises (no prompt was cancelled since the last start that ran). Cancel
@@ -526,10 +534,11 @@ Trust page (A13).
   (§11). The app cannot speak before the process ends. At the next
   launch, connectivity reading online, or the locked notice, says where
   InterWeave now stands, and this note adds no notice saying why it
-  closed. This is a hypothesis, not a finding: a person who allows
-  network access and lands on the launcher may read it as a crash, or
-  miss the read message that is gone. A person seen doing either on
-  GrapheneOS would falsify it. A notice would then be a new state of
+  closed. **H2** (hypothesis): the next launch's state says enough, and
+  no notice of why the app closed is needed. What would show H2 wrong:
+  in a walkthrough or test on a platform where the grant ends the
+  process, a person who allowed network access calls the closing a
+  crash, or does not notice that the read message is gone. A notice would then be a new state of
   the product, so it would go to architect-cto first.
 
 ## 10. Questions
@@ -641,7 +650,7 @@ restart (Q5). They add no rule of their own.
 
 | Case | What started the restart | Prompt | After a cancel, or with no prompt |
 |---|---|---|---|
-| L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart: Chats, offline, with the locked notice focused. A network grant that leaves the process running: the screen the grant was made on (Chats, or the open conversation), offline, with the locked notice focused. A grant that ends the process is no L1 case: the next launch is L3 (below the table) |
+| L1 | The person, by an action on a screen in front: R's Try again, a discard's restart, S2's Done, a network grant (Q5) | Rises by itself, before anything else changes | R: stays on R, focus on Try again, nothing else changes. S2's Done: as `design/2026-10-19-android-identity.md` §10 item 10 says (Settings, focus on "Show recovery phrase"). A discard's restart: Chats, offline, with the locked notice focused. A network grant that leaves the process running: the screen the grant was made on (Chats, or the open conversation), offline, with the locked notice focused. A grant that ends the process is no L1 case: the next launch is answered as L3 answers a launch, as at a cold launch (below the table) |
 | L2 | A return to a live Activity (Home or Recents, then back; a recreation for a configuration change) after a prompt was cancelled or denied, with no start run since | Never by itself: ADR-0042 A 2026-10-20's exception | The locked notice and Unlock on the screen the person returns to, focused (F12). The bind runs silently if the 60 s window has opened meanwhile |
 | L3 | Any other start the Activity makes or retries while its window is in front: a launch (the Activity created anew in a process still running, after Back finished it or from a notification); a return with no prompt cancelled or denied since the last start that ran; a Stay-reachable restart refused while the window is in front | Rises by itself: at a launch before the Service binds, as at a cold launch (a launch is the Activity's creation, whatever the process) | The screen in front (Chats at a launch), offline, with the locked notice focused (F12) |
 | L4 | A Stay-reachable restart while no window shows | Never: the Service never prompts | Nothing is shown then. At the next launch the Activity's start is refused again, and L3 answers it. At the next return it is refused again, and L3 answers it, or L2 if a prompt was cancelled or denied since the last start that ran. A refused start, this one included, is not a start that ran |
@@ -653,13 +662,16 @@ Unlock does. Both rules come from the identity note (§6, and §10 item 10).
 
 **A network grant that ends the process.** On the Pixel 9a under
 GrapheneOS, Allow in the system's network-access dialog ends
-InterWeave's process. This was seen on 2026-11-07 and twice on
-2026-11-08, in this section's review. The log reads "permission grant
+InterWeave's process. This was seen in this section's review, on the
+run recorded in the ux-designer thread on the j98 review
+(`.agent-fabric/memory/ux-designer/threads/`, 01:49 phone time). The log reads "permission grant
 or revoke changed gids", and the Activity is removed with no saved
 state. No restart runs after such a grant, so L1's network-grant case
 never arises there. What the person meets instead:
 - **The launcher.** InterWeave shows nothing, because no process is
-  left to show it, and nothing restarts by itself.
+  left to show it. With the availability mode foreground-only, nothing
+  restarts by itself. Under Stay reachable the system may restart the
+  Service; that is an L4 restart, and it was not checked.
 - **The next launch is a launch in a new process.** The prompt rises
   before the Service binds, as L3 answers a launch. Cancelled: Chats,
   offline, with the locked notice focused (F12). Granted, or opened
