@@ -674,12 +674,13 @@ phone's clock; the ux-designer thread on that run records it
 (`.agent-fabric/memory/ux-designer/threads/j98-unlock-s11-pixel-review.md`).
 The log reads "permission grant
 or revoke changed gids", and the Activity is removed with no saved
-state. The process that refused the restart is gone, so it never runs
-the restart again after such a network grant, and L1's network-grant
-case never arises there. What the person meets instead:
+state. The process in which the restart was refused is gone, so it
+never runs that restart again after such a network grant, and L1's
+network-grant case never arises where a grant ends the process. What
+the person meets instead:
 - **The launcher.** InterWeave shows nothing, because no process is
   left to show it. The j98 run had the availability mode Stay
-  reachable, and no restart was seen in it. With the mode
+  reachable, and no Stay-reachable restart was seen in that run. With the mode
   foreground-only, nothing is expected to restart; A16, which runs
   foreground-only, checks whether anything restarts.
 - **The next launch is a launch in a new process**, and L3 answers it.
