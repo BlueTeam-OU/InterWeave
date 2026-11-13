@@ -677,10 +677,10 @@ or revoke changed gids", and the Activity is removed with no saved
 state. No restart runs after such a network grant, so L1's network-grant case
 never arises there. What the person meets instead:
 - **The launcher.** InterWeave shows nothing, because no process is
-  left to show it, and nothing restarts by itself. The recorded run had
-  the availability mode Stay reachable, and no restart was seen. With
-  the mode foreground-only, nothing is expected to restart either; A16,
-  which runs foreground-only, checks it.
+  left to show it. The j98 run had the availability mode Stay
+  reachable, and no restart was seen in it. With the mode
+  foreground-only, nothing is expected to restart; A16, which runs
+  foreground-only, checks whether anything restarts.
 - **The next launch is a launch in a new process**, and L3 answers it.
   Past the 60 s window, the prompt rises before the Service binds.
   Cancelled: Chats, offline, with the locked notice focused (F12).
