@@ -231,7 +231,9 @@ impl StartRules {
         start: Option<u64>,
         refused: impl FnOnce(StoreGeneration) -> bool,
     ) -> Pumped {
-        let started = running && !self.running;
+        // A start is told by its count as well as by the running edge: a
+        // stop and the next start drained in one pump show no edge.
+        let started = running && (!self.running || (start.is_some() && start != self.start));
         self.running = running;
         let mut defer = started && self.defer_next.take().is_some();
         if started {
@@ -669,6 +671,43 @@ mod tests {
                 rules.turn(&mut side, false, 0, 10).launch,
                 expect,
                 "{opened}"
+            );
+        }
+    }
+
+    /// A restart whose stop and next start reach the view in one pump
+    /// (the hub's `take` drains both) is a later start all the same: its
+    /// count, not a running edge, tells it from the start before, so the
+    /// earlier start's deferral does not stand for it and its bound runs.
+    /// Control: the same messages over two pumps. Mutation: telling a
+    /// start only by the running edge leaves it `Idle`, and its reads
+    /// open Connect over Chats unbounded (#662 F1).
+    #[test]
+    fn a_restart_in_one_pump_is_a_later_start() {
+        for split in [true, false] {
+            let mut rules = StartRules::new();
+            rules.count_from(0);
+            let mut side = unread_side(1);
+            let _ = rules.turn(&mut side, false, 0, 0);
+            assert_eq!(
+                rules.turn(&mut side, false, 0, BOUND_MS).launch,
+                Launch::GiveUp,
+                "start 1 deferred Connect"
+            );
+            side.apply(ToView::Running(false)).expect("applied");
+            if split {
+                let _ = rules.turn(&mut side, false, 0, BOUND_MS + 1);
+            }
+            side.apply(ToView::Start(2)).expect("applied");
+            side.apply(ToView::Running(true)).expect("applied");
+            let turned = rules.turn(&mut side, false, 0, BOUND_MS + 2);
+            assert!(turned.started, "split {split}");
+            assert_eq!(turned.launch, Launch::Armed, "split {split}");
+            assert_eq!(turned.wake_in_ms, Some(BOUND_MS), "split {split}");
+            assert_eq!(
+                rules.turn(&mut side, false, 1, BOUND_MS + 3).launch,
+                Launch::GiveUp,
+                "split {split}: an opening gives the later start's Connect up"
             );
         }
     }
