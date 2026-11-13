@@ -139,8 +139,10 @@ The fleet's second host reaches the first over a private overlay, and
 the first cannot be dialled from it, so a login on the second host
 sends only over a connection the first host dialled. The owner asked
 on 2026-11-13 whether such a host can send at all. Read from main, a
-send reuses an open direct connection whichever side dialled it, and
-with none it dials once and is refused. p2p-network-dev-01 measured
+send reuses an open direct connection whichever side dialled it;
+with none it answers `PeerUnknown` at once when it holds no address
+for the peer, and with an address it dials once and answers
+`PeerUnreachable` if the dial does not complete. p2p-network-dev-01 measured
 the rest (GZCoord `01a1d39c-4ddc`, main a04400b39, two daemons on
 loopback): an idle direct connection stayed on one socket for 180 s,
 past the 60 s idle timeout, but by a side effect — the pinned
