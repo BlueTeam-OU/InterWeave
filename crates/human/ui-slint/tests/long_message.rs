@@ -1748,7 +1748,9 @@ fn platform_input_holds_an_opening_until_it_is_quiet() {
 
 /// Input that never stops -- a key held down, a drag -- holds an opening
 /// only so long: after `OPENING_HOLD_PASSES` (300) held firings in a row
-/// it builds a turn anyway, so the rows still come in.
+/// it builds a turn anyway, so the rows still come in. The six-turn
+/// opening takes a rest, 300 held firings and a turn each time: 1,812
+/// passes (a cap of 100 would give 612).
 #[test]
 fn input_that_never_stops_holds_an_opening_only_so_long() {
     let (mut view, mut model) = opening(3000);
@@ -1761,7 +1763,11 @@ fn input_that_never_stops_holds_an_opening_only_so_long() {
         after(1);
         let _ = intents(&mut view, &mut model);
     }
-    assert!(passes > 300, "held first: {passes} passes");
+    assert_eq!(
+        passes,
+        6 * (300 + 2),
+        "six turns, each after 300 held firings"
+    );
 }
 
 /// The end of an opening is not a press: built while the queue holds
