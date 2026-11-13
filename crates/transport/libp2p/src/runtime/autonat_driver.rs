@@ -1353,6 +1353,7 @@ mod tests {
             since_ms: 0,
             retiring: false,
             local_ip: None,
+            dialer: false,
         }
     }
 
