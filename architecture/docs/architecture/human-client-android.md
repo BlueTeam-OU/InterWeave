@@ -86,11 +86,11 @@ language-culture's):
      "permission grant or revoke changed gids", the Activity removed
      with no saved state — one recorded run, in the thread on the j98
      review under `.agent-fabric/memory/ux-designer/threads/`): nothing
-     binds. That run had the availability mode stay reachable, and no
-     restart was seen: the person landed on the launcher. In
-     foreground-only mode nothing is expected to restart either; that
-     is not yet checked on a device (the unlock note's A16, run
-     foreground-only, checks it). The next launch is step 1 with the
+     binds. That run was in stay-reachable mode, and no restart was
+     seen: the phone showed the launcher. In foreground-only mode
+     nothing is expected to restart either; that has not yet been
+     checked on a device (the unlock note's A16, run foreground-only,
+     checks whether anything restarts). The next launch is step 1 with the
      permission held, so no dialog shows and it continues here in a
      process that keeps running. That launch is a
      launch as `android-key-custody.md`'s failure behavior defines one,
@@ -198,7 +198,7 @@ Test at minimum:
 - no admin access reachable from message callback graph;
 - same wire fixtures as desktop.
 - API 37+: network access asked before the Service is bound; notifications asked only after network is granted;
-- network granted from the dialog: where the process keeps running, bind and start; where the grant ends the process, nothing restarts by itself (observed in stay-reachable mode, one recorded run; foreground-only: expected, to verify on the device), and the next launch shows no dialog and continues at step 2;
+- network granted from the dialog: where the process keeps running, bind and start; where the grant ends the process, nothing restarts by itself (observed in stay-reachable mode, one recorded run; foreground-only: expected, not yet checked on a device), and the next launch shows no dialog and continues at step 2;
 - network denied: the Service opens the store and view hub, starts no runtime, holds no lease, is not a foreground service; read/Keep/Unkeep work, nothing sends or joins;
 - network revoked while running: process death, then step 1 or 3 on the next launch;
 - stay reachable restarted without network access: one notification, then the foreground service ends; no retry;
