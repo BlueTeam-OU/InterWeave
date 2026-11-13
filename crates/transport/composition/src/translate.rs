@@ -233,6 +233,11 @@ pub fn translate(
                 .map_err(CompositionError::Translation)?,
         ),
         dcutr: Some(DcutrSettings::from_profile(&connectivity.dcutr)),
+        // EVERY PROFILE holds one direct connection per data-plane peer
+        // open past the idle timeout and pings it: a peer that cannot
+        // dial back reaches this profile only over what this profile
+        // dialled (`relay_keepalive`'s module note in the libp2p crate).
+        hold_data_plane: true,
         ..SubstrateConfig::default()
     };
     if connectivity.autonat.server.enabled {

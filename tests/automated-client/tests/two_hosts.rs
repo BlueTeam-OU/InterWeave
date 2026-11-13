@@ -175,13 +175,28 @@ observability: {{ log_level: debug }}
 /// A and B minted under one scratch tree, each rendered against the
 /// other, and started.
 async fn hosts(entry: bool, listen: Listen) -> (tempfile::TempDir, Host, Host) {
+    hosts_with(entry, entry, listen).await
+}
+
+/// The same, with each host's static entry for the other chosen apart:
+/// `a_entry` for A's, `b_entry` for B's.
+async fn hosts_with(
+    a_entry: bool,
+    b_entry: bool,
+    listen: Listen,
+) -> (tempfile::TempDir, Host, Host) {
     let base = private_tempdir();
     let mut a = Host::mint(base.path(), "host-a", Net::A, netns::OVERLAY_A);
     let mut b = Host::mint(base.path(), "host-b", Net::B, netns::OVERLAY_B);
-    a.render(&b, entry, listen);
-    b.render(&a, entry, listen);
-    a.start().await;
+    a.render(&b, a_entry, listen);
+    b.render(&a, b_entry, listen);
+    // B FIRST: A dials B as it starts, and a dial into a host not yet
+    // listening puts B under the 30 s peer backoff, the length of a
+    // test's patience -- A's entry alone (`hosts_with(true, false, ..)`)
+    // then connects nothing in time. With both entries, B's early dial
+    // backs off instead and A's connects.
     b.start().await;
+    a.start().await;
     (base, a, b)
 }
 
@@ -384,6 +399,72 @@ async fn a_listener_on_the_overlay_literal_keeps_its_connection_past_the_close_w
     );
 
     netns::overlay_up();
+    a.stop().await;
+    b.stop().await;
+}
+
+const PAST_THE_IDLE_TIMEOUT: &str =
+    "an_idle_connection_the_far_host_cannot_dial_back_outlives_the_idle_timeout";
+
+/// Past the daemon's idle timeout, sixty seconds
+/// (`SubstrateConfig::idle_timeout`), with margin.
+const IDLE_PAST: Duration = Duration::from_secs(75);
+
+/// The fleet's shape: only A holds a static entry, so B knows no
+/// address for A and reaches it only over the connection A dialled.
+/// Idle -- no client and no channel on either host -- for longer than
+/// the idle timeout, the connection is the SAME one throughout: no
+/// close logged at either end, and both still connected. B's direct
+/// message then lands at A over it.
+///
+/// This pins the property, not the mechanism. Between two daemons the
+/// pinned gossipsub holds every connection open by a stream of its own,
+/// so this case would pass with the data-plane hold removed; the hold's
+/// own proof, with the control that closes at the idle timeout, is
+/// `crates/transport/libp2p/tests/held_data_plane.rs`, against a peer
+/// that speaks no gossipsub. What this case adds is the guarantee the
+/// fleet relies on, end to end, whichever of the two holds it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_connection_the_far_host_cannot_dial_back_outlives_the_idle_timeout() {
+    if !netns::in_overlay(PAST_THE_IDLE_TIMEOUT) {
+        return;
+    }
+    let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
+    until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
+
+    // IDLE, watched every quarter second: a close that A redialled
+    // within a round would still leave its line in a log.
+    let deadline = tokio::time::Instant::now() + IDLE_PAST;
+    while tokio::time::Instant::now() < deadline {
+        assert!(
+            a.connected_to(&b.peer).await && b.connected_to(&a.peer).await,
+            "the idle connection dropped\nA:\n{}\nB:\n{}",
+            a.log(),
+            b.log()
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    for (name, host) in [("A", &a), ("B", &b)] {
+        assert!(
+            !host.log().contains("peer disconnected"),
+            "{name} logged a close while idle:\n{}",
+            host.log()
+        );
+    }
+
+    // B, which cannot dial A, sends over what A dialled.
+    let mut at_a = a.client().await;
+    let mut from_b = b.client().await;
+    lands(
+        &mut from_b,
+        &mut at_a,
+        (&b, &a),
+        1,
+        "b to a, past the idle timeout",
+    )
+    .await;
+
+    drop((at_a, from_b));
     a.stop().await;
     b.stop().await;
 }

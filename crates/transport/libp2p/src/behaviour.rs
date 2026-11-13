@@ -334,12 +334,16 @@ pub struct SubstrateBehaviour {
     /// no trust set cannot ask.
     pub relay_server: crate::runtime::relay_server_driver::ServerField,
     /// The keepalive on relay control connections
-    /// (`transport/libp2p/CONNECTIVITY.md` §14 item 5), present when
-    /// either relay role is: the crate's ping on every connection to a
-    /// relay control peer -- a relay this profile holds a reservation
-    /// on, or, as a relay, a peer holding one of its reservations -- an
-    /// answer-only echo on every other connection it is offered, and a
-    /// missed ping closing the connection.
+    /// (`transport/libp2p/CONNECTIVITY.md` §14 item 5) and on each
+    /// data-plane peer's held connection, present when either relay
+    /// role is or `SubstrateConfig::hold_data_plane`: the crate's ping
+    /// on every connection to a relay control peer -- a relay this
+    /// profile holds a reservation on, or, as a relay, a peer holding
+    /// one of its reservations -- and on every relayed connection; one
+    /// direct connection per data-plane peer HELD open past the idle
+    /// timeout and pinged; an answer-only echo on every other
+    /// connection it is offered; and a missed ping closing the
+    /// connection.
     /// `ClassGated` for the INFRASTRUCTURE service; not `Attributing`,
     /// since a ping dials nothing.
     pub relay_keepalive: crate::relay_keepalive::KeepaliveField,

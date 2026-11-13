@@ -51,6 +51,16 @@ pub struct SubstrateConfig {
     pub max_connections_per_peer: usize,
     /// Idle connection timeout.
     pub idle_timeout: Duration,
+    /// Whether one direct data-plane connection per peer is HELD open
+    /// past [`Self::idle_timeout`] and pinged, a missed ping closing it
+    /// (`crate::relay_keepalive`'s module note says why the two go
+    /// together).
+    ///
+    /// `false` BY DEFAULT for a bare substrate, whose tests pin the
+    /// protocol set a connection is offered -- held, a profile answers
+    /// ping on every authorized connection; the composition root turns
+    /// it on in every profile.
+    pub hold_data_plane: bool,
     /// The profile's EFFECTIVE direct payload limit, in bytes.
     ///
     /// May narrow the frozen ceiling and never widen it: `validate`
@@ -225,6 +235,7 @@ impl Default for SubstrateConfig {
             max_connections_per_peer:
                 interweave_transport_runtime::DEFAULT_MAX_CONNECTIONS_PER_PEER,
             idle_timeout: Duration::from_secs(60),
+            hold_data_plane: false,
             preauth: PreAuthLimits::default(),
             retry_tick: Duration::from_secs(1),
             max_active_listeners: 64,

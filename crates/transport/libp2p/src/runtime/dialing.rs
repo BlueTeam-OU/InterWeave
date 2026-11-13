@@ -492,6 +492,7 @@ pub(super) fn settle_established_inbound(
         since_ms: now_ms,
         retiring: false,
         local_ip: None,
+        dialer: false,
     })
 }
 
@@ -1197,6 +1198,7 @@ pub(super) fn settle_outcome(
                                 since_ms: now_ms,
                                 retiring: false,
                                 local_ip: super::network_change::local_ip_of(endpoint),
+                                dialer: holds_dialer_role(endpoint),
                             },
                         );
                     } else {
@@ -1278,6 +1280,7 @@ pub(super) fn settle_outcome(
                         now_ms,
                     ) {
                         connection.local_ip = super::network_change::local_ip_of(endpoint);
+                        connection.dialer = holds_dialer_role(endpoint);
                         open.insert(*connection_id, connection);
                     } else {
                         refuse.push(*connection_id);
@@ -1588,6 +1591,11 @@ pub(super) struct OpenConnection {
     /// known (`network_change::local_ip_of`): what a network change
     /// closes it by (`transport/libp2p/CONNECTIVITY.md` §14 item 5).
     pub(super) local_ip: Option<std::net::IpAddr>,
+    /// Whether THIS END holds the dialer role on the connection
+    /// ([`holds_dialer_role`]): the one fact about it both ends read
+    /// alike, so a choice keyed on it is the same choice at both
+    /// ([`held_connections`]).
+    pub(super) dialer: bool,
     /// Whether the runtime has already asked the Swarm to close it as
     /// a redundant relayed connection (step 9's retirement). A close
     /// is a request to the connection task, not the closure: until
@@ -1988,6 +1996,55 @@ pub(super) fn retirable<'a>(
         .collect()
 }
 
+/// Whether this end holds the DIALER ROLE on a connection: libp2p's
+/// `ConnectedPoint` with its role override applied, so a hole punch's
+/// connection -- dialled at both ends, `ConnectedPoint::Dialer` at both
+/// -- reads as dialer at exactly one, as Noise's initiator does.
+/// `ConnectedPoint::to_endpoint` and `ConnectedPoint::is_dialer`
+/// ignore the override, so neither is used here. Pinned by
+/// `the_dialer_role_reads_the_role_override`.
+pub(super) fn holds_dialer_role(endpoint: &libp2p::core::ConnectedPoint) -> bool {
+    match endpoint {
+        libp2p::core::ConnectedPoint::Dialer { role_override, .. } => role_override.is_dialer(),
+        libp2p::core::ConnectedPoint::Listener { .. } => false,
+    }
+}
+
+/// The connections to HOLD open past the idle timeout
+/// (`crate::relay_keepalive`'s module note): for each peer with a
+/// direct connection carrying the data plane, exactly one, and nothing
+/// for any other connection: a relayed one, one to an
+/// infrastructure-only peer, a peer's other direct ones.
+///
+/// THE TWO ENDS MUST CHOOSE THE SAME ONE. A connection closes when
+/// either end's idle timeout closes it, so a pair holding different
+/// connections holds none: each end closes the one only the other
+/// held. Age alone does not agree -- two dials crossing are each
+/// end's own oldest -- so the choice is first by who dialled, which
+/// both ends read alike: the connection dialled by the LOWER of the
+/// two peer ids; then the oldest, the lower id breaking a tie. With
+/// both of a pair's connections dialled by one end, age can still
+/// disagree, for two dials established within one handshake of each
+/// other. Pinned by
+/// `exactly_one_direct_data_plane_connection_per_peer_is_held` and
+/// `both_ends_hold_the_same_connection_of_two_crossing_dials`.
+#[must_use]
+pub(super) fn held_connections<'a>(
+    local: &TransportIdentity,
+    open: impl Iterator<Item = (&'a libp2p::swarm::ConnectionId, &'a OpenConnection)>,
+) -> std::collections::HashSet<libp2p::swarm::ConnectionId> {
+    let mut best: HashMap<&TransportIdentity, (bool, u64, libp2p::swarm::ConnectionId)> =
+        HashMap::new();
+    for (id, connection) in open.filter(|(_, c)| c.is_direct_data_plane()) {
+        let lower_dialled = connection.dialer == (local < &connection.peer);
+        let candidate = (!lower_dialled, connection.since_ms, *id);
+        best.entry(&connection.peer)
+            .and_modify(|held| *held = (*held).min(candidate))
+            .or_insert(candidate);
+    }
+    best.into_values().map(|(_, _, id)| id).collect()
+}
+
 /// Listen commands whose bound address has not arrived yet.
 pub(super) type PendingListens =
     HashMap<ListenerId, oneshot::Sender<Result<Multiaddr, super::SubstrateError>>>;
@@ -2219,10 +2276,10 @@ mod tests {
     use super::{
         AdvertisedBoundary, Held, OpenConnection, PathSample, PolicyClosed, announce_path,
         best_path, book_origin, canonical_dial_address, closed_outright, command_origin,
-        commit_path, connections_to_close, flush_held_paths, forget_route, is_permanent_dial_error,
-        learn_advertised, learn_route, path_events, retirable, settle_established_inbound,
-        settle_established_outbound, settle_failed_dial, settle_path, settle_undialable,
-        sweep_policy_closed,
+        commit_path, connections_to_close, flush_held_paths, forget_route, held_connections,
+        is_permanent_dial_error, learn_advertised, learn_route, path_events, retirable,
+        settle_established_inbound, settle_established_outbound, settle_failed_dial, settle_path,
+        settle_undialable, sweep_policy_closed,
     };
     use crate::gated_swarm::AdmittedDial;
     use crate::runtime::messages::{PathChange, PeerPath, SwarmEvent};
@@ -2365,7 +2422,176 @@ mod tests {
             since_ms: 0,
             retiring: false,
             local_ip: None,
+            dialer: false,
         }
+    }
+
+    /// A hole punch's connection is `ConnectedPoint::Dialer` at both
+    /// ends, one of them with the listener's role override: the dialer
+    /// role is read from the override, so exactly one end holds it; a
+    /// plain dial and a plain listen read as they look.
+    #[test]
+    fn the_dialer_role_reads_the_role_override() {
+        use libp2p::core::transport::PortUse;
+        use libp2p::core::{ConnectedPoint, Endpoint};
+        let address: Multiaddr = "/ip4/10.0.0.1/tcp/4001".parse().expect("valid");
+        let dialer = |role_override| ConnectedPoint::Dialer {
+            address: address.clone(),
+            role_override,
+            port_use: PortUse::Reuse,
+        };
+        assert!(super::holds_dialer_role(&dialer(Endpoint::Dialer)));
+        assert!(
+            !super::holds_dialer_role(&dialer(Endpoint::Listener)),
+            "the punch's overridden end is no dialer"
+        );
+        assert!(!super::holds_dialer_role(&ConnectedPoint::Listener {
+            local_addr: address.clone(),
+            send_back_addr: address.clone(),
+        }));
+    }
+
+    /// TWO DIALS CROSSING: each end sees its own dial established
+    /// first, so the oldest is a different connection at each end --
+    /// THE CONTROL, asserted on the views below -- and a pair holding
+    /// different connections holds none. Both ends hold the one the
+    /// lower peer id dialled.
+    #[test]
+    fn both_ends_hold_the_same_connection_of_two_crossing_dials() {
+        let mut m = ConnectionManager::new(ConnectionPolicy::new(8, 8), 8);
+        let (lower, higher) = (ident(RELAY), ident(FAR));
+        assert!(lower < higher, "the fixture's order");
+        // One end's table: (id, dialled here, established at).
+        let mut view = |me: &TransportIdentity, rows: [(usize, bool, u64); 2]| {
+            let peer = if me == &lower { &higher } else { &lower };
+            let open: HashMap<ConnectionId, OpenConnection> = rows
+                .into_iter()
+                .map(|(id, dialer, since_ms)| {
+                    (
+                        ConnectionId::new_unchecked(id),
+                        OpenConnection {
+                            since_ms,
+                            dialer,
+                            ..open_to(peer, &mut m)
+                        },
+                    )
+                })
+                .collect();
+            held_connections(me, open.iter())
+        };
+        // X is the lower's dial: 1 at the lower end, 7 at the higher.
+        // Y is the higher's: 2 at the lower end, 8 at the higher.
+        let at_lower = [(1, true, 10), (2, false, 12)];
+        let at_higher = [(7, false, 13), (8, true, 11)];
+        assert!(at_lower[0].2 < at_lower[1].2 && at_higher[1].2 < at_higher[0].2);
+        assert_eq!(
+            view(&lower, at_lower),
+            std::collections::HashSet::from([ConnectionId::new_unchecked(1)])
+        );
+        assert_eq!(
+            view(&higher, at_higher),
+            std::collections::HashSet::from([ConnectionId::new_unchecked(7)]),
+            "X at both ends"
+        );
+    }
+
+    /// One held connection per peer with a direct data-plane one, the
+    /// oldest; a relayed connection, an infrastructure-only peer's and
+    /// a peer's younger direct one are never held, and a peer whose
+    /// held connection closed has the next oldest held.
+    #[test]
+    fn exactly_one_direct_data_plane_connection_per_peer_is_held() {
+        let mut m = ConnectionManager::new(ConnectionPolicy::new(8, 8), 8);
+        let (peer, other) = (ident(RELAY), ident(FAR));
+        // This end: neither peer, and above both, so every connection
+        // below -- dialled by its peer -- is the lower id's dial.
+        let local = ident("12D3KooWHyNGMf9HTd3Zj6dStdkcc5ycsubW1rEgQSp6k6yfZBoy");
+        assert!(local > peer && local > other, "the fixture's order");
+        let at = |since_ms, path, class, m: &mut ConnectionManager| OpenConnection {
+            since_ms,
+            path,
+            admitted_class: class,
+            ..open_to(&peer, m)
+        };
+        let mut open = HashMap::new();
+        // The peer's oldest connection is RELAYED, so its oldest direct
+        // one (id 3) is held, not its oldest overall nor its newest.
+        open.insert(
+            ConnectionId::new_unchecked(1),
+            at(
+                5,
+                PeerPath::Relayed,
+                ConnectionClass::DataPlaneTrusted,
+                &mut m,
+            ),
+        );
+        open.insert(
+            ConnectionId::new_unchecked(2),
+            at(
+                30,
+                PeerPath::Direct,
+                ConnectionClass::DataPlaneTrusted,
+                &mut m,
+            ),
+        );
+        open.insert(
+            ConnectionId::new_unchecked(3),
+            at(
+                10,
+                PeerPath::Direct,
+                ConnectionClass::DataPlaneTrusted,
+                &mut m,
+            ),
+        );
+        // Another peer, admitted infrastructure-only: never held.
+        open.insert(
+            ConnectionId::new_unchecked(4),
+            OpenConnection {
+                admitted_class: ConnectionClass::ConnectivityInfrastructureOnly,
+                ..open_to(&other, &mut m)
+            },
+        );
+        let held = |open: &HashMap<ConnectionId, OpenConnection>| {
+            // Every connection here was dialled by its peer, so who
+            // dialled cannot decide between them and age does.
+            let mut ids: Vec<_> = held_connections(&local, open.iter()).into_iter().collect();
+            ids.sort();
+            ids
+        };
+        assert_eq!(held(&open), vec![ConnectionId::new_unchecked(3)]);
+
+        // A tie on age goes to the lower id, so the choice is stable.
+        open.insert(
+            ConnectionId::new_unchecked(5),
+            at(
+                10,
+                PeerPath::Direct,
+                ConnectionClass::DataPlaneTrusted,
+                &mut m,
+            ),
+        );
+        assert_eq!(held(&open), vec![ConnectionId::new_unchecked(3)]);
+
+        // The held one closes: the next oldest direct is held.
+        let _ = open.remove(&ConnectionId::new_unchecked(3));
+        assert_eq!(held(&open), vec![ConnectionId::new_unchecked(5)]);
+
+        // The other peer becomes data-plane on a fresh connection: one
+        // each.
+        open.insert(ConnectionId::new_unchecked(6), open_to(&other, &mut m));
+        assert_eq!(
+            held(&open),
+            vec![
+                ConnectionId::new_unchecked(5),
+                ConnectionId::new_unchecked(6)
+            ]
+        );
+
+        // Only relayed connections left for the peer: nothing held.
+        for id in [2, 5] {
+            let _ = open.remove(&ConnectionId::new_unchecked(id));
+        }
+        assert_eq!(held(&open), vec![ConnectionId::new_unchecked(6)]);
     }
 
     /// A revoked peer keeps its policy class while its event is owed and
@@ -2825,6 +3051,7 @@ mod tests {
             since_ms: 100,
             retiring: false,
             local_ip: None,
+            dialer: false,
         };
         assert!(!c.sample(100, 10_000).stable);
         assert!(!c.sample(10_099, 10_000).stable);
@@ -2850,6 +3077,7 @@ mod tests {
             since_ms: 0,
             retiring: false,
             local_ip: None,
+            dialer: false,
         };
         assert!(
             !c.is_direct_data_plane(),

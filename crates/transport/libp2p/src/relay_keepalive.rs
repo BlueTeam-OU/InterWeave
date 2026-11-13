@@ -2,7 +2,9 @@
 // Copyright 2026 Andrea Benetton
 //! The keepalive on relay control connections
 //! (`transport/libp2p/CONNECTIVITY.md` §14 item 5, the rule since
-//! 2026-09-26; the owner, "keepalive yes").
+//! 2026-09-26; the owner, "keepalive yes"), and the hold on each
+//! data-plane peer's direct connection (the owner's word of
+//! 2026-11-13, after the idle measurement).
 //!
 //! # Why a relay control connection needs one
 //!
@@ -42,6 +44,42 @@
 //! the connection: the same peer's direct connections are not pinged
 //! for it. A connection to any other peer is not pinged.
 //!
+//! # And one direct connection per data-plane peer, HELD
+//!
+//! With [`build_field`]'s `hold_data_plane` on (the composition root
+//! turns it on in every profile), the runtime names, for each peer it
+//! holds a DIRECT connection carrying the data plane to, ONE of them --
+//! the same one at both ends (below) -- and the keepalive HOLDS
+//! it: its handler votes to keep the connection whatever the Swarm's
+//! idle timeout, and pings it. The two go together on purpose. A peer
+//! that cannot dial back -- behind a NAT, with no address for this
+//! profile -- reaches this profile only over a connection this profile
+//! dialled, so an idle close would leave it unreachable until the
+//! next redial; and a held connection that nothing tested would be
+//! kept after its path died -- a NAT mapping expired, a carrier drop --
+//! with every send into it lost and nothing redialling, since the peer
+//! still reads as connected. So a held connection is pinged, which
+//! also refreshes the mapping a NAT keeps for it, and a missed ping
+//! CLOSES it, as on a control connection; the dialler's discovery
+//! round then redials. Before this, what kept an idle data-plane
+//! connection open was a side effect of the pinned gossipsub (the
+//! stream its `Extensions` hello parks on a peer's first connection),
+//! which no rule of ours stated and no check would have seen go.
+//!
+//! The unit is the connection, and only one per peer: a second
+//! connection to the same peer -- both ends dialled at once -- is not
+//! held, and idles out as before. A relayed connection is never held:
+//! a circuit is pinged end to end already (below), and the relay ends
+//! it on its own limits. A held data-plane peer that refuses ping is
+//! counted and KEPT, held without liveness, as a relayed one is --
+//! until the peer becomes a relay control peer, when that refusal is a
+//! control peer's and closes the connection (below).
+//!
+//! The one held is the one BOTH ENDS hold: a connection closes when
+//! either end's idle timeout closes it, so the runtime prefers the
+//! connection the lower of the two peer ids dialled, a fact the ends
+//! read alike, and only then the oldest (`dialing::held_connections`).
+//!
 //! # A control peer that refuses ping is a missed liveness
 //!
 //! The crate's handler gives up for good the first time the other end
@@ -49,9 +87,14 @@
 //! could never be found dead. Such a refusal therefore CLOSES the
 //! connection, as a missed ping does, and is reported once by name
 //! ([`KeepaliveEvent::Refused`]) for the relay driver to put in the
-//! reservation's detail. A relayed data-plane peer that refuses is kept
-//! and counted: the rule is the control peers' (§14, A 2026-10-25), and
-//! every profile able to hold a circuit answers ping.
+//! reservation's detail. A relayed or held data-plane peer that refuses
+//! is kept and counted: the rule is the control peers' (§14, A
+//! 2026-10-25), and every profile able to hold a circuit answers ping.
+//! A refusal so kept is REMEMBERED for its connection: should the peer
+//! become a control peer later, the handler's pinger has already given
+//! up and will not report again, so the switch closes the connection
+//! and reports the refusal then
+//! (`a_held_peer_that_refused_ping_is_closed_once_it_becomes_a_control_peer`).
 //!
 //! BOTH ENDS PING because both must notice. A client that closes its end
 //! of a dead path cannot tell the relay -- the FIN goes nowhere -- and a
@@ -109,11 +152,17 @@ use interweave_transport_runtime::SnapshotHandle;
 /// The keepalive field's type in the composed behaviour.
 pub type KeepaliveField = Toggle<ClassGated<RelayKeepalive>>;
 
-/// The keepalive field: present when this profile is a relay client or
-/// a relay server, and offered only to the two authorized classes.
+/// The keepalive field: present when this profile is a relay client,
+/// a relay server, or holds its data-plane connections
+/// (`hold_data_plane`), and offered only to the two authorized classes.
 #[must_use]
-pub fn build_field(client: bool, server: bool, policy: SnapshotHandle) -> KeepaliveField {
-    Toggle::from((client || server).then(|| {
+pub fn build_field(
+    client: bool,
+    server: bool,
+    hold_data_plane: bool,
+    policy: SnapshotHandle,
+) -> KeepaliveField {
+    Toggle::from((client || server || hold_data_plane).then(|| {
         ClassGated::for_service(
             RelayKeepalive::new(),
             policy,
@@ -138,8 +187,8 @@ pub struct KeepaliveCounters {
     /// Connections closed for a missed ping.
     pub missed: u64,
     /// Connections whose peer refuses ping: a control peer's closed and
-    /// reported ([`KeepaliveEvent::Refused`]), a relayed data-plane
-    /// peer's kept and not pinged again.
+    /// reported ([`KeepaliveEvent::Refused`]), a relayed or held
+    /// data-plane peer's kept and not pinged again.
     pub unsupported: u64,
     /// Pings this profile answered for others.
     pub echoed: u64,
@@ -150,8 +199,13 @@ pub struct KeepaliveCounters {
 pub enum Switch {
     /// Start pinging: the peer holds this profile's reservation.
     On,
-    /// Stop pinging.
+    /// Stop pinging for the reservation.
     Off,
+    /// Hold this connection open and ping it: the peer's held
+    /// data-plane connection.
+    Hold,
+    /// No longer held.
+    Release,
 }
 
 /// What the keepalive reports to the Swarm.
@@ -174,7 +228,8 @@ pub enum Report {
     Echoed,
 }
 
-/// The keepalive, for a relay client, a relay server, or both.
+/// The keepalive, for a relay client, a relay server, either with or
+/// without the other, and the profile's held data-plane connections.
 pub struct RelayKeepalive {
     config: ping::Config,
     /// The relays this profile holds an active reservation on.
@@ -183,6 +238,14 @@ pub struct RelayKeepalive {
     reserved: HashSet<PeerId>,
     /// The two together: the peers whose connections are pinged.
     active: HashSet<PeerId>,
+    /// The connections held open, one per data-plane peer, as the
+    /// runtime last named them ([`Self::set_held`]).
+    held: HashSet<ConnectionId>,
+    /// The connections whose peer refused ping while it was no control
+    /// peer: kept then, and closed as a control peer's refusal if it
+    /// becomes one, since the crate's handler reports a refusal once
+    /// and never again.
+    refused: HashSet<ConnectionId>,
     connections: HashMap<PeerId, HashSet<ConnectionId>>,
     pending: VecDeque<ToSwarm<KeepaliveEvent, Switch>>,
     counters: KeepaliveCounters,
@@ -204,6 +267,8 @@ impl RelayKeepalive {
             relays: HashSet::new(),
             reserved: HashSet::new(),
             active: HashSet::new(),
+            held: HashSet::new(),
+            refused: HashSet::new(),
             connections: HashMap::new(),
             pending: VecDeque::new(),
             counters: KeepaliveCounters::default(),
@@ -223,6 +288,46 @@ impl RelayKeepalive {
         self.apply();
     }
 
+    /// The connections to hold open and ping: those joining are held,
+    /// those leaving released. A connection this behaviour does not
+    /// know -- not yet established here, or already closed -- is
+    /// skipped, and named again by the runtime's next call.
+    pub fn set_held(&mut self, held: HashSet<ConnectionId>) {
+        if held == self.held {
+            return;
+        }
+        let known: HashMap<ConnectionId, PeerId> = self
+            .connections
+            .iter()
+            .flat_map(|(peer, ids)| ids.iter().map(move |id| (*id, *peer)))
+            .collect();
+        let held: HashSet<ConnectionId> = held
+            .into_iter()
+            .filter(|id| known.contains_key(id))
+            .collect();
+        for (id, switch) in held
+            .difference(&self.held)
+            .map(|id| (*id, Switch::Hold))
+            .chain(self.held.difference(&held).map(|id| (*id, Switch::Release)))
+            .collect::<Vec<_>>()
+        {
+            if let Some(peer) = known.get(&id) {
+                self.pending.push_back(ToSwarm::NotifyHandler {
+                    peer_id: *peer,
+                    handler: NotifyHandler::One(id),
+                    event: switch,
+                });
+            }
+        }
+        self.held = held;
+    }
+
+    /// The connections held now.
+    #[must_use]
+    pub const fn held(&self) -> &HashSet<ConnectionId> {
+        &self.held
+    }
+
     /// Ping exactly the connections to either set's peers: those joining
     /// are switched on, those leaving off.
     fn apply(&mut self) {
@@ -233,12 +338,29 @@ impl RelayKeepalive {
             .chain(self.active.difference(&active).map(|p| (*p, Switch::Off)))
             .collect::<Vec<_>>()
         {
+            let mut refused = false;
             for id in self.connections.get(&peer).into_iter().flatten() {
                 self.pending.push_back(ToSwarm::NotifyHandler {
                     peer_id: peer,
                     handler: NotifyHandler::One(*id),
                     event: switch,
                 });
+                // A REFUSAL GIVEN BEFORE THE PEER WAS A CONTROL PEER is
+                // the control peers' missed liveness now: the switch
+                // finds the handler's pinger given up, and it will not
+                // report again (`a_held_peer_that_refused_ping_is_closed_
+                // once_it_becomes_a_control_peer`).
+                if matches!(switch, Switch::On) && self.refused.remove(id) {
+                    refused = true;
+                    self.pending.push_back(ToSwarm::CloseConnection {
+                        peer_id: peer,
+                        connection: CloseConnection::One(*id),
+                    });
+                }
+            }
+            if refused {
+                self.pending
+                    .push_back(ToSwarm::GenerateEvent(KeepaliveEvent::Refused { peer }));
             }
         }
         self.active = active;
@@ -252,11 +374,13 @@ impl RelayKeepalive {
 
     fn handler(&mut self, id: ConnectionId, peer: PeerId, relayed: bool) -> KeepaliveHandler {
         self.connections.entry(peer).or_default().insert(id);
+        let control = self.active.contains(&peer);
         KeepaliveHandler {
             config: self.config.clone(),
-            pinging: (relayed || self.active.contains(&peer))
-                .then(|| PingHandler::new(self.config.clone())),
+            pinging: (relayed || control).then(|| PingHandler::new(self.config.clone())),
             relayed,
+            control,
+            held: false,
             echo: None,
         }
     }
@@ -306,6 +430,8 @@ impl NetworkBehaviour for RelayKeepalive {
         }) = event
             && let Some(ids) = self.connections.get_mut(&peer_id)
         {
+            self.held.remove(&connection_id);
+            self.refused.remove(&connection_id);
             ids.remove(&connection_id);
             if ids.is_empty() {
                 self.connections.remove(&peer_id);
@@ -324,8 +450,10 @@ impl NetworkBehaviour for RelayKeepalive {
             Report::Ping(Ok(_)) => self.counters.answered += 1,
             // A CONTROL PEER that refuses ping could never be found
             // dead, so the refusal is a missed liveness: closed, and
-            // said once by name. A relayed data-plane peer's refusal is
-            // counted and kept (the module note).
+            // said once by name. A relayed or held data-plane peer's
+            // refusal is counted and kept, and remembered: should the
+            // peer become a control peer, `apply` closes it then (the
+            // module note).
             Report::Ping(Err(ping::Failure::Unsupported)) => {
                 self.counters.unsupported += 1;
                 if self.active.contains(&peer) {
@@ -335,6 +463,8 @@ impl NetworkBehaviour for RelayKeepalive {
                     });
                     self.pending
                         .push_back(ToSwarm::GenerateEvent(KeepaliveEvent::Refused { peer }));
+                } else {
+                    self.refused.insert(id);
                 }
             }
             // A MISSED LIVENESS: the crate reports the second failure in
@@ -355,14 +485,20 @@ impl NetworkBehaviour for RelayKeepalive {
 }
 
 /// One connection's keepalive: the crate's pinging handler while its
-/// peer is a relay control peer or its path is a circuit, and an
-/// answer-only echo otherwise.
+/// peer is a relay control peer, its path is a circuit or it is its
+/// peer's held data-plane connection, and an answer-only echo
+/// otherwise.
 pub struct KeepaliveHandler {
     config: ping::Config,
     pinging: Option<PingHandler>,
     /// A circuit's connection: pinged for its whole life, so a switch
     /// off for its peer leaves it pinging.
     relayed: bool,
+    /// Its peer is a relay control peer ([`Switch::On`]).
+    control: bool,
+    /// Held open: its peer's held data-plane connection
+    /// ([`Switch::Hold`]); the one vote this handler casts to keep it.
+    held: bool,
     /// The echo of the latest inbound ping stream; a new one replaces
     /// it, as the crate's handler does, so one connection holds one.
     echo: Option<BoxFuture<'static, io::Result<Stream>>>,
@@ -392,20 +528,29 @@ impl ConnectionHandler for KeepaliveHandler {
 
     fn on_behaviour_event(&mut self, switch: Switch) {
         match switch {
-            Switch::On => {
-                if self.pinging.is_none() {
-                    self.pinging = Some(PingHandler::new(self.config.clone()));
-                }
+            Switch::On => self.control = true,
+            Switch::Off => self.control = false,
+            Switch::Hold => self.held = true,
+            Switch::Release => self.held = false,
+        }
+        // ONE PINGER for every reason there is one: a switch off for
+        // one reason leaves it pinging while another still holds, and
+        // a running one is kept rather than restarted.
+        if self.relayed || self.control || self.held {
+            if self.pinging.is_none() {
+                self.pinging = Some(PingHandler::new(self.config.clone()));
             }
-            Switch::Off if !self.relayed => self.pinging = None,
-            Switch::Off => {}
+        } else {
+            self.pinging = None;
         }
     }
 
     fn connection_keep_alive(&self) -> bool {
-        // Liveness, not retention: whether the connection is kept is
-        // the relay client's question, which it answers itself.
-        false
+        // RETENTION only for the held data-plane connection. A relay
+        // control connection is pinged for liveness alone: whether it
+        // is kept is the relay client's question, which it answers
+        // itself.
+        self.held
     }
 
     fn poll(

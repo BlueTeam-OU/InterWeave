@@ -99,6 +99,10 @@ fn translation_switches_on_what_the_blocks_enable_and_nothing_else() {
     .expect("a valid profile translates");
     let s = &composed.substrate;
     assert!(s.autonat_client.is_some() && s.relay_client.is_some() && s.dcutr.is_some());
+    assert!(
+        s.hold_data_plane,
+        "every profile holds its data-plane connections open"
+    );
     assert!(s.autonat_server.is_none() && s.relay_server.is_none());
     assert!(s.kademlia.is_none() && s.mdns.is_none());
     assert_eq!(

@@ -1494,11 +1494,15 @@ impl SwarmRuntime {
         // per relay by the relay driver
         // as this profile's reservations move (`relay_driver::sync`), and
         // per holder by the server-event arm below as this relay's
-        // reservations move (`relay_reserved`, `set_reserved`).
+        // reservations move (`relay_reserved`, `set_reserved`). And,
+        // with `hold_data_plane` (A 2026-11-13), on one held direct
+        // connection per data-plane peer, named by `set_held` after each
+        // Swarm event (`dialing::held_connections`).
         let mut relay_reserved = relay_server_driver::Reserved::default();
         let relay_keepalive_field = crate::relay_keepalive::build_field(
             relay_state.is_some(),
             serving_relays,
+            config.hold_data_plane,
             manager.handle(),
         );
         // DCUtR, under the same ruling and the same switch shape: the
@@ -3159,6 +3163,25 @@ impl SwarmRuntime {
                         // function stays free of the Swarm.
                         for id in refuse {
                             swarm.close_connection(id);
+                        }
+                        // THE HELD DATA-PLANE CONNECTIONS follow the open
+                        // set: one direct connection per data-plane peer
+                        // kept past the idle timeout and pinged
+                        // (`relay_keepalive`'s module note). Named again
+                        // after every Swarm event that reaches settlement,
+                        // not only the establishment and the close:
+                        // `settle_outcome` is the one writer of what the
+                        // choice reads, and an event of any kind it settles
+                        // is followed by this; `set_held` sends nothing
+                        // when nothing changed. Off, the field
+                        // may still exist for a relay role, and holds
+                        // nothing.
+                        if config.hold_data_plane
+                            && let Some(keepalive) = swarm.relay_keepalive_mut().as_mut()
+                        {
+                            keepalive
+                                .inner_mut()
+                                .set_held(dialing::held_connections(&own_identity, open.iter()));
                         }
                         // A HELD SEND FAILS WITH ITS LAST DIAL: no dial
                         // still in flight to the peer, no relayed route
