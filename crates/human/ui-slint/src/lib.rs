@@ -208,8 +208,9 @@ pub fn init_android(
 
 /// When input last reached the window's event loop from the platform, on
 /// the loop's thread: what an opening reader yields to between its turns
-/// (`OPENING_INPUT_QUIET`). Only Android records it, where the loop takes
-/// one platform event per pass and a turn sits between two passes.
+/// (`OPENING_INPUT_QUIET`). The Android event listener records it, where
+/// the loop takes one platform event per pass and a turn sits between two
+/// passes; a test records it through `View::platform_input_at`.
 mod input {
     use std::cell::Cell;
     use std::time::{Duration, Instant};
@@ -219,13 +220,6 @@ mod input {
     }
 
     /// Input reached the loop `at`.
-    #[cfg_attr(
-        not(all(feature = "android", target_os = "android")),
-        allow(
-            dead_code,
-            reason = "recorded by the Android event listener, and by tests"
-        )
-    )]
     pub(crate) fn arrived(at: Instant) {
         LAST.with(|last| last.set(Some(at)));
     }
