@@ -2638,14 +2638,25 @@ impl View {
         // its release, the Activity's Back) and each pass waited out a turn
         // (j107 on the A40: a Back's release reached the Activity 0.68 s
         // after it was pressed, and the close two turns after that).
+        // The hold has a ceiling: input that keeps coming -- a key held
+        // down, a drag -- would otherwise hold the opening for as long as
+        // it lasts.
         let rest = Cell::new(true);
+        let held = Cell::new(0_u32);
         opening.step.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(1),
             move || {
-                if rest.replace(false) || input::seen_within(OPENING_INPUT_QUIET, Instant::now()) {
+                if rest.replace(false) {
                     return;
                 }
+                if held.get() < OPENING_HOLD_PASSES
+                    && input::seen_within(OPENING_INPUT_QUIET, Instant::now())
+                {
+                    held.set(held.get() + 1);
+                    return;
+                }
+                held.set(0);
                 let done = build
                     .try_borrow_mut()
                     .is_ok_and(|mut build| build.advance(budgets.turn));
@@ -4712,6 +4723,12 @@ const OPENING_TURN: Duration = Duration::from_millis(50);
 /// reader has nothing drawn, building a little later costs the person
 /// nothing they could read.
 const OPENING_INPUT_QUIET: Duration = Duration::from_millis(150);
+
+/// How many of the step's firings in a row input may hold an opening
+/// before it builds a turn anyway: the step fires at most every
+/// millisecond, so at least 0.3 s, twice the quiet window, which a Back's
+/// passes fit in with room to spare.
+const OPENING_HOLD_PASSES: u32 = 300;
 
 /// The two budgets an opening builds by ([`OPENING_FIRST_GO`],
 /// [`OPENING_TURN`]).

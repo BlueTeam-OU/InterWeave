@@ -1746,6 +1746,24 @@ fn platform_input_holds_an_opening_until_it_is_quiet() {
     assert!(passes >= 2, "control: built once quiet, in {passes} passes");
 }
 
+/// Input that never stops -- a key held down, a drag -- holds an opening
+/// only so long: after `OPENING_HOLD_PASSES` (300) held firings in a row
+/// it builds a turn anyway, so the rows still come in.
+#[test]
+fn input_that_never_stops_holds_an_opening_only_so_long() {
+    let (mut view, mut model) = opening(3000);
+    // Recorded as arriving a minute from now: recent at every firing.
+    view.platform_input_at(std::time::Instant::now() + Duration::from_secs(60));
+    let mut passes = 0;
+    while view.window().get_reader_rows().row_count() == 0 {
+        passes += 1;
+        assert!(passes < 5000, "the rows never came while input kept coming");
+        after(1);
+        let _ = intents(&mut view, &mut model);
+    }
+    assert!(passes > 300, "held first: {passes} passes");
+}
+
 /// The end of an opening is not a press: built while the queue holds
 /// `INPUT_CAP` presses the root has not taken, the rows still come in at
 /// the next take, and nothing more is counted refused (#643 F1).
