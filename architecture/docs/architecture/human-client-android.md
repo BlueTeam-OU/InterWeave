@@ -113,20 +113,21 @@ language-culture's):
    lease; in this posture it owns a store and no runtime, and it is not
    promoted to a foreground service — there is no runtime to keep alive. The
    person's own data is never withheld for want of a network.
-4. **Revoked while running.** A revoke of the network permission ends the
-   process (ux-designer's measurement, not repeated here: on the Pixel 9a
-   under GrapheneOS, in stay-reachable mode, `pm revoke` of `INTERNET`
-   ended the process — one recorded run, 2026-11-07, in the thread step 2
-   names). A revoke made from the system's settings, and stock Android,
-   have not yet been checked on a device; the same is expected of both.
+4. **Revoked while running.** A revoke of the network permission ended the
+   process in the one recorded run (ux-designer's measurement, not repeated
+   here: on the Pixel 9a under GrapheneOS, in stay-reachable mode,
+   `pm revoke` of `INTERNET` ended the process, on 2026-11-07, in the
+   thread that step 2 names). A revoke made from the system's settings, and
+   a revoke on stock Android, have not yet been checked on a device; both
+   are expected to end the process as `pm revoke` did.
    The next launch is step 1 or step 3.
 5. **Stay reachable with the permission missing** (a `START_STICKY` restart
    after a revoke): the Service posts
    ONE notification — network access is off, open the app — and ends the
-   foreground service; no retry loop, no silent end. Observed once, in the
-   run step 4 names: after the `pm revoke` the Service restarted, gave one
-   notice that there was no network access, and ended. Whether a retry
-   follows later was not watched beyond that run, and what a foreground-only
+   foreground service; no retry loop, no silent end. This was observed once,
+   in the run that step 4 names: after the `pm revoke` the Service
+   restarted, posted that one notification, and ended. That run did not
+   watch for a retry after the Service ended, and what a foreground-only
    profile does after a revoke has not yet been checked on a device. The
    person opted into
    reachability, and a silent stop would hide the broken promise; the
