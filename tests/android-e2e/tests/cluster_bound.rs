@@ -382,7 +382,7 @@ async fn on_a_device_a_character_at_the_cluster_bound_and_past_it_is_drawn_every
         witness.drawn("2-conversation-body", &app, &screens);
     });
 
-    // 2. The cards' names, in their proposals; the second accepted.
+    // 2. The cards' names, in their proposals, each then accepted.
     let at = character('x', BOUND);
     let past = character('x', MAX_CARD_NAME_SCALARS);
     sender.send_card(&phone_peer, 2, &at, || d.log()).await;
