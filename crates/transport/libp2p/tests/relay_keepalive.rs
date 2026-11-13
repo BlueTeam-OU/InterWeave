@@ -680,3 +680,35 @@ async fn a_held_peer_that_refuses_ping_is_counted_and_kept() {
     assert_eq!(counts.unsupported, 1, "{counts:?}");
     assert!(closed.is_empty(), "kept, held without liveness: {counts:?}");
 }
+
+/// A held peer's refusal is kept only while the peer is no control
+/// peer: once it holds a reservation (`set_relays`), the refusal it
+/// already gave is the control peers' missed liveness -- closed and
+/// reported once -- although the crate's handler, having given up
+/// (`State::Inactive`), will never report it again. THE CONTROL: the
+/// same refusal, kept, before the switch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_peer_that_refused_ping_is_closed_once_it_becomes_a_control_peer() {
+    let mut near = swarm_idle(keepalive(), IDLE);
+    let mut far = swarm(dummy::Behaviour);
+    let far_peer = *far.local_peer_id();
+    let addr = listening(&mut far).await;
+    let held = connect(&mut near, &mut far, addr).await;
+    near.behaviour_mut().set_held(HashSet::from([held]));
+    let mut seen = Seen::default();
+    drive(&mut near, Some(&mut far), &mut seen, IDLE * 4, |_, c| {
+        c.unsupported == 1
+    })
+    .await;
+    drive(&mut near, Some(&mut far), &mut seen, IDLE * 2, |_, _| false).await;
+    assert_eq!(near.behaviour().counters().unsupported, 1);
+    assert_eq!(seen.closed, 0, "held and kept before the switch: {seen:?}");
+
+    near.behaviour_mut().set_relays(HashSet::from([far_peer]));
+    drive(&mut near, Some(&mut far), &mut seen, IDLE * 4, |s, _| {
+        s.closed == 1 && !s.refused.is_empty()
+    })
+    .await;
+    assert_eq!(seen.closed, 1, "closed as a control peer: {seen:?}");
+    assert_eq!(seen.refused, vec![far_peer], "reported once: {seen:?}");
+}

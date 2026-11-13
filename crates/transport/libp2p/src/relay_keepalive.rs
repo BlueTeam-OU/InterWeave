@@ -49,7 +49,7 @@
 //! With [`build_field`]'s `hold_data_plane` on (the composition root
 //! turns it on in every profile), the runtime names, for each peer it
 //! holds a DIRECT connection carrying the data plane to, ONE of them --
-//! the oldest (`dialing::held_connections`) -- and the keepalive HOLDS
+//! the same one at both ends (below) -- and the keepalive HOLDS
 //! it: its handler votes to keep the connection whatever the Swarm's
 //! idle timeout, and pings it. The two go together on purpose. A peer
 //! that cannot dial back -- behind a NAT, with no address for this
@@ -71,7 +71,14 @@
 //! held, and idles out as before. A relayed connection is never held:
 //! a circuit is pinged end to end already (below), and the relay ends
 //! it on its own limits. A held data-plane peer that refuses ping is
-//! counted and KEPT, held without liveness, as a relayed one is.
+//! counted and KEPT, held without liveness, as a relayed one is --
+//! until the peer becomes a relay control peer, when that refusal is a
+//! control peer's and closes the connection (below).
+//!
+//! The one held is the one BOTH ENDS hold: a connection closes when
+//! either end's idle timeout closes it, so the runtime prefers the
+//! connection the lower of the two peer ids dialled, a fact the ends
+//! read alike, and only then the oldest (`dialing::held_connections`).
 //!
 //! # A control peer that refuses ping is a missed liveness
 //!
@@ -216,7 +223,8 @@ pub enum Report {
     Echoed,
 }
 
-/// The keepalive, for a relay client, a relay server, or both.
+/// The keepalive, for a relay client, a relay server, either with or
+/// without the other, and the profile's held data-plane connections.
 pub struct RelayKeepalive {
     config: ping::Config,
     /// The relays this profile holds an active reservation on.
@@ -228,6 +236,11 @@ pub struct RelayKeepalive {
     /// The connections held open, one per data-plane peer, as the
     /// runtime last named them ([`Self::set_held`]).
     held: HashSet<ConnectionId>,
+    /// The connections whose peer refused ping while it was no control
+    /// peer: kept then, and closed as a control peer's refusal if it
+    /// becomes one, since the crate's handler reports a refusal once
+    /// and never again.
+    refused: HashSet<ConnectionId>,
     connections: HashMap<PeerId, HashSet<ConnectionId>>,
     pending: VecDeque<ToSwarm<KeepaliveEvent, Switch>>,
     counters: KeepaliveCounters,
@@ -250,6 +263,7 @@ impl RelayKeepalive {
             reserved: HashSet::new(),
             active: HashSet::new(),
             held: HashSet::new(),
+            refused: HashSet::new(),
             connections: HashMap::new(),
             pending: VecDeque::new(),
             counters: KeepaliveCounters::default(),
@@ -274,6 +288,9 @@ impl RelayKeepalive {
     /// know -- not yet established here, or already closed -- is
     /// skipped, and named again by the runtime's next call.
     pub fn set_held(&mut self, held: HashSet<ConnectionId>) {
+        if held == self.held {
+            return;
+        }
         let known: HashMap<ConnectionId, PeerId> = self
             .connections
             .iter()
@@ -316,12 +333,29 @@ impl RelayKeepalive {
             .chain(self.active.difference(&active).map(|p| (*p, Switch::Off)))
             .collect::<Vec<_>>()
         {
+            let mut refused = false;
             for id in self.connections.get(&peer).into_iter().flatten() {
                 self.pending.push_back(ToSwarm::NotifyHandler {
                     peer_id: peer,
                     handler: NotifyHandler::One(*id),
                     event: switch,
                 });
+                // A REFUSAL GIVEN BEFORE THE PEER WAS A CONTROL PEER is
+                // the control peers' missed liveness now: the switch
+                // finds the handler's pinger given up, and it will not
+                // report again (`a_held_peer_that_refused_ping_is_closed_
+                // once_it_becomes_a_control_peer`).
+                if matches!(switch, Switch::On) && self.refused.remove(id) {
+                    refused = true;
+                    self.pending.push_back(ToSwarm::CloseConnection {
+                        peer_id: peer,
+                        connection: CloseConnection::One(*id),
+                    });
+                }
+            }
+            if refused {
+                self.pending
+                    .push_back(ToSwarm::GenerateEvent(KeepaliveEvent::Refused { peer }));
             }
         }
         self.active = active;
@@ -392,6 +426,7 @@ impl NetworkBehaviour for RelayKeepalive {
             && let Some(ids) = self.connections.get_mut(&peer_id)
         {
             self.held.remove(&connection_id);
+            self.refused.remove(&connection_id);
             ids.remove(&connection_id);
             if ids.is_empty() {
                 self.connections.remove(&peer_id);
@@ -410,8 +445,10 @@ impl NetworkBehaviour for RelayKeepalive {
             Report::Ping(Ok(_)) => self.counters.answered += 1,
             // A CONTROL PEER that refuses ping could never be found
             // dead, so the refusal is a missed liveness: closed, and
-            // said once by name. A relayed data-plane peer's refusal is
-            // counted and kept (the module note).
+            // said once by name. A relayed or held data-plane peer's
+            // refusal is counted and kept, and remembered: should the
+            // peer become a control peer, `apply` closes it then (the
+            // module note).
             Report::Ping(Err(ping::Failure::Unsupported)) => {
                 self.counters.unsupported += 1;
                 if self.active.contains(&peer) {
@@ -421,6 +458,8 @@ impl NetworkBehaviour for RelayKeepalive {
                     });
                     self.pending
                         .push_back(ToSwarm::GenerateEvent(KeepaliveEvent::Refused { peer }));
+                } else {
+                    self.refused.insert(id);
                 }
             }
             // A MISSED LIVENESS: the crate reports the second failure in
