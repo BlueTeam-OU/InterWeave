@@ -4330,6 +4330,18 @@ export component AppWindow inherits Window {
         root.details-open = false;
         root.menu-closed-seq += 1;
     }
+    // How many times either menu was opened, closed again or not: a
+    // launch's owed Connect does not open over Chats once one was
+    // (add-a-peer section 5.1), so the count moves at the opening.
+    out property <int> menus-opened;
+    public function open-overflow-menu() {
+        root.menu-open = true;
+        root.menus-opened += 1;
+    }
+    public function open-chats-menu() {
+        root.chats-menu-open = true;
+        root.menus-opened += 1;
+    }
 
     // The device's network state: its full text, and Chats' subtitle in
     // short with its icon (#304 F7). A conversation shows it only while
@@ -5420,7 +5432,7 @@ export component AppWindow inherits Window {
                             focus-key: "app-options";
                             focus-seq: root.chats-menu-closed-seq;
                             focus-wanted: true;
-                            pressed => { root.chats-menu-open = true; }
+                            pressed => { root.open-chats-menu(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
@@ -5484,7 +5496,7 @@ export component AppWindow inherits Window {
                             focus-key: "app-options";
                             focus-seq: root.chats-menu-closed-seq;
                             focus-wanted: true;
-                            pressed => { root.chats-menu-open = true; }
+                            pressed => { root.open-chats-menu(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
@@ -7673,7 +7685,7 @@ export component AppWindow inherits Window {
                             focus-key: "more-options";
                             focus-seq: root.menu-closed-seq;
                             focus-wanted: true;
-                            pressed => { root.menu-open = true; }
+                            pressed => { root.open-overflow-menu(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
@@ -7702,7 +7714,7 @@ export component AppWindow inherits Window {
                             focus-key: "more-options";
                             focus-seq: root.menu-closed-seq;
                             focus-wanted: true;
-                            pressed => { root.menu-open = true; }
+                            pressed => { root.open-overflow-menu(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
