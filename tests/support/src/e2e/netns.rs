@@ -250,6 +250,25 @@ pub fn overlay_up() {
     );
 }
 
+/// Add `cidr` to `net`'s loopback interface: an address the namespace
+/// holds and a wildcard listener binds, reached over no link -- so no
+/// other namespace has a route to it. In the overlay it stands for a
+/// host's address on a network the far host is not on, such as its own
+/// LAN: a private address its Identify advertises and the far host
+/// cannot dial.
+///
+/// # Panics
+/// Outside the overlay or the second network, or when `ip` refuses.
+pub fn add_unrouted_address(net: Net, cidr: &str) {
+    shell(
+        "adding an unrouted address",
+        &format!(
+            "nsenter --net={} ip addr add {cidr} dev lo",
+            net.path().display()
+        ),
+    );
+}
+
 fn shell(what: &str, script: &str) {
     let out = Command::new("sh")
         .args(["-c", script])
