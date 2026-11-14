@@ -127,6 +127,11 @@ interweave-profile-identity = { path = "../../identity/profile-identity" }
 interweave-transport-api = { path = "../../api/transport-api" }
 # The render-parity golden is JSON (tests/render_parity.rs).
 serde_json = { workspace = true }
+# The UAX #29 counts the real-window cluster tests assert as their
+# premise, and the shaper's own grapheme segmenter they compare them
+# with (tests/cluster_scripts.rs).
+unicode-segmentation = { workspace = true }
+icu_segmenter = { workspace = true }
 # This crate's own tests with the debug build's trace on (tests/trace.rs,
 # src/trace.rs's unit tests), so the workspace's tests and clippy cover
 # it. A dev-dependency: no build of the library for an app turns it on.

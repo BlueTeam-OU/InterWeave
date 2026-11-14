@@ -253,6 +253,11 @@ icu_normalizer = "~2.3"
 # the emoji properties (UTS #51), from the same 2.3 line and data the
 # text shaper (parley) reads.
 icu_properties = "~2.3"
+# The grapheme segmenter the text shaper (parley) counts a cluster's code
+# points over, in eight bits: the real-window cluster tests hold its
+# boundaries to UAX #29's as the model counts them (ui-slint's
+# tests/cluster_scripts.rs). Test-only; the same 2.3 line and data.
+icu_segmenter = { version = "~2.3", default-features = false, features = ["compiled_data"] }
 # A card's photo (app-core's card_photo.rs): the sender re-encodes the
 # chosen image, the receiver decodes an accepted one at 256 x 256. PNG and
 # JPEG only, pure Rust (png, zune-jpeg), the version and the two features
