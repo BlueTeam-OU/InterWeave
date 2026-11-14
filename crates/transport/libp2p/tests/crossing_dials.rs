@@ -26,10 +26,14 @@
 //! leaves from a fresh port (§12), so the two dials are two connections
 //! and not one simultaneous open.
 //!
-//! NOT PROVED HERE: that each end holds exactly one -- the unit test
-//! `exactly_one_direct_data_plane_connection_per_peer_is_held`; with
-//! one end holding the lower's dial and the other holding nothing, the
-//! wire would read the same. Two dials of ONE end established within one
+//! That BOTH ends hold it, and not one end alone, is read from the data
+//! segments each end of the held dial sends in the window: a measured
+//! count, four per end with two pingers and three with one (the
+//! assertion's note).
+//!
+//! NOT PROVED HERE: that each end holds exactly one connection per
+//! peer -- the unit test
+//! `exactly_one_direct_data_plane_connection_per_peer_is_held`. Two dials of ONE end established within one
 //! handshake of each other, which §14 names as the rule's limit.
 
 #![cfg(target_os = "linux")]
@@ -52,6 +56,10 @@ const PATIENCE: Duration = Duration::from_secs(20);
 /// which the keepalive keeps), so every held connection has been pinged
 /// after the first reading at least once more.
 const PING_WINDOW: Duration = Duration::from_secs(18);
+
+/// Data segments each end of the held dial sends in the window when
+/// both ends ping it; one pinger measured three (the assertion's note).
+const BOTH_PINGING: u64 = 4;
 
 fn trusting(peer: &TransportIdentity) -> TrustSources {
     TrustSources::new(
@@ -251,20 +259,25 @@ async fn two_runtimes_dialling_each_other_at_once_both_hold_the_lower_peers_dial
         "the higher peer's dial carried nothing, so neither end holds it: \
          {before:?} -> {after:?}"
     );
-    // And the second: BOTH ends pinged the lower peer's dial. A pinger
-    // sends its ping and the far end its echo, one data segment each, so
-    // with one pinger each end sends one in the window; with two, each
-    // end sends its own ping and its echo of the other's. (Two writes
-    // coalesced into one segment would fail this, never pass it.)
+    // And the second: BOTH ends pinged the lower peer's dial. Read from
+    // the data segments each end of it sent in the window, which one
+    // pinger and two tell apart: MEASURED, five runs each on 2026-11-14,
+    // four per end with both ends pinging and three with only the lower
+    // peer's end holding (`dialing::held_connections` planted to hold
+    // nothing where the local id is the higher), so the count is the
+    // oracle and not a derivation. Each pinger adds one 62-byte frame
+    // each way (one ping and its echo); the other two segments per end
+    // appear on a pinged connection whatever the pinger count and were
+    // not traced to their frames. A coalesced write would lower a count
+    // and fail this, never pass it.
     let sent = [
         after.lower_segments[0] - before.lower_segments[0],
         after.lower_segments[1] - before.lower_segments[1],
     ];
-    eprintln!("data segments sent in the window, dialling end first: {sent:?}");
     assert!(
-        sent.iter().all(|&n| n >= 2),
-        "each end pinged the lower peer's dial and echoed the other's ping: \
-         {sent:?} ({before:?} -> {after:?})"
+        sent.iter().all(|&n| n >= BOTH_PINGING),
+        "each end pinged the lower peer's dial: {sent:?} data segments sent, \
+         dialling end first ({before:?} -> {after:?})"
     );
 
     a.shutdown().await.expect("clean shutdown");
