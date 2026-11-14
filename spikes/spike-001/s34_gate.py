@@ -16,8 +16,9 @@ a name is matched as ``[\w$]+`` (a minified name may hold ``$``; see
 ``notifications/claude/channel`` is registered with the notification's
 schema object, called as ``<schema>()``: each such call is listed with
 the gate call before it in the same function, the era argument that
-call passes, and the ``Channel notifications`` log lines of that
-function. A handler registered otherwise, through a second schema
+call passes, and the ``Channel notifications`` and ``channel_enable``
+log strings of that function, its body bounded by brace matching
+(``function_end``). A handler registered otherwise, through a second schema
 object or a reference to it, is not seen. The output carries the tree
 it was read at (``tree_stamp``).
 Prints JSON; exits 1 if a piece is not found. EVIDENCE ONLY.
@@ -40,10 +41,49 @@ RELAY = re.compile(rb'function ' + N + rb'\(' + N + rb',' + N + rb',' + N + rb'\
                    rb'"claude/channel/permission"[^;]{0,200}?protocolEra[^;]{0,40}?\)\}')
 
 
+def function_end(data: bytes, fn: int) -> int:
+    """The offset after the closing brace of the function whose
+    ``function`` keyword is at ``fn``: braces counted from its opening
+    one, skipping '...' and "..." literals and a template's text (its
+    ``${...}`` counted as code). A regular-expression literal is not
+    recognised; ``schema_call_inside`` and ``function_bytes`` in the
+    output show where a count went wrong."""
+    i, stack = data.find(b"{", fn), []  # each entry: "{" code brace, "$" a template's ${
+    n = len(data)
+    while i < n:
+        c = data[i]
+        if c in (0x27, 0x22):  # ' or "
+            i += 1
+            while i < n and data[i] != c:
+                i += 2 if data[i] == 0x5C else 1
+        elif c == 0x60 or (c == 0x7D and stack and stack[-1] == "$"):  # ` opens a template, } ends a ${
+            if c == 0x7D:
+                stack.pop()
+            i += 1
+            while i < n and data[i] != 0x60:
+                if data[i] == 0x5C:
+                    i += 2
+                    continue
+                if data[i] == 0x24 and data[i + 1] == 0x7B:  # ${
+                    stack.append("$")
+                    i += 1
+                    break
+                i += 1
+        elif c == 0x7B:
+            stack.append("{")
+        elif c == 0x7D:
+            stack.pop()
+            if not stack:
+                return i + 1
+        i += 1
+    return n
+
+
 def registration_sites(data: bytes, gate: bytes) -> list:
-    """Each use of the channel notification's schema (the object every
-    handler for it is registered with), and the last call of the gate
-    before it in the same function, with the era argument it passes."""
+    """Each call of the channel notification's schema object (assumed to
+    be what every handler for it is registered with), the last call of
+    the gate before it in the same function, the era argument it passes,
+    and the function's log strings (``log_lines``)."""
     name = re.match(rb"function (" + N + rb")", gate).group(1)
     schema = re.search(rb"var (" + N + rb")=" + N + rb'\(\(\)=>' + N + rb'\(\{method:' + N
                        + rb'\("notifications/claude/channel"\)', data)
@@ -57,13 +97,15 @@ def registration_sites(data: bytes, gate: bytes) -> list:
                                 data[fn:use.start()]):
             pass
         if call is None or data[fn:].startswith(b"function " + name + b"("):
-            sites.append({"enclosing": data[fn:fn + 40].decode(), "gate_call": None, "gate_era_arg": None})
+            sites.append({"enclosing": data[fn:fn + 40].decode(), "log_lines": None, "gate_call": None,
+                          "gate_era_arg": None})
             continue
         args = call.group(1).decode()
-        body_end = data.find(b"function ", use.start())
+        body_end = function_end(data, fn)
         logs = sorted({m.decode() for m in re.findall(rb"Channel notifications [a-z -]+|channel_enable[a-z ;]+",
                                                        data[fn:body_end])})
         sites.append({"enclosing": data[fn:data.find(b"{", fn)].decode(), "log_lines": logs,
+                      "function_bytes": body_end - fn, "schema_call_inside": body_end > use.end(),
                       "gate_call": f"{name.decode()}({args})",
                       "gate_era_arg": args.split(",")[-1].endswith(".protocolEra")})
     return sites
@@ -99,7 +141,8 @@ def main() -> int:
     relays = sorted({m.group(0).decode() for m in RELAY.finditer(data)})
     out["permission_relay_filters"] = relays
     out["relay_excludes_modern"] = bool(relays) and all('protocolEra!=="modern"' in r for r in relays)
-    guarded = bool(out["registration_sites"]) and all(r["gate_era_arg"] for r in out["registration_sites"])
+    guarded = bool(out["registration_sites"]) and all(r["gate_era_arg"] and r["schema_call_inside"]
+                                                       for r in out["registration_sites"])
     out["every_registration_after_gate_with_era"] = guarded
     print(json.dumps(out, indent=2))
     return 0 if notices and relays and out["gate_era_clause"] and guarded else 1
