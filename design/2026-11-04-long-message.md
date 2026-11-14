@@ -804,9 +804,10 @@ it, those checks are blocked, never passed.
   comes back to ux-designer for a later time or a heavier shape.
   On Android, each Back on a stress shape is made in each of the three
   ways the platform gives: the Back key, the navigation bar's Back,
-  and the app bar's Back. Then, as further runs, on each stress shape and in each of the
-  three ways, two Backs about 0.3 s apart, the first about 0.6 s after
-  Open the whole message. On the desktop, the same runs by Escape.
+  and the app bar's Back. Then, as further runs, on each stress shape
+  and in each of the three ways, two Backs about 0.3 s apart, the
+  first about 0.6 s after Open the whole message. On the desktop, the
+  same runs by Escape.
   Each time: no Back is lost; focus is on the row's Open the whole
   message; and the conversation is where it was. Inside the first
   turn, no frame shows the bar, and the reader closes within 1 s of
