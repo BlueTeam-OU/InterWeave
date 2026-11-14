@@ -35,6 +35,7 @@ use interweave_android_e2e_cases::keys;
 use serde_json::{Map, Value, json};
 
 use crate::adb::PACKAGE;
+use crate::back_run;
 
 /// What every trace line starts with (ui-slint's `trace::PREFIX`).
 pub const TRACE: &str = "ui-trace ";
@@ -241,32 +242,29 @@ impl Screens {
     /// The first Read the whole message TAB reaches whose focus key is
     /// not in `opened`, pressed, and Back sent `after` the press whatever
     /// the reader has drawn by then: a person who leaves while it opens
-    /// (design/2026-11-04-long-message.md A5). Passes once the trace
-    /// shows the reader's page and then the conversation's again, focus
-    /// back on the opened row's Open the whole message. The step carries `read`; `drawn`,
-    /// whether the reader's rows were drawn before it closed; and
-    /// `enter-at` and `back-at`, the phone's time of day as each key's
-    /// `input` was launched, to set beside the trace's logcat times.
-    /// `on_row` runs once focus is on the row, before the keys: a
-    /// recording started there spans the keys and not the TABs.
+    /// (design/2026-11-04-long-message.md A5). With `second`, a second
+    /// Back follows the first by that long. `on_row` runs once focus is on
+    /// the row, before the keys: a recording started there spans the keys
+    /// and not the TABs.
     ///
-    /// With `second`, a second Back follows the first by that long, and
-    /// the step passes once the trace shows the reader's page, the
-    /// conversation's and then the chat list's: the first Back closed the
-    /// reader and the second acted on the conversation, neither lost nor
-    /// merged (section 5.4); focus is then the list's, not the row's, and
-    /// the step adds `back2-at`.
-    ///
-    /// The keys go from one shell, each `input` started in the background
-    /// and the shell waiting for them all, so the gap between two is the
-    /// sleep between their launches give or take the difference between
-    /// their start-ups, not the sleep plus one start-up as separate adb
-    /// calls would make it.
+    /// The keys come from one process on the phone, the androidTest APK's
+    /// `KeySender` ([`back_run::sender_command`]), each press's send time
+    /// read on the uptime clock as it is injected; the trace is read again
+    /// from a monotonic logcat on the same clock. The step's result is
+    /// [`back_run::judge`]'s verdict on `run`, `void` being neither pass
+    /// nor fail, and it carries `read`; `drawn`, whether the reader's
+    /// first screen was drawn before it closed; the uptimes `enter-at`,
+    /// `back-at`, `back2-at`, `drawn-at`, `closed-at` and `left-at` that
+    /// exist; and `back-to-close-ms` and `first-screen-shown-ms` where
+    /// both ends exist. A round with one Back also needs focus back on
+    /// the opened row's Open the whole message to pass; with two, focus
+    /// is the chat list's.
     pub fn read_whole_then_back(
         &mut self,
         opened: &[String],
         after: Duration,
         second: Option<Duration>,
+        run: back_run::Run,
         patience: Duration,
         on_row: impl FnOnce(),
     ) -> Step {
@@ -280,85 +278,96 @@ impl Screens {
         let read = self.focus.clone();
         on_row();
         let from = self.seen.len();
-        // Each key's launch stamped on the phone's clock, the clock its
-        // logcat stamps the trace by: a run's Back-to-close and how long
-        // the first screen showed are read from the two together. The
-        // Enter's stamp comes just before its launch and the Back's just
-        // after, so the sleep alone sits between the two launches.
-        let again = second.map_or_else(String::new, |gap| {
-            format!(
-                " sleep {:.3}; input keyevent KEYCODE_BACK & echo back2-at $(date +%T.%N);",
-                gap.as_secs_f64()
-            )
-        });
-        let keys = format!(
-            "echo enter-at $(date +%T.%N); input keyevent KEYCODE_ENTER & sleep {:.3}; input keyevent KEYCODE_BACK & echo back-at $(date +%T.%N);{again} wait",
-            after.as_secs_f64()
-        );
-        let reader = format!("{TRACE}page=reader");
-        let conversation = format!("{TRACE}page=conversation");
-        let list = format!("{TRACE}page=conversations");
+        let mut presses = vec![("ENTER", Duration::ZERO), ("BACK", after)];
+        presses.extend(second.map(|gap| ("BACK", gap)));
         let pages: &[&str] = if second.is_some() {
             &["page=reader", "page=conversation", "page=conversations"]
         } else {
             &["page=reader", "page=conversation"]
         };
-        let mut stamps = Vec::new();
-        let closed = self
-            .adb_ok(&["shell", &keys])
-            .map(|said| {
-                // The keys' stamps alone: any other line of the shell's
-                // must not overwrite a field of the step.
-                stamps = said
-                    .lines()
-                    .filter_map(|l| l.split_once(' '))
-                    .filter(|(k, _)| matches!(*k, "enter-at" | "back-at" | "back2-at"))
-                    .map(|(k, v)| (k.to_owned(), v.trim().to_owned()))
-                    .collect();
-            })
-            .and_then(|()| self.wait_all(from, pages, patience))
-            .and_then(|()| {
-                let lines = &self.seen[from..];
-                let opened_at = lines.iter().position(|l| *l == reader);
-                let back_at = lines.iter().rposition(|l| *l == conversation);
-                let left_at = lines.iter().rposition(|l| *l == list);
-                match (opened_at, back_at, left_at) {
-                    (Some(o), Some(b), None) if o < b && second.is_none() => Ok(()),
-                    (Some(o), Some(b), Some(l)) if o < b && b < l && second.is_some() => Ok(()),
-                    _ => Err(format!(
-                        "the pages did not follow each other as the Backs ask ({pages:?}); {}",
-                        self.where_now()
-                    )),
-                }
-            })
-            .and_then(|()| self.settle().map(drop))
-            .and_then(|()| {
-                if second.is_some() {
-                    return Ok(());
-                }
-                // Its own row's control, not any: a conversation of several
-                // cut rows has an earlier one to land on by mistake.
-                if self.focus == read {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "focus left on {:?}, not the opened row's {read:?}",
-                        self.focus
-                    ))
-                }
-            });
-        let drawn_line = format!("{TRACE}reader=drawn ");
-        let drawn = self.seen[from..].iter().any(|l| l.starts_with(&drawn_line));
-        let mut out = self.answer(name, closed);
+        let sent = self.adb_ok(&["shell", &back_run::sender_command(&presses)]);
+        let sent_out = sent.clone().unwrap_or_default();
+        // A wait that runs out is not the verdict: a missing page is the
+        // judge's to call fail or void. The settle lets a step past the
+        // ones waited for show, so more steps than asked are seen.
+        let waited = sent
+            .and_then(|_| self.wait_all(from, pages, patience))
+            .and_then(|()| self.settle().map(drop));
+        let timed = self.run_trace(from);
+        let detail = match (&waited, &timed) {
+            (Err(why), _) | (_, Err(why)) => format!("{why}; sender said {sent_out:?}"),
+            (Ok(()), Ok(_)) => self.where_now(),
+        };
+        let trace = timed.unwrap_or_default();
+        let t = back_run::times(&back_run::sent_times(&sent_out), &trace);
+        let focus_ok = second.is_some() || self.focus == read;
+        let verdict = match back_run::judge(run, &t, &trace) {
+            // Its own row's control, not any: a conversation of several
+            // cut rows has an earlier one to land on by mistake.
+            back_run::Verdict::Pass if !focus_ok => back_run::Verdict::Fail(format!(
+                "focus left on {:?}, not the opened row's {read:?}",
+                self.focus
+            )),
+            v => v,
+        };
+        let mut out = match verdict {
+            back_run::Verdict::Pass => step(name, true, detail),
+            back_run::Verdict::Fail(why) => step(name, false, format!("{why}; {detail}")),
+            back_run::Verdict::Void(why) => {
+                let mut out = step(name, false, format!("{why}; {detail}"));
+                out.insert(keys::RESULT.to_owned(), json!(back_run::VOID));
+                out
+            }
+        };
         out.insert("read".to_owned(), Value::String(read));
         out.insert(
             "drawn".to_owned(),
-            Value::String(if drawn { "yes" } else { "no" }.to_owned()),
+            json!(if t.drawn.is_some() { "yes" } else { "no" }),
         );
+        let stamps = [
+            ("enter-at", t.enter),
+            ("back-at", t.back),
+            ("back2-at", t.back2),
+            ("drawn-at", t.drawn),
+            ("closed-at", t.closed),
+            ("left-at", t.left),
+            ("back-to-close-ms", t.back_to_close()),
+            ("first-screen-shown-ms", t.first_screen_shown()),
+        ];
         for (key, at) in stamps {
-            out.insert(key, Value::String(at));
+            if let Some(at) = at {
+                out.insert(key.to_owned(), Value::String(at.to_string()));
+            }
         }
         out
+    }
+
+    /// The trace's lines from `from` on, each with its uptime: a monotonic
+    /// logcat read once, held against the raw trace already seen so a
+    /// line is never paired with another's time.
+    fn run_trace(&mut self, from: usize) -> Result<Vec<(u64, String)>, String> {
+        self.poll()?;
+        let log = self.adb_ok(&[
+            "logcat",
+            "-d",
+            "-v",
+            "threadtime",
+            "-v",
+            "monotonic",
+            "-s",
+            "interweave:I",
+        ])?;
+        let timed = back_run::monotonic_trace(&log);
+        let texts: Vec<&String> = timed.iter().map(|(_, l)| l).collect();
+        let seen: Vec<&String> = self.seen.iter().collect();
+        if texts.len() < seen.len() || texts[..seen.len()] != seen[..] {
+            return Err(format!(
+                "the monotonic logcat's trace ({} lines) is not the trace seen ({} lines)",
+                texts.len(),
+                seen.len()
+            ));
+        }
+        Ok(timed[from..seen.len()].to_vec())
     }
 
     /// Show my address, its code drawn (`show=shown`), then Back to
