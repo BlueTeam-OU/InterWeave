@@ -783,43 +783,41 @@ it, those checks are blocked, never passed.
   comes back to ux-designer, not changed quietly. Precondition: the
   toolkit offers the scroll bar and the fast-scroll thumb of §5.1; a
   missing one is reported, not built around.
-  Back while the reader opens (§5.4), with a screen recording. On the
-  list shape, Back about 0.2 s after Open the whole message (inside
-  the first turn). On the headings of autolinks and on the one
-  reference link used many times, Back about 0.6 s after Open the
-  whole message (past the first turn and past 0.5 s, when the bar
-  shows, but before the first screen). On the desktop, Escape at the same two times. Each time: no
-  Back is lost; the reader closes within 1 s of the Back; focus is on
-  the row's Open the whole message; and the conversation is where it
-  was. Inside the first turn, no frame shows the bar; past the first
-  turn, the bar goes away with the reader. The build reports, for each
-  run, the time from the Back to the close and how long the first
-  screen showed.
-  On Android, Back while the reader opens also runs on the two stress
-  shapes of the Android end-to-end test, distinct headings and
-  distinct links (`tests/android-e2e/src/long.rs`: every heading, and
-  every link's control, is different text, so no measure is reused).
-  They are not among the shapes listed above and have no opening
-  figure. They are run here because their first screens come later
-  than 0.6 s on the A40 (on 2026-11-13, 1.41 s for distinct headings
-  and 1.02 s for distinct links), so a Back at 0.6 s is pressed while
-  the bar shows, as this part of A5 needs. On that day's build, every
-  other shape draws its first screen in under 0.31 s, before that
-  Back (the list shape's 347 ms, below, is from the build before that
-  day's).
-  On each stress shape, Back about 0.6 s after Open
-  the whole message, by each way the platform gives: the Back key, the
-  navigation bar's Back, and the app bar's Back. Then, by each of the
-  three ways, two Backs about 0.3 s apart, the first about 0.6 s after
-  Open the whole message. Each time, the reader closes within 0.15 s
-  of the Back: time for the next gap between turns (§5.4) and for the
-  frame that draws the close. A close that waits until the opening has
-  finished building misses the 0.15 s, even when it comes within 1 s
-  of the Back.
-  Focus is on the row's Open the
-  whole message, and the conversation is where it was. Of two Backs,
-  the first closes the reader and the second acts on the conversation;
-  neither is lost and they are not merged into one.
+  Back while the reader opens (§5.4), with a screen recording, at two
+  times. Inside the first turn: on the list shape, Back about 0.2 s
+  after Open the whole message. Past the first turn, while the bar
+  shows: Back about 0.6 s after Open the whole message, on a shape
+  whose first screen comes later than that. No shape listed above
+  opens that late on a build that passes this A5's 0.5 s, so this Back
+  runs on the two stress shapes of the Android end-to-end test,
+  distinct headings and distinct links (`tests/android-e2e/src/long.rs`:
+  every heading, and every link's control, is different text, so no
+  measure is reused). They are not among the shapes listed above and
+  have no opening figure. Their first screens come later than 0.6 s on
+  the A40 (on 2026-11-13, 1.41 s for distinct headings and 1.02 s for
+  distinct links), so a Back at 0.6 s is pressed while the bar shows.
+  On that day's build, every other shape draws its first screen in
+  under 0.31 s, before that Back (the list shape's 347 ms, below, is
+  from the build before that day's). If a build draws a stress shape's
+  first screen before its Back, that run is void, not passed, and
+  comes back to ux-designer for a later time or a heavier shape.
+  On Android, each Back is made by each way the platform gives: the
+  Back key, the navigation bar's Back, and the app bar's Back. On each
+  stress shape, then, by each of the three ways, two Backs about 0.3 s
+  apart, the first about 0.6 s after Open the whole message. On the
+  desktop, the same runs by Escape.
+  Each time: no Back is lost; focus is on the row's Open the whole
+  message; and the conversation is where it was. Inside the first
+  turn, no frame shows the bar, and the reader closes within 1 s of
+  the Back. Past the first turn, the bar goes away with the reader,
+  and the reader closes within 0.15 s of the Back: time for the next
+  gap between turns (§5.4) and for the frame that draws the close. A
+  close that waits until the opening has finished building misses the
+  0.15 s, even when it comes within 1 s of the Back. Of two Backs, the
+  first closes the reader and the second acts on the conversation;
+  neither is lost and they are not merged into one. The build reports,
+  for each run, the time from the Back to the close and how long the
+  first screen showed.
   Runs so far, all on the A40:
   - The list shape, 2026-11-12 (REPLY 01a1cfc2): first screen drawn at
     347 ms, reader closed 0.26 s after the first screen, focus on Open
