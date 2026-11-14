@@ -805,7 +805,8 @@ it, those checks are blocked, never passed.
   and 1.02 s for distinct links), so a Back at 0.6 s is pressed while
   the bar shows, as this part of A5 needs. On that day's build, every
   other shape draws its first screen in under 0.31 s, before that
-  Back (the list shape's 347 ms below is from the build before it).
+  Back (the list shape's 347 ms, below, is from the build before that
+  day's).
   On each stress shape, Back about 0.6 s after Open
   the whole message, by each way the platform gives: the Back key, the
   navigation bar's Back, and the app bar's Back. Then, by each of the
@@ -832,11 +833,11 @@ it, those checks are blocked, never passed.
   - Both stress shapes by the navigation bar's Back (two Backs
     included) and by the app bar's Back, 2026-11-14 (main 41bb631b9,
     REPLY 01a1d840): closed in 62 to 118 ms, with focus on Open the
-    whole message. The navigation bar's Back reaches the app as a key,
-    so it is timed from when the key was delivered; the app bar's Back
-    is timed from when the finger touched.
-  Not run yet, and carried rather than failed: two Backs by the app
-  bar's Back, the desktop, the Pixel, and the release APK.
+    whole message. The navigation bar's Back reaches the app as a key
+    press, so it is timed from when the key press was delivered; the
+    app bar's Back is timed from when the finger touched the screen.
+  Not run yet, and carried rather than failed: the two Backs by the
+  app bar's Back, the desktop, the Pixel, and the release APK.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
   on the desktop and TalkBack on the Pixel.
 - **A7** The reader's row removed while it is open, the app sent to
