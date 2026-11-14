@@ -6106,12 +6106,13 @@ it cannot serve this profile; the misbehaving AutoNAT server is driven
 against the vendored client in a raw Swarm. Limits the tests show and
 the rows do not state: every address is loopback on one host, so no
 NAT is crossed (`relay_double.rs`'s harness), and a stopped relay is a
-parked thread, not a crashed host. The keepalive rule has no ADR of
-its own: the owner's word of 2026-09-26 and the two rulings live in
-§14, three rules in all, and no record promotes them yet; architect-cto
-promotes them into one ADR, with its digest entry and README row, at
-the latest with this stage's closing record, or earlier if §14 gains a
-fourth (the open list below carries it).
+parked thread, not a crashed host. The keepalive rule had no ADR of
+its own when this record was written: the owner's word of 2026-09-26
+and the two rulings lived in §14, three rules in all, to be promoted
+into one ADR at the latest with this stage's closing record, or earlier
+if §14 gained a fourth. The fourth came on 2026-11-13 (the held direct
+connection, #657), and ADR-0068 is the promotion (2026-11-14), with its
+digest entry and README row; §14 keeps the mechanics.
 
 **Open before the close (the same read).** Each named to its owner;
 none is the status value's, which stays on this stage.
@@ -6324,8 +6325,9 @@ none is the status value's, which stays on this stage.
   fd4679a7f carries the fix.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
-  the three prose status sites with it, and, unless done earlier, the
-  keepalive rules' promotion from §14 into one ADR (architect-cto).
+  the three prose status sites with it. The keepalive rules' promotion
+  from §14 into one ADR, once carried here, was done earlier: ADR-0068
+  (2026-11-14).
 
 ## 22. Stage 19 — packaging, migration, and release
 
