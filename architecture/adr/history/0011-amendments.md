@@ -400,6 +400,20 @@ rising to 5 min (`AUTONAT.md` §4, Amendment 2026-11-14). It had used
 the gate's constants since 2026-09-09 so the two could not drift; they
 now differ on purpose.
 
+The relay-hop route hold (A 2026-10-21) had read "held for the ordinary
+failure cadence, the curve an address failure follows": it shared the
+peer's delay. With that delay flat at 30 s the hold would have gone flat
+too, so p2p-network-dev-01 gave it its own function on the ladder it had,
+30 s doubling to 5 min on the peer's attempt count (#674, 8d6c5450a;
+GZCoord `01a1db63-e6fb-72b5-a6f6-e64f4f84c245`), and the relay-hop
+paragraph now names that ladder. Kept and not flattened, because the
+hold is released by the relay's first direct connection, and a relay
+that stays down gains nothing from being asked every 30 s; a failure the
+relay or the destination answered is no hop failure and follows the 30 s
+delay. A peer whose only route is a held circuit is therefore retried at
+the hold's end or when its relay connects, which is the exception the
+wording names.
+
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
 unqualified. The long-outage run is owed again on the new code, beside
