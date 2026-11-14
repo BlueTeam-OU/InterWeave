@@ -14,7 +14,7 @@ transport:
     ipv6_source_prefix_bits: 64
   connection_policy:
     address_backoff_min: 30s
-    address_backoff_max: 5m
+    address_backoff_max: 30s
     identity_mismatch_quarantine: 30m
   direct:
     protocol: /interweave/direct/2.0.0

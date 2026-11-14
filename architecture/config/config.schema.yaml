@@ -49,7 +49,11 @@ transport:
     # 30s is the retry schedule's measured base (the runtime's RETRY_BASE); the
     # earlier 5s default named a schedule nothing ran.
     address_backoff_min: duration[1s..1m] = 30s
-    address_backoff_max: duration[30s..30m] = 5m
+    # 30s since ADR-0011 A 2026-11-14 (the owner's word: a returned peer is
+    # redialled within 30 s); 5m until then. One delay serves a peer and its
+    # address, so this is the peer retry's ceiling too. Each field is accepted
+    # at its default and refused off it.
+    address_backoff_max: duration[30s..30m] = 30s
     identity_mismatch_quarantine: duration[1m..24h] = 30m
   direct:
     protocol: literal[/interweave/direct/2.0.0]
