@@ -815,11 +815,15 @@ it, those checks are blocked, never passed.
     about 0.03 s of the first, about 0.6 s after Open the whole
     message, so that both arrive before the reader closes. This run
     checks §5.4's second Back pressed while the reader is still
-    opening: the two are not merged into one. If the reader closes
-    before the second Back arrives, the run is void, as above.
+    opening: the two are not merged into one. A round passes only on
+    its times: the build reports when each Back reached the app (the
+    Activity's key dispatch) and when the reader closed, on one clock.
+    A round whose second Back reached the app after the close, or
+    that has no such times, is void, not passed.
   On the desktop, the same runs by Escape.
-  Each time: no Back is lost; focus is on the row's Open the whole
-  message; and the conversation is where it was. Inside the first
+  Each time, after the Back that closes the reader: no Back is lost;
+  focus is on the row's Open the whole message; and the conversation
+  is where it was. Inside the first
   turn, no frame shows the bar, and the reader closes within 1 s of
   the Back. Past the first turn, the bar goes away with the reader,
   and the reader closes within 0.15 s of the Back: time for the next
