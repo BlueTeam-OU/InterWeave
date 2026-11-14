@@ -741,7 +741,7 @@ fn seconds_of_day(line: &str) -> f64 {
 async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backoff() {
     // The outage, the ceiling and the patience, and margin: past the
     // harness's default deadline on purpose.
-    if !netns::in_overlay_within(LONG_OUTAGE, Duration::from_secs(1200)) {
+    if !netns::in_overlay_within(LONG_OUTAGE, Duration::from_mins(20)) {
         return;
     }
     let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
