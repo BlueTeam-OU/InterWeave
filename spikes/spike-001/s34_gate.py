@@ -17,8 +17,8 @@ a name is matched as ``[\w$]+`` (a minified name may hold ``$``; see
 schema object, called as ``<schema>()``: each such call is listed with
 the gate call before it in the same function, the era argument that
 call passes, and the ``Channel notifications`` and ``channel_enable``
-log strings of that function, its body bounded by brace matching
-(``function_end``). A handler registered otherwise, through a second schema
+log strings between its keyword and where a brace count closes it
+(``function_end``, whose limits its docstring states). A handler registered otherwise, through a second schema
 object or a reference to it, is not seen. The output carries the tree
 it was read at (``tree_stamp``).
 Prints JSON; exits 1 if a piece is not found. EVIDENCE ONLY.
@@ -45,9 +45,12 @@ def function_end(data: bytes, fn: int) -> int:
     """The offset after the closing brace of the function whose
     ``function`` keyword is at ``fn``: braces counted from its opening
     one, skipping '...' and "..." literals and a template's text (its
-    ``${...}`` counted as code). A regular-expression literal is not
-    recognised; ``schema_call_inside`` and ``function_bytes`` in the
-    output show where a count went wrong."""
+    ``${...}`` counted as code). A regular-expression literal or a
+    comment holding a brace or a quote is not recognised, so a count can
+    end early or late. ``schema_call_inside`` flags only an early end
+    (before the schema call); a late one is not detected, so each site
+    also records ``end_context``, the bytes either side of the end, for
+    a reader to check that a function ends there and another begins."""
     i, stack = data.find(b"{", fn), []  # each entry: "{" code brace, "$" a template's ${
     n = len(data)
     while i < n:
@@ -106,6 +109,7 @@ def registration_sites(data: bytes, gate: bytes) -> list:
                                                        data[fn:body_end])})
         sites.append({"enclosing": data[fn:data.find(b"{", fn)].decode(), "log_lines": logs,
                       "function_bytes": body_end - fn, "schema_call_inside": body_end > use.end(),
+                      "end_context": data[body_end - 40:body_end + 40].decode("utf-8", "replace"),
                       "gate_call": f"{name.decode()}({args})",
                       "gate_era_arg": args.split(",")[-1].endswith(".protocolEra")})
     return sites
