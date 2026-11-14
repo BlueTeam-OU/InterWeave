@@ -1,0 +1,51 @@
+{
+  "binary": "2.1.311",
+  "sha256": "86dc1fcc69498159eaf15f446613e847010f9036bfbbdffd4c49350be8489ada",
+  "read_not_measured": true,
+  "version": "2.1.311",
+  "gate_head": "function nHt(e,i,n,r)",
+  "gate_checks_in_order": [
+    "capability",
+    "era",
+    "provider",
+    "disabled",
+    "policy",
+    "session",
+    "marketplace",
+    "allowlist",
+    "allowlist"
+  ],
+  "gate_era_clause": true,
+  "hard_skip_kinds": [
+    "provider",
+    "disabled",
+    "capability",
+    "era"
+  ],
+  "registration_sites": [
+    {
+      "enclosing": "function nEe(h,x,D,H)",
+      "gate_call": "nHt(Co.name,Co.capabilities,Co.config.pluginSource,Co.protocolEra)",
+      "gate_era_arg": true
+    },
+    {
+      "enclosing": "function CK(e,n,r,s,h)",
+      "gate_call": "nHt(n,S.capabilities,C,S.protocolEra)",
+      "gate_era_arg": true
+    },
+    {
+      "enclosing": "function Af(e,n)",
+      "gate_call": "nHt(e.name,e.capabilities,e.config.pluginSource,e.protocolEra)",
+      "gate_era_arg": true
+    }
+  ],
+  "era_notice": [
+    "Channel messages from \"${Co.name}\" are unavailable: this connection's protocol version has no channel delivery path"
+  ],
+  "era_reason_copies": 1,
+  "permission_relay_filters": [
+    "function cAs(n,e,o){return n.filter((r)=>r.type===\"connected\"&&e(r.name)&&ADt(r.capabilities,\"claude/channel\")&&ADt(r.capabilities,\"claude/channel/permission\")&&o(r.name)&&r.protocolEra!==\"modern\")}"
+  ],
+  "relay_excludes_modern": true,
+  "every_registration_after_gate_with_era": true
+}
