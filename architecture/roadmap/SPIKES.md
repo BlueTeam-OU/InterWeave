@@ -212,10 +212,14 @@ connection as well. A modern `tools/list` result without `resultType`
 is rejected, while a discover result without it was accepted (run d). So fact 3 holds on this build, and the bridge
 stays legacy, as it is (`apps/claude-channel/src/mcp.rs`). A build
 after 2.1.286 was not established by S23; S28 ran a and b again on
-2.1.317 (fact 65) and S33 on 2.1.322 (fact 99), with the same
-outcome, their carried measurements below; c, d and the binary read
-were not repeated, and a build after 2.1.322 is not established
-(A 2026-11-12, this stopped at 2.1.286).
+2.1.317 (fact 65), S33 on 2.1.322 (fact 99) and S36 on 2.1.325
+(fact 123), with the same outcome, their carried measurements below;
+c and d were not repeated; the binary read was, by S34 from 2.1.322
+(fact 107) and by S36 from 2.1.325 (fact 121), the gate unchanged in
+each; and a build after 2.1.325 is not established
+(A 2026-11-12, this stopped at 2.1.286; A 2026-11-14, this stopped
+at 2.1.322 and said the binary read was not repeated, which S34's
+carried measurement below had already answered).
 
 **Carried measurement, S24 (2026-10-24, Claude Code 2.1.286,
 rust-services-dev, plan §19): a channel reaches a non-interactive
@@ -809,7 +813,7 @@ legacy era, which 2.1.322 still registers, and a deployment that
 needs every message answered says the sentence in its first user
 turn, as `architecture/plugin/INSTRUCTIONS.md` §What the instructions
 leave to the deployment already says. Not established: a build after
-2.1.322; the era rows beyond one run each (until 2026-11-12 this also
+2.1.322 (2.1.325 run since by S36, below); the era rows beyond one run each (until 2026-11-12 this also
 listed whether the gate in the 2.1.322 binary is still the era check
 fact 36 read, which S34 has since read from that binary, below);
 S32 (b)'s other 29 cells on 2.1.322 or with the real bridge (`none`,
@@ -881,7 +885,8 @@ check, and a deployment says the answer sentence in its first user
 turn and expects that turn's other output to reach the peer. Not
 established: that the code read is the code that runs on every path,
 one gate function found and fact 99's run taking it; a build after
-2.1.322; the 21 cells not run on 2.1.322 or with the real bridge, the
+2.1.322 (both taken up since by S36, below: the three registration
+sites read, and 2.1.325 run); the 21 cells not run on 2.1.322 or with the real bridge, the
 nine `none`, the six `promptw` and the six left out (two of the
 `promptw` run since by S35, below, and 19 not); whether the first
 turn's own work would be done again for a request that is not the
@@ -916,7 +921,58 @@ leaked (119). Both sentences after the work, which said "write", got
 nothing. Not established: the scope sentence after an idle wait, with
 a question or with other work; why two request runs of 20 got no
 reply; the rate beyond five runs a cell; another model; a build after
-2.1.322; and a conversation longer than one turn.
+2.1.322 (the scope sentence run once a cell on 2.1.325 by S36, below);
+and a conversation longer than one turn.
+
+**Carried measurement, S36 (2026-11-14, Claude Code 2.1.325, the
+newest build the registry answered that day and not the fleet's pin,
+rust-services-dev, plan §19): read from the 2.1.325 binary and not
+measured, the gate is still the era check, at every site that
+registers a channel handler; measured, a server
+negotiating the 2026-07-28 revision is still not registered; and the
+reply cells gave 2.1.322's counts.** Read off
+`spikes/spike-001/README.md` §S36 (facts 121–126, #670). Three parts.
+(1) The gate, read from the 2.1.325 binary and not measured, by S34's
+script (`runs/s36-gate/`, with 2.1.322 and 2.1.311 read as controls):
+the same era check, second among its checks straight after the
+capability, the same refusal, notice and four kinds that drop an
+earlier handler, and the permission relay's server filter still
+excluding a modern-era connection (121). S34's carried "that the code
+read is the code that runs on every path" was taken up: each of the
+three builds has three sites that register a channel handler, the
+connection's own, a `channel_enable` control request and a reconnect,
+and each calls the gate before it with the connection's era (122);
+legacy registration was measured through the first and the last on
+2.1.325, and through `channel_enable` on 2.1.286 only (S24, fact 40).
+(2) S33's era rows, one run each, `s36-a-modern` and `s36-b-legacy`:
+the modern-capable server was skipped with the same line and notice,
+and the legacy control registered and delivered (123). (3) 47 print
+sessions `s36-reply-*` at `33a65d21c`, on S34's setup unchanged,
+4,286,981 tokens: S34's eight cells five runs each, and S33's four
+cells and S35's scope sentence in its three once a cell. The eight
+gave 2.1.322's reply count in every cell, the first-turn sentence 20
+of 20 and the instructions' sentence 10 of 10 in a turn of the
+message's own and none of 10 joined to a tool-calling turn, with the
+leak as S34 measured it, `READY` in 6 of the 10 joined first-turn
+runs and the count in 4 of 5 replies to a greeting (124). The single
+runs gave each cell's earlier result, the scope sentence's three
+replies carrying neither `READY` nor the count (125). No `reply` call
+was refused in the 47 runs, and the peer received each of the 36
+replies as sent (126). What this changes in the bridge: nothing. It
+stays in the legacy era, which 2.1.325 still requires, and a
+deployment's first-turn wording holds there as on 2.1.322. Not
+established: a handler registered other than through a call of the
+notification's schema object, which the read cannot see; that the
+gate's result decides the registration at each site, taken from the
+call's position and not from the control flow; a modern-era server
+through the reconnect or `channel_enable` site, on any build; the
+era rows beyond one run each; a rate on 2.1.325 beyond five runs a
+cell in S34's cells and one in the others; the 19 S32 (b) cells not
+run on 2.1.322, S35's other cells and S32 (a)'s compaction cells,
+none run on 2.1.325; why two `tool` runs' `status` answers reported
+the transport unavailable, as one of S34's and four of S35's did on
+2.1.322; another model; a build after 2.1.325; and a conversation
+longer than one turn.
 
 ---
 
