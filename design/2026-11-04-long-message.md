@@ -794,12 +794,42 @@ it, those checks are blocked, never passed.
   was. Inside the first turn, no frame shows the bar; past the first
   turn, the bar goes away with the reader. The build reports, for each
   run, the time from the Back to the close and how long the first
-  screen showed. Run so far: the list shape on the A40, 2026-11-12
-  (REPLY 01a1cfc2): first screen drawn at 347 ms, reader closed 0.26 s
-  after the first screen, focus on Open the whole message, no bar, no
-  Back lost. Not run yet, and carried rather than failed: the headings
-  of autolinks, the one reference link used many times, and the
-  desktop.
+  screen showed.
+  On Android, the same Back also runs on the case's two stress shapes,
+  distinct headings and distinct links (`tests/android-e2e/src/long.rs`:
+  every heading, and every link's control, is different text, so no
+  measure is reused). They are not shapes of the list above and have
+  no opening figure; they are run here because they are the shapes
+  whose first screen comes later than 0.6 s on the A40 (1.41 s and
+  1.02 s on 2026-11-13), so a Back at 0.6 s is pressed while the bar
+  shows, which the case needs. Every other shape draws its first screen
+  in under 0.31 s, before that Back. On each stress shape, Back about 0.6 s after Open
+  the whole message, by each way the platform gives: the Back key, the
+  navigation bar's Back, and the app bar's Back. Then two Backs about
+  0.3 s apart. Each time, the reader closes within 0.15 s of the Back,
+  which is the next gap between turns (§5.4) with room for the frame
+  that draws the close. A close that waits for the build to end misses
+  this even when it comes within 1 s. Focus is on the row's Open the
+  whole message, and the conversation is where it was. Of two Backs,
+  the first closes the reader and the second acts on the conversation;
+  neither is lost and they are not merged into one.
+  Runs so far, all on the A40:
+  - The list shape, 2026-11-12 (REPLY 01a1cfc2): first screen drawn at
+    347 ms, reader closed 0.26 s after the first screen, focus on Open
+    the whole message, no bar, no Back lost.
+  - The headings of autolinks, the one reference link used many times
+    and both stress shapes, by the Back key, three rounds each,
+    2026-11-13
+    (`apps/human-android/device-runs/2026-11-13-samsung-a40-back-during-opening.md`):
+    every close within 0.15 s; on the stress shapes, two Backs neither
+    lost nor merged.
+  - Both stress shapes by the navigation bar's Back (two Backs
+    included) and by the app bar's Back, 2026-11-14 (main 41bb631b9,
+    REPLY 01a1d840): closed in 62-118 ms, timed from when the key was
+    delivered or the finger touched, with focus on Open the whole
+    message.
+  Not run yet, and carried rather than failed: the desktop, the Pixel,
+  and the release APK.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
   on the desktop and TalkBack on the Pixel.
 - **A7** The reader's row removed while it is open, the app sent to
