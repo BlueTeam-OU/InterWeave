@@ -815,11 +815,15 @@ it, those checks are blocked, never passed.
     about 0.03 s of the first, about 0.6 s after Open the whole
     message, so that both arrive before the reader closes. This run
     checks §5.4's second Back pressed while the reader is still
-    opening: the two are not merged into one. A round passes only on
-    its times: the build reports when each Back reached the app (the
-    Activity's key dispatch) and when the reader closed, on one clock.
-    A round whose second Back reached the app after the close, or
-    that has no such times, is void, not passed.
+    opening: the two are not merged into one. Each round is judged
+    on its times: for each Back, the time of the press itself (the
+    key event's own time, on Android and on the desktop alike), and
+    the time the reader closed, on one clock. A round whose second
+    Back was pressed after the close, or that has no such times, is
+    void. Otherwise it passes when each Back takes one step (the
+    reader, then the conversation, then the chat list), and it fails
+    when the steps are fewer than the presses: a Back that took no
+    step was lost, or two presses were merged into one.
   On the desktop, the same runs by Escape.
   Each time, after the Back that closes the reader: no Back is lost;
   focus is on the row's Open the whole message; and the conversation
