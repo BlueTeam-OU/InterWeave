@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
-"""SPIKE-001's S36 (2): S33's, S34's and S35's reply cells on a build
+"""SPIKE-001's S36 (3): S33's, S34's and S35's reply cells on a build
 after the fleet's pin, 2.1.322, with the real claude-channel bridge
 across two daemons.
 

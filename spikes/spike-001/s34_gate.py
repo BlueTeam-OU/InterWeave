@@ -11,12 +11,15 @@ check in the order the function returns them, the session notice's era
 text, and every connection filter that names the permission relay's
 ``claude/channel/permission`` capability with its era clause. The
 minified names change between builds, so nothing is found by them, and
-a name is matched as ``[\w$]+``: 2.1.325 names the hard-skip function
-``$_s``, which ``\w+`` missed (S36). Every site that registers a handler
-for ``notifications/claude/channel`` uses the notification's schema
-object; each such use is listed with the gate call before it and the
-era argument that call passes, which is what "the code read is the code
-that runs on every path" can be read as from the binary.
+a name is matched as ``[\w$]+`` (a minified name may hold ``$``; see
+``hard_skip_head`` in the 2.1.325 read). It ASSUMES that a handler for
+``notifications/claude/channel`` is registered with the notification's
+schema object, called as ``<schema>()``: each such call is listed with
+the gate call before it in the same function, the era argument that
+call passes, and the ``Channel notifications`` log lines of that
+function. A handler registered otherwise, through a second schema
+object or a reference to it, is not seen. The output carries the tree
+it was read at (``tree_stamp``).
 Prints JSON; exits 1 if a piece is not found. EVIDENCE ONLY.
 """
 
@@ -26,6 +29,8 @@ import pathlib
 import re
 import shutil
 import sys
+
+from s28_era import tree_stamp
 
 ERA_REASON = b'reason:"connection negotiated a modern protocol revision with no unsolicited notification path"'
 NOTICE = re.compile(rb'kind==="era"\?`(Channel messages from "\$\{[^}]+\}" are unavailable: [^`]*)`')
@@ -55,7 +60,10 @@ def registration_sites(data: bytes, gate: bytes) -> list:
             sites.append({"enclosing": data[fn:fn + 40].decode(), "gate_call": None, "gate_era_arg": None})
             continue
         args = call.group(1).decode()
-        sites.append({"enclosing": data[fn:data.find(b"{", fn)].decode(),
+        body_end = data.find(b"function ", use.start())
+        logs = sorted({m.decode() for m in re.findall(rb"Channel notifications [a-z -]+|channel_enable[a-z ;]+",
+                                                       data[fn:body_end])})
+        sites.append({"enclosing": data[fn:data.find(b"{", fn)].decode(), "log_lines": logs,
                       "gate_call": f"{name.decode()}({args})",
                       "gate_era_arg": args.split(",")[-1].endswith(".protocolEra")})
     return sites
@@ -64,7 +72,7 @@ def registration_sites(data: bytes, gate: bytes) -> list:
 def main() -> int:
     binary = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else shutil.which("claude")).resolve()
     data = binary.read_bytes()
-    out = {"binary": binary.name, "sha256": hashlib.sha256(data).hexdigest(), "read_not_measured": True}
+    out = {**tree_stamp(), "binary": binary.name, "sha256": hashlib.sha256(data).hexdigest(), "read_not_measured": True}
 
     at = data.find(ERA_REASON)
     start = data.rfind(b"function ", 0, at)
@@ -80,6 +88,7 @@ def main() -> int:
     # The kinds whose skip also drops a handler registered before (an
     # earlier connection of the same server): the era is one of them.
     hard = re.search(rb'function ' + N + rb'\(' + N + rb'\)\{return ' + N + rb'==="provider"\|\|[^}]*\}', data)
+    out["hard_skip_head"] = hard.group(0)[:hard.group(0).find(b"{")].decode() if hard else None
     out["hard_skip_kinds"] = re.findall(r'"(\w+)"', hard.group(0).decode()) if hard else None
 
     out["registration_sites"] = registration_sites(data, gate)

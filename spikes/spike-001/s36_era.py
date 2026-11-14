@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
-"""SPIKE-001's S36 (1): S28's registration rows on a build after the
+"""SPIKE-001's S36 (2): S28's registration rows on a build after the
 fleet's pin, 2.1.322 -- does a channel server that negotiates the
 2026-07-28 revision register on 2.1.325?
 
