@@ -9,8 +9,8 @@
 //! holds one window's event loop.
 //!
 //! What this cannot prove: the phone, whose window and renderer are its
-//! own (`tests/android-e2e/tests/cluster_bound.rs`, a device case),
-//! or Show source, which `views.rs` holds to the same replacement.
+//! own (`tests/android-e2e/tests/cluster_bound.rs`, a device case). The
+//! other scripts are `cluster_scripts.rs`'s, Show source `source_draw.rs`'s.
 
 #![cfg(feature = "desktop")]
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
