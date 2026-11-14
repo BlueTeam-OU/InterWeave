@@ -354,3 +354,67 @@ remaining hold; the relay connecting lifting the hold and making the
 retry due; the peer's direct route admitted while its circuit route is
 held; the hold reported apart from the quarantine.
 
+### Amendment 2026-11-14 — A data-plane peer is redialled within 30 s: the peer retry delay no longer rises past its first step
+
+The owner's word of 2026-11-14. p2p-network-dev-01 measured the long
+outage the hold rule's not-proved list named (#672,
+`tests/automated-client/runs/2026-11-14-long-outage.md`): two daemons in
+two namespaces, only one holding a static-bootstrap entry for the other,
+the far daemon stopped for 480 s with the link up. The dialling side's
+attempts failed at 0, 31, 91, 211 and 451 s after the close, on delays
+of 30, 60, 120, 240 and 300 s, and the pair reconnected 272 s after the
+far daemon's return, when the retry at the 300 s ceiling fell due. The
+far end holds no entry and dials nothing, so nothing lifted the wait.
+The question went to the owner as `CONNECTIVITY.md` §14 recorded it on
+#673 ("whether that wait is acceptable is a product question for the
+owner"), and the answer was "no, 30 seconds maximum".
+
+Prior wording, where a citation would otherwise mislead: the body had no
+number for the peer retry's ceiling; `CONNECTIVITY.md` §5 called 30 s
+and 5 min "the dial gate's constants", the config schema gave
+`address_backoff_max` a default of 5m, and the runtime's
+`RETRY_CEILING_MS` was 300 000 with a comment saying the gate's redial
+and the AutoNAT re-test shared the two numbers so they could not drift.
+
+What the amendment decides, in the wording ruled to p2p-network-dev-01
+(GZCoord `01a1db4f-3e84-7262-931c-1be058d33539`, on its answers
+`01a1db4e-a166-7076-a56a-afed53efa708` to the request
+`01a1db4b-6be0-7bcb-97c4-aa6b48428b4a`): a data-plane peer this profile
+holds a dial candidate for is redialled so that no more than 30 s pass
+between the settlement of one failed attempt and the start of the next,
+unless the scheduler's per-tick budget or the gate's pending-dial
+ceiling is full, when it is dialled at the first moment either has room;
+a circuit route's hold is its own (A 2026-10-21).
+
+Three consequences were ruled with it, each from the code as
+p2p-network-dev-01 read it. One delay serves the peer and its address,
+so `address_backoff_max` comes down to 30 s by default with the
+constant, its range unchanged and the key still refused off its default.
+The first measured step was 31 s, not 30: the scheduler acted on its
+tick, so the scheduler now wakes at the earliest due retry, and the
+record can say 30 s. The two exceptions are bounded resources and stay
+as they are; the test of the bound runs with neither full.
+
+The AutoNAT re-test is split from the gate's numbers and keeps 30 s
+rising to 5 min (`AUTONAT.md` §4, Amendment 2026-11-14). It had used
+the gate's constants since 2026-09-09 so the two could not drift; they
+now differ on purpose.
+
+The relay-hop route hold (A 2026-10-21) had read "held for the ordinary
+failure cadence, the curve an address failure follows": it shared the
+peer's delay. With that delay flat at 30 s the hold would have gone flat
+too, so p2p-network-dev-01 gave it its own function on the ladder it had,
+30 s doubling to 5 min on the peer's attempt count (#674, 8d6c5450a;
+GZCoord `01a1db63-e6fb-72b5-a6f6-e64f4f84c245`), and the relay-hop
+paragraph now names that ladder. Kept and not flattened, because the
+hold is released by the relay's first direct connection, and a relay
+that stays down gains nothing from being asked every 30 s; a failure the
+relay or the destination answered is no hop failure and follows the 30 s
+delay. A peer whose only route is a held circuit is therefore retried at
+the hold's end or when its relay connects, which is the exception the
+wording names.
+
+Not measured, and carried by name: the cost on a phone of dialling each
+absent contact every 30 s. The rule reaches the phone profile
+unqualified. The long-outage run is owed again on the new code, beside
+the first.

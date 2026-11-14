@@ -147,7 +147,7 @@ fn follow_verdict(
 /// peer and makes the allowlisted ones' retry due, each dialled through
 /// the root gate like any dial (`ConnectionManager::network_added`): a
 /// peer that failed while this host was offline would otherwise wait out
-/// up to five minutes after it is back. And every relay backing off whose
+/// up to 30 s after it is back. And every relay backing off whose
 /// peer the gate does not still hold after that lift is asked again at
 /// the next tick, its ladder kept (`ReservationManager::network_added`).
 /// The DCUtR wrapper stops treating the added IPs as departed, so an
@@ -1991,6 +1991,15 @@ impl SwarmRuntime {
                     transactions,
                 );
 
+                // THE EARLIEST RETRY STILL AHEAD, for the scheduler to
+                // wake at rather than at the tick after it: ADR-0011 A
+                // 2026-11-14 bounds the wait at 30 s "the scheduler's
+                // tick included", and a tick alone added up to one more
+                // (#672's run: the first redial at +30.99 s).
+                let retry_wake = manager
+                    .next_retry_due_after(now_ms(started))
+                    .map(|due| started + Duration::from_millis(due));
+
                 tokio::select! {
                     // A HELD SEND'S HORIZON, on its own timer: the retry
                     // tick may be far longer than the horizon.
@@ -2141,8 +2150,27 @@ impl SwarmRuntime {
                     // A tick rather than a timer per peer, because a
                     // timer per peer is a structure a remote party
                     // grows by failing to connect. The retry table is
-                    // already bounded; this walks it.
-                    _ = retries.tick() => {
+                    // already bounded; this walks it. ONE wake beside
+                    // the tick -- the table's earliest retry still
+                    // ahead, recomputed each turn of the loop -- so a
+                    // retry starts when it falls due, not up to a tick
+                    // later. A retry already due and left over (the
+                    // budget, the pending-dial ceiling) is the tick's:
+                    // `next_retry_due_after` never names one, or a full
+                    // budget would wake this arm at once, every turn.
+                    // `Interval::tick` is cancel-safe, so losing the
+                    // race to the wake loses no tick.
+                    () = async {
+                        match retry_wake {
+                            Some(at) => tokio::select! {
+                                _ = retries.tick() => {}
+                                () = tokio::time::sleep_until(at) => {}
+                            },
+                            None => {
+                                retries.tick().await;
+                            }
+                        }
+                    } => {
                         let now = now_ms(started);
                         // A HELD SEND ENDS AT ITS HORIZON, or as soon as
                         // its caller stopped waiting (a closed reply is

@@ -664,7 +664,7 @@ const LEARNED_SEND: &str = "the_side_that_learned_an_address_dials_it_on_a_send_
 /// close: the send is not answered `PeerUnknown` -- B's book holds an
 /// address, so the runtime dials it once (`DIRECT.md`'s usable-candidate
 /// case) and answers `PeerUnreachable` when the dial fails. That failure
-/// schedules a retry like any dial's (30 s, doubling to five minutes),
+/// schedules a retry like any dial's (30 s, ADR-0011 A 2026-11-14),
 /// so from the send on B redials A from its book: here the link's return
 /// lifts the backoff and the scheduler dials at once. An unrouted
 /// address fails in milliseconds; one the network drops silently holds
@@ -693,15 +693,18 @@ async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
 }
 
 const LONG_OUTAGE: &str =
-    "after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backoff";
+    "after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_the_return";
 
-/// How long B's daemon is down: past the backoff's first four steps
-/// (30, 60, 120 and 240 s, 450 s in all) and into its 300 s ceiling.
+/// How long B's daemon is down: the 2026-11-14 run's outage, which on
+/// the 30 s .. 5 min ladder then in force reached its ceiling and
+/// reconnected 272 s after B's return
+/// (`runs/2026-11-14-long-outage.md`).
 const OUTAGE: Duration = Duration::from_secs(480);
 
-/// The backoff's ceiling (`CONNECTIVITY.md` §12's "30 s, exponentially,
-/// bounded by 5 min"; `retry_backoff_ms`).
-const CEILING: Duration = Duration::from_secs(300);
+/// The most that may pass between one failed attempt's settlement and
+/// the next attempt's start, the scheduler's tick included: the owner's
+/// word of 2026-11-14 (ADR-0011 A 2026-11-14; `RETRY_CEILING_MS`).
+const BOUND: Duration = Duration::from_secs(30);
 
 /// What A's log shows of the outage, and how long the pair took to
 /// reconnect once B was back: written beside the test binary, since the
@@ -730,15 +733,17 @@ fn seconds_of_day(line: &str) -> f64 {
 /// The fleet's shape (only A holds an entry), with B's DAEMON stopped
 /// rather than the link: A's dials reach B's namespace and are refused
 /// there, nothing changes in A's network, so no network change lifts A's
-/// backoff. A redials by its entry on the backoff's schedule; after the
-/// outage B starts again on the same port, never dials A (it holds no
-/// entry), and the pair reconnects when A's next retry falls due -- so
-/// how long that takes is what is left of the step A is in, at most the
-/// ceiling. Run by hand: eight minutes down; each run is recorded under
-/// `tests/automated-client/runs/`.
+/// backoff. A redials by its entry every 30 s; after the outage B
+/// starts again on the same port, never dials A (it holds no entry), and
+/// the pair reconnects when A's next retry falls due -- so how long that
+/// takes is what is left of the 30 s A is waiting out, at most all of
+/// it. Run by hand: eight minutes down; each run is recorded under
+/// `tests/automated-client/runs/`. The bound itself is pinned without a
+/// person by `crates/transport/libp2p/tests/reconnect.rs`'s
+/// `a_peer_down_past_several_steps_is_redialled_within_30_s_of_its_return`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "an outage of eight minutes, run by hand and recorded under tests/automated-client/runs/"]
-async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backoff() {
+async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_the_return() {
     // The outage, the ceiling and the patience, and margin: past the
     // harness's default deadline on purpose.
     if !netns::in_overlay_within(LONG_OUTAGE, Duration::from_mins(20)) {
@@ -768,8 +773,8 @@ async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backo
         &a,
         &b,
         true,
-        CEILING + PATIENCE,
-        "reconnected within the backoff's ceiling",
+        BOUND + PATIENCE,
+        "reconnected within 30 s of B's return",
     )
     .await;
     let took = back.elapsed();
@@ -811,13 +816,25 @@ async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backo
             .join("\n"),
     ));
 
-    // A WENT ON REDIALLING through the outage, on the backoff's
-    // schedule: dials at 0, 30, 90, 210 and 450 s after the close, the
-    // last putting it at the ceiling before B's return at 480 s.
-    assert_eq!(
-        delays,
-        [30_000, 60_000, 120_000, 240_000, 300_000],
-        "{during}"
+    // A WENT ON REDIALLING through the outage every 30 s, however many
+    // had failed: sixteen dials in 480 s, where the ladder this replaced
+    // made five.
+    assert!(
+        delays.len() >= 15 && delays.iter().all(|d| *d == 30_000),
+        "{delays:?}\n{during}"
+    );
+    // And no wait between a failure's settlement and the next failure
+    // passed the bound, read from A's own log: a failed dial's line is
+    // its settlement, and the next one is its successor's start plus a
+    // refusal from B's namespace, milliseconds.
+    let failed: Vec<f64> = lines(&during, "dial failed")
+        .iter()
+        .map(|l| seconds_of_day(l))
+        .collect();
+    let gaps: Vec<f64> = failed.windows(2).map(|w| w[1] - w[0]).collect();
+    assert!(
+        gaps.iter().all(|g| *g <= BOUND.as_secs_f64() + 0.25),
+        "a wait passed 30 s: {gaps:?}\n{during}"
     );
     // B'S RETURN LIFTS NOTHING: the pair reconnects when the retry the
     // last failure scheduled falls due, not when B is back -- B holds no
@@ -831,14 +848,13 @@ async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backo
         .first()
         .map(|l| seconds_of_day(l))
         .expect("A logged the reconnect");
-    let due = last_failure + 300.0;
+    let due = last_failure + BOUND.as_secs_f64();
     assert!(
         (connected - due).abs() < 1.0,
         "reconnected at the retry's moment: due {due}, connected {connected}\n{after}"
     );
-    // And so it took most of the ceiling after B was back: more than
-    // any patience a prompt redial would need.
-    assert!(took > PATIENCE && took <= CEILING + PATIENCE, "{took:?}");
+    // THE OWNER'S WORD: within 30 s of B's return, plus the dial itself.
+    assert!(took <= BOUND + Duration::from_secs(1), "{took:?}");
 
     a.stop().await;
     b.stop().await;

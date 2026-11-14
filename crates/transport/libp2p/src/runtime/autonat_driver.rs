@@ -92,9 +92,7 @@ use interweave_transport_runtime::reachability::{
     ConnectivityChanged, ProbeOutcome, ReachabilityConfig, ReachabilityManager,
     ReachabilityVerdict, RefusedReport, ServerSource, is_probeable_address,
 };
-use interweave_transport_runtime::{
-    ConnectionManager, DialOrigin, RETRY_BASE_MS, retry_backoff_ms,
-};
+use interweave_transport_runtime::{ConnectionManager, DialOrigin, RETRY_BASE_MS};
 use libp2p::autonat::v2::client::{self as client, Behaviour as ClientBehaviour};
 use libp2p::swarm::ConnectionId;
 use libp2p::swarm::SwarmEvent as Libp2pSwarmEvent;
@@ -298,8 +296,36 @@ pub enum RetestReason {
     Retry,
 }
 
+/// The re-test's first delay after an unreachable verdict, and the
+/// pace of a second observer's ask: 30 seconds (`AUTONAT.md` §4).
+///
+/// The adapter's own, since ADR-0011 A 2026-11-14 took the gate's
+/// peer retry to a flat 30 s: until then the re-test read the gate's
+/// `RETRY_BASE_MS`/`RETRY_CEILING_MS` (`AUTONAT.md` §4, A 2026-09-09
+/// (ii)), and the owner's word was about reaching a peer, not about
+/// re-testing an address, so the re-test kept its ladder and took its
+/// numbers with it.
+pub const RETEST_BASE_MS: u64 = 30_000;
+/// The re-test's ceiling: five minutes.
+pub const RETEST_CEILING_MS: u64 = 5 * 60 * 1_000;
+
+/// The delay before the `attempts`-th re-test, or the adapter's
+/// `attempts`-th dial to a probe server: exponential from
+/// [`RETEST_BASE_MS`], bounded by [`RETEST_CEILING_MS`]. The exponent
+/// is clamped, because the count is driven by how often a remote end
+/// answers unreachable or refuses to connect.
+#[must_use]
+pub const fn retest_backoff_ms(attempts: u32) -> u64 {
+    let shifted = RETEST_BASE_MS.saturating_mul(1u64 << (if attempts < 8 { attempts } else { 8 }));
+    if shifted < RETEST_CEILING_MS {
+        shifted
+    } else {
+        RETEST_CEILING_MS
+    }
+}
+
 /// How long a candidate may go with no outcome before it is returned
-/// to the sweep: the gate's base retry delay, which comfortably covers
+/// to the sweep: the re-test's base delay, which comfortably covers
 /// the crate's 10-second request timeout plus a server's dial-back.
 ///
 /// ADR-0051: "reaching a verdict requires the caller's own timeout,
@@ -310,7 +336,7 @@ pub enum RetestReason {
 /// ten-slot request map was full -- and each leaves it `Pending`, which
 /// the crate's tick never sweeps. Pinned by
 /// `a_candidate_with_no_outcome_is_retested_after_the_silence_bound`.
-pub const SILENCE_MS: u64 = RETRY_BASE_MS;
+pub const SILENCE_MS: u64 = RETEST_BASE_MS;
 
 /// The pinned client's own tick, which `build_behaviour` leaves at its
 /// default: five seconds. A re-test issued now is swept no sooner.
@@ -812,12 +838,12 @@ impl AutonatState {
             ProbeOutcome::Reachable => {
                 entry.failures = 0;
                 (
-                    now_ms.saturating_add(RETRY_BASE_MS),
+                    now_ms.saturating_add(RETEST_BASE_MS),
                     RetestReason::SecondObserver,
                 )
             }
             ProbeOutcome::Unreachable => {
-                let delay = retry_backoff_ms(entry.failures);
+                let delay = retest_backoff_ms(entry.failures);
                 entry.failures = entry.failures.saturating_add(1);
                 (now_ms.saturating_add(delay), RetestReason::Retry)
             }
@@ -1195,7 +1221,7 @@ pub(super) fn reconcile(
         // first quarantine lifts.
         if ticketed {
             target.in_flight = true;
-            target.next_attempt_at_ms = now_ms.saturating_add(retry_backoff_ms(target.attempts));
+            target.next_attempt_at_ms = now_ms.saturating_add(retest_backoff_ms(target.attempts));
             target.attempts = target.attempts.saturating_add(1);
         } else {
             // A refusal the gate's OWN ladder already paces -- a peer in
@@ -1226,7 +1252,7 @@ pub(super) fn reconcile(
                 target.next_attempt_at_ms = now_ms.saturating_add(RETRY_BASE_MS);
             } else {
                 target.next_attempt_at_ms =
-                    now_ms.saturating_add(retry_backoff_ms(target.attempts));
+                    now_ms.saturating_add(retest_backoff_ms(target.attempts));
                 target.attempts = target.attempts.saturating_add(1);
             }
             if let Some(refusal) = last
@@ -2123,7 +2149,7 @@ mod tests {
         let _ = rec(&mut state, a, &s1, ProbeOutcome::Unreachable, now);
         assert_eq!(
             state.schedule.get(a).expect("tracked").due,
-            Some((now + RETRY_BASE_MS, RetestReason::Retry))
+            Some((now + RETEST_BASE_MS, RetestReason::Retry))
         );
     }
 
@@ -2200,7 +2226,7 @@ mod tests {
         let _ = rec(&mut state, a, &s1, ProbeOutcome::Reachable, 2_000);
         assert_eq!(
             state.schedule.get(a).expect("tracked").due,
-            Some((2_000 + RETRY_BASE_MS, RetestReason::SecondObserver))
+            Some((2_000 + RETEST_BASE_MS, RetestReason::SecondObserver))
         );
         // And once verified, refresh.
         let _ = rec(&mut state, a, &s2, ProbeOutcome::Reachable, 3_000);
@@ -2911,7 +2937,7 @@ mod tests {
         let _ = state.record(a, &s1, ProbeOutcome::Reachable, 2, 2_000);
         assert_eq!(
             state.schedule.get(a).expect("tracked").due,
-            Some((2_000 + RETRY_BASE_MS, RetestReason::SecondObserver))
+            Some((2_000 + RETEST_BASE_MS, RetestReason::SecondObserver))
         );
         // And the count comes from the open OUTBOUND connections.
         let mut open = HashMap::new();
