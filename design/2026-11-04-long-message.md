@@ -816,15 +816,18 @@ it, those checks are blocked, never passed.
     message, so that both arrive before the reader closes. This run
     checks §5.4's second Back pressed while the reader is still
     opening: the two are not merged into one. Each round is judged
-    on its times: for each Back, the time of the press itself (the
-    key event's own time, on Android and on the desktop alike), and
-    the time the reader closed, on one clock. A round whose second
-    Back was pressed after the close, or that has no such times, is
-    void. Otherwise it passes when each Back takes one step (the
-    reader, then the conversation, then the chat list), and it fails
-    when the steps are fewer than the presses: a Back that took no
-    step was lost, or two presses were merged into one.
-  On the desktop, the same runs by Escape.
+    on three times, all on the phone's uptime clock: when each of the
+    two presses was sent, and when the reader closed. A round whose
+    second press was sent after the close, or that lacks one of these
+    times, is void. Otherwise the round passes when the two presses
+    take exactly two steps (the reader closes, then the conversation
+    leaves for the chat list) and the conditions below hold. It fails
+    when they take fewer steps (a press was lost, or the two were
+    merged into one) or more.
+  On the desktop, the single Backs by Escape, at the same times. The
+  runs of two Backs are Android's: on the desktop a second Escape in
+  the conversation acts as Escape there does, which shows no step to
+  observe, and its key event carries no time of its own.
   Each time, after the Back that closes the reader: no Back is lost;
   focus is on the row's Open the whole message; and the conversation
   is where it was. Inside the first
