@@ -85,7 +85,11 @@ pub(crate) fn run(
     store: HumanStore,
     notice: Option<interweave_human_ui_model::UiText>,
 ) -> Result<(), String> {
-    let view = View::new(RuntimeHost::Daemon).map_err(|e| e.to_string())?;
+    #[cfg_attr(not(feature = "ui-trace"), expect(unused_mut))]
+    let mut view = View::new(RuntimeHost::Daemon).map_err(|e| e.to_string())?;
+    // A test build's trace, stamped on the monotonic clock (`trace.rs`).
+    #[cfg(feature = "ui-trace")]
+    view.on_trace(crate::trace::say);
     let (camera, files, clipboard) = SCANS;
     view.offer_scans(camera, files, clipboard);
     // What a discard of the store came to, shown once in Chats.

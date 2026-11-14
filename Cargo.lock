@@ -3714,6 +3714,7 @@ dependencies = [
  "interweave-profile-config",
  "interweave-profile-identity",
  "interweave-transport-api",
+ "rustix 1.1.6",
  "slint",
  "tempfile",
  "tokio",

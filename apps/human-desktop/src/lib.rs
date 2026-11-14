@@ -23,5 +23,7 @@ pub mod run;
 mod signals;
 #[cfg(unix)]
 pub mod startup;
+#[cfg(all(unix, feature = "ui-trace"))]
+mod trace;
 #[cfg(unix)]
 mod window;

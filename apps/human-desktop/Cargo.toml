@@ -40,6 +40,17 @@ interweave-transport-api = { path = "../../crates/api/transport-api" }
 [target.'cfg(unix)'.dependencies]
 interweave-ipc-client = { path = "../../crates/local/ipc-client" }
 tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "macros", "signal"] }
+# TEST BUILDS ONLY, under `ui-trace`: the monotonic clock the trace's
+# stamps read (src/trace.rs).
+rustix = { workspace = true, features = ["time"], optional = true }
+
+[features]
+# TEST BUILDS ONLY: what the window shows, a line per change in kinds
+# (ui-slint's trace.rs), on stderr with a monotonic stamp (src/trace.rs),
+# for the desktop end-to-end case that times A5's Escape while the reader
+# opens (tests/desktop-e2e/tests/human_app/opening.rs). Built only by that
+# case's own command; no shipped build turns it on.
+ui-trace = ["interweave-human-ui-slint/ui-trace", "dep:rustix"]
 
 [dev-dependencies]
 # The real view, headless: the app names no Slint crate in its own graph
