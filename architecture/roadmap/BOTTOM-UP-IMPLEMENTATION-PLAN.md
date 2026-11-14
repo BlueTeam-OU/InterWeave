@@ -5020,7 +5020,8 @@ note above carried were taken up, at architect-cto's request.
   excludes a modern-era connection (fact 107). So "the bridge stays
   legacy" rests on the measurement of fact 99 and on that reading.
   Carried: a build after 2.1.322, and that the code read is the code
-  that runs on every path.
+  that runs on every path (both taken up by S36, the note of
+  2026-11-14 below).
 - **Eight more of S32 (b)'s 33 cells** were run with the release
   bridge across two daemons on 2.1.322, five runs each: a greeting and
   a request to call `status` joining a tool-calling turn, and a
@@ -5100,8 +5101,53 @@ scope sentence straight after the answer sentence, with "reply" kept
 out of the work as a second measure, as architect-cto accepted. Carried: the scope sentence in the cells S35 did not
 run (an idle wait, a question, other work), why two request runs of
 the 20 joined to a tool turn got no reply, the rate beyond five runs a
-cell, another model, a build after 2.1.322, and a conversation longer
-than one turn.
+cell, another model, a build after 2.1.322 (2.1.325 run since, the
+note below), and a conversation longer than one turn.
+
+**Dated note, 2026-11-14 (SPIKE-001 S36, rust-services-dev, Claude
+Code 2.1.325, facts 121–126, #670).** The S33, S34 and S35 notes
+above each carried "a build after 2.1.322", and the S34 note "that
+the code read is the code that runs on every path". Both were taken
+up, at architect-cto's request, on the newest build the registry
+answered that day; the fleet's pin stayed 2.1.322.
+
+- **The gate in the 2.1.325 binary**, read and not measured, is the
+  era check of facts 36 and 107, unchanged: second among the gate's
+  checks, straight after the capability, with the same refusal and
+  notice, and the permission relay's server filter still excludes a
+  modern-era connection (fact 121).
+- **Every site that registers a channel handler** calls the gate
+  before it with the connection's era, in 2.1.311, 2.1.322 and
+  2.1.325 alike: the connection's own, a `channel_enable` control
+  request and a reconnect (fact 122). The refusal of a modern-era
+  server was measured through the first alone; legacy registration
+  through all three.
+- **The era rows** held: a server negotiating the 2026-07-28
+  revision was skipped with the same line and notice, and the legacy
+  control registered and delivered, one run each (fact 123). So "the
+  bridge stays legacy by measurement" holds on 2.1.325.
+- **The reply cells** gave 2.1.322's counts: S34's eight cells, five
+  runs each, a reply in 20 runs of 20 from the first-turn sentence
+  and, from the server's instructions, in 10 of 10 where the message
+  started a turn of its own and in 0 of 10 where it joined a
+  tool-calling turn, with the first turn's other output reaching the
+  peer as S34 measured it (fact 124); S33's four cells and S35's
+  scope sentence in its three, one run each, gave each cell's earlier
+  result, no reply under the scope sentence carrying `READY` or the
+  count (fact 125); no `reply` call was refused in the 47 runs
+  (fact 126).
+
+So the conclusions of the three notes above read on 2.1.325 as on
+2.1.322, in the cells run, and the bridge is unchanged. Carried: a
+build after 2.1.325; a handler registered other than through the
+call the read looks for, and that the gate's result decides the
+registration at each site, which the read takes from the call's
+position; a modern-era server through the reconnect or
+`channel_enable` site; a rate on 2.1.325 beyond five runs a cell in
+the eight and one in the other seven; the cells not run there (the 19
+S32 (b) cells not run on 2.1.322, S35's other wordings, and every
+S32 (a) compaction cell, whose notes above keep "a build after
+2.1.322"); another model; and a conversation longer than one turn.
 
 ## 20. Stage 17 — Android human client
 
