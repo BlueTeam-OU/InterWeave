@@ -816,17 +816,20 @@ it, those checks are blocked, never passed.
     message, so that both arrive before the reader closes. This run
     checks §5.4's second Back pressed while the reader is still
     opening: the two are not merged into one. Each round is judged
-    on three times, all on the phone's uptime clock: when each of the
-    two presses was sent, and when the reader closed. A round whose
-    second press was sent after the close, or that lacks one of these
-    times, is void. Otherwise the round passes when the two presses
-    take exactly two steps (the reader closes, then the conversation
-    leaves for the chat list) and the conditions below hold. It fails
-    when they take fewer steps (a press was lost, or the two were
-    merged into one) or more.
-  On the desktop, the single Backs by Escape, at the same times. The
-  runs of two Backs are Android's: on the desktop a second Escape in
-  the conversation acts as Escape there does, which shows no step to
+    on times on the phone's uptime clock: when each of the two presses
+    was sent, as the sender stamps it at the moment it sends the press,
+    whether or not the app ever sees it; and when the reader closed.
+    The round is void only when a send time is missing or the second
+    press was sent after the close. Otherwise it passes when the two
+    presses take exactly two steps (the reader closes, then the
+    conversation leaves for the chat list) and the conditions below
+    hold, and it fails in every other case: fewer steps (a press was
+    lost, or the two were merged into one), more steps, a reader that
+    never closes, or a condition below that does not hold.
+  On the desktop, the single Backs by Escape, at the same times, each
+  timed from when the sending tool sent the Escape. The runs of two
+  Backs are Android's: on the desktop a second Escape in the
+  conversation acts as Escape there does, which shows no step to
   observe, and its key event carries no time of its own.
   Each time, after the Back that closes the reader: no Back is lost;
   focus is on the row's Open the whole message; and the conversation
