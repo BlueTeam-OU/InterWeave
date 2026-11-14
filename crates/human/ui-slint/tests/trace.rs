@@ -1010,6 +1010,82 @@ fn a_chip_hands_focus_to_the_keypads_first_enabled_key() {
     assert_eq!(page.take(), [IdentityInput::Key('w')]);
 }
 
+impl Identity {
+    /// R2 with positions 1 to 23 filled from WORDS but `empty` (an
+    /// index), and position 24 current.
+    fn at_r2_but_24(empty: Option<usize>) -> Self {
+        use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+        use interweave_human_ui_slint::{IdentityInput, apply_identity};
+        let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+        apply_identity(&mut flow, IdentityInput::Secondary);
+        apply_identity(&mut flow, IdentityInput::Primary);
+        assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
+        for (at, word) in WORDS[..23].iter().enumerate() {
+            if Some(at) == empty {
+                continue;
+            }
+            apply_identity(&mut flow, IdentityInput::Slot(at));
+            take_word(&mut flow, word);
+        }
+        apply_identity(&mut flow, IdentityInput::Slot(23));
+        let entry = flow.entry().expect("R2's entry");
+        assert_eq!(entry.current(), 23, "control: 24 current");
+        assert_eq!(
+            (0..23).filter(|&at| entry.word(at).is_none()).count(),
+            usize::from(empty.is_some()),
+            "control: only `empty` left empty"
+        );
+        Self::new(flow)
+    }
+}
+
+/// The exception to the chip's rule (section 8): a chip that leaves no
+/// R2 position empty sets navigating with focus on Check my words, so
+/// the next Enter runs the check rather than doing nothing on a key.
+#[test]
+fn a_chip_that_fills_the_last_empty_position_hands_focus_to_check() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(None);
+    page.take();
+    page.key("v");
+    assert_eq!(page.take(), [IdentityInput::Key('v')]);
+    // vacant is the one chip; the stop before the first key.
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-chip", "control");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Chip("vacant".to_owned())]);
+    assert_eq!(page.word(23), Some("vacant"));
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "navigating");
+    // R2 waits on the check, which the root runs off the page.
+    assert!(page.flow.waiting(), "the check started");
+}
+
+/// The same chip with position 3 still empty keeps the chip's rule:
+/// position 3 becomes current, focus on the keypad's first enabled key,
+/// typing, so the next Enter does nothing.
+#[test]
+fn a_chip_that_leaves_a_position_empty_hands_focus_to_the_keypad() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(Some(2));
+    page.take();
+    page.key("v");
+    assert_eq!(page.take(), [IdentityInput::Key('v')]);
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-chip", "control");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Chip("vacant".to_owned())]);
+    assert_eq!(
+        page.flow.entry().expect("R2").current(),
+        2,
+        "position 3 current"
+    );
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Enter], "typing");
+}
+
 /// Enter judged on the letters typed, not on the page shown: letters and
 /// Enter that reach the window before the page is rebuilt for them take
 /// the whole-word chip all the same (j261).

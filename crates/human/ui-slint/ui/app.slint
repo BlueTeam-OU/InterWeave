@@ -2568,8 +2568,15 @@ component IdentityScreen inherits FocusScope {
         root.notice-shown = root.page.notice;
         // A chip taken or a position chosen, by any input: focus to the
         // keypad, judged on the page that shows it (section 8).
-        let to-keypad = root.page.chips-taken != root.chips-shown
+        let chip-taken = root.page.chips-taken != root.chips-shown;
+        let to-keypad = chip-taken
             || root.page.positions-chosen != root.positions-shown;
+        // The exception to that: a chip that leaves no R2 position empty
+        // sets navigating, focus on Check my words, since no word is
+        // left to type and the next Enter can only mean "check" (section
+        // 8). R2 enables its primary once all 24 are filled (identity.rs).
+        let to-check = chip-taken && root.page.screen == IdScreen.r2
+            && root.page.primary-enabled;
         root.chips-shown = root.page.chips-taken;
         root.positions-shown = root.page.positions-chosen;
         if (root.dialog-shown) {
@@ -2578,6 +2585,9 @@ component IdentityScreen inherits FocusScope {
             root.again(root.saved-seg, root.saved-idx);
         } else if (notice-new) {
             root.go(0, root.banner-idx());
+        } else if (to-check) {
+            root.typing = false;
+            root.go(6, 0);
         } else if (to-keypad && root.page.picker) {
             root.keypad();
         } else if (root.at-seg == 2 && root.page.picker) {
