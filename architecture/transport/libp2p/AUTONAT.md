@@ -275,6 +275,24 @@ manager's numbers. The one knob the adapter does set from configuration
 is `with_max_candidates`. `config.schema.yaml`'s comment on the key and
 `profile-config`'s field doc say the same thing.
 
+### Amendment 2026-11-14 — the re-test's two numbers are its own
+
+**What changed.** The retry policy above, 30 s rising to 5 minutes, was
+applied "under the dial gate's 30 s / 5 min constants". On 2026-11-14
+the gate's ceiling for a data-plane peer came down to 30 s on the
+owner's word (ADR-0011, Amendment 2026-11-14; `CONNECTIVITY.md` §12): a
+peer that returns is redialled within 30 s. That word is about reaching
+a peer, not about re-testing an address, so the re-test keeps its
+schedule and the adapter holds the two numbers itself, no longer
+reading the gate's. A re-test after a reported failure waits 30 s,
+doubling, bounded by 5 minutes, as before; nothing else in this section
+changes, and neither number is a configuration key.
+
+**Why two copies now.** The two schedules shared one pair of constants
+so that they could not drift. They now differ on purpose, and a shared
+constant would make the next change to one a silent change to the
+other.
+
 `verified_public` requires fresh successful evidence from the configured number of **distinct authorized servers** for at least one advertised direct address.
 
 Do not count repeated probes from one server as distinct observers.
