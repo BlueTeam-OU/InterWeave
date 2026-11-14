@@ -76,6 +76,8 @@ struct Socket {
     local: u16,
     remote: u16,
     received: u64,
+    /// Segments this end sent that carried data.
+    data_segments_out: u64,
 }
 
 /// Every established socket on `ip` with either end on one of `ports`.
@@ -102,24 +104,37 @@ fn sockets(ip: Ipv4Addr, ports: [u16; 2]) -> Vec<Socket> {
             if !ports.contains(&local) && !ports.contains(&remote) {
                 return None;
             }
-            let received = pair
-                .get(1)?
-                .split_whitespace()
-                .find_map(|f| f.strip_prefix("bytes_received:"))
-                .map_or(0, |n| n.parse().expect("a byte count"));
+            // A counter still at zero is not printed.
+            let counter = |name: &str| -> u64 {
+                pair.get(1)
+                    .and_then(|l| l.split_whitespace().find_map(|f| f.strip_prefix(name)))
+                    .map_or(0, |n| n.parse().expect("a count"))
+            };
             Some(Socket {
                 local,
                 remote,
-                received,
+                received: counter("bytes_received:"),
+                data_segments_out: counter("data_segs_out:"),
             })
         })
         .collect()
 }
 
-/// The two connections' traffic so far, `(lower's dial, higher's
-/// dial)`: the bytes each end of each connection received, summed.
-/// Panics unless there are exactly two, one dialled each way.
-fn traffic(ip: Ipv4Addr, lower_listen: u16, higher_listen: u16) -> (u64, u64) {
+/// The two connections' traffic so far.
+#[derive(Debug, Clone, Copy)]
+struct Traffic {
+    /// The bytes both ends of the lower peer's dial received, summed.
+    lower: u64,
+    /// The data segments each end of the lower peer's dial sent, the
+    /// dialling end's first.
+    lower_segments: [u64; 2],
+    /// The bytes both ends of the higher peer's dial received, summed.
+    higher: u64,
+}
+
+/// [`Traffic`], read now. Panics unless there are exactly two
+/// connections, one dialled each way.
+fn traffic(ip: Ipv4Addr, lower_listen: u16, higher_listen: u16) -> Traffic {
     let all = sockets(ip, [lower_listen, higher_listen]);
     // A dial's own socket: its far end is the other's listen port and
     // its own is not its listen port (a fresh one, §12).
@@ -131,7 +146,7 @@ fn traffic(ip: Ipv4Addr, lower_listen: u16, higher_listen: u16) -> (u64, u64) {
         assert_eq!(mine.len(), 1, "exactly one dial toward {far}: {all:?}");
         (mine[0].local, far)
     };
-    let sum = |(a, b): (u16, u16)| -> u64 {
+    let ends_of = |(a, b): (u16, u16)| -> [&Socket; 2] {
         let ends: Vec<&Socket> = all
             .iter()
             .filter(|s| (s.local, s.remote) == (a, b) || (s.local, s.remote) == (b, a))
@@ -141,12 +156,16 @@ fn traffic(ip: Ipv4Addr, lower_listen: u16, higher_listen: u16) -> (u64, u64) {
             2,
             "both ends of {a}<->{b} on this host: {all:?}"
         );
-        ends.iter().map(|s| s.received).sum()
+        let dialling = usize::from(ends[0].local != a);
+        [ends[dialling], ends[1 - dialling]]
     };
-    (
-        sum(dial(lower_listen, higher_listen)),
-        sum(dial(higher_listen, lower_listen)),
-    )
+    let lower = ends_of(dial(lower_listen, higher_listen));
+    let higher = ends_of(dial(higher_listen, lower_listen));
+    Traffic {
+        lower: lower.iter().map(|s| s.received).sum(),
+        lower_segments: lower.map(|s| s.data_segments_out),
+        higher: higher.iter().map(|s| s.received).sum(),
+    }
 }
 
 async fn established(runtime: &SwarmRuntime) -> usize {
@@ -223,14 +242,29 @@ async fn two_runtimes_dialling_each_other_at_once_both_hold_the_lower_peers_dial
     // THE CONTROL: the held connection was pinged in the window, so the
     // counters are live and the window long enough.
     assert!(
-        after.0 > before.0,
+        after.lower > before.lower,
         "the lower peer's dial carried the hold's pings: {before:?} -> {after:?}"
     );
-    // THE PROPERTY: neither end pinged the other dial.
+    // THE PROPERTY, first half: neither end pinged the other dial.
     assert_eq!(
-        after.1, before.1,
+        after.higher, before.higher,
         "the higher peer's dial carried nothing, so neither end holds it: \
          {before:?} -> {after:?}"
+    );
+    // And the second: BOTH ends pinged the lower peer's dial. A pinger
+    // sends its ping and the far end its echo, one data segment each, so
+    // with one pinger each end sends one in the window; with two, each
+    // end sends its own ping and its echo of the other's. (Two writes
+    // coalesced into one segment would fail this, never pass it.)
+    let sent = [
+        after.lower_segments[0] - before.lower_segments[0],
+        after.lower_segments[1] - before.lower_segments[1],
+    ];
+    eprintln!("data segments sent in the window, dialling end first: {sent:?}");
+    assert!(
+        sent.iter().all(|&n| n >= 2),
+        "each end pinged the lower peer's dial and echoed the other's ping: \
+         {sent:?} ({before:?} -> {after:?})"
     );
 
     a.shutdown().await.expect("clean shutdown");
