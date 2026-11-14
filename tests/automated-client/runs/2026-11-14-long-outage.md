@@ -36,7 +36,6 @@ test after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backoff .
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 753.22s
 
-head 29e4d38cd
 outage 480s, reconnected 272.041085466s after B's return
 retry delays during the outage (ms): [30000, 60000, 120000, 240000, 300000]
 reconnect refusals during the outage: 4
@@ -78,8 +77,8 @@ reconnect refusals during the outage: 4
 
 What the case asserts: the five delays exactly; the reconnect within a
 second of the last failure plus 300 s, read from A's log timestamps;
-and the time after B's return above the harness's 20 s patience and
-within the ceiling plus it.
+and the time after B's return above the harness's 30 s patience
+(`e2e::PATIENCE`) and within 330 s, the ceiling plus it.
 
 ## Not measured
 
