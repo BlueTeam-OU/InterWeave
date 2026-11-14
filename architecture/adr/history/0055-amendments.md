@@ -175,10 +175,13 @@ mechanism's proof is `held_data_plane.rs`. Nothing a reader of the
 earlier text relied on is changed: before it, the record promised
 nothing about an idle connection.
 
-Not proved, as §14 names: the same-connection choice over two real
-Swarms; a real NAT's mapping expiring or a carrier drop; an outage
-long enough for the dial backoff to delay the reconnect; an idle
-period past 180 s on two real hosts; the ping's cost on a phone.
+Not proved as this note was written, as §14 then named: the
+same-connection choice over two real Swarms; a real NAT's mapping
+expiring or a carrier drop; an outage long enough for the dial backoff
+to delay the reconnect; an idle period past 180 s on two real hosts;
+the ping's cost on a phone. The first and the third left §14's list on
+2026-11-14 (#672, #673), each by a named test or run record; §14
+carries the list as it stands.
 
 Propagation: decisions 2 and 5b; `clients/automated/AUTOMATED-CLIENT.md`
 §2 (a promise row) and §5; this note; the log row; the README row;
