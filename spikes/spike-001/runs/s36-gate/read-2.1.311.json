@@ -1,5 +1,5 @@
 {
-  "tree": "fe2627b60",
+  "tree": "89499c841",
   "tree_dirty": [],
   "tree_dirty_count": 0,
   "binary": "2.1.311",
@@ -33,6 +33,8 @@
         "Channel notifications registered",
         "Channel notifications skipped"
       ],
+      "function_bytes": 26238,
+      "schema_call_inside": true,
       "gate_call": "nHt(Co.name,Co.capabilities,Co.config.pluginSource,Co.protocolEra)",
       "gate_era_arg": true
     },
@@ -42,6 +44,8 @@
         "Channel notifications registered",
         "channel_enable requires a marketplace plugin"
       ],
+      "function_bytes": 1171,
+      "schema_call_inside": true,
       "gate_call": "nHt(n,S.capabilities,C,S.protocolEra)",
       "gate_era_arg": true
     },
@@ -50,6 +54,8 @@
       "log_lines": [
         "Channel notifications re-registered after reconnect"
       ],
+      "function_bytes": 736,
+      "schema_call_inside": true,
       "gate_call": "nHt(e.name,e.capabilities,e.config.pluginSource,e.protocolEra)",
       "gate_era_arg": true
     }
