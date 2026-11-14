@@ -1,4 +1,7 @@
 {
+  "tree": "fe2627b60",
+  "tree_dirty": [],
+  "tree_dirty_count": 0,
   "binary": "2.1.325",
   "sha256": "0dc4f4a9a165fc60746d7ae8489712e5fc352f1e7ad4eb22e7141bd0812eb0cf",
   "read_not_measured": true,
@@ -16,6 +19,7 @@
     "allowlist"
   ],
   "gate_era_clause": true,
+  "hard_skip_head": "function $_s(e)",
   "hard_skip_kinds": [
     "provider",
     "disabled",
@@ -25,16 +29,27 @@
   "registration_sites": [
     {
       "enclosing": "function AOe(h,P,D,H)",
+      "log_lines": [
+        "Channel notifications registered",
+        "Channel notifications skipped"
+      ],
       "gate_call": "Den(vo.name,vo.capabilities,vo.config.pluginSource,vo.protocolEra)",
       "gate_era_arg": true
     },
     {
       "enclosing": "function QY(e,n,r,s,h)",
+      "log_lines": [
+        "Channel notifications registered",
+        "channel_enable requires a marketplace plugin"
+      ],
       "gate_call": "Den(n,k.capabilities,M,k.protocolEra)",
       "gate_era_arg": true
     },
     {
       "enclosing": "function zh(e,n)",
+      "log_lines": [
+        "Channel notifications re-registered after reconnect"
+      ],
       "gate_call": "Den(e.name,e.capabilities,e.config.pluginSource,e.protocolEra)",
       "gate_era_arg": true
     }
