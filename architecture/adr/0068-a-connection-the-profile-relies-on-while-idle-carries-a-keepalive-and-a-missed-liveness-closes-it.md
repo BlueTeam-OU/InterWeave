@@ -1,6 +1,6 @@
 # A connection the profile relies on while idle carries a keepalive, a missed liveness closes it, and one direct connection per data-plane peer is held past the idle timeout
 
-**Status:** Accepted — a promotion, deciding nothing new. Rule 1 is the owner's word of 2026-09-26 ("keepalive yes"); rules 2 and 3 are architect-cto's ruling of 2026-10-25; rules 4 and 5 are the owner's word of 2026-11-13, after the idle measurement; rules 6 to 8 state what the three share. Each landed with its build, and all were in force in `architecture/transport/libp2p/CONNECTIVITY.md` §14 before this record; the plan's §21 record ordered their promotion into one ADR when §14 gained a fourth.
+**Status:** Accepted — a promotion, deciding nothing new. Rule 1 is the owner's word of 2026-09-26 ("keepalive yes"); rules 2 and 3 are architect-cto's ruling of 2026-10-25, except rule 3's data-plane clause and its reach-back, which came with the hold on 2026-11-13 as corrected in the review of #657; rules 4 and 5 are the owner's word of 2026-11-13, after the idle measurement; rules 6 to 8 state what the three share. Each landed with its build, and all were in force in `architecture/transport/libp2p/CONNECTIVITY.md` §14 before this record; the plan's §21 record ordered their promotion into one ADR when §14 gained a fourth.
 
 ## Context
 
@@ -12,7 +12,7 @@ A **relayed connection** to a data-plane peer runs over a circuit whose relay th
 
 A **direct connection** between two data-plane peers was kept past the Swarm's 60 s idle timeout by nothing but a side effect of the pinned GossipSub handler, which parks one outbound stream on a peer's first connection (measured on main a04400b39). A peer that cannot dial back — behind a NAT, or holding no address for this profile — reaches the profile over a connection the profile dialled and over nothing else, so that connection closing while idle left the peer unable to send until the next redial, and a dependency bump could have removed the stream with every check green.
 
-Each gap was closed where it was found, as a dated paragraph of §14. Four such paragraphs made a decision that binds three behaviours, two connection classes and every profile, with its alternatives and its cost recorded in a transport specification's amendment prose and in no decision record. This record states it once. The mechanics, the measured figures, the crate facts and the named tests stay in §14, which this record cites and does not restate.
+Each gap was closed where it was found, in a dated passage of §14. Three such passages made a decision that binds three behaviours, two connection classes and every profile, with its alternatives and its cost recorded in a transport specification's amendment prose and in no decision record. This record states it once. The mechanics, the measured figures, the crate facts and the named tests stay in §14, which this record cites and does not restate.
 
 ## Decision
 
