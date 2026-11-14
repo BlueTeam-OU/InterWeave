@@ -802,9 +802,9 @@ it, those checks are blocked, never passed.
   from the build before that day's). If a build draws a stress shape's
   first screen before its Back, that run is void, not passed, and
   comes back to ux-designer for a later time or a heavier shape.
-  On Android, each Back is made in each of the three ways the platform
-  gives: the Back key, the navigation bar's Back, and the app bar's
-  Back. Then, as further runs, on each stress shape and in each of the
+  On Android, each Back on a stress shape is made in each of the three
+  ways the platform gives: the Back key, the navigation bar's Back,
+  and the app bar's Back. Then, as further runs, on each stress shape and in each of the
   three ways, two Backs about 0.3 s apart, the first about 0.6 s after
   Open the whole message. On the desktop, the same runs by Escape.
   Each time: no Back is lost; focus is on the row's Open the whole
