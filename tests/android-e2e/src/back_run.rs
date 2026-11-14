@@ -39,17 +39,21 @@ pub fn sender_command(keys: &[(&str, Duration)]) -> String {
     )
 }
 
-/// The sender's `sent <KEY> <uptime ms>` lines, in order. An `unsent`
-/// line, or any other, gives no time: a press not injected has none.
+/// The sender's press lines, in order, one per press it reached:
+/// `sent <KEY> <uptime ms>` gives the press its time, and `unsent <KEY>
+/// <why>` gives it none, keeping its place, so the second Back of two is
+/// never read as the first when the first was not injected. Any other
+/// line is not a press.
 #[must_use]
-pub fn sent_times(out: &str) -> Vec<(String, u64)> {
+pub fn sent_times(out: &str) -> Vec<(String, Option<u64>)> {
     out.lines()
         .filter_map(|l| {
             let mut words = l.split_whitespace();
             match (words.next(), words.next(), words.next(), words.next()) {
                 (Some("sent"), Some(key), Some(at), None) => {
-                    at.parse().ok().map(|at| (key.to_owned(), at))
+                    Some((key.to_owned(), at.parse().ok()))
                 }
+                (Some("unsent"), Some(key), _, _) => Some((key.to_owned(), None)),
                 _ => None,
             }
         })
@@ -58,27 +62,37 @@ pub fn sent_times(out: &str) -> Vec<(String, u64)> {
 
 /// The trace's lines in a `logcat -v threadtime -v monotonic` of the
 /// app's tag, each with its uptime in ms, in order: `<secs>.<ms> <pid>
-/// <tid> <level> interweave: <line>`. A line of any other shape is
-/// skipped, so the caller holds the result against the raw trace it
-/// already read before trusting it.
-#[must_use]
-pub fn monotonic_trace(log: &str) -> Vec<(u64, String)> {
-    log.lines()
-        .filter_map(|l| {
-            let (_, message) = l.split_once(" interweave: ")?;
-            let message = message.trim_end();
-            if !message.starts_with(TRACE) {
-                return None;
-            }
-            let (secs, millis) = l.split_whitespace().next()?.split_once('.')?;
-            let secs: u64 = secs.parse().ok()?;
-            if millis.len() != 3 {
-                return None;
-            }
-            let millis: u64 = millis.parse().ok()?;
-            Some((secs * 1000 + millis, message.to_owned()))
-        })
-        .collect()
+/// <tid> <level> interweave: <line>`. A trace line whose time cannot be
+/// read is an error, not skipped: skipping one would move every later
+/// line onto its neighbour's time. The caller holds the result against
+/// the raw trace it already read before trusting it.
+///
+/// # Errors
+///
+/// A trace line whose monotonic time cannot be read, named.
+pub fn monotonic_trace(log: &str) -> Result<Vec<(u64, String)>, String> {
+    let mut out = Vec::new();
+    for l in log.lines() {
+        let Some((_, message)) = l.split_once(" interweave: ") else {
+            continue;
+        };
+        let message = message.trim_end();
+        if !message.starts_with(TRACE) {
+            continue;
+        }
+        let at = l
+            .split_whitespace()
+            .next()
+            .and_then(|t| t.split_once('.'))
+            .filter(|(_, millis)| millis.len() == 3)
+            .and_then(|(secs, millis)| {
+                Some((secs.parse::<u64>().ok()?, millis.parse::<u64>().ok()?))
+            })
+            .map(|(secs, millis)| secs * 1000 + millis)
+            .ok_or_else(|| format!("a trace line with no monotonic time: {l:?}"))?;
+        out.push((at, message.to_owned()));
+    }
+    Ok(out)
 }
 
 /// Which of A5's runs a round is.
@@ -147,8 +161,8 @@ impl Times {
 /// The round's times: `sent` from the sender, `trace` the run's trace
 /// lines (from Open the whole message on) with their times.
 #[must_use]
-pub fn times(sent: &[(String, u64)], trace: &[(u64, String)]) -> Times {
-    let backs: Vec<u64> = sent
+pub fn times(sent: &[(String, Option<u64>)], trace: &[(u64, String)]) -> Times {
+    let backs: Vec<Option<u64>> = sent
         .iter()
         .filter(|(k, _)| k == "BACK")
         .map(|(_, at)| *at)
@@ -167,9 +181,12 @@ pub fn times(sent: &[(String, u64)], trace: &[(u64, String)]) -> Times {
     let left = closed.and_then(|(i, _)| page("conversations", Some(i)));
     let drawn_line = format!("{TRACE}reader=drawn ");
     Times {
-        enter: sent.iter().find(|(k, _)| k == "ENTER").map(|(_, at)| *at),
-        back: backs.first().copied(),
-        back2: backs.get(1).copied(),
+        enter: sent
+            .iter()
+            .find(|(k, _)| k == "ENTER")
+            .and_then(|(_, at)| *at),
+        back: backs.first().copied().flatten(),
+        back2: backs.get(1).copied().flatten(),
         drawn: trace
             .iter()
             .find(|(_, l)| l.starts_with(&drawn_line))
@@ -261,8 +278,10 @@ mod tests {
         (at, format!("{TRACE}{what}"))
     }
 
-    fn sent(keys: &[(&str, u64)]) -> Vec<(String, u64)> {
-        keys.iter().map(|(k, at)| ((*k).to_owned(), *at)).collect()
+    fn sent(keys: &[(&str, u64)]) -> Vec<(String, Option<u64>)> {
+        keys.iter()
+            .map(|(k, at)| ((*k).to_owned(), Some(*at)))
+            .collect()
     }
 
     const FAST: Run = Run::Together {
@@ -297,9 +316,26 @@ mod tests {
     }
 
     #[test]
-    fn only_a_sent_line_gives_a_time() {
+    fn only_a_sent_line_gives_a_time_and_an_unsent_press_keeps_its_place() {
         let out = "sent ENTER 5000\nunsent BACK refused\nsent BACK 5630\nsent BACK x\nnoise\nsent BACK 1 2\n";
-        assert_eq!(sent_times(out), sent(&[("ENTER", 5000), ("BACK", 5630)]));
+        let presses = sent_times(out);
+        assert_eq!(
+            presses,
+            vec![
+                ("ENTER".to_owned(), Some(5000)),
+                ("BACK".to_owned(), None),
+                ("BACK".to_owned(), Some(5630)),
+                ("BACK".to_owned(), None),
+            ]
+        );
+        // The second Back is not read as the first, so the void names
+        // the first.
+        let t = times(&presses, &[]);
+        assert_eq!((t.back, t.back2), (None, Some(5630)));
+        assert_eq!(
+            judge(FAST, &t, &[]),
+            Verdict::Void("the Back has no send time".to_owned())
+        );
     }
 
     #[test]
@@ -307,15 +343,27 @@ mod tests {
         let log = "--------- beginning of main\n\
                    \u{20}  1234.567  4321  4330 I interweave: ui-trace page=reader\n\
                    \u{20}  1234.600  4321  4330 I interweave: not the trace\n\
-                   \u{20}  1235.004  4321  4330 I interweave: ui-trace reader=drawn ms=412  \n\
-                   11-14 10:00:00.000  4321  4330 I interweave: ui-trace page=conversation\n";
+                   \u{20}  1235.004  4321  4330 I interweave: ui-trace reader=drawn ms=412  \n";
         assert_eq!(
             monotonic_trace(log),
-            vec![
+            Ok(vec![
                 (1_234_567, format!("{TRACE}page=reader")),
                 (1_235_004, format!("{TRACE}reader=drawn ms=412")),
-            ]
+            ])
         );
+    }
+
+    #[test]
+    fn a_trace_line_with_no_readable_time_is_an_error_not_skipped() {
+        for bad in [
+            "11-14 10:00:00.000  4321  4330 I interweave: ui-trace page=conversation",
+            "  1234.56  4321  4330 I interweave: ui-trace page=conversation",
+            "  1234.5678  4321  4330 I interweave: ui-trace page=conversation",
+            "  x.567  4321  4330 I interweave: ui-trace page=conversation",
+        ] {
+            let log = format!("  1234.500  4321  4330 I interweave: ui-trace page=reader\n{bad}\n");
+            assert!(monotonic_trace(&log).is_err(), "{bad}");
+        }
     }
 
     #[test]

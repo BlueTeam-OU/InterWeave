@@ -258,7 +258,9 @@ impl Screens {
     /// exist; and `back-to-close-ms` and `first-screen-shown-ms` where
     /// both ends exist. A round with one Back also needs focus back on
     /// the opened row's Open the whole message to pass; with two, focus
-    /// is the chat list's.
+    /// is the chat list's. A failure of the harness itself -- the sender
+    /// did not run, or the trace could not be timed -- is a fail naming
+    /// it, with the sender's stdout, never judged.
     pub fn read_whole_then_back(
         &mut self,
         opened: &[String],
@@ -285,20 +287,33 @@ impl Screens {
         } else {
             &["page=reader", "page=conversation"]
         };
-        let sent = self.adb_ok(&["shell", &back_run::sender_command(&presses)]);
-        let sent_out = sent.clone().unwrap_or_default();
+        let sent = self.sender(&presses);
         // A wait that runs out is not the verdict: a missing page is the
         // judge's to call fail or void. The settle lets a step past the
         // ones waited for show, so more steps than asked are seen.
-        let waited = sent
-            .and_then(|_| self.wait_all(from, pages, patience))
+        let waited = self
+            .wait_all(from, pages, patience)
             .and_then(|()| self.settle().map(drop));
         let timed = self.run_trace(from);
-        let detail = match (&waited, &timed) {
-            (Err(why), _) | (_, Err(why)) => format!("{why}; sender said {sent_out:?}"),
-            (Ok(()), Ok(_)) => self.where_now(),
+        // The harness's own failure -- a sender that did not run, a trace
+        // that cannot be timed -- is a fail naming it, never the app's
+        // fail nor a void A5 would send back to ux-designer.
+        let (sent_out, trace) = match (sent, timed) {
+            (Ok(out), Ok(trace)) => (out, trace),
+            (sent, timed) => {
+                let why = [sent.err(), timed.err()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
+                let mut out = step(name, false, format!("the harness: {}", why.join("; ")));
+                out.insert("read".to_owned(), Value::String(read));
+                return out;
+            }
         };
-        let trace = timed.unwrap_or_default();
+        let detail = match &waited {
+            Err(why) => format!("{why}; sender said {sent_out:?}"),
+            Ok(()) => self.where_now(),
+        };
         let t = back_run::times(&back_run::sent_times(&sent_out), &trace);
         let focus_ok = second.is_some() || self.focus == read;
         let verdict = match back_run::judge(run, &t, &trace) {
@@ -342,9 +357,36 @@ impl Screens {
         out
     }
 
+    /// `KeySender`'s presses sent on the phone, its stdout. It prints a
+    /// line for each press, sent or not, so a sender that ended in error
+    /// or printed fewer is an error carrying its stdout as well as its
+    /// stderr, since its reason is printed there.
+    fn sender(&self, presses: &[(&str, Duration)]) -> Result<String, String> {
+        let command = back_run::sender_command(presses);
+        match self.adb(&["shell", &command]) {
+            Err(e) => Err(format!("adb shell {command}: {e}")),
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+                let lines = back_run::sent_times(&stdout).len();
+                if out.status.success() && lines == presses.len() {
+                    Ok(stdout)
+                } else {
+                    Err(format!(
+                        "the key sender ended {}: {:?} {:?}",
+                        out.status,
+                        stdout.trim_end(),
+                        String::from_utf8_lossy(&out.stderr).trim_end()
+                    ))
+                }
+            }
+        }
+    }
+
     /// The trace's lines from `from` on, each with its uptime: a monotonic
-    /// logcat read once, held against the raw trace already seen so a
-    /// line is never paired with another's time.
+    /// logcat read once and held against the raw trace already seen, so a
+    /// line is never paired with another's time -- a trace line whose
+    /// time cannot be read is an error ([`back_run::monotonic_trace`]),
+    /// and a line in the one that is not in the other at its place is too.
     fn run_trace(&mut self, from: usize) -> Result<Vec<(u64, String)>, String> {
         self.poll()?;
         let log = self.adb_ok(&[
@@ -357,7 +399,7 @@ impl Screens {
             "-s",
             "interweave:I",
         ])?;
-        let timed = back_run::monotonic_trace(&log);
+        let timed = back_run::monotonic_trace(&log)?;
         let texts: Vec<&String> = timed.iter().map(|(_, l)| l).collect();
         let seen: Vec<&String> = self.seen.iter().collect();
         if texts.len() < seen.len() || texts[..seen.len()] != seen[..] {
@@ -1299,6 +1341,93 @@ esac
     fn calls(dir: &tempfile::TempDir) -> Vec<String> {
         let calls = std::fs::read_to_string(dir.path().join("calls")).unwrap_or_default();
         calls.lines().map(str::to_owned).collect()
+    }
+
+    /// A logcat holding each trace line twice, as the raw read and the
+    /// monotonic read print it: the stand-in answers every `logcat -d`
+    /// with the same text, and each reader keeps only its own form.
+    fn both_forms(raw: &[&str], timed: &[(&str, &str)]) -> String {
+        let mut log: Vec<String> = raw.iter().map(|l| format!("ui-trace {l}")).collect();
+        log.extend(
+            timed
+                .iter()
+                .map(|(at, l)| format!("  {at}  4321  4330 I interweave: ui-trace {l}")),
+        );
+        log.join("\n")
+    }
+
+    #[test]
+    fn a_back_run_whose_sender_printed_no_press_is_the_harnesss_fail_never_judged() {
+        // The stand-in's shell prints nothing for the sender: had the
+        // round been judged it would be void (no send time) and go back
+        // to ux-designer.
+        let (_dir, mut s) = stand_in(0, "ui-trace page=conversation\nui-trace focus=read:0");
+        let step = s.read_whole_then_back(
+            &[],
+            Duration::from_millis(90),
+            None,
+            back_run::Run::Single {
+                within: Duration::from_secs(1),
+            },
+            Duration::from_millis(50),
+            || {},
+        );
+        assert_eq!(step.get(keys::RESULT), Some(&json!(keys::FAIL)), "{step:?}");
+        let detail = step
+            .get(keys::DETAIL)
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            detail.starts_with("the harness: the key sender ended"),
+            "{detail}"
+        );
+        assert_eq!(step.get("read"), Some(&json!("read:0")));
+    }
+
+    #[test]
+    fn a_run_trace_gives_the_runs_lines_their_uptimes() {
+        let log = both_forms(
+            &["page=conversation", "page=reader", "page=conversation"],
+            &[
+                ("100.000", "page=conversation"),
+                ("101.250", "page=reader"),
+                ("101.900", "page=conversation"),
+            ],
+        );
+        let (_dir, mut s) = stand_in(0, &log);
+        assert_eq!(
+            s.run_trace(1),
+            Ok(vec![
+                (101_250, "ui-trace page=reader".to_owned()),
+                (101_900, "ui-trace page=conversation".to_owned()),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_run_trace_unlike_the_raw_trace_is_never_timed() {
+        // One line differs at its place: no time is paired with it.
+        let log = both_forms(
+            &["page=reader", "reader=drawn ms=412", "page=conversation"],
+            &[
+                ("101.250", "page=reader"),
+                ("101.600", "page=conversation"),
+                ("101.900", "page=conversation"),
+            ],
+        );
+        let (_dir, mut s) = stand_in(0, &log);
+        assert!(s.run_trace(0).is_err());
+        // One line's time unreadable: an error, not a shift onto the next.
+        let log = both_forms(
+            &["page=reader", "page=conversation", "page=conversation"],
+            &[
+                ("101.250", "page=reader"),
+                ("101.6", "page=conversation"),
+                ("101.900", "page=conversation"),
+            ],
+        );
+        let (_dir, mut s) = stand_in(0, &log);
+        assert!(s.run_trace(0).is_err());
     }
 
     #[test]
