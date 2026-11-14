@@ -4988,7 +4988,8 @@ past; each carries a pointer here.
   2026-07-28 revision was skipped with the same line and the legacy
   control registered and delivered, one run each (fact 99), and the
   release bridge connected legacy in 20 sessions of 20 (fact 100).
-  Carried: a build after 2.1.322, and whether the gate in the 2.1.322
+  Carried: a build after 2.1.322 (2.1.325 run since, the note of
+  2026-11-14 below), and whether the gate in the 2.1.322
   binary is still the era check read from 2.1.286's (fact 36), which
   was not read from that binary (fact 99; A 2026-11-12, this carried
   the later build alone). Read since, the note below.
@@ -5116,12 +5117,14 @@ answered that day; the fleet's pin stayed 2.1.322.
   checks, straight after the capability, with the same refusal and
   notice, and the permission relay's server filter still excludes a
   modern-era connection (fact 121).
-- **Every site that registers a channel handler** calls the gate
-  before it with the connection's era, in 2.1.311, 2.1.322 and
-  2.1.325 alike: the connection's own, a `channel_enable` control
-  request and a reconnect (fact 122). The refusal of a modern-era
-  server was measured through the first alone; legacy registration
-  through all three.
+- **Every site that registers a channel handler**, read and not
+  measured, calls the gate before it with the connection's era, in
+  2.1.311, 2.1.322 and 2.1.325 alike: the connection's own, a
+  `channel_enable` control request and a reconnect (fact 122).
+  Measured: the refusal of a modern-era server through the first
+  alone; legacy registration through the connection's own and the
+  reconnect on 2.1.325, and through `channel_enable` on 2.1.286 only
+  (S24, fact 40).
 - **The era rows** held: a server negotiating the 2026-07-28
   revision was skipped with the same line and notice, and the legacy
   control registered and delivered, one run each (fact 123). So "the

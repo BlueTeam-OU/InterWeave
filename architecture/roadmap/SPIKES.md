@@ -926,8 +926,9 @@ and a conversation longer than one turn.
 
 **Carried measurement, S36 (2026-11-14, Claude Code 2.1.325, the
 newest build the registry answered that day and not the fleet's pin,
-rust-services-dev, plan §19): on 2.1.325 the gate is still the era
-check, at every site that registers a channel handler; a server
+rust-services-dev, plan §19): read from the 2.1.325 binary and not
+measured, the gate is still the era check, at every site that
+registers a channel handler; measured, a server
 negotiating the 2026-07-28 revision is still not registered; and the
 reply cells gave 2.1.322's counts.** Read off
 `spikes/spike-001/README.md` §S36 (facts 121–126, #670). Three parts.
@@ -940,7 +941,9 @@ excluding a modern-era connection (121). S34's carried "that the code
 read is the code that runs on every path" was taken up: each of the
 three builds has three sites that register a channel handler, the
 connection's own, a `channel_enable` control request and a reconnect,
-and each calls the gate before it with the connection's era (122).
+and each calls the gate before it with the connection's era (122);
+legacy registration was measured through the first and the last on
+2.1.325, and through `channel_enable` on 2.1.286 only (S24, fact 40).
 (2) S33's era rows, one run each, `s36-a-modern` and `s36-b-legacy`:
 the modern-capable server was skipped with the same line and notice,
 and the legacy control registered and delivered (123). (3) 47 print
