@@ -47,8 +47,8 @@ def function_end(data: bytes, fn: int) -> int:
     one, skipping '...' and "..." literals and a template's text (its
     ``${...}`` counted as code). A regular-expression literal or a
     comment holding a brace or a quote is not recognised, so a count can
-    end early or late. ``schema_call_inside`` flags only an early end
-    (before the schema call); a late one is not detected, so each site
+    end early or late. ``schema_call_inside`` flags an end before the
+    schema call; an end after it, early or late, is not flagged, so each site
     also records ``end_context``, the bytes either side of the end, for
     a reader to check that a function ends there and another begins."""
     i, stack = data.find(b"{", fn), []  # each entry: "{" code brace, "$" a template's ${
