@@ -1,6 +1,6 @@
 # A connection the profile relies on while idle carries a keepalive, a missed liveness closes it, and one direct connection per data-plane peer is held past the idle timeout
 
-**Status:** Accepted — a promotion, deciding nothing new. Rule 1 is the owner's word of 2026-09-26 ("keepalive yes"); rules 2 and 3 are architect-cto's ruling of 2026-10-25, except rule 3's data-plane clause and its reach-back, which came with the hold on 2026-11-13 as corrected in the review of #657; rules 4 and 5 are the owner's word of 2026-11-13, after the idle measurement; rules 6 to 8 state what the three share. Each landed with its build, and all were in force in `architecture/transport/libp2p/CONNECTIVITY.md` §14 before this record; the plan's §21 record ordered their promotion into one ADR when §14 gained a fourth.
+**Status:** Accepted — a promotion of rules already in force; what this record states for the first time is named below. Rule 1 is the owner's word of 2026-09-26 ("keepalive yes"); rules 2 and 3 are architect-cto's ruling of 2026-10-25, except rule 3's data-plane clause and its reach-back, which came with the hold on 2026-11-13 as corrected in the review of #657; rules 4 and 5 are the owner's word of 2026-11-13, after the idle measurement; rules 6 and 8 state what the three share, from §14's own words; rule 7 and three of the alternatives are stated here for the first time and are marked so. Rules 1 to 6 and 8 each landed with their build and were in force in `architecture/transport/libp2p/CONNECTIVITY.md` §14 before this record; the plan's §21 record ordered their promotion into one ADR when §14 gained a fourth.
 
 ## Context
 
@@ -28,7 +28,7 @@ Each gap was closed where it was found, in a dated passage of §14. Three such p
 
 6. **A missed liveness closes the connection whose own ping failed, and nothing else.** On a control connection the close takes the reservation ladder exactly as a removed address does (§8); on a relayed or held connection the peer leaves `Connected` — `Disconnected` to the consumer, or `PeerPathChanged` where another path stands. Who redials after the close, and when, is the retry scheduler's and the discovery round's as for any closed connection (`CONNECTIVITY.md` §12 and §14); this record promises no redial.
 
-7. **The keepalive is liveness, never authentication or authorization.** An answered ping proves a path and a process, not who the peer is or what it may do; it widens no class, extends no reservation, and is no application-level acknowledgement. Nothing is replayed after a close (§14 item 7).
+7. **The keepalive is liveness, never authentication or authorization** (stated with this record; §14 says it only of the hold, which "retains and admits nothing", and ADR-0017 says it of the IPC keepalive). An answered ping proves a path and a process, not who the peer is or what it may do; it widens no class, extends no reservation, and is no application-level acknowledgement. No built behaviour reads a ping as any of those, so the rule changes nothing that runs; it forbids a later change from doing so without an amendment here.
 
 8. **The interval and the miss count are the ping crate's defaults**, stated in §14 with the pinned version they were read at, and are the same on all three kinds of connection. This record sets no number; a different interval for one kind, or for one platform, is an amendment here with the measurement that asks for it.
 
@@ -36,19 +36,21 @@ Each gap was closed where it was found, in a dated passage of §14. Three such p
 
 **No keepalive; rely on interface events and send failures.** The network-change detector sees an address leave the host and nothing else; a path that dies with every local address intact is invisible to it. A send failure finds the dead path only when someone sends, and for a reservation nobody on this side sends at all — the cost falls on the peers dialling a circuit address that no longer works. Rejected by the owner on 2026-09-26, the traffic and battery cost named as the accepted price.
 
-**TCP keepalive at the socket.** It tests the kernel's path to the next hop that answers for the socket, not the far process, and it cannot run end to end over a circuit, where the two TCP connections each terminate at the relay. It would also leave a far peer dying behind a live relay undetected. One probe at the protocol layer covers the relay's death and the far peer's alike.
+The next two, and the last of this section, were not weighed in §14: they are recorded with this promotion, as the reasons the rules stand against options a reader would otherwise propose.
+
+**TCP keepalive at the socket (recorded with this promotion).** It tests the kernel's path to the next hop that answers for the socket, not the far process, and it cannot run end to end over a circuit, where the two TCP connections each terminate at the relay. It would also leave a far peer dying behind a live relay undetected. One probe at the protocol layer covers the relay's death and the far peer's alike.
+
+**Raise or remove the idle timeout instead of holding one connection (rule 4; recorded with this promotion).** It would keep every connection of every class, a peer's redundant second connection and a stranger's pre-classification inbound included, and it would keep them untested. The hold names one connection per data-plane peer and rule 5 tests it.
 
 **Ping the circuit's relay rather than the far peer (rule 2).** The dialling end holds no control relationship with that relay, and a relay that answers says nothing about the peer behind it.
 
 **Prefer, rather than require, a relay that answers ping (rule 3).** A preference keeps the refusing relay in the ladder as its last rung, which is the reachability claim rule 1 exists to withdraw: a relay that can never be found dead. No interoperability cost was accepted for it — this profile's relays answer ping on every handler, and a foreign relay that does not is one this profile declines to depend on.
 
-**Raise or remove the idle timeout instead of holding one connection (rule 4).** It would keep every connection of every class, a peer's redundant second connection and a stranger's pre-classification inbound included, and it would keep them untested. The hold names one connection per data-plane peer and rule 5 tests it.
-
 **Leave the GossipSub stream as what keeps a connection (rule 4).** A side effect of a pinned dependency's handler is not a rule; it held with no channel joined and would have gone with a version bump.
 
 **Hold the oldest connection.** As first written on 2026-11-13. Age does not agree between the two ends of two crossing dials — each end's oldest is its own — so each end closed the connection only the other held; the review of #657 found it and the order was corrected before it landed.
 
-**Close a data-plane peer that refuses ping.** A refusal from a peer the profile trusts for application traffic is not evidence its path is dead, and closing would make a peer running a foreign ping-less build unreachable where today it is reachable and merely untested. Kept and counted; the close on refusal stays the control peers' rule.
+**Close a data-plane peer that refuses ping (recorded with this promotion).** A refusal from a peer the profile trusts for application traffic is not evidence its path is dead, and closing would make a peer running a foreign ping-less build unreachable where today it is reachable and merely untested. Kept and counted; the close on refusal stays the control peers' rule.
 
 ## Consequences
 
