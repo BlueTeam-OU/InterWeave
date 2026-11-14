@@ -795,21 +795,24 @@ it, those checks are blocked, never passed.
   turn, the bar goes away with the reader. The build reports, for each
   run, the time from the Back to the close and how long the first
   screen showed.
-  On Android, the same Back also runs on the case's two stress shapes,
-  distinct headings and distinct links (`tests/android-e2e/src/long.rs`:
-  every heading, and every link's control, is different text, so no
-  measure is reused). They are not shapes of the list above and have
-  no opening figure; they are run here because they are the shapes
-  whose first screen comes later than 0.6 s on the A40 (1.41 s and
-  1.02 s on 2026-11-13), so a Back at 0.6 s is pressed while the bar
-  shows, which the case needs. Every other shape draws its first screen
-  in under 0.31 s, before that Back. On each stress shape, Back about 0.6 s after Open
+  On Android, Back while the reader opens also runs on the two stress
+  shapes of the Android end-to-end test, distinct headings and
+  distinct links (`tests/android-e2e/src/long.rs`: every heading, and
+  every link's control, is different text, so no measure is reused).
+  They are not among the shapes listed above and have no opening
+  figure. They are run here because their first screens come later
+  than 0.6 s on the A40 (on 2026-11-13, 1.41 s for distinct headings
+  and 1.02 s for distinct links), so a Back at 0.6 s is pressed while
+  the bar shows, as this part of A5 needs. Every
+  other shape draws its first screen in under 0.31 s, before that
+  Back. On each stress shape, Back about 0.6 s after Open
   the whole message, by each way the platform gives: the Back key, the
   navigation bar's Back, and the app bar's Back. Then two Backs about
-  0.3 s apart. Each time, the reader closes within 0.15 s of the Back,
-  which is the next gap between turns (§5.4) with room for the frame
-  that draws the close. A close that waits for the build to end misses
-  this even when it comes within 1 s. Focus is on the row's Open the
+  0.3 s apart. Each time, the reader closes within 0.15 s of the Back:
+  time for the next gap between turns (§5.4) and for the frame that
+  draws the close. A close that waits until the first screen is built
+  misses the 0.15 s, even when it comes within 1 s of the Back.
+  Focus is on the row's Open the
   whole message, and the conversation is where it was. Of two Backs,
   the first closes the reader and the second acts on the conversation;
   neither is lost and they are not merged into one.
@@ -825,7 +828,7 @@ it, those checks are blocked, never passed.
     lost nor merged.
   - Both stress shapes by the navigation bar's Back (two Backs
     included) and by the app bar's Back, 2026-11-14 (main 41bb631b9,
-    REPLY 01a1d840): closed in 62-118 ms, timed from when the key was
+    REPLY 01a1d840): closed in 62 to 118 ms, timed from when the key was
     delivered or the finger touched, with focus on Open the whole
     message.
   Not run yet, and carried rather than failed: the desktop, the Pixel,
