@@ -28,8 +28,8 @@
 //!
 //! That BOTH ends hold it, and not one end alone, is read from the data
 //! segments each end of the held dial sends in the window: a measured
-//! count, four per end with two pingers and three with one (the
-//! assertion's note).
+//! count, at least four per end with two pingers and three with one
+//! (the assertion's note).
 //!
 //! NOT PROVED HERE: that each end holds exactly one connection per
 //! peer -- the unit test
@@ -261,8 +261,9 @@ async fn two_runtimes_dialling_each_other_at_once_both_hold_the_lower_peers_dial
     );
     // And the second: BOTH ends pinged the lower peer's dial. Read from
     // the data segments each end of it sent in the window, which one
-    // pinger and two tell apart: MEASURED, five runs each on 2026-11-14,
-    // four per end with both ends pinging and three with only the lower
+    // pinger and two tell apart: MEASURED on 2026-11-14, five runs each,
+    // at least four per end with both ends pinging (exactly four in the
+    // three that printed it) and three in every run with only the lower
     // peer's end holding (`dialing::held_connections` planted to hold
     // nothing where the local id is the higher), so the count is the
     // oracle and not a derivation. Each pinger adds one 62-byte frame
