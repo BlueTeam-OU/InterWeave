@@ -1,5 +1,5 @@
 {
-  "tree": "89499c841",
+  "tree": "19c5b700f",
   "tree_dirty": [],
   "tree_dirty_count": 0,
   "binary": "2.1.311",
@@ -35,6 +35,7 @@
       ],
       "function_bytes": 26238,
       "schema_call_inside": true,
+      "end_context": "connectMcpServer:Fn,toggleMcpServer:bn}}function SCt(h){na(h.client).onclose=voi",
       "gate_call": "nHt(Co.name,Co.capabilities,Co.config.pluginSource,Co.protocolEra)",
       "gate_era_arg": true
     },
@@ -46,6 +47,7 @@
       ],
       "function_bytes": 1171,
       "schema_call_inside": true,
+      "end_context": "skipAttachments:!0})}),s.enqueue(Xz(e))}function Af(e,n){if(e.type!==\"connected\"",
       "gate_call": "nHt(n,S.capabilities,C,S.protocolEra)",
       "gate_era_arg": true
     },
@@ -56,6 +58,7 @@
       ],
       "function_bytes": 736,
       "schema_call_inside": true,
+      "end_context": "SlashCommands:!0,skipAttachments:!0})})}function PK(e,n,r,s=!1){return{name:\"fil",
       "gate_call": "nHt(e.name,e.capabilities,e.config.pluginSource,e.protocolEra)",
       "gate_era_arg": true
     }
