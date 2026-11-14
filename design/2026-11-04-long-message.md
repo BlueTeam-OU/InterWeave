@@ -784,30 +784,40 @@ it, those checks are blocked, never passed.
   toolkit offers the scroll bar and the fast-scroll thumb of §5.1; a
   missing one is reported, not built around.
   Back while the reader opens (§5.4), with a screen recording, at two
-  times. Inside the first turn: on the list shape, Back about 0.2 s
-  after Open the whole message. Past the first turn, while the bar
-  shows: Back about 0.6 s after Open the whole message, on a shape
-  whose first screen comes later than 0.6 s. No shape listed above
-  opens that late on a build that meets A5's 0.5 s figure, so the
-  Back at 0.6 s runs on the two stress shapes of the Android
-  end-to-end test,
-  distinct headings and distinct links (`tests/android-e2e/src/long.rs`:
-  every heading, and every link's control, is different text, so no
-  measure is reused). They are not among the shapes listed above and
-  have no opening figure. Their first screens come later than 0.6 s on
-  the A40 (on 2026-11-13, 1.41 s for distinct headings and 1.02 s for
-  distinct links), so a Back at 0.6 s is pressed while the bar shows.
-  On that day's build, every other shape draws its first screen in
-  under 0.31 s, before that Back (the list shape's 347 ms, below, is
-  from the build before that day's). If a build draws a stress shape's
-  first screen before its Back, that run is void, not passed, and
-  comes back to ux-designer for a later time or a heavier shape.
+  times. Inside the first turn, before the first screen: on the list
+  shape, Back about half the shape's first-screen time after Open the
+  whole message (about 0.09 s on the 2026-11-13 build, whose list
+  shape drew its first screen in 179 ms). Past the first turn, while
+  the bar shows: Back about 0.6 s after Open the whole message, on a
+  shape whose first screen comes later than 0.6 s. No shape listed
+  above opens that late on a build that meets A5's 0.5 s figure, so
+  the Back at 0.6 s runs on the two stress shapes of the Android
+  end-to-end test, distinct headings and distinct links
+  (`tests/android-e2e/src/long.rs`: every heading, and every link's
+  control, is different text, so no measure is reused). They are not
+  among the shapes listed above and have no opening figure. Their
+  first screens come later than 0.6 s on the A40 (on 2026-11-13,
+  1.41 s for distinct headings and 1.02 s for distinct links), so a
+  Back at 0.6 s is pressed while the bar shows. On that day's build,
+  every other shape draws its first screen in under 0.31 s, before
+  that Back (the list shape's 347 ms, below, is from the build before
+  that day's). If a build draws a shape's first screen before its
+  Back, in either run, that run is void, not passed, and comes back
+  to ux-designer for an earlier time or a heavier shape.
   On Android, each Back on a stress shape is made in each of the three
   ways the platform gives: the Back key, the navigation bar's Back,
-  and the app bar's Back. Then, as further runs, on each stress shape
-  and in each of the three ways, two Backs about 0.3 s apart, the
-  first about 0.6 s after Open the whole message. On the desktop, the
-  same runs by Escape.
+  and the app bar's Back. Then, as further runs, on each stress shape:
+  - in each of the three ways, two Backs about 0.3 s apart, the first
+    about 0.6 s after Open the whole message. The second comes after
+    the reader has closed, so this run checks that neither Back is
+    lost;
+  - by the Back key, two Backs pressed together, the second within
+    about 0.03 s of the first, about 0.6 s after Open the whole
+    message, so that both arrive before the reader closes. This run
+    checks §5.4's second Back pressed while the reader is still
+    opening: the two are not merged into one. If the reader closes
+    before the second Back arrives, the run is void, as above.
+  On the desktop, the same runs by Escape.
   Each time: no Back is lost; focus is on the row's Open the whole
   message; and the conversation is where it was. Inside the first
   turn, no frame shows the bar, and the reader closes within 1 s of
@@ -824,20 +834,25 @@ it, those checks are blocked, never passed.
   - The list shape, 2026-11-12 (REPLY 01a1cfc2): first screen drawn at
     347 ms, reader closed 0.26 s after the first screen, focus on Open
     the whole message, no bar, no Back lost.
-  - The headings of autolinks, the one reference link used many times
-    and both stress shapes, by the Back key, three rounds each,
-    2026-11-13
+  - Both stress shapes by the Back key, three rounds each, 2026-11-13
     (`apps/human-android/device-runs/2026-11-13-samsung-a40-back-during-opening.md`):
-    every close within 0.15 s; on the stress shapes, two Backs neither
-    lost nor merged.
-  - Both stress shapes by the navigation bar's Back (two Backs
-    included) and by the app bar's Back, 2026-11-14 (main 41bb631b9,
-    REPLY 01a1d840): closed in 62 to 118 ms, with focus on Open the
-    whole message. The navigation bar's Back reaches the app as a key
-    press, so it is timed from when the key press was delivered; the
-    app bar's Back is timed from when the finger touched the screen.
-  Not run yet, and carried rather than failed: the two Backs by the
-  app bar's Back, the desktop, the Pixel, and the release APK.
+    every close within 0.15 s; two Backs 0.3 s apart, neither lost.
+    On the same day, the list shape with a Back at 0.2 s and the
+    headings of autolinks and the reference link with a Back at 0.6 s
+    were run too. That day's clean build drew their first screens in
+    179, 239 and 304 ms, before the Back, so those runs are void as
+    runs of A5: they show only that an open reader closed.
+  - Both stress shapes by the navigation bar's Back (two Backs 0.3 s
+    apart included) and by the app bar's Back, 2026-11-14 (main
+    41bb631b9, REPLY 01a1d840): closed in 62 to 118 ms, with focus on
+    Open the whole message. The navigation bar's Back reaches the app
+    as a key press, so it is timed from when the key press was
+    delivered; the app bar's Back is timed from when the finger
+    touched the screen.
+  Not run yet, and carried rather than failed: the list shape's Back
+  at half its first-screen time on the current build; the two Backs
+  pressed together; the two Backs 0.3 s apart by the app bar's Back;
+  the desktop; the Pixel; and the release APK.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
   on the desktop and TalkBack on the Pixel.
 - **A7** The reader's row removed while it is open, the app sent to
