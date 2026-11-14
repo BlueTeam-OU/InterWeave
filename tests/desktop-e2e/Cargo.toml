@@ -77,6 +77,12 @@ zbus = { version = "5.19", default-features = false, features = ["async-io"] }
 # (XTEST, which Xvfb serves); the pure-Rust connection, already compiled
 # for winit.
 x11rb = { version = "0.13", default-features = false, features = ["xtest"] }
+# human_app/opening.rs: each press stamped on the host's monotonic clock,
+# which the traced client's lines are stamped on too.
+rustix = { workspace = true, features = ["time"] }
+# human_app/opening.rs: A5's long-message shapes and its judge of a Back
+# while the reader opens, the phone's, so both clients are held to one.
+interweave-android-e2e-tests = { path = "../android-e2e" }
 # claude_channel.rs runs the shipped claude-channel binary as Claude Code
 # does: a child process on its stdio.
 tokio = { workspace = true, features = ["macros", "net", "io-util", "process", "rt-multi-thread", "time"] }

@@ -29,6 +29,7 @@ mod endpoints;
 mod harness;
 mod kept_disable;
 mod lifecycle;
+mod opening;
 mod package;
 mod reading;
 mod refusal;

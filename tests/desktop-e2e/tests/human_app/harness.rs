@@ -158,6 +158,12 @@ pub(crate) fn start(home: &Home) -> App {
 
 /// [`start`], with `extra` after the profile on the command line.
 pub(crate) fn start_with(home: &Home, extra: &[&str]) -> App {
+    start_binary(&app_binary(), home, extra)
+}
+
+/// [`start_with`], running `binary` rather than [`app_binary`]: a test
+/// build of the client, such as the traced one `opening.rs` times.
+pub(crate) fn start_binary(binary: &std::path::Path, home: &Home, extra: &[&str]) -> App {
     // One log per start, never one per home: a case that starts a second
     // client on a home (refused as already open, or a restart) would
     // otherwise truncate the file the first still writes to at its own
@@ -168,7 +174,7 @@ pub(crate) fn start_with(home: &Home, extra: &[&str]) -> App {
     let log = home.root.path().join(format!("human-desktop-{n}.log"));
     let stderr = std::fs::File::create_new(&log).expect("a log file of its own");
     let env = |p: &std::path::Path| p.as_os_str().to_owned();
-    let mut command = Command::new(app_binary());
+    let mut command = Command::new(binary);
     command.env_clear();
     // What the display and the accessibility stack need from the session
     // that started the test, the profile's own XDG tree aside: the X
