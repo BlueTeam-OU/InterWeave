@@ -802,8 +802,8 @@ it, those checks are blocked, never passed.
   every other shape draws its first screen in under 0.31 s, before
   that Back (the list shape's 347 ms, below, is from the build before
   that day's). If a build draws a shape's first screen before its
-  Back, in either run, that run is void, not passed, and comes back
-  to ux-designer for an earlier time or a heavier shape.
+  Back, at either of the two times, that run is void, not passed, and
+  comes back to ux-designer for an earlier time or a heavier shape.
   On Android, each Back on a stress shape is made in each of the three
   ways the platform gives: the Back key, the navigation bar's Back,
   and the app bar's Back. Then, as further runs, on each stress shape:
@@ -811,14 +811,15 @@ it, those checks are blocked, never passed.
     about 0.6 s after Open the whole message. The second comes after
     the reader has closed, so this run checks that neither Back is
     lost;
-  - by the Back key, two Backs pressed together, the second within
-    about 0.03 s of the first, about 0.6 s after Open the whole
-    message, so that both arrive before the reader closes. This run
-    checks §5.4's second Back pressed while the reader is still
-    opening: the two are not merged into one. Each round is judged
-    on times on the phone's uptime clock: when each of the two presses
-    was sent, as the sender stamps it at the moment it sends the press,
-    whether or not the app ever sees it; and when the reader closed.
+  - by the Back key, two Backs pressed together, the first about
+    0.6 s after Open the whole message and the second within about
+    0.03 s of the first, so that both arrive before the reader closes.
+    This run checks §5.4's second Back pressed while the reader is
+    still opening: the two are not merged into one. Each round is
+    judged by times on the phone's uptime clock: when each of the two
+    presses was sent, as the sending tool stamps that time at the
+    moment it sends the press, whether or not the app ever sees the
+    press; and when the reader closed.
     The round is void only when a send time is missing, the second
     press was sent after the close, or the first screen was drawn
     before the first press (as above). Otherwise it passes when the two
@@ -827,11 +828,12 @@ it, those checks are blocked, never passed.
     hold, and it fails in every other case: fewer steps (a press was
     lost, or the two were merged into one), more steps, a reader that
     never closes, or a condition below that does not hold.
-  On the desktop, the single Backs by Escape, at the same times, each
-  timed from when the sending tool sent the Escape. The runs of two
-  Backs are Android's: on the desktop a second Escape in the
-  conversation acts as Escape there does, which shows no step to
-  observe, and its key event carries no time of its own.
+  On the desktop, the single Backs are made by Escape, at the same
+  times, and each is timed from when the sending tool sent the
+  Escape. The runs of two Backs are Android's: on the desktop, a
+  second Escape in the conversation does what Escape does in the
+  conversation, and that shows no step to observe; and its key event
+  carries no time of its own.
   Each time, after the Back that closes the reader: no Back is lost;
   focus is on the row's Open the whole message; and the conversation
   is where it was. Inside the first
@@ -852,10 +854,11 @@ it, those checks are blocked, never passed.
   - Both stress shapes by the Back key, three rounds each, 2026-11-13
     (`apps/human-android/device-runs/2026-11-13-samsung-a40-back-during-opening.md`):
     every close within 0.15 s; two Backs 0.3 s apart, neither lost.
-    On the same day, the list shape with a Back at 0.2 s and the
-    headings of autolinks and the reference link with a Back at 0.6 s
-    were run too. That day's clean build drew their first screens in
-    179, 239 and 304 ms, before the Back, so those runs are void as
+    On the same day, the list shape with a Back at 0.2 s, and the
+    headings of autolinks and the reference link, each with a Back at
+    0.6 s, were run too. That day's clean build drew their first
+    screens in 179, 239 and 304 ms, in that order, before the Back, so
+    those runs are void as
     runs of A5: they show only that an open reader closed.
   - Both stress shapes by the navigation bar's Back (two Backs 0.3 s
     apart included) and by the app bar's Back, 2026-11-14 (main
