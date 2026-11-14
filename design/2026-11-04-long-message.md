@@ -803,15 +803,18 @@ it, those checks are blocked, never passed.
   figure. They are run here because their first screens come later
   than 0.6 s on the A40 (on 2026-11-13, 1.41 s for distinct headings
   and 1.02 s for distinct links), so a Back at 0.6 s is pressed while
-  the bar shows, as this part of A5 needs. Every
+  the bar shows, as this part of A5 needs. On that day's build, every
   other shape draws its first screen in under 0.31 s, before that
-  Back. On each stress shape, Back about 0.6 s after Open
+  Back (the list shape's 347 ms below is from the build before it).
+  On each stress shape, Back about 0.6 s after Open
   the whole message, by each way the platform gives: the Back key, the
-  navigation bar's Back, and the app bar's Back. Then two Backs about
-  0.3 s apart. Each time, the reader closes within 0.15 s of the Back:
-  time for the next gap between turns (§5.4) and for the frame that
-  draws the close. A close that waits until the first screen is built
-  misses the 0.15 s, even when it comes within 1 s of the Back.
+  navigation bar's Back, and the app bar's Back. Then, by each of the
+  three ways, two Backs about 0.3 s apart, the first about 0.6 s after
+  Open the whole message. Each time, the reader closes within 0.15 s
+  of the Back: time for the next gap between turns (§5.4) and for the
+  frame that draws the close. A close that waits until the opening has
+  finished building misses the 0.15 s, even when it comes within 1 s
+  of the Back.
   Focus is on the row's Open the
   whole message, and the conversation is where it was. Of two Backs,
   the first closes the reader and the second acts on the conversation;
@@ -828,11 +831,12 @@ it, those checks are blocked, never passed.
     lost nor merged.
   - Both stress shapes by the navigation bar's Back (two Backs
     included) and by the app bar's Back, 2026-11-14 (main 41bb631b9,
-    REPLY 01a1d840): closed in 62 to 118 ms, timed from when the key was
-    delivered or the finger touched, with focus on Open the whole
-    message.
-  Not run yet, and carried rather than failed: the desktop, the Pixel,
-  and the release APK.
+    REPLY 01a1d840): closed in 62 to 118 ms, with focus on Open the
+    whole message. The navigation bar's Back reaches the app as a key,
+    so it is timed from when the key was delivered; the app bar's Back
+    is timed from when the finger touched.
+  Not run yet, and carried rather than failed: two Backs by the app
+  bar's Back, the desktop, the Pixel, and the release APK.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
   on the desktop and TalkBack on the Pixel.
 - **A7** The reader's row removed while it is open, the app sent to
