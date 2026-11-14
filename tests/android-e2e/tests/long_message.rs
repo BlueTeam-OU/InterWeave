@@ -516,9 +516,10 @@ async fn on_a_device_two_backs_pressed_together_while_the_reader_opens_take_two_
 /// pressed and Back `after` later, and a second Back `second` after that
 /// ([`Screens::read_whole_then_back`]), judged as `run`: the conversation
 /// is opened again for each shape the second Back left. Every round is
-/// printed with its verdict and times; the case fails once all have run
-/// if any failed, and otherwise if any was void -- a void round is not a
-/// pass, and goes back to ux-designer (A5).
+/// printed with its verdict and times, and every round is run unless one
+/// leaves the app off the page the next starts from; the case then fails
+/// naming each failed round, each void one -- a void round is not a
+/// pass, and goes back to ux-designer (A5) -- and any stop.
 async fn back_while_opening(names: &[&str], after: Duration, second: Option<Duration>, run: Run) {
     let shots = std::env::var_os("INTERWEAVE_ANDROID_SHOTS").map(PathBuf::from);
     let Rig {
@@ -532,6 +533,7 @@ async fn back_while_opening(names: &[&str], after: Duration, second: Option<Dura
     let mut opened: Vec<String> = Vec::new();
     let mut failed = Vec::new();
     let mut void = Vec::new();
+    let mut stopped = None;
     for (serial_no, name) in (1u8..).zip(names) {
         let (name, text) = shapes()
             .into_iter()
@@ -611,18 +613,37 @@ async fn back_while_opening(names: &[&str], after: Duration, second: Option<Dura
             ));
         }
         let read = field("read").to_owned();
-        if second.is_none() && result != keys::PASS {
-            // A single Back that did not close the reader leaves it open,
-            // and the next shape's row is not on this page.
+        // The next round starts where this one should have ended: the
+        // conversation after one Back, the chat list after two. A round
+        // that never got there, whatever its verdict, leaves the app
+        // where the next one cannot start, so the rest are not run and
+        // the case says so; any other round, passed or not, goes on.
+        let ended = if second.is_some() {
+            "left-at"
+        } else {
+            "closed-at"
+        };
+        if back.get(ended).is_none() {
+            stopped = Some(format!(
+                "{name} did not reach the page the next round starts from (no {ended}): the rounds after it were not run"
+            ));
             break;
         }
         opened.push(read);
     }
     Rig::stop(sender, phone, d).await;
-    assert!(failed.is_empty(), "rounds failed:\n{}", failed.join("\n"));
-    assert!(
-        void.is_empty(),
-        "rounds VOID, not failed by the app and not passed (A5: back to ux-designer for an earlier time or a heavier shape):\n{}",
-        void.join("\n")
-    );
+    // One assertion naming every group, so a failed round never hides a
+    // void one or a stop.
+    let mut said = Vec::new();
+    if !failed.is_empty() {
+        said.push(format!("rounds FAILED:\n{}", failed.join("\n")));
+    }
+    if !void.is_empty() {
+        said.push(format!(
+            "rounds VOID, not failed by the app and not passed (A5: back to ux-designer for an earlier time or a heavier shape):\n{}",
+            void.join("\n")
+        ));
+    }
+    said.extend(stopped);
+    assert!(said.is_empty(), "{}", said.join("\n\n"));
 }
