@@ -7626,7 +7626,21 @@ owner:
   (`apps/human-android/device-runs/2026-11-12-samsung-a40-release-profile.md`,
   a debug APK with its library at the release profile); what that row
   leaves unproved is in its limit cell. The pane on a release APK and
-  the reply's target stay as written.)
+  the reply's target stay as written.) (A 2026-11-14 — the third was
+  closed too, and the note of 2026-11-13 was wrong to leave it "as
+  written": the lookup was decided and built before that note. As
+  this entry was written, a reply whose target lay beyond the held
+  rows read as `unavailable` on the command line. #535, merged
+  2026-11-03, built the lookup of `design/2026-10-27-start-window.md`
+  §5.2: schema v13 answers from two indexes whether the conversation
+  holds the target, unread or kept, and never reads a row; such a
+  reply prints `{"stored": true}` on the command line
+  (`apps/human-cli/README.md`; `a_reply_to_a_stored_target_prints_stored`
+  in `apps/human-cli/src/output.rs`) and draws "In reply to an earlier
+  message" in the conversation. `{"unavailable": true}` stayed for a
+  target the store does not hold in that conversation, and for the
+  other cases that README lists. Of the three, the pane on a release
+  APK stays as written.)
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review
