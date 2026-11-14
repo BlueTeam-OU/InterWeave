@@ -1484,7 +1484,8 @@ impl View {
     }
 
     /// The reader's first frame, timed from the press that opened it, to
-    /// the trace if one is on.
+    /// the trace if one is on; where no frame is told, the rows handed to
+    /// the window, said as such (`trace::reader_rows_line`).
     #[cfg(feature = "ui-trace")]
     fn trace_reader_drawn(&mut self) {
         let Some(to) = self.trace.as_ref().map(trace::Tracer::sink) else {
@@ -1492,7 +1493,10 @@ impl View {
         };
         let asked = self.shared.borrow_mut().open_asked.take();
         let asked = asked.unwrap_or_else(Instant::now);
-        self.after_next_frame(move || to(&trace::reader_drawn_line(asked.elapsed())));
+        let framed = Rc::clone(&to);
+        if !self.after_next_frame(move || framed(&trace::reader_drawn_line(asked.elapsed()))) {
+            to(&trace::reader_rows_line(asked.elapsed()));
+        }
     }
 
     /// The identity flow's `screen` is over the window with `page`, or,

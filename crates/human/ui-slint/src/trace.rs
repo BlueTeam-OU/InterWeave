@@ -440,6 +440,15 @@ pub(crate) fn reader_drawn_line(took: Duration) -> String {
     format!("{PREFIX} reader=drawn ms={}", took.as_millis())
 }
 
+/// The line for the reader's rows handed to the window, `took` after the
+/// press, where the renderer tells no frame (the desktop's software
+/// renderer sets no rendering notifier): the frame that draws them comes
+/// after it, so a driver reading it as the first screen reads it early,
+/// and a Back it calls too late is one the frame may not have preceded.
+pub(crate) fn reader_rows_line(took: Duration) -> String {
+    format!("{} frame=untold", reader_drawn_line(took))
+}
+
 /// The line for End in the reader showing the source or the formatted
 /// form: `took` from the key to the frame that showed the list at its
 /// end, `frames` drawn in between counting that one, or, `at_end` false,
@@ -495,6 +504,10 @@ mod tests {
         assert_eq!(
             reader_drawn_line(Duration::from_micros(412_900)),
             "ui-trace reader=drawn ms=412"
+        );
+        assert_eq!(
+            reader_rows_line(Duration::from_micros(3_900)),
+            "ui-trace reader=drawn ms=3 frame=untold"
         );
         assert_eq!(
             reader_end_line(Duration::from_millis(1_250), 4, true, false),
