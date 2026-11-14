@@ -68,7 +68,8 @@ use super::relay::Relay;
 
 /// How long the inner copy may run before it is killed, every process it
 /// started with it: its own waits are bounded by `PATIENCE` each, so
-/// this is reached only by a hang.
+/// this is reached only by a hang -- unless the case waits on purpose,
+/// which names its own through [`in_overlay_within`].
 const INNER_DEADLINE: Duration = Duration::from_secs(600);
 
 /// Where the outer copy makes the new root's mount point, when set: the
@@ -217,7 +218,7 @@ mkdir "$NR/old"; cd "$NR"; pivot_root . old; cd /; umount -l /old; rmdir /old
 /// copy did not pass -- never a skip.
 #[must_use]
 pub fn in_second_network(test: &str) -> bool {
-    inside(NAT_NETWORK, test)
+    inside(NAT_NETWORK, test, INNER_DEADLINE)
 }
 
 /// [`in_second_network`], in the overlay's topology instead: A and B on
@@ -227,7 +228,18 @@ pub fn in_second_network(test: &str) -> bool {
 /// As [`in_second_network`].
 #[must_use]
 pub fn in_overlay(test: &str) -> bool {
-    inside(&format!("{OVERLAY_NETWORK}{OVERLAY_UP}"), test)
+    in_overlay_within(test, INNER_DEADLINE)
+}
+
+/// [`in_overlay`] for a case that waits longer than the default
+/// deadline on purpose (an outage measured in minutes): the inner copy
+/// is killed after `deadline` instead.
+///
+/// # Panics
+/// As [`in_second_network`].
+#[must_use]
+pub fn in_overlay_within(test: &str, deadline: Duration) -> bool {
+    inside(&format!("{OVERLAY_NETWORK}{OVERLAY_UP}"), test, deadline)
 }
 
 /// Delete the overlay's link, as an overlay interface taken down goes:
@@ -283,7 +295,7 @@ fn shell(what: &str, script: &str) {
 
 /// The outer copy's run of the inner one in the namespaces `network`
 /// builds.
-fn inside(network: &str, test: &str) -> bool {
+fn inside(network: &str, test: &str, deadline: Duration) -> bool {
     if std::env::var_os(NETNS_ENV).is_some() {
         return true;
     }
@@ -358,11 +370,11 @@ fn inside(network: &str, test: &str) -> bool {
     std::thread::spawn(move || {
         let _ = done.send(child.wait_with_output());
     });
-    let Ok(output) = finished.recv_timeout(INNER_DEADLINE) else {
+    let Ok(output) = finished.recv_timeout(deadline) else {
         let _ = Command::new("kill")
             .args(["-KILL", &pid.to_string()])
             .status();
-        panic!("the test inside the second network ran past {INNER_DEADLINE:?}: killed");
+        panic!("the test inside the second network ran past {deadline:?}: killed");
     };
     let output = output.expect("the inner copy's output");
     let stdout = String::from_utf8_lossy(&output.stdout);
