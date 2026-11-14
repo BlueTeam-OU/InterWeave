@@ -183,3 +183,19 @@ period past 180 s on two real hosts; the ping's cost on a phone.
 Propagation: decisions 2 and 5b; `clients/automated/AUTOMATED-CLIENT.md`
 §2 (a promise row) and §5; this note; the log row; the README row;
 the digest entry and its keyword-table row.
+
+### Amendment 2026-11-14 — The hold's rule is cited at ADR-0068
+
+ADR-0068 promoted the keepalive and hold rules out of
+`transport/libp2p/CONNECTIVITY.md` §14 into a decision record, and §14
+now says a change to a rule is made there. Decision 2 said "The rule,
+which of two connections is the held one, and what is not proved are
+`transport/libp2p/CONNECTIVITY.md` §14's (A 2026-11-13) and are not
+restated here", which would have sent a reader to §14 alone to change
+the rule. It now names ADR-0068 (rules 4 to 6) for the rule and §14
+for which connection is held and what is not proved. What the
+transport promises an automated client is unchanged. Raised by the
+review of #667 (F1).
+
+Propagation: decision 2; `clients/automated/AUTOMATED-CLIENT.md` §2's
+promise row; this note; the log row; the digest entry.
