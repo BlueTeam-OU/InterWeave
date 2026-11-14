@@ -625,25 +625,14 @@ async fn back_while_opening(names: &[&str], after: Duration, second: Option<Dura
         };
         if back.get(ended).is_none() {
             stopped = Some(format!(
-                "{name} did not reach the page the next round starts from (no {ended}): the rounds after it were not run"
+                "{name} did not reach the page the next round starts from (no {ended}): the run stopped there"
             ));
             break;
         }
         opened.push(read);
     }
     Rig::stop(sender, phone, d).await;
-    // One assertion naming every group, so a failed round never hides a
-    // void one or a stop.
-    let mut said = Vec::new();
-    if !failed.is_empty() {
-        said.push(format!("rounds FAILED:\n{}", failed.join("\n")));
+    if let Some(why) = back_run::case_failure(&failed, &void, stopped.as_deref()) {
+        panic!("{why}");
     }
-    if !void.is_empty() {
-        said.push(format!(
-            "rounds VOID, not failed by the app and not passed (A5: back to ux-designer for an earlier time or a heavier shape):\n{}",
-            void.join("\n")
-        ));
-    }
-    said.extend(stopped);
-    assert!(said.is_empty(), "{}", said.join("\n\n"));
 }

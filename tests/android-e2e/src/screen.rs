@@ -301,7 +301,8 @@ impl Screens {
         let (sent_out, trace) = match (sent, timed) {
             (Ok(out), Ok(trace)) => (out, trace),
             (sent, timed) => {
-                let why = [sent.err(), timed.err()]
+                let said = sent.as_ref().ok().map(|out| format!("sender said {out:?}"));
+                let why = [sent.err(), timed.err(), said]
                     .into_iter()
                     .flatten()
                     .collect::<Vec<_>>();
@@ -1327,6 +1328,7 @@ case "$*" in
     printf '%s\n' "{focus}"
     echo IW_END=0 ;;
   *logcat\ -d*) printf '%s\n' "{trace}" ;;
+  *KeySender*) cat {d}/sender 2>/dev/null ;;
 esac
 "#
         );
@@ -1382,6 +1384,45 @@ esac
             "{detail}"
         );
         assert_eq!(step.get("read"), Some(&json!("read:0")));
+    }
+
+    #[test]
+    fn a_back_run_whose_trace_cannot_be_timed_is_the_harnesss_fail_never_judged() {
+        // The sender sent every press and the pages came, but the log
+        // has no monotonic form: judged, the round would fail as "the
+        // reader never closed".
+        let (dir, mut s) = stand_in(
+            0,
+            "ui-trace page=conversation\nui-trace focus=read:0\nui-trace page=reader\nui-trace page=conversation",
+        );
+        std::fs::write(
+            dir.path().join("sender"),
+            "sent ENTER 1000\nsent BACK 1090\n",
+        )
+        .unwrap();
+        let step = s.read_whole_then_back(
+            &[],
+            Duration::from_millis(90),
+            None,
+            back_run::Run::Single {
+                within: Duration::from_secs(1),
+            },
+            Duration::from_millis(50),
+            || {},
+        );
+        assert_eq!(step.get(keys::RESULT), Some(&json!(keys::FAIL)), "{step:?}");
+        let detail = step
+            .get(keys::DETAIL)
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            detail.starts_with("the harness: the monotonic logcat"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("sent BACK 1090"),
+            "the sender's stdout: {detail}"
+        );
     }
 
     #[test]

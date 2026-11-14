@@ -270,6 +270,27 @@ fn within_of(within: Duration, back: u64, closed: u64) -> Verdict {
     }
 }
 
+/// Why a case of Back runs fails, or `None` when every round passed:
+/// one text naming each group under its own heading -- the failed
+/// rounds, the void ones (not the app's fail and not a pass: A5 sends
+/// them back to ux-designer) and the stop, if the run stopped early --
+/// so a failed round never hides a void one or a stop.
+#[must_use]
+pub fn case_failure(failed: &[String], void: &[String], stopped: Option<&str>) -> Option<String> {
+    let mut said = Vec::new();
+    if !failed.is_empty() {
+        said.push(format!("rounds FAILED:\n{}", failed.join("\n")));
+    }
+    if !void.is_empty() {
+        said.push(format!(
+            "rounds VOID, not failed by the app and not passed (A5: back to ux-designer for an earlier time or a heavier shape):\n{}",
+            void.join("\n")
+        ));
+    }
+    said.extend(stopped.map(str::to_owned));
+    (!said.is_empty()).then(|| said.join("\n\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,6 +471,27 @@ mod tests {
             judge(run, &times(&s, &late), &late),
             Verdict::Fail(_)
         ));
+    }
+
+    #[test]
+    fn a_case_failure_names_every_group_and_none_when_all_passed() {
+        assert_eq!(case_failure(&[], &[], None), None);
+        let said = case_failure(
+            &["distinct headings: late".to_owned()],
+            &["distinct links: drawn first".to_owned()],
+            Some("distinct links stopped"),
+        )
+        .unwrap();
+        for part in [
+            "rounds FAILED:\ndistinct headings: late",
+            "rounds VOID",
+            "distinct links: drawn first",
+            "distinct links stopped",
+        ] {
+            assert!(said.contains(part), "{part} in {said}");
+        }
+        let void_only = case_failure(&[], &["x: void".to_owned()], None).unwrap();
+        assert!(void_only.starts_with("rounds VOID"), "{void_only}");
     }
 
     #[test]
