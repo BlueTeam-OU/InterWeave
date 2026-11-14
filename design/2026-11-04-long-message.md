@@ -819,8 +819,9 @@ it, those checks are blocked, never passed.
     on times on the phone's uptime clock: when each of the two presses
     was sent, as the sender stamps it at the moment it sends the press,
     whether or not the app ever sees it; and when the reader closed.
-    The round is void only when a send time is missing or the second
-    press was sent after the close. Otherwise it passes when the two
+    The round is void only when a send time is missing, the second
+    press was sent after the close, or the first screen was drawn
+    before the first press (as above). Otherwise it passes when the two
     presses take exactly two steps (the reader closes, then the
     conversation leaves for the chat list) and the conditions below
     hold, and it fails in every other case: fewer steps (a press was
