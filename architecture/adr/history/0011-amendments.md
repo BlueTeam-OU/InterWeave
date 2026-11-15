@@ -458,12 +458,19 @@ run): with circuits through two relays the peer held a candidate the
 gate admitted while its retry waited up to the hold ladder's spread
 longer, which broke the 30 s bound and #674's own rule that the retry
 predicts the gate. So the body and `CONNECTIVITY.md` §12 state the rule
-and not the code: the retry goes at the later of 30 s and the moment
-the first candidate is admitted again, by a hold's end or by the first
-direct connection to the relay of any held circuit. Both carry the gap
-as it stood on 2026-11-15, in the past tense; the fix, its two-relay
-tests and the two code comments are p2p-network-dev's on its next pull
-request, and the gap sentence comes out when that lands.
+and not the code: the retry goes at the later of 30 s and the end of
+the first hold, or at once at the first direct connection to the relay
+of any held circuit; the relay's connection carries no 30 s floor, as
+the relay-hop paragraph's "due now" always said. Both carry the gap as
+it stood on 2026-11-15, in the past tense. One relay does not escape
+it: `schedule_retry` writes `waits_on: None`, so after a later failure
+of another route (a direct address that fails, then is quarantined)
+the retry deferred to the circuit's hold is not made due by its relay's
+connection, though the hold is released (#680 re-review round 3, F3;
+read, not run). The fix, its tests (two relays, and one relay with a
+failure of another route between) and the two code comments are
+p2p-network-dev's on its next pull request, and the gap sentence comes
+out when that lands.
 
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
