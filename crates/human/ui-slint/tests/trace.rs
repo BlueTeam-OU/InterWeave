@@ -1086,6 +1086,48 @@ fn a_chip_that_leaves_a_position_empty_hands_focus_to_the_keypad() {
     assert_eq!(page.take(), [IdentityInput::Enter], "typing");
 }
 
+/// The exception is a chip's alone: on an R2 with every position filled
+/// and no check running, a grid position chosen to edit keeps its own
+/// rule, focus on the keypad's first enabled key, typing (section 8).
+#[test]
+fn a_position_chosen_on_a_full_r2_hands_focus_to_the_keypad() {
+    use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    apply_identity(&mut flow, IdentityInput::Secondary);
+    apply_identity(&mut flow, IdentityInput::Primary);
+    assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
+    for (at, word) in WORDS[..24].iter().enumerate() {
+        apply_identity(&mut flow, IdentityInput::Slot(at));
+        take_word(&mut flow, word);
+    }
+    assert!(
+        flow.entry().expect("R2's entry").complete(),
+        "control: full"
+    );
+    let mut page = Identity::new(flow);
+    page.take();
+    for _ in 0..60 {
+        if page.last() == "ui-trace focus=identity-slot:0" {
+            break;
+        }
+        page.tab();
+    }
+    // Each TAB rebuilds the page with no chip taken: focus moves on, and
+    // is never pulled back to Check my words.
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-slot:0",
+        "TAB reaches position 1"
+    );
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Slot(0)]);
+    assert!(!page.flow.waiting(), "control: no check running");
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Enter], "typing");
+}
+
 /// Enter judged on the letters typed, not on the page shown: letters and
 /// Enter that reach the window before the page is rebuilt for them take
 /// the whole-word chip all the same (j261).
