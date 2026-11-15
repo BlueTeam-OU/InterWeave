@@ -431,11 +431,24 @@ delay. A peer whose only route is a held circuit is therefore retried at
 the hold's end or when its relay connects, which is the exception the
 wording names.
 
+That sentence was made exact on 2026-11-15, after #674 merged
+(p2p-network-dev-01's note, GZCoord
+id beginning `01a1ddde-2ffc`; the rule is unchanged). As built
+(`earliest_hold_end_if_only_held`,
+`crates/transport/runtime/src/connection_manager.rs`, over
+`ConnectionPolicy::route_hold_end`), the peer it describes is one whose
+every dial candidate is refused by a route hold, judged per relay as
+the gate judges it, so a second circuit through a held relay is held
+too; and it is retried at the later of 30 s and the moment the first of
+its candidates is admitted again, or at once when its relay connects.
+The body and `CONNECTIVITY.md` §12 now say that.
+
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
 unqualified. The long-outage run was made again on the new code, beside
 the first (`tests/automated-client/runs/2026-11-14-long-outage-30s.md`,
 at 41f94bcd6): the same 480 s outage, sixteen retry delays of 30 s
 each, and the far daemon reconnected 955 ms after its return. It was
-made before the two review fixes to the scheduler's wake, and has not
-been run again on them.
+made before the three review fixes to the scheduler's wake and its
+retry (51d05fa52, 3852cca34, 01fef73c9, all on #674), and has not been
+run again on them.
