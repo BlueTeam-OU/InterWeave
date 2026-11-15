@@ -6,8 +6,12 @@
 //! "Show source draws a replaced cluster as the body does"). `views.rs`
 //! holds the source's text to one U+FFFD on the testing backend, which
 //! shapes no text; here the same menu entry is chosen in a real window
-//! and the source drawn, so a source shaped with the character whole
-//! overflows the shaper under the overflow checks this test runs with.
+//! and the source drawn, the test finding the drawn source's text by the
+//! label it speaks. With the replacement taken out the shaper overflows
+//! under the overflow checks this test runs with, and it does so at the
+//! first render, before the menu opens: the row measures its source
+//! pieces with the code font whether or not the source is shown, so the
+//! measuring text shapes the same character the drawn source would.
 //! One test in this binary, since a process holds one window's event
 //! loop.
 //!
@@ -28,6 +32,7 @@ use interweave_human_ui_slint::View;
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::{ComponentHandle as _, Model as _};
+use unicode_segmentation::UnicodeSegmentation as _;
 
 fn human() -> EndpointId {
     EndpointId::parse("human").expect("valid")
@@ -53,6 +58,16 @@ fn received(row: i64, from: &TransportIdentity, text: &str) -> Received {
     }
 }
 
+/// What the drawn texts speak, the source's among them once it is shown.
+fn spoken_texts(view: &View) -> Vec<String> {
+    ElementQuery::from_root(view.window())
+        .match_accessible_role(AccessibleRole::Text)
+        .find_all()
+        .into_iter()
+        .filter_map(|e| e.accessible_label().map(|l| l.to_string()))
+        .collect()
+}
+
 fn draw(view: &View, what: &str) {
     slint::platform::update_timers_and_animations();
     let _ = view.window().window().take_snapshot().expect(what);
@@ -72,6 +87,13 @@ fn show_source_draws_a_character_past_the_cluster_bound_in_a_real_window() {
         .transport_identity()
         .expect("peer id");
     let past = format!("a{}", "\u{301}".repeat(255));
+    assert_eq!(
+        past.graphemes(true)
+            .map(|c| c.chars().count())
+            .collect::<Vec<_>>(),
+        [256],
+        "the premise: one character of 256 code points by UAX #29"
+    );
     let source = format!("x {past} y [see](https://example.org/{past})");
     let mut model = UiModel::new();
     model.received(received(1, &from, &source));
@@ -85,14 +107,26 @@ fn show_source_draws_a_character_past_the_cluster_bound_in_a_real_window() {
     draw(&view, "the conversation drawn");
 
     let show = placeholder_en::text(UiText::ShowSource);
+    let replaced = placeholder_en::text(UiText::ReplacedCharacter);
     let row = view
         .window()
         .get_messages()
         .row_data(0)
         .expect("the message row");
-    let spoken = interweave_human_ui_model::cluster::spoken(
-        row.label.as_str(),
-        placeholder_en::text(UiText::ReplacedCharacter),
+    let spoken = interweave_human_ui_model::cluster::spoken(row.label.as_str(), replaced);
+    // The source's pieces as the row would speak them once drawn; the
+    // row holds them before the menu is chosen, so the control is that
+    // no drawn text speaks them yet.
+    let source_spoken: Vec<String> = row
+        .source_pieces
+        .iter()
+        .map(|p| interweave_human_ui_model::cluster::spoken(p.as_str(), replaced).into_owned())
+        .collect();
+    assert!(!source_spoken.is_empty(), "the source has pieces");
+    let before = spoken_texts(&view);
+    assert!(
+        !source_spoken.iter().any(|s| before.contains(s)),
+        "the source is not drawn before Show source is chosen"
     );
     ElementQuery::from_root(view.window())
         .match_accessible_role(AccessibleRole::ListItem)
@@ -125,5 +159,10 @@ fn show_source_draws_a_character_past_the_cluster_bound_in_a_real_window() {
         pieces.iter().map(|p| p.to_string()).collect::<String>(),
         source.replace(&past, "\u{FFFD}"),
         "the source is shown, the character as one U+FFFD"
+    );
+    let after = spoken_texts(&view);
+    assert!(
+        source_spoken.iter().all(|s| after.contains(s)),
+        "the source drawn, its texts {source_spoken:?} among {after:?}"
     );
 }
