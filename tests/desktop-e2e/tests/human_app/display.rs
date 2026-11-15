@@ -155,32 +155,7 @@ pub(crate) fn luma_of(pid: u32) -> (usize, usize, Vec<u8>) {
 /// focus ([`focus`] gives it), past every toolkit hook a test backend
 /// would skip.
 pub(crate) fn tab() {
-    use x11rb::protocol::xproto::{KEY_PRESS_EVENT, KEY_RELEASE_EVENT};
-    use x11rb::protocol::xtest::ConnectionExt as _;
-    /// `XK_Tab`.
-    const TAB: u32 = 0xff09;
-    let (conn, screen) = x11rb::connect(None).expect("the test display answers");
-    let root = conn.setup().roots[screen].root;
-    let (low, high) = (conn.setup().min_keycode, conn.setup().max_keycode);
-    let map = conn
-        .get_keyboard_mapping(low, high - low + 1)
-        .expect("a keymap request")
-        .reply()
-        .expect("the display's keymap");
-    let per = usize::from(map.keysyms_per_keycode);
-    let code = map
-        .keysyms
-        .chunks(per)
-        .position(|syms| syms.contains(&TAB))
-        .and_then(|at| u8::try_from(at).ok())
-        .map(|at| low + at)
-        .expect("a key that types Tab");
-    for kind in [KEY_PRESS_EVENT, KEY_RELEASE_EVENT] {
-        conn.xtest_fake_input(kind, code, x11rb::CURRENT_TIME, root, 0, 0, 0)
-            .expect("an XTEST request")
-            .check()
-            .expect("the display takes the key");
-    }
+    Hand::new().key(TAB);
 }
 
 /// The first button pressed and released at `(x, y)` of the viewable
@@ -188,34 +163,149 @@ pub(crate) fn tab() {
 /// which reaches the window's own event first, as no accessible action
 /// does.
 pub(crate) fn click(pid: u32, x: i32, y: i32) {
-    use x11rb::protocol::xproto::{BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, MOTION_NOTIFY_EVENT};
-    use x11rb::protocol::xtest::ConnectionExt as _;
-    let (conn, screen) = x11rb::connect(None).expect("the test display answers");
-    let root = conn.setup().roots[screen].root;
-    let wm_pid = conn
-        .intern_atom(false, b"_NET_WM_PID")
-        .expect("an atom request")
-        .reply()
-        .expect("the _NET_WM_PID atom")
-        .atom;
-    let window = window_of(&conn, root, wm_pid, pid).expect("the client's window");
-    raise(&conn, window);
-    let at = conn
-        .translate_coordinates(window, root, 0, 0)
-        .expect("a translation request")
-        .reply()
-        .expect("the window's place on the screen");
-    let to =
-        |c: i32, origin: i16| i16::try_from(c + i32::from(origin)).expect("a point on the screen");
-    let (root_x, root_y) = (to(x, at.dst_x), to(y, at.dst_y));
-    for (kind, detail) in [
-        (MOTION_NOTIFY_EVENT, 0),
-        (BUTTON_PRESS_EVENT, 1),
-        (BUTTON_RELEASE_EVENT, 1),
-    ] {
-        conn.xtest_fake_input(kind, detail, x11rb::CURRENT_TIME, root, root_x, root_y, 0)
-            .expect("an XTEST request")
-            .check()
-            .expect("the display takes the pointer's move and press");
+    Hand::new().click(pid, x, y);
+}
+
+/// `XK_Tab`.
+pub(crate) const TAB: u32 = 0xff09;
+/// `XK_Escape`.
+pub(crate) const ESCAPE: u32 = 0xff1b;
+/// `XK_Return`.
+pub(crate) const RETURN: u32 = 0xff0d;
+/// `XK_Shift_L`.
+const SHIFT: u32 = 0xffe1;
+
+/// Now on the host's monotonic clock, in microseconds: the clock the
+/// traced client stamps its lines with (`apps/human-desktop`'s
+/// `trace.rs`), so a send and a line hold together.
+pub(crate) fn mono_us() -> u64 {
+    let t = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+    // Both fields are non-negative for this clock (clock_gettime(2)).
+    t.tv_sec.unsigned_abs() * 1_000_000 + t.tv_nsec.unsigned_abs() / 1_000
+}
+
+/// A person's hand on the test display: its keyboard and its pointer,
+/// through XTEST, over one connection made beforehand, so a timed press
+/// goes out when it is due. Each press is stamped with [`mono_us`] the
+/// moment before it is sent, whatever the window then does with it: the
+/// sending tool's time A5 times a Back from.
+pub(crate) struct Hand {
+    conn: RustConnection,
+    root: Window,
+    wm_pid: u32,
+    low: u8,
+    per: usize,
+    keysyms: Vec<u32>,
+}
+
+impl Hand {
+    /// The display's keyboard and pointer.
+    pub(crate) fn new() -> Self {
+        let (conn, screen) = x11rb::connect(None).expect("the test display answers");
+        let root = conn.setup().roots[screen].root;
+        let (low, high) = (conn.setup().min_keycode, conn.setup().max_keycode);
+        let map = conn
+            .get_keyboard_mapping(low, high - low + 1)
+            .expect("a keymap request")
+            .reply()
+            .expect("the display's keymap");
+        let wm_pid = conn
+            .intern_atom(false, b"_NET_WM_PID")
+            .expect("an atom request")
+            .reply()
+            .expect("the _NET_WM_PID atom")
+            .atom;
+        Self {
+            conn,
+            root,
+            wm_pid,
+            low,
+            per: usize::from(map.keysyms_per_keycode),
+            keysyms: map.keysyms,
+        }
+    }
+
+    /// The key typing `keysym` pressed and released, to the window
+    /// holding the input focus; when the press was sent, by [`mono_us`].
+    pub(crate) fn key(&self, keysym: u32) -> u64 {
+        use x11rb::protocol::xproto::{KEY_PRESS_EVENT, KEY_RELEASE_EVENT};
+        let code = self.code(keysym);
+        self.send([
+            (KEY_PRESS_EVENT, code, 0, 0),
+            (KEY_RELEASE_EVENT, code, 0, 0),
+        ])
+    }
+
+    /// Shift held while Tab is pressed and released: a step back along
+    /// the focus order.
+    pub(crate) fn shift_tab(&self) {
+        use x11rb::protocol::xproto::{KEY_PRESS_EVENT, KEY_RELEASE_EVENT};
+        let (shift, tab) = (self.code(SHIFT), self.code(TAB));
+        self.send([
+            (KEY_PRESS_EVENT, shift, 0, 0),
+            (KEY_PRESS_EVENT, tab, 0, 0),
+            (KEY_RELEASE_EVENT, tab, 0, 0),
+            (KEY_RELEASE_EVENT, shift, 0, 0),
+        ]);
+    }
+
+    /// The keycode that types `keysym`.
+    fn code(&self, keysym: u32) -> u8 {
+        self.keysyms
+            .chunks(self.per)
+            .position(|syms| syms.contains(&keysym))
+            .and_then(|at| u8::try_from(at).ok())
+            .map_or_else(
+                || panic!("a key that types keysym {keysym:#x}"),
+                |at| self.low + at,
+            )
+    }
+
+    /// The first button pressed and released at `(x, y)` of the viewable
+    /// top-level window of process `pid`, raised first; when the press
+    /// was sent, by [`mono_us`].
+    pub(crate) fn click(&self, pid: u32, x: i32, y: i32) -> u64 {
+        use x11rb::protocol::xproto::{
+            BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, MOTION_NOTIFY_EVENT,
+        };
+        let (root_x, root_y) = self.on_screen(pid, x, y);
+        self.send([(MOTION_NOTIFY_EVENT, 0, root_x, root_y)]);
+        self.send([
+            (BUTTON_PRESS_EVENT, 1, root_x, root_y),
+            (BUTTON_RELEASE_EVENT, 1, root_x, root_y),
+        ])
+    }
+
+    /// `(x, y)` of the viewable top-level window of process `pid`, raised
+    /// first, on the screen.
+    fn on_screen(&self, pid: u32, x: i32, y: i32) -> (i16, i16) {
+        let window =
+            window_of(&self.conn, self.root, self.wm_pid, pid).expect("the client's window");
+        raise(&self.conn, window);
+        let at = self
+            .conn
+            .translate_coordinates(window, self.root, 0, 0)
+            .expect("a translation request")
+            .reply()
+            .expect("the window's place on the screen");
+        let to = |c: i32, origin: i16| {
+            i16::try_from(c + i32::from(origin)).expect("a point on the screen")
+        };
+        (to(x, at.dst_x), to(y, at.dst_y))
+    }
+
+    /// `events` faked in order, each checked as taken; the stamp read the
+    /// moment before the first goes out.
+    fn send<const N: usize>(&self, events: [(u8, u8, i16, i16); N]) -> u64 {
+        use x11rb::protocol::xtest::ConnectionExt as _;
+        let sent = mono_us();
+        for (kind, detail, x, y) in events {
+            self.conn
+                .xtest_fake_input(kind, detail, x11rb::CURRENT_TIME, self.root, x, y, 0)
+                .expect("an XTEST request")
+                .check()
+                .expect("the display takes the input");
+        }
+        sent
     }
 }

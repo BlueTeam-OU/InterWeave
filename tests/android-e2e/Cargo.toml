@@ -4,8 +4,8 @@
 # Stage 17 (plan §20 gate (c)): Android <-> desktop interoperability over
 # a direct and a relayed path, behind the device seam the src/lib.rs
 # defines. The Android side is the embedded runtime on this host until a
-# target build and a device exist. TEST-ONLY; nothing depends on this
-# package.
+# target build and a device exist. TEST-ONLY; only tests/desktop-e2e
+# depends on it, for A5's shapes and judge (src/long.rs, src/back_run.rs).
 [package]
 name = "interweave-android-e2e-tests"
 version.workspace = true
