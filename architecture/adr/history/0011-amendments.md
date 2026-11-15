@@ -439,9 +439,14 @@ id beginning `01a1ddde-2ffc`; the rule is unchanged). As built
 `ConnectionPolicy::route_hold_end`), the peer it describes is one whose
 every dial candidate is refused by a route hold, judged per relay as
 the gate judges it, so a second circuit through a held relay is held
-too; and it is retried at the later of 30 s and the moment the first of
-its candidates is admitted again, or at once when its relay connects.
-The body and `CONNECTIVITY.md` §12 now say that.
+too; its retry is scheduled at the later of 30 s and the end of the
+first of those holds, or at once when the relay whose hop failed last
+connects (`waits_on` names one relay). A retry made due sooner, by a
+network addition or a newly learned circuit through a held relay, and
+refused by every hold is deferred to the end of the last of the peer's
+holds (`defer_retry_to_route_hold`, over `route_held_until`). The body
+and `CONNECTIVITY.md` §12 now say that, and the relay-hop paragraph's
+"scheduled at the peer's ordinary delay" names the exception.
 
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
@@ -449,6 +454,6 @@ unqualified. The long-outage run was made again on the new code, beside
 the first (`tests/automated-client/runs/2026-11-14-long-outage-30s.md`,
 at 41f94bcd6): the same 480 s outage, sixteen retry delays of 30 s
 each, and the far daemon reconnected 955 ms after its return. It was
-made before the three review fixes to the scheduler's wake and its
-retry (51d05fa52, 3852cca34, 01fef73c9, all on #674), and has not been
-run again on them.
+made before the four review fixes to the scheduler's wake and its
+retry (51d05fa52, 3852cca34, 01fef73c9, aa6e07843, all on #674), and
+has not been run again on them.
