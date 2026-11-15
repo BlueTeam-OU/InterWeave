@@ -2430,7 +2430,9 @@ component IdentityScreen inherits FocusScope {
     // entering, its default, and gives it and the mode back to what had
     // them; a banner that appears takes it; a chip that fills a
     // position, or a grid position chosen to edit, hands it to the
-    // keypad's first enabled key; a focused chip follows its word along
+    // keypad's first enabled key, except a chip that leaves no R2
+    // position empty, which hands it to Check my words, navigating; a
+    // focused chip follows its word along
     // the row, or goes to that key when the letters remove it; else it
     // stays on its stop.
     property <bool> dialog-shown;
@@ -2574,7 +2576,8 @@ component IdentityScreen inherits FocusScope {
         // The exception to that: a chip that leaves no R2 position empty
         // sets navigating, focus on Check my words, since no word is
         // left to type and the next Enter can only mean "check" (section
-        // 8). R2 enables its primary once all 24 are filled (identity.rs).
+        // 8). R2 enables its primary once all 24 are filled and no check
+        // is running (identity.rs).
         let to-check = chip-taken && root.page.screen == IdScreen.r2
             && root.page.primary-enabled;
         root.chips-shown = root.page.chips-taken;
@@ -2606,7 +2609,8 @@ component IdentityScreen inherits FocusScope {
     }
     // A chip taken, by a tap or a press: typing, an exception to "a press
     // sets navigating", so the next Enter does not press the key focus
-    // goes to (section 8).
+    // goes to (section 8). The page that shows it may set navigating
+    // again: a chip that leaves no R2 position empty (`changed page`).
     function take(word: string) {
         root.typing = true;
         root.chip(word);
@@ -2619,7 +2623,8 @@ component IdentityScreen inherits FocusScope {
     // chip they would add a letter. Navigating -- TAB, an arrow, a tap on
     // any other control that acts, or a press by Enter or Space, a key's
     // included -- they press the focused control. A chip taken or a
-    // position chosen, by any input, returns typing. Space, an Enter that
+    // position chosen, by any input, returns typing, except a chip that
+    // leaves no R2 position empty, which sets navigating. Space, an Enter that
     // did nothing, Back, and a tap that acts on nothing (a disabled key,
     // text, no control) leave the mode as it was; R2 and C3 open typing.
     // No tap moves focus.
