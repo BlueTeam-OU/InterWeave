@@ -691,3 +691,155 @@ async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
         "a retry when the link returned\n{seen:?}"
     );
 }
+
+const LONG_OUTAGE: &str =
+    "after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backoff";
+
+/// How long B's daemon is down: past the backoff's first four steps
+/// (30, 60, 120 and 240 s, 450 s in all) and into its 300 s ceiling.
+const OUTAGE: Duration = Duration::from_secs(480);
+
+/// The backoff's ceiling (`CONNECTIVITY.md` §12's "30 s, exponentially,
+/// bounded by 5 min"; `retry_backoff_ms`).
+const CEILING: Duration = Duration::from_secs(300);
+
+/// What A's log shows of the outage, and how long the pair took to
+/// reconnect once B was back: written beside the test binary, since the
+/// inner run's output is not shown on a pass.
+fn record(text: &str) {
+    let path = std::env::current_exe()
+        .expect("the test binary's path")
+        .with_file_name("long_outage.txt");
+    std::fs::write(&path, text).expect("the record is written");
+}
+
+/// A log line's time of day, in seconds: the subscriber's RFC 3339
+/// timestamp, UTC. A run crossing midnight would read wrong; the case
+/// lasts under a quarter of an hour.
+fn seconds_of_day(line: &str) -> f64 {
+    let time = line
+        .split_once('T')
+        .and_then(|(_, rest)| rest.split_once('Z'))
+        .map(|(time, _)| time)
+        .expect("a timestamped line");
+    time.split(':')
+        .map(|f| f.parse::<f64>().expect("a time field"))
+        .fold(0.0, |acc, f| acc * 60.0 + f)
+}
+
+/// The fleet's shape (only A holds an entry), with B's DAEMON stopped
+/// rather than the link: A's dials reach B's namespace and are refused
+/// there, nothing changes in A's network, so no network change lifts A's
+/// backoff. A redials by its entry on the backoff's schedule; after the
+/// outage B starts again on the same port, never dials A (it holds no
+/// entry), and the pair reconnects when A's next retry falls due -- so
+/// how long that takes is what is left of the step A is in, at most the
+/// ceiling. Run by hand: eight minutes down; each run is recorded under
+/// `tests/automated-client/runs/`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "an outage of eight minutes, run by hand and recorded under tests/automated-client/runs/"]
+async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_its_backoff() {
+    // The outage, the ceiling and the patience, and margin: past the
+    // harness's default deadline on purpose.
+    if !netns::in_overlay_within(LONG_OUTAGE, Duration::from_mins(20)) {
+        return;
+    }
+    let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
+    until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
+    let before = a.log().len();
+
+    b.stop().await;
+    let down = tokio::time::Instant::now();
+    let deadline = down + CLOSE;
+    while a.connected_to(&b.peer).await {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "A saw B go\n{}",
+            a.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep_until(down + OUTAGE).await;
+    let during = a.log()[before..].to_owned();
+
+    b.start().await;
+    let back = tokio::time::Instant::now();
+    until_both(
+        &a,
+        &b,
+        true,
+        CEILING + PATIENCE,
+        "reconnected within the backoff's ceiling",
+    )
+    .await;
+    let took = back.elapsed();
+
+    let after = a.log()[before + during.len()..].to_owned();
+    let lines = |log: &str, what: &str| -> Vec<String> {
+        log.lines()
+            .filter(|l| l.contains(what))
+            .map(str::to_owned)
+            .collect()
+    };
+    let delays: Vec<u64> = lines(&during, "retry scheduled")
+        .iter()
+        .filter_map(|l| {
+            l.split_whitespace()
+                .find_map(|f| f.strip_prefix("delay_ms="))
+                .and_then(|n| n.parse().ok())
+        })
+        .collect();
+    record(&format!(
+        "outage {OUTAGE:?}, reconnected {took:?} after B's return\n\
+         retry delays during the outage (ms): {delays:?}\n\
+         reconnect refusals during the outage: {}\n\
+         -- A's dial lines during the outage --\n{}\n\
+         -- A's dial and connect lines after B's return --\n{}\n",
+        lines(&during, "reconnect refused").len(),
+        lines(&during, "dial failed")
+            .iter()
+            .chain(lines(&during, "retry scheduled").iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n"),
+        after
+            .lines()
+            .filter(|l| l.contains("dial failed")
+                || l.contains("retry scheduled")
+                || l.contains("peer connected"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ));
+
+    // A WENT ON REDIALLING through the outage, on the backoff's
+    // schedule: dials at 0, 30, 90, 210 and 450 s after the close, the
+    // last putting it at the ceiling before B's return at 480 s.
+    assert_eq!(
+        delays,
+        [30_000, 60_000, 120_000, 240_000, 300_000],
+        "{during}"
+    );
+    // B'S RETURN LIFTS NOTHING: the pair reconnects when the retry the
+    // last failure scheduled falls due, not when B is back -- B holds no
+    // entry, and nothing in A's network changed. Read from A's own log:
+    // its connect is the retry's moment, within a second.
+    let last_failure = lines(&during, "retry scheduled")
+        .last()
+        .map(|l| seconds_of_day(l))
+        .expect("a retry scheduled");
+    let connected = lines(&after, "peer connected")
+        .first()
+        .map(|l| seconds_of_day(l))
+        .expect("A logged the reconnect");
+    let due = last_failure + 300.0;
+    assert!(
+        (connected - due).abs() < 1.0,
+        "reconnected at the retry's moment: due {due}, connected {connected}\n{after}"
+    );
+    // And so it took most of the ceiling after B was back: more than
+    // any patience a prompt redial would need.
+    assert!(took > PATIENCE && took <= CEILING + PATIENCE, "{took:?}");
+
+    a.stop().await;
+    b.stop().await;
+}
