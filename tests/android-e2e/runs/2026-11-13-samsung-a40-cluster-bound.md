@@ -35,11 +35,11 @@ process (pid 25009) and no panic line across all seven steps.
 
 | step | where | at the bound (32) | past it (33, 64, 256) |
 |---|---|---|---|
-| 1 | Chats, the body's line | drawn whole, its marks stacked | each one U+FFFD |
-| 2 | the conversation, the body | drawn whole | each one U+FFFD |
-| 3 | the first card's proposal ("This peer says they are …") | drawn whole | — |
-| 4 | the conversation's title and the notice "You saved … as a contact.", after Accept | drawn whole | — |
-| 5 | the second card's proposal ("This peer says they are …", "New name:") | the current contact's name drawn whole ("your contact … is updated") | one U+FFFD |
+| 1 | Chats, the body's line | not replaced; its marks rose above the line to the row's clip | each one U+FFFD |
+| 2 | the conversation, the body | not replaced; about two of its 31 marks showed | each one U+FFFD |
+| 3 | the first card's proposal ("This peer says they are …") | not replaced; about two marks showed | — |
+| 4 | the conversation's title and the notice "You saved … as a contact.", after Accept | not replaced; in the title its marks ran off the top of the screen, in the notice about two showed | — |
+| 5 | the second card's proposal ("This peer says they are …", "New name:") | the current contact's name not replaced ("your contact … is updated"): about two marks showed there, and the title's ran off the screen as in step 4 | one U+FFFD |
 | 6 | the title and the notice "You updated your contact …", after Update contact | — | one U+FFFD |
 | 7 | Chats, the conversation's name | — | one U+FFFD |
 
@@ -55,8 +55,13 @@ preview over the row's own name and stopped at the row's top edge,
 which the row's clip cut. From the conversation's title (steps 4 and
 5), which nothing clipped, they ran up through the status bar and off
 the top of the screen. In wrapped text (the body, the proposal, the
-notices) the same character was drawn with about two marks. Nothing
-crashed and nothing past the bound was drawn, but a peer's name or
+notices) the same character showed about two of its marks, the first
+just above the letter and a second above that. No more were visible.
+That is where the Text's own box ends, and Slint clips wrapped text
+to its box (below), so the rest were most likely drawn and cut there;
+the screens show where they stop, not why. So "not replaced" in the
+table means the client drew the cluster without replacing it, not
+that all 31 marks could be seen. Nothing crashed and nothing past the bound was drawn, but a peer's name or
 text at the bound painted outside its line in those two places, and
 outside the screen's own area in the title. The cause was every elided
 label: Slint 1.18.1 clips a Text to its box only under
