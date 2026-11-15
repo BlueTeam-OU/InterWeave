@@ -466,6 +466,15 @@ mod tests {
             judge(run, &times(&s, &trace), &trace),
             Verdict::Void(_)
         ));
+        // The desktop's line when its renderer tells no frame: the rows
+        // handed to the window, read as the first screen so a round is
+        // void on it early, never passed on it
+        // (`tests/desktop-e2e/tests/human_app/opening.rs`).
+        trace[1] = line(1089, "reader=drawn ms=89 frame=untold");
+        assert!(matches!(
+            judge(run, &times(&s, &trace), &trace),
+            Verdict::Void(_)
+        ));
         let late = vec![line(1005, "page=reader"), line(2091, "page=conversation")];
         assert!(matches!(
             judge(run, &times(&s, &late), &late),

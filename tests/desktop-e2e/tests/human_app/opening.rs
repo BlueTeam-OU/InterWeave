@@ -27,7 +27,10 @@
 //! the desktop's software renderer tells none: its line (`reader=drawn
 //! .. frame=untold`) is when the rows were handed to the window, before
 //! the frame that draws them, so a round is void on it early, never
-//! passed on it; that no frame showed the opening bar (no
+//! passed on it (android-e2e's `back_run` test
+//! `a_single_back_is_void_after_the_first_screen_and_timed_otherwise`,
+//! and ui-slint's `the_trace_names_the_reader_and_end_reaches_its_list_end`
+//! for the line); that no frame showed the opening bar (no
 //! frame is read here); the shipped build, which carries no trace; and
 //! any window system but the X server the case runs on.
 
