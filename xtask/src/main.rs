@@ -163,7 +163,7 @@ fn tree_checks() -> Vec<Task> {
             &["tools/checks/check_bridge_default_features.sh"],
         ),
         Task::new(
-            "no shipped build turns a test-hooks feature on",
+            "no shipped build turns a test-only feature (test-hooks, ui-trace) on",
             "bash",
             &["tools/checks/check_shipped_test_hooks.sh"],
         ),

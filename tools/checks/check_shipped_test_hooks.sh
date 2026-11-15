@@ -5,16 +5,24 @@
 # tools/checks/check_shipped_test_hooks.sh
 #
 # >>> help
-# Does any shipped build's feature graph turn on a `test-hooks` feature?
+# Does any shipped build's feature graph turn on a test-only feature?
 #
 #   tools/checks/check_shipped_test_hooks.sh [--root DIR]
 #
-# A `test-hooks` feature is TEST-ONLY: declared in a crate's manifest,
-# turned on by a self dev-dependency or a test crate, never by default
-# and never by a shipped program's [dependencies]. Builds that compile dev
-# targets unify it in, so a shipped build is the one place it must be
-# off, and reading the graph by hand once (apps/transport-daemon's
-# manifest records such a reading) holds nothing for the next change.
+# The test-only features, held as one set (FEATURES below):
+#
+#   test-hooks  declared in a crate's manifest, turned on by a self
+#               dev-dependency or a test crate;
+#   ui-trace    ui-slint's window trace for an end-to-end driver, turned
+#               on by a test crate and by an app's own `ui-trace`, which
+#               only a debug or end-to-end build asks for.
+#
+# Neither is on by default or turned on by a shipped program's
+# [dependencies]. Builds that compile dev targets unify them in, so a
+# shipped build is the one place they must be off, and reading the graph
+# by hand once (apps/transport-daemon's manifest records such a reading)
+# holds nothing for the next change. A new test-only feature is added to
+# the set, with a self-test case.
 #
 # The shipped builds, each READ from where the release takes it rather
 # than copied here, so a package added there is held without editing this:
@@ -37,8 +45,8 @@
 # the packages of one build resolve their features together, as the
 # build does, and `{f}` is each package's resolved feature set — the
 # package's own included, which `-e features` edges do not show for a
-# root. A feature named exactly `test-hooks` on ANY package fails, not
-# only on the crates that declare one today.
+# root. A feature named exactly one of the set on ANY package fails, not
+# only on the crates that declare it today.
 #
 # A DEPENDENCY-GRAPH CLAIM, NOT AN ARTIFACT CLAIM: what is held is what
 # cargo resolves for the release's own command line; the debug APK
@@ -53,14 +61,16 @@
 #
 # POSITIVE CONTROLS, each exit 2 when it fails: every package of a build
 # names a line of its graph (a graph that came back empty or for other
-# packages would pass having checked nothing); at least one workspace
-# member declares `test-hooks`; and the first of them, built with it on,
-# is found by the same matcher — so a change in cargo's output that
-# would blind the match is caught here rather than read as clean.
+# packages would pass having checked nothing); and for EACH feature of
+# the set, at least one workspace member declares it, and the first of
+# them, built with it on, is found by the same matcher — so a change in
+# cargo's output that would blind the match, or a feature renamed or
+# removed while the set still names it, is caught here rather than read
+# as clean.
 #
 # Exit codes:
-#   0  no shipped build turns `test-hooks` on
-#   1  one does; the build and the packages are printed
+#   0  no shipped build turns a test-only feature on
+#   1  one does; the build, the feature and the packages are printed
 #   2  cargo failed, a release source could not be read, or a positive
 #      control failed
 # <<< help
@@ -84,7 +94,7 @@ case "${1:-}" in
 esac
 cd "$ROOT" || exit 2
 
-FEATURE=test-hooks
+FEATURES=(test-hooks ui-trace)
 ARCHIVE=tools/ci/release_linux_archive.sh
 GRADLE=apps/human-android/android/app/build.gradle.kts
 WORD='[A-Za-z0-9_.-]+'
@@ -180,11 +190,11 @@ fi
 n="$(grep -cE -- "$FEATURE_FLAGS" "$GRADLE")"
 (( n == 1 )) || { echo "$me: $GRADLE passes a feature flag on $n lines, not only the debug profile's — update this check's reading with the release" >&2; grep -nE -- "$FEATURE_FLAGS" "$GRADLE" >&2; exit 2; }
 
-# matches <tree>: "<package>" for each line whose resolved features
-# include exactly $FEATURE. `{p}` ends in "(path)", so the features are
-# after the LAST '|'.
+# matches <tree> <feature>: "<package>" for each line whose resolved
+# features include exactly <feature>. `{p}` ends in "(path)", so the
+# features are after the LAST '|'.
 matches() {
-    awk -v want="$FEATURE" '{
+    awk -v want="$2" '{
         i = match($0, /\|[^|]*$/); if (!i) next
         n = split(substr($0, i + 1), f, ",")
         for (k = 1; k <= n; k++) if (f[k] == want) { split($0, p, " "); print p[1]; break }
@@ -208,46 +218,54 @@ graph() {
     printf '%s\n' "$tree"
 }
 
-# The matcher's live control: a member that declares the feature, with it on.
+# The matcher's live control, per feature: a member that declares it,
+# with it on.
 meta="$(cargo metadata --format-version 1 --locked --no-deps 2>"$err")" || {
     echo "$me: cargo metadata failed:" >&2; tail -5 "$err" >&2; exit 2
 }
-declarers="$(python3 -c '
+for feature in "${FEATURES[@]}"; do
+    declarers="$(python3 -c '
 import json, sys
 meta = json.load(sys.stdin)
 members = set(meta["workspace_members"])
 for p in sorted(meta["packages"], key=lambda p: p["name"]):
     if p["id"] in members and sys.argv[1] in p.get("features", {}):
         print(p["name"])
-' "$FEATURE" <<<"$meta" 2>"$err")" || {
-    echo "$me: cannot read the workspace members' features:" >&2; tail -3 "$err" >&2; exit 2
-}
-if [[ -z "$declarers" ]]; then
-    echo "$me: no workspace member declares $FEATURE — the matcher's control has nothing to run on" >&2
-    exit 2
-fi
-control="$(head -1 <<<"$declarers")"
-tree="$(cargo tree --locked -e normal --prefix none -f '{p}|{f}' -p "$control" --features "$FEATURE" 2>"$err")" || {
-    echo "$me: cargo tree -p $control --features $FEATURE failed:" >&2; tail -5 "$err" >&2; exit 2
-}
-if ! grep -qxF -- "$control" <<<"$(matches "$tree")"; then
-    echo "$me: $control built with $FEATURE on is not matched — cargo's '{f}' output changed and this check is blind (positive control)" >&2
-    exit 2
-fi
-echo "$me: $(wc -l <<<"$declarers") member(s) declare $FEATURE: $(paste -sd' ' <<<"$declarers"); the matcher sees $control's when it is on"
+' "$feature" <<<"$meta" 2>"$err")" || {
+        echo "$me: cannot read the workspace members' features:" >&2; tail -3 "$err" >&2; exit 2
+    }
+    if [[ -z "$declarers" ]]; then
+        echo "$me: no workspace member declares $feature — the matcher's control has nothing to run on" >&2
+        exit 2
+    fi
+    control="$(head -1 <<<"$declarers")"
+    tree="$(cargo tree --locked -e normal --prefix none -f '{p}|{f}' -p "$control" --features "$feature" 2>"$err")" || {
+        echo "$me: cargo tree -p $control --features $feature failed:" >&2; tail -5 "$err" >&2; exit 2
+    }
+    if ! grep -qxF -- "$control" <<<"$(matches "$tree" "$feature")"; then
+        echo "$me: $control built with $feature on is not matched — cargo's '{f}' output changed and this check is blind (positive control)" >&2
+        exit 2
+    fi
+    echo "$me: $(wc -l <<<"$declarers") member(s) declare $feature: $(paste -sd' ' <<<"$declarers"); the matcher sees $control's when it is on"
+done
 
 bad=0
 # check <label> <target> <package...>
 check() {
-    local label="$1" target="$2" tree found
+    local label="$1" target="$2" tree found feature leaked=0
     shift 2
     tree="$(graph "$target" "$@")" || exit 2
-    found="$(matches "$tree")"
-    if [[ -n "$found" ]]; then
-        echo "FAIL: $label ($target: $*) turns $FEATURE on in: $(paste -sd' ' <<<"$found")"
+    for feature in "${FEATURES[@]}"; do
+        found="$(matches "$tree" "$feature")"
+        if [[ -n "$found" ]]; then
+            echo "FAIL: $label ($target: $*) turns $feature on in: $(paste -sd' ' <<<"$found")"
+            leaked=1
+        fi
+    done
+    if (( leaked )); then
         bad=$((bad + 1))
     else
-        echo "$me: $label ($target: $*) turns $FEATURE on nowhere ($(wc -l <<<"$tree") packages in its graph)"
+        echo "$me: $label ($target: $*) turns none of ${FEATURES[*]} on ($(wc -l <<<"$tree") packages in its graph)"
     fi
 }
 check "the Linux archive" "$linux_target" "${linux_packages[@]}"
@@ -255,7 +273,7 @@ check "the APK's library" "$apk_target" "$apk_package"
 
 if (( bad )); then
     echo
-    echo "A test-hooks feature is turned on only by a dev-dependency or a test crate."
+    echo "A test-only feature (${FEATURES[*]}) is turned on only by a dev-dependency, a test crate or a debug build's flag."
     echo "\`cargo tree -e normal,features --target <t> -p <package> -i <crate>\` shows which edge turns it on."
     exit 1
 fi

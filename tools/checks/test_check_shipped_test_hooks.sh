@@ -9,11 +9,13 @@
 # (the archive script's `target=`/`packages=` lines and the cargo-ndk
 # call), and a stub `cargo` on PATH answers `cargo metadata` from a
 # hand-built member list and `cargo tree` from one file per build, keyed
-# by --target (the matcher's control, asked with --features, by
-# "control"). The cases that matter most: a package added to the archive
-# is checked without editing the guard, a feature on a NON-declaring crate
-# fails too, a feature whose name only contains `test-hooks` passes, and
-# each positive control turns a blind graph into exit 2, not a pass.
+# by --target (each matcher control, asked with --features <f>, by
+# "control-<f>"). The cases that matter most: a package added to the
+# archive is checked without editing the guard, a feature on a
+# NON-declaring crate fails too, a feature whose name only contains
+# `test-hooks` passes, `ui-trace` is held as `test-hooks` is, and each
+# positive control — per feature — turns a blind graph into exit 2, not
+# a pass.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -96,7 +98,7 @@ case "\$1" in
     printf '%s\n' "\$*" >> "$SANDBOX/tree-args"
     [[ -e "$SANDBOX/tree-fails" ]] && { echo "error: package ID specification matched no packages" >&2; exit 101; }
     key=""; while (( \$# )); do
-      case "\$1" in --target) key="\$2"; shift ;; --features) key=control; shift ;; esac; shift
+      case "\$1" in --target) key="\$2"; shift ;; --features) key="control-\$2"; shift ;; esac; shift
     done
     cat "$SANDBOX/trees/\$key" ;;
 esac
@@ -116,17 +118,19 @@ APK=aarch64-linux-android
 clean() {
     tree $LINUX "daemon|" "comp|default" "cli|" "serde|derive,std"
     tree $APK "apkpkg|" "platform|" "embedded|" "comp|"
-    tree control "comp|test-hooks" "serde|std"
+    tree control-test-hooks "comp|test-hooks" "serde|std"
+    tree control-ui-trace "aview|ui-trace" "serde|std"
 }
 
 echo "test_check_shipped_test_hooks"
 
 archive daemon cli
 gradle
-members daemon cli apkpkg "comp:default,test-hooks" "platform:test-hooks" embedded
+members daemon cli apkpkg "comp:default,test-hooks" "platform:test-hooks" embedded "ui:ui-trace" "aview:ui-trace"
 clean
 rm -f "$SANDBOX/tree-args"
 expect 0 "shipped graphs without test-hooks pass, the declarers named" "2 member(s) declare test-hooks: comp platform"
+expect 0 "  and ui-trace's declarers named too" "2 member(s) declare ui-trace: aview ui"
 args="$(cat "$SANDBOX/tree-args")"
 lin="$(grep -- "--target $LINUX" <<<"$args")"
 apk="$(grep -- "--target $APK" <<<"$args")"
@@ -142,6 +146,23 @@ grep -E -- "--features|--all-features|--no-default-features" <<<"$lin$apk" >/dev
 grep -- "-p comp --features test-hooks" <<<"$args" >/dev/null \
     && pass "  and the control is the first declarer built with test-hooks on" \
     || fail "the control was not run on the first declarer" "$args"
+grep -- "-p aview --features ui-trace" <<<"$args" >/dev/null \
+    && pass "  and ui-trace's control is its first declarer built with ui-trace on" \
+    || fail "the ui-trace control was not run on its first declarer" "$args"
+
+tree $LINUX "daemon|" "cli|" "ui|ui-trace" "comp|"
+expect 1 "ui-trace on the archive's graph fails" "FAIL: the Linux archive ($LINUX: daemon cli) turns ui-trace on in: ui"
+tree $LINUX "daemon|" "cli|" "embedded|ui-trace"
+expect 1 "ui-trace on a crate that declares none in metadata fails too" "turns ui-trace on in: embedded"
+tree $APK "apkpkg|ui-trace" "ui|ui-trace" "comp|test-hooks"
+out="$(PATH="$SANDBOX/bin:$PATH" bash "$UNDER_TEST" --root "$WS" 2>&1)"; got=$?
+[[ $got -eq 1 && "$out" == *"turns test-hooks on in: comp"* && "$out" == *"turns ui-trace on in: apkpkg ui"* ]] \
+    && pass "both features in one graph are each named (exit $got)" \
+    || fail "both features in one graph should each be named, exit 1 (got $got)" "$out"
+clean
+tree $LINUX "daemon|" "cli|" "ui|ui-trace-extra,no-ui-trace" "comp|ui_trace"
+expect 0 "a feature that only contains ui-trace's name passes"
+clean
 
 tree $APK "apkpkg|" "platform|e2e-cases,test-hooks" "embedded|test-hooks" "comp|test-hooks"
 expect 1 "test-hooks in the APK's graph fails, naming every package" "FAIL: the APK's library ($APK: apkpkg) turns test-hooks on in: comp embedded platform"
@@ -169,12 +190,17 @@ archive daemon cli
 expect 2 "an empty APK graph is exit 2 (positive control)" "names no apkpkg"
 clean
 
-tree control "comp|default" "serde|std"
+tree control-test-hooks "comp|default" "serde|std"
 expect 2 "a control the matcher cannot see is exit 2" "is not matched"
 clean
-members daemon cli apkpkg comp platform
+tree control-ui-trace "aview|" "serde|std"
+expect 2 "a ui-trace control the matcher cannot see is exit 2" "aview built with ui-trace on is not matched"
+clean
+members daemon cli apkpkg comp platform "ui:ui-trace" "aview:ui-trace"
 expect 2 "no member declaring test-hooks is exit 2" "no workspace member declares test-hooks"
-members daemon cli apkpkg "comp:default,test-hooks" "platform:test-hooks" embedded
+members daemon cli apkpkg "comp:default,test-hooks" "platform:test-hooks" embedded ui aview
+expect 2 "no member declaring ui-trace is exit 2" "no workspace member declares ui-trace"
+members daemon cli apkpkg "comp:default,test-hooks" "platform:test-hooks" embedded "ui:ui-trace" "aview:ui-trace"
 
 gradle '            if (variant == "Release") listOf("--release", "--features", "x") else listOf()'
 expect 2 "a release profile that gains features is exit 2 until it is read" "release profile is"
