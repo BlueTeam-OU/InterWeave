@@ -3799,6 +3799,34 @@ mod tests {
         assert_eq!(m.next_retry_wake(), None, "both claimed");
     }
 
+    /// A retry offered, claimed and refused `RouteHeld` moves to the
+    /// hold's end (`defer_retry_to_route_hold`): a new due time, so it is
+    /// not offered there yet and the wake names it -- the offer mark is
+    /// cleared with the due time it was made at (`Retry::set_due`).
+    #[test]
+    fn a_retry_moved_to_a_holds_end_is_the_wakes_again() {
+        let circuit = format!("/ip4/10.0.0.9/tcp/4001/p2p/{P2}/p2p-circuit");
+        let p = peer(P1);
+        let mut m = manager(4);
+        let ticket = m
+            .handle()
+            .load()
+            .admit(&request(P1, &circuit), 0)
+            .expect("admitted");
+        m.record_failure(ticket, 0);
+        assert_eq!(m.take_due_retries(30_000, 8), std::slice::from_ref(&p));
+        assert_eq!(m.next_retry_wake(), None, "claimed: an attempt in flight");
+        // Its dial is refused RouteHeld: the route is held to 90 s and the
+        // claim given back with the due time moved there.
+        assert!(m.policy.hold_route(&p, &circuit, 90_000));
+        m.defer_retry_to_route_hold(&p, 30_000);
+        assert_eq!(
+            m.next_retry_wake(),
+            Some(90_000),
+            "the hold's end, the wake's"
+        );
+    }
+
     #[test]
     fn a_transient_failure_reschedules_and_keeps_attempts() {
         // The attempt count survives the claim. It no longer lengthens
