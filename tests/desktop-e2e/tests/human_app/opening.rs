@@ -60,8 +60,13 @@ const CLOSE_PAST_FIRST_TURN: Duration = Duration::from_millis(150);
 const BACK_PAST_FIRST_TURN: Duration = Duration::from_millis(600);
 
 /// The stress shapes (`long.rs`), whose openings run past the first turn
-/// on the A40; A5 runs the Escape at 0.6 s on them alone.
-const STRESS: [&str; 2] = ["distinct headings", "distinct links"];
+/// on the A40; A5 runs the Escape at 0.6 s on them alone. Distinct links
+/// is not judged on the desktop (ux-designer-01, REPLY 01a1ddf6): its
+/// rows reach the window at 391-497 ms here, so its opening has no moment
+/// while the bar shows (`apps/human-desktop/runs/
+/// 2026-11-15-escape-during-opening.md`); its own controls stay checked
+/// on the A40.
+const STRESS: [&str; 1] = ["distinct headings"];
 
 /// The shape whose Escape comes inside the first turn.
 const LIST: &str = "list";
@@ -90,7 +95,6 @@ const SETTLE: Duration = Duration::from_secs(3);
 /// The conversations' peers, one a shape; none needs a daemon, since the
 /// store does not ask who is reachable.
 const C: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
-const D: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
 fn traced_binary() -> PathBuf {
     let bin = std::env::var_os(TRACED).map_or_else(
@@ -143,7 +147,7 @@ struct Shape {
     peer: TransportIdentity,
 }
 
-/// The client on A, a traced build, with the three shapes each seeded
+/// The client on A, a traced build, with the two shapes each seeded
 /// unread in a conversation of its own.
 struct Opened<'b> {
     client: App,
@@ -382,16 +386,15 @@ async fn escape_while_the_reader_opens_closes_it_to_its_conversation() {
     }
 }
 
-/// The traced client on `world`'s A, the three shapes seeded unread
+/// The traced client on `world`'s A, the two shapes seeded unread
 /// before it starts, its window on the bus and given the focus.
 async fn start<'b>(world: &World, bus: &'b Bus, binary: &std::path::Path) -> Opened<'b> {
     let bodies = long::shapes();
     let peers = [
         world.b_peer.clone(),
         TransportIdentity::parse(C).expect("a PeerId"),
-        TransportIdentity::parse(D).expect("a PeerId"),
     ];
-    let names = [LIST, STRESS[0], STRESS[1]];
+    let names = [LIST, STRESS[0]];
     let texts: Vec<&str> = names
         .iter()
         .map(|name| {

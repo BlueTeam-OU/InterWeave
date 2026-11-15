@@ -46,6 +46,11 @@ Open the whole message after every round that passed.
   rule placed that time between 0.5 s and the shape's first screen; the
   shape's rows line came at 391-497 ms here, below 0.5 s, so that range
   is empty on this host and the time is theirs to set otherwise.
+- Ruled (ux-designer-01, REPLY 01a1ddf6, provisional until A5's runs
+  list is written): distinct links is carried in A5 as not judged on the
+  desktop, these nine void rounds the reason; an earlier Escape would
+  judge the inside-the-first-turn rule the list already covers. The case
+  runs the list and distinct headings since this record.
 
 Not run, as before: the shipped build, Wayland, a screen reader during
 the opening, and a frame-level check that no frame showed the bar.
