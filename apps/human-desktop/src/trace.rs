@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! TEST BUILDS ONLY: the window's trace (ui-slint's `trace.rs`, kinds
-//! only, never text, an address or a `PeerId`) on stderr, each line
+//! only, never text, an address or a `PeerId`: ui-slint's
+//! `a_trace_carries_no_address_peer_or_name`) on stderr, each line
 //! stamped with the host's monotonic clock. The desktop end-to-end case
 //! of A5 (`tests/desktop-e2e/tests/human_app/opening.rs`) sends its keys
 //! from another process and stamps each send on that clock too, so the
 //! two hold together the way the phone's uptime clock holds a
 //! `KeySender` press against a monotonic logcat. `Instant` is the same
 //! clock on Linux but cannot be read as a number, hence `clock_gettime`.
-//! Compiled under this app's `ui-trace` feature alone, which no shipped
-//! build turns on.
+//! Compiled under this app's `ui-trace` feature alone, off by default.
+//! The Linux archive builds this app with no feature flag, and
+//! `tools/checks/check_shipped_test_hooks.sh` refuses to read past a
+//! release command line that gains one; that no shipped dependency turns
+//! ui-slint's `ui-trace` on is not checked yet.
 
 use rustix::time::{ClockId, clock_gettime};
 
