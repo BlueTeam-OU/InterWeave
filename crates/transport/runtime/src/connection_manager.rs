@@ -3681,21 +3681,24 @@ mod tests {
             .expect("admitted");
         m.record_failure(b, 5_000);
         assert_eq!(m.next_retry_wake(), Some(30_000), "the earlier");
-        // F1: whatever the clock reads, a retry due and never offered is
-        // still the wake's -- it is in the past, so the scheduler wakes
-        // at once.
-        assert_eq!(m.next_retry_wake(), Some(30_000), "still P1, never offered");
-        // An offer before P1 is due takes nothing and leaves both ahead:
-        // the control that the offer, not the clock, moves the wake.
-        assert!(m.take_due_retries(29_999, 1).is_empty());
-        assert_eq!(m.next_retry_wake(), Some(30_000), "P1 still never offered");
-        // The budget takes P1 and leaves P2, due at 35 s, behind.
-        assert_eq!(m.take_due_retries(35_000, 1), vec![peer(P1)]);
-        assert_eq!(
-            m.next_retry_wake(),
-            None,
-            "P1 claimed, P2 offered and left over by the budget: both the tick's"
-        );
+        // F1: the clock moves to 40 s on P2's next failure (a manual dial
+        // past its backoff, due again at 70 s) with no offer made. P1 fell
+        // due at 30 s and was never offered, so the wake is still P1's, in
+        // the past: the scheduler wakes at once rather than at the tick.
+        let again = m
+            .handle()
+            .load()
+            .admit(&request_at(P2, "/b", DialOrigin::Manual), 40_000)
+            .expect("past its backoff");
+        m.record_failure(again, 40_000);
+        assert_eq!(m.next_retry_wake(), Some(30_000), "P1, never offered");
+        // An offer with the budget spent takes nothing and leaves P1
+        // behind: offered and left over, it is the tick's, and the next
+        // wake is P2's at 70 s -- the control that the offer, not the
+        // clock, is what moves the wake past a due retry.
+        assert!(m.take_due_retries(40_000, 0).is_empty());
+        assert_eq!(m.next_retry_wake(), Some(70_000), "P1 left over: P2 next");
+        assert_eq!(m.take_due_retries(40_001, 1), vec![peer(P1)], "the tick's");
     }
 
     #[test]
