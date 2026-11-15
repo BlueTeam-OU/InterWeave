@@ -175,11 +175,30 @@ mechanism's proof is `held_data_plane.rs`. Nothing a reader of the
 earlier text relied on is changed: before it, the record promised
 nothing about an idle connection.
 
-Not proved, as §14 names: the same-connection choice over two real
-Swarms; a real NAT's mapping expiring or a carrier drop; an outage
-long enough for the dial backoff to delay the reconnect; an idle
-period past 180 s on two real hosts; the ping's cost on a phone.
+Not proved as this note was written, as §14 then named: the
+same-connection choice over two real Swarms; a real NAT's mapping
+expiring or a carrier drop; an outage long enough for the dial backoff
+to delay the reconnect; an idle period past 180 s on two real hosts;
+the ping's cost on a phone. The first and the third left §14's list on
+2026-11-14 (#672, #673), each by a named test or run record; §14
+carries the list as it stands.
 
 Propagation: decisions 2 and 5b; `clients/automated/AUTOMATED-CLIENT.md`
 §2 (a promise row) and §5; this note; the log row; the README row;
 the digest entry and its keyword-table row.
+
+### Amendment 2026-11-14 — The hold's rule is cited at ADR-0068
+
+ADR-0068 promoted the keepalive and hold rules out of
+`transport/libp2p/CONNECTIVITY.md` §14 into a decision record, and §14
+now says a change to a rule is made there. Decision 2 said "The rule,
+which of two connections is the held one, and what is not proved are
+`transport/libp2p/CONNECTIVITY.md` §14's (A 2026-11-13) and are not
+restated here", which would have sent a reader to §14 alone to change
+the rule. It now names ADR-0068 (rules 4 to 6) for the rule and §14
+for which connection is held and what is not proved. What the
+transport promises an automated client is unchanged. Raised by the
+review of #667 (F1).
+
+Propagation: decision 2; `clients/automated/AUTOMATED-CLIENT.md` §2's
+promise row; this note; the log row; the digest entry.

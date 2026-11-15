@@ -1,0 +1,75 @@
+{
+  "tree": "19c5b700f",
+  "tree_dirty": [],
+  "tree_dirty_count": 0,
+  "binary": "2.1.325",
+  "sha256": "0dc4f4a9a165fc60746d7ae8489712e5fc352f1e7ad4eb22e7141bd0812eb0cf",
+  "read_not_measured": true,
+  "version": "2.1.325",
+  "gate_head": "function Den(e,r,n,i)",
+  "gate_checks_in_order": [
+    "capability",
+    "era",
+    "provider",
+    "disabled",
+    "policy",
+    "session",
+    "marketplace",
+    "allowlist",
+    "allowlist"
+  ],
+  "gate_era_clause": true,
+  "hard_skip_head": "function $_s(e)",
+  "hard_skip_kinds": [
+    "provider",
+    "disabled",
+    "capability",
+    "era"
+  ],
+  "registration_sites": [
+    {
+      "enclosing": "function AOe(h,P,D,H)",
+      "log_lines": [
+        "Channel notifications registered",
+        "Channel notifications skipped"
+      ],
+      "function_bytes": 27500,
+      "schema_call_inside": true,
+      "end_context": "connectMcpServer:ur,toggleMcpServer:Dn}}function Zxt(h){Wf(h.client).onclose=voi",
+      "gate_call": "Den(vo.name,vo.capabilities,vo.config.pluginSource,vo.protocolEra)",
+      "gate_era_arg": true
+    },
+    {
+      "enclosing": "function QY(e,n,r,s,h)",
+      "log_lines": [
+        "Channel notifications registered",
+        "channel_enable requires a marketplace plugin"
+      ],
+      "function_bytes": 1045,
+      "schema_call_inside": true,
+      "end_context": "nqueue(Men(n,se,ge))}),s.enqueue(H5(e))}function zh(e,n){if(e.type!==\"connected\"",
+      "gate_call": "Den(n,k.capabilities,M,k.protocolEra)",
+      "gate_era_arg": true
+    },
+    {
+      "enclosing": "function zh(e,n)",
+      "log_lines": [
+        "Channel notifications re-registered after reconnect"
+      ],
+      "function_bytes": 597,
+      "schema_call_inside": true,
+      "end_context": "plugin:h}),n.enqueue(Men(e.name,k,M))})}function $Y(e,n,r,s=!1,h){return{name:\"f",
+      "gate_call": "Den(e.name,e.capabilities,e.config.pluginSource,e.protocolEra)",
+      "gate_era_arg": true
+    }
+  ],
+  "era_notice": [
+    "Channel messages from \"${vo.name}\" are unavailable: this connection's protocol version has no channel delivery path"
+  ],
+  "era_reason_copies": 1,
+  "permission_relay_filters": [
+    "function HOi(n,e,o){return n.filter((r)=>r.type===\"connected\"&&e(r.name)&&MJt(r.capabilities,\"claude/channel\")&&MJt(r.capabilities,\"claude/channel/permission\")&&o(r.name)&&r.protocolEra!==\"modern\")}"
+  ],
+  "relay_excludes_modern": true,
+  "every_registration_after_gate_with_era": true
+}
