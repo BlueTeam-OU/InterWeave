@@ -1457,8 +1457,8 @@ impl View {
     /// screen the root says ([`trace_identity`](Self::trace_identity)),
     /// in kinds only (`trace.rs`). For a driver that steps the app by key
     /// events; the debug APK and human-desktop's `ui-trace` test build
-    /// turn it on, no release build has it (`tools/checks/
-    /// check_shipped_test_hooks.sh`).
+    /// turn it on, no shipped build has it
+    /// (`tools/checks/check_shipped_test_hooks.sh`).
     #[cfg(feature = "ui-trace")]
     pub fn on_trace(&mut self, sink: impl Fn(&str) + 'static) {
         let tracer = trace::Tracer::new(Rc::new(sink));
