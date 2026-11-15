@@ -83,8 +83,8 @@ pub struct SubstrateConfig {
     /// when it falls due while the budget lasts. What waits for the tick
     /// is a retry offered and left over -- the budget spent, or a claim a
     /// recoverable refusal released (the pending-dial or connection
-    /// ceiling, a superseded snapshot, a full policy table, a backend
-    /// refusal), offered again at the next tick and not the moment room
+    /// ceiling, a superseded snapshot, a full policy table, a peer or
+    /// address delay still running, a backend refusal), offered again at the next tick and not the moment room
     /// appears -- and the tick's other work.
     pub retry_tick: Duration,
     /// Most listeners that may be bound at once.
