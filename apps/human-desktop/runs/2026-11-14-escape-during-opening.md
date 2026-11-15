@@ -50,7 +50,9 @@ Its load average stood at 48-60 before and after runs 2 and 3 below
 
 Escape to close, in ms; the limits are 1 s for the list (inside the
 first turn) and 0.15 s for the stress shapes (past it). Focus was on
-the row's Open the whole message after every close that was judged.
+the row's Open the whole message after every close that passed; the
+case checks focus only on a round that passed the judge, so the two
+failed rounds' focus was not read.
 
 | Run | List plain opens (ms) | List Escape | List rounds | distinct headings | distinct links |
 |---|---|---|---|---|---|
@@ -61,11 +63,13 @@ the row's Open the whole message after every close that was judged.
 - Passed: 24 of 27 rounds.
 - Failed: two, both distinct headings past 0.15 s: 192 ms (run 1) and
   312 ms (run 3).
-- Void: one, distinct links in run 3, whose first screen was drawn
-  17 ms before the Escape at 0.6 s (first screen at 583 ms). Every
-  other stress round's first screen came after its Escape: the opening
-  was still building when the Escape went.
-- First screen shown before the close, list rounds: 11-64 ms.
+- Void: one, distinct links in run 3, whose rows were handed to the
+  window (`frame=untold`) 17 ms before the Escape at 0.6 s, at 583 ms.
+  Every other stress round's rows line, where it had one, came after
+  its Escape; a round whose Escape closed the reader while its opening
+  was still building has none, and so no first screen.
+- Rows handed to the window before the close, list rounds: 11-64 ms
+  (the line, not a frame).
 
 ## What this proves and what it does not
 
