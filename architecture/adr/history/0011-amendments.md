@@ -446,9 +446,24 @@ those holds, or at once when the relay whose hop failed last connects
 made it due (its ordinary time after another route was quarantined, a
 network addition, a newly learned circuit through a held relay), that
 every hold refuses is deferred to the end of the last of the peer's
-holds (`defer_retry_to_route_hold`, over `route_held_until`). The body
-and `CONNECTIVITY.md` §12 now say that, and the relay-hop paragraph's
+holds (`defer_retry_to_route_hold`, over `route_held_until`). The
+relay-hop paragraph's
 "scheduled at the peer's ordinary delay" names the exception.
+
+Asked whether those two were intended, p2p-network-dev-01 answered the
+same day that neither was (GZCoord
+`01a1de24-acab-7e75-b4a7-0ac7f1c20eef`, in reply to
+`01a1de23-d7dc-7832-8c61-a6844f5dec77`; read on 322c5ce83, nothing
+run): with circuits through two relays the peer held a candidate the
+gate admitted while its retry waited up to the hold ladder's spread
+longer, which broke the 30 s bound and #674's own rule that the retry
+predicts the gate. So the body and `CONNECTIVITY.md` §12 state the rule
+and not the code: the retry goes at the later of 30 s and the moment
+the first candidate is admitted again, by a hold's end or by the first
+direct connection to the relay of any held circuit. Both carry the gap
+as it stood on 2026-11-15, in the past tense; the fix, its two-relay
+tests and the two code comments are p2p-network-dev's on its next pull
+request, and the gap sentence comes out when that lands.
 
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
