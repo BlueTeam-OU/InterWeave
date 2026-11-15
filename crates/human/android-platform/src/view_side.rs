@@ -49,6 +49,9 @@ pub struct ViewSide<S: Surface, O: Opener> {
     start: Option<u64>,
     /// The unlock facts, as the hub last said them.
     unlock: Option<UnlockSaid>,
+    /// The hub's count of answers when a running service last stopped:
+    /// the start that answered last before it ran and ended.
+    stopped: Option<StoreGeneration>,
     /// The model the last stop set aside, stopped: shown again if the
     /// lock is said while nothing runs, its drafts carried by the next
     /// start.
@@ -68,6 +71,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             running: false,
             start: None,
             unlock: None,
+            stopped: None,
             kept: None,
         }
     }
@@ -100,6 +104,9 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                     drafts.extend(last.drafts());
                     self.side.carry_drafts(drafts);
                 } else if self.running {
+                    // Recorded as it is applied, so a stop and the next
+                    // start drained in one pump still show it.
+                    self.stopped = self.store.map(|(_, generation)| generation);
                     let mut last = last;
                     last.stopped();
                     self.kept = Some(last);
@@ -206,6 +213,19 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             return true;
         }
         self.running && self.side.model().connect_phase() != ConnectPhase::Owed
+    }
+
+    /// Whether the start a held C4 or R4 waits on ran and then ended
+    /// without a refusal (add-a-peer §5.1): a running service stopped
+    /// after an answer counted past `asked_at`. On a foreground-only
+    /// profile that is Home letting go of the binding, and the return is
+    /// a new launch, not this start's to decide. True also once a later
+    /// start runs, so a turn that comes only at the return, with the stop
+    /// and the next start in one pump, still ends the held screen. A
+    /// refusal never ran, so it is [`start_decided`](Self::start_decided)'s.
+    #[must_use]
+    pub fn start_ended(&self, asked_at: StoreGeneration) -> bool {
+        self.stopped.is_some_and(|generation| generation > asked_at)
     }
 
     /// Whether the service runs, as the hub last said.
@@ -684,5 +704,58 @@ mod tests {
             .apply(ToView::AuthenticationNeeded(true))
             .expect("applied");
         assert!(locked.start_decided(asked_at), "locked: Chats' notice");
+    }
+
+    /// A held start that ran and then stopped has ended (add-a-peer §5.1,
+    /// foreground-only Home), still so once the next start runs; one that
+    /// runs, one only answered, one that never ran (refused), and a stop
+    /// of an earlier start heard before the ask, have not. Mutation:
+    /// recording nothing at the stop, or dropping the generation's
+    /// comparison, fails here.
+    #[test]
+    fn a_held_start_that_ran_and_stopped_has_ended() {
+        let hub = crate::Hub::new();
+        let before = hub.store_generation();
+        hub.set_store_answer(StoreAnswer::Opened);
+        let earlier = hub.store_generation();
+
+        // An earlier start ran and stopped before the ask.
+        let mut side = view_side();
+        side.apply(ToView::Store(StoreAnswer::Opened, earlier))
+            .expect("applied");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert!(!side.start_ended(earlier), "running: not ended");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert!(side.start_ended(before), "control: stopped past `before`");
+        let asked_at = hub.store_generation();
+        assert!(!side.start_ended(asked_at), "an earlier start's stop");
+
+        // The held start answers: answered and running is not ended.
+        hub.set_store_answer(StoreAnswer::Opened);
+        let held = hub.store_generation();
+        side.apply(ToView::Store(StoreAnswer::Opened, held))
+            .expect("applied");
+        assert!(!side.start_ended(asked_at), "answered, not yet running");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert!(!side.start_ended(asked_at), "running");
+        // Home on foreground-only: stopped, and the return's start runs
+        // in the same pump.
+        side.apply(ToView::Running(false)).expect("applied");
+        assert!(side.start_ended(asked_at), "ran and stopped");
+        side.apply(ToView::Start(2)).expect("applied");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert!(side.start_ended(asked_at), "still, once the next runs");
+
+        // Refused: never ran, so never ended.
+        let mut refused = view_side();
+        hub.set_store_answer(StoreAnswer::OtherRefusal);
+        refused
+            .apply(ToView::Store(
+                StoreAnswer::OtherRefusal,
+                hub.store_generation(),
+            ))
+            .expect("applied");
+        refused.apply(ToView::Running(false)).expect("applied");
+        assert!(!refused.start_ended(asked_at), "refused: not ended");
     }
 }

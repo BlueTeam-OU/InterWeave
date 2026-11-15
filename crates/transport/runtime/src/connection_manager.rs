@@ -777,6 +777,28 @@ struct Retry {
     /// ([`ConnectionManager::relay_reached`]), rather than only at its
     /// delay.
     waits_on: Option<TransportIdentity>,
+    /// [`ConnectionManager::take_due_retries`] offered this entry at its
+    /// current due time and did not claim it -- the budget took others,
+    /// or the claim it made was released (the pending-dial ceiling among
+    /// the refusals that release one) -- so the scheduler's wake
+    /// ([`ConnectionManager::next_retry_wake`]) leaves it to the tick.
+    /// Cleared by every change of `due_at_ms` ([`Retry::set_due`]): a
+    /// retry made due again is a retry not yet offered at that time.
+    /// Per entry, not a timestamp of the last offer: a retry made due in
+    /// the same millisecond as an offer is not one that offer saw (#674
+    /// review round 2, F1).
+    offered: bool,
+}
+
+impl Retry {
+    /// The one writer of `due_at_ms` after construction, so the offer
+    /// mark cannot outlive the due time it was made at.
+    fn set_due(&mut self, at_ms: u64) {
+        if at_ms != self.due_at_ms {
+            self.due_at_ms = at_ms;
+            self.offered = false;
+        }
+    }
 }
 
 /// Default ceiling on addresses remembered for one peer.
@@ -1326,7 +1348,7 @@ impl ConnectionManager {
             && let Some(retry) = self.retries.get_mut(peer)
             && !retry.claimed
         {
-            retry.due_at_ms = retry.due_at_ms.min(now_ms);
+            retry.set_due(retry.due_at_ms.min(now_ms));
         }
         true
     }
@@ -1545,12 +1567,15 @@ impl ConnectionManager {
     /// and the reconnect is scheduled at the peer's ordinary delay AND
     /// marked as waiting on `relay`: the first direct connection to the
     /// relay makes it due at once ([`Self::relay_reached`]). The ROUTE
-    /// is held for that same delay (ADR-0011 A 2026-10-21): every
-    /// circuit to the peer through `relay` is refused `RouteHeld` to
-    /// every caller, the scheduler's own dial included, until the delay
-    /// ends or the relay connects -- while the peer's other routes stay
-    /// admitted. A relay that stays down therefore costs the ordinary
-    /// cadence for every caller, not for the scheduler alone; without the
+    /// is held (ADR-0011 A 2026-10-21) for its own delay, `route_hold_ms`
+    /// on the peer's attempt count -- 30 s doubling to 5 min, the ladder
+    /// the hold kept when ADR-0011 A 2026-11-14 took the peer's retry to a
+    /// flat 30 s: every circuit to the peer through `relay` is refused
+    /// `RouteHeld` to every caller, the scheduler's own dial included,
+    /// until the hold ends or the relay connects -- while the peer's other
+    /// routes stay admitted, and are what the 30 s retry tries. A relay
+    /// that stays down therefore costs the hold's cadence for every
+    /// caller, not for the scheduler alone; without the
     /// hold the composition's once-a-second reconnect round redialled the
     /// circuit each round. `None` when the ticket was not issued here.
     ///
@@ -1586,7 +1611,15 @@ impl ConnectionManager {
                 self.learn_address(&peer, ticket.address(), now_ms);
             }
             let delay = self.retry_delay_ms(&peer);
-            // THE ROUTE IS HELD for the same delay, whoever asks next
+            // THE ROUTE'S HOLD IS ITS OWN (ADR-0011 A 2026-11-14 names it
+            // as the third exception to the 30 s bound): it climbs from
+            // 30 s to 5 min on the peer's attempt count, as it did when it
+            // shared the peer's ladder, while the peer's retry is 30 s.
+            // At that retry the held circuit is refused and the peer's
+            // other routes are tried; with no other route the retry is
+            // scheduled at the hold's end (below).
+            let hold = route_hold_ms(self.retries.get(&peer).map_or(0, |r| r.attempts));
+            // THE ROUTE IS HELD, whoever asks next
             // (ADR-0011 A 2026-10-21): with no backoff, every caller that
             // dials on its own cadence -- the composition's reconnect
             // round each second, a held send, `DialPeer` -- was admitted
@@ -1597,14 +1630,28 @@ impl ConnectionManager {
             if !relay_came_up && !ticket.address().is_empty() {
                 let _ =
                     self.policy
-                        .hold_route(&peer, ticket.address(), now_ms.saturating_add(delay));
+                        .hold_route(&peer, ticket.address(), now_ms.saturating_add(hold));
             }
+            // A PEER WHOSE EVERY CANDIDATE IS A HELD CIRCUIT is retried at
+            // the later of 30 s and the moment its first candidate is
+            // admitted again, the amendment's own exception: a
+            // retry at 30 s would only be refused `RouteHeld`, reported as
+            // a failed dial nobody started, and deferred there anyway, while
+            // `RetryScheduled` quoted a delay that did not apply (#674
+            // review round 2, F2). With any route not held the retry stays
+            // 30 s, for that route.
+            let delay = if relay_came_up {
+                delay
+            } else {
+                self.earliest_hold_end_if_only_held(&peer, now_ms)
+                    .map_or(delay, |until| delay.max(until.saturating_sub(now_ms)))
+            };
             let held_by_another = !ticket.owns_scheduler_claim()
                 && self.retries.get(&peer).is_some_and(|entry| entry.claimed);
             let attempt = self.schedule_retry(peer.clone(), now_ms, delay, held_by_another);
             if let Some(entry) = self.retries.get_mut(&peer) {
                 if relay_came_up {
-                    entry.due_at_ms = now_ms;
+                    entry.set_due(now_ms);
                 } else {
                     entry.waits_on = Some(relay.clone());
                 }
@@ -1629,6 +1676,20 @@ impl ConnectionManager {
         scheduled
     }
 
+    /// When the first of `peer`'s dial candidates is admitted again, if
+    /// every one is refused by a route hold -- judged per relay, as the
+    /// gate judges it (`ConnectionPolicy::route_hold_end`); `None` when it
+    /// has no candidate, or any the gate would admit now.
+    fn earliest_hold_end_if_only_held(&self, peer: &TransportIdentity, now_ms: u64) -> Option<u64> {
+        let candidates = self.dial_candidates(peer, now_ms);
+        let mut earliest: Option<u64> = None;
+        for address in &candidates {
+            let until = self.policy.route_hold_end(peer, address, now_ms)?;
+            earliest = Some(earliest.map_or(until, |e| e.min(until)));
+        }
+        earliest
+    }
+
     /// A direct connection to `relay` is established: every retry
     /// waiting on it ([`Self::record_relay_hop_unreached`]) is due now.
     /// A claimed entry is left alone -- its attempt is under way.
@@ -1636,7 +1697,7 @@ impl ConnectionManager {
         self.observe(now_ms);
         for entry in self.retries.values_mut() {
             if !entry.claimed && entry.waits_on.as_ref() == Some(relay) {
-                entry.due_at_ms = entry.due_at_ms.min(now_ms);
+                entry.set_due(entry.due_at_ms.min(now_ms));
                 entry.waits_on = None;
             }
         }
@@ -2010,11 +2071,11 @@ impl ConnectionManager {
     ///
     /// A peer that failed while this host was offline, or on a network
     /// it has since left, earned its backoff against a route that may
-    /// now work, and would otherwise wait out up to five minutes of it.
+    /// now work, and would otherwise wait out up to 30 s of it.
     /// So the peer-scoped backoff is lifted and an unclaimed retry is
     /// made due now -- the scheduler's next tick and discovery's
     /// reconnect both find the peer dialable -- while the retry's
-    /// attempt number, which sets the next delay, is KEPT: the dial goes through
+    /// attempt number is KEPT: the dial goes through
     /// the gate like any other, and if it fails the backoff resumes
     /// from where it stood: the first failure after the lift sets the
     /// backoff again.
@@ -2068,7 +2129,7 @@ impl ConnectionManager {
                 // UNCLAIMED only: a claimed entry is a dial in flight,
                 // whose settlement rewrites the due time anyway.
                 Some(entry) if data_plane && !entry.claimed && entry.due_at_ms > now_ms => {
-                    entry.due_at_ms = now_ms;
+                    entry.set_due(now_ms);
                     true
                 }
                 _ => false,
@@ -2241,9 +2302,13 @@ impl ConnectionManager {
         self.observe(now_ms);
         let mut due: Vec<(TransportIdentity, u64)> = self
             .retries
-            .iter()
+            .iter_mut()
             .filter(|(_, r)| !r.claimed && now_ms >= r.due_at_ms)
-            .map(|(p, r)| (p.clone(), r.due_at_ms))
+            .map(|(p, r)| {
+                // OFFERED, whether the budget below takes it or not.
+                r.offered = true;
+                (p.clone(), r.due_at_ms)
+            })
             .collect();
         due.sort_by_key(|(_, at)| *at);
         due.truncate(limit);
@@ -2253,6 +2318,32 @@ impl ConnectionManager {
             }
         }
         due.into_iter().map(|(p, _)| p).collect()
+    }
+
+    /// When the scheduler should next offer the due retries, rather than
+    /// at its next tick (ADR-0011 A 2026-11-14: "the scheduler's tick
+    /// included"): the earliest unclaimed retry not yet offered at its
+    /// current due time ([`Retry::offered`]), which may already be in the
+    /// past, when the scheduler is to wake at once.
+    ///
+    /// NOT ONE ALREADY OFFERED: an unclaimed retry offered at its due time
+    /// was left over by the budget, or the dial it was claimed for was
+    /// refused in a way that releases the claim -- the pending-dial
+    /// ceiling, the connection ceiling, a superseded snapshot and the
+    /// gate's other recoverable refusals -- and is the tick's to offer
+    /// again. Naming it here
+    /// would wake the scheduler at once, every turn, for as long as the
+    /// budget stayed full: a spin, not a bound. Nor one merely due before
+    /// `now`: a turn of the loop that lost the race to the wake must not
+    /// leave a retry that fell due meanwhile to the tick (#674 review F1).
+    /// A claimed entry is an attempt in flight and has no due time.
+    #[must_use]
+    pub fn next_retry_wake(&self) -> Option<u64> {
+        self.retries
+            .values()
+            .filter(|r| !r.claimed && !r.offered)
+            .map(|r| r.due_at_ms)
+            .min()
     }
 
     /// Give up a claim without ever producing a ticket to settle it
@@ -2312,7 +2403,7 @@ impl ConnectionManager {
         if let Some(entry) = self.retries.get_mut(peer) {
             entry.claimed = false;
             if let Some(until) = held_until {
-                entry.due_at_ms = entry.due_at_ms.max(until);
+                entry.set_due(entry.due_at_ms.max(until));
             }
         }
     }
@@ -2339,11 +2430,11 @@ impl ConnectionManager {
     /// The delay before this peer is retried, given what it has already
     /// cost.
     ///
-    /// The cadence `CONNECTIVITY.md` states for a peer that is not yet
-    /// verified: 30 seconds, exponential, bounded by five minutes. The
-    /// numbers are restated here rather than referenced, and the test
-    /// names the document, so a drift fails rather than becoming a
-    /// discrepancy nobody compares.
+    /// The cadence `CONNECTIVITY.md` §11 states for a peer that is not
+    /// yet verified: 30 seconds, whatever the attempt count (ADR-0011
+    /// A 2026-11-14). The numbers are restated here rather than
+    /// referenced, and the test names the document, so a drift fails
+    /// rather than becoming a discrepancy nobody compares.
     fn retry_delay_ms(&self, peer: &TransportIdentity) -> u64 {
         let attempts = self.retries.get(peer).map_or(0, |r| r.attempts);
         retry_backoff_ms(attempts)
@@ -2384,6 +2475,7 @@ impl ConnectionManager {
                 attempts: attempt,
                 claimed,
                 waits_on: None,
+                offered: false,
             },
         );
         attempt
@@ -2492,21 +2584,33 @@ pub struct PeerGateState {
     pub retry_due_at_ms: Option<u64>,
 }
 
-/// `CONNECTIVITY.md`'s first retry delay for a peer not yet verified:
-/// 30 seconds.
+/// The gate's first retry delay for a data-plane peer that would not
+/// connect: 30 seconds (`CONNECTIVITY.md` §11).
 ///
-/// PUBLIC, because the same numbers govern two schedules: the gate's
-/// re-dial of a peer that would not connect, and the AutoNAT adapter's
-/// `retest` of an address a server reported unreachable (`AUTONAT.md`
-/// §4, Amendment 2026-09-09 (ii): "the dial gate's constants, applied
-/// to a re-test rather than read from a configuration key"). Two
-/// copies of 30 s and 5 min would be two numbers that drift.
+/// PUBLIC, because the profile's `address_backoff_min` default is held
+/// to it (`translate.rs`'s `the_accepted_defaults_are_what_the_runtime_runs`).
+/// It is the gate's alone: the AutoNAT adapter's re-test owns its own
+/// numbers (`autonat_driver::RETEST_BASE_MS`), since ADR-0011's
+/// amendment of 2026-11-14 bounds reaching a peer and not re-testing
+/// an address.
 pub const RETRY_BASE_MS: u64 = 30_000;
-/// The ceiling that backoff never exceeds: five minutes.
-pub const RETRY_CEILING_MS: u64 = 5 * 60 * 1_000;
+/// The ceiling that backoff never exceeds: 30 seconds, the base itself.
+///
+/// The owner's word of 2026-11-14 (ADR-0011 A 2026-11-14): a peer that
+/// returns is dialled within 30 s of its return however long it was
+/// away, so no more than this passes between the settlement of one
+/// failed attempt and the start of the next. With the ceiling at the
+/// base the ladder below is flat; the attempt count is kept for
+/// diagnostics and no longer lengthens the wait. Before it the ceiling
+/// was five minutes, and an outage of 480 s reconnected 272 s after
+/// the far end's return (#672's run record).
+pub const RETRY_CEILING_MS: u64 = 30_000;
 
 /// The delay before the `attempts`-th retry: exponential from
-/// [`RETRY_BASE_MS`], bounded by [`RETRY_CEILING_MS`].
+/// [`RETRY_BASE_MS`], bounded by [`RETRY_CEILING_MS`] -- which, with
+/// the two equal, is [`RETRY_BASE_MS`] for every attempt. The shape is
+/// kept so the profile's `address_backoff_min`/`max` pair still names
+/// what it governs.
 ///
 /// Shifted by a CLAMPED exponent. `1u64 << 64` is undefined-ish in the
 /// sense that it panics in debug and wraps in release, and an attempt
@@ -2522,28 +2626,42 @@ pub const fn retry_backoff_ms(attempts: u32) -> u64 {
     }
 }
 
+/// How long a circuit route whose relay hop failed is held
+/// ([`ConnectionManager::record_relay_hop_unreached`]): 30 s doubling to
+/// 5 min on the peer's attempt count. ADR-0011 A 2026-10-21's hold, on
+/// the ladder it had before ADR-0011 A 2026-11-14 took the peer's retry
+/// to a flat 30 s and named "a circuit route's hold is its own": a relay
+/// that stays down is still asked less and less often. The exponent is
+/// clamped, the count being remote-influenced.
+#[must_use]
+const fn route_hold_ms(attempts: u32) -> u64 {
+    const BASE_MS: u64 = 30_000;
+    const CEILING_MS: u64 = 5 * 60 * 1_000;
+    let shifted = BASE_MS.saturating_mul(1u64 << (if attempts < 8 { attempts } else { 8 }));
+    if shifted < CEILING_MS {
+        shifted
+    } else {
+        CEILING_MS
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
 
     #[test]
-    fn the_backoff_is_connectivity_md_s_30s_doubling_to_5m_and_stops_doubling_there() {
-        // `CONNECTIVITY.md` "retry after a failure: 30 s, exponentially/
-        // backoff bounded by 5 min", now shared with the AutoNAT
-        // adapter's `retest` schedule through this one function.
-        assert_eq!(retry_backoff_ms(0), 30_000);
-        assert_eq!(retry_backoff_ms(1), 60_000);
-        assert_eq!(retry_backoff_ms(3), 240_000);
-        assert_eq!(retry_backoff_ms(4), 300_000, "clamped at the ceiling");
-        assert_eq!(retry_backoff_ms(8), 300_000);
-        assert_eq!(
-            retry_backoff_ms(u32::MAX),
-            300_000,
-            "the exponent is clamped, not the product alone"
-        );
+    fn the_peer_retry_never_waits_past_30s_whatever_the_attempt_count() {
+        // ADR-0011 A 2026-11-14 (the owner's word): no more than 30 s
+        // between one failed attempt's settlement and the next attempt,
+        // however many attempts have failed. Every attempt count, not a
+        // sample: a ladder that crept past 30 s at attempt 9 is the
+        // defect this replaces.
+        for attempts in (0..=64).chain([u32::MAX - 1, u32::MAX]) {
+            assert_eq!(retry_backoff_ms(attempts), 30_000, "attempt {attempts}");
+        }
         assert_eq!(RETRY_BASE_MS, 30_000);
-        assert_eq!(RETRY_CEILING_MS, 300_000);
+        assert_eq!(RETRY_CEILING_MS, 30_000);
     }
 
     const P1: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -3229,7 +3347,10 @@ mod tests {
     /// A relay that came up DURING the dial -- the restart race -- makes
     /// the retry due at once, with nothing left waiting; and a relay that
     /// stays down costs the ordinary cadence, never a tight loop: two hop
-    /// failures in a row escalate the delay (#247 review F1, F3).
+    /// failures in a row escalate the route's HOLD (#247 review F1, F3),
+    /// and with the circuit the peer's only route its retry follows the
+    /// hold; beside a route not held, the retry stays 30 s (ADR-0011
+    /// A 2026-11-14; #674 review round 2, F2).
     #[test]
     fn a_relay_that_came_up_makes_the_retry_due_and_a_down_one_escalates() {
         let circuit = format!("/ip4/10.0.0.9/tcp/4001/p2p/{P2}/p2p-circuit");
@@ -3268,14 +3389,81 @@ mod tests {
             "or its delay"
         );
         let ticket = admit(&mut m, due);
+        let first_hold = m.peer_gate_state(&p, 0).route_held_until_ms;
+        assert_eq!(first_hold, Some(30_000), "the first hold: 30 s");
         let second = m
             .record_relay_hop_unreached(ticket, &relay, false, due)
             .expect("scheduled");
-        assert!(
-            second.delay_ms > first.delay_ms,
-            "a relay that stays down escalates: {} then {}",
-            first.delay_ms,
-            second.delay_ms
+        assert_eq!(
+            (first.delay_ms, second.delay_ms),
+            (30_000, 60_000),
+            "the circuit its only route, the retry follows the hold"
+        );
+        assert_eq!(
+            m.peer_gate_state(&p, due).route_held_until_ms,
+            Some(due + 60_000),
+            "a relay that stays down escalates the route's hold"
+        );
+        assert_eq!(
+            m.peer_gate_state(&p, due).retry_due_at_ms,
+            Some(due + 60_000),
+            "and the retry falls due when the hold ends"
+        );
+
+        // THE CONTROL: with a route that is not held -- a direct address
+        // in the book -- the second hop failure holds the circuit for 60 s
+        // and the retry stays 30 s, for the direct route.
+        let mut m = manager(4);
+        assert!(m.learn_address(&p, "/ip4/10.0.0.7/tcp/4001", 0));
+        let ticket = admit(&mut m, 0);
+        let _ = m
+            .record_relay_hop_unreached(ticket, &relay, false, 0)
+            .expect("scheduled");
+        assert_eq!(m.take_due_retries(30_000, 8), std::slice::from_ref(&p));
+        let ticket = admit(&mut m, 30_000);
+        let second = m
+            .record_relay_hop_unreached(ticket, &relay, false, 30_000)
+            .expect("scheduled");
+        assert_eq!(
+            second.delay_ms, 30_000,
+            "the direct route is retried at 30 s"
+        );
+        assert_eq!(
+            m.peer_gate_state(&p, 30_000).route_held_until_ms,
+            Some(90_000),
+            "while the circuit is held its 60 s"
+        );
+
+        // A SECOND CIRCUIT THROUGH THE SAME RELAY is no route the gate
+        // admits: the hold is the relay's, not the string's. It carries no
+        // hold of its own, and the retry still follows the hold (#674
+        // review round 3, F2).
+        let mut m = manager(4);
+        let other_family = format!("/ip6/fd00::9/tcp/4001/p2p/{P2}/p2p-circuit");
+        assert!(m.learn_address(&p, &other_family, 0));
+        let ticket = admit(&mut m, 0);
+        let _ = m
+            .record_relay_hop_unreached(ticket, &relay, false, 0)
+            .expect("scheduled");
+        assert_eq!(m.take_due_retries(30_000, 8), std::slice::from_ref(&p));
+        let ticket = admit(&mut m, 30_000);
+        let second = m
+            .record_relay_hop_unreached(ticket, &relay, false, 30_000)
+            .expect("scheduled");
+        assert_eq!(
+            second.delay_ms, 60_000,
+            "both circuits through the held relay: the retry follows the hold"
+        );
+        assert_eq!(
+            m.handle()
+                .load()
+                .admit(
+                    &request_at(P1, &other_family, DialOrigin::ConnectionManager),
+                    60_000
+                )
+                .err(),
+            Some(DialDenial::RouteHeld),
+            "the control: the gate refuses the second circuit as the retry predicted"
         );
     }
 
@@ -3584,11 +3772,98 @@ mod tests {
         );
     }
 
+    /// The scheduler's wake is the earliest unclaimed retry never yet
+    /// offered, past or not: never one offered and left over (the tick's,
+    /// or a full budget would spin the loop), never a claimed one (an
+    /// attempt in flight), and never one skipped because the loop turned
+    /// after it fell due (#674 review F1).
+    #[test]
+    fn the_next_wake_is_the_earliest_unclaimed_retry_never_offered() {
+        let mut m = manager(8);
+        assert_eq!(m.next_retry_wake(), None, "nothing scheduled");
+        let a = m
+            .handle()
+            .load()
+            .admit(&request(P1, "/a"), 0)
+            .expect("admitted");
+        m.record_failure(a, 0);
+        let b = m
+            .handle()
+            .load()
+            .admit(&request(P2, "/b"), 5_000)
+            .expect("admitted");
+        m.record_failure(b, 5_000);
+        assert_eq!(m.next_retry_wake(), Some(30_000), "the earlier");
+        // F1: the clock moves to 40 s on P2's next failure (a manual dial
+        // past its backoff, due again at 70 s) with no offer made. P1 fell
+        // due at 30 s and was never offered, so the wake is still P1's, in
+        // the past: the scheduler wakes at once rather than at the tick.
+        let again = m
+            .handle()
+            .load()
+            .admit(&request_at(P2, "/b", DialOrigin::Manual), 40_000)
+            .expect("past its backoff");
+        m.record_failure(again, 40_000);
+        assert_eq!(m.next_retry_wake(), Some(30_000), "P1, never offered");
+        // An offer with the budget spent takes nothing and leaves P1
+        // behind: offered and left over, it is the tick's, and the next
+        // wake is P2's at 70 s -- the control that the offer, not the
+        // clock, is what moves the wake past a due retry.
+        assert!(m.take_due_retries(40_000, 0).is_empty());
+        assert_eq!(m.next_retry_wake(), Some(70_000), "P1 left over: P2 next");
+        // THE SAME MILLISECOND (#674 review round 2, F1): a new address
+        // for P2 makes its retry due now, at 40 s, the millisecond of the
+        // offer just made. That offer never saw it at that due time, so
+        // the wake is P2's, at once -- not left to the tick as one offered.
+        assert!(m.learn_address(&peer(P2), "/c", 40_000), "learned");
+        assert_eq!(
+            m.next_retry_wake(),
+            Some(40_000),
+            "P2, made due after the offer"
+        );
+        assert_eq!(
+            m.take_due_retries(40_000, 8),
+            vec![peer(P1), peer(P2)],
+            "both offered again, oldest due first"
+        );
+        assert_eq!(m.next_retry_wake(), None, "both claimed");
+    }
+
+    /// A retry offered, claimed and refused `RouteHeld` moves to the
+    /// hold's end (`defer_retry_to_route_hold`): a new due time, so it is
+    /// not offered there yet and the wake names it -- the offer mark is
+    /// cleared with the due time it was made at (`Retry::set_due`).
+    #[test]
+    fn a_retry_moved_to_a_holds_end_is_the_wakes_again() {
+        let circuit = format!("/ip4/10.0.0.9/tcp/4001/p2p/{P2}/p2p-circuit");
+        let p = peer(P1);
+        let mut m = manager(4);
+        let ticket = m
+            .handle()
+            .load()
+            .admit(&request(P1, &circuit), 0)
+            .expect("admitted");
+        m.record_failure(ticket, 0);
+        assert_eq!(m.take_due_retries(30_000, 8), std::slice::from_ref(&p));
+        assert_eq!(m.next_retry_wake(), None, "claimed: an attempt in flight");
+        // Its dial is refused RouteHeld: the route is held to 90 s and the
+        // claim given back with the due time moved there.
+        assert!(m.policy.hold_route(&p, &circuit, 90_000));
+        m.defer_retry_to_route_hold(&p, 30_000);
+        assert_eq!(
+            m.next_retry_wake(),
+            Some(90_000),
+            "the hold's end, the wake's"
+        );
+    }
+
     #[test]
     fn a_transient_failure_reschedules_and_keeps_attempts() {
-        // The backoff cadence depends on `attempts` surviving the claim.
-        // A design that forgot the entry on claim would reset every
-        // rescheduled peer to the base delay forever.
+        // The attempt count survives the claim. It no longer lengthens
+        // the wait (ADR-0011 A 2026-11-14), but it is what an operator
+        // reads for a peer that will not connect, and a design that
+        // forgot the entry on claim would report every failure as the
+        // first.
         let mut m = manager(8);
         let t = m
             .handle()
@@ -3604,14 +3879,14 @@ mod tests {
             .load()
             .admit(&request(P1, "/a"), 30_000)
             .expect("a claimed peer can still be dialed directly");
-        m.record_failure(t2, 30_000);
-        // Second failure: attempts=2, so the delay is 60s (30s * 2^1),
-        // not the base 30s a reset counter would produce.
-        assert!(
-            !m.is_retry_due(&peer(P1), 30_000 + 30_000),
-            "the second failure must not be due after only the base delay"
+        let second = m.record_failure(t2, 30_000).expect("a retry");
+        assert_eq!(
+            (second.attempt, second.delay_ms),
+            (2, 30_000),
+            "the second failure is attempt 2, not a reset 1, and waits 30 s"
         );
-        assert!(m.is_retry_due(&peer(P1), 30_000 + 60_000));
+        assert!(!m.is_retry_due(&peer(P1), 30_000 + 29_999));
+        assert!(m.is_retry_due(&peer(P1), 30_000 + 30_000));
     }
 
     #[test]
@@ -3909,9 +4184,10 @@ mod tests {
 
     #[test]
     fn the_retry_cadence_is_the_one_connectivity_md_states() {
-        // `architecture/transport/libp2p/CONNECTIVITY.md`: 30 s,
-        // exponential, bounded by 5 min. Restated as numbers in this
-        // module, so this test is what turns a drift into a failure.
+        // `architecture/transport/libp2p/CONNECTIVITY.md` §11 under
+        // ADR-0011 A 2026-11-14: 30 s after every failure, however many
+        // came before. Restated as numbers in this module, so this test
+        // is what turns a drift into a failure.
         let mut m = manager(64);
         let mut delays = Vec::new();
         let mut now = 0u64;
@@ -3936,18 +4212,10 @@ mod tests {
             delays.push(probe - now);
             now = probe;
         }
-        assert_eq!(delays.first(), Some(&30_000), "the first wait is 30 s");
+        assert_eq!(delays.len(), 10, "every failure scheduled a retry");
         assert!(
-            delays.windows(2).all(|w| w[1] >= w[0]),
-            "the cadence never shortens: {delays:?}"
-        );
-        assert!(
-            delays.iter().all(|d| *d <= 5 * 60 * 1_000),
-            "and is bounded by five minutes: {delays:?}"
-        );
-        assert!(
-            delays.contains(&(5 * 60 * 1_000)),
-            "and actually reaches the ceiling: {delays:?}"
+            delays.iter().all(|d| *d == 30_000),
+            "every wait is 30 s, the tenth as the first: {delays:?}"
         );
     }
 
@@ -4036,22 +4304,22 @@ mod tests {
             "the infrastructure peer's adapter is not refused by the old backoff"
         );
 
-        // ONCE: the redial fails and the cadence RESUMES -- the second
-        // retry, 60 s, not the first's 30 s again.
+        // ONCE: the redial fails and the count RESUMES -- the second
+        // attempt, not the first again -- at 30 s, the only wait.
         let t = m
             .handle()
             .load()
             .admit(&request(P1, "/a"), 1_000)
             .expect("admitted");
         let retry = m.record_failure(t, 1_000).expect("a retry");
-        assert_eq!((retry.attempt, retry.delay_ms), (2, 60_000));
+        assert_eq!((retry.attempt, retry.delay_ms), (2, 30_000));
         assert_eq!(
             m.handle().load().admit(&request(P1, "/a"), 2_000).err(),
             Some(DialDenial::PeerBackoff),
             "held off again"
         );
-        assert!(!m.is_retry_due(&peer(P1), 60_999));
-        assert!(m.is_retry_due(&peer(P1), 61_000));
+        assert!(!m.is_retry_due(&peer(P1), 30_999));
+        assert!(m.is_retry_due(&peer(P1), 31_000));
     }
 
     /// The lift floor (ADR-0011 A 2026-10-09): two additions inside the
@@ -4072,7 +4340,17 @@ mod tests {
         // The redial fails at once and the backoff is set again.
         let claimed = m.take_due_retries(1_000, 8);
         assert_eq!(claimed, vec![peer(P1)]);
+        // Two redials in flight; the second settles at 10 s, so the
+        // backoff runs to 40 s, past the floor's end at 31 s -- with the
+        // retry a flat 30 s (ADR-0011 A 2026-11-14), a backoff set at the
+        // lift itself would end with the floor and leave nothing to lift.
+        let late = m
+            .handle()
+            .load()
+            .admit(&request(P1, "/a"), 1_000)
+            .expect("admitted");
         fail(&mut m, 1_000);
+        let _ = m.record_failure(late, 10_000);
         assert_eq!(
             m.network_added(2_000),
             0,
@@ -4086,7 +4364,7 @@ mod tests {
         assert_eq!(
             m.network_added(1_000 + RETRY_BASE_MS),
             1,
-            "an addition after the floor lifts again"
+            "an addition after the floor lifts again, the backoff to 40 s held"
         );
         assert!(
             m.handle()
@@ -4264,7 +4542,7 @@ mod tests {
             m.record_failure(t, 30_000),
             Some(RetryScheduled {
                 attempt: 2,
-                delay_ms: 60_000,
+                delay_ms: 30_000,
                 peer_backoff: true
             })
         );

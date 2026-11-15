@@ -3463,7 +3463,14 @@ down each round (`retention_holds_each_peer_to_its_ceiling`,
 whether `address_backoff_*` becomes configurable at all — a contract
 question first, since AutoNAT's re-test shares its constants (AUTONAT.md
 §4); it runs at its default today — until then each of its two fields
-is accepted at its default and refused off it, naming the field. devex-tooling's:
+is accepted at its default and refused off it, naming the field
+(A 2026-11-14 — the re-test no longer shares them: on the owner's word
+of that day, "no, 30 seconds maximum", a returned data-plane peer is
+redialled within 30 s, ADR-0011 A 2026-11-14, so
+`address_backoff_max` defaults to 30 s and the re-test keeps 30 s
+rising to 5 min as its own numbers; both fields are still refused off
+their defaults, and the phone's cost of the 30 s redial is carried as
+not measured, CONNECTIVITY.md §12). devex-tooling's:
 the fixture algorithm `ipc-v2-length-prefix-v1`; `check_component_status`
 matching the apps' placeholder wording; a schema-agreement coverage
 check; a cargo-metadata layering check (`ipc-server` and `ipc-client`

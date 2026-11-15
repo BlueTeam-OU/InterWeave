@@ -283,7 +283,8 @@ mod tests {
         assert_eq!(failed.peer_retry_due, Some(false), "not due yet");
         assert!(failed.revision > idle.revision, "the failure republished");
 
-        // Past the longest backoff CONNECTIVITY.md allows (five minutes).
+        // Past the backoff CONNECTIVITY.md allows (30 s since ADR-0011
+        // A 2026-11-14; six minutes is past the five it once allowed too).
         let due = dial_gate(&m, 0, Some(&peer), 1_000 + 6 * 60 * 1_000);
         assert_eq!(due.peer_retry_due, Some(true));
 
