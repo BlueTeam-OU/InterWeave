@@ -81,8 +81,11 @@ pub struct SubstrateConfig {
     /// also wakes at the earliest retry never yet offered (ADR-0011
     /// A 2026-11-14, "the scheduler's tick included"), so a retry starts
     /// when it falls due while the budget lasts. What waits for the tick
-    /// is a retry offered and left over -- the budget spent, or a claim
-    /// the pending-dial ceiling released -- and the tick's other work.
+    /// is a retry offered and left over -- the budget spent, or a claim a
+    /// recoverable refusal released (the pending-dial or connection
+    /// ceiling, a superseded snapshot, a full policy table, a backend
+    /// refusal), offered again at the next tick and not the moment room
+    /// appears -- and the tick's other work.
     pub retry_tick: Duration,
     /// Most listeners that may be bound at once.
     ///

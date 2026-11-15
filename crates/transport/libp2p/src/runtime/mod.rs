@@ -2165,8 +2165,9 @@ impl SwarmRuntime {
                     // offered, recomputed each turn of the loop and
                     // possibly already past -- so a retry starts when it
                     // falls due, not up to a tick later. A retry offered
-                    // and left over (the budget, the pending-dial
-                    // ceiling) is the tick's: `next_retry_wake` never
+                    // and left over (the budget, or a claim a
+                    // recoverable refusal released) is the tick's, at
+                    // the next tick: `next_retry_wake` never
                     // names one, or a full budget would wake this arm at
                     // once, every turn. `Interval::tick` is cancel-safe,
                     // so losing the race to the wake loses no tick. A
