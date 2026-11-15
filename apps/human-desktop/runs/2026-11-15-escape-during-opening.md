@@ -10,8 +10,8 @@ The host: `develop-qzapp`, 10 CPUs, shared. The three runs went back to
 back from 06:39Z once the one-minute load had fallen below 10; the load
 (`/proc/loadavg`, 1/5/15 min) was 8.3/11.9/20.6 before run 1, 16.6/14.6/
 20.5 after it, 12.8/14.0/19.5 after run 2 and 12.7/13.8/18.8 after run 3.
-Runs 2 and 3 were therefore at one to one and a half times the CPUs, not
-below them; none was on an idle host.
+Run 1 began below the CPU count and ended at 1.7 times it; runs 2 and 3
+were at 1.3 to 1.7 times it; none was on an idle host.
 
 ## Results
 
