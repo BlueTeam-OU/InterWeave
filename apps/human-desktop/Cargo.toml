@@ -49,9 +49,9 @@ rustix = { workspace = true, features = ["time"], optional = true }
 # (ui-slint's trace.rs), on stderr with a monotonic stamp (src/trace.rs),
 # for the desktop end-to-end case that times A5's Escape while the reader
 # opens (tests/desktop-e2e/tests/human_app/opening.rs), built by that
-# case's own command. Off by default; the Linux archive's command line
-# carries no feature flag, which tools/checks/check_shipped_test_hooks.sh
-# refuses to read past (src/trace.rs says what is not checked).
+# case's own command. Off by default; tools/checks/check_shipped_test_hooks.sh
+# fails a shipped build whose graph turns any `ui-trace` on, and refuses
+# a release command line that gains a feature flag.
 ui-trace = ["interweave-human-ui-slint/ui-trace", "dep:rustix"]
 
 [dev-dependencies]

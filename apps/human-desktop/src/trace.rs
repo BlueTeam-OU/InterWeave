@@ -11,10 +11,10 @@
 //! clock on Linux but cannot be read as a number, hence `clock_gettime`.
 //! Compiled under this app's `ui-trace` feature, off by default, and for
 //! its own unit tests (`src/lib.rs`).
-//! The Linux archive builds this app with no feature flag, and
-//! `tools/checks/check_shipped_test_hooks.sh` refuses to read past a
-//! release command line that gains one; that no shipped dependency turns
-//! ui-slint's `ui-trace` on is not checked yet.
+//! `tools/checks/check_shipped_test_hooks.sh` fails a shipped build
+//! (the Linux archive holds this app) whose graph turns any `ui-trace`
+//! on, this app's or ui-slint's, and refuses a release command line that
+//! gains a feature flag.
 
 use rustix::time::{ClockId, clock_gettime};
 
