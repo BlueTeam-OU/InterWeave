@@ -23,7 +23,9 @@ pub mod run;
 mod signals;
 #[cfg(unix)]
 pub mod startup;
-#[cfg(all(unix, feature = "ui-trace"))]
+// Compiled for its unit tests too, so the stamp the opening case reads is
+// held by `cargo test` without the feature.
+#[cfg(all(unix, any(feature = "ui-trace", test)))]
 mod trace;
 #[cfg(unix)]
 mod window;

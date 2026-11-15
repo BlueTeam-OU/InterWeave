@@ -9,7 +9,8 @@
 //! two hold together the way the phone's uptime clock holds a
 //! `KeySender` press against a monotonic logcat. `Instant` is the same
 //! clock on Linux but cannot be read as a number, hence `clock_gettime`.
-//! Compiled under this app's `ui-trace` feature alone, off by default.
+//! Compiled under this app's `ui-trace` feature, off by default, and for
+//! its own unit tests (`src/lib.rs`).
 //! The Linux archive builds this app with no feature flag, and
 //! `tools/checks/check_shipped_test_hooks.sh` refuses to read past a
 //! release command line that gains one; that no shipped dependency turns
@@ -34,6 +35,7 @@ pub(crate) fn now_us() -> u128 {
 }
 
 /// Write `line` to stderr, stamped now.
+#[cfg(feature = "ui-trace")]
 pub(crate) fn say(line: &str) {
     eprintln!("{}", stamped(now_us(), line));
 }

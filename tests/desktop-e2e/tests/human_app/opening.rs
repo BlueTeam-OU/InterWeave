@@ -116,6 +116,9 @@ fn traced_binary() -> PathBuf {
 /// time cannot be read is an error, never skipped: skipping one would
 /// move every later line onto its neighbour's time.
 fn trace_since(log: &str, from_ms: u64) -> Result<Vec<(u64, String)>, String> {
+    // apps/human-desktop/src/trace.rs's `STAMP`, pinned there by
+    // `a_line_is_its_stamp_then_the_trace_line`; a drift parses no line
+    // and fails the case's first wait for the reader.
     const STAMP: &str = "human-desktop: mono-us=";
     let mut out = Vec::new();
     for l in log.lines() {
