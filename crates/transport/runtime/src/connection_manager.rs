@@ -1567,7 +1567,7 @@ impl ConnectionManager {
     /// and the reconnect is scheduled at the peer's ordinary delay AND
     /// marked as waiting on `relay`: the first direct connection to the
     /// relay makes it due at once ([`Self::relay_reached`]). The ROUTE
-    /// is held (ADR-0011 A 2026-10-21) for its own delay, [`route_hold_ms`]
+    /// is held (ADR-0011 A 2026-10-21) for its own delay, `route_hold_ms`
     /// on the peer's attempt count -- 30 s doubling to 5 min, the ladder
     /// the hold kept when ADR-0011 A 2026-11-14 took the peer's retry to a
     /// flat 30 s: every circuit to the peer through `relay` is refused
@@ -2634,7 +2634,7 @@ pub const fn retry_backoff_ms(attempts: u32) -> u64 {
 /// that stays down is still asked less and less often. The exponent is
 /// clamped, the count being remote-influenced.
 #[must_use]
-pub const fn route_hold_ms(attempts: u32) -> u64 {
+const fn route_hold_ms(attempts: u32) -> u64 {
     const BASE_MS: u64 = 30_000;
     const CEILING_MS: u64 = 5 * 60 * 1_000;
     let shifted = BASE_MS.saturating_mul(1u64 << (if attempts < 8 { attempts } else { 8 }));
