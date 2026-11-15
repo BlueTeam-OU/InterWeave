@@ -147,7 +147,7 @@ fn follow_verdict(
 /// peer and makes the allowlisted ones' retry due, each dialled through
 /// the root gate like any dial (`ConnectionManager::network_added`): a
 /// peer that failed while this host was offline would otherwise wait out
-/// up to five minutes after it is back. And every relay backing off whose
+/// up to 30 s after it is back. And every relay backing off whose
 /// peer the gate does not still hold after that lift is asked again at
 /// the next tick, its ladder kept (`ReservationManager::network_added`).
 /// The DCUtR wrapper stops treating the added IPs as departed, so an
@@ -1739,6 +1739,15 @@ impl SwarmRuntime {
         // slept through, each one walking the retry table again.
         let mut retries = tokio::time::interval(config.retry_tick);
         retries.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // THE SCHEDULER'S BUDGET for one `retry_tick` period, spent by the
+        // tick and by every wake at a due retry between ticks alike, and
+        // refilled by the tick: `max_retries_per_tick` stays a bound per
+        // tick, as `SubstrateConfig` states it, rather than becoming one
+        // per wake, which retries due a millisecond apart would turn into
+        // no bound at all (#674 review F2). While it is spent no wake is
+        // armed, and a due retry waits for the tick -- the per-tick
+        // budget exception ADR-0011 A 2026-11-14 names.
+        let mut retry_budget = config.max_retries_per_tick;
         // THE mDNS REFRESH, and the rebuild behind it (`mdns_tick`). It
         // ticks whether or not mDNS is configured; the arm is disabled
         // when it is not.
@@ -1991,6 +2000,16 @@ impl SwarmRuntime {
                     transactions,
                 );
 
+                // THE EARLIEST RETRY STILL AHEAD, for the scheduler to
+                // wake at rather than at the tick after it: ADR-0011 A
+                // 2026-11-14 bounds the wait at 30 s "the scheduler's
+                // tick included", and a tick alone added up to one more
+                // (#672's run: the first redial at +30.99 s).
+                let retry_wake = (retry_budget > 0)
+                    .then(|| manager.next_retry_wake())
+                    .flatten()
+                    .map(|due| started + Duration::from_millis(due));
+
                 tokio::select! {
                     // A HELD SEND'S HORIZON, on its own timer: the retry
                     // tick may be far longer than the horizon.
@@ -2141,16 +2160,42 @@ impl SwarmRuntime {
                     // A tick rather than a timer per peer, because a
                     // timer per peer is a structure a remote party
                     // grows by failing to connect. The retry table is
-                    // already bounded; this walks it.
-                    _ = retries.tick() => {
+                    // already bounded; this walks it. ONE wake beside
+                    // the tick -- the table's earliest retry never yet
+                    // offered, recomputed each turn of the loop and
+                    // possibly already past -- so a retry starts when it
+                    // falls due, not up to a tick later. A retry offered
+                    // and left over (the budget, or a claim a
+                    // recoverable refusal released) is the tick's, at
+                    // the next tick: `next_retry_wake` never
+                    // names one, or a full budget would wake this arm at
+                    // once, every turn. `Interval::tick` is cancel-safe,
+                    // so losing the race to the wake loses no tick. A
+                    // WAKE does the retries and nothing else: the rest
+                    // of this arm is the tick's, on its own period.
+                    ticked = async {
+                        if let Some(at) = retry_wake {
+                            tokio::select! {
+                                _ = retries.tick() => true,
+                                () = tokio::time::sleep_until(at) => false,
+                            }
+                        } else {
+                            retries.tick().await;
+                            true
+                        }
+                    } => {
                         let now = now_ms(started);
+                        if ticked {
+                            retry_budget = config.max_retries_per_tick;
+                        }
                         // A HELD SEND ENDS AT ITS HORIZON, or as soon as
                         // its caller stopped waiting (a closed reply is
                         // answered into nothing).
                         for send in held_sends.take_expired(now) {
                             let _ = send.reply.send(Err(DirectError::PeerUnreachable));
                         }
-                        let due = manager.take_due_retries(now, config.max_retries_per_tick);
+                        let due = manager.take_due_retries(now, retry_budget);
+                        retry_budget = retry_budget.saturating_sub(due.len());
                         for peer in due {
                             // NOT THIS SCHEDULER'S TO REACH. A failed
                             // dial under a reachability origin -- the
@@ -2388,6 +2433,12 @@ impl SwarmRuntime {
                                     });
                                 }
                             }
+                        }
+                        // A WAKE ENDS HERE. The `select!` is the last
+                        // statement of the loop, so this only skips the
+                        // tick's own work below.
+                        if !ticked {
+                            continue;
                         }
 
                         // THE TICK RECONCILES TOO. Review finding on

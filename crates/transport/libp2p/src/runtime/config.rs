@@ -74,13 +74,18 @@ pub struct SubstrateConfig {
     /// `PreAuthLimitsBuilder::build` is the only way to make one -- so
     /// there is nothing for `validate` to re-check here.
     pub preauth: PreAuthLimits,
-    /// How often the reconnect scheduler looks for due retries.
+    /// How often the reconnect scheduler walks the retry table, and the
+    /// period of its retry budget ([`Self::max_retries_per_tick`]).
     ///
-    /// A period, not a deadline: a retry becomes due when the policy
-    /// says so, and this is how long it may wait to be noticed. Short
-    /// enough that the backoff is what determines the delay, long
-    /// enough that an idle profile is not walking a table every
-    /// moment.
+    /// Not how long a due retry may wait to be noticed: the scheduler
+    /// also wakes at the earliest retry never yet offered (ADR-0011
+    /// A 2026-11-14, "the scheduler's tick included"), so a retry starts
+    /// when it falls due while the budget lasts. What waits for the tick
+    /// is a retry offered and left over -- the budget spent, or a claim a
+    /// recoverable refusal released (the pending-dial or connection
+    /// ceiling, a superseded snapshot, a full policy table, a peer or
+    /// address delay still running, a backend refusal), offered again at the next tick and not the moment room
+    /// appears -- and the tick's other work.
     pub retry_tick: Duration,
     /// Most listeners that may be bound at once.
     ///
@@ -89,12 +94,14 @@ pub struct SubstrateConfig {
     /// nothing, so any number could accumulate. This bounds the ones
     /// actually holding a socket.
     pub max_active_listeners: usize,
-    /// Most peers the scheduler will dial in one tick.
+    /// Most peers the scheduler will dial in one `retry_tick` period,
+    /// the tick and every wake at a due retry between ticks together.
     ///
     /// The retry table is bounded, so the whole of it could come due at
     /// once -- and dialing all of it in one pass is a burst this
     /// profile inflicts on itself. The rest stay due and are taken next
-    /// tick.
+    /// tick. Spent by the wakes too, or retries due a millisecond apart
+    /// would each be dialled on a budget of their own (#674 review F2).
     pub max_retries_per_tick: usize,
     /// Maximum listeners with a caller still awaiting their address.
     ///
