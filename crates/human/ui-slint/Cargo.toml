@@ -100,9 +100,12 @@ android = [
     "i-slint-common/shared-fontique",
 ]
 # TEST BUILDS ONLY: what the window shows, a line per change in kinds
-# (src/trace.rs), for android-e2e's driver, which steps the app by key
-# events and cannot read the screen. The debug APK turns it on through
-# apps/human-android's `ui-trace`; the release build never does.
+# (src/trace.rs), for a driver that steps the app by key events and
+# cannot read the screen: android-e2e's, through apps/human-android's
+# `ui-trace` in the debug APK, and desktop-e2e's opening case, through
+# apps/human-desktop's `ui-trace` test build. No shipped build does:
+# tools/checks/check_shipped_test_hooks.sh fails a shipped build whose
+# graph turns it on.
 ui-trace = []
 
 [build-dependencies]
