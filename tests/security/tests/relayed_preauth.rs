@@ -40,7 +40,8 @@ const PATIENCE: Duration = Duration::from_secs(20);
 /// relay client's own ladder (5 s, doubling, up to 5 s of jitter) asks
 /// at about 5-10 s and 15-25 s and is refused at the gate each time, and
 /// the first ask the gate admits is the rung after its floor, at most
-/// about 50 s in. One more failed dial doubles the gate's hold past this.
+/// about 50 s in. One more failed dial adds another 30 s to the gate's
+/// hold (ADR-0011 A 2026-11-14: the gate's delay no longer doubles).
 const RESERVATION_PATIENCE: Duration = Duration::from_secs(60);
 
 #[derive(NetworkBehaviour)]

@@ -126,10 +126,14 @@ async fn a_reconnect_reaches_a_learned_peer_and_dials_nothing_once_connected() {
 ///
 /// Paused time, so six steps cost nothing; the refusals are the
 /// kernel's, instant on a port nobody holds. The subject's `retry_tick`
-/// is an HOUR, so the only thing that can start a retry inside the bound
-/// is the scheduler's wake at the earliest due retry: a tick alone added
-/// up to one more second (#672's +30.99 s), and in paused time a failure
-/// settled on a tick makes a tick-only scheduler look exact. What this
+/// is SEVEN seconds, which 30 s is no multiple of: a failure settled on a
+/// tick falls due 30 s later, between ticks, so a tick-only scheduler
+/// dials it 35 s after -- a tick alone added up to one more second on the
+/// default (#672's +30.99 s), and in paused time a 1 s tick makes a
+/// tick-only scheduler look exact. Only the wake at the due retry meets
+/// the bound; the budget of four refills every seven seconds, so it is
+/// never what holds a retry here (`the_wake_spends_the_ticks_retry_budget_
+/// and_the_tick_refills_it` is that case). What this
 /// does not exercise: the two exceptions the amendment names (the
 /// per-tick budget and the pending-dial ceiling, both empty here), and a
 /// route that times out rather than being refused, whose dial is longer
@@ -145,7 +149,7 @@ async fn a_peer_down_past_several_steps_is_redialled_within_30_s_of_its_return()
     let mut subject = SwarmRuntime::start(
         &subject_id,
         SubstrateConfig {
-            retry_tick: Duration::from_secs(3_600),
+            retry_tick: Duration::from_secs(7),
             ..SubstrateConfig::default()
         },
         data_plane(&target_peer),
@@ -266,6 +270,84 @@ async fn a_peer_down_past_several_steps_is_redialled_within_30_s_of_its_return()
 
     subject.shutdown().await.expect("clean shutdown");
     target.shutdown().await.expect("clean shutdown");
+}
+
+/// THE BUDGET IS PER TICK, NOT PER WAKE (#674 review F2). The wake at
+/// a due retry spends `max_retries_per_tick` with the tick, so retries
+/// due at different moments inside one tick period are not each dialled
+/// on a budget of their own. Two absent peers on refused ports, a budget
+/// of one and an hour-long tick: the first retry is the wake's at 30 s,
+/// and nothing more is dialled until the hour's tick refills the budget,
+/// when the next one goes -- the control that the hold is the budget and
+/// not a scheduler that stopped. Paused time, kernel refusals.
+#[tokio::test(start_paused = true)]
+async fn the_wake_spends_the_ticks_retry_budget_and_the_tick_refills_it() {
+    let (a, b) = (
+        ProfileIdentity::generate()
+            .transport_identity()
+            .expect("peer id"),
+        ProfileIdentity::generate()
+            .transport_identity()
+            .expect("peer id"),
+    );
+    let mut subject = SwarmRuntime::start(
+        &ProfileIdentity::generate(),
+        SubstrateConfig {
+            retry_tick: Duration::from_secs(3_600),
+            max_retries_per_tick: 1,
+            ..SubstrateConfig::default()
+        },
+        TrustSources::new(
+            PeerTrustPolicy::new([a.clone(), b.clone()]).expect("two peers"),
+            InfrastructureSet::default(),
+        ),
+    )
+    .expect("starts");
+    let started = tokio::time::Instant::now();
+    for peer in [&a, &b] {
+        let port = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
+        subject
+            .dial(
+                peer.clone(),
+                format!("/ip4/127.0.0.1/tcp/{port}").parse().expect("valid"),
+            )
+            .await
+            .expect("delivered")
+            .expect("admitted");
+    }
+    // Every failure for either peer, with when it settled.
+    let mut failed: Vec<Duration> = Vec::new();
+    while failed.len() < 4 {
+        match tokio::time::timeout(Duration::from_mins(90), subject.next_event()).await {
+            Ok(Some(SwarmEvent::DialFailed { peer: Some(p), .. })) if p == a || p == b => {
+                failed.push(started.elapsed());
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the runtime stopped"),
+            Err(elapsed) => panic!("only {} failures ({elapsed}): {failed:?}", failed.len()),
+        }
+    }
+    let within = |from: u64, to: u64| {
+        failed
+            .iter()
+            .filter(|t| **t >= Duration::from_secs(from) && **t < Duration::from_secs(to))
+            .count()
+    };
+    assert_eq!(within(0, 1), 2, "the two commanded dials: {failed:?}");
+    assert_eq!(
+        within(1, 3_600),
+        1,
+        "one retry in the tick period, the wake's at 30 s: {failed:?}"
+    );
+    assert!(
+        failed[2] <= Duration::from_secs(31),
+        "and it was the wake's, not a tick's: {failed:?}"
+    );
+    assert!(
+        failed[3] >= Duration::from_secs(3_600),
+        "the next waits for the tick's refill: {failed:?}"
+    );
+    subject.shutdown().await.expect("clean shutdown");
 }
 
 #[tokio::test]

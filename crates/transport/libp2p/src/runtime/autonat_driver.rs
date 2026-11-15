@@ -56,7 +56,8 @@
 //! (`second_observer`) -- only while enough servers are CONNECTED to
 //! reach the threshold, else it waits the refresh; an address a server
 //! called unreachable goes back
-//! under the dial gate's 30 s / 5 min backoff (`retry`). A server that
+//! under the re-test's own 30 s / 5 min backoff (`retry`,
+//! `retest_backoff_ms`; the dial gate's until ADR-0011 A 2026-11-14). A server that
 //! connects and never answers is the crate's `Io` loop and reaches
 //! nothing here; its rate is the tick times `max_candidates`, as §4 says.
 //!
