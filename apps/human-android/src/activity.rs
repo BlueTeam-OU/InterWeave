@@ -518,6 +518,25 @@ impl Root {
         rules().count_from(opened);
     }
 
+    /// A held C4's or R4's start that ran and ended -- on a
+    /// foreground-only profile, Home let go of the service -- is over
+    /// undecided: the screen goes into Chats, Connect stays owed and
+    /// nothing is deferred, and the count of openings begins here, so the
+    /// start made at the return is a launch, judged by the launch rule
+    /// and not by this start's screen or bound (add-a-peer §5.1,
+    /// Interruptions). Asked before the rules' turn, so a return's start
+    /// drained in the same pump is judged as a launch from that turn.
+    /// The rule is `ViewSide::start_ended`'s, host-tested there.
+    fn held_ended(&mut self) {
+        let Some(asked_at) = crate::onboard::held_start() else {
+            return;
+        };
+        if self.side.start_ended(asked_at) {
+            rules().count_from(self.view.borrow().opened_from_chats());
+            crate::onboard::start_decided();
+        }
+    }
+
     /// A held C4's or R4's start, decided or past its bound: the screen
     /// goes (§5.1). Asked after the turn, whose reads may have decided it.
     fn held_rule(&mut self) {
@@ -566,6 +585,7 @@ impl Root {
             defer(turn);
             return;
         }
+        self.held_ended();
         // The rules of a start with Connect owed, then the model's turn,
         // in that order (start_rules::StartRules::turn says why). An
         // opening the turn has yet to take is counted already, so the
