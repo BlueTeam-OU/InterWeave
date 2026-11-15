@@ -1633,7 +1633,8 @@ impl ConnectionManager {
                         .hold_route(&peer, ticket.address(), now_ms.saturating_add(hold));
             }
             // A PEER WHOSE EVERY CANDIDATE IS A HELD CIRCUIT is retried at
-            // the earliest hold's end, the amendment's own exception: a
+            // the later of 30 s and the moment its first candidate is
+            // admitted again, the amendment's own exception: a
             // retry at 30 s would only be refused `RouteHeld`, reported as
             // a failed dial nobody started, and deferred there anyway, while
             // `RetryScheduled` quoted a delay that did not apply (#674
@@ -1675,18 +1676,15 @@ impl ConnectionManager {
         scheduled
     }
 
-    /// When the earliest of `peer`'s holds ends, if every dial candidate
-    /// it has is a held circuit route; `None` when it has none, or any
-    /// candidate that is not held.
+    /// When the first of `peer`'s dial candidates is admitted again, if
+    /// every one is refused by a route hold -- judged per relay, as the
+    /// gate judges it (`ConnectionPolicy::route_hold_end`); `None` when it
+    /// has no candidate, or any the gate would admit now.
     fn earliest_hold_end_if_only_held(&self, peer: &TransportIdentity, now_ms: u64) -> Option<u64> {
         let candidates = self.dial_candidates(peer, now_ms);
         let mut earliest: Option<u64> = None;
         for address in &candidates {
-            let until = self
-                .policy
-                .address(peer, address)
-                .filter(|state| state.is_route_held_at(now_ms))
-                .and_then(|state| state.route_held_until_ms)?;
+            let until = self.policy.route_hold_end(peer, address, now_ms)?;
             earliest = Some(earliest.map_or(until, |e| e.min(until)));
         }
         earliest
@@ -3434,6 +3432,38 @@ mod tests {
             m.peer_gate_state(&p, 30_000).route_held_until_ms,
             Some(90_000),
             "while the circuit is held its 60 s"
+        );
+
+        // A SECOND CIRCUIT THROUGH THE SAME RELAY is no route the gate
+        // admits: the hold is the relay's, not the string's. It carries no
+        // hold of its own, and the retry still follows the hold (#674
+        // review round 3, F2).
+        let mut m = manager(4);
+        let other_family = format!("/ip6/fd00::9/tcp/4001/p2p/{P2}/p2p-circuit");
+        assert!(m.learn_address(&p, &other_family, 0));
+        let ticket = admit(&mut m, 0);
+        let _ = m
+            .record_relay_hop_unreached(ticket, &relay, false, 0)
+            .expect("scheduled");
+        assert_eq!(m.take_due_retries(30_000, 8), std::slice::from_ref(&p));
+        let ticket = admit(&mut m, 30_000);
+        let second = m
+            .record_relay_hop_unreached(ticket, &relay, false, 30_000)
+            .expect("scheduled");
+        assert_eq!(
+            second.delay_ms, 60_000,
+            "both circuits through the held relay: the retry follows the hold"
+        );
+        assert_eq!(
+            m.handle()
+                .load()
+                .admit(
+                    &request_at(P1, &other_family, DialOrigin::ConnectionManager),
+                    60_000
+                )
+                .err(),
+            Some(DialDenial::RouteHeld),
+            "the control: the gate refuses the second circuit as the retry predicted"
         );
     }
 
