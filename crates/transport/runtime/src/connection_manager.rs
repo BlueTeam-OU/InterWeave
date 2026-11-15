@@ -1564,8 +1564,9 @@ impl ConnectionManager {
     /// ranked down (`score_address_failure`), so a second circuit to the
     /// same peer through a relay that is up sorts ahead of it; the route
     /// is kept (learnt, as [`Self::record_failure`] learns an attempted address),
-    /// and the reconnect is scheduled at the peer's ordinary delay AND
-    /// marked as waiting on `relay`: the first direct connection to the
+    /// and the reconnect is scheduled at the peer's ordinary delay -- or,
+    /// when every candidate is a held circuit, at the first hold's end if
+    /// that is later (below) -- AND marked as waiting on `relay`: the first direct connection to the
     /// relay makes it due at once ([`Self::relay_reached`]). The ROUTE
     /// is held (ADR-0011 A 2026-10-21) for its own delay, `route_hold_ms`
     /// on the peer's attempt count -- 30 s doubling to 5 min, the ladder
@@ -1616,8 +1617,9 @@ impl ConnectionManager {
             // 30 s to 5 min on the peer's attempt count, as it did when it
             // shared the peer's ladder, while the peer's retry is 30 s.
             // At that retry the held circuit is refused and the peer's
-            // other routes are tried; with no other route the retry is
-            // scheduled at the hold's end (below).
+            // other routes are tried; with every route a held circuit the
+            // retry is scheduled when the first of them is admitted again
+            // (below).
             let hold = route_hold_ms(self.retries.get(&peer).map_or(0, |r| r.attempts));
             // THE ROUTE IS HELD, whoever asks next
             // (ADR-0011 A 2026-10-21): with no backoff, every caller that
@@ -1690,21 +1692,30 @@ impl ConnectionManager {
         earliest
     }
 
-    /// A direct connection to `relay` is established: every retry
-    /// waiting on it ([`Self::record_relay_hop_unreached`]) is due now.
-    /// A claimed entry is left alone -- its attempt is under way.
+    /// A direct connection to `relay` is established: every route held
+    /// on it is admitted again, and every retry that waits on it is due
+    /// now -- the one whose last hop failure named `relay`
+    /// ([`Self::record_relay_hop_unreached`]), and the one with ANY held
+    /// circuit through `relay`, whichever relay its last failure named:
+    /// that circuit is a candidate admitted again (ADR-0011 A 2026-11-14,
+    /// "the first direct connection to the relay of any of the peer's held
+    /// circuits"). Keyed on `waits_on` alone, a peer held through two
+    /// relays waited for the one that failed last, while the circuit
+    /// through the other was admitted (j170). A claimed entry is left
+    /// alone -- its attempt is under way.
     pub fn relay_reached(&mut self, relay: &TransportIdentity, now_ms: u64) {
         self.observe(now_ms);
-        for entry in self.retries.values_mut() {
-            if !entry.claimed && entry.waits_on.as_ref() == Some(relay) {
+        // Lifted first, so a hold that ends here names its peer. Once per
+        // failure, as the retry's lift is -- the next failure sets the
+        // hold again.
+        let lifted = self.policy.release_relay_holds(relay, now_ms);
+        for (peer, entry) in &mut self.retries {
+            if !entry.claimed && (entry.waits_on.as_ref() == Some(relay) || lifted.contains(peer)) {
                 entry.set_due(entry.due_at_ms.min(now_ms));
                 entry.waits_on = None;
             }
         }
-        // And every route held on it is admitted again: the hop that
-        // failed is reachable now. Once per failure, as the retry's lift
-        // is -- the next failure sets the hold again.
-        if self.policy.release_relay_holds(relay, now_ms) > 0 {
+        if !lifted.is_empty() {
             self.publish();
         }
     }
@@ -2398,8 +2409,17 @@ impl ConnectionManager {
     /// every slot of every tick from everyone else (#329 review F1).
     /// `attempts` is untouched and so is `waits_on`: the relay's first
     /// direct connection still makes it due at once ([`Self::relay_reached`]).
+    ///
+    /// To the FIRST moment one of the peer's candidates is admitted again,
+    /// judged per relay as the gate judges it -- the rule the settle path
+    /// keeps (ADR-0011 A 2026-11-14). The latest hold among the peer's
+    /// circuits kept a peer held through two relays waiting up to the
+    /// ladder's spread past the moment the circuit through the other was
+    /// admitted (j170). With a candidate the gate would admit now there
+    /// is nothing to wait for, and the claim is released as
+    /// [`Self::release_retry_claim`] releases.
     pub fn defer_retry_to_route_hold(&mut self, peer: &TransportIdentity, now_ms: u64) {
-        let held_until = self.policy.route_held_until(peer, now_ms);
+        let held_until = self.earliest_hold_end_if_only_held(peer, now_ms);
         if let Some(entry) = self.retries.get_mut(peer) {
             entry.claimed = false;
             if let Some(until) = held_until {
@@ -3341,6 +3361,85 @@ mod tests {
             m.take_due_retries(7_000, 4),
             std::slice::from_ref(&p),
             "or at once when the relay connects"
+        );
+    }
+
+    /// A peer whose only candidates are circuits through TWO relays, both
+    /// held, is retried at the FIRST moment one of them is admitted again
+    /// (ADR-0011 A 2026-11-14; j170): a retry the gate refuses is deferred
+    /// to the earlier hold's end, not the later; and the first direct
+    /// connection to EITHER relay makes it due, not only to the relay its
+    /// last failure named. THE CONTROLS: the later hold is what the
+    /// operator line reports, so the two ends differ; before the earlier
+    /// end the retry is not due; and another peer's connection makes
+    /// nothing due.
+    #[test]
+    fn a_peer_held_through_two_relays_is_retried_when_the_first_is_admitted() {
+        const R2: &str = "12D3KooWA9hFCGwGCpCbWWfLmYSpqPzXgLmPvbBrgWGNvNGSDVpS";
+        let through_r1 = format!("/ip4/10.0.0.1/tcp/4001/p2p/{P2}/p2p-circuit");
+        let through_r2 = format!("/ip4/10.0.0.2/tcp/4001/p2p/{R2}/p2p-circuit");
+        let p = peer(P1);
+        let (r1, r2) = (peer(P2), peer(R2));
+        // R1's hop fails at 0, R2's at 10 s: two holds, R1's ending first.
+        let both_held = || {
+            let mut m = manager(4);
+            let ticket = m
+                .handle()
+                .admit(&request_at(P1, &through_r1, DialOrigin::RelayCircuit), 0)
+                .expect("admitted");
+            let _ = m.record_relay_hop_unreached(ticket, &r1, false, 0);
+            let ticket = m
+                .handle()
+                .admit(&request_at(P1, &through_r2, DialOrigin::RelayCircuit), 10_000)
+                .expect("the circuit through the other relay is admitted");
+            let _ = m.record_relay_hop_unreached(ticket, &r2, false, 10_000);
+            m
+        };
+        let refused = |m: &ConnectionManager, address: &str, at| {
+            m.handle()
+                .admit(&request_at(P1, address, DialOrigin::ConnectionManager), at)
+                .map(|_| ())
+                == Err(DialDenial::RouteHeld)
+        };
+
+        let mut m = both_held();
+        let first_end = 30_000;
+        let last_end = m
+            .peer_gate_state(&p, 15_000)
+            .route_held_until_ms
+            .expect("held");
+        assert!(last_end > first_end, "the control: the two holds end apart");
+        let _ = m.network_added(15_000);
+        assert_eq!(
+            m.take_due_retries(15_000, 4),
+            std::slice::from_ref(&p),
+            "a network addition made it due during both holds"
+        );
+        assert!(refused(&m, &through_r1, 15_000) && refused(&m, &through_r2, 15_000));
+        m.defer_retry_to_route_hold(&p, 15_000);
+        assert!(
+            m.take_due_retries(first_end - 1, 4).is_empty(),
+            "deferred: not before the first hold ends"
+        );
+        assert!(!refused(&m, &through_r1, first_end), "R1's circuit is admitted at its end");
+        assert_eq!(
+            m.take_due_retries(first_end, 4),
+            std::slice::from_ref(&p),
+            "and the retry is due then, not at the later hold's end"
+        );
+
+        let mut m = both_held();
+        m.relay_reached(&peer(P1), 11_000);
+        assert!(
+            m.take_due_retries(11_000, 4).is_empty(),
+            "the control: another peer's connection makes nothing due"
+        );
+        m.relay_reached(&r1, 12_000);
+        assert!(!refused(&m, &through_r1, 12_000), "R1's circuit is admitted");
+        assert_eq!(
+            m.take_due_retries(12_000, 4),
+            std::slice::from_ref(&p),
+            "due at R1's connection, though the last failure named R2"
         );
     }
 
