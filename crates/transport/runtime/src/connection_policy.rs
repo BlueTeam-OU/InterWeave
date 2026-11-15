@@ -377,8 +377,9 @@ impl AddressState {
     /// Whether this entry is currently SUPPRESSING a dial.
     ///
     /// A live quarantine, and nothing else. A route hold is not one: it
-    /// lasts one retry delay at most and the relay's connection lifts it,
-    /// so an evicted hold costs one dial early, while pinning it would let
+    /// lasts its own delay, at most 5 min (`route_hold_ms`), and the
+    /// relay's connection lifts it, so an evicted hold costs one dial
+    /// early, while pinning it would let
     /// circuit addresses fill the table. Such an entry must never be
     /// evicted to make room: dropping it restores a route the policy had
     /// decided to suppress, and an attacker who can cause evictions could

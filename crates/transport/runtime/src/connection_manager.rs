@@ -861,6 +861,11 @@ pub struct ConnectionManager {
     /// constructed by a test that never had one.
     local_peer: Option<TransportIdentity>,
     retries: std::collections::BTreeMap<TransportIdentity, Retry>,
+    /// When [`Self::take_due_retries`] last offered the due retries: an
+    /// unclaimed retry due at or before it was offered and left over (the
+    /// budget, or a claim released by the pending-dial ceiling), one due
+    /// after it has never been offered ([`Self::next_retry_wake`]).
+    last_retry_offer_ms: u64,
     /// When each peer was last lifted by a network addition, for the
     /// lift floor ([`Self::network_added`]). Each addition first prunes
     /// every entry older than [`RETRY_BASE_MS`] or for a peer no longer
@@ -945,6 +950,7 @@ impl ConnectionManager {
             shutting_down,
             local_peer: None,
             retries: std::collections::BTreeMap::new(),
+            last_retry_offer_ms: 0,
             network_lifts: std::collections::BTreeMap::new(),
             retired: std::collections::VecDeque::new(),
             notes: std::collections::VecDeque::new(),
@@ -1545,12 +1551,15 @@ impl ConnectionManager {
     /// and the reconnect is scheduled at the peer's ordinary delay AND
     /// marked as waiting on `relay`: the first direct connection to the
     /// relay makes it due at once ([`Self::relay_reached`]). The ROUTE
-    /// is held for that same delay (ADR-0011 A 2026-10-21): every
-    /// circuit to the peer through `relay` is refused `RouteHeld` to
-    /// every caller, the scheduler's own dial included, until the delay
-    /// ends or the relay connects -- while the peer's other routes stay
-    /// admitted. A relay that stays down therefore costs the ordinary
-    /// cadence for every caller, not for the scheduler alone; without the
+    /// is held (ADR-0011 A 2026-10-21) for its own delay, [`route_hold_ms`]
+    /// on the peer's attempt count -- 30 s doubling to 5 min, the ladder
+    /// the hold kept when ADR-0011 A 2026-11-14 took the peer's retry to a
+    /// flat 30 s: every circuit to the peer through `relay` is refused
+    /// `RouteHeld` to every caller, the scheduler's own dial included,
+    /// until the hold ends or the relay connects -- while the peer's other
+    /// routes stay admitted, and are what the 30 s retry tries. A relay
+    /// that stays down therefore costs the hold's cadence for every
+    /// caller, not for the scheduler alone; without the
     /// hold the composition's once-a-second reconnect round redialled the
     /// circuit each round. `None` when the ticket was not issued here.
     ///
@@ -2247,6 +2256,7 @@ impl ConnectionManager {
     #[must_use]
     pub fn take_due_retries(&mut self, now_ms: u64, limit: usize) -> Vec<TransportIdentity> {
         self.observe(now_ms);
+        self.last_retry_offer_ms = self.last_retry_offer_ms.max(now_ms);
         let mut due: Vec<(TransportIdentity, u64)> = self
             .retries
             .iter()
@@ -2263,22 +2273,26 @@ impl ConnectionManager {
         due.into_iter().map(|(p, _)| p).collect()
     }
 
-    /// The earliest moment AFTER `now_ms` at which an unclaimed retry
-    /// falls due, for the scheduler to wake then rather than at its next
-    /// tick (ADR-0011 A 2026-11-14: "the scheduler's tick included").
+    /// When the scheduler should next offer the due retries, rather than
+    /// at its next tick (ADR-0011 A 2026-11-14: "the scheduler's tick
+    /// included"): the earliest unclaimed retry that has never been
+    /// offered -- due after the last [`Self::take_due_retries`] -- which
+    /// may already be in the past, when the scheduler is to wake at once.
     ///
-    /// STRICTLY after `now_ms`: a retry already due and not taken -- the
-    /// per-tick budget was full, or the gate's pending-dial ceiling
-    /// released its claim -- is the tick's to offer again, the two
-    /// exceptions the amendment names. Answering it here would wake the
-    /// scheduler at once, every time, for as long as the budget stayed
-    /// full: a spin, not a bound. A claimed entry is an attempt in
-    /// flight and has no due time.
+    /// NOT ONE ALREADY OFFERED: a retry due at or before the last offer
+    /// and still unclaimed was left over by the budget, or its claim was
+    /// released by the gate's pending-dial ceiling -- the two exceptions
+    /// the amendment names, and the tick's to offer again. Naming it here
+    /// would wake the scheduler at once, every turn, for as long as the
+    /// budget stayed full: a spin, not a bound. Nor one merely due before
+    /// `now`: a turn of the loop that lost the race to the wake must not
+    /// leave a retry that fell due meanwhile to the tick (#674 review F1).
+    /// A claimed entry is an attempt in flight and has no due time.
     #[must_use]
-    pub fn next_retry_due_after(&self, now_ms: u64) -> Option<u64> {
+    pub fn next_retry_wake(&self) -> Option<u64> {
         self.retries
             .values()
-            .filter(|r| !r.claimed && r.due_at_ms > now_ms)
+            .filter(|r| !r.claimed && r.due_at_ms > self.last_retry_offer_ms)
             .map(|r| r.due_at_ms)
             .min()
     }
@@ -3645,13 +3659,15 @@ mod tests {
         );
     }
 
-    /// The scheduler's wake is the earliest unclaimed retry still ahead:
-    /// never one already due (the tick's, or a full budget would spin
-    /// the loop), never a claimed one (an attempt in flight).
+    /// The scheduler's wake is the earliest unclaimed retry never yet
+    /// offered, past or not: never one offered and left over (the tick's,
+    /// or a full budget would spin the loop), never a claimed one (an
+    /// attempt in flight), and never one skipped because the loop turned
+    /// after it fell due (#674 review F1).
     #[test]
-    fn the_next_wake_is_the_earliest_unclaimed_retry_still_ahead() {
+    fn the_next_wake_is_the_earliest_unclaimed_retry_never_offered() {
         let mut m = manager(8);
-        assert_eq!(m.next_retry_due_after(0), None, "nothing scheduled");
+        assert_eq!(m.next_retry_wake(), None, "nothing scheduled");
         let a = m
             .handle()
             .load()
@@ -3664,19 +3680,22 @@ mod tests {
             .admit(&request(P2, "/b"), 5_000)
             .expect("admitted");
         m.record_failure(b, 5_000);
-        assert_eq!(m.next_retry_due_after(0), Some(30_000), "the earlier");
-        assert_eq!(
-            m.next_retry_due_after(30_000),
-            Some(35_000),
-            "P1 is due AT 30 s, so it is the tick's from then, not a wake"
-        );
+        assert_eq!(m.next_retry_wake(), Some(30_000), "the earlier");
+        // F1: whatever the clock reads, a retry due and never offered is
+        // still the wake's -- it is in the past, so the scheduler wakes
+        // at once.
+        assert_eq!(m.next_retry_wake(), Some(30_000), "still P1, never offered");
+        // An offer before P1 is due takes nothing and leaves both ahead:
+        // the control that the offer, not the clock, moves the wake.
+        assert!(m.take_due_retries(29_999, 1).is_empty());
+        assert_eq!(m.next_retry_wake(), Some(30_000), "P1 still never offered");
+        // The budget takes P1 and leaves P2, due at 35 s, behind.
         assert_eq!(m.take_due_retries(35_000, 1), vec![peer(P1)]);
         assert_eq!(
-            m.next_retry_due_after(35_000),
+            m.next_retry_wake(),
             None,
-            "P1 claimed, P2 due and left over by the budget: both the tick's"
+            "P1 claimed, P2 offered and left over by the budget: both the tick's"
         );
-        assert_eq!(m.next_retry_due_after(34_999), Some(35_000), "the control");
     }
 
     #[test]
