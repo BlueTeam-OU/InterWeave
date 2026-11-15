@@ -518,6 +518,27 @@ impl Root {
         rules().count_from(opened);
     }
 
+    /// A held C4's or R4's start that ran and ended -- on a
+    /// foreground-only profile, Home let go of the service -- is over
+    /// undecided: the screen goes into Chats, Connect stays owed and
+    /// nothing is deferred, and the count of openings begins here, so the
+    /// start made at the return is a launch, judged by the launch rule
+    /// and not by this start's screen or bound (add-a-peer §5.1,
+    /// Interruptions). Asked as soon as the hub's messages are applied:
+    /// before a lost link's reattach makes a side that never saw the stop,
+    /// and before the rules' turn, so a return's start drained in the same
+    /// pump is judged as a launch from that turn.
+    /// The rule is `ViewSide::start_ended`'s, host-tested there.
+    fn held_ended(&mut self) {
+        let Some(asked_at) = crate::onboard::held_start() else {
+            return;
+        };
+        if self.side.start_ended(asked_at) {
+            rules().count_from(self.view.borrow().opened_from_chats());
+            crate::onboard::start_decided();
+        }
+    }
+
     /// A held C4's or R4's start, decided or past its bound: the screen
     /// goes (§5.1). Asked after the turn, whose reads may have decided it.
     fn held_rule(&mut self) {
@@ -551,6 +572,9 @@ impl Root {
                 log("the message store could not be listed");
             }
         }
+        // Before a reattach can replace the side, whose stop record it
+        // reads (j280 review round 1, risk 1).
+        self.held_ended();
         // The last start's answer: the store's screen in place of the
         // chats, gone once a start opened the store or the restart after a
         // discard was refused elsewhere (ADR-0060; store::follow).

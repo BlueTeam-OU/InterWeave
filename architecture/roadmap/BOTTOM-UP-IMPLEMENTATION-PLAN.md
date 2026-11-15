@@ -3463,7 +3463,14 @@ down each round (`retention_holds_each_peer_to_its_ceiling`,
 whether `address_backoff_*` becomes configurable at all — a contract
 question first, since AutoNAT's re-test shares its constants (AUTONAT.md
 §4); it runs at its default today — until then each of its two fields
-is accepted at its default and refused off it, naming the field. devex-tooling's:
+is accepted at its default and refused off it, naming the field
+(A 2026-11-14 — the re-test no longer shares them: on the owner's word
+of that day, "no, 30 seconds maximum", a returned data-plane peer is
+redialled within 30 s, ADR-0011 A 2026-11-14, so
+`address_backoff_max` defaults to 30 s and the re-test keeps 30 s
+rising to 5 min as its own numbers; both fields are still refused off
+their defaults, and the phone's cost of the 30 s redial is carried as
+not measured, CONNECTIVITY.md §12). devex-tooling's:
 the fixture algorithm `ipc-v2-length-prefix-v1`; `check_component_status`
 matching the apps' placeholder wording; a schema-agreement coverage
 check; a cargo-metadata layering check (`ipc-server` and `ipc-client`
@@ -4988,7 +4995,8 @@ past; each carries a pointer here.
   2026-07-28 revision was skipped with the same line and the legacy
   control registered and delivered, one run each (fact 99), and the
   release bridge connected legacy in 20 sessions of 20 (fact 100).
-  Carried: a build after 2.1.322, and whether the gate in the 2.1.322
+  Carried: a build after 2.1.322 (2.1.325 run since, the note of
+  2026-11-14 below), and whether the gate in the 2.1.322
   binary is still the era check read from 2.1.286's (fact 36), which
   was not read from that binary (fact 99; A 2026-11-12, this carried
   the later build alone). Read since, the note below.
@@ -5020,7 +5028,8 @@ note above carried were taken up, at architect-cto's request.
   excludes a modern-era connection (fact 107). So "the bridge stays
   legacy" rests on the measurement of fact 99 and on that reading.
   Carried: a build after 2.1.322, and that the code read is the code
-  that runs on every path.
+  that runs on every path (both taken up by S36, the note of
+  2026-11-14 below).
 - **Eight more of S32 (b)'s 33 cells** were run with the release
   bridge across two daemons on 2.1.322, five runs each: a greeting and
   a request to call `status` joining a tool-calling turn, and a
@@ -5100,8 +5109,55 @@ scope sentence straight after the answer sentence, with "reply" kept
 out of the work as a second measure, as architect-cto accepted. Carried: the scope sentence in the cells S35 did not
 run (an idle wait, a question, other work), why two request runs of
 the 20 joined to a tool turn got no reply, the rate beyond five runs a
-cell, another model, a build after 2.1.322, and a conversation longer
-than one turn.
+cell, another model, a build after 2.1.322 (2.1.325 run since, the
+note below), and a conversation longer than one turn.
+
+**Dated note, 2026-11-14 (SPIKE-001 S36, rust-services-dev, Claude
+Code 2.1.325, facts 121–126, #670).** The S33, S34 and S35 notes
+above each carried "a build after 2.1.322", and the S34 note "that
+the code read is the code that runs on every path". Both were taken
+up, at architect-cto's request, on the newest build the registry
+answered that day; the fleet's pin stayed 2.1.322.
+
+- **The gate in the 2.1.325 binary**, read and not measured, is the
+  era check of facts 36 and 107, unchanged: second among the gate's
+  checks, straight after the capability, with the same refusal and
+  notice, and the permission relay's server filter still excludes a
+  modern-era connection (fact 121).
+- **Every site that registers a channel handler**, read and not
+  measured, calls the gate before it with the connection's era, in
+  2.1.311, 2.1.322 and 2.1.325 alike: the connection's own, a
+  `channel_enable` control request and a reconnect (fact 122).
+  Measured: the refusal of a modern-era server through the first
+  alone; legacy registration through the connection's own and the
+  reconnect on 2.1.325, and through `channel_enable` on 2.1.286 only
+  (S24, fact 40).
+- **The era rows** held: a server negotiating the 2026-07-28
+  revision was skipped with the same line and notice, and the legacy
+  control registered and delivered, one run each (fact 123). So "the
+  bridge stays legacy by measurement" holds on 2.1.325.
+- **The reply cells** gave 2.1.322's counts: S34's eight cells, five
+  runs each, a reply in 20 runs of 20 from the first-turn sentence
+  and, from the server's instructions, in 10 of 10 where the message
+  started a turn of its own and in 0 of 10 where it joined a
+  tool-calling turn, with the first turn's other output reaching the
+  peer as S34 measured it (fact 124); S33's four cells and S35's
+  scope sentence in its three, one run each, gave each cell's earlier
+  result, no reply under the scope sentence carrying `READY` or the
+  count (fact 125); no `reply` call was refused in the 47 runs
+  (fact 126).
+
+So the conclusions of the three notes above read on 2.1.325 as on
+2.1.322, in the cells run, and the bridge is unchanged. Carried: a
+build after 2.1.325; a handler registered other than through the
+call the read looks for, and that the gate's result decides the
+registration at each site, which the read takes from the call's
+position; a modern-era server through the reconnect or
+`channel_enable` site; a rate on 2.1.325 beyond five runs a cell in
+the eight and one in the other seven; the cells not run there (the 19
+S32 (b) cells not run on 2.1.322, S35's other wordings, and every
+S32 (a) compaction cell, whose notes above keep "a build after
+2.1.322"); another model; and a conversation longer than one turn.
 
 ## 20. Stage 17 — Android human client
 
@@ -6106,12 +6162,13 @@ it cannot serve this profile; the misbehaving AutoNAT server is driven
 against the vendored client in a raw Swarm. Limits the tests show and
 the rows do not state: every address is loopback on one host, so no
 NAT is crossed (`relay_double.rs`'s harness), and a stopped relay is a
-parked thread, not a crashed host. The keepalive rule has no ADR of
-its own: the owner's word of 2026-09-26 and the two rulings live in
-§14, three rules in all, and no record promotes them yet; architect-cto
-promotes them into one ADR, with its digest entry and README row, at
-the latest with this stage's closing record, or earlier if §14 gains a
-fourth (the open list below carries it).
+parked thread, not a crashed host. The keepalive rule had no ADR of
+its own when this record was written: the owner's word of 2026-09-26
+and the two rulings lived in §14, three rules in all, to be promoted
+into one ADR at the latest with this stage's closing record, or earlier
+if §14 gained a fourth. The fourth came on 2026-11-13 (the held direct
+connection, #657), and ADR-0068 is the promotion (2026-11-14), with its
+digest entry and README row; §14 keeps the mechanics.
 
 **Open before the close (the same read).** Each named to its owner;
 none is the status value's, which stays on this stage.
@@ -6324,8 +6381,9 @@ none is the status value's, which stays on this stage.
   fd4679a7f carries the fix.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
-  the three prose status sites with it, and, unless done earlier, the
-  keepalive rules' promotion from §14 into one ADR (architect-cto).
+  the three prose status sites with it. The keepalive rules' promotion
+  from §14 into one ADR, once carried here, was done earlier: ADR-0068
+  (2026-11-14).
 
 ## 22. Stage 19 — packaging, migration, and release
 
@@ -7578,7 +7636,21 @@ owner:
   (`apps/human-android/device-runs/2026-11-12-samsung-a40-release-profile.md`,
   a debug APK with its library at the release profile); what that row
   leaves unproved is in its limit cell. The pane on a release APK and
-  the reply's target stay as written.)
+  the reply's target stay as written.) (A 2026-11-14 — the third was
+  closed too, and the note of 2026-11-13 was wrong to leave it "as
+  written": the lookup was decided and built before that note. As
+  this entry was written, a reply whose target lay beyond the held
+  rows read as `unavailable` on the command line. #535, merged
+  2026-11-03, built the lookup of `design/2026-10-27-start-window.md`
+  §5.2: schema v13 answers from two indexes whether the conversation
+  holds the target, unread or kept, and never reads a row; such a
+  reply prints `{"stored": true}` on the command line
+  (`apps/human-cli/README.md`; `a_reply_to_a_stored_target_prints_stored`
+  in `apps/human-cli/src/output.rs`) and draws "In reply to an earlier
+  message" in the conversation. `{"unavailable": true}` stayed for a
+  target the store does not hold in that conversation, and for the
+  other cases that README lists. Of the three, the pane on a release
+  APK stays as written.)
 - Found after the close, from the owner's second review of the client
   (2026-10-27, judged by the review class at 1b37e0ef), three of this
   stage's, each P3 and none reaching a screen in a way the review

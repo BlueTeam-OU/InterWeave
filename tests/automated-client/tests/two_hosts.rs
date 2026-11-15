@@ -664,7 +664,7 @@ const LEARNED_SEND: &str = "the_side_that_learned_an_address_dials_it_on_a_send_
 /// close: the send is not answered `PeerUnknown` -- B's book holds an
 /// address, so the runtime dials it once (`DIRECT.md`'s usable-candidate
 /// case) and answers `PeerUnreachable` when the dial fails. That failure
-/// schedules a retry like any dial's (30 s, doubling to five minutes),
+/// schedules a retry like any dial's (30 s, ADR-0011 A 2026-11-14),
 /// so from the send on B redials A from its book: here the link's return
 /// lifts the backoff and the scheduler dials at once. An unrouted
 /// address fails in milliseconds; one the network drops silently holds
@@ -690,4 +690,172 @@ async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
         seen.scheduler_dialled && seen.dials[1] >= 1,
         "a retry when the link returned\n{seen:?}"
     );
+}
+
+const LONG_OUTAGE: &str =
+    "after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_the_return";
+
+/// How long B's daemon is down: the 2026-11-14 run's outage, which on
+/// the 30 s .. 5 min ladder then in force reached its ceiling and
+/// reconnected 272 s after B's return
+/// (`runs/2026-11-14-long-outage.md`).
+const OUTAGE: Duration = Duration::from_secs(480);
+
+/// The most that may pass between one failed attempt's settlement and
+/// the next attempt's start, the scheduler's tick included: the owner's
+/// word of 2026-11-14 (ADR-0011 A 2026-11-14; `RETRY_CEILING_MS`).
+const BOUND: Duration = Duration::from_secs(30);
+
+/// What A's log shows of the outage, and how long the pair took to
+/// reconnect once B was back: written beside the test binary, since the
+/// inner run's output is not shown on a pass.
+fn record(text: &str) {
+    let path = std::env::current_exe()
+        .expect("the test binary's path")
+        .with_file_name("long_outage.txt");
+    std::fs::write(&path, text).expect("the record is written");
+}
+
+/// A log line's time of day, in seconds: the subscriber's RFC 3339
+/// timestamp, UTC. A run crossing midnight would read wrong; the case
+/// lasts under a quarter of an hour.
+fn seconds_of_day(line: &str) -> f64 {
+    let time = line
+        .split_once('T')
+        .and_then(|(_, rest)| rest.split_once('Z'))
+        .map(|(time, _)| time)
+        .expect("a timestamped line");
+    time.split(':')
+        .map(|f| f.parse::<f64>().expect("a time field"))
+        .fold(0.0, |acc, f| acc * 60.0 + f)
+}
+
+/// The fleet's shape (only A holds an entry), with B's DAEMON stopped
+/// rather than the link: A's dials reach B's namespace and are refused
+/// there, nothing changes in A's network, so no network change lifts A's
+/// backoff. A redials by its entry every 30 s; after the outage B
+/// starts again on the same port, never dials A (it holds no entry), and
+/// the pair reconnects when A's next retry falls due -- so how long that
+/// takes is what is left of the 30 s A is waiting out, at most all of
+/// it. Run by hand: eight minutes down; each run is recorded under
+/// `tests/automated-client/runs/`. The bound itself is pinned without a
+/// person by `crates/transport/libp2p/tests/reconnect.rs`'s
+/// `a_peer_down_past_several_steps_is_redialled_within_30_s_of_its_return`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "an outage of eight minutes, run by hand and recorded under tests/automated-client/runs/"]
+async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_the_return() {
+    // The outage, the ceiling and the patience, and margin: past the
+    // harness's default deadline on purpose.
+    if !netns::in_overlay_within(LONG_OUTAGE, Duration::from_mins(20)) {
+        return;
+    }
+    let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
+    until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
+    let before = a.log().len();
+
+    b.stop().await;
+    let down = tokio::time::Instant::now();
+    let deadline = down + CLOSE;
+    while a.connected_to(&b.peer).await {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "A saw B go\n{}",
+            a.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep_until(down + OUTAGE).await;
+    let during = a.log()[before..].to_owned();
+
+    b.start().await;
+    let back = tokio::time::Instant::now();
+    until_both(
+        &a,
+        &b,
+        true,
+        BOUND + PATIENCE,
+        "reconnected within 30 s of B's return",
+    )
+    .await;
+    let took = back.elapsed();
+
+    let after = a.log()[before + during.len()..].to_owned();
+    let lines = |log: &str, what: &str| -> Vec<String> {
+        log.lines()
+            .filter(|l| l.contains(what))
+            .map(str::to_owned)
+            .collect()
+    };
+    let delays: Vec<u64> = lines(&during, "retry scheduled")
+        .iter()
+        .filter_map(|l| {
+            l.split_whitespace()
+                .find_map(|f| f.strip_prefix("delay_ms="))
+                .and_then(|n| n.parse().ok())
+        })
+        .collect();
+    record(&format!(
+        "outage {OUTAGE:?}, reconnected {took:?} after B's return\n\
+         retry delays during the outage (ms): {delays:?}\n\
+         reconnect refusals during the outage: {}\n\
+         -- A's dial lines during the outage --\n{}\n\
+         -- A's dial and connect lines after B's return --\n{}\n",
+        lines(&during, "reconnect refused").len(),
+        lines(&during, "dial failed")
+            .iter()
+            .chain(lines(&during, "retry scheduled").iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n"),
+        after
+            .lines()
+            .filter(|l| l.contains("dial failed")
+                || l.contains("retry scheduled")
+                || l.contains("peer connected"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ));
+
+    // A WENT ON REDIALLING through the outage every 30 s, however many
+    // had failed: sixteen dials in 480 s, where the ladder this replaced
+    // made five.
+    assert!(
+        delays.len() >= 15 && delays.iter().all(|d| *d == 30_000),
+        "{delays:?}\n{during}"
+    );
+    // And no wait between a failure's settlement and the next failure
+    // passed the bound, read from A's own log: a failed dial's line is
+    // its settlement, and the next one is its successor's start plus a
+    // refusal from B's namespace, milliseconds.
+    let failed: Vec<f64> = lines(&during, "dial failed")
+        .iter()
+        .map(|l| seconds_of_day(l))
+        .collect();
+    let gaps: Vec<f64> = failed.windows(2).map(|w| w[1] - w[0]).collect();
+    assert!(
+        gaps.iter().all(|g| *g <= BOUND.as_secs_f64() + 0.25),
+        "a wait passed 30 s: {gaps:?}\n{during}"
+    );
+    // B'S RETURN LIFTS NOTHING: the pair reconnects when the retry the
+    // last failure scheduled falls due, not when B is back -- B holds no
+    // entry, and nothing in A's network changed. Read from A's own log:
+    // its connect is the retry's moment, within a second.
+    let last_failure = lines(&during, "retry scheduled")
+        .last()
+        .map(|l| seconds_of_day(l))
+        .expect("a retry scheduled");
+    let connected = lines(&after, "peer connected")
+        .first()
+        .map(|l| seconds_of_day(l))
+        .expect("A logged the reconnect");
+    let due = last_failure + BOUND.as_secs_f64();
+    assert!(
+        (connected - due).abs() < 1.0,
+        "reconnected at the retry's moment: due {due}, connected {connected}\n{after}"
+    );
+    // THE OWNER'S WORD: within 30 s of B's return, plus the dial itself.
+    assert!(took <= BOUND + Duration::from_secs(1), "{took:?}");
+
+    a.stop().await;
+    b.stop().await;
 }

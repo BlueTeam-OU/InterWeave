@@ -123,7 +123,10 @@ pub struct ConnectionPolicyConfig {
         serialize_with = "ser_duration_ms"
     )]
     pub address_backoff_min_ms: u32,
-    /// `duration[30s..30m] = 5m`, in milliseconds.
+    /// `duration[30s..30m] = 30s`, in milliseconds: the retry schedule's
+    /// ceiling the runtime runs, the base itself since the owner's word
+    /// of 2026-11-14 (ADR-0011 A 2026-11-14: a peer that returns is
+    /// dialled within 30 s of its return).
     #[serde(
         rename = "address_backoff_max",
         deserialize_with = "de_duration_ms",
@@ -143,7 +146,7 @@ impl Default for ConnectionPolicyConfig {
     fn default() -> Self {
         Self {
             address_backoff_min_ms: 30_000,
-            address_backoff_max_ms: 300_000,
+            address_backoff_max_ms: 30_000,
             identity_mismatch_quarantine_ms: 1_800_000,
         }
     }
@@ -539,7 +542,7 @@ mod tests {
         assert_eq!(t.pre_auth.handshake_timeout_ms, 10_000);
         assert_eq!(t.pre_auth.ipv6_source_prefix_bits, 64);
         assert_eq!(t.connection_policy.address_backoff_min_ms, 30_000);
-        assert_eq!(t.connection_policy.address_backoff_max_ms, 300_000);
+        assert_eq!(t.connection_policy.address_backoff_max_ms, 30_000);
         assert_eq!(
             t.connection_policy.identity_mismatch_quarantine_ms,
             1_800_000

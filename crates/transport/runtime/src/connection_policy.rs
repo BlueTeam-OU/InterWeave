@@ -377,8 +377,9 @@ impl AddressState {
     /// Whether this entry is currently SUPPRESSING a dial.
     ///
     /// A live quarantine, and nothing else. A route hold is not one: it
-    /// lasts one retry delay at most and the relay's connection lifts it,
-    /// so an evicted hold costs one dial early, while pinning it would let
+    /// lasts its own delay, at most 5 min (`route_hold_ms`), and the
+    /// relay's connection lifts it, so an evicted hold costs one dial
+    /// early, while pinning it would let
     /// circuit addresses fill the table. Such an entry must never be
     /// evicted to make room: dropping it restores a route the policy had
     /// decided to suppress, and an attacker who can cause evictions could
@@ -1069,12 +1070,31 @@ impl ConnectionPolicy {
     /// the same string, since one relay has several addresses (a
     /// transport, a family) and the failed hop is the relay's.
     fn route_held(&self, peer: &TransportIdentity, address: &str, now_ms: u64) -> bool {
-        let Some(relay) = circuit_relay(address) else {
-            return false;
-        };
-        self.peer_routes(peer).any(|(held, state)| {
-            state.is_route_held_at(now_ms) && circuit_relay(held) == Some(relay)
-        })
+        self.route_hold_end(peer, address, now_ms).is_some()
+    }
+
+    /// When the hold that refuses a dial of `address` to `peer` ends: the
+    /// latest live hold among `peer`'s circuits through `address`'s relay,
+    /// `None` when `address` is not a circuit or nothing through its relay
+    /// holds at `now_ms`. The gate's own rule ([`Self::route_held`] is
+    /// this being `Some`), so a caller predicting a refusal -- the retry
+    /// that waits out its peer's holds -- judges each address exactly as
+    /// the gate will (#674 review round 3, F2: a second circuit through
+    /// the same relay carries no hold of its own and is refused all the
+    /// same).
+    pub(crate) fn route_hold_end(
+        &self,
+        peer: &TransportIdentity,
+        address: &str,
+        now_ms: u64,
+    ) -> Option<u64> {
+        let relay = circuit_relay(address)?;
+        self.peer_routes(peer)
+            .filter(|(held, state)| {
+                state.is_route_held_at(now_ms) && circuit_relay(held) == Some(relay)
+            })
+            .filter_map(|(_, state)| state.route_held_until_ms)
+            .max()
     }
 
     /// The latest live hold among `peer`'s circuit routes at `now_ms`:

@@ -45,6 +45,7 @@ use std::time::{Duration, Instant};
 
 use interweave_android_e2e_cases::keys;
 use interweave_android_e2e_tests::adb::AdbDevice;
+use interweave_android_e2e_tests::back_run::{self, Run};
 use interweave_android_e2e_tests::long::{envelope, shapes};
 use interweave_android_e2e_tests::screen::{Screens, Step};
 use interweave_android_e2e_tests::{Desktop, Device, PATIENCE, free_port, human};
@@ -398,87 +399,128 @@ async fn on_a_device_the_reader_of_each_long_shape_is_timed_open_and_at_its_end(
     Rig::stop(sender, phone, d).await;
 }
 
-/// When Back reaches the reader after Read the whole message: ux-
-/// designer's figure for the A/B of 2026-11-11, about 0.2 s, inside the
-/// list's opening on the A40 and before its bar is due at 0.5 s.
-const BACK_AFTER: Duration = Duration::from_millis(200);
+/// When Back reaches the reader after Read the whole message inside the
+/// first turn: about half the list shape's first-screen time
+/// (design/2026-11-04-long-message.md A5; 179 ms on the A40's clean
+/// build of 2026-11-13). Fixed rather than measured on the run: a build
+/// or phone whose first screen comes before it makes the round void, not
+/// passed, and A5 then asks ux-designer for an earlier time.
+const BACK_IN_FIRST_TURN: Duration = Duration::from_millis(90);
 
-/// The same past the first go and the bar: design/2026-11-04-long-message.md
-/// section 5.4's run of about 0.6 s, on the shapes the A40 opens in about
-/// 0.5 and 0.75 s (device-runs/2026-11-12-samsung-a40-pixel-9a.md).
-const BACK_PAST_FIRST_GO: Duration = Duration::from_millis(600);
+/// The same past the first turn, while the bar shows: A5's about 0.6 s,
+/// on the two stress shapes alone, whose first screens came at 1.41 s
+/// and 1.02 s on the A40 (2026-11-13); every other shape draws its first
+/// screen before it.
+const BACK_PAST_FIRST_TURN: Duration = Duration::from_millis(600);
 
-/// How long after the first Back the second comes, in the two-Back case.
+/// How long after the first Back the second comes, in the pair that
+/// checks that neither Back is lost: the reader has closed by then.
 const SECOND_BACK: Duration = Duration::from_millis(300);
 
-/// A person who presses Back while the reader opens: the list shape sent
-/// as in the timed case, its Read the whole message pressed, and Back
-/// [`BACK_AFTER`] later. The reader closes to its conversation with focus
-/// back on the row's Read the whole message, so the press was not lost;
-/// the case prints whether the reader's rows were drawn before it closed.
+/// How long after the first Back the second comes when the two are
+/// pressed together: within about 0.03 s, both pending before the close.
+const SECOND_BACK_TOGETHER: Duration = Duration::from_millis(30);
+
+/// A5's closing limits: inside the first turn the reader closes within
+/// 1 s of the Back, past it within 0.15 s.
+const CLOSE_IN_FIRST_TURN: Duration = Duration::from_secs(1);
+const CLOSE_PAST_FIRST_TURN: Duration = Duration::from_millis(150);
+
+/// The stress shapes (src/long.rs): every heading, and every link's
+/// control, different text, so their openings run past the first turn.
+const STRESS: [&str; 2] = ["distinct headings", "distinct links"];
+
+/// A person who presses Back inside the reader's first turn: the list
+/// shape sent as in the timed case, its Read the whole message pressed,
+/// and Back [`BACK_IN_FIRST_TURN`] later. Passes when the reader closes
+/// to its conversation within [`CLOSE_IN_FIRST_TURN`] of the Back, focus
+/// back on the row's Read the whole message; void when the first screen
+/// was drawn before the Back. The case prints the Back to the close and
+/// how long the first screen showed.
 ///
 /// With `INTERWEAVE_ANDROID_SHOTS` set, the screen is recorded across the
-/// two keys to `back-<shape>-<ms>ms.mp4` there, for the person who
-/// checks whether an opening bar showed: the trace says which page was
-/// drawn, not what the screen showed on it.
+/// keys to `back-<shape>-<ms>ms.mp4` there, for the person who checks
+/// whether an opening bar showed: the trace says which page was drawn,
+/// not what the screen showed on it.
 ///
-/// What this does NOT prove: the gap between the two keys as the view
-/// saw them -- it is the phone shell's, give or take the two `input`
-/// commands' start-up -- or when the opening yielded to the Back.
+/// What this does NOT prove: the times are the sender's send and the
+/// app's trace line, not the frame on the screen; nor when the opening
+/// yielded to the Back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
 async fn on_a_device_back_while_the_reader_opens_closes_it_to_its_conversation() {
-    back_while_opening(&["list"], BACK_AFTER, None).await;
-}
-
-/// The same with Back [`BACK_PAST_FIRST_GO`] after the press: on heading
-/// autolinks and reference link, the shapes section 5.4 names, and on
-/// the two stress shapes. As the first and second rows of their
-/// conversation the first two had their rows drawn within about 0.42 s
-/// on the A40 (2026-11-12), so their Back lands after the rows are in; the stress shapes' openings run past the first go
-/// and the bar, so theirs lands inside the opening. Each closes to its
-/// conversation with focus back on its row. The case
-/// prints each key's phone time beside the trace's (`enter-at`,
-/// `back-at`), from which the run's Back-to-close is read against the
-/// logcat, and the recording shows whether the bar was up.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
-async fn on_a_device_back_past_the_first_go_closes_the_reader_to_its_conversation() {
     back_while_opening(
-        &[
-            "heading autolinks",
-            "reference link",
-            "distinct headings",
-            "distinct links",
-        ],
-        BACK_PAST_FIRST_GO,
+        &["list"],
+        BACK_IN_FIRST_TURN,
         None,
+        Run::Single {
+            within: CLOSE_IN_FIRST_TURN,
+        },
     )
     .await;
 }
 
-/// Two Backs [`SECOND_BACK`] apart, the first [`BACK_PAST_FIRST_GO`]
-/// after the press, on the two stress shapes, whose bar is up by then:
-/// the first closes the reader and the second acts on the conversation,
-/// leaving it for the chat list, neither lost nor merged (design
-/// 2026-11-04-long-message.md section 5.4; ux-designer-01's acceptance
-/// 2 for j107).
+/// The same with Back [`BACK_PAST_FIRST_TURN`] after the press, on the
+/// two stress shapes, whose openings run past the first turn and show the
+/// bar by then: the reader closes within [`CLOSE_PAST_FIRST_TURN`] of the
+/// Back, focus back on its row; void when the first screen came first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
+async fn on_a_device_back_past_the_first_go_closes_the_reader_to_its_conversation() {
+    back_while_opening(
+        &STRESS,
+        BACK_PAST_FIRST_TURN,
+        None,
+        Run::Single {
+            within: CLOSE_PAST_FIRST_TURN,
+        },
+    )
+    .await;
+}
+
+/// Two Backs [`SECOND_BACK`] apart, the first [`BACK_PAST_FIRST_TURN`]
+/// after the press, on the two stress shapes: the second comes after the
+/// reader has closed, so this checks only that neither Back is lost --
+/// the reader closes, then the conversation leaves for the chat list
+/// (A5).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
 async fn on_a_device_two_backs_while_the_reader_opens_close_it_then_the_conversation() {
+    back_while_opening(&STRESS, BACK_PAST_FIRST_TURN, Some(SECOND_BACK), Run::Pair).await;
+}
+
+/// Two Backs pressed together, the first [`BACK_PAST_FIRST_TURN`] after
+/// the press and the second [`SECOND_BACK_TOGETHER`] after it, on the two
+/// stress shapes, so that both are pending before the reader closes:
+/// section 5.4's second Back pressed while the reader is still opening.
+/// Judged by A5 on the uptime clock (`back_run::judge`, `Run::Together`):
+/// void when a send time is missing, the second Back was sent after the
+/// close, or the first screen came before the first Back; a pass on
+/// exactly two steps, the reader closed within [`CLOSE_PAST_FIRST_TURN`]
+/// and then the conversation left for the chat list; a fail otherwise.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs a device with the app's debug and androidTest builds: ANDROID_SERIAL and INTERWEAVE_ANDROID_INSTRUMENTATION (src/adb.rs); one phone, so --test-threads 1"]
+async fn on_a_device_two_backs_pressed_together_while_the_reader_opens_take_two_steps() {
     back_while_opening(
-        &["distinct headings", "distinct links"],
-        BACK_PAST_FIRST_GO,
-        Some(SECOND_BACK),
+        &STRESS,
+        BACK_PAST_FIRST_TURN,
+        Some(SECOND_BACK_TOGETHER),
+        Run::Together {
+            within: CLOSE_PAST_FIRST_TURN,
+        },
     )
     .await;
 }
 
 /// Each of `names`' shapes sent in turn, its Read the whole message
 /// pressed and Back `after` later, and a second Back `second` after that
-/// ([`Screens::read_whole_then_back`]): the conversation is opened again
-/// for each shape the second Back left.
-async fn back_while_opening(names: &[&str], after: Duration, second: Option<Duration>) {
+/// ([`Screens::read_whole_then_back`]), judged as `run`: the conversation
+/// is opened again for each shape the second Back left. Every round is
+/// printed with its verdict and times, and every round is run unless one
+/// leaves the app off the page the next starts from; the case then fails
+/// naming each failed round, each void one -- a void round is not a
+/// pass, and goes back to ux-designer (A5) -- and any stop.
+async fn back_while_opening(names: &[&str], after: Duration, second: Option<Duration>, run: Run) {
     let shots = std::env::var_os("INTERWEAVE_ANDROID_SHOTS").map(PathBuf::from);
     let Rig {
         serial,
@@ -489,6 +531,9 @@ async fn back_while_opening(names: &[&str], after: Duration, second: Option<Dura
         mut screens,
     } = Rig::start().await;
     let mut opened: Vec<String> = Vec::new();
+    let mut failed = Vec::new();
+    let mut void = Vec::new();
+    let mut stopped = None;
     for (serial_no, name) in (1u8..).zip(names) {
         let (name, text) = shapes()
             .into_iter()
@@ -503,7 +548,7 @@ async fn back_while_opening(names: &[&str], after: Duration, second: Option<Dura
             }
             let on_phone = "/data/local/tmp/interweave-back-during-opening.mp4";
             let mut recording = None;
-            let back = screens.read_whole_then_back(&opened, after, second, PATIENCE, || {
+            let back = screens.read_whole_then_back(&opened, after, second, run, PATIENCE, || {
                 recording = shots.as_ref().map(|_| {
                     let child = Command::new("adb")
                         .args([
@@ -544,23 +589,50 @@ async fn back_while_opening(names: &[&str], after: Duration, second: Option<Dura
             }
             back
         });
-        passed(&back, &screens);
-        let field = |key: &str| back.get(key).and_then(|v| v.as_str()).unwrap_or("?");
-        let (again, ended, second_at) = match second {
-            Some(gap) => (
-                format!(", and again {gap:?} later"),
-                "closed to its conversation, then left it for the chat list",
-                format!(", second Back launched {}", field("back2-at")),
-            ),
-            None => (String::new(), "closed to its conversation", String::new()),
-        };
+        let field = |key: &str| back.get(key).and_then(|v| v.as_str()).unwrap_or("-");
+        let result = field(keys::RESULT);
+        let again = second.map_or_else(String::new, |gap| format!(", and again {gap:?} later"));
         println!(
-            "Back {after:?} after Read the whole message on {name}{again}: {ended}; rows drawn before it closed: {}; Enter launched {}, Back launched {}{second_at} (phone time)",
-            field("drawn"),
+            "Back {after:?} after Read the whole message on {name}{again}: {result}; Back to close {} ms, first screen shown {} ms; uptime ms: Enter sent {}, Back sent {}, second Back sent {}, first screen {}, closed {}, chat list {}; {}",
+            field("back-to-close-ms"),
+            field("first-screen-shown-ms"),
             field("enter-at"),
             field("back-at"),
+            field("back2-at"),
+            field("drawn-at"),
+            field("closed-at"),
+            field("left-at"),
+            field(keys::DETAIL),
         );
-        opened.push(field("read").to_owned());
+        if result == back_run::VOID {
+            void.push(format!("{name}: {}", field(keys::DETAIL)));
+        } else if result != keys::PASS {
+            failed.push(format!(
+                "{name}: {back:?}\nthe trace's tail: {:#?}",
+                &screens.trace()[screens.trace().len().saturating_sub(30)..]
+            ));
+        }
+        let read = field("read").to_owned();
+        // The next round starts where this one should have ended: the
+        // conversation after one Back, the chat list after two. A round
+        // that never got there, whatever its verdict, leaves the app
+        // where the next one cannot start, so the rest are not run and
+        // the case says so; any other round, passed or not, goes on.
+        let ended = if second.is_some() {
+            "left-at"
+        } else {
+            "closed-at"
+        };
+        if back.get(ended).is_none() {
+            stopped = Some(format!(
+                "{name} did not reach the page the next round starts from (no {ended}): the run stopped there"
+            ));
+            break;
+        }
+        opened.push(read);
     }
     Rig::stop(sender, phone, d).await;
+    if let Some(why) = back_run::case_failure(&failed, &void, stopped.as_deref()) {
+        panic!("{why}");
+    }
 }

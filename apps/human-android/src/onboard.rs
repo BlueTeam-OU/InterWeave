@@ -1292,9 +1292,9 @@ pub(crate) fn hold_bound_passed() -> bool {
 }
 
 /// The start under a held C4 or R4 decided -- Connect or Chats, which
-/// the root's model shows -- or the bound passed: the screen goes, and
-/// the flow hands over. Called by the root after its turn, outside any
-/// borrow of the flow.
+/// the root's model shows -- or the bound passed, or the start ended
+/// undecided: the screen goes, and the flow hands over. Called by the
+/// root around its turn, outside any borrow of the flow.
 pub(crate) fn start_decided() {
     let effects = ONBOARDING.with(|slot| {
         slot.borrow_mut()
