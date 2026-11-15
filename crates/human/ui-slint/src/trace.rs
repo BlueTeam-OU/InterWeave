@@ -15,7 +15,9 @@
 //! person-facing text, an address, a `PeerId` or a name -- a focus id
 //! that is not a key's shape is written as `?`
 //! (`a_trace_carries_no_address_peer_or_name`). Compiled under the
-//! `ui-trace` feature alone, which only the debug APK turns on.
+//! `ui-trace` feature alone, which the debug APK and human-desktop's own
+//! `ui-trace` test build turn on (`tests/desktop-e2e/tests/human_app/
+//! opening.rs`).
 
 use std::cell::Cell;
 use std::rc::Rc;
