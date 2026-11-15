@@ -439,11 +439,13 @@ id beginning `01a1ddde-2ffc`; the rule is unchanged). As built
 `ConnectionPolicy::route_hold_end`), the peer it describes is one whose
 every dial candidate is refused by a route hold, judged per relay as
 the gate judges it, so a second circuit through a held relay is held
-too; its retry is scheduled at the later of 30 s and the end of the
-first of those holds, or at once when the relay whose hop failed last
-connects (`waits_on` names one relay). A retry made due sooner, by a
-network addition or a newly learned circuit through a held relay, and
-refused by every hold is deferred to the end of the last of the peer's
+too; when a relay-hop failure settles on such a peer, and only then,
+its retry is scheduled at the later of 30 s and the end of the first of
+those holds, or at once when the relay whose hop failed last connects
+(`waits_on` names one relay). A retry the scheduler offers, whatever
+made it due (its ordinary time after another route was quarantined, a
+network addition, a newly learned circuit through a held relay), that
+every hold refuses is deferred to the end of the last of the peer's
 holds (`defer_retry_to_route_hold`, over `route_held_until`). The body
 and `CONNECTIVITY.md` §12 now say that, and the relay-hop paragraph's
 "scheduled at the peer's ordinary delay" names the exception.
