@@ -395,6 +395,23 @@ tick, so the scheduler now wakes at the earliest due retry, and the
 record can say 30 s. The two exceptions are bounded resources and stay
 as they are; the test of the bound runs with neither full.
 
+That exception did not survive #674's review as worded (round 2, F3;
+GZCoord `01a1dd82-aa6e-7660-8c6e-7888de368d80`). It named two
+resources and said the retry went "at the first moment either has
+room". As built, the wake offers a due retry once; a retry left over
+waits for the scheduler's tick, and nothing wakes the scheduler when
+room appears. A retry is left over when the budget for the tick is
+spent (one budget per `retry_tick` period, the wakes and the tick
+together), or when the gate refuses the scheduler's dial and the claim
+is released: the pending-dial or the connection ceiling, a superseded
+or full policy state, a peer or address delay still running, a backend
+refusal (`retry_claim`, `crates/transport/libp2p/src/runtime/mod.rs`:
+every refusal but a held route, which defers to the hold's end, and
+lost authorization, which ends the retry). The body, `CONNECTIVITY.md`
+§12, the table row and the digest now say that: the retry is dialled
+at the first tick that admits it. With the default tick of 1 s that is
+up to a second past the moment room appears.
+
 The AutoNAT re-test is split from the gate's numbers and keeps 30 s
 rising to 5 min (`AUTONAT.md` §4, Amendment 2026-11-14). It had used
 the gate's constants since 2026-09-09 so the two could not drift; they
@@ -416,5 +433,9 @@ wording names.
 
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
-unqualified. The long-outage run is owed again on the new code, beside
-the first.
+unqualified. The long-outage run was made again on the new code, beside
+the first (`tests/automated-client/runs/2026-11-14-long-outage-30s.md`,
+at 41f94bcd6): the same 480 s outage, sixteen retry delays of 30 s
+each, and the far daemon reconnected 955 ms after its return. It was
+made before the two review fixes to the scheduler's wake, and has not
+been run again on them.
