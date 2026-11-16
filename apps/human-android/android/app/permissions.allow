@@ -7,7 +7,9 @@
 # MergedPermissions (build.gradle.kts) fails the assemble on any other,
 # and tools/checks/check_android_contacts_and_backup.py fails when this
 # list and its own (plan section 29 step 2's) differ. A permission enters
-# the app only through a record that names it there, then here.
+# an APK an assemble builds, debug or release, only through a record that
+# names it there, then here; verifyMergedPermissionsRefusal holds the
+# build's check to manifests planted to fail it.
 #
 # Written 2026-11-16 from main's merged manifests at 8d8165e8d, both
 # variants: the seven below, and no <permission> of the app's own.

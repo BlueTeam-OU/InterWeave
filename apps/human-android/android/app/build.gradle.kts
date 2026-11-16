@@ -225,6 +225,95 @@ androidComponents {
 // be defined at all, which is that check's rule for the source manifests.
 // The list file names the permissions so this script does not: that
 // check reads the script for the camera's names.
+//
+// The judgement is an object rather than the task's own action so that
+// verifyMergedPermissionsRefusal can hold it to planted manifests on
+// every assemble: the real manifests pass, so a run on them alone would
+// stay green with the refusal broken. An object, not a script function,
+// since a task action calling the script's own function captures the
+// script, which the configuration cache cannot store.
+object MergedPermissions {
+    const val ANDROID_NS = "http://schemas.android.com/apk/res/android"
+
+    fun allowed(allowFile: File): Set<String> {
+        val names = allowFile.readLines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .toSet()
+        check(names.isNotEmpty()) { "$allowFile names no permission; an empty list is not a read one" }
+        return names
+    }
+
+    fun verify(manifest: File, allowFile: File, label: String) {
+        val allowed = allowed(allowFile)
+        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+        factory.isNamespaceAware = true
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        val doc = factory.newDocumentBuilder().parse(manifest)
+        val problems = mutableListOf<String>()
+        for (tag in listOf("uses-permission", "uses-permission-sdk-23", "permission")) {
+            val nodes = doc.getElementsByTagName(tag)
+            for (i in 0 until nodes.length) {
+                val perm = (nodes.item(i) as org.w3c.dom.Element).getAttributeNS(ANDROID_NS, "name")
+                if (tag == "permission") {
+                    problems += "<permission> defines $perm; the app defines no permission of its own"
+                } else if (perm !in allowed) {
+                    problems += "<$tag> names $perm, which permissions.allow does not"
+                }
+            }
+        }
+        check(problems.isEmpty()) {
+            "the $label merged manifest:\n  " + problems.joinToString("\n  ")
+        }
+    }
+}
+
+// MergedPermissions held to manifests planted for it: one of permitted
+// names passes, and each way out -- an unlisted <uses-permission>, an
+// unlisted <uses-permission-sdk-23>, a <permission> defined, an empty
+// list -- fails naming what it found. What this cannot see is the
+// variant tasks' call of verify on the real artifact, which the host run
+// recorded on #694 showed refusing.
+val verifyMergedPermissionsRefusal = tasks.register("verifyMergedPermissionsRefusal") {
+    group = "verification"
+    description = "Fails if the merged-manifest permission check passes a manifest it must refuse."
+    val allowFile = layout.projectDirectory.file("permissions.allow").asFile
+    doLast {
+        val dir = temporaryDir
+        fun manifest(name: String, body: String): File = File(dir, "$name.xml").apply {
+            writeText(
+                "<manifest xmlns:android=\"${MergedPermissions.ANDROID_NS}\" package=\"org.interweave.probe\">\n" +
+                    body + "\n</manifest>\n"
+            )
+        }
+        val listed = MergedPermissions.allowed(allowFile).first()
+        MergedPermissions.verify(
+            manifest("listed", """<uses-permission android:name="$listed"/>
+                <uses-permission-sdk-23 android:name="$listed"/>"""),
+            allowFile, "listed",
+        )
+        val refusals = listOf(
+            manifest("uses", """<uses-permission android:name="org.interweave.probe.UNLISTED"/>""") to
+                "<uses-permission> names org.interweave.probe.UNLISTED",
+            manifest("sdk23", """<uses-permission-sdk-23 android:name="org.interweave.probe.UNLISTED"/>""") to
+                "<uses-permission-sdk-23> names org.interweave.probe.UNLISTED",
+            manifest("defines", """<permission android:name="org.interweave.probe.OWN"/>""") to
+                "<permission> defines org.interweave.probe.OWN",
+        )
+        for ((planted, expected) in refusals) {
+            val refused = runCatching { MergedPermissions.verify(planted, allowFile, "planted") }.exceptionOrNull()
+            check(refused?.message?.contains(expected) == true) {
+                "the merged-manifest check passed ${planted.name}, which it must refuse with \"$expected\" (got: ${refused?.message})"
+            }
+        }
+        val empty = File(dir, "empty.allow").apply { writeText("# nothing\n") }
+        val refused = runCatching { MergedPermissions.verify(manifest("none", ""), empty, "planted") }.exceptionOrNull()
+        check(refused?.message?.contains("names no permission") == true) {
+            "the merged-manifest check took an empty permissions.allow (got: ${refused?.message})"
+        }
+    }
+}
+
 androidComponents {
     onVariants { variant ->
         val name = variant.name.replaceFirstChar { it.uppercase() }
@@ -234,37 +323,16 @@ androidComponents {
             val merged = variant.artifacts.get(SingleArtifact.MERGED_MANIFEST)
             val allowFile = layout.projectDirectory.file("permissions.allow").asFile
             // Plain values only (the configuration cache; review of #404).
-            val variantName = variant.name
+            val label = "${variant.name} APK's"
             inputs.file(merged)
             inputs.file(allowFile)
-            doLast {
-                val allowed = allowFile.readLines()
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() && !it.startsWith("#") }
-                    .toSet()
-                check(allowed.isNotEmpty()) { "$allowFile names no permission; an empty list is not a read one" }
-                val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
-                factory.isNamespaceAware = true
-                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                val doc = factory.newDocumentBuilder().parse(merged.get().asFile)
-                val ns = "http://schemas.android.com/apk/res/android"
-                val problems = mutableListOf<String>()
-                for (tag in listOf("uses-permission", "uses-permission-sdk-23", "permission")) {
-                    val nodes = doc.getElementsByTagName(tag)
-                    for (i in 0 until nodes.length) {
-                        val perm = (nodes.item(i) as org.w3c.dom.Element).getAttributeNS(ns, "name")
-                        if (tag == "permission") {
-                            problems += "<permission> defines $perm; the app defines no permission of its own"
-                        } else if (perm !in allowed) {
-                            problems += "<$tag> names $perm, which permissions.allow does not"
-                        }
-                    }
-                }
-                check(problems.isEmpty()) {
-                    "the $variantName APK's merged manifest:\n  " + problems.joinToString("\n  ")
-                }
-            }
+            dependsOn(verifyMergedPermissionsRefusal)
+            doLast { MergedPermissions.verify(merged.get().asFile, allowFile, label) }
         }
-        tasks.matching { it.name == "assemble$name" }.configureEach { dependsOn(verify) }
+        // On the APK's packaging, which installDebug reaches without
+        // assembleDebug (measured: -m installDebug lists no assemble). An
+        // app bundle merges its own manifest and is not checked; the
+        // project builds none (packaging/android).
+        tasks.matching { it.name == "package$name" }.configureEach { dependsOn(verify) }
     }
 }
