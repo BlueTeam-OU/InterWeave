@@ -6,6 +6,8 @@ architect-cto asked (REQUEST 01a1e23e) for four steps of `packaging/claude-plugi
 session, a second session on the same endpoint, and `claude plugin configure --values-stdin`. They ran on this host,
 in a scratch `HOME`, the way the 2026-11-11 run was made. Nothing left the host: no plugin was published and no
 marketplace entry was made. This record gives each step's command, what was seen, and what was not run and why.
+Section 5 answers a second request (REQUEST 01a1e54b), step 8's interactive session, run later the same day; its
+runs are named x0 to x2, i1 to i3 and ic1, and the run names r1 to r3 elsewhere are sections 1 and 2's.
 
 ## Setup
 
@@ -30,8 +32,8 @@ marketplace entry was made. This record gives each step's command, what was seen
   login's user manager (`systemd-run --user --unit=j103-interweave-daemon-<profile> -p Type=exec -p UMask=0077 …`), not
   through `systemctl --user enable`. Step 7 was presented by bubblewrap (`bwrap --dev-bind / / --ro-bind <dir>
   /etc/claude-code`, `<dir>` holding the host's `managed-settings.json` unchanged and step 7's
-  `managed-settings.d/interweave.json` as INSTALL.md gives it), in the one run that needed a registered channel (run
-  r3).
+  `managed-settings.d/interweave.json` as INSTALL.md gives it), in the one run of sections 1 to 4 that needed a
+  registered channel (run r3).
 - **Profiles.** `claude` (port 4001, endpoint `claude`, `allowed_peers` the peer) as step 3 gives it, and `peer`
   (port 4002, one `human` endpoint for `human-client`, `allowed_peers` the `claude` PeerId), its address added with
   `interweave-human --profile peer peers add /ip4/<host LAN address>/tcp/4001/p2p/<claude>`, which answered `added`.
@@ -179,34 +181,37 @@ and `/etc/claude-code` a directory holding the host's `managed-settings.json` un
 - **The session** was `claude --channels plugin:interweave@interweave --debug-file <path>`, step 8's command plus the
   debug file, run in a pseudo-terminal of 120 by 40 columns by a driver modelled on SPIKE-001's `run_tty.py`. The
   driver waited for the prompt, waited 5 s, typed "Call the InterWeave status tool once and print its full output
-  verbatim and nothing else.", waited 60 s, and typed `/exit`. The `status` values below are read from the
-  terminal's text.
+  verbatim and nothing else.", waited 60 s, and typed `/exit` and Enter. That was the script of i1 to i3 and ic1.
+  x0 to x2 came first, to find the screens a new `HOME` shows, and typed no prompt: x0 waited 20 s; x1 waited 8 s,
+  pressed Enter on the text-style picker (keeping its default), Enter at "Press Enter to continue", and waited 10 s;
+  x2 waited for the folder-trust question, pressed Down and Enter, and waited 25 s; each then typed `/exit` and
+  Enter. So x2 called no `status`. The `status` values below are read from the terminal's text.
 - **Permission mode.** The banner showed auto mode on, and `status` ran with no prompt to approve it.
 
 | run | step 7 | screens before the prompt | debug log | `status` |
 |---|---|---|---|---|
-| x0 | yes | the text-style picker; the driver answered nothing before its closing `/exit`, and the session ended there | no `Channel` line for the server | not called |
-| x1 | yes | text style, then the security notes ("Press Enter to continue"), then the folder-trust question, whose default is "No, exit"; the driver's closing `/exit` and Enter answered it, and the session ended | no `Channel` line for the server | not called |
-| x2 | yes | the folder-trust question; "Yes, I trust this folder" chosen | `Channel notifications registered` | not called |
-| r1, r2, r3 | yes | none | `Channel notifications registered`, twice in each | `endpoint_lease_state` `held`, `local_peer_id` the profile's PeerId, `local_endpoint` `claude`, `transport_health` `healthy`, `log.level` `info` |
-| c1 | no (the host's `managed-settings.json` alone) | none | `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`, twice | as r1 |
+| x0 | yes | the text-style picker, unanswered; the session ended there | no `Channel` line for the server | not called |
+| x1 | yes | text style, then the security notes ("Press Enter to continue"), then the folder-trust question, whose default is "No, exit"; the closing `/exit` and Enter answered it with that default, and the session ended | no `Channel` line for the server | not called |
+| x2 | yes | the folder-trust question; Down and Enter chose "Yes, I trust this folder" | `Channel notifications registered` | not called |
+| i1, i2, i3 | yes | none | `Channel notifications registered`, twice in each | `endpoint_lease_state` `held`, `local_peer_id` the profile's PeerId, `local_endpoint` `claude`, `transport_health` `healthy`, `log.level` `info` |
+| ic1 | no (the host's `managed-settings.json` alone) | none | `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`, twice | as r1 |
 
 Every line is the server `plugin:interweave:interweave`'s. The registration line was `Channel notifications
 registered` and not the `re-registered after reconnect` that a `--channels` print session logs (SPIKE-001 fact 40).
 
 What the runs show:
 
-- **No warning screen, 4 runs of 4** that reached the prompt with step 7 (x2, r1 to r3). No screen named a
+- **No warning screen, 4 runs of 4** that reached the prompt with step 7 (x2, i1 to i3). No screen named a
   development channel or asked to confirm one. The screens before the prompt were Claude Code's own first-run screens
   in a new `HOME` — text style, security notes, folder trust — and each stopped appearing once answered: x0 and x1
-  ended at them, with no channel registered, x2 showed only the folder trust, and r1 to r3 showed none.
+  ended at them, with no channel registered, x2 showed only the folder trust, and i1 to i3 showed none.
 - **The registration line, 4 runs of 4** that reached the prompt with step 7, as INSTALL.md gives it.
-- **Without step 7 the terminal says so.** In c1, besides the debug log's line, the terminal showed `plugin
+- **Without step 7 the terminal says so.** In ic1, besides the debug log's line, the terminal showed `plugin
   interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels…`. It
   was captured after the prompt was typed, while the debug log's line came before. A print session without step 7
   showed no such line on stdout or stderr (SPIKE-001 S25, fact 47). One run, with `--debug-file`; whether the
   terminal shows it without debug mode was not run.
-- **`status`'s `log.file` and `profile_desired_channels`.** In all four sessions that called it, `log.file` was
+- **`status`'s `log.file` and `profile_desired_channels`.** In all four sessions that called it (i1 to i3, ic1), `log.file` was
   `null` with `log.file_error` `directory_not_private`, and `profile_desired_channels` was `{"unknown":
   "ConfigDirUnguarded"}`. The 2026-11-11 record traced both to bubblewrap's user namespace, where `/` and `/home` are
   owned by uid 65534, and found the same binary outside it reporting the log file and `{"as_configured":[]}`. These
