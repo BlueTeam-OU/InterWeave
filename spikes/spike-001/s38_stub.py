@@ -20,10 +20,14 @@ to S37 measured.
 
 import os
 import pathlib
+import sys
 import threading
 import time
 
-import s23_stub
+# Run with -I, as every stub here is, so the script's own directory is
+# not on the path: s23_stub.py beside it is added by name.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import s23_stub  # noqa: E402
 
 GATE = pathlib.Path(os.environ["SPIKE_GATE"])
 TRIGGER = pathlib.Path(os.environ["SPIKE_TRIGGER"])
