@@ -10,10 +10,11 @@
 //! Exercised: a send committed before the start and delivered, a text and
 //! a signed card received and committed unread, the window drawing them,
 //! and a clean close. The failure paths' lines (`app.rs`) are not forced
-//! here but headless, in `apps/human-desktop/tests/log_lines.rs`, six of
-//! them held to their class and none of the planted words; four have no
-//! hook on the host and are exercised nowhere (that file's header names
-//! them). Not exercised anywhere: the daemon's log, p2p-network-dev's.
+//! here but headless, in `apps/human-desktop/tests/log_lines.rs`: three
+//! of the seven held to their class and none of the planted words, four
+//! with no hook on the host and exercised nowhere (that file's header
+//! names them). Not exercised anywhere: the daemon's log,
+//! p2p-network-dev's.
 
 use std::time::Duration;
 

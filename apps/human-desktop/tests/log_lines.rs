@@ -10,13 +10,20 @@
 //! ([`App::with_log`]), and holds it to its exact class and every line
 //! to none of the planted words.
 //!
-//! What it does NOT reach, for want of a hook on the host: the three
-//! lines of a store read failing outside a windowed read -- "unread
-//! messages could not be read again", "cards or contacts could not be
-//! read" and "a card was accepted and its share could not be recorded
-//! yet" -- and "the message store could not be listed" (the start's own
-//! store reads). Their `{why:?}` is a `Failure`, a fieldless class enum
-//! (`app-core`'s `protocol.rs`). The daemon's log is p2p-network-dev's.
+//! `App::pump` writes seven failure-path lines. Held here: three of them
+//! -- "the message store's pending rows could not be read", "the
+//! transport side has stopped" and a command's "<name> failed: <class>"
+//! (as a page read and as a mark-read) -- and two session lines, ready
+//! and refused. What it does NOT reach, for want of a hook on the host:
+//! the other four failure-path lines -- "the message store could not be
+//! listed" (the start's own store reads), "unread messages could not be
+//! read again", "cards or contacts could not be read" and "a card was
+//! accepted and its share could not be recorded yet". Their text is
+//! fixed or carries the `{why:?}` of a `Failure`, a fieldless class enum
+//! (`app-core`'s `protocol.rs`). Nor the session lines "reconnecting,
+//! attempt N", "storage degraded" and "closed"; `session_class`'s unit
+//! test in `app.rs` holds the reconnecting one's text, and the other two
+//! are fixed. The daemon's log is p2p-network-dev's.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -171,8 +178,9 @@ fn desktop(store: HumanStore, faults: &Arc<StoreFaults>, build: &Build) -> Deskt
 }
 
 /// [`desktop`], the facade thread's daemon probe panicking once `die` is
-/// set: the thread then ends the way a crashed one does, which is the
-/// only way to end it with the start done and a conversation shown.
+/// set: the thread then ends the way a crashed one does, with the start
+/// done and a conversation shown (`FacadeThread::close` consumes the
+/// thread, so the app could not send a command after it).
 fn desktop_with_probe(
     store: HumanStore,
     faults: &Arc<StoreFaults>,
