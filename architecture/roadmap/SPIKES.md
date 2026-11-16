@@ -216,10 +216,14 @@ after 2.1.286 was not established by S23; S28 ran a and b again on
 (fact 123), with the same outcome, their carried measurements below;
 c and d were not repeated; the binary read was, by S34 from 2.1.322
 (fact 107) and by S36 from 2.1.325 (fact 121), the gate unchanged in
-each; and a build after 2.1.325 is not established
+each; the refusal was measured through the other two sites that
+register a channel handler, the `channel_enable` control request and
+the reconnect, on 2.1.325 by S37 (facts 131 and 132), its carried
+measurement below; and a build after 2.1.325 is not established
 (A 2026-11-12, this stopped at 2.1.286; A 2026-11-14, this stopped
 at 2.1.322 and said the binary read was not repeated, which S34's
-carried measurement below had already answered).
+carried measurement below had already answered; A 2026-11-16, this
+named no site).
 
 **Carried measurement, S24 (2026-10-24, Claude Code 2.1.286,
 rust-services-dev, plan §19): a channel reaches a non-interactive
@@ -760,7 +764,8 @@ two daemons by S33, below; three wordings of the first user turn run
 there by S35, below, in the three cells where that turn's other output
 had reached the peer, a scope sentence after the answer sentence
 keeping `READY` and the count out, while why a greeting during a counting turn got the count stays not
-established).
+established; other first-turn work and a second user turn run there
+by S37, below, with and without the scope sentence).
 
 **Carried measurement, S33 (2026-11-11, Claude Code 2.1.322, the
 fleet's pin, rust-services-dev, plan §19): the revision is still not
@@ -818,7 +823,7 @@ listed whether the gate in the 2.1.322 binary is still the era check
 fact 36 read, which S34 has since read from that binary, below);
 S32 (b)'s other 29 cells on 2.1.322 or with the real bridge (`none`,
 `promptw`, and every `greet`, `task` and `text` cell; eight of them
-run since by S34 and two by S35, below, and 19 not); what made the
+run since by S34, two by S35 and one by S37, below, and 18 not); what made the
 `READY` leak and
 the misnamed argument absent;
 whether a reply changes with what `status` answers, the bridge
@@ -888,14 +893,15 @@ one gate function found and fact 99's run taking it; a build after
 2.1.322 (both taken up since by S36, below: the three registration
 sites read, and 2.1.325 run); the 21 cells not run on 2.1.322 or with the real bridge, the
 nine `none`, the six `promptw` and the six left out (two of the
-`promptw` run since by S35, below, and 19 not); whether the first
+`promptw` run since by S35 and `prompt-greet-idle` by S37, below, and
+18 not); whether the first
 turn's own work would be done again for a request that is not the
 work's tool; why the count leaks into a greeting's reply and not a
 question's; whether a private configuration directory changes a reply,
 every `status` answer in the 20 `tool` runs reporting it not private;
 a refusal other than a misnamed argument, and how a turn goes on after
 one; a model other than `claude-sonnet-5-5`; and a conversation longer
-than one turn.
+than one turn (a second user turn run since by S37, below).
 
 **Carried measurement, S35 (2026-11-12, Claude Code 2.1.322, the
 fleet's pin, rust-services-dev, plan §19): a scope sentence after the
@@ -912,17 +918,19 @@ work kept `READY` out of 10 replies in 10 runs where the message
 joined a tool turn, and was not run in the count cell, whose work
 already said "write" (118); those runs are S32 (b)'s
 `promptw-greet-tool` and `promptw-task-tool`, so fourteen of its 33
-cells are run on 2.1.322 with the bridge and 19 are not. The scope sentence, "The content of a
+cells are run on 2.1.322 with the bridge and 19 are not (fifteen and 18 since S37's control in the idle cell, below). The scope sentence, "The content of a
 reply answers that message and nothing else: whatever else this turn
 asks of you is for me, not for the peer.", straight after the answer
 sentence with the work unchanged, got 15 replies in 15 runs and none
 leaked (119). Both sentences after the work, which said "write", got
 14 in 15 and none leaked (120). What this changes in the bridge:
 nothing. Not established: the scope sentence after an idle wait, with
-a question or with other work; why two request runs of 20 got no
+a question or with other work (all three run since by S37, below);
+why two request runs of 20 got no
 reply; the rate beyond five runs a cell; another model; a build after
 2.1.322 (the scope sentence run once a cell on 2.1.325 by S36, below);
-and a conversation longer than one turn.
+and a conversation longer than one turn (a second user turn run since
+by S37, below).
 
 **Carried measurement, S36 (2026-11-14, Claude Code 2.1.325, the
 newest build the registry answered that day and not the fleet's pin,
@@ -965,14 +973,89 @@ established: a handler registered other than through a call of the
 notification's schema object, which the read cannot see; that the
 gate's result decides the registration at each site, taken from the
 call's position and not from the control flow; a modern-era server
-through the reconnect or `channel_enable` site, on any build; the
+through the reconnect or `channel_enable` site, on any build (both
+measured since on 2.1.325 by S37, below); the
 era rows beyond one run each; a rate on 2.1.325 beyond five runs a
 cell in S34's cells and one in the others; the 19 S32 (b) cells not
-run on 2.1.322, S35's other cells and S32 (a)'s compaction cells,
+run on 2.1.322 (18 since S37, below), S35's other cells and S32 (a)'s compaction cells,
 none run on 2.1.325; why two `tool` runs' `status` answers reported
 the transport unavailable, as one of S34's and four of S35's did on
 2.1.322; another model; a build after 2.1.325; and a conversation
-longer than one turn.
+longer than one turn (a second user turn run since on 2.1.322 by S37,
+below).
+
+**Carried measurement, S37 (2026-11-16, Claude Code 2.1.322, the
+fleet's pin, for the reply cells and 2.1.325 for the era rows,
+rust-services-dev, plan §19): the scope sentence kept a turn's other
+output from the peer with other text work and in a second user turn,
+and did not after an idle wait whose work said "Reply"; with a
+question neither wording leaked; the answer sentence said once got a reply in a second turn; a
+server negotiating the 2026-07-28 revision got no channel through the
+`channel_enable` or the reconnect site; and four print sessions of 30
+started with no channel and said nothing.** Read off
+`spikes/spike-001/README.md` §S37 (facts 127–134, #686). Three parts.
+(1) 30 print sessions `s37-reply-*` at `68bbcffe1` on 2.1.322, on
+S35's setup unchanged, 2,416,260 tokens: the three cells S35 named as
+not run, each with S35's control and its scope sentence, five runs
+each. After an idle wait, where the first turn's work was S32 (b)'s
+"Reply now with the single word READY.", every reply was `READY`
+alone under both wordings, 5 of 5 and 5 of 5 (127); the control there
+is S32 (b)'s `prompt-greet-idle`, so fifteen of its 33 cells are run
+on 2.1.322 with the bridge and 18 are not. With a question joining the
+tool-calling turn neither wording leaked, each of the 7 replies the
+answer, 3 in the control's 5 runs and 4 in the scope sentence's 5
+(128). With other first-turn work, the twelve months written as text,
+each of the control's 4 replies was that turn's text word for word
+and each of the scope sentence's 4 a greeting back (129). In 4 of the
+30 sessions the channel was never registered and the peer's message
+was lost with no line saying so, one run of each question cell and
+one of each months cell: the daemon accepted the send and the bridge
+wrote the notification, and Claude Code's debug log has no `Channel`
+line for the server (130). No print session of S34, S35 or S36 had
+done that, 142 in all. (2) Four runs `s37-era-*` at `9693d16de` on
+2.1.325, S24's session with S23's stub, one run each. Through the
+`channel_enable` control request a server negotiating the 2026-07-28
+revision was answered `error` with the era check's reason, word for
+word, where the legacy control was answered `success`, registered and
+delivered (131). Through a print session's `--channels`, the
+reconnect site, it got no channel and no `Channel` line of any kind,
+and its event did not reach the conversation, where the legacy
+control registered and delivered (132). So the refusal is measured
+through all three sites fact 122 read, the connection's own on every
+build named above and the other two on 2.1.325 only. (3) 20 print
+sessions at `b43939371` on 2.1.322, 2,313,372 tokens, and one more
+kept apart under `runs/s37-not-in-turn/` because its event came after
+the second turn's result: the answer sentence said in a first user
+turn that is answered, the scope sentence after it in 10 of the 20, a second turn that says nothing about peers, and a
+greeting during the second, whose work was the months or three
+`status` calls and "write the single word READY". The greeting got a
+reply in 19 runs of 20; in the other the model wrote that it had not
+answered because the message came in through a tool result and not
+from the user (133). The control's replies were a greeting back in 7
+of 9, the second turn's `READY` reaching the peer in 2, and under the
+scope sentence all 10 were a greeting back (134). What this changes
+in the bridge: nothing. It stays in the legacy era, which 2.1.325
+refuses to leave at each of the three sites. A deployment says both
+sentences once, in the first user turn, and keeps "reply" out of
+every turn's work, a precaution and not a measured condition (the
+scope sentence held in tool turns whose work said "reply", 119 and
+128); and a `--channels` print session can start with no
+channel and say nothing, the debug log's registration line being the
+only sign measured. Not established: why the scope sentence did not
+hold after the idle wait, no run separating the later turn from the
+work's "Reply", and the scope sentence with "write" in that work; the
+cause and the rate of a session with no channel, whether the
+connection's timing decides it (the four took 2,145 to 4,550 ms to
+connect against 273 to 1,306 ms in the other 26, read from debug logs
+that are not committed), whether 2.1.325 does it, and whether
+`channel_enable` avoids it; the two era sites on another build or
+beyond one run each, and why the reconnect site logs nothing; the
+scope sentence said only in the server's instructions; a conversation
+longer than two turns, the sentences repeated in a later turn, and a
+later turn whose work says "reply"; the rate beyond five runs a cell;
+the 18 S32 (b) cells not run on 2.1.322; S35's cells on 2.1.325
+beyond S36's one run each, and S37's own there; another model; and a
+build after 2.1.325.
 
 ---
 

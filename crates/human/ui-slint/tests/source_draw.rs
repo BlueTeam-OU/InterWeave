@@ -2,8 +2,9 @@
 // Copyright 2026 Andrea Benetton
 //! Show source with a character past the cluster bound, drawn by the
 //! desktop's own window and software renderer, whose text shaper counts
-//! a character's code points in eight bits (HUMAN-CHAT.md, Bounds:
-//! "Show source draws a replaced cluster as the body does"). `views.rs`
+//! a character's code points in eight bits (HUMAN-CHAT.md, the raw
+//! source's bullet: "Show source draws a replaced cluster as the body
+//! does"). `views.rs`
 //! holds the source's text to one U+FFFD on the testing backend, which
 //! shapes no text; here the same menu entry is chosen in a real window
 //! and the source drawn, the test finding the drawn source's text by the
@@ -17,8 +18,7 @@
 //!
 //! What this cannot prove: the phone's renderer
 //! (`tests/android-e2e/tests/cluster_bound.rs`, which did not draw Show
-//! source), and the reader's source, which the long-message tests reach
-//! on the testing backend only.
+//! source). The reader's source is `reader_source_draw.rs`'s.
 
 #![cfg(feature = "desktop")]
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]

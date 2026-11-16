@@ -86,7 +86,8 @@ def registration_sites(data: bytes, gate: bytes) -> list:
     """Each call of the channel notification's schema object (assumed to
     be what every handler for it is registered with), the last call of
     the gate before it in the same function, the era argument it passes,
-    and the function's log strings (``log_lines``)."""
+    and the log strings from the function's ``function`` keyword up to
+    where ``function_end`` closes it (``log_lines``)."""
     name = re.match(rb"function (" + N + rb")", gate).group(1)
     schema = re.search(rb"var (" + N + rb")=" + N + rb'\(\(\)=>' + N + rb'\(\{method:' + N
                        + rb'\("notifications/claude/channel"\)', data)
