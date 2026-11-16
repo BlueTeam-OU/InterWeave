@@ -757,12 +757,9 @@ access.
   a disabled key leaves it. When the result comes, focus goes as
   follows, wherever the person moved it. A §6 banner or notice takes focus (the error-banner
   rule below). A valid phrase opens R3, with focus on R3's question
-  (`IdR3Question`), which is focusable for this. §3 gives R3 no
-  title of its own; a build that shows the flow's title, "Restore your
-  PeerId", in R3's app bar keeps focus off it too, because the
-  question is what the screen asks and the flow's title only names
-  the flow. After
-  K1, a valid phrase opens R4, with focus on its title, "PeerId
+  (`IdR3Question`), which is focusable for this: the question is what
+  the screen asks. After
+  K1, a phrase that derives the PeerId the record names opens R4, with focus on its title, "PeerId
   restored", as on C2's PeerId page (below). On R3 and on R4, a screen
   reader starts at the text that has focus. A cancelled or denied prompt leaves R2 as it was, with
   `IdCheckWords` enabled again and focus where it was before the
@@ -781,7 +778,7 @@ access.
   keys, delete and clear, the chips, the grid positions, "show all my
   words" and the action of a notice still showing. Each keeps its
   place in the focus order and is marked disabled, as a disabled key
-  is, so the words can still be read back by keyboard. A control that
+  is. A control that
   looks enabled but does nothing is the fault the hypothesis is
   about, whichever control it is.
 - When a grid position is chosen to edit, by any input, focus goes as
@@ -1126,16 +1123,17 @@ scale would also be a finding of the Android review
       focus stays on `IdCheckWords`, which shows disabled; and the
       back arrow is inactive. In portrait, a Shift+Tab then moves
       focus to the clear key and a Tab brings it back to
-      `IdCheckWords`; an arrow moves focus from `IdCheckWords` to the
-      nearest control in its direction. With focus on the clear key,
-      Enter and Space change neither the letters display nor any
-      word. In each case the screen is navigating afterwards. When the test answers the check as a failed checksum,
+      `IdCheckWords`; Up moves focus from `IdCheckWords` to a key of
+      the keypad's last row, and Down brings it back. A Shift+Tab
+      then puts focus on the clear key again. With focus there, Enter,
+      Space and a screen reader's activate change neither the letters
+      display nor any word. In each case the screen is navigating afterwards. When the test answers the check as a failed checksum,
       the banner shows, with focus on it, and all 24 words are as
       they were. In a second run, the test answers the check as a valid phrase, and R3 opens with
       focus on `IdR3Question`. In a third run, the check is started by
       a screen reader's activate on `IdCheckWords`: focus stays on
-      `IdCheckWords` while it runs. In a run after K1, a valid phrase
-      opens R4 with focus on its title, "PeerId restored". These steps run in a host test, not on the
+      `IdCheckWords` while it runs. In a run after K1, a phrase that
+      derives the PeerId the record names opens R4 with focus on its title, "PeerId restored". These steps run in a host test, not on the
       phone: no device hook holds the check, and in a host test the
       flow's check is an effect that the test answers itself, as the
       identity flow's tests in `crates/human/ui-model` do. With
