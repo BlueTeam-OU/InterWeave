@@ -867,6 +867,28 @@ it, those checks are blocked, never passed.
     as a key press, so it is timed from when the key press was
     delivered; the app bar's Back is timed from when the finger
     touched the screen.
+  - The list shape's Back at half its first-screen time, and the two
+    Backs pressed together on both stress shapes, one round each,
+    2026-11-16 (main 3196cd731, the end-to-end cases of
+    `tests/android-e2e/tests/long_message.rs`;
+    `apps/human-android/device-runs/2026-11-16-samsung-a40-back-runs.md`).
+    The list shape's Back came 90 ms after the Enter, against a first
+    screen 193 ms after it, and the reader closed 166 ms after the
+    Back, with focus on Open the whole message. Pressed together, the
+    two Backs were 30 and 31 ms apart and were both sent before the
+    close, and they took exactly two steps on each shape: the reader
+    closed 53 ms (distinct headings) and 33 ms (distinct links) after
+    the first Back, and the conversation then left for the chat list.
+    What these rounds did not judge: no screen recording was kept, so
+    no frame was looked at for the bar, inside the first turn or past
+    it; no case read where the conversation was; and the
+    pressed-together case does not judge focus after the closing Back,
+    though its trace shows focus on Open the whole message. On
+    distinct headings the reader's first render came 32 ms after the
+    first Back, so both Backs most likely came before the bar could
+    show. That round counts for what the pressed-together run is for,
+    two Backs taken as two steps while the reader is still opening,
+    and not for the bar.
   - The desktop, by Escape, on the list shape and both stress shapes: on
     each of two days, three runs, each with three rounds of each shape
     (nine rounds of each shape a day). The client was a release build
@@ -909,10 +931,11 @@ it, those checks are blocked, never passed.
     inside the first turn. That gap is too short, and varies too much,
     to time an Escape inside it. On the desktop, distinct headings is
     the shape that is run past the first turn.
-  Not run yet, and carried rather than failed: the list shape's Back at
-  half its first-screen time on the current build, and the two Backs
-  pressed together (the device case for both is in
-  `tests/android-e2e/tests/long_message.rs`, not yet run on a phone);
+  Not run yet, and carried rather than failed: for the list shape's
+  Back at half its first-screen time and the two Backs pressed
+  together, a run with a screen recording, which judges the bar, and
+  a check of where the conversation was after the close (the runs of
+  2026-11-16 judged neither, one round each);
   the two Backs 0.3 s apart by the app bar's Back; the Pixel; and the
   release APK. On the desktop: a frame-level test that no frame shows
   the bar inside the first turn (the desktop's software renderer does
