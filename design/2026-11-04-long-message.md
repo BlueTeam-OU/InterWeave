@@ -875,18 +875,18 @@ it, those checks are blocked, never passed.
     The list shape's Back came 90 ms after the Enter, against a first
     screen 193 ms after it, and the reader closed 166 ms after the
     Back, with focus on Open the whole message. Pressed together, the
-    two Backs were 30 and 31 ms apart and were both sent before the
+    two Backs were 30 ms (distinct headings) and 31 ms (distinct links) apart and were both sent before the
     close, and they took exactly two steps on each shape: the reader
     closed 53 ms (distinct headings) and 33 ms (distinct links) after
     the first Back, and the conversation then left for the chat list.
     What these rounds did not judge: no screen recording was kept, so
     no frame was looked at for the bar, inside the first turn or past
-    it; no case read where the conversation was; and the
+    it; no case checked where the conversation was; and the
     pressed-together case does not judge focus after the closing Back,
     though its trace shows focus on Open the whole message. On
     distinct headings the reader's first render came 32 ms after the
     first Back, so both Backs most likely came before the bar could
-    show. That round counts for what the pressed-together run is for,
+    show. That round counts for what the pressed-together run checks,
     two Backs taken as two steps while the reader is still opening,
     and not for the bar.
   - The desktop, by Escape, on the list shape and both stress shapes: on
@@ -900,9 +900,9 @@ it, those checks are blocked, never passed.
     time.
     - 2026-11-14 (rust-ui-dev-02, REPLY 01a1da47;
       `apps/human-desktop/runs/2026-11-14-escape-during-opening.md`), on
-      a host whose load, read before and after its second and third
-      runs, was five to six times its number of CPUs (the first run's
-      load was not read): the list shape closed within 1 s in nine rounds of nine. The stress
+      a host whose load, read before and after the record's second and third
+      runs, was five to six times the number of CPUs (the load was not
+      read for the first run): the list shape closed within 1 s in nine rounds of nine. The stress
       shapes closed within 0.15 s in fifteen of the seventeen judged
       rounds; two distinct-headings rounds failed: they closed at 192
       and 312 ms. One distinct-links round was void.
@@ -920,7 +920,7 @@ it, those checks are blocked, never passed.
     On the desktop, distinct links is judged past the first turn only
     by its eight rounds of 2026-11-14 that were not void, and all
     eight passed. On that day the host's load, where it was read, was
-    five to six times its number of CPUs, and the shape's first screen came after the
+    five to six times the number of CPUs, and the shape's first screen came after the
     Escape at 0.6 s. No further desktop run of distinct links is
     asked. On 2026-11-15 it opened before the bar would show at 0.5 s,
     so no Escape could reach it while the bar showed. An Escape inside
@@ -933,9 +933,9 @@ it, those checks are blocked, never passed.
     the shape that is run past the first turn.
   Not run yet, and carried rather than failed: for the list shape's
   Back at half its first-screen time and the two Backs pressed
-  together, a run with a screen recording, which judges the bar, and
+  together, a run with a screen recording, to judge the bar, and
   a check of where the conversation was after the close (the runs of
-  2026-11-16 judged neither, one round each);
+  2026-11-16, one round each, judged neither);
   the two Backs 0.3 s apart by the app bar's Back; the Pixel; and the
   release APK. On the desktop: a frame-level test that no frame shows
   the bar inside the first turn (the desktop's software renderer does
