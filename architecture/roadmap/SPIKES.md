@@ -987,9 +987,9 @@ below).
 **Carried measurement, S37 (2026-11-16, Claude Code 2.1.322, the
 fleet's pin, for the reply cells and 2.1.325 for the era rows,
 rust-services-dev, plan §19): the scope sentence kept a turn's other
-output from the peer with a question, with other text work and in a
-second user turn, and did not after an idle wait whose work said
-"Reply"; the answer sentence said once got a reply in a second turn; a
+output from the peer with other text work and in a second user turn,
+and did not after an idle wait whose work said "Reply"; with a
+question neither wording leaked; the answer sentence said once got a reply in a second turn; a
 server negotiating the 2026-07-28 revision got no channel through the
 `channel_enable` or the reconnect site; and four print sessions of 30
 started with no channel and said nothing.** Read off
@@ -1025,8 +1025,8 @@ through all three sites fact 122 read, the connection's own on every
 build named above and the other two on 2.1.325 only. (3) 20 print
 sessions at `b43939371` on 2.1.322, 2,313,372 tokens, and one more
 kept apart under `runs/s37-not-in-turn/` because its event came after
-the second turn's result: the sentences said in a first user turn
-that is answered, a second turn that says nothing about peers, and a
+the second turn's result: the answer sentence said in a first user
+turn that is answered, the scope sentence after it in 10 of the 20, a second turn that says nothing about peers, and a
 greeting during the second, whose work was the months or three
 `status` calls and "write the single word READY". The greeting got a
 reply in 19 runs of 20; in the other the model wrote that it had not
@@ -1037,7 +1037,9 @@ scope sentence all 10 were a greeting back (134). What this changes
 in the bridge: nothing. It stays in the legacy era, which 2.1.325
 refuses to leave at each of the three sites. A deployment says both
 sentences once, in the first user turn, and keeps "reply" out of
-every turn's work; and a `--channels` print session can start with no
+every turn's work, a precaution and not a measured condition (the
+scope sentence held in tool turns whose work said "reply", 119 and
+128); and a `--channels` print session can start with no
 channel and say nothing, the debug log's registration line being the
 only sign measured. Not established: why the scope sentence did not
 hold after the idle wait, no run separating the later turn from the

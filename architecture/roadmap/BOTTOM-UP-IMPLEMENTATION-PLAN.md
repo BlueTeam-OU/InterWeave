@@ -5188,9 +5188,9 @@ cell, the scope sentence beside S35's control; the era rows on
   the scope sentence's 4 a greeting back (fact 129). So the leak of a
   text turn's output is not the count's alone, and the scope sentence
   kept both out.
-- **In a second user turn**, the two sentences having been said in a
-  first turn that was answered, a greeting got a reply in 19 runs of
-  20 (fact 133). No work said "reply". The control's replies were a
+- **In a second user turn**, the answer sentence having been said in
+  a first turn that was answered, the scope sentence after it in 10
+  of the 20 runs, a greeting got a reply in 19 runs of 20 (fact 133). No work said "reply". The control's replies were a
   greeting back in 7 of 9, the second turn's `READY` reaching the
   peer in 2; under the scope sentence all 10 were a greeting back
   (fact 134).
@@ -5207,11 +5207,14 @@ cell, the scope sentence beside S35's control; the era rows on
   refusal is measured through all three sites fact 122 read, and "the
   bridge stays legacy by measurement" holds at each.
 
-So the wording of the S35 note holds where no turn's work says
-"reply", in a first turn and in a second, and the bridge is
-unchanged. A deployment says the answer sentence and the scope
+So the wording of the S35 note held in every cell measured but the
+idle wait: in tool turns whose work said "reply" (facts 119 and
+128), with other text work (fact 129) and in a second turn (fact
+134). After the idle wait, whose work said "Reply", it did not (fact
+127), and no run separates that word from the later turn. The bridge
+is unchanged. A deployment says the answer sentence and the scope
 sentence once, in the first user turn, and keeps "reply" out of every
-turn's work; that a `--channels` print session can start without its
+turn's work as a precaution, not a measured condition; that a `--channels` print session can start without its
 channel is new, and the debug log's registration line is the only
 sign of it measured. Carried: why the scope sentence did not hold
 after the idle wait, no run separating the later turn from the work's
