@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! TM-45 (`tests/SECURITY-MATRIX.md`): the lines `App::pump` writes about
-//! a failure are a class and nothing else. The desktop's stderr is the
-//! client's only log, and a message body, a card's name or surname, or an
-//! endpoint must never reach it. Each case plants such words in the store
+//! a failure are a class and nothing else. They go to the desktop's
+//! stderr, which `tests/desktop-e2e/tests/human_app/content_free_logs.rs`
+//! reads as the client's log, and a message body, a card's name or
+//! surname, or an endpoint must never reach it. Each case plants such words in the store
 //! and the node, forces one failure path through the real view on the
 //! testing backend, the facade thread and a real store (the app-core test
 //! hooks fail its reads), reads the line through the app's log sink
