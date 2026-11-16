@@ -847,7 +847,7 @@ it, those checks are blocked, never passed.
   neither is lost and they are not merged into one. The build reports,
   for each run, the time from the Back to the close and how long the
   first screen showed.
-  Runs so far, all on the A40:
+  Runs so far, on the A40 unless a run names the desktop:
   - The list shape, 2026-11-12 (REPLY 01a1cfc2): first screen drawn at
     347 ms, reader closed 0.26 s after the first screen, focus on Open
     the whole message, no bar, no Back lost.
@@ -867,10 +867,46 @@ it, those checks are blocked, never passed.
     as a key press, so it is timed from when the key press was
     delivered; the app bar's Back is timed from when the finger
     touched the screen.
+  - The desktop, by Escape, on the list shape and both stress shapes:
+    three runs of three rounds each, on each of two days, on a release
+    build with the trace switched on, under an X server with no screen
+    (`tools/ci/with_display.sh`). The list shape's Escape came at half
+    the least first-screen time of three plain opens in the same run.
+    Focus was on the row's Open the whole message after every round
+    that passed.
+    - 2026-11-14 (rust-ui-dev-02, REPLY 01a1da47;
+      `apps/human-desktop/runs/2026-11-14-escape-during-opening.md`),
+      on a host loaded at five to six times its CPUs: the list shape
+      closed within 1 s in nine rounds of nine; the stress shapes
+      closed within 0.15 s in fifteen judged rounds of seventeen, two
+      distinct-headings rounds closing at 192 and 312 ms; one
+      distinct-links round was void.
+    - 2026-11-15
+      (`apps/human-desktop/runs/2026-11-15-escape-during-opening.md`),
+      on a host loaded at one to 1.7 times its CPUs: the list shape in
+      nine rounds of nine; distinct headings within 0.15 s in eight
+      judged rounds of eight (15 to 76 ms), one void; distinct links
+      void in all nine rounds, its first screen coming 391 to 497 ms
+      after Open the whole message, before the Escape at 0.6 s. The
+      two late closes of the day before did not come back; that points
+      to the host's load, and does not prove it.
+    On the desktop, distinct links is not judged past the first turn:
+    on that host it opened before the bar would show at 0.5 s, so no
+    Escape could reach it while the bar shows, and an earlier Escape
+    would judge only the inside-the-first-turn case the list shape
+    already covers. Distinct headings is the desktop's run past the
+    first turn.
   Not run yet, and carried rather than failed: the list shape's Back
-  at half its first-screen time on the current build; the two Backs
-  pressed together; the two Backs 0.3 s apart by the app bar's Back;
-  the desktop; the Pixel; and the release APK.
+  at half its first-screen time on the current build, and the two
+  Backs pressed together (the device case for both is in
+  `tests/android-e2e/tests/long_message.rs`, not yet run on a phone);
+  the two Backs 0.3 s apart by the app bar's Back; the Pixel; and the
+  release APK. On the desktop: that no frame shows the bar inside the
+  first turn (its software renderer reports no frame, so the trace
+  gives the time the rows were handed to the window, not the time a
+  frame was drawn); distinct links past the first turn (above); the
+  build that ships, which has no trace; Wayland; and a screen reader
+  while the reader opens.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
   on the desktop and TalkBack on the Pixel.
 - **A7** The reader's row removed while it is open, the app sent to
