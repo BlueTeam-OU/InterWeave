@@ -51,7 +51,7 @@ nothing of a running check, and a build
 Revised 2026-11-16, after #683: "focus does not move" meant that the
 check moves no focus. Tab, Shift+Tab and the arrows still move focus
 while the check runs. A valid phrase puts focus on R3's question,
-`IdR3Question`, because R3 has no title. A screen reader's activate on
+`IdR3Question`, because the question is what R3 asks (§3 gives R3 no title of its own). A screen reader's activate on
 `IdCheckWords` is a press. If the hypothesis that only `IdCheckWords`
 shows disabled is falsified, every held control shows disabled. Before
 this revision, that fallback named only the keys (§8, acceptance 15). This revision answers #683's review (F12, F13) and
@@ -531,7 +531,7 @@ comparison a matter of groups, not of single characters.
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen when the operation is refused, never by the service; the operation is retried after a success. The app keeps no clock of the window: the refusal is its only reading of it (ADR-0042, A 2026-10-20). The person sees the same either way: the prompt comes before anything happens. Cancelled or denied: no error dialog and no error text. C4 and the restores stay on their screen with the words kept, and nothing is committed. A rotation or a return to that screen retries nothing: it stays as it was until the person uses its primary action again. Once the identity is committed, a cancelled start after C4's or R4's continue ends offline and locked, as S2's Done does below, but on Chats: the locked notice and Unlock, with focus on the notice. S2's Done drops the words and returns to Settings offline, with focus on "Show recovery phrase", the item that opened the flow; the locked notice shows where the app's notices show, under the app bar of Chats and of a conversation; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). At a launch past the window the start is refused and the prompt answers it before the service runs; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service. A process that keeps running answers each refused restart the same way (`design/2026-11-05-unlock-policy-pending.md` §11) | The primary action again, or Back |
-| Check running | R2, from the start of the check (`IdCheckWords`, or the Try again of an R2 notice, by any input) until its result, including R2's check after K1 | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1 |
+| Check running | R2, from the start of the check (`IdCheckWords`, or the Try again of an R2 notice, by any input) until its result, including R2's check after K1 | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was: the check moves no focus, though Tab, Shift+Tab and the arrows still do (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1 |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
@@ -757,8 +757,11 @@ access.
   a disabled key leaves it. When the result comes, focus goes as
   follows, wherever the person moved it. A §6 banner or notice takes focus (the error-banner
   rule below). A valid phrase opens R3, with focus on R3's question
-  (`IdR3Question`), which is focusable for this: R3 has no title, and
-  the question is its first text and says what the screen asks. After
+  (`IdR3Question`), which is focusable for this. §3 gives R3 no
+  title of its own; a build that shows the flow's title, "Restore your
+  PeerId", in R3's app bar keeps focus off it too, because the
+  question is what the screen asks and the flow's title only names
+  the flow. After
   K1, a valid phrase opens R4, with focus on its title, "PeerId
   restored", as on C2's PeerId page (below). On R3 and on R4, a screen
   reader starts at the text that has focus. A cancelled or denied prompt leaves R2 as it was, with
@@ -776,7 +779,9 @@ access.
   keypad and expects a letter. If it is falsified, every held control
   shows disabled while the check runs: the letter
   keys, delete and clear, the chips, the grid positions, "show all my
-  words" and the action of a notice still showing. A control that
+  words" and the action of a notice still showing. Each keeps its
+  place in the focus order and is marked disabled, as a disabled key
+  is, so the words can still be read back by keyboard. A control that
   looks enabled but does nothing is the fault the hypothesis is
   about, whichever control it is.
 - When a grid position is chosen to edit, by any input, focus goes as
@@ -1119,12 +1124,18 @@ scale would also be a finding of the Android review
       leaves that check unanswered, a typed "a", a tap on position
       5, Escape and another Enter change no word and open nothing;
       focus stays on `IdCheckWords`, which shows disabled; and the
-      back arrow is inactive. A Tab then moves focus to the next
-      control in R2's order and a Shift+Tab brings it back to
-      `IdCheckWords`, and still no word changes. When the test answers the check as a failed checksum,
+      back arrow is inactive. In portrait, a Shift+Tab then moves
+      focus to the clear key and a Tab brings it back to
+      `IdCheckWords`; an arrow moves focus from `IdCheckWords` to the
+      nearest control in its direction. With focus on the clear key,
+      Enter and Space change neither the letters display nor any
+      word. In each case the screen is navigating afterwards. When the test answers the check as a failed checksum,
       the banner shows, with focus on it, and all 24 words are as
       they were. In a second run, the test answers the check as a valid phrase, and R3 opens with
-      focus on `IdR3Question`. These steps run in a host test, not on the
+      focus on `IdR3Question`. In a third run, the check is started by
+      a screen reader's activate on `IdCheckWords`: focus stays on
+      `IdCheckWords` while it runs. In a run after K1, a valid phrase
+      opens R4 with focus on its title, "PeerId restored". These steps run in a host test, not on the
       phone: no device hook holds the check, and in a host test the
       flow's check is an effect that the test answers itself, as the
       identity flow's tests in `crates/human/ui-model` do. With

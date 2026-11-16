@@ -935,7 +935,10 @@ it, those checks are blocked, never passed.
   Back at half its first-screen time and the two Backs pressed
   together, a run with a screen recording, to judge the bar, and
   a check of where the conversation was after the close (the runs of
-  2026-11-16, one round each, judged neither);
+  2026-11-16, one round each, judged neither); and, for the two Backs
+  pressed together, a judgement of focus after the closing Back (the
+  case does not judge it; the trace's focus lines are not a
+  judgement);
   the two Backs 0.3 s apart by the app bar's Back; the Pixel; and the
   release APK. On the desktop: a frame-level test that no frame shows
   the bar inside the first turn (the desktop's software renderer does
