@@ -431,11 +431,56 @@ delay. A peer whose only route is a held circuit is therefore retried at
 the hold's end or when its relay connects, which is the exception the
 wording names.
 
+That sentence was made exact on 2026-11-15, after #674 merged
+(p2p-network-dev-01's note, GZCoord
+id beginning `01a1ddde-2ffc`; the rule is unchanged). As built on that
+date (`earliest_hold_end_if_only_held`,
+`crates/transport/runtime/src/connection_manager.rs`, over
+`ConnectionPolicy::route_hold_end`), the peer it describes was one whose
+every dial candidate was refused by a route hold, judged per relay as
+the gate judged it, so a second circuit through a held relay was held
+too; when a relay-hop failure settled on such a peer, and only then,
+its retry was scheduled at the later of 30 s and the end of the first of
+those holds, or at once when the relay whose hop failed last connected
+(`waits_on` named one relay). A retry the scheduler offered, whatever
+made it due (its ordinary time after another route was quarantined, a
+network addition, a newly learned circuit through a held relay), that
+every hold refused was deferred to the end of the last of the peer's
+holds (`defer_retry_to_route_hold`, over `route_held_until`). The
+relay-hop paragraph's
+"scheduled at the peer's ordinary delay" names the exception.
+
+Asked whether those two were intended, p2p-network-dev-01 answered the
+same day that neither was (GZCoord
+`01a1de24-acab-7e75-b4a7-0ac7f1c20eef`, in reply to
+`01a1de23-d7dc-7832-8c61-a6844f5dec77`; read on 322c5ce83, nothing
+run): with circuits through two relays the peer held a candidate the
+gate admitted while its retry waited up to the hold ladder's spread
+longer, which broke the 30 s bound and #674's own rule that the retry
+predicts the gate. So the body and `CONNECTIVITY.md` §12 state the rule
+and not the code: the retry goes at the later of 30 s and the end of
+the first hold, or at once at the first direct connection to the relay
+of any held circuit; the relay's connection carries no 30 s floor, as
+the relay-hop paragraph's "due now" always said. Both carry the gap as
+it stood on 2026-11-15, in the past tense. One relay did not escape
+it: `schedule_retry` wrote `waits_on: None`, so after a later failure
+of another route (a direct address that failed, then was quarantined)
+the retry deferred to the circuit's hold was not made due by its relay's
+connection, though the hold was released (#680 re-review round 3, F3;
+read, not run). On 2026-11-15 the fix, its tests (two relays, and one
+relay with a failure of another route between) and two comments in
+`record_relay_hop_unreached` (its doc comment's "the reconnect is
+scheduled at the peer's ordinary delay" and, inside it, "with no other
+route the retry is scheduled at the hold's end") were owed by
+p2p-network-dev on its next pull request, the gap sentence to come out
+of the body and `CONNECTIVITY.md` when that landed.
+
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
 unqualified. The long-outage run was made again on the new code, beside
 the first (`tests/automated-client/runs/2026-11-14-long-outage-30s.md`,
 at 41f94bcd6): the same 480 s outage, sixteen retry delays of 30 s
 each, and the far daemon reconnected 955 ms after its return. It was
-made before the two review fixes to the scheduler's wake, and has not
-been run again on them.
+made before the four review fixes to the scheduler's wake and its
+retry (51d05fa52, 3852cca34, 01fef73c9, aa6e07843, all on #674), and
+has not been run again on them.
