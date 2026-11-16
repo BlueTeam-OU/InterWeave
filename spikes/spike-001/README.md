@@ -1072,7 +1072,7 @@ Not established by S37: each fact's own, above. Also: the scope sentence with "w
 
 What this changes in the bridge: nothing. The bridge stays in the legacy era, which 2.1.325 refuses to leave at every site that registers a channel (facts 131 and 132). For a deployment:
 - **Keep "reply" out of the first turn's work, and out of every later turn's.** The scope sentence held in every cell measured but one, tool turns whose work said "reply" among them (facts 119 and 128), and in a second turn (fact 134). It failed after an idle wait whose work said "Reply" (fact 127), and no run separates that word from the later turn, so keeping "reply" out is a precaution there, not a measured condition.
-- **Say the sentences once, in the first user turn.** They got a reply in a second turn in 19 of 20 runs (fact 133).
+- **Say the sentences once, in the first user turn.** The answer sentence said there got a reply in a second turn in 19 of 20 runs, the scope sentence after it in 10 of them (fact 133), and those 10 leaked nothing (fact 134).
 - **A `--channels` print session can start with no channel and say nothing about it** (fact 130). Its debug log's registration line is the only sign measured.
 
 ## Where the architecture disagrees
