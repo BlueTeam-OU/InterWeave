@@ -187,9 +187,14 @@ def init_record(lines):
     out = []
     for at, v in lines:
         if v.get("type") == "system" and v.get("subtype") == "init":
+            # Each MCP server's name and status as init reports it (S38):
+            # a channel server still "pending" at a turn's init gets no
+            # handler from that turn.
             out.append({"at_s": at, "keys": sorted(v),
                         **{k: v.get(k) for k in ("permissionMode", "apiKeySource", "claude_code_version",
-                                                 "model", "output_style", "fast_mode_state") if k in v}})
+                                                 "model", "output_style", "fast_mode_state") if k in v},
+                        **({"mcp_servers": [{"name": s.get("name"), "status": s.get("status")}
+                                            for s in v["mcp_servers"]]} if "mcp_servers" in v else {})})
     return out
 
 
