@@ -58,6 +58,9 @@
 #     <uses-permission-sdk-23> in any manifest read names one of the
 #     seven above, each named by the main manifest, and no manifest
 #     defines a <permission> of its own;
+#   - android/app/permissions.allow, the list the build holds the merged
+#     manifests to: its lines, blank lines and # comments aside, are
+#     exactly the seven above, no more and no fewer;
 #   - the camera feature: the main manifest declares
 #     android.hardware.camera with android:required="false" -- the
 #     CAMERA permission alone makes the platform's store take that
@@ -90,8 +93,8 @@
 #
 # FAIL-CLOSED: an absent main manifest, an absent extraction-rules file,
 # a manifest that does not parse, no lockfile read, no Scan module
-# found, a source root that is absent, or a source that cannot be read
-# is a failure, not a pass. What the check does NOT see: the
+# found, a source root that is absent, a source that cannot be read, or
+# an absent or unreadable permissions.allow is a failure, not a pass. What the check does NOT see: the
 # desktop half of decision 6 (the client reads no system address book
 # there), which no tree check can pin, the desktop having no manifest;
 # and a permission a library's own manifest merges into the APK, which
