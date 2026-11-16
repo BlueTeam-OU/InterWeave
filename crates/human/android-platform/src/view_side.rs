@@ -758,4 +758,159 @@ mod tests {
         refused.apply(ToView::Running(false)).expect("applied");
         assert!(!refused.start_ended(asked_at), "refused: not ended");
     }
+
+    /// Drives `side` with what the hub sent since the last take: one turn
+    /// of the root's pump. True when the hub detached the link.
+    fn pump(side: &mut ViewSide<Blank, Blank>, link: &mut crate::ViewLink) -> bool {
+        for message in link.take() {
+            let _ = side.apply(message);
+        }
+        link.lost()
+    }
+
+    fn attached(hub: &crate::Hub) -> crate::ViewLink {
+        hub.attach(std::sync::Arc::new(|| {}))
+    }
+
+    /// The service's start, as `service.rs` orders it: the facade runs
+    /// (`Start`, `Running(true)`), then the start's answer is counted.
+    fn service_starts(hub: &crate::Hub) -> u64 {
+        let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let generation = hub.started(commands);
+        hub.set_store_answer(StoreAnswer::Opened);
+        generation
+    }
+
+    /// Add-a-peer §5.1, the first case the build of #678 had not run: Home
+    /// pressed after a held start was asked for and before the service
+    /// exists. No facade runs before the return, so no running service
+    /// stops and the view reads no stop: the start made at the return is
+    /// not ended (`start_ended`) and is decided by the held screen
+    /// (`start_decided`), as the note says. Mutation: `start_ended` read
+    /// from any answer counted past `asked_at` rather than from a stop the
+    /// view saw fails here.
+    #[test]
+    fn home_before_the_service_exists_leaves_the_return_to_the_held_screen() {
+        let hub = crate::Hub::new();
+        let mut link = attached(&hub);
+        let mut side = view_side();
+        assert!(!pump(&mut side, &mut link));
+        let asked_at = hub.store_generation();
+
+        // Home: the binding goes before the service is made, and nothing
+        // reaches the hub. The return binds again; the service's start
+        // runs and answers.
+        assert!(
+            !pump(&mut side, &mut link),
+            "nothing said before the return"
+        );
+        assert!(!side.start_ended(asked_at), "no stop to read");
+        let _ = service_starts(&hub);
+        assert!(!pump(&mut side, &mut link));
+        assert!(side.running(), "control: the return's start runs");
+        assert!(
+            !side.start_ended(asked_at),
+            "the return's start is not ended"
+        );
+        assert!(
+            side.start_decided(asked_at),
+            "and the held screen decides it, as the note says"
+        );
+    }
+
+    /// The second case: the service's messages to the window fill the
+    /// queue ([`crate::hub::TO_VIEW`]) while the held start runs, and it
+    /// stops. The hub detaches the view, so the stop is never queued for
+    /// it; the view that attaches again hears `Running(false)` as its
+    /// first word, which records no stop. So the held start that ran and
+    /// ended is NOT ended for the view (`start_ended` false), and the
+    /// start made at the return is decided by the held screen -- unlike
+    /// the same start read through a queue with room (the control).
+    /// What the test shows, reported to architect-cto with the note's
+    /// case; the rule is unchanged. Mutation: recording nothing at the
+    /// stop fails the control; `start_ended` read from any answer counted
+    /// past `asked_at` fails after the attach.
+    #[test]
+    fn a_stop_lost_with_a_full_queue_leaves_the_return_to_the_held_screen() {
+        use interweave_human_client_api::Diagnostics;
+
+        // The control: room in the queue, the stop is read and the held
+        // start has ended.
+        let hub = crate::Hub::new();
+        let mut link = attached(&hub);
+        let mut side = view_side();
+        let asked_at = hub.store_generation();
+        let generation = service_starts(&hub);
+        assert!(!pump(&mut side, &mut link));
+        hub.retire(generation);
+        assert!(!pump(&mut side, &mut link));
+        assert!(side.start_ended(asked_at), "control: the stop read");
+
+        // The queue full while the held start runs.
+        let hub = crate::Hub::new();
+        let mut link = attached(&hub);
+        let mut side = view_side();
+        let asked_at = hub.store_generation();
+        let generation = service_starts(&hub);
+        let relists = hub.wants_listing(generation).expect("a listing owed");
+        hub.listed(
+            generation,
+            relists,
+            ToView::Update(Box::new(Update::Diagnostics(Diagnostics::default()))),
+        );
+        for _ in 0..crate::hub::TO_VIEW {
+            hub.update(generation, Update::Diagnostics(Diagnostics::default()));
+        }
+        hub.retire(generation);
+        assert!(pump(&mut side, &mut link), "detached by the full queue");
+        assert!(side.running(), "the last word it read: running");
+        assert!(!side.start_ended(asked_at), "the stop never reached it");
+
+        // Attached again, as the root does on a lost link: a fresh side.
+        let mut link = attached(&hub);
+        let mut side = view_side();
+        assert!(!pump(&mut side, &mut link));
+        assert!(!side.running(), "control: told nothing runs");
+        assert!(!side.start_ended(asked_at), "and still no stop recorded");
+
+        // The return's start: decided by the held screen.
+        let _ = service_starts(&hub);
+        assert!(!pump(&mut side, &mut link));
+        assert!(side.running());
+        assert!(
+            !side.start_ended(asked_at),
+            "the return's start is not ended"
+        );
+        assert!(side.start_decided(asked_at), "the held screen decides it");
+    }
+
+    /// The third case: the stop and the next start read in two turns
+    /// rather than one. The first turn reads the stop alone and the held
+    /// start has ended there, so the root's `held_ended` sends the screen
+    /// to Chats at that turn; the second turn's start does not undo it.
+    /// The one-pump case is `a_held_start_that_ran_and_stopped_has_ended`.
+    /// Mutation: recording nothing at the stop fails here at the first
+    /// turn.
+    #[test]
+    fn a_stop_and_the_next_start_read_in_two_turns_end_the_held_start_at_the_first() {
+        let hub = crate::Hub::new();
+        let mut link = attached(&hub);
+        let mut side = view_side();
+        let asked_at = hub.store_generation();
+        let generation = service_starts(&hub);
+        assert!(!pump(&mut side, &mut link));
+        assert!(!side.start_ended(asked_at), "control: running, not ended");
+
+        // Turn one: Home on foreground-only, the stop alone.
+        hub.retire(generation);
+        assert!(!pump(&mut side, &mut link));
+        assert!(!side.running());
+        assert!(side.start_ended(asked_at), "ended at the first turn");
+
+        // Turn two: the return's start.
+        let next = service_starts(&hub);
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(side.start(), Some(next), "the return's start runs");
+        assert!(side.start_ended(asked_at), "still ended");
+    }
 }
