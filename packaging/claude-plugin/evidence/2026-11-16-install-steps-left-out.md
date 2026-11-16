@@ -190,7 +190,7 @@ and `/etc/claude-code` a directory holding the host's `managed-settings.json` un
 
 | run | step 7 | screens before the prompt | debug log | `status` |
 |---|---|---|---|---|
-| x0 | yes | the text-style picker; the closing `/exit` and Enter answered it with its default, the security notes followed, and the driver ended the session there with SIGTERM 5 s later | no `Channel` line for the server | not called |
+| x0 | yes | the text-style picker; the closing `/exit` and Enter answered it with its default, the security notes followed, and the driver ended the session there with SIGTERM 5 s later; that answer was not kept, since x1 showed the picker again | no `Channel` line for the server | not called |
 | x1 | yes | text style, then the security notes ("Press Enter to continue"), then the folder-trust question, whose default is "No, exit"; the closing `/exit` and Enter answered it with that default, and the session ended | no `Channel` line for the server | not called |
 | x2 | yes | the folder-trust question; Down and Enter chose "Yes, I trust this folder" | `Channel notifications registered` | not called |
 | i1, i2, i3 | yes | none | `Channel notifications registered`, twice in each | `endpoint_lease_state` `held`, `local_peer_id` the profile's PeerId, `local_endpoint` `claude`, `transport_health` `healthy`, `log.level` `info` |
@@ -203,8 +203,10 @@ What the runs show:
 
 - **No warning screen, 4 runs of 4** that reached the prompt with step 7 (x2, i1 to i3). No screen named a
   development channel or asked to confirm one. The screens before the prompt were Claude Code's own first-run screens
-  in a new `HOME` — text style, security notes, folder trust — and each stopped appearing once answered: x0 and x1
-  ended at them, with no channel registered, x2 showed only the folder trust, and i1 to i3 showed none.
+  in a new `HOME` — text style, security notes, folder trust. x0 and x1 ended at them, with no channel registered. The
+  two that x1 answered, text style and security notes, were not shown again, nor was the folder trust once x2
+  answered it: x2 showed only the folder trust, and i1 to i3 showed none. x0's answer to the picker, given as the
+  driver ended it, was not kept.
 - **The registration line, 4 runs of 4** that reached the prompt with step 7, as INSTALL.md gives it.
 - **Without step 7 the terminal says so.** In ic1, besides the debug log's line, the terminal showed `plugin
   interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels…`. It
@@ -224,7 +226,7 @@ screens and debug logs stayed in the session's scratch directory and are not com
 ## What INSTALL.md said that this changes
 
 - **Step 8.** It now cites section 5 for the absence of a warning screen and for the registration line, limits both
-  counts to the 4 sessions of 6 that reached the prompt, names the first-run screens seen in the one new `HOME` run,
+  counts to the 4 sessions that reached the prompt, of 6 started with step 7, names the first-run screens seen in the one new `HOME` run,
   and quotes the refusal fragment the terminal showed without step 7 in the one run made.
 - **Step 6, configure.** It said a JSON object piped to `--values-stdin` changes the settings and the next start
   gets them. It did not say that a key left out keeps its value, that a value is not checked until the bridge
