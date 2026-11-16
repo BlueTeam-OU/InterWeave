@@ -495,6 +495,29 @@ run on that head with `main` at 8b6b1d35b folded in), and the two relay-hop para
 the relay's connection makes due. The two comments named above were
 made exact in ad3c208ef.
 
+The review of that pull request (#685, round 1 on 78ca647dc, F1) found
+that "at once" was not what the gate allowed in one case. As built at
+ae70b35c4, `relay_reached` made the retry due at the relay's connection
+whatever the peer's backoff said; a direct route's failure sets that
+backoff and a relay hop's does not, and the gate asks the backoff before
+the hold, so a retry made due inside it was refused `PeerBackoff` at
+every tick until the backoff ended and lost its wake at that end. The
+same shape stood at a second site, the relay that came up during the
+dial (`record_relay_hop_unreached`, found in the re-review as
+pre-existing): the hop's failure gave the circuit a record, and a
+running backoff then answered for it. p2p-network-dev-01 fixed both on
+2026-11-16 (2b7d2e89e and 5eb8cf662, over `peer_backoff_lapses_at`; in
+3091fbe3c the two-relay test connects each relay in turn; GZCoord
+`01a1e2d2-d63c-78ff-99ad-91d2c8a4d4fe`): the retry is due at the later
+of the relay's connection and the end of a peer backoff still running,
+and unchanged when none runs. The body's two paragraphs,
+`CONNECTIVITY.md` §12 and the digest say so from the same day, the
+one-relay test's pin sentence names its two cases, and the relay-hop
+paragraph names
+`a_relay_that_came_up_inside_a_peer_backoff_is_retried_at_its_end`. The
+30 s bound is not widened: the backoff is itself 30 s from the failure
+that set it.
+
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
 unqualified. The long-outage run was made again on the new code, beside
