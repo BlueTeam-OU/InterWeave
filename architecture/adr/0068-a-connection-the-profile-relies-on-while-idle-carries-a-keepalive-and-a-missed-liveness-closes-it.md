@@ -1,6 +1,6 @@
 # A connection the profile relies on while idle carries a keepalive, a missed liveness closes it, and one direct connection per data-plane peer is held past the idle timeout
 
-**Status:** Accepted — a promotion of rules already in force; what this record states for the first time is named below. Rule 1 is the owner's word of 2026-09-26 ("keepalive yes"); rules 2 and 3 are architect-cto's ruling of 2026-10-25, except rule 3's data-plane clause and its reach-back, which came with the hold on 2026-11-13 as corrected in the review of #657; rules 4 and 5 are the owner's word of 2026-11-13, after the idle measurement; rules 6 and 8 state what the three share, from §14's own words; rule 7 and three of the alternatives are stated here for the first time and are marked so. Rules 1 to 6 and 8 each landed with their build and were in force in `architecture/transport/libp2p/CONNECTIVITY.md` §14 before this record; the plan's §21 record ordered their promotion into one ADR when §14 gained a fourth.
+**Status:** Accepted — a promotion of rules already in force; what this record states for the first time is named below. Rule 1 is the owner's word of 2026-09-26 ("keepalive yes"); rules 2 and 3 are architect-cto's ruling of 2026-10-25, except rule 3's data-plane clause and its reach-back, which came with the hold on 2026-11-13 as corrected in the review of #657; rules 4 and 5 are the owner's word of 2026-11-13, after the idle measurement; rules 6 and 8 state what the three share, from §14's own words; rule 7 was stated here for the first time and the owner accepted it as written on 2026-11-15; three of the alternatives are stated here for the first time and are marked so. Rules 1 to 6 and 8 each landed with their build and were in force in `architecture/transport/libp2p/CONNECTIVITY.md` §14 before this record; the plan's §21 record ordered their promotion into one ADR when §14 gained a fourth.
 
 ## Context
 
@@ -28,7 +28,7 @@ Each gap was closed where it was found, in a dated passage of §14. Three such p
 
 6. **A missed liveness closes the connection whose own ping failed, and nothing else.** On a control connection the close takes the reservation ladder exactly as a removed address does (§8); on a relayed or held connection the peer leaves `Connected` — `Disconnected` to the consumer, or `PeerPathChanged` where another path stands. Who redials after the close, and when, is the retry scheduler's and the discovery round's as for any closed connection (`CONNECTIVITY.md` §12 and §14); this record promises no redial.
 
-7. **The keepalive is liveness, never authentication or authorization** (stated with this record; §14 says it only of the hold, which "retains and admits nothing", and ADR-0017 says it of the IPC keepalive). An answered ping proves a path and a process, not who the peer is or what it may do; it widens no class, extends no reservation, and is no application-level acknowledgement. No built behaviour reads a ping as any of those, so the rule changes nothing that runs; it forbids a later change from doing so without an amendment here.
+7. **The keepalive is liveness, never authentication or authorization** (stated with this record and accepted by the owner as written on 2026-11-15; §14 says it only of the hold, which "retains and admits nothing", and ADR-0017 says it of the IPC keepalive). An answered ping proves a path and a process, not who the peer is or what it may do; it widens no class, extends no reservation, and is no application-level acknowledgement. No built behaviour reads a ping as any of those, so the rule changes nothing that runs; it forbids a later change from doing so without an amendment here.
 
 8. **The interval and the miss count are the ping crate's defaults**, stated in §14 with the pinned version they were read at, and are the same on all three kinds of connection. This record sets no number; a different interval for one kind, or for one platform, is an amendment here with the measurement that asks for it.
 
@@ -86,3 +86,11 @@ All built (ADR-0045's layout): in `crates/transport/libp2p`, the keepalive in `s
 - A profile whose allowed data-plane set is large enough that one held connection per online peer presses on the connection bounds of ADR-0026 and ADR-0035: rule 4 then needs a bound and an order of who is held.
 - An upstream change that gives a reservation a connection outside the relay crate, which would let rule 1's unit become the connection; or one that gives the idle timeout a per-connection override that both ends negotiate, which would replace rule 4's ordering.
 - A measured loss of both connections in the same-dialler case rule 4 leaves open.
+
+## Amendments
+
+Full notes: [`history/0068-amendments.md`](./history/0068-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-11-15 | Rule 7 is accepted by the owner as written | Rule 7 is read as an accepted rule like the other seven; the three alternatives recorded with the promotion keep their mark |
