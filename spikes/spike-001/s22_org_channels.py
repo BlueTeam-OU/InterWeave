@@ -332,6 +332,10 @@ def main() -> int:
     try:
         subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
         scrub(dest / "evidence.md", scratch, out)
+        # The stub's record is committed too, and gets the same scrub and
+        # host-path check (#696's review, F9).
+        if (dest / "stub.jsonl").exists():
+            scrub(dest / "stub.jsonl", scratch, out)
         tainted = token_in([out, dest])
     except BaseException:
         # A partial distillation was never checked for the token.

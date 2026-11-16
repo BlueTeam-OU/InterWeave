@@ -75,8 +75,10 @@ HOST_PATH = re.compile(r"(?<![\w$.~-])/(?:home|run/user)/[^\s\"'/]+")
 
 def fail_on_host_path(dest):
     """Fail the run, removing what extract.py wrote, if its committed
-    files still name a host path: the check every caller of extract.py
-    makes after its own replacements, whether or not it scrubs."""
+    files still name a host path. For the callers of extract.py that do
+    not scrub (distil, s30_drops.py); a driver that scrubs makes the same
+    check in s22_org_channels.scrub on each file it commits, evidence.md
+    and, where it has one, stub.jsonl (#696's review, F9)."""
     dest = pathlib.Path(dest)
     for f in ("evidence.md", "stub.jsonl"):
         p = dest / f
