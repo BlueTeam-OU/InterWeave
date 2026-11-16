@@ -43,9 +43,10 @@ rust-ui-dev-01's QUESTION 01a1d261 (REPLY 01a1d262). And, once #651
 held R4 after Continue, acceptance 15 step 3 expects Connect or Chats
 as the first page after R4, never Chats then Connect.
 Revised 2026-11-16: while R2's check runs, the words are held, Back
-waits and focus does not move (§6 Check running, §7, §8, acceptance
-15), at rust-ui-dev-01's QUESTION 01a1e180 (provisional REPLY
-01a1e181). Before, §8 said nothing of a running check, and a build
+does nothing until the result, and focus does not move (§6 Check
+running, §7, §8, acceptance 15), at rust-ui-dev-01's QUESTION
+01a1e180 (provisional REPLY 01a1e181). Before this revision, §8 said
+nothing of a running check, and a build
 (#682) let a chip fill a position while the check ran.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
@@ -522,7 +523,7 @@ comparison a matter of groups, not of single characters.
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen when the operation is refused, never by the service; the operation is retried after a success. The app keeps no clock of the window: the refusal is its only reading of it (ADR-0042, A 2026-10-20). The person sees the same either way: the prompt comes before anything happens. Cancelled or denied: no error dialog and no error text. C4 and the restores stay on their screen with the words kept, and nothing is committed. A rotation or a return to that screen retries nothing: it stays as it was until the person uses its primary action again. Once the identity is committed, a cancelled start after C4's or R4's continue ends offline and locked, as S2's Done does below, but on Chats: the locked notice and Unlock, with focus on the notice. S2's Done drops the words and returns to Settings offline, with focus on "Show recovery phrase", the item that opened the flow; the locked notice shows where the app's notices show, under the app bar of Chats and of a conversation; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). At a launch past the window the start is refused and the prompt answers it before the service runs; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service. A process that keeps running answers each refused restart the same way (`design/2026-11-05-unlock-policy-pending.md` §11) | The primary action again, or Back |
-| Check running | R2, from check my words until the check's result, a restore's after K1 included | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was (§7, §8). The system prompt or the progress state of the rows below shows over it when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1 |
+| Check running | R2, from the start of the check (`IdCheckWords`, by any input) until its result, including R2's check after K1 | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1 |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
@@ -563,13 +564,13 @@ an edit of the words).
   - Back from R2 or C3, with the dialog or with nothing entered: on
     the screen Back reaches, focus goes to the control that opened
     the screen just left, as for C2's pages (§8).
-- **Back while R2's check runs** (§6, Check running) waits: Back and
-  Escape do nothing, no discard dialog opens, and the app bar's back
-  arrow is drawn inactive until the result. After K1 the check can
-  write the record: a person who left R2 while it wrote would not
-  know whether the restore happened. A system prompt over R2
-  keeps its own Back, which cancels the prompt (§6, Authentication
-  needed).
+- **Back while R2's check runs** (§6, Check running) does nothing
+  until the result: Back and Escape do nothing, no discard dialog
+  opens, and the app bar's back arrow is drawn inactive until the
+  result. After K1 the check can write the record: a person who left
+  R2 while it wrote would not know whether the restore happened. A
+  system prompt over R2 keeps its own Back, which cancels the prompt
+  (§6, Authentication needed).
 - **The app leaves the screen.** Home, a call, or another app opening.
   A stopped Activity is neither completion nor cancellation (§11 Q1):
   - on return, every screen shows what it showed, with entered words
@@ -726,9 +727,10 @@ access.
   while the check runs, and no focus rule for a chip applies. Focus
   does not move: it stays on the control that held it when the check
   began. That is `IdCheckWords` when Enter or Space pressed it, and
-  whatever held focus when the person tapped it, since a tap does not
-  move focus (above). Each input the check holds leaves the mode as it
-  was, as a tap on a disabled key does. When the result comes, the
+  whatever held focus when the person tapped `IdCheckWords`, since a
+  tap does not move focus (above). An input that does nothing while
+  the check runs leaves the mode (typing or navigating) as it was, as
+  a tap on a disabled key leaves it. When the result comes, the
   rules that already exist place focus: a §6 banner or notice takes
   focus (the error-banner rule below); a valid phrase opens R3, or R4
   after K1; a cancelled or denied prompt leaves R2 as it was, with
@@ -737,12 +739,13 @@ access.
   it runs would leave R3 showing the PeerId of words no longer on the
   screen, or, after K1, restore words other than the ones checked.
   The held keys and chips keep their look and only `IdCheckWords`
-  shows disabled, because the check of the words alone ends before a
-  person can type again, and keys that went grey for that moment would
-  read as a fault. This is a hypothesis for the device run, falsified
-  if a check after K1, the only one that waits on a key operation,
-  lasts long enough that a person types into the held keypad and
-  expects a letter. Then the held keys show disabled too.
+  shows disabled, because a check that waits on no key operation ends
+  before a person can type again, and keys that went grey for that
+  moment would look like a fault. This is a hypothesis for the device
+  run, falsified if a check after K1, the only one that waits on a key
+  operation, lasts long enough that a person types into the held
+  keypad and expects a letter. If it is falsified, the held keys show
+  disabled too.
 - When a grid position is chosen to edit, by any input, focus goes as
   for a row chosen from the full list: to the keypad's first enabled
   key, or to the delete key when the word put back leaves no letter
@@ -1080,12 +1083,13 @@ scale would also be a finding of the Android review
     - On R2, with positions 1 to 23 filled and 24 current, a chip
       taken by Enter fills 24 and puts focus on `IdCheckWords`, now
       enabled, and the next Enter runs the check. With that check
-      held unanswered (rust-ui-dev's test hook, as in acceptance 12),
+      left unanswered by rust-ui-dev's test hook (as in acceptance 12),
       a typed "a", a tap on position 5, Escape and another Enter
-      change no word and open nothing, focus stays on
-      `IdCheckWords`, shown disabled, and the back arrow is inactive.
-      Answered as a failed checksum, the banner shows with focus on
-      it and all 24 words as they were. With position 3
+      change no word and open nothing; focus stays on
+      `IdCheckWords`, which shows disabled; and the back arrow is
+      inactive. When the hook answers the check as a failed checksum,
+      the banner shows, with focus on it, and all 24 words are as
+      they were. With position 3
       empty and 24 current, a chip taken by Enter fills 24 and makes
       3 current, with focus on the first enabled key.
     - With position 5 filled, a tap on it puts focus on the first
