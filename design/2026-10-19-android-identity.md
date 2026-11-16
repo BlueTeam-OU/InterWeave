@@ -1134,7 +1134,7 @@ scale would also be a finding of the Android review
       move it to the delete key and then to a letter key. With focus
       there, Enter, Space and a screen reader's activate each leave the
       letters display empty and change no word, although a press on an
-      enabled letter key adds a letter when the words are not held. In each case the screen is navigating afterwards. When the test answers the check as a failed checksum,
+      enabled letter key adds a letter when the words are not held. After each step from the first Shift+Tab on, the screen is navigating. When the test answers the check as a failed checksum,
       the banner shows, with focus on it, and all 24 words are as
       they were. In a second run, the test answers the check as a valid phrase, and R3 opens with
       focus on `IdR3Question`. In a third run, the check is started by
