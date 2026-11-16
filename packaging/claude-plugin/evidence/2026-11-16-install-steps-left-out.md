@@ -14,7 +14,8 @@ marketplace entry was made. This record gives each step's command, what was seen
   `started, version 0.3.0`.
 - **A second release, and a local build.** The request said only `v0.3.0` exists. The `v0.2.0` release's Linux
   archive also carries `claude-plugin/`, its `plugin.json` at `0.2.0` (`sha256sum -c` `OK`), so the upgrade ran
-  twice: from the `v0.2.0` release to the `v0.3.0` release, then from `v0.3.0` to a local build. For that build a
+  twice: first from `v0.3.0` to a local build, then, after an uninstall, from the `v0.2.0` release to the `v0.3.0`
+  release. For that build a
   detached worktree of `175d8cc9f`
   (`origin/main` on 2026-11-16) had `[workspace.package] version` changed from `0.3.0` to `0.3.1` and nothing else
   (`Cargo.lock` followed). Then `cargo build --release -p interweave-claude-channel` and
@@ -65,8 +66,7 @@ What r3 also shows:
   03:15:30, 03:15:51 and 03:15:56. They are not one per restart; what each is was not traced.
 
 Not run: a message sent while the daemon was down. The gap was under a second each time, too short to aim a send
-into. The pull mode's first `receive` after a gap
-(the plugin starts the bridge in push mode).
+into. Nor the pull mode's first `receive` after a gap: the plugin starts the bridge in push mode.
 
 ## 2. A second session on the same endpoint
 
@@ -85,8 +85,8 @@ The bridge's log, shared by both bridges as INSTALL.md says: B's `a session did 
 03:04:17.652Z, 6.3 s later. So the waiting session takes the endpoint once the first one ends, at its next retry.
 One run.
 
-Not run: a second session on another endpoint of the same profile, and two sessions both started before either held
-the lease.
+Not run, being outside the request's "a second session on the same endpoint": a second session on another endpoint
+of the same profile, and two sessions both started before either held the lease.
 
 ## 3. `claude plugin configure --values-stdin`
 
@@ -116,7 +116,7 @@ empty string into `.mcp.json`'s `--log-level ${user_config.log_level}`, not the 
 bridge refuses it, as it refuses any level not in its four (`apps/claude-channel/src/main.rs`). `{"log_level":
 "info"}` then gave `held` again. Only `log_level` was tried empty or invalid; `profile` and `endpoint` were not.
 
-Not run: the in-session `/plugin configure`, and a way to remove a key once it is set (stdin takes an object of
+Not run: the in-session `/plugin configure`, since the driver runs `-p` sessions only, and a way to remove a key once it is set (stdin takes an object of
 strings, and none was found that unsets one).
 
 ## 4. Upgrading the plugin
@@ -126,9 +126,10 @@ session, then `claude plugin marketplace update interweave` and `claude plugin u
 
 ### From the `v0.2.0` release to the `v0.3.0` release
 
-The scratch account's plugin was uninstalled (`claude plugin uninstall`, `claude plugin marketplace remove`, both
+Run second, after the round below. The scratch account's plugin was uninstalled (`claude plugin uninstall`, `claude plugin marketplace remove`, both
 `✔ Successfully …`), its folder moved aside, and step 6 run again from the `v0.2.0` archive's `claude-plugin/`:
-`Version: 0.2.0`. The daemons stayed the 0.3.0 archive's.
+`Version: 0.2.0`. `pluginConfigs` was then `{profile: claude, endpoint: claude}`: the `log_level` section 3 had set
+was gone. The daemons stayed the 0.3.0 archive's.
 
 | step | command | seen |
 |---|---|---|
@@ -137,7 +138,7 @@ The scratch account's plugin was uninstalled (`claude plugin uninstall`, `claude
 | session (v2) | status | `started, version 0.3.0`; `held` |
 | update | `claude plugin marketplace update interweave` | `✔ Successfully updated marketplace: interweave` |
 | update | `claude plugin update interweave@interweave` | `✔ Plugin "interweave" updated from 0.2.0 to 0.3.0 for scope user. Restart to apply changes.`; `installed_plugins.json` `0.3.0` |
-| session (v3) | status | `started, version 0.3.0`; `held`; `log.level` `info` |
+| session (v3) | status | `started, version 0.3.0`; `held` on endpoint `claude` of the `claude` profile's daemon; `log.level` `info`, which is also the unset default. `pluginConfigs` was not read after this update; the settings kept here are `profile` and `endpoint`, shown by the lease, since the defaults name a profile `default` that has no daemon |
 
 ### From the `v0.3.0` release to a local build at 0.3.1
 
@@ -157,8 +158,8 @@ In both rounds the replaced folder is what the next session ran, before either u
 the two commands changed is Claude Code's install record and its cache copy, and the report from `0.3.0` to `0.3.1`
 that INSTALL.md says to expect. The settings were kept across the update.
 
-Not run: an update to a lower version, an update while a session was running, and a 0.2.0 bridge's channel
-traffic against the 0.3.0 daemon (only its `status`).
+Not run, being outside the request's upgrade from an older version to a newer one: an update to a lower version, an
+update while a session was running, and a 0.2.0 bridge's channel traffic against the 0.3.0 daemon (only its `status`).
 
 ## What INSTALL.md said that this changes
 
@@ -178,9 +179,9 @@ Beyond each section's own list:
 
 - A real fresh Linux account, `systemctl --user enable --now`, and a root-written step 7 in the host's `/etc` (stood
   in for, as on 2026-11-11).
-- An interactive session.
+- An interactive session: the driver runs `-p` stream-json sessions only, with no terminal.
 - `uninstall.sh`. On 2026-11-11 it stopped this login's live units, and removal was not part of this request. The
-  scratch account's plugin was not uninstalled either: the scratch `HOME` was deleted whole.
+  scratch account's plugin was not uninstalled at the end either: the scratch `HOME` was deleted whole.
 
 The drivers, raw stream-json events, debug logs and peer outputs stayed in the session's scratch directory and are
 not committed: they carry host paths and reply tokens. The driver was `drive.py`, one stream-json session through a
