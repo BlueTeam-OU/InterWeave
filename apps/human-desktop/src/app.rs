@@ -119,6 +119,10 @@ pub struct App<S: Surface, O: Opener> {
     /// log says how long after start each state came.
     started: std::time::Instant,
     turned: bool,
+    /// Where each log line goes, without its `human-desktop: ` prefix:
+    /// stderr, the client's only log, unless a test reads it
+    /// ([`Self::with_log`]).
+    log: fn(&str),
 }
 
 impl<S: Surface, O: Opener> App<S, O> {
@@ -130,7 +134,16 @@ impl<S: Surface, O: Opener> App<S, O> {
             listing_failed: false,
             started: std::time::Instant::now(),
             turned: false,
+            log: |line| eprintln!("human-desktop: {line}"),
         }
+    }
+
+    /// Every log line to `log` instead of stderr: how a test reads what
+    /// the client says about a failure.
+    #[must_use]
+    pub const fn with_log(mut self, log: fn(&str)) -> Self {
+        self.log = log;
+        self
     }
 
     /// The model side.
@@ -157,54 +170,55 @@ impl<S: Surface, O: Opener> App<S, O> {
         let Some(facade) = &self.facade else {
             return;
         };
+        let log = self.log;
         if !self.turned {
             self.turned = true;
-            eprintln!("human-desktop: first turn at {} ms", self.elapsed_ms());
+            log(&format!("first turn at {} ms", self.elapsed_ms()));
         }
         for message in facade.take() {
             match message {
                 FromFacade::Update(update) => {
                     if let Update::Client(ClientEvent::Session(state)) = &*update {
-                        eprintln!(
-                            "human-desktop: session {} at {} ms",
+                        log(&format!(
+                            "session {} at {} ms",
                             session_class(state),
                             self.elapsed_ms()
-                        );
+                        ));
                     }
                     self.side.apply(*update);
                 }
                 FromFacade::Daemon(present) => self.side.daemon_seen(present),
                 FromFacade::ListingFailed => {
                     self.listing_failed = true;
-                    eprintln!("human-desktop: the message store could not be listed");
+                    log("the message store could not be listed");
                 }
                 FromFacade::FacadeFailed => {
-                    eprintln!("human-desktop: the message store's pending rows could not be read");
+                    log("the message store's pending rows could not be read");
                 }
                 FromFacade::Closed => {}
             }
         }
         for command in self.side.turn() {
             if !facade.command(command) {
-                eprintln!("human-desktop: the transport side has stopped");
+                log("the transport side has stopped");
                 break;
             }
         }
         for problem in self.side.take_problems() {
             match problem {
                 Problem::Command { command, why } => {
-                    eprintln!("human-desktop: {} failed: {why:?}", command_name(&command));
+                    log(&format!("{} failed: {why:?}", command_name(&command)));
                 }
                 Problem::UnreadNotListed(why) => {
-                    eprintln!("human-desktop: unread messages could not be read again: {why:?}");
+                    log(&format!("unread messages could not be read again: {why:?}"));
                 }
                 Problem::CardsNotRead(why) => {
-                    eprintln!("human-desktop: cards or contacts could not be read: {why:?}");
+                    log(&format!("cards or contacts could not be read: {why:?}"));
                 }
                 Problem::ShareNotRecorded(why) => {
-                    eprintln!(
-                        "human-desktop: a card was accepted and its share could not be recorded yet: {why:?}"
-                    );
+                    log(&format!(
+                        "a card was accepted and its share could not be recorded yet: {why:?}"
+                    ));
                 }
             }
         }
