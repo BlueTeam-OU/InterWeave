@@ -4,7 +4,8 @@
 # The permissions the APK may hold, one per line: every permission the
 # merged manifest of the debug and of the release variant names, the
 # ones a library's own manifest merges in included. verify<Variant>
-# MergedPermissions (build.gradle.kts) fails the assemble on any other,
+# MergedPermissions (build.gradle.kts) fails the APK's packaging, which
+# an assemble and an install both reach, on any other,
 # and tools/checks/check_android_contacts_and_backup.py fails when this
 # list and its own (plan section 29 step 2's) differ. A permission enters
 # an APK an assemble builds, debug or release, only through a record that

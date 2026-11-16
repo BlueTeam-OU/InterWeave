@@ -100,7 +100,8 @@
 # and a permission a library's own manifest merges into the APK, which
 # only the merged manifest, a build output, holds. The build checks that
 # one: verify<Variant>MergedPermissions (apps/human-android/android/app/
-# build.gradle.kts) fails the assemble on a merged permission outside
+# build.gradle.kts) fails the APK's packaging, which an assemble and an
+# install both reach, on a merged permission outside
 # app/permissions.allow, and this check fails when that file's list and
 # the allow-list above differ, or when the file is absent.
 #
