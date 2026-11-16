@@ -48,6 +48,14 @@ running, §7, §8, acceptance 15), at rust-ui-dev-01's QUESTION
 01a1e180 (provisional REPLY 01a1e181). Before this revision, §8 said
 nothing of a running check, and a build
 (#682) let a chip fill a position while the check ran.
+Revised 2026-11-16, after #683: "focus does not move" meant that the
+check moves no focus. Tab, Shift+Tab and the arrows still move it
+while the check runs. A valid phrase puts focus on R3's question,
+`IdR3Question`, because R3 has no title. A screen reader's activate on
+`IdCheckWords` is a press. If the hypothesis that only `IdCheckWords`
+shows disabled fails, every held control shows disabled, not only the
+keys (§8, acceptance 15). These answer #683's review (F12, F13) and
+language-culture-en's two questions on it.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -730,20 +738,31 @@ access.
   `IdStorageUnknown`) also starts a check (after K1, that check is a
   write or a read back), and the words are held in the same way while
   it runs. So no chip can be taken
-  while the check runs, and no focus rule for a chip applies. Focus
-  does not move: it stays on the control that held it when the check
-  began. After a press by Enter or Space, that is the control pressed
-  (`IdCheckWords`, or a notice's `TryAgain`). After a tap, it is
-  whatever held focus when the person tapped that control, since a
-  tap does not move focus (above). An input that does nothing while
-  the check runs leaves the mode (typing or navigating) as it was, as
-  a tap on a disabled key leaves it. When the result comes, focus
-  goes as follows. A §6 banner or notice takes focus (the error-banner
-  rule below). A valid phrase opens R3, or R4 after K1, with focus on
-  the screen's title, as on C2's PeerId page (below), so a screen
-  reader starts at R3's question or at R4's "PeerId restored". A
-  cancelled or denied prompt leaves R2 as it was, with `IdCheckWords`
-  enabled again and focus where it was. Why the words
+  while the check runs, and no focus rule for a chip applies. The
+  check moves no focus: focus stays on the control that held it when
+  the check began. After a press by Enter, Space or a screen reader's
+  activate, that is the control pressed (`IdCheckWords`, or a
+  notice's `TryAgain`). After a tap, it is whatever held focus when
+  the person tapped that control, since a tap does not move focus
+  (above). Tab, Shift+Tab and the arrows still move focus, in the
+  order and by the rules above, and set navigating, as they do at any
+  other time; `IdCheckWords`, shown disabled, keeps its place in that
+  order, as a disabled key does. Moving focus changes no word, so
+  holding it would protect nothing, and a keyboard or screen-reader
+  user who waits can read the words back (WCAG 2.1.1, keyboard).
+  Enter or Space on a held control then does nothing, as on a
+  disabled key. Every other input that does nothing while the check
+  runs leaves the mode (typing or navigating) as it was, as a tap on
+  a disabled key leaves it. When the result comes, focus goes as
+  follows, wherever the person moved it. A §6 banner or notice takes focus (the error-banner
+  rule below). A valid phrase opens R3, with focus on R3's question
+  (`IdR3Question`), which is focusable for this: R3 has no title, and
+  the question is its first text and says what the screen asks. After
+  K1, a valid phrase opens R4, with focus on its title, "PeerId
+  restored", as on C2's PeerId page (below). A screen reader starts
+  there. A cancelled or denied prompt leaves R2 as it was, with
+  `IdCheckWords` enabled again and focus where it was before the
+  prompt. Why the words
   are held: a check reports on the words it read. A word changed while
   it runs would leave R3 showing the PeerId of words no longer on the
   screen, or, after K1, restore words other than the ones checked.
@@ -753,8 +772,12 @@ access.
   moment would look like a fault. This is a hypothesis for the device
   run, falsified if a check after K1, the only one that waits on a key
   operation, lasts long enough that a person types into the held
-  keypad and expects a letter. If it is falsified, the held keys show
-  disabled too.
+  keypad and expects a letter. If it is falsified, every held control
+  shows disabled while the check runs, not only the keys: the letter
+  keys, delete and clear, the chips, the grid positions, "show all my
+  words" and the action of a notice still showing. A control that
+  looks enabled but does nothing is the fault the hypothesis is
+  about, whichever control it is.
 - When a grid position is chosen to edit, by any input, focus goes as
   for a row chosen from the full list: to the keypad's first enabled
   key, or to the delete key when the word put back leaves no letter
@@ -1095,9 +1118,12 @@ scale would also be a finding of the Android review
       leaves that check unanswered, a typed "a", a tap on position
       5, Escape and another Enter change no word and open nothing;
       focus stays on `IdCheckWords`, which shows disabled; and the
-      back arrow is inactive. When the test answers the check as a failed checksum,
+      back arrow is inactive. A Tab then moves focus to the next
+      control in R2's order and a Shift+Tab brings it back to
+      `IdCheckWords`, and still no word changes. When the test answers the check as a failed checksum,
       the banner shows, with focus on it, and all 24 words are as
-      they were. These two steps run in a host test, not on the
+      they were. Answered in another run as a valid phrase, R3 opens with
+      focus on `IdR3Question`. These steps run in a host test, not on the
       phone: no device hook holds the check, and in a host test the
       flow's check is an effect that the test answers itself, as the
       identity flow's tests in `crates/human/ui-model` do. With
