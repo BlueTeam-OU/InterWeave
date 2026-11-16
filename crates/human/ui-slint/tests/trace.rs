@@ -1137,6 +1137,65 @@ fn the_words_are_held_while_the_check_runs() {
     );
 }
 
+/// The held check with letters typed (#697 F1): position 5 reopened and
+/// cut to "cab", so a key, delete, clear and the cabin chip are all
+/// live. While the check runs, a tapped key, Backspace, a tapped delete,
+/// a tapped clear and a tapped chip each reach the flow, which refuses
+/// them, and leave the mode navigating. A tap on Check moves no focus,
+/// so focus stays on delete, where "cab" left it, and the Enter after
+/// each probe presses delete, which the flow holds too. Had a probe set
+/// typing, that Enter would go to the suggestion rule and send an Enter.
+#[test]
+fn a_held_input_with_letters_typed_leaves_the_mode_navigating() {
+    use interweave_human_ui_model::{ScreenId, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    assert_eq!(page.word(23), Some("vacant"), "control: 24 filled");
+    page.tap(&["5 cabin"]);
+    for _ in 0..2 {
+        page.key(Key::Backspace);
+    }
+    assert_eq!(page.typed(), "cab", "control: letters typed");
+    page.take();
+    page.tap(&[text(UiText::IdCheckWords)]);
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    assert!(page.flow.waiting(), "control: the check runs");
+    assert_eq!(page.last(), "ui-trace focus=identity-delete", "control");
+    let said = page.said_count();
+
+    let probes: [(&str, IdentityInput); 5] = [
+        ("i", IdentityInput::Key('i')),
+        ("backspace", IdentityInput::Delete),
+        (text(UiText::IdKeyDelete), IdentityInput::Delete),
+        (text(UiText::IdKeyClear), IdentityInput::Clear),
+        ("cabin", IdentityInput::Chip("cabin".to_owned())),
+    ];
+    for (probe, sent) in probes {
+        if probe == "backspace" {
+            page.key(Key::Backspace);
+        } else {
+            page.tap(&[probe]);
+        }
+        page.enter();
+        assert_eq!(
+            page.take(),
+            [sent, IdentityInput::Delete],
+            "{probe}: held, still navigating on delete"
+        );
+        assert_eq!(page.typed(), "cab", "{probe}: no letter changed");
+    }
+    let words: Vec<_> = (0..24).map(|p| page.word(p)).collect();
+    let all: Vec<_> = WORDS[..24].iter().copied().map(Some).collect();
+    assert_eq!(words, all, "no word changed");
+    assert_eq!(page.flow.screen(), ScreenId::R2);
+    assert_eq!(page.said_count(), said, "focus never moved");
+    assert_eq!(page.last(), "ui-trace focus=identity-delete");
+}
+
 /// The same chip with position 3 still empty keeps the chip's rule:
 /// position 3 becomes current, focus on the keypad's first enabled key,
 /// typing, so the next Enter does nothing.
