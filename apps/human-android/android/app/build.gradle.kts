@@ -215,3 +215,56 @@ androidComponents {
         tasks.matching { it.name == "assemble$name" }.configureEach { dependsOn(verify) }
     }
 }
+
+// The APK's permissions against permissions.allow, read from the merged
+// manifest: a permission a library's own manifest merges in is visible
+// there and nowhere in the tree, so the source-manifest check
+// (tools/checks/check_android_contacts_and_backup.py) cannot see it
+// (plan section 29's carry, #436). Every <uses-permission> and
+// <uses-permission-sdk-23> must be on the list, and no <permission> may
+// be defined at all, which is that check's rule for the source manifests.
+// The list file names the permissions so this script does not: that
+// check reads the script for the camera's names.
+androidComponents {
+    onVariants { variant ->
+        val name = variant.name.replaceFirstChar { it.uppercase() }
+        val verify = tasks.register("verify${name}MergedPermissions") {
+            group = "verification"
+            description = "Fails if the ${variant.name} APK's merged manifest holds a permission permissions.allow does not name."
+            val merged = variant.artifacts.get(SingleArtifact.MERGED_MANIFEST)
+            val allowFile = layout.projectDirectory.file("permissions.allow").asFile
+            // Plain values only (the configuration cache; review of #404).
+            val variantName = variant.name
+            inputs.file(merged)
+            inputs.file(allowFile)
+            doLast {
+                val allowed = allowFile.readLines()
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() && !it.startsWith("#") }
+                    .toSet()
+                check(allowed.isNotEmpty()) { "$allowFile names no permission; an empty list is not a read one" }
+                val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+                factory.isNamespaceAware = true
+                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                val doc = factory.newDocumentBuilder().parse(merged.get().asFile)
+                val ns = "http://schemas.android.com/apk/res/android"
+                val problems = mutableListOf<String>()
+                for (tag in listOf("uses-permission", "uses-permission-sdk-23", "permission")) {
+                    val nodes = doc.getElementsByTagName(tag)
+                    for (i in 0 until nodes.length) {
+                        val perm = (nodes.item(i) as org.w3c.dom.Element).getAttributeNS(ns, "name")
+                        if (tag == "permission") {
+                            problems += "<permission> defines $perm; the app defines no permission of its own"
+                        } else if (perm !in allowed) {
+                            problems += "<$tag> names $perm, which permissions.allow does not"
+                        }
+                    }
+                }
+                check(problems.isEmpty()) {
+                    "the $variantName APK's merged manifest:\n  " + problems.joinToString("\n  ")
+                }
+            }
+        }
+        tasks.matching { it.name == "assemble$name" }.configureEach { dependsOn(verify) }
+    }
+}
