@@ -7522,7 +7522,12 @@ owner:
   rust-ui-dev's with the store); every row is the one `human`
   identity's.
 - Acceptance 10's superseded cases need a hold-the-call hook
-  (rust-ui-dev-01's j157); #428 covers the read-back.
+  (rust-ui-dev-01's j157); #428 covers the read-back. Closed by #695
+  (2026-11-16, j284) for eleven of them, run against a real daemon in
+  `tests/desktop-e2e/tests/human_app/superseded.rs`, the hook the test
+  crate's. Not run against a daemon: the five kinds the design note's
+  §5.7 names (`design/2026-10-22-add-a-peer.md`), held by `ui-model`'s
+  and `ui-slint`'s `tests/peers.rs`.
 - The allow-list reads the source manifests; a permission a library's
   manifest merges in is visible only in the merged manifest (#436):
   rust-ui-dev's, the check's authors, with devex-tooling for its
