@@ -431,11 +431,99 @@ delay. A peer whose only route is a held circuit is therefore retried at
 the hold's end or when its relay connects, which is the exception the
 wording names.
 
+That sentence was made exact on 2026-11-15, after #674 merged
+(p2p-network-dev-01's note, GZCoord
+id beginning `01a1ddde-2ffc`; the rule is unchanged). As built on that
+date (`earliest_hold_end_if_only_held`,
+`crates/transport/runtime/src/connection_manager.rs`, over
+`ConnectionPolicy::route_hold_end`), the peer it describes was one whose
+every dial candidate was refused by a route hold, judged per relay as
+the gate judged it, so a second circuit through a held relay was held
+too; when a relay-hop failure settled on such a peer, and only then,
+its retry was scheduled at the later of 30 s and the end of the first of
+those holds, or at once when the relay whose hop failed last connected
+(`waits_on` named one relay). A retry the scheduler offered, whatever
+made it due (its ordinary time after another route was quarantined, a
+network addition, a newly learned circuit through a held relay), that
+every hold refused was deferred to the end of the last of the peer's
+holds (`defer_retry_to_route_hold`, over `route_held_until`). The
+relay-hop paragraph's
+"scheduled at the peer's ordinary delay" names the exception.
+
+Asked whether those two were intended, p2p-network-dev-01 answered the
+same day that neither was (GZCoord
+`01a1de24-acab-7e75-b4a7-0ac7f1c20eef`, in reply to
+`01a1de23-d7dc-7832-8c61-a6844f5dec77`; read on 322c5ce83, nothing
+run): with circuits through two relays the peer held a candidate the
+gate admitted while its retry waited up to the hold ladder's spread
+longer, which broke the 30 s bound and #674's own rule that the retry
+predicts the gate. So the body and `CONNECTIVITY.md` §12 were written
+to state the rule and not the code: the retry goes at the later of 30 s and the end of
+the first hold, or at once at the first direct connection to the relay
+of any held circuit; the relay's connection carries no 30 s floor, as
+the relay-hop paragraph's "due now" always said. Both carried the gap as
+it stood on 2026-11-15, in the past tense, until it was closed (below).
+One relay did not escape
+it: `schedule_retry` wrote `waits_on: None`, so after a later failure
+of another route (a direct address that failed, then was quarantined)
+the retry deferred to the circuit's hold was not made due by its relay's
+connection, though the hold was released (#680 re-review round 3, F3;
+read, not run). On 2026-11-15 the fix, its tests (two relays, and one
+relay with a failure of another route between) and two comments in
+`record_relay_hop_unreached` (its doc comment's "the reconnect is
+scheduled at the peer's ordinary delay" and, inside it, "with no other
+route the retry is scheduled at the hold's end") were owed by
+p2p-network-dev on its next pull request, the gap sentence to come out
+of the body and `CONNECTIVITY.md` when that landed.
+
+The fix was built the same day by p2p-network-dev-01 (ad3c208ef and
+ae70b35c4; GZCoord id beginning `01a1de2f-56f8`), and on 2026-11-16,
+after #680 had merged, the gap sentence came out of the body and of
+`CONNECTIVITY.md` §12 in the pull request that carried those two
+commits; the rule is unchanged. As built at ae70b35c4: a retry every
+hold refuses is deferred to the end of the first of the peer's holds
+(`defer_retry_to_route_hold` over `earliest_hold_end_if_only_held`),
+and a relay's first direct connection makes due the retry of every
+peer a hold through that relay was lifted for, whichever relay or
+route its last failure named (`relay_reached`, over the peers
+`release_relay_holds` returns). In place of the gap sentence both
+texts name the two tests that pin it
+(`a_peer_held_through_two_relays_is_retried_when_the_first_is_admitted`
+and
+`a_relays_connection_makes_due_a_retry_whose_last_failure_was_another_route`,
+run on that head with `main` at 8b6b1d35b folded in), and the two relay-hop paragraphs say whose retry
+the relay's connection makes due. The two comments named above were
+made exact in ad3c208ef.
+
+The review of that pull request (#685, round 1 on 78ca647dc, F1) found
+that "at once" was not what the gate allowed in one case. As built at
+ae70b35c4, `relay_reached` made the retry due at the relay's connection
+whatever the peer's backoff said; a direct route's failure sets that
+backoff and a relay hop's does not, and the gate asks the backoff before
+the hold, so a retry made due inside it was refused `PeerBackoff` at
+every tick until the backoff ended and lost its wake at that end. The
+same shape stood at a second site, the relay that came up during the
+dial (`record_relay_hop_unreached`, found in the re-review as
+pre-existing): the hop's failure gave the circuit a record, and a
+running backoff then answered for it. p2p-network-dev-01 fixed both on
+2026-11-16 (2b7d2e89e and 5eb8cf662, over `peer_backoff_lapses_at`; in
+3091fbe3c the two-relay test connects each relay in turn; GZCoord
+`01a1e2d2-d63c-78ff-99ad-91d2c8a4d4fe`): the retry is due at the later
+of the relay's connection and the end of a peer backoff still running,
+and unchanged when none runs. The body's two paragraphs,
+`CONNECTIVITY.md` §12 and the digest say so from the same day, the
+one-relay test's pin sentence names its two cases, and the relay-hop
+paragraph names
+`a_relay_that_came_up_inside_a_peer_backoff_is_retried_at_its_end`. The
+30 s bound is not widened: the backoff is itself 30 s from the failure
+that set it.
+
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
 unqualified. The long-outage run was made again on the new code, beside
 the first (`tests/automated-client/runs/2026-11-14-long-outage-30s.md`,
 at 41f94bcd6): the same 480 s outage, sixteen retry delays of 30 s
 each, and the far daemon reconnected 955 ms after its return. It was
-made before the two review fixes to the scheduler's wake, and has not
-been run again on them.
+made before the four review fixes to the scheduler's wake and its
+retry (51d05fa52, 3852cca34, 01fef73c9, aa6e07843, all on #674), and
+has not been run again on them.

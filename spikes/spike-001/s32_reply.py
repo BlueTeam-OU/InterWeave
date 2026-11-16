@@ -264,21 +264,32 @@ def run_session(spec, scratch, out, config, workdir, policy, record):
 
     try:
         time.sleep(5)
+        # S37 (3)'s longer conversation: user turns before the one the
+        # event is timed against, each answered before the next is
+        # written. No cell before S37 has any.
+        for n, turn in enumerate(spec.get("earlier") or (), 1):
+            before = len(session.lines)
+            session.write({"type": "user", "message": {"role": "user", "content": turn}})
+            got = session.wait_for(lambda v: v.get("type") == "result", 120, since=before)
+            steps.append({"earlier_turn": n, "result_at_s": got[1] if got else None})
+            if not got:
+                raise SystemExit(f"earlier turn {n} gave no result")
+        mark = len(session.lines)
         session.write({"type": "user", "message": {"role": "user", "content": spec["first"]}})
         steps.append({"first_turn_written_at_s": at()})
         if spec["arrival"] in ("tool", "text"):
             test = (lambda v: is_tool_use(v, "status")) if spec["arrival"] == "tool" else is_text_delta
-            seen = session.wait_for(test, 120)
+            seen = session.wait_for(test, 120, since=mark)
             steps.append({"running_turn_signal_at_s": seen[1] if seen else None, "signal": spec["arrival"]})
             if seen:
                 fire()
-            first = session.wait_for(lambda v: v.get("type") == "result", 180)
+            first = session.wait_for(lambda v: v.get("type") == "result", 180, since=mark)
             steps.append({"first_turn_result_at_s": first[1] if first else None})
             # The event must have come while the turn ran, or the cell is
             # not the one named.
             ok = bool(seen and first and first[1] >= fired_at)
         else:
-            first = session.wait_for(lambda v: v.get("type") == "result", 120)
+            first = session.wait_for(lambda v: v.get("type") == "result", 120, since=mark)
             steps.append({"first_turn_result_at_s": first[1] if first else None})
             if first:
                 fire()

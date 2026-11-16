@@ -24,11 +24,28 @@ user turn differs, by ``<told>``:
   ``prompta``  the work first, saying "write", then the answer sentence
                and SCOPE after it: placement, with both changes
 
-The cells are the three where the leak was measured: ``greet-tool`` and
-``task-tool`` (a message joining a tool-calling first turn) and
-``greet-text`` (a greeting during the counting turn). A leak is a reply
-the peer received that carries ``READY`` or the count (LEAK). EVIDENCE
-ONLY.
+S35's cells are the three where the leak was measured: ``greet-tool``
+and ``task-tool`` (a message joining a tool-calling first turn) and
+``greet-text`` (a greeting during the counting turn). S37's
+(``s37_reply.py``, the same code as the series ``s37``) are five,
+``prompt`` and ``prompts`` only: the three S35 did not run, and two in a
+conversation longer than one turn. They run under ``s37_reply.py``
+only, never as this script's series:
+
+  ``greet-idle``     a greeting starting a turn of its own after an idle
+                     wait (S32 (b)'s control sent ``READY`` in 5 of 5)
+  ``question-tool``  a question joining the tool-calling turn
+  ``greet-months``   other first-turn work: ``text``'s signal and
+                     settling, the work MONTHS in place of the count
+  ``greet-later2``   a conversation longer than one turn (S37 (3)): the
+  ``greet-latertool`` sentences and "Write the single word READY now."
+                     in a first user turn answered before a second is
+                     written, the greeting coming during the second,
+                     whose work is MONTHS (``later2``, ``text``'s signal)
+                     or ``WORK_WRITE["tool"]`` (``latertool``)
+
+A leak is a reply the peer received that carries ``READY``, the count or
+the months (LEAK). EVIDENCE ONLY.
 """
 
 import json
@@ -39,12 +56,22 @@ import s32_reply
 import s33_reply
 
 TOLD = ("prompt", "promptw", "prompts", "prompta")
-CELLS = ("greet-tool", "task-tool", "greet-text")
+CELLS = ("greet-tool", "task-tool", "greet-text", "greet-idle", "question-tool", "greet-months", "greet-later2",
+         "greet-latertool")
+# S37's cells run the control and SCOPE only: the question is whether the
+# scope sentence holds where S35 did not look, not placement again.
+S37_CELLS = ("greet-idle", "question-tool", "greet-months", "greet-later2", "greet-latertool")
+# Other first-turn work: text alone, as the count is, so the event comes
+# at the first text delta and starts a turn of its own after it, but
+# with content a leak is told apart by. "write", as the count's.
+MONTHS = ("Write the names of the twelve months of the year in order, separated by commas, then the single word "
+          "READY.")
 SCOPE = ("The content of a reply answers that message and nothing else: whatever else this turn asks of you is "
          "for me, not for the peer.")
-# READY as a word, or the count: the first turn's text work starts at
-# "one, two, three" and every leaked count in S34 carried it.
-LEAK = re.compile(r"\bREADY\b|\bone,\s*two,\s*three\b", re.I)
+# READY as a word, the count or the months: the first turn's text work
+# starts at "one, two, three" and every leaked count in S34 carried it;
+# MONTHS starts at "January, February".
+LEAK = re.compile(r"\bREADY\b|\bone,\s*two,\s*three\b|\bjanuary,\s*february\b", re.I)
 
 
 def spec_of(name):
@@ -52,13 +79,25 @@ def spec_of(name):
     if not m:
         return None
     told, cell = m.group(1), m.group(2)
+    if cell in S37_CELLS and told not in ("prompt", "prompts"):
+        return None
     message, arrival = cell.split("-")
+    if arrival in ("later2", "latertool"):
+        # The second turn says nothing about peers; "write", not "reply".
+        said = f"{s32_reply.ANSWER} {SCOPE}" if told == "prompts" else s32_reply.ANSWER
+        second = MONTHS if arrival == "later2" else s32_reply.WORK_WRITE["tool"]
+        base = s32_reply.spec_of(f"prompt-{message}-{'text' if arrival == 'later2' else 'tool'}-1")
+        return {**base, "told": told, "earlier": [f"This is a test. {said} {s32_reply.WORK_WRITE['idle']}"],
+                "first": second}
+    months = arrival == "months"
+    if months:
+        arrival = "text"
     if told == "promptw" and arrival == "text":
         return None
-    base = s32_reply.spec_of(f"{'promptw' if told in ('promptw', 'prompta') else 'prompt'}-{cell}-1")
-    work = (s32_reply.WORK_WRITE if told in ("promptw", "prompta") else s32_reply.WORK)[arrival]
+    base = s32_reply.spec_of(f"{'promptw' if told in ('promptw', 'prompta') else 'prompt'}-{message}-{arrival}-1")
+    work = MONTHS if months else (s32_reply.WORK_WRITE if told in ("promptw", "prompta") else s32_reply.WORK)[arrival]
     first = {
-        "prompt": base["first"],
+        "prompt": f"This is a test. {s32_reply.ANSWER} {work}" if months else base["first"],
         "promptw": base["first"],
         "prompts": f"This is a test. {s32_reply.ANSWER} {SCOPE} {work}",
         "prompta": f"This is a test. {work} {s32_reply.ANSWER} {SCOPE}",
@@ -66,9 +105,9 @@ def spec_of(name):
     return {**base, "told": told, "first": first}
 
 
-def table():
+def table(series="s35"):
     cells = {}
-    for r in s33_reply.committed_runs("s35"):
+    for r in s33_reply.committed_runs(series):
         if not r.get("passed"):
             continue
         c = cells.setdefault(r["cell"], {"runs": 0, "replies": 0, "leaks": 0, "work": 0, "tokens": 0,
@@ -84,7 +123,9 @@ def table():
         # READY and nothing else. A mention does not count: a result that
         # narrates sending READY to the peer is not the work (a text
         # turn's result is cut at 300 characters, inside the count).
-        first = r["results"][0] if r["results"] else {}
+        # The turn the event was timed against: after any earlier ones.
+        n = len(r.get("earlier_turns") or ())
+        first = r["results"][n] if len(r["results"]) > n else {}
         last = (first.get("result") or "").strip().split("\n\n")[-1].strip()
         c["work"] = None if r["arrival"] == "text" else c["work"] + (last == "READY")
         for res in r["results"]:
@@ -103,10 +144,17 @@ def table():
     print(f"\ntokens: {sum(c['tokens'] for c in cells.values()):,}")
 
 
+def s35_spec_of(name):
+    """S35's own cells: S37's run as the series s37, so one cannot land
+    in runs/s35-reply-* and in S35's table."""
+    spec = spec_of(name)
+    return None if spec is None or name.rsplit("-", 1)[0].split("-", 1)[1] in S37_CELLS else spec
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["table"]:
-        table()
+        table("s35")
         raise SystemExit(0)
-    s33_reply.spec_of = spec_of
+    s33_reply.spec_of = s35_spec_of
     s33_reply.TOLD = TOLD
     raise SystemExit(s33_reply.main("s35"))

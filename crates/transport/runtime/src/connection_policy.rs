@@ -1051,14 +1051,21 @@ impl ConnectionPolicy {
 
     /// Lift every hold on a circuit route through `relay`, whichever peer
     /// it leads to: a direct connection to the relay is up, so the hop
-    /// that failed can be reached (ADR-0011 A 2026-10-21). Returns how
-    /// many live holds were lifted.
-    pub fn release_relay_holds(&mut self, relay: &TransportIdentity, now_ms: u64) -> usize {
-        let mut lifted = 0;
-        for ((_, address), state) in &mut self.addresses {
+    /// that failed can be reached (ADR-0011 A 2026-10-21). Returns the
+    /// peers a live hold was lifted for: each has a circuit admitted
+    /// again, so a retry waiting out its holds is due
+    /// (`ConnectionManager::relay_reached`), whichever relay its last
+    /// failure named.
+    pub fn release_relay_holds(
+        &mut self,
+        relay: &TransportIdentity,
+        now_ms: u64,
+    ) -> std::collections::BTreeSet<TransportIdentity> {
+        let mut lifted = std::collections::BTreeSet::new();
+        for ((peer, address), state) in &mut self.addresses {
             if state.is_route_held_at(now_ms) && circuit_relay(address) == Some(relay.as_str()) {
                 state.route_held_until_ms = None;
-                lifted += 1;
+                lifted.insert(peer.clone());
             }
         }
         lifted
@@ -2136,9 +2143,8 @@ mod tests {
             assert!(p.hold_route(&peer(), &circuit(i), 1_000));
         }
         assert_eq!(p.route_held_until(&peer(), 0), Some(1_000));
-        assert_eq!(
-            p.release_relay_holds(&peer(), 0),
-            0,
+        assert!(
+            p.release_relay_holds(&peer(), 0).is_empty(),
             "the destination's own connection is not the relay"
         );
 
@@ -2162,7 +2168,11 @@ mod tests {
             p.route_held_until(&peer(), 0).is_some(),
             "the holds that stayed still hold"
         );
-        assert!(p.release_relay_holds(&relay, 0) > 0);
+        assert_eq!(
+            p.release_relay_holds(&relay, 0),
+            std::collections::BTreeSet::from([peer()]),
+            "the peer whose holds were lifted is named"
+        );
         assert_eq!(
             p.route_held_until(&peer(), 0),
             None,

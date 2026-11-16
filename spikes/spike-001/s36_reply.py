@@ -26,7 +26,7 @@ _s33_spec = s33_reply.spec_of
 
 def spec_of(name):
     if name.split("-", 1)[0] in ("promptw", "prompts", "prompta"):
-        return s35_reply.spec_of(name)
+        return s35_reply.s35_spec_of(name)
     return _s33_spec(name)
 
 

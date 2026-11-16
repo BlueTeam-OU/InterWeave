@@ -142,6 +142,7 @@ def main(series="s33") -> int:
     record = {"run": run, **stamp, "claude_version": claude_version(), "nonce": nonce,
               "cell": name.rsplit("-", 1)[0], "told": spec["told"], "message_kind": spec["message"],
               "arrival": spec["arrival"], "first_turn": spec["first"], "message": message,
+              **({"earlier_turns": spec["earlier"]} if spec.get("earlier") else {}),
               "instructions_added": spec["extra_instructions"], "bridge": "release claude-channel at the tree",
               "proxy_tool_delay_ms": s32_reply.TOOL_DELAY_MS if spec["arrival"] == "tool" else 0}
     passed, live = False, []
