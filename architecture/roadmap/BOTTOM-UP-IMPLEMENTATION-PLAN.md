@@ -5219,12 +5219,78 @@ channel is new, and the debug log's registration line is the only
 sign of it measured. Carried: why the scope sentence did not hold
 after the idle wait, no run separating the later turn from the work's
 "Reply"; the cause and the rate of a session with no channel, whether
-2.1.325 does it and whether `channel_enable` avoids it; the two era
+2.1.325 does it and whether `channel_enable` avoids it (each taken up
+since, the note of 2026-11-16 on S38 below); the two era
 sites on another build or beyond one run each; the scope sentence
 said only in the server's instructions; a conversation longer than
 two turns, and a later turn whose work says "reply"; the rate beyond
-five runs a cell; S37's reply cells on 2.1.325; another model; and a
+five runs a cell; S37's reply cells on 2.1.325 (run since, three runs
+a cell, the same note); another model; and a
 build after 2.1.325.
+
+**Dated note, 2026-11-16 (SPIKE-001 S38, rust-services-dev, Claude
+Code 2.1.322 and 2.1.325, facts 135–141, #696).** The S37 note above
+carried the cause and the rate of a `--channels` print session that
+starts with no channel, whether 2.1.325 does it, whether
+`channel_enable` avoids it, and S37's reply cells on 2.1.325. Each
+was taken up, at architect-cto's request: a read of the 2.1.311,
+2.1.322 and 2.1.325 binaries, a gated legacy stub on both builds, and
+S37's ten reply cells with the release bridge across two daemons,
+three runs a cell on each build.
+
+- **The cause is the print runner's wiring, read and then measured.**
+  A print session registers a plugin's channel handler when a turn is
+  wired, for the servers connected at that moment; of that function's
+  three other calls, the reconnect watcher's leaves out a `stdio`
+  server, which a plugin's channel server is, and the other two, a
+  reconnect attempt's result and a failed row's redial, were read
+  from their surroundings and not traced; and `channel_enable`
+  registers when it is answered (fact 135, read from the binaries and
+  not measured, the wiring's phase matched in 2.1.322 and 2.1.325
+  and not in 2.1.311). A stub that
+  connected after the first turn had started got no handler in that
+  turn, and its event was lost without a line and started no turn, 34
+  runs of 34, 17 on each build; the first turn did not wait for the
+  pending server; the control, connected first, registered and
+  delivered in 10 of 10 (fact 136).
+- **The next user turn recovers it.** Its start registered the
+  channel and an event after it was delivered, 34 of 34 (fact 137).
+- **`channel_enable` avoids it.** With no `--channels` and the server
+  connecting as late, the request was answered `not connected` and, a
+  second later, `success`; the channel was registered at once and the
+  event started a turn of its own, 10 runs of 10, 5 on each build
+  (fact 138).
+- **Both builds do it, on the one host every run used.** With the
+  release bridge, 2 sessions of 30 on 2.1.322, 6 of 60 with S37's
+  four, and 1 of 30 on 2.1.325. It is a race between the bridge's
+  connection and the first turn's wiring, and connect time alone does
+  not predict it; whether the rate moves with the host or its load
+  was not measured (fact 139).
+- **The `init` line's server status is not a sign of it**: it said
+  `connected` in each of the three (fact 140).
+- **S37's reply cells on 2.1.325 gave S37's pattern on 2.1.322**,
+  three runs a cell where S37 ran five (fact 141).
+
+So the S37 note's "the debug log's registration line is the only sign
+of it measured" has a second sign beside it, `channel_enable`'s
+answer, for a program that sends the request. The bridge is
+unchanged, and has no detection or fallback of its own: a
+notification has no answer, so nothing the bridge reads tells a
+session that registered from one that did not
+(`architecture/plugin/CLAUDE-CODE-CHANNEL.md` §Delivery condition). A
+program that drives a print session sends `channel_enable` for the
+bridge and retries it while the answer is `not connected`; without
+it, a second user turn written after the bridge has connected
+recovers the channel for the events after it. Carried: why the first
+turn does not wait for a pending plugin server, when the deadline's
+default candidates include 2000 ms, and which server state that wait
+is for; a
+rate beyond 30 sessions a build, or on another host or load; whether
+a later turn's wiring can also miss a server that reconnects after
+it; the scope sentence with "write" in the idle wait's work, the
+sentence said only in the server's instructions, and a later turn
+whose work says "reply", asked for with these runs and not run;
+another model; and a build after 2.1.325.
 
 ## 20. Stage 17 — Android human client
 

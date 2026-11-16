@@ -1075,6 +1075,112 @@ What this changes in the bridge: nothing. The bridge stays in the legacy era, wh
 - **Say the sentences once, in the first user turn.** The answer sentence said there got a reply in a second turn in 19 of 20 runs, the scope sentence after it in 10 of them (fact 133), and those 10 leaked nothing (fact 134).
 - **A `--channels` print session can start with no channel and say nothing about it** (fact 130). Its debug log's registration line is the only sign measured.
 
+## S38: why a `--channels` print session can start with no channel, how often, and `channel_enable` (plan §19)
+
+Run on 2026-11-16 by rust-services-dev-02, at architect-cto's request (REQUEST `01a1e54b-32f0`), on two builds: **Claude Code 2.1.322**, the fleet's pin, sha256 `bfb3703ad5380242328459bc62ada4bde8ae7ba57c6e1eeadb9c00e08874c478`, and **2.1.325**, installed with `claude install 2.1.325` under a scratch `HOME` as S36's was, sha256 `0dc4f4a9a165fc60746d7ae8489712e5fc352f1e7ad4eb22e7141bd0812eb0cf`, S36's. Each run used one build, chosen by putting its `bin` first on `PATH`, with `DISABLE_AUTOUPDATER=1` as every driver sets it. The (2) runs record the binary's sha256 (`claude_sha256`) beside `claude_version`; the (3) runs record `claude_version`, and their binaries are the same two files, hashed by (2) and (1) in the same session. The facts are numbered after S37's 134. S37's fact 130 left the cause, the rate, the build and `channel_enable` open; this section answers each.
+
+**(1), the read,** is `s38_read.py`, run on the 2.1.311, 2.1.322 and 2.1.325 binaries: `runs/s38-read/read-<build>.json`. No session was started. It records, as matched text, where a print session registers a channel handler. Minified names differ between builds; read for what each matched text does, the three builds agree in every field but two: in 2.1.311 the pattern for the batch's call of the per-turn wiring (`batch_calls_wire_turn`) matched nothing, and its deadline candidates include 20 beside 2000. The facts below rest on the fields all three share.
+
+135. **A print session registers a plugin's channel handler at a turn's start, for the servers connected at that moment**, and where `channel_enable` is answered; how the registering function's other calls treat a first connection is fact 136's measurement, not this read. Read from the binaries, not measured:
+    - **The runner's per-turn wiring** (`wireTurn`) registers a handler for every client in the store when the turn's batch is wired, once per turn (its `tool_pool` phase, matched in 2.1.322 and 2.1.325). That is the function that logs `Channel notifications re-registered after reconnect` in a print session, the line S34 to S37 saw (fact 122's reconnect site).
+    - **The same function has four calls in each build** (`registration_calls`): the per-turn wiring; the reconnect watcher's `onReconnected`, and the watcher leaves out a server whose transport is `stdio` or `sdk`, as a plugin's channel server is; the applying of a reconnect attempt's result; and the redial of a failed row (in 2.1.325 that redialler's `onConnected`). The last two were read from their names and surroundings, not traced. That none of them registers a first connection completing after a turn's wiring is what fact 136 measured, not read.
+    - **`channel_enable`'s own site** registers at once, when the request is answered (fact 40's g).
+    - **So, as read, a `stdio` server that first connects after a turn's wiring gets no handler until the next turn's wiring**, and an event it sends meanwhile finds no handler, so it cannot start that turn. Facts 136 and 137 measure it.
+    - **The first command's wait for pending MCP servers** has a deadline whose default's name is assigned 2000 in each build (`prewait_default_ms_candidates`; 2.1.311's is also assigned 20 elsewhere). Minified names are reused, so this is a candidate, not the resolved default. (2) found the first turn did not wait that long for the channel server.
+
+**(2), the cells,** are `s38_late.py` with `s38_stub.py`, 54 runs between 17:12 and 17:52 UTC. The stub is `s23_stub.py`'s legacy server, which registers, behind a gate: it reads nothing from stdin until the driver opens the gate, so the connection completes when the driver says. Its events go when the driver appends a nonce to a trigger file, not on S23's timer.
+- **The session is S37's era session**: the organisation's allow entry under a private `/etc`, the plugin installed as `interweave@interweave` from the local marketplace, one `claude -p` stream-json session with stdin held open, and no daemons. It has two user turns. The first asks for `READY` and, for a channel tag, `SEEN` and its nonce. Once that turn has answered and the stub's handshake is done, event 1 goes, and the driver waits 30 s for a turn. Then the second turn (`DONE`), and after its answer event 2.
+- **The cells:** `flag` is `--channels` naming the plugin, the deployment's shape; `enable` is no flag and the `channel_enable` control request, retried while it is answered `not connected`. The gate opens before the session starts (`open`, the control), 1,000 to 3,000 ms after the first turn is written (`hold<ms>`), or once that turn's `init` line is on stdout (`late`).
+- **The trees:** 46 runs at `ac1eb72e2`, 4 at `bc8e3c59e` and 4 at `47ba38e3a`, interleaved by build. `s38_late.py` and `s38_stub.py` are the same at all three; the later commits added `s38_read.py`, `s38_reply.py` and `s29_print.py`'s init field, none of which this driver imports. One run (`2.1.325-flag-hold1000-1`) has `tree_dirty` naming `s29_print.py`, uncommitted then and committed unchanged as `ac1eb72e2`.
+- **Every run passed:** both turns and every result `success`, both events written by the stub, stdin closed, exit status 0, the process group empty.
+
+| Build | Cell | Runs | First init's status | Registered before event 1 | Event 1 delivered | Registered after turn 2 | Event 2 delivered |
+|---|---|---|---|---|---|---|---|
+| 2.1.322 | `enable-late` | 5 | pending 5 | 5 | 5 | 5 | 5 |
+| 2.1.322 | `flag-hold1000` | 3 | pending 3 | 0 | 0 | 3 | 3 |
+| 2.1.322 | `flag-hold1500` | 3 | pending 3 | 0 | 0 | 3 | 3 |
+| 2.1.322 | `flag-hold2500` | 3 | pending 3 | 0 | 0 | 3 | 3 |
+| 2.1.322 | `flag-hold3000` | 3 | pending 3 | 0 | 0 | 3 | 3 |
+| 2.1.322 | `flag-late` | 5 | pending 5 | 0 | 0 | 5 | 5 |
+| 2.1.322 | `flag-open` | 5 | connected 5 | 5 | 5 | 5 | 5 |
+| 2.1.325 | `enable-late` | 5 | pending 5 | 5 | 5 | 5 | 5 |
+| 2.1.325 | `flag-hold1000` | 3 | pending 3 | 0 | 0 | 3 | 3 |
+| 2.1.325 | `flag-hold1500` | 3 | pending 3 | 0 | 0 | 3 | 3 |
+| 2.1.325 | `flag-hold2500` | 3 | pending 3 | 0 | 0 | 3 | 3 |
+| 2.1.325 | `flag-hold3000` | 3 | pending 3 | 0 | 0 | 3 | 3 |
+| 2.1.325 | `flag-late` | 5 | pending 5 | 0 | 0 | 5 | 5 |
+| 2.1.325 | `flag-open` | 5 | connected 5 | 5 | 5 | 5 | 5 |
+
+These rows are `python3 s38_late.py table`'s. "Registered" is a `Channel notifications` registration line in the debug log before the event was triggered, or after the second turn was written.
+
+136. **A channel server that connects after the first turn has started gets no channel in that turn, and its event is lost without a line:** 17 runs of 17 on each build, the `late` and every `hold` cell. No registration line came before event 1, Claude Code logged no notification line for it, it is not in the transcript, and no turn took it. On stdout the session showed nothing beyond the first init's status for the server, `pending` in all 34.
+    - **The first turn did not wait for the server.** It started 0.1 to 6.1 s after it was written in every cell, with the server pending. A gate held 1,000 ms after the write lost the event as often as one held 3,000 ms did.
+    - **The control registered:** with the gate open from the start, the server connected 1.4 to 2.8 s before the `[engine] turn 1 start` line, the first init said `connected`, and event 1 was delivered, 5 of 5 on each build.
+137. **The next user turn's start registers it, and an event after that is delivered:** 34 of 34. Each lost session logged `re-registered after reconnect` 0.006 to 0.52 s after the second turn was written, and event 2 started a turn whose result was `SEEN` and its nonce. So the loss lasts until the program writes another turn. The event cannot start that turn, having no handler (fact 135).
+138. **`channel_enable` avoids it:** 10 runs of 10, 5 on each build, the server connecting after the first turn had started (`enable-late`), with no `--channels`. The first request was answered `not connected` and the second, a second later, `success`, in all 10. `Channel notifications registered` was logged at once, and event 1 started a turn of its own with no user turn between, its result `SEEN` and the nonce. The request also puts the plugin on the session's channel list, so each later turn re-registered it (all 10).
+
+**One line of every S38 run record was rewritten after the runs.** In all 114 `evidence.md` files of (2) and (3), the `plugin marketplace add` argument read `/run/user/<uid>/s38$SCRATCH`: `extract.py` had cut the scratch path at its inner `/tmp` and left the host prefix (#696's review, F3). It now reads `$SCRATCH/marketplace`, as the fixed `extract.py` and scrub write it, and no other line changed (commit `2888a2185`). Every caller of `extract.py` now fails a run whose evidence names a home or runtime-dir path.
+
+**(3), the rate,** is S37's ten reply cells, three runs each on each build: `s38_reply.py`, which runs `s33_reply.py` as the series `s38-<build>`. 60 runs were made between 18:20 and 19:31 UTC at `17076710c`, `tree_dirty` empty, interleaved by build and run number. The setup is S37's unchanged: the release bridge behind `s33_proxy.py`, S16's two daemons on this host's private address, the far peer on daemon B. Since S38 each run's `inits` carries each MCP server's status (`s29_print.init_record`). A reply is S33's and a leak S35's.
+- **One run was made again.** `2.1.325-prompt-question-tool-3` failed the scrub's check that the evidence names no raw directory. The raw directory had been named `raw`, a common word, and the check matches the name anywhere. The word was not located in that run's raw files. Its evidence was not written, as the check requires, and the run was made again at the same tree with a distinctive raw directory. The 60 counted runs pass.
+
+| Build | Runs | Never registered | First init's status, those | Connect ms, registered | Connect ms, never registered |
+|---|---|---|---|---|---|
+| 2.1.322 | 30 | 2 (`prompt-question-tool-2`, `prompts-greet-months-1`) | connected, connected | 93 to 1907 | 6775, 3501 |
+| 2.1.325 | 30 | 1 (`prompt-greet-idle-2`) | connected | 78 to 4271 | 1990 |
+
+These rows are `python3 s38_reply.py table`'s. "Connect ms" is the debug log's `Successfully connected (transport: stdio) in <ms>`.
+
+139. **The rate:** on 2.1.322, 2 sessions of 30 started with no channel; on 2.1.325, 1 of 30. With S37's 4 of 30 on 2.1.322, in the same cells on the same host, that is 6 of 60 on 2.1.322. Each of the three is fact 130's shape: the daemon accepted the send at the bridge's endpoint, the bridge wrote the notification, no `Channel` line was logged, and no turn took the message. In the rate runs, a lost message was the only cause of a no-reply on 2.1.325, and on 2.1.322 it caused 2 of the 5 no-replies.
+    - **Connect time alone does not predict it.** Here the bridge took 78 to 4,271 ms to connect in sessions that registered and 1,990 to 6,775 ms in those that did not. By facts 136 and 140 it is a race between the bridge's connection and the first turn's wiring. Whether the rate moves with the host or its load was not measured: every run here and in S37 was on one host.
+140. **Init's server status does not show it in a real session.** In each of the three, the first init said `connected`. Init is written after the turn's wiring, and the bridge connected in between. The stub cells' `pending` (fact 136) came from a gate held shut until after the wiring, so the connection had not completed when init was written either; a real bridge's connection is not held so. The sign a session has its channel is the debug log's registration line, as fact 130 said, and `channel_enable`'s answer for a program that sends it.
+    - **Read from each run's raw debug log, which is not committed:** taking the start of the first turn's `prompt.compose`, the first logged step after the wiring, as the wiring's mark, a session registered when the bridge connected before that mark in 57 runs of 60. In the 3 that disagree, the connection came within 0.6 s of the mark, which bounds the wiring and does not time it. Fact 130's four, read then against `[engine] turn 1 start`, connected 0.27 to 1.41 s before that line, which comes after the wiring, so they agree.
+
+**(2) of the request, S37's reply cells on 2.1.325**, are the same 30 runs. The tables per build, from `python3 s38_reply.py table`:
+
+2.1.322, three runs a cell, beside S37's five:
+
+| Cell (told-message-arrival) | Runs | Replies | Leaks | First turn's READY | Tokens |
+|---|---|---|---|---|---|
+| `prompt-greet-idle` | 3 | 3 | 3 (-1, -2, -3) | 1 | 219,709 |
+| `prompts-greet-idle` | 3 | 3 | 3 (-1, -2, -3) | 3 | 219,679 |
+| `prompt-question-tool` | 3 | 2 | 0 | 3 | 325,880 |
+| `prompts-question-tool` | 3 | 2 | 0 | 3 | 309,945 |
+| `prompt-greet-months` | 3 | 3 | 3 (-1, -2, -3) | - | 219,542 |
+| `prompts-greet-months` | 3 | 2 | 0 | - | 163,364 |
+| `prompt-greet-later2` | 3 | 3 | 0 | - | 271,931 |
+| `prompts-greet-later2` | 3 | 3 | 0 | - | 272,494 |
+| `prompt-greet-latertool` | 3 | 2 | 0 | 2 | 362,416 |
+| `prompts-greet-latertool` | 3 | 2 | 0 | 3 | 402,532 |
+
+tokens: 2,767,492
+
+2.1.325:
+
+| Cell (told-message-arrival) | Runs | Replies | Leaks | First turn's READY | Tokens |
+|---|---|---|---|---|---|
+| `prompt-greet-idle` | 3 | 2 | 2 (-1, -3) | 2 | 163,332 |
+| `prompts-greet-idle` | 3 | 3 | 2 (-1, -3) | 3 | 219,637 |
+| `prompt-question-tool` | 3 | 3 | 0 | 3 | 369,273 |
+| `prompts-question-tool` | 3 | 3 | 0 | 3 | 349,637 |
+| `prompt-greet-months` | 3 | 3 | 3 (-1, -2, -3) | - | 219,758 |
+| `prompts-greet-months` | 3 | 3 | 0 | - | 218,924 |
+| `prompt-greet-later2` | 3 | 3 | 0 | - | 271,831 |
+| `prompts-greet-later2` | 3 | 3 | 0 | - | 272,818 |
+| `prompt-greet-latertool` | 3 | 3 | 1 (-2) | 3 | 462,940 |
+| `prompts-greet-latertool` | 3 | 3 | 0 | 3 | 423,171 |
+
+tokens: 2,971,321
+
+141. **On 2.1.325 S37's cells give S37's pattern on 2.1.322**, three runs a cell where S37 ran five. With an idle wait, the scope sentence did not keep `READY` out: 2 of 3 replies leaked (fact 127 on 2.1.322: 5 of 5). With the months, the control leaked in each of its 3 replies and the scope sentence in none (fact 129). Neither wording leaked with a question. In the second-turn cells the answer sentence carried into the second turn, 12 replies of 12, and the control leaked once, `prompt-greet-latertool-2` (fact 134: 2 of 9). The 2.1.322 runs give the same pattern. Their 3 no-replies with a channel joined a tool-calling turn that made its `status` calls and stopped, as S35's two did (fact 120).
+
+Not established by S38: why the first turn does not wait for a pending plugin server, when the deadline's default candidates include 2000 ms; which server state the prewait waits for; a rate beyond 30 sessions a build, or on another host or load; whether a later turn's wiring can also miss a server that reconnects after it; another model; and a build after 2.1.325. Of the request's (2), only S37's reply cells on 2.1.325 were run. The scope sentence with "write" in fact 127's idle work, the sentence said only in the server's instructions, and a later turn whose work says "reply" were not.
+
+What this changes in the bridge: nothing in the bridge's code; the loss is in Claude Code's print runner. For a deployment:
+- **A program that drives a print session should send `channel_enable`** for the bridge, and retry it while it is answered `not connected`. Its `success` registers the channel at once, without waiting for a turn, and is a sign the program can read on stdout (fact 138). `--channels` alone leaves the first turn racing the bridge's connection (facts 136 and 139).
+- **Without it, a second user turn written after the bridge has connected recovers the channel** for every event after that turn starts (fact 137). Events before it are lost without a line.
+- **Init's server status is not a sign** (fact 140). Whether a bridge-side detection or a fallback is wanted is architect-cto's question, not this record's.
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049). Each bullet quotes its sentence as the document stood when the section naming it was written. A bullet ending *Amended* quotes a sentence the document has since replaced, on the date given, and is kept as the record of what was found.
@@ -1128,6 +1234,7 @@ The documents are listed by document and sentence. Amending them is architect-ct
   - **A scope sentence after the answer sentence** kept `READY` and the count out in all three cells, 15 replies in 15 runs, with "reply" left in the tool turn's work (fact 119). Placing both sentences after the work did as well, with 14 replies in 15 (fact 120).
   - **What still holds:** why a greeting during a counting turn got the count stays not established; what S35 shows is a wording under which it did not, over five runs a cell. *Amended 2026-11-12* in the architecture: the release-bridge paragraph of §Delivery condition gives S35's counts and quotes the scope sentence, and each carried list points at it and keeps the "why" open. *Amended 2026-11-12* for INSTALL.md: its headless bullet now gives the scope sentence after the answer sentence, and "So the advice stands" gave way to what fact 118 shows of "reply" kept out of the work.
 - **`architecture/plugin/CLAUDE-CODE-CHANNEL.md`** §Protocol era, "the refusal of a modern-era server was measured through the connection's own site alone": S37 measured it through the other two on 2.1.325, the `channel_enable` control request (fact 131) and a print session's `--channels`, the reconnect site (fact 132). A modern-era server got no channel at either. *Amended 2026-11-16*: §Protocol era says what was measured through each of the three sites; §Delivery condition's first paragraph says a `--channels` print session can start with no channel (fact 130), and its release-bridge paragraph gives S37's cells and counts (facts 127 to 129, 133 and 134); `contracts/CHANNEL-EVENT.md`'s carried list, `architecture/plugin/INSTRUCTIONS.md`, a carried measurement for S37 in `architecture/roadmap/SPIKES.md` and a dated note in the plan's §19 carry them too.
+- **`architecture/plugin/CLAUDE-CODE-CHANNEL.md`** §Delivery condition, "the cause, the rate and whether `channel_enable` avoids it are not established", and its siblings (the plan's §19 note of 2026-11-16 on S37, "Carried: … the cause and the rate of a session with no channel, whether 2.1.325 does it and whether `channel_enable` avoids it; … S37's reply cells on 2.1.325", and S37's carried measurement in `architecture/roadmap/SPIKES.md`): S38 read the cause from three binaries and measured it with a gated stub (facts 135 to 137), measured that `channel_enable` avoids it (fact 138), the rate on both builds (fact 139) and that init's status is not a sign (fact 140), and ran S37's reply cells on 2.1.325 (fact 141). *Amended 2026-11-16*: §Delivery condition's first paragraph gives the cause, the remedy, the rate and the signs, and says the bridge has no detection or fallback of its own; its release-bridge paragraph gives fact 141; `contracts/CHANNEL-EVENT.md`'s carried list and `architecture/plugin/INSTRUCTIONS.md` point at them; and a carried measurement for S38 in `architecture/roadmap/SPIKES.md` and a dated note in the plan's §19 carry them, with a pointer at each S37 sentence they answer.
 
 ## Not established
 

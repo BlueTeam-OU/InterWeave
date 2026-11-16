@@ -16,6 +16,7 @@ decided once.
 
 import json
 import os
+import re
 import pathlib
 import shutil
 import subprocess
@@ -66,5 +67,27 @@ def session_version(stub_log):
     return None
 
 
+# An absolute path under /home or /run/user, not already a placeholder.
+# extract.py replaces $HOME and a path that starts at /tmp; a TMPDIR under
+# /run/user/<uid> it leaves whole (#696's review, F3 and F7).
+HOST_PATH = re.compile(r"(?<![\w$.~-])/(?:home|run/user)/[^\s\"'/]+")
+
+
+def fail_on_host_path(dest):
+    """Fail the run, removing what extract.py wrote, if its committed
+    files still name a host path. For the callers of extract.py that do
+    not scrub (distil, s30_drops.py); a driver that scrubs makes the same
+    check in s22_org_channels.scrub on each file it commits, evidence.md
+    and, where it has one, stub.jsonl (#696's review, F9)."""
+    dest = pathlib.Path(dest)
+    for f in ("evidence.md", "stub.jsonl"):
+        p = dest / f
+        leaked = HOST_PATH.search(p.read_text(errors="replace")) if p.exists() else None
+        if leaked:
+            shutil.rmtree(dest, ignore_errors=True)
+            raise SystemExit(f"{f} still names {leaked.group(0)}...: a host path; no evidence kept")
+
+
 def distil(raw, name):
     subprocess.run([sys.executable, str(HERE / "extract.py"), str(raw), str(HERE / "runs" / name)], check=True)
+    fail_on_host_path(HERE / "runs" / name)

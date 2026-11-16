@@ -1048,14 +1048,96 @@ cause and the rate of a session with no channel, whether the
 connection's timing decides it (the four took 2,145 to 4,550 ms to
 connect against 273 to 1,306 ms in the other 26, read from debug logs
 that are not committed), whether 2.1.325 does it, and whether
-`channel_enable` avoids it; the two era sites on another build or
+`channel_enable` avoids it (each taken up since by S38, below); the
+two era sites on another build or
 beyond one run each, and why the reconnect site logs nothing; the
 scope sentence said only in the server's instructions; a conversation
 longer than two turns, the sentences repeated in a later turn, and a
 later turn whose work says "reply"; the rate beyond five runs a cell;
 the 18 S32 (b) cells not run on 2.1.322; S35's cells on 2.1.325
-beyond S36's one run each, and S37's own there; another model; and a
-build after 2.1.325.
+beyond S36's one run each, and S37's own there (run since by S38,
+three runs a cell, below); another model; and a build after 2.1.325.
+
+**Carried measurement, S38 (2026-11-16, Claude Code 2.1.322, the
+fleet's pin, and 2.1.325, rust-services-dev, plan §19): a `--channels`
+print session starts with no channel when the bridge connects after
+the first turn's wiring, which registers handlers once a turn for the
+servers connected then; the `channel_enable` control request registers
+at once and avoids it; 3 sessions of 60 did it with the release
+bridge; and S37's reply cells gave S37's pattern on 2.1.325.** Read
+off `spikes/spike-001/README.md` §S38 (facts 135–141, #696). Three
+parts. (1) A read of the 2.1.311, 2.1.322 and 2.1.325 binaries,
+`s38_read.py`, no session started, the three agreeing in every field
+but two (in 2.1.311 the batch's call of the per-turn wiring matched
+nothing, so that phase was matched in 2.1.322 and 2.1.325, and its
+deadline candidates include 20 beside 2000): a print session
+registers a plugin's channel handler in the runner's per-turn wiring,
+for every client in the store when the turn is wired; that function
+has four calls in each build, the per-turn wiring, the reconnect
+watcher's, which leaves out a server whose transport is `stdio`, as a
+plugin's channel server's is, the applying of a reconnect attempt's
+result and the redial of a failed row, the last two read from their
+surroundings and not traced; and `channel_enable`'s own site
+registers when the request is answered. So, as read, a `stdio` server
+that first connects after a turn's wiring has no handler until the
+next turn's, and an event it sends meanwhile cannot start that turn;
+that none of the four calls registers such a first connection is what
+(2) measured (136), not the read. The first command's wait for
+pending servers has a deadline whose default's name is assigned 2000
+in each build, a candidate and not the resolved default, minified
+names being reused (135, read and not measured). (2) 54 runs of `s38_late.py` with `s38_stub.py`, 46 at
+`ac1eb72e2`, 4 at `bc8e3c59e` and 4 at `47ba38e3a`, the driver and
+the stub the same at all three: S23's legacy stub behind a gate the
+driver opens, in S37's era session with two user turns, an event
+after each. With `--channels` and the gate opened 1,000 to 3,000 ms
+after the first turn was written, or at that turn's `init` line, no
+registration line came before event 1 and the event was lost without
+a line, 17 runs of 17 on each build; the first turn had started with
+the server pending, and a gate held 1,000 ms lost the event as often
+as one held 3,000 ms. With the gate open from the start the first
+`init` said `connected` and event 1 was delivered, 5 of 5 on each
+build (136). The second user turn's start re-registered the channel
+and event 2 was delivered, in all 34 sessions that had lost event 1
+(137). With no `--channels` and the `channel_enable` request, the
+server connecting as late, the first request was answered
+`not connected` and the second, a second later, `success`; the
+channel was registered at once and event 1 started a turn of its own,
+10 runs of 10, 5 on each build (138). (3) 60 print sessions at
+`17076710c`, S37's ten reply cells three runs each on each build, on
+S37's setup unchanged, 2,767,492 tokens on 2.1.322 and 2,971,321 on
+2.1.325; one run was made again after its evidence failed the
+scrub's check and was not written. On 2.1.322 two sessions of 30
+never registered the channel, 6 of 60 with S37's four; on 2.1.325
+one of 30. Each is fact 130's shape. The bridge took 78 to 4,271 ms
+to connect in the sessions that registered and 1,990 to 6,775 ms in
+those that did not, so connect time alone does not predict it: it is
+a race between the bridge's connection and the first turn's wiring;
+whether the rate moves with the host or its load was not measured,
+every S37 and S38 run being on one host (139). In each of the three the
+first `init` said `connected` for the server, `init` being written
+after the wiring, so its status is not a sign (140). The cells on
+2.1.325 gave S37's pattern on 2.1.322, as the 2.1.322 runs did: after
+the idle wait the scope sentence did not keep `READY` out, 2 of its 3
+replies leaking; with the months the control leaked in each of its 3
+replies and the scope sentence in none; neither wording leaked with a
+question; in the second-turn cells the greeting got a reply in 12
+runs of 12 and the control leaked once (141). What this changes in
+the bridge: nothing; the loss is in Claude Code's print runner, and a
+notification has no answer, so the bridge has no detection or
+fallback for it (`architecture/plugin/CLAUDE-CODE-CHANNEL.md`
+§Delivery condition). A program that drives a print session sends
+`channel_enable` for the bridge and retries it while the answer is
+`not connected`; without it, a second user turn written after the
+bridge has connected recovers the channel for the events after it.
+Not established: why the first turn does not wait for a pending
+plugin server, when the deadline's default candidates include
+2000 ms, and which server state that wait is for; a rate beyond 30 sessions a build, or
+on another host or load; whether a later turn's wiring can also miss
+a server that reconnects after it; the scope sentence with "write" in
+the idle wait's work, the sentence said only in the server's
+instructions, and a later turn whose work says "reply", asked for
+with these runs and not run; another model; and a build after
+2.1.325.
 
 ---
 

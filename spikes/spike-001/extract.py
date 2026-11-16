@@ -42,7 +42,14 @@ DEBUG_KEEP = re.compile(r'MCP server "(?:' + "|".join(map(re.escape, SERVERS)) +
 def redact(text: str) -> str:
     text = text.replace(str(REPO) + "/", "")
     text = text.replace(str(pathlib.Path.home()), "$HOME")
-    text = re.sub(r"(?:/var)?/tmp/[^\s\"'\\]*", "$SCRATCH", text)
+    # Only a path that STARTS at /tmp (or /var/tmp): a /tmp component
+    # inside a longer path (a TMPDIR under /run/user/<uid>/.../tmp) used
+    # to be cut from there on, leaving the host prefix in the evidence
+    # (S38, #696's review F3). Such a path is left whole: a driver's
+    # scrub (s22_org_channels.scrub) replaces its own scratch, and every
+    # caller then fails a run whose evidence still names a home or
+    # runtime-dir path (spike_common.HOST_PATH; #696's review F7).
+    text = re.sub(r"(?<![\w.$-])(?:/var)?/tmp/[^\s\"'\\]*", "$SCRATCH", text)
     text = re.sub(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", "<uuid>", text)
     text = re.sub(r"\btoolu_[A-Za-z0-9]+", "<tool_use_id>", text)
     text = re.sub(r"\bmsg_[A-Za-z0-9]+", "<message_id>", text)

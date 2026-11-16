@@ -39,7 +39,7 @@ import time
 import pathlib
 
 from s28_era import tree_stamp
-from spike_common import REPO, raw_dir
+from spike_common import REPO, fail_on_host_path, raw_dir
 from s16_run import STRANGER, Home, Peer, free_port, private_ipv4
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -194,6 +194,7 @@ def main() -> int:
     (out / "run.json").write_text(json.dumps(record, indent=2) + "\n")
     dest = HERE / "runs" / run
     subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
+    fail_on_host_path(dest)
     print(f"{run}: sums={json.dumps(record.get('sums'))} notified={record.get('notified')} passed={passed}")
     return 0 if passed else 1
 
