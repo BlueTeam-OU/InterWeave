@@ -212,9 +212,10 @@ jobs:
       - name: Clippy, each package with its own features
         run: bash tools/ci/own_features.sh clippy
 
-      # Three files re-execute this job's tests inside an unprivileged user
-      # plus network namespace (no root), and each FAILS where that is
-      # impossible, never skips (ADR-0053 rule 9):
+      # Four files re-execute this job's tests inside an unprivileged user
+      # namespace with a network or a mount namespace or both (no root),
+      # and each FAILS where that is impossible, never skips (ADR-0053
+      # rule 9):
       #   - crates/transport/libp2p/tests/mdns_bounds.rs: `unshare -rn`,
       #     a dummy multicast interface;
       #   - tests/connectivity/tests/network_change.rs: `setpriv
@@ -224,7 +225,13 @@ jobs:
       #     the automated client's multi-network tests go through: `-rnm`
       #     with a private /run, named namespaces joined by veth pairs,
       #     ip_forward written through nsenter, nft nat and forward tables,
-      #     and a pivot_root into a tmpfs its --rbind mounts fill.
+      #     and a pivot_root into a tmpfs its --rbind mounts fill;
+      #   - crates/human/store/tests/full_filesystem.rs: `unshare -rm`, a
+      #     pivot_root into a tmpfs root, and a tmpfs capped by size= that
+      #     the test fills to ENOSPC and then remounts larger with
+      #     `mount --options-mode ignore` (util-linux 2.39 or later: a
+      #     plain remount repeats the uid mount(8) reads back, which the
+      #     namespace refuses, "tmpfs: Invalid uid").
       # A new test of this job that enters such a namespace is a new line
       # here. Two other callers of `unshare` are not this step's:
       # tools/host/android/test_android-toolchain.sh (a user plus mount
@@ -241,15 +248,20 @@ jobs:
       # the callers do and performs there each network operation they
       # perform (the /run mount, two named namespaces and a veth pair
       # between them, a dummy link, an address on lo, an nsenter write of
-      # ip_forward, netns.rs's kind of nft nat and forward tables), so a
+      # ip_forward, netns.rs's kind of nft nat and forward tables) and
+      # full_filesystem.rs's mount operation (a tmpfs capped by size=,
+      # remounted larger and read back at its new size), so a
       # runner-image change to any of those fails HERE, named, not as
-      # scattered test failures. netns.rs's root switch is not probed.
+      # scattered test failures. Neither file's root switch is probed.
       - name: Allow unprivileged user namespaces (the namespace tests)
         run: |
           f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
           if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
           setpriv --pdeathsig KILL unshare -rnm --pid --fork --kill-child --propagation private sh -c '
-            mount -t tmpfs -o mode=0755 none /run && mkdir /run/netns &&
+            mount -t tmpfs -o mode=0755 none /run && mkdir /run/netns /run/cap &&
+            mount -t tmpfs -o size=1m none /run/cap &&
+            mount --options-mode ignore -o remount,size=4m /run/cap &&
+            test "$(df -k --output=size /run/cap | tail -1)" -eq 4096 &&
             ip netns add pa && ip netns add pb && ip -n pa link set lo up &&
             ip link add v0 type veth peer name v1 && ip link set v0 netns pa && ip link set v1 netns pb &&
             ip -n pa link set v0 up && ip -n pb link set v1 up &&
