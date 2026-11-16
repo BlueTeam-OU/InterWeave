@@ -37,6 +37,7 @@ mod release;
 mod retention;
 mod ring;
 mod storage;
+mod superseded;
 mod trust;
 mod window;
 mod world;
