@@ -1567,7 +1567,8 @@ impl ConnectionManager {
     /// and the reconnect is scheduled at the peer's ordinary delay -- or,
     /// when every candidate is a held circuit, at the first hold's end if
     /// that is later (below) -- AND marked as waiting on `relay`: the first direct connection to the
-    /// relay makes it due at once ([`Self::relay_reached`]). The ROUTE
+    /// relay makes it due at once, or at the end of a peer backoff still
+    /// running ([`Self::relay_reached`], `peer_backoff_lapses_at`). The ROUTE
     /// is held (ADR-0011 A 2026-10-21) for its own delay, `route_hold_ms`
     /// on the peer's attempt count -- 30 s doubling to 5 min, the ladder
     /// the hold kept when ADR-0011 A 2026-11-14 took the peer's retry to a
@@ -1583,8 +1584,11 @@ impl ConnectionManager {
     /// `relay_came_up`: a direct connection to `relay` established AFTER
     /// this dial was admitted -- the restart race, where the client asked
     /// for the hop a moment before that connection was up. The relay has
-    /// been reached already, so the retry is due now rather than waiting
-    /// on an establishment that has happened (#247 review F1). Once per
+    /// been reached already, so the retry is due now -- or, while a peer
+    /// backoff a direct route's failure left still runs, at its end, when
+    /// the gate admits the circuit (`peer_backoff_lapses_at`) -- rather
+    /// than waiting on an establishment that has happened (#247 review
+    /// F1; #685). Once per
     /// failure: a later failure with the relay already up when it was
     /// admitted takes the ordinary delay, so a cancel that persists with
     /// the relay connected cannot loop.
@@ -1628,7 +1632,8 @@ impl ConnectionManager {
             // straight back into the hop that just failed, while the
             // retry line quoted a delay that bound the scheduler alone
             // (rust-ui-dev-01's Pixel measurement, 2026-10-21). Not when
-            // the relay came up meanwhile: then the retry is due now.
+            // the relay came up meanwhile: then the retry is due now, or at
+            // the end of a running peer backoff (below).
             if !relay_came_up && !ticket.address().is_empty() {
                 let _ =
                     self.policy
@@ -1652,8 +1657,9 @@ impl ConnectionManager {
                 && self.retries.get(&peer).is_some_and(|entry| entry.claimed);
             let attempt = self.schedule_retry(peer.clone(), now_ms, delay, held_by_another);
             // "Due now" is when the gate admits the circuit: the hop's
-            // failure just gave it a record, so a running peer backoff
-            // answers first (#685 re-review, F1's second call site).
+            // failure gave it a record (unless the address table had no
+            // room), so a running peer backoff answers first (#685
+            // re-review, F1's second call site).
             let came_up_due = peer_backoff_lapses_at(&self.policy, &peer, now_ms);
             if let Some(entry) = self.retries.get_mut(&peer) {
                 if relay_came_up {
@@ -1664,9 +1670,9 @@ impl ConnectionManager {
             }
             let retry = RetryScheduled {
                 attempt,
-                // Due now when the relay came up: report the delay that
-                // applies, not the one the cadence would have used (#247
-                // re-review N3).
+                // When the relay came up, report the delay that applies --
+                // none, or a running peer backoff's remainder -- not the one
+                // the cadence would have used (#247 re-review N3; #685).
                 delay_ms: if relay_came_up {
                     came_up_due - now_ms
                 } else {
@@ -2422,7 +2428,8 @@ impl ConnectionManager {
     /// hold lapsed -- and, sorted oldest-due first, four such peers took
     /// every slot of every tick from everyone else (#329 review F1).
     /// `attempts` is untouched and so is `waits_on`: the relay's first
-    /// direct connection still makes it due at once ([`Self::relay_reached`]).
+    /// direct connection still makes it due at once, or at a running peer
+    /// backoff's end ([`Self::relay_reached`]).
     ///
     /// To the FIRST moment one of the peer's candidates is admitted again,
     /// judged per relay as the gate judges it -- the rule the settle path
