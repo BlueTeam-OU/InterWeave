@@ -7531,7 +7531,33 @@ owner:
 - The allow-list reads the source manifests; a permission a library's
   manifest merges in is visible only in the merged manifest (#436):
   rust-ui-dev's, the check's authors, with devex-tooling for its
-  wiring.
+  wiring. Closed by #694 (2026-11-16, rust-ui-dev-02's j116): the build
+  reads the merged manifest of the debug and of the release variant
+  (`verifyDebugMergedPermissions`, `verifyReleaseMergedPermissions`,
+  `app/build.gradle.kts`) and fails the APK's packaging, which an
+  assemble and an install both reach (`package<Variant>`, from
+  606fa202c; the assemble alone before it, which `installDebug` does
+  not go through), on a `<uses-permission>` or
+  `<uses-permission-sdk-23>` that `app/permissions.allow` does not
+  name, or on a `<permission>` defined; the tree check fails when that
+  file and its own allow-list differ or the file is absent. The list is
+  the seven permissions main's merged manifests held at 8d8165e8d, the
+  source manifest's own, no library merging one in. Both tasks ran in
+  the PR's `android apk (assembleDebug)` job at 311b0cb95 and passed.
+  The refusal has two records. From 606fa202c each variant task
+  depends on `verifyMergedPermissionsRefusal`, which holds the same
+  judgement to manifests planted for it wherever a variant task runs,
+  that CI job included: an unlisted `<uses-permission>`, an unlisted
+  `<uses-permission-sdk-23>`, a `<permission>` and an empty list must
+  each fail, and a listed one pass. A variant task failing on a
+  permission a real library merged in was shown on the author's host
+  with a throwaway library module and a release-only manifest (the
+  PR's record); no CI run has seen that. Not checked: the
+  instrumentation APK's merged manifest; an app bundle's manifest,
+  which a bundle merges for itself (the project builds none);
+  `<uses-feature>`, `<permission-tree>` and `<permission-group>` in a
+  merged manifest. The CI wiring needed no change, both assembles
+  being CI's and the release run's already.
 - The hostile-code case does not drive a window's scan: Open an image…
   is the portal's dialog, so the code reaches the facade through the
   binding the scan controls call (#436): rust-ui-dev's, if a window's

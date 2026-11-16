@@ -42,6 +42,7 @@ make_root() {
     cp "$REAL/$MAIN/AndroidManifest.xml" "$r/$MAIN/AndroidManifest.xml"
     cp "$REAL/$MAIN/res/xml/data_extraction_rules.xml" "$r/$MAIN/res/xml/data_extraction_rules.xml"
     cp "$REAL/$APP/gradle.lockfile" "$r/$APP/gradle.lockfile"
+    cp "$REAL/$APP/permissions.allow" "$r/$APP/permissions.allow"
     printf 'package org.interweave.human\nclass Plain\n' > "$r/$MAIN/kotlin/org/interweave/human/Plain.kt"
     # The Scan module and its one caller, as they are: the control passes
     # with their real camera uses.
@@ -142,6 +143,14 @@ fails "allow-list-extra-variant" "release/AndroidManifest.xml: <uses-permission>
     "mkdir -p $APP/src/release && printf '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><uses-permission android:name=\"android.permission.RECORD_AUDIO\" /></manifest>\n' > $APP/src/release/AndroidManifest.xml"
 fails "allow-list-missing" "does not declare android.permission.USE_BIOMETRIC" \
     "edit $M \"s.replace('<uses-permission android:name=\\\"android.permission.USE_BIOMETRIC\\\" />', '')\""
+# The build's merged-manifest list (permissions.allow) against this
+# check's: a name added there, one left out, and the file gone.
+fails "allow-file-extra" "permissions.allow: names android.permission.READ_PHONE_STATE, which the permission allow-list does not name" \
+    "printf 'android.permission.READ_PHONE_STATE\\n' >> $APP/permissions.allow"
+fails "allow-file-short" "permissions.allow: does not name android.permission.CAMERA, which the permission allow-list names" \
+    "edit $APP/permissions.allow \"s.replace('android.permission.CAMERA\\n', '')\""
+fails "allow-file-absent" "permissions.allow: not readable (FileNotFoundError); the merged-manifest allow-list was not compared" \
+    "rm $APP/permissions.allow"
 fails "permission-defined" "<permission> defines org.interweave.human.SEND" \
     "edit $M \"s.replace('<application', '<permission android:name=\\\"org.interweave.human.SEND\\\" /><application', 1)\""
 # The camera feature: declared required, its required left out (true),

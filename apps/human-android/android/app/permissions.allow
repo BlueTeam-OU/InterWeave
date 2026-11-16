@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# The permissions the APK may hold, one per line: every permission the
+# merged manifest of the debug and of the release variant names, the
+# ones a library's own manifest merges in included. verify<Variant>
+# MergedPermissions (build.gradle.kts) fails the APK's packaging, which
+# an assemble and an install both reach, on any other,
+# and tools/checks/check_android_contacts_and_backup.py fails when this
+# list and its own (plan section 29 step 2's) differ. A permission enters
+# an APK an assemble builds, debug or release, only through a record that
+# names it there, then here; verifyMergedPermissionsRefusal holds the
+# build's check to manifests planted to fail it.
+#
+# Written 2026-11-16 from main's merged manifests at 8d8165e8d, both
+# variants: the seven below, and no <permission> of the app's own.
+android.permission.INTERNET
+android.permission.ACCESS_NETWORK_STATE
+android.permission.FOREGROUND_SERVICE
+android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING
+android.permission.POST_NOTIFICATIONS
+android.permission.USE_BIOMETRIC
+android.permission.CAMERA
