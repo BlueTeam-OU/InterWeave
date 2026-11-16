@@ -4,7 +4,7 @@
 with no channel (S37's fact 130), measured by putting the channel
 server's connection before or after the first turn's start on purpose.
 
-    PATH=<the build's bin>:$PATH python3 s38_late.py <site>-<when>-<N>
+    PATH=<the build's bin>:$PATH python3 s38_late.py <site>-<when>-<N>   # runs/s38-late-<build>-<site>-<when>-<N>
     python3 s38_late.py table
 
 ``<site>``:
@@ -97,7 +97,10 @@ def main() -> int:
         raise SystemExit(f"usage: {sys.argv[0]} <{'|'.join(SITES)}>-<open|late|hold<ms>>-<N> | table")
     if os.environ.get("SPIKE_CLAUDE"):
         raise SystemExit("unset SPIKE_CLAUDE: S38 measures the claude on PATH")
-    run = "s38-late-" + sys.argv[1]
+    version = claude_version()
+    # One build per run, and its name in the run's: the campaign runs
+    # every cell on two builds.
+    run = f"s38-late-{version}-{sys.argv[1]}"
     out = raw_dir(run)
     scratch = pathlib.Path(tempfile.mkdtemp(prefix="spike001s38-")).resolve()
     if scratch == REPO or REPO in scratch.parents:
@@ -106,7 +109,7 @@ def main() -> int:
 
     nonces = [secrets.token_hex(4), secrets.token_hex(4)]
     binary = pathlib.Path(shutil.which(CLAUDE)).resolve()
-    record = {"run": run, **spec, "claude_version": claude_version(),
+    record = {"run": run, **spec, "claude_version": version,
               "claude_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(), **tree_stamp(),
               "nonces": nonces, "managed_settings": {"path": f"/etc/claude-code/{DROP_IN}", "content": ALLOW}}
     passed, proc, marks = False, None, {}
