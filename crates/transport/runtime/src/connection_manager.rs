@@ -1651,9 +1651,13 @@ impl ConnectionManager {
             let held_by_another = !ticket.owns_scheduler_claim()
                 && self.retries.get(&peer).is_some_and(|entry| entry.claimed);
             let attempt = self.schedule_retry(peer.clone(), now_ms, delay, held_by_another);
+            // "Due now" is when the gate admits the circuit: the hop's
+            // failure just gave it a record, so a running peer backoff
+            // answers first (#685 re-review, F1's second call site).
+            let came_up_due = peer_backoff_lapses_at(&self.policy, &peer, now_ms);
             if let Some(entry) = self.retries.get_mut(&peer) {
                 if relay_came_up {
-                    entry.set_due(now_ms);
+                    entry.set_due(came_up_due);
                 } else {
                     entry.waits_on = Some(relay.clone());
                 }
@@ -1663,7 +1667,11 @@ impl ConnectionManager {
                 // Due now when the relay came up: report the delay that
                 // applies, not the one the cadence would have used (#247
                 // re-review N3).
-                delay_ms: if relay_came_up { 0 } else { delay },
+                delay_ms: if relay_came_up {
+                    came_up_due - now_ms
+                } else {
+                    delay
+                },
                 peer_backoff: false,
             };
             self.note(GateNote::RetryScheduled {
@@ -1711,19 +1719,13 @@ impl ConnectionManager {
         let lifted = self.policy.release_relay_holds(relay, now_ms);
         for (peer, entry) in &mut self.retries {
             if !entry.claimed && (entry.waits_on.as_ref() == Some(relay) || lifted.contains(peer)) {
-                // Due when the GATE would admit the circuit, by its own
-                // order: a peer backoff answers an admit before the hold
-                // does, so a retry made due inside one was refused
-                // `PeerBackoff` on every tick until it ended, and lost its
-                // wake at that end (#685 review F1). On either arm: a hop
-                // failure neither sets nor clears the backoff a direct
-                // route's failure left.
-                let admitted_at = self
-                    .policy
-                    .peer(peer)
-                    .and_then(|b| b.until_ms)
-                    .map_or(now_ms, |until| until.max(now_ms));
-                entry.set_due(entry.due_at_ms.min(admitted_at));
+                // On either arm: a hop failure neither sets nor clears the
+                // backoff a direct route's failure left (#685 review F1).
+                entry.set_due(entry.due_at_ms.min(peer_backoff_lapses_at(
+                    &self.policy,
+                    peer,
+                    now_ms,
+                )));
                 entry.waits_on = None;
             }
         }
@@ -2658,6 +2660,21 @@ pub const fn retry_backoff_ms(attempts: u32) -> u64 {
     }
 }
 
+/// When a running peer backoff stops answering an admit for `peer`'s
+/// recorded addresses, or `now_ms` when none runs: the moment a retry made
+/// due "now" is admitted by the gate's own order, which asks the backoff
+/// before a route hold. A retry made due inside the backoff was refused
+/// `PeerBackoff` on every tick until it ended, and lost its wake at that
+/// end (#685 review F1). Pinned by
+/// `a_relays_connection_makes_due_a_retry_whose_last_failure_was_another_route`
+/// and `a_relay_that_came_up_inside_a_peer_backoff_is_retried_at_its_end`.
+fn peer_backoff_lapses_at(policy: &ConnectionPolicy, peer: &TransportIdentity, now_ms: u64) -> u64 {
+    policy
+        .peer(peer)
+        .and_then(|b| b.until_ms)
+        .map_or(now_ms, |until| until.max(now_ms))
+}
+
 /// How long a circuit route whose relay hop failed is held
 /// ([`ConnectionManager::record_relay_hop_unreached`]): 30 s doubling to
 /// 5 min on the peer's attempt count. ADR-0011 A 2026-10-21's hold, on
@@ -3590,6 +3607,63 @@ mod tests {
             m.take_due_retries(at, 4),
             std::slice::from_ref(&p),
             "R's connection makes it due, though its last failure named no relay"
+        );
+    }
+
+    /// A relay that came up during the dial makes the retry due when the
+    /// gate admits the circuit: at once with no backoff (the test below),
+    /// and at the end of a peer backoff a direct route's failure left
+    /// running, since the hop's failure gave the circuit a record the
+    /// backoff now answers for (#685 re-review). THE CONTROLS: the circuit
+    /// was admitted through the backoff while it had no record, and is
+    /// refused `PeerBackoff` after the failure gave it one.
+    #[test]
+    fn a_relay_that_came_up_inside_a_peer_backoff_is_retried_at_its_end() {
+        let circuit = format!("/ip4/10.0.0.9/tcp/4001/p2p/{P2}/p2p-circuit");
+        let direct = "/ip4/10.0.0.7/tcp/4001";
+        let p = peer(P1);
+        let relay = peer(P2);
+        let mut m = manager(4);
+        assert!(m.learn_address(&p, direct, 0));
+        let ticket = m
+            .handle()
+            .admit(&request_at(P1, direct, DialOrigin::Manual), 0)
+            .expect("admitted");
+        let _ = m.record_failure(ticket, 0);
+        let backoff_end = m
+            .peer_gate_state(&p, 1_000)
+            .backoff_until_ms
+            .expect("D backed the peer off");
+        let ticket = m
+            .handle()
+            .admit(&request_at(P1, &circuit, DialOrigin::RelayCircuit), 5_000)
+            .expect("the control: a circuit with no record is admitted through the backoff");
+        let scheduled = m
+            .record_relay_hop_unreached(ticket, &relay, true, 5_000)
+            .expect("scheduled");
+        assert_eq!(
+            m.handle()
+                .admit(
+                    &request_at(P1, &circuit, DialOrigin::ConnectionManager),
+                    6_000
+                )
+                .map(|_| ()),
+            Err(DialDenial::PeerBackoff),
+            "the control: with a record, the backoff answers for it"
+        );
+        assert_eq!(
+            scheduled.delay_ms,
+            backoff_end - 5_000,
+            "reported as the delay that applies"
+        );
+        assert!(
+            m.take_due_retries(6_000, 8).is_empty(),
+            "not due inside the backoff"
+        );
+        assert_eq!(
+            m.take_due_retries(backoff_end, 8),
+            std::slice::from_ref(&p),
+            "due at its end"
         );
     }
 
