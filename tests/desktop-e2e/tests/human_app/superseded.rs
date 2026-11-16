@@ -777,7 +777,10 @@ async fn a_step_two_trust_held_while_transportctl_revokes_reads_trust_step_super
         "the trust set read once: {commands:?}"
     );
     let trusted = transportctl_ok(&world.a, &["trust", "list"], "");
-    assert!(!trusted.contains(peer.as_str()), "not trusted: {trusted}");
+    assert!(
+        !trusted.contains(peer.as_str()),
+        "the peer is not in transportctl's trust list"
+    );
 }
 
 /// A superseded Trust read back as trusted reads `TrustStepDone`: a
