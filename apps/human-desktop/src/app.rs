@@ -120,8 +120,9 @@ pub struct App<S: Surface, O: Opener> {
     started: std::time::Instant,
     turned: bool,
     /// Where each log line goes, without its `human-desktop: ` prefix:
-    /// stderr, the client's only log, unless a test reads it
-    /// ([`Self::with_log`]).
+    /// stderr unless a test reads it ([`Self::with_log`]). The shipped
+    /// binary's stderr is read as the client's log by
+    /// `tests/desktop-e2e/tests/human_app/content_free_logs.rs`.
     log: fn(&str),
 }
 
