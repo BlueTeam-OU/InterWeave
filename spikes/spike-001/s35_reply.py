@@ -27,8 +27,10 @@ user turn differs, by ``<told>``:
 S35's cells are the three where the leak was measured: ``greet-tool``
 and ``task-tool`` (a message joining a tool-calling first turn) and
 ``greet-text`` (a greeting during the counting turn). S37's
-(``s37_reply.py``, the same code as the series ``s37``) are the three
-S35 did not run, ``prompt`` and ``prompts`` only:
+(``s37_reply.py``, the same code as the series ``s37``) are five,
+``prompt`` and ``prompts`` only: the three S35 did not run, and two in a
+conversation longer than one turn. They run under ``s37_reply.py``
+only, never as this script's series:
 
   ``greet-idle``     a greeting starting a turn of its own after an idle
                      wait (S32 (b)'s control sent ``READY`` in 5 of 5)
@@ -142,10 +144,17 @@ def table(series="s35"):
     print(f"\ntokens: {sum(c['tokens'] for c in cells.values()):,}")
 
 
+def s35_spec_of(name):
+    """S35's own cells: S37's run as the series s37, so one cannot land
+    in runs/s35-reply-* and in S35's table."""
+    spec = spec_of(name)
+    return None if spec is None or name.rsplit("-", 1)[0].split("-", 1)[1] in S37_CELLS else spec
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["table"]:
         table("s35")
         raise SystemExit(0)
-    s33_reply.spec_of = spec_of
+    s33_reply.spec_of = s35_spec_of
     s33_reply.TOLD = TOLD
     raise SystemExit(s33_reply.main("s35"))

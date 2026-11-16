@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
-"""SPIKE-001's S37 (1): S35's scope sentence in the three cells S35 did
-not run, an idle wait, a question and other first-turn work, with the
-control beside it (plan §19's S35 note; the README's S35 "Not
-established").
+"""SPIKE-001's S37 (1) and (3): S35's scope sentence, with the control
+beside it, in the three cells S35 did not run (an idle wait, a question
+and other first-turn work) and in a conversation longer than one turn
+(the greeting during a second user turn, ``greet-later2`` and
+``greet-latertool``); plan §19's S35 note, the README's S35 "Not
+established".
 
-    python3 s37_reply.py <prompt|prompts>-<greet-idle|question-tool|greet-months>-<N>
+    python3 s37_reply.py <prompt|prompts>-<greet-idle|question-tool|greet-months|greet-later2|greet-latertool>-<N>
     python3 s37_reply.py table
 
 s35_reply.py's cells and leak rule (``s35_reply.S37_CELLS``, LEAK), run

@@ -35,6 +35,7 @@ line naming the server, the control response, and whether the event's
 nonce reached the conversation. EVIDENCE ONLY.
 """
 
+import hashlib
 import json
 import os
 import pathlib
@@ -79,7 +80,11 @@ def main() -> int:
         raise SystemExit("TMPDIR must be outside the repository")
 
     nonce = secrets.token_hex(4)
-    record = {"run": run, "era": era, "site": site, "claude_version": claude_version(), **tree_stamp(),
+    # The binary itself, by hash: the version string alone did not show
+    # S37's four runs used the build S36 read (the review of #686, F3).
+    binary = pathlib.Path(shutil.which(CLAUDE)).resolve()
+    record = {"run": run, "era": era, "site": site, "claude_version": claude_version(),
+              "claude_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(), **tree_stamp(),
               "nonce": nonce, "stub_delay_ms": DELAY_MS, "managed_settings": {
                   "path": f"/etc/claude-code/{DROP_IN}", "content": ALLOW}}
     passed, proc = False, None
