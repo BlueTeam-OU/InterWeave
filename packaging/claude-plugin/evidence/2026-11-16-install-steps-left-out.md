@@ -194,7 +194,7 @@ and `/etc/claude-code` a directory holding the host's `managed-settings.json` un
 | x1 | yes | text style, then the security notes ("Press Enter to continue"), then the folder-trust question, whose default is "No, exit"; the closing `/exit` and Enter answered it with that default, and the session ended | no `Channel` line for the server | not called |
 | x2 | yes | the folder-trust question; Down and Enter chose "Yes, I trust this folder" | `Channel notifications registered` | not called |
 | i1, i2, i3 | yes | none | `Channel notifications registered`, twice in each | `endpoint_lease_state` `held`, `local_peer_id` the profile's PeerId, `local_endpoint` `claude`, `transport_health` `healthy`, `log.level` `info` |
-| ic1 | no (the host's `managed-settings.json` alone) | none | `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`, twice | as r1 |
+| ic1 | no (the host's `managed-settings.json` alone) | none | `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`, twice | as i1 |
 
 Every line is the server `plugin:interweave:interweave`'s. The registration line was `Channel notifications
 registered` and not the `re-registered after reconnect` that a `--channels` print session logs (SPIKE-001 fact 40).
