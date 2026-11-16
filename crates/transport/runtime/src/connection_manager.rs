@@ -773,9 +773,10 @@ struct Retry {
     claimed: bool,
     /// The relay whose hop the last circuit dial never reached
     /// ([`ConnectionManager::record_relay_hop_unreached`]): the retry is
-    /// also due the moment a direct connection to it establishes
-    /// ([`ConnectionManager::relay_reached`]), rather than only at its
-    /// delay.
+    /// due no later than `peer_backoff_lapses_at` -- now, or the end of a
+    /// peer backoff still running -- once a direct connection to it
+    /// establishes ([`ConnectionManager::relay_reached`]), rather than
+    /// only at its delay.
     waits_on: Option<TransportIdentity>,
     /// [`ConnectionManager::take_due_retries`] offered this entry at its
     /// current due time and did not claim it -- the budget took others,
@@ -1567,8 +1568,8 @@ impl ConnectionManager {
     /// and the reconnect is scheduled at the peer's ordinary delay -- or,
     /// when every candidate is a held circuit, at the first hold's end if
     /// that is later (below) -- AND marked as waiting on `relay`: the first direct connection to the
-    /// relay makes it due at once, or at the end of a peer backoff still
-    /// running ([`Self::relay_reached`], `peer_backoff_lapses_at`). The ROUTE
+    /// relay makes it due no later than `peer_backoff_lapses_at` -- now,
+    /// or the end of a peer backoff still running ([`Self::relay_reached`]). The ROUTE
     /// is held (ADR-0011 A 2026-10-21) for its own delay, `route_hold_ms`
     /// on the peer's attempt count -- 30 s doubling to 5 min, the ladder
     /// the hold kept when ADR-0011 A 2026-11-14 took the peer's retry to a
@@ -1584,11 +1585,10 @@ impl ConnectionManager {
     /// `relay_came_up`: a direct connection to `relay` established AFTER
     /// this dial was admitted -- the restart race, where the client asked
     /// for the hop a moment before that connection was up. The relay has
-    /// been reached already, so the retry is due now -- or, while a peer
-    /// backoff a direct route's failure left still runs, at its end, when
-    /// the gate admits the circuit (`peer_backoff_lapses_at`) -- rather
-    /// than waiting on an establishment that has happened (#247 review
-    /// F1; #685). Once per
+    /// been reached already, so the retry is due at
+    /// `peer_backoff_lapses_at` -- now, or the end of a peer backoff still
+    /// running, whichever route's failure set it -- rather than waiting on
+    /// an establishment that has happened (#247 review F1; #685). Once per
     /// failure: a later failure with the relay already up when it was
     /// admitted takes the ordinary delay, so a cancel that persists with
     /// the relay connected cannot loop.
@@ -2428,8 +2428,8 @@ impl ConnectionManager {
     /// hold lapsed -- and, sorted oldest-due first, four such peers took
     /// every slot of every tick from everyone else (#329 review F1).
     /// `attempts` is untouched and so is `waits_on`: the relay's first
-    /// direct connection still makes it due at once, or at a running peer
-    /// backoff's end ([`Self::relay_reached`]).
+    /// direct connection still makes it due no later than
+    /// `peer_backoff_lapses_at` ([`Self::relay_reached`]).
     ///
     /// To the FIRST moment one of the peer's candidates is admitted again,
     /// judged per relay as the gate judges it -- the rule the settle path
@@ -2667,10 +2667,11 @@ pub const fn retry_backoff_ms(attempts: u32) -> u64 {
     }
 }
 
-/// When a running peer backoff stops answering an admit for `peer`'s
-/// recorded addresses, or `now_ms` when none runs: the moment a retry made
-/// due "now" is admitted by the gate's own order, which asks the backoff
-/// before a route hold. A retry made due inside the backoff was refused
+/// The end of `peer`'s running peer backoff, whichever route's failure set
+/// it, or `now_ms` when none runs. The gate asks the backoff before a route
+/// hold, for every address with a record -- a circuit whose hop failure the
+/// address table had room to score -- so a retry made due "now" is admitted
+/// no earlier than this. A retry made due inside the backoff was refused
 /// `PeerBackoff` on every tick until it ended, and lost its wake at that
 /// end (#685 review F1). Pinned by
 /// `a_relays_connection_makes_due_a_retry_whose_last_failure_was_another_route`
