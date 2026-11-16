@@ -1456,7 +1456,9 @@ impl View {
     /// outcomes, the connectivity and session notice, and the identity
     /// screen the root says ([`trace_identity`](Self::trace_identity)),
     /// in kinds only (`trace.rs`). For a driver that steps the app by key
-    /// events; the debug APK turns it on, the release build has none.
+    /// events; the debug APK and human-desktop's `ui-trace` test build
+    /// turn it on, no shipped build has it
+    /// (`tools/checks/check_shipped_test_hooks.sh`).
     #[cfg(feature = "ui-trace")]
     pub fn on_trace(&mut self, sink: impl Fn(&str) + 'static) {
         let tracer = trace::Tracer::new(Rc::new(sink));
@@ -1484,7 +1486,8 @@ impl View {
     }
 
     /// The reader's first frame, timed from the press that opened it, to
-    /// the trace if one is on.
+    /// the trace if one is on; where no frame is told, the rows handed to
+    /// the window, said as such (`trace::reader_rows_line`).
     #[cfg(feature = "ui-trace")]
     fn trace_reader_drawn(&mut self) {
         let Some(to) = self.trace.as_ref().map(trace::Tracer::sink) else {
@@ -1492,7 +1495,10 @@ impl View {
         };
         let asked = self.shared.borrow_mut().open_asked.take();
         let asked = asked.unwrap_or_else(Instant::now);
-        self.after_next_frame(move || to(&trace::reader_drawn_line(asked.elapsed())));
+        let framed = Rc::clone(&to);
+        if !self.after_next_frame(move || framed(&trace::reader_drawn_line(asked.elapsed()))) {
+            to(&trace::reader_rows_line(asked.elapsed()));
+        }
     }
 
     /// The identity flow's `screen` is over the window with `page`, or,

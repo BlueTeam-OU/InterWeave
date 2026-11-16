@@ -40,6 +40,19 @@ interweave-transport-api = { path = "../../crates/api/transport-api" }
 [target.'cfg(unix)'.dependencies]
 interweave-ipc-client = { path = "../../crates/local/ipc-client" }
 tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "macros", "signal"] }
+# TEST BUILDS ONLY, under `ui-trace`: the monotonic clock the trace's
+# stamps read (src/trace.rs).
+rustix = { workspace = true, features = ["time"], optional = true }
+
+[features]
+# TEST BUILDS ONLY: what the window shows, a line per change in kinds
+# (ui-slint's trace.rs), on stderr with a monotonic stamp (src/trace.rs),
+# for the desktop end-to-end case that times A5's Escape while the reader
+# opens (tests/desktop-e2e/tests/human_app/opening.rs), built by that
+# case's own command. Off by default; tools/checks/check_shipped_test_hooks.sh
+# fails a shipped build whose graph turns any `ui-trace` on, and refuses
+# a release command line that gains a feature flag.
+ui-trace = ["interweave-human-ui-slint/ui-trace", "dep:rustix"]
 
 [dev-dependencies]
 # The real view, headless: the app names no Slint crate in its own graph
@@ -57,3 +70,8 @@ interweave-human-app-core = { path = "../../crates/human/app-core", features = [
 interweave-local-client-fake = { path = "../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
 tempfile = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+# The monotonic clock of src/trace.rs, whose unit tests run without
+# `ui-trace` (src/lib.rs).
+rustix = { workspace = true, features = ["time"] }

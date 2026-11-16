@@ -451,6 +451,18 @@ fn the_trace_names_the_reader_and_end_reaches_its_list_end() {
         pages(&lines.borrow()).last().map(String::as_str),
         Some("ui-trace page=reader")
     );
+    // This backend sets no rendering notifier, as the desktop's software
+    // renderer does not: the rows line says no frame was told, and is
+    // what A5's judge reads as the first screen (`back_run::judge`, and
+    // its `a_single_back_is_void_after_the_first_screen_and_timed_otherwise`).
+    assert!(
+        lines
+            .borrow()
+            .iter()
+            .any(|l| l.starts_with("ui-trace reader=drawn ms=") && l.ends_with(" frame=untold")),
+        "{:?}",
+        lines.borrow()
+    );
     for _ in 0..3 {
         i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
         slint::platform::update_timers_and_animations();
