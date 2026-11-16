@@ -11,10 +11,13 @@ S37's cells on 2.1.325.
 s37_reply.py's cells run by s33_reply.py unchanged, as the series
 ``s38-<build>``: runs are ``runs/s38-<build>-reply-<cell>-<N>``, one
 build per run. Since S38 each run's ``inits`` carries init's
-``mcp_servers`` (s29_print.init_record), so a run says whether the
-bridge was still ``pending`` when the first turn started; the debug
-log's registration line is in its evidence as before. The table adds,
-per build, the sessions whose bridge never registered. EVIDENCE ONLY.
+``mcp_servers`` (s29_print.init_record). It is NOT a sign of a missing
+channel: init is written after the turn's wiring, and in each of S38's
+three sessions that never registered it said ``connected``. The sign is
+the debug log's registration line, in each run's evidence as before.
+The table adds, per build, the sessions that never registered, the
+first init's status in those, and how long the bridge took to connect
+(the debug log's "Successfully connected ... in <ms>"). EVIDENCE ONLY.
 """
 
 import re
@@ -30,10 +33,11 @@ SERVER = "plugin:interweave:interweave"
 
 def table():
     builds = sorted({p.name.split("-reply-")[0] for p in (s33_reply.HERE / "runs").glob("s38-2.*-reply-*")})
-    print("| Build | Runs | First init: bridge pending | Never registered | Registered, pending at first init |")
-    print("|---|---|---|---|---|")
+    print("| Build | Runs | Never registered | First init's status, those | Connect ms, registered | "
+          "Connect ms, never registered |")
+    print("|---|---|---|---|---|---|")
     for series in builds:
-        runs = pending = never = late = 0
+        runs, lost, status, ok_ms, lost_ms = 0, [], [], [], []
         for path in sorted((s33_reply.HERE / "runs").glob(f"{series}-reply-*/evidence.md")):
             text = path.read_text()
             m = re.search(r"## Run\n\n```json\n(.*?)\n```", text, re.S)
@@ -41,14 +45,17 @@ def table():
                 continue
             r = s33_reply.json.loads(m.group(1))
             runs += 1
+            ms = int(re.search(r"Successfully connected \(transport: stdio\) in (\d+)ms", text).group(1))
+            if "Channel notifications" in text:
+                ok_ms.append(ms)
+                continue
+            lost.append(path.parent.name.split("-reply-")[1])
             first = (r.get("inits") or [{}])[0].get("mcp_servers") or []
-            status = next((s["status"] for s in first if s["name"] == SERVER), None)
-            registered = "Channel notifications re-registered after reconnect" in text or \
-                "Channel notifications registered" in text
-            pending += status == "pending"
-            never += not registered
-            late += registered and status == "pending"
-        print(f"| {series[4:]} | {runs} | {pending} | {never} | {late} |")
+            status.append(next((s["status"] for s in first if s["name"] == SERVER), None))
+            lost_ms.append(ms)
+        span = lambda v: f"{min(v)} to {max(v)}" if v else "-"
+        print(f"| {series[4:]} | {runs} | {len(lost)} ({', '.join(f'`{n}`' for n in lost)}) | "
+              f"{', '.join(map(str, status)) or '-'} | {span(ok_ms)} | {', '.join(map(str, lost_ms)) or '-'} |")
 
 
 if __name__ == "__main__":
