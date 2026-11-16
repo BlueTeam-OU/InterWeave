@@ -40,7 +40,7 @@ Model: claude-sonnet-5-5
         "plugin",
         "marketplace",
         "add",
-        "/run/user/1026/s38$SCRATCH"
+        "$SCRATCH/marketplace"
       ],
       "exit": 0,
       "output": "Adding marketplace\u2026\u2714 Successfully added marketplace: interweave (declared in user settings)"
