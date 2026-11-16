@@ -160,8 +160,9 @@ the two commands changed is Claude Code's install record and its cache copy, and
 the new that INSTALL.md says to expect. All three settings were read back after the 0.3.0 to 0.3.1 update; after the
 0.2.0 to 0.3.0 one, only `profile` is shown kept (row v3).
 
-Not run: an update to a lower version, since there is no lower release to go to from the one installed; an update
-while a session was running, since INSTALL.md's upgrade starts a new session and the runs followed it; and a 0.2.0
+Not run: an update to a lower version, which was not attempted because the request asked for the upgrade path, though
+the 0.2.0 and 0.3.0 archives on hand would have allowed one; an update, or the folder replaced, while a session was
+running, which was not attempted: every session here ended before the next step ran; and a 0.2.0
 bridge's channel traffic against the 0.3.0 daemon (only its `status`), since the request was the upgrade path and not
 an old bridge against a new daemon.
 
