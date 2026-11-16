@@ -65,8 +65,8 @@ What r3 also shows:
 - In r3 the debug log has `Channel notifications re-registered after reconnect` five times, at 03:14:15, 03:14:29,
   03:15:30, 03:15:51 and 03:15:56. They are not one per restart; what each is was not traced.
 
-Not run: a message sent while the daemon was down. The gap was under a second each time, too short to aim a send
-into. Nor the pull mode's first `receive` after a gap: the plugin starts the bridge in push mode.
+Not run: a message sent while the daemon was down. The gap was under a second in the two runs that recorded it (r1 and
+r3), too short to aim a send into. Nor the pull mode's first `receive` after a gap: the plugin starts the bridge in push mode.
 
 ## 2. A second session on the same endpoint
 
@@ -85,8 +85,9 @@ The bridge's log, shared by both bridges as INSTALL.md says: B's `a session did 
 03:04:17.652Z, 6.3 s later. So the waiting session takes the endpoint once the first one ends, at its next retry.
 One run.
 
-Not run, being outside the request's "a second session on the same endpoint": a second session on another endpoint
-of the same profile, and two sessions both started before either held the lease.
+Not run: a second session on another endpoint of the same profile, which is outside the request's "a second session
+on the same endpoint"; and two sessions on this endpoint started together, before either held the lease, which this
+run did not attempt: it ran the one order INSTALL.md describes, a second session joining while the first holds it.
 
 ## 3. `claude plugin configure --values-stdin`
 
@@ -138,7 +139,7 @@ was gone. The daemons stayed the 0.3.0 archive's.
 | session (v2) | status | `started, version 0.3.0`; `held` |
 | update | `claude plugin marketplace update interweave` | `✔ Successfully updated marketplace: interweave` |
 | update | `claude plugin update interweave@interweave` | `✔ Plugin "interweave" updated from 0.2.0 to 0.3.0 for scope user. Restart to apply changes.`; `installed_plugins.json` `0.3.0` |
-| session (v3) | status | `started, version 0.3.0`; `held` on endpoint `claude` of the `claude` profile's daemon; `log.level` `info`, which is also the unset default. `pluginConfigs` was not read after this update; the settings kept here are `profile` and `endpoint`, shown by the lease, since the defaults name a profile `default` that has no daemon |
+| session (v3) | status | `started, version 0.3.0`; `held` on endpoint `claude` of the `claude` profile's daemon; `log.level` `info`, which is also the unset default. `pluginConfigs` was not read after this update. Only `profile` is shown kept, by the lease, since its default names a profile `default` that has no daemon; `endpoint` `claude` and `log_level` `info` are both defaults, so the lease and `status` would read the same had they been lost |
 
 ### From the `v0.3.0` release to a local build at 0.3.1
 
@@ -155,11 +156,14 @@ Run first, on the account as installed from the `v0.3.0` archive.
 
 In both rounds the replaced folder is what the next session ran, before either update command, as S20 measured on
 2.1.286. What
-the two commands changed is Claude Code's install record and its cache copy, and the report from `0.3.0` to `0.3.1`
-that INSTALL.md says to expect. The settings were kept across the update.
+the two commands changed is Claude Code's install record and its cache copy, and the report from the old version to
+the new that INSTALL.md says to expect. All three settings were read back after the 0.3.0 to 0.3.1 update; after the
+0.2.0 to 0.3.0 one, only `profile` is shown kept (row v3).
 
-Not run, being outside the request's upgrade from an older version to a newer one: an update to a lower version, an
-update while a session was running, and a 0.2.0 bridge's channel traffic against the 0.3.0 daemon (only its `status`).
+Not run: an update to a lower version, since there is no lower release to go to from the one installed; an update
+while a session was running, since INSTALL.md's upgrade starts a new session and the runs followed it; and a 0.2.0
+bridge's channel traffic against the 0.3.0 daemon (only its `status`), since the request was the upgrade path and not
+an old bridge against a new daemon.
 
 ## What INSTALL.md said that this changes
 
