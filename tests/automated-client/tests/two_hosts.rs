@@ -513,13 +513,11 @@ async fn idle_for(idle: Duration) {
     // absence above was not a line that is never written.
     netns::overlay_down();
     until_both(&a, &b, false, CLOSE, "both closed on the link's loss").await;
-    for (name, host) in [("A", &a), ("B", &b)] {
-        assert!(
-            host.log().contains(CLOSED),
-            "{name} logged no close on the link's loss:\n{}",
-            host.log()
-        );
-    }
+    // Waited for, not read once: the row reads closed from the runtime's
+    // open set, and composition writes the line after, as it drains the
+    // runtime's events.
+    until_logged(&a, CLOSED).await;
+    until_logged(&b, CLOSED).await;
     netns::overlay_up();
 
     drop((at_a, from_b));
@@ -972,6 +970,12 @@ async fn far_end_returns(b_entry: bool, moved: bool) -> (tempfile::TempDir, Host
     (base, a, b, held)
 }
 
+/// How long after a backoff's end its retry may connect: the scheduler
+/// wakes at the earliest due retry (ADR-0011 A 2026-11-14), the dial
+/// crosses one link in milliseconds, and the rest is the watch's 100 ms
+/// polling and an admin read, with load margin.
+const RETRY_MARGIN_MS: u64 = 2_000;
+
 /// How far two readings of one backoff may differ: the row reports a
 /// monotonic deadline on the wall clock, converted at each read, and two
 /// reads of one backoff were measured 1 ms apart.
@@ -1038,8 +1042,8 @@ const RETURNS_SILENT: &str =
 /// The control for the case above: B holds no entry for A and dials
 /// nothing when it returns, so A's backoff stands -- A's row keeps it and
 /// the pair stays apart until it runs out -- and the pair reconnects at
-/// A's retry, within 30 s of the failure that set it (ADR-0011 A
-/// 2026-11-14). The case above passing beside this one is B's dial
+/// A's retry, due at the backoff's end, 30 s after the failure that set
+/// it (ADR-0011 A 2026-11-14), within `RETRY_MARGIN_MS` of it. The case above passing beside this one is B's dial
 /// lifting the backoff, not B's return.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_far_end_that_returns_without_dialling_lifts_nothing_and_waits_for_the_retry() {
@@ -1059,10 +1063,14 @@ async fn a_far_end_that_returns_without_dialling_lifts_nothing_and_waits_for_the
         );
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
+    // The lower bound is the watch above, which held the pair apart
+    // until a second before the backoff's end; this is the upper one: the
+    // reconnect is the retry due at that end, not a later round.
     let at = until_a_connected(&a, &b, PATIENCE, "A's retry reached B").await;
     assert!(
-        at + 1_000 >= held,
-        "connected at {at}, before A's backoff ran out at {held}"
+        at <= held + RETRY_MARGIN_MS,
+        "connected at {at}, past A's retry due at {held}\n{}",
+        a.log()
     );
 
     a.stop().await;
