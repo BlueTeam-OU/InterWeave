@@ -881,45 +881,48 @@ it, those checks are blocked, never passed.
       a host whose load was five to six times its number of CPUs: the
       list shape closed within 1 s in nine rounds of nine. The stress
       shapes closed within 0.15 s in fifteen of the seventeen judged
-      rounds; two distinct-headings rounds failed, closing at 192 and
-      312 ms, and one distinct-links round was void.
+      rounds; two distinct-headings rounds failed: they closed at 192
+      and 312 ms. One distinct-links round was void.
     - 2026-11-15
       (`apps/human-desktop/runs/2026-11-15-escape-during-opening.md`),
-      on a host whose load was from below its number of CPUs to 1.7
-      times it: the list shape closed within 1 s in nine rounds of
-      nine. Distinct
-      headings closed within 0.15 s in all eight judged rounds (15 to
-      76 ms), and its other round was void. Distinct links was void in
-      all nine rounds: its first screen (the rows handed to the window)
-      came 391 to 497 ms after Open the whole message was pressed,
-      before the Escape at 0.6 s. The two late closes of the day before
-      did not happen again. This points to the host's load as their
-      cause, but does not prove it.
+      on a host whose load ranged from below its number of CPUs to 1.7
+      times that number: the list shape closed within 1 s in nine
+      rounds of nine. Distinct headings closed within 0.15 s in all
+      eight judged rounds (15 to 76 ms), and its other round was void.
+      Distinct links was void in all nine rounds: its first screen
+      (the rows handed to the window) came 391 to 497 ms after Open the
+      whole message was pressed, before the Escape at 0.6 s. The two
+      late closes of the day before did not happen again. This points
+      to the host's load as their cause, but does not prove it.
     On the desktop, distinct links is judged past the first turn only
-    by the eight rounds of 2026-11-14, all passed, at a load of five to
-    six times the CPUs, when its first screen came after the Escape at
-    0.6 s. No further desktop run of it is asked. On 2026-11-15 it
-    opened before the bar would show at 0.5 s, so no Escape could
-    reach it while the bar showed. An Escape inside the first turn
-    (0.4 s, §5.4) would judge only the case the list shape already
-    covers; between the end of the first turn and its first screen
-    there was a gap of 9 to 97 ms in seven rounds of nine and none in
-    the other two, too short and uneven to time an Escape into. On the
-    desktop, the run past the first turn is distinct headings.
+    by its eight rounds of 2026-11-14 that were not void, and all
+    eight passed. On that day the host's load was five to six times
+    its number of CPUs, and the shape's first screen came after the
+    Escape at 0.6 s. No further desktop run of distinct links is
+    asked. On 2026-11-15 it opened before the bar would show at 0.5 s,
+    so no Escape could reach it while the bar showed. An Escape inside
+    the first turn (at most 0.4 s, §5.4) would judge only the case
+    inside the first turn, which the list shape already covers. In
+    seven rounds of nine, the shape's first screen came 9 to 97 ms
+    after the end of the first turn, and in the other two it came
+    inside the first turn. That gap is too short, and varies too much,
+    to time an Escape inside it. On the desktop, distinct headings is
+    the shape that is run past the first turn.
   Not run yet, and carried rather than failed: the list shape's Back at
   half its first-screen time on the current build, and the two Backs
   pressed together (the device case for both is in
   `tests/android-e2e/tests/long_message.rs`, not yet run on a phone);
   the two Backs 0.3 s apart by the app bar's Back; the Pixel; and the
-  release APK. On the desktop: the check that no frame shows the bar
-  inside the first turn (the desktop's software renderer does not report
-  when a frame is drawn, so the trace gives the time the rows were
-  handed to the window, not the time a frame was drawn); distinct
-  headings past the first turn on a host that is not loaded, owed
-  before the check is called passed (the runs of 2026-11-15 were on a
-  loaded host too); the two fails of 2026-11-14 stand; the
-  build that ships, which has no trace; Wayland; and a screen reader
-  during the opening.
+  release APK. On the desktop: a frame-level test that no frame shows
+  the bar inside the first turn (the desktop's software renderer does
+  not report when a frame is drawn, so the trace gives the time the
+  rows were handed to the window, not the time a frame was drawn);
+  distinct headings past the first turn on a host that is not loaded,
+  which is needed before the check can be called passed (on
+  2026-11-15, too, the host's load was above its number of CPUs for
+  most of the runs); the build that ships, which has no trace;
+  Wayland; and a screen reader during the opening. The two failed
+  rounds of 2026-11-14 remain failures.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
   on the desktop and TalkBack on the Pixel.
 - **A7** The reader's row removed while it is open, the app sent to
