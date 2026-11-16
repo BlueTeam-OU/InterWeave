@@ -523,7 +523,7 @@ comparison a matter of groups, not of single characters.
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen when the operation is refused, never by the service; the operation is retried after a success. The app keeps no clock of the window: the refusal is its only reading of it (ADR-0042, A 2026-10-20). The person sees the same either way: the prompt comes before anything happens. Cancelled or denied: no error dialog and no error text. C4 and the restores stay on their screen with the words kept, and nothing is committed. A rotation or a return to that screen retries nothing: it stays as it was until the person uses its primary action again. Once the identity is committed, a cancelled start after C4's or R4's continue ends offline and locked, as S2's Done does below, but on Chats: the locked notice and Unlock, with focus on the notice. S2's Done drops the words and returns to Settings offline, with focus on "Show recovery phrase", the item that opened the flow; the locked notice shows where the app's notices show, under the app bar of Chats and of a conversation; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). At a launch past the window the start is refused and the prompt answers it before the service runs; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service. A process that keeps running answers each refused restart the same way (`design/2026-11-05-unlock-policy-pending.md` §11) | The primary action again, or Back |
-| Check running | R2, from the start of the check (`IdCheckWords`, by any input) until its result, including R2's check after K1 | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1 |
+| Check running | R2, from the start of the check (`IdCheckWords`, or the Try again of an R2 notice, by any input) until its result, including R2's check after K1 | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1 |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
@@ -722,19 +722,27 @@ access.
   Enter twice does not expect the check.
 - **While R2's check runs** (§6, Check running), the words are held,
   as they are behind the discard dialog: a letter key, a typed letter,
-  delete, clear, Backspace, a chip, Enter, a grid position and "show
-  all my words" do nothing, by any input. So no chip can be taken
+  delete, clear, Backspace, a chip, Enter, a grid position, "show
+  all my words", and the action of a notice still showing (`TryAgain`,
+  or `IdRestoreOther`'s Continue) do nothing, by any input. A notice
+  that shows when the check starts stays until the result replaces it.
+  A Try again on an R2 notice (`IdBusy`, `IdStorageFailed`,
+  `IdStorageUnknown`) starts a check too, after K1 a write or a read
+  back, and holds the same way. So no chip can be taken
   while the check runs, and no focus rule for a chip applies. Focus
   does not move: it stays on the control that held it when the check
-  began. That is `IdCheckWords` when Enter or Space pressed it, and
-  whatever held focus when the person tapped `IdCheckWords`, since a
+  began. That is the control Enter or Space pressed (`IdCheckWords`,
+  or a notice's `TryAgain`), and whatever held focus when the person
+  tapped it, since a
   tap does not move focus (above). An input that does nothing while
   the check runs leaves the mode (typing or navigating) as it was, as
-  a tap on a disabled key leaves it. When the result comes, the
-  rules that already exist place focus: a §6 banner or notice takes
-  focus (the error-banner rule below); a valid phrase opens R3, or R4
-  after K1; a cancelled or denied prompt leaves R2 as it was, with
-  `IdCheckWords` enabled again and focus where it was. Why the words
+  a tap on a disabled key leaves it. When the result comes, focus
+  goes as follows. A §6 banner or notice takes focus (the error-banner
+  rule below). A valid phrase opens R3, or R4 after K1, with focus on
+  the screen's title, as on C2's PeerId page (below), so the reading
+  starts at the question or at "restored". A cancelled or denied
+  prompt leaves R2 as it was, with `IdCheckWords` enabled again and
+  focus where it was. Why the words
   are held: a check reports on the words it read. A word changed while
   it runs would leave R3 showing the PeerId of words no longer on the
   screen, or, after K1, restore words other than the ones checked.
@@ -1082,12 +1090,15 @@ scale would also be a finding of the Android review
       focus on the first enabled key.
     - On R2, with positions 1 to 23 filled and 24 current, a chip
       taken by Enter fills 24 and puts focus on `IdCheckWords`, now
-      enabled, and the next Enter runs the check. With that check
-      left unanswered by rust-ui-dev's test hook (as in acceptance 12),
+      enabled, and the next Enter runs the check. In a host test that
+      leaves that check unanswered (the flow's check is an effect the
+      test answers itself, as the identity flow's tests in
+      `crates/human/ui-model` do; no device hook holds it, so this
+      part is checked by the host test, not on the phone),
       a typed "a", a tap on position 5, Escape and another Enter
       change no word and open nothing; focus stays on
       `IdCheckWords`, which shows disabled; and the back arrow is
-      inactive. When the hook answers the check as a failed checksum,
+      inactive. When the test answers the check as a failed checksum,
       the banner shows, with focus on it, and all 24 words are as
       they were. With position 3
       empty and 24 current, a chip taken by Enter fills 24 and makes
