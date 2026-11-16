@@ -17,8 +17,7 @@
 //!
 //! What this cannot prove: the phone's renderer
 //! (`tests/android-e2e/tests/cluster_bound.rs`, which did not draw Show
-//! source), and the reader's source, which the long-message tests reach
-//! on the testing backend only.
+//! source). The reader's source is `reader_source_draw.rs`'s.
 
 #![cfg(feature = "desktop")]
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
