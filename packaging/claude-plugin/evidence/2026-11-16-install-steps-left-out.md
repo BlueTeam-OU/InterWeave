@@ -166,8 +166,61 @@ running, which was not attempted: every session here ended before the next step 
 bridge's channel traffic against the 0.3.0 daemon (only its `status`), since the request was the upgrade path and not
 an old bridge against a new daemon.
 
+## 5. Step 8's interactive session
+
+architect-cto asked (REQUEST 01a1e54b) for step 8's interactive session, which the 2026-11-11 run left "Not run":
+whether a warning screen is shown (SPIKE-001 fact 30), and the `Channel notifications registered` line. It ran later
+the same day, 17:22 to 17:30 UTC, in a fresh scratch `HOME` set up as above: steps 1 to 6 from the `v0.3.0` release
+archive (`sha256sum -c` `OK`, `Version: 0.3.0`, `enabled`) and the daemon as a transient unit (`health Healthy`).
+Step 7 was presented by bubblewrap with the same private `/etc` as on 2026-11-11: every host entry bound read-only,
+and `/etc/claude-code` a directory holding the host's `managed-settings.json` unchanged and step 7's drop-in.
+
+- **Claude Code** 2.1.322, as the session's banner reported it. The auto-updater was off.
+- **The session** was `claude --channels plugin:interweave@interweave --debug-file <path>`, step 8's command plus the
+  debug file, run in a pseudo-terminal of 120 by 40 columns by a driver modelled on SPIKE-001's `run_tty.py`. The
+  driver waited for the prompt, waited 5 s, typed "Call the InterWeave status tool once and print its full output
+  verbatim and nothing else.", waited 60 s, and typed `/exit`. The `status` values below are read from the
+  terminal's text.
+- **Permission mode.** The banner showed auto mode on, and `status` ran with no prompt to approve it.
+
+| run | step 7 | screens before the prompt | debug log | `status` |
+|---|---|---|---|---|
+| x0 | yes | the text-style picker; the driver answered nothing before its closing `/exit`, and the session ended there | no `Channel` line for the server | not called |
+| x1 | yes | text style, then the security notes ("Press Enter to continue"), then the folder-trust question, whose default is "No, exit"; the driver's closing `/exit` and Enter answered it, and the session ended | no `Channel` line for the server | not called |
+| x2 | yes | the folder-trust question; "Yes, I trust this folder" chosen | `Channel notifications registered` | not called |
+| r1, r2, r3 | yes | none | `Channel notifications registered`, twice in each | `endpoint_lease_state` `held`, `local_peer_id` the profile's PeerId, `local_endpoint` `claude`, `transport_health` `healthy`, `log.level` `info` |
+| c1 | no (the host's `managed-settings.json` alone) | none | `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`, twice | as r1 |
+
+Every line is the server `plugin:interweave:interweave`'s. The registration line was `Channel notifications
+registered` and not the `re-registered after reconnect` that a `--channels` print session logs (SPIKE-001 fact 40).
+
+What the runs show:
+
+- **No warning screen, 4 runs of 4** that reached the prompt with step 7 (x2, r1 to r3). No screen named a
+  development channel or asked to confirm one. The screens before the prompt were Claude Code's own first-run screens
+  in a new `HOME` — text style, security notes, folder trust — and each stopped appearing once answered: x0 and x1
+  ended at them, with no channel registered, x2 showed only the folder trust, and r1 to r3 showed none.
+- **The registration line, 4 runs of 4** that reached the prompt with step 7, as INSTALL.md gives it.
+- **Without step 7 the terminal says so.** In c1, besides the debug log's line, the terminal showed `plugin
+  interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels…`. It
+  was captured after the prompt was typed, while the debug log's line came before. A print session without step 7
+  showed no such line on stdout or stderr (SPIKE-001 S25, fact 47). One run, with `--debug-file`; whether the
+  terminal shows it without debug mode was not run.
+- **`status`'s `log.file` and `profile_desired_channels`.** In all four sessions that called it, `log.file` was
+  `null` with `log.file_error` `directory_not_private`, and `profile_desired_channels` was `{"unknown":
+  "ConfigDirUnguarded"}`. The 2026-11-11 record traced both to bubblewrap's user namespace, where `/` and `/home` are
+  owned by uid 65534, and found the same binary outside it reporting the log file and `{"as_configured":[]}`. These
+  runs used the same stand-in, so they say nothing new there.
+
+Not run: a message from a peer into the interactive session, and a reply; the development-flag path; a session
+without `--debug-file`; a step 7 written by root in the host's `/etc`; and another build of Claude Code. The driver,
+screens and debug logs stayed in the session's scratch directory and are not committed: they carry host paths.
+
 ## What INSTALL.md said that this changes
 
+- **Step 8.** It now cites section 5 for the absence of a warning screen and for the registration line, names the
+  first-run screens a new account sees before the prompt, and says the terminal showed the refusal without step 7 in
+  the one run made.
 - **Step 6, configure.** It said a JSON object piped to `--values-stdin` changes the settings and the next start
   gets them. It did not say that a key left out keeps its value, that a value is not checked until the bridge
   starts, or that an empty value is shown as `not set` and still refused by the bridge. INSTALL.md now says so.
@@ -184,7 +237,8 @@ Beyond each section's own list:
 
 - A real fresh Linux account, `systemctl --user enable --now`, and a root-written step 7 in the host's `/etc` (stood
   in for, as on 2026-11-11).
-- An interactive session: the driver runs `-p` stream-json sessions only, with no terminal.
+- An interactive session in sections 1 to 4: their driver runs `-p` stream-json sessions only, with no terminal.
+  Section 5 ran step 8's interactive session with a driver of its own.
 - `uninstall.sh`. On 2026-11-11 it stopped this login's live units, and removal was not part of this request. The
   scratch account's plugin was not uninstalled at the end either: the scratch `HOME` was deleted whole.
 

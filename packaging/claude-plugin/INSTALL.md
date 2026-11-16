@@ -148,12 +148,12 @@ The file must be readable by the account that runs Claude Code. Claude Code read
 claude --channels plugin:interweave@interweave
 ```
 
-No warning screen is shown (fact 30). Then:
+No warning screen is shown (fact 30; again in 4 sessions of 4 on the 0.3.0 archive with Claude Code 2.1.322, `evidence/2026-11-16-install-steps-left-out.md` section 5). An account's first session in a new home directory first shows Claude Code's own screens — the text style, the security notes, and whether to trust the working folder, where the default answer is "No, exit" — and none of them is about the channel. Then:
 
 - in the session, the bridge's `status` tool reports this profile's PeerId, the endpoint, a lease epoch, and under `log` the level and the path of the bridge's log file;
-- with `--debug-file <path>`, the debug log has `MCP server "plugin:interweave:interweave": Channel notifications registered`.
+- with `--debug-file <path>`, the debug log has `MCP server "plugin:interweave:interweave": Channel notifications registered` (4 sessions of 4, same record).
 
-Without step 7, the debug log has `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`, and the session has no channel (fact 33). With an `allowedChannelPlugins` that does not name the plugin, the log says it `is not on your org's approved channels list` (fact 31).
+Without step 7, the debug log has `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`, and the session has no channel (fact 33). In the one interactive session run without it, with `--debug-file`, the terminal showed that line too (same record). With an `allowedChannelPlugins` that does not name the plugin, the log says it `is not on your org's approved channels list` (fact 31).
 
 On a host without step 7, the development flag still registers the channel, for one account and with a person at the terminal:
 
