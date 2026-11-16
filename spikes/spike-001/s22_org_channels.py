@@ -82,6 +82,8 @@ RUNS = {
 }
 SETTLE_S = 45
 # extract.py's own pattern, which scrub has to see the paths through.
+# An absolute path under /home or /run/user, not already a placeholder.
+HOST_PATH = re.compile(r"(?<![\w$.~-])/(?:home|run/user)/[^\s\"'/]+")
 UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 
 
@@ -426,6 +428,13 @@ def scrub(evidence, scratch, out):
     for leftover in (scratch.name, out.parent.name):
         if leftover in text:
             raise SystemExit(f"{evidence.name} still names {leftover}: a host path the scrub missed")
+    # Any absolute path under a home or the runtime directory is a host
+    # path whatever produced it: the two names above missed a prefix
+    # extract.py had left when it cut a path at an inner /tmp (S38,
+    # #696's review F3).
+    leaked = HOST_PATH.search(text)
+    if leaked:
+        raise SystemExit(f"{evidence.name} still names {leaked.group(0)}...: a host path the scrub missed")
 
 
 def token_in(dirs):
