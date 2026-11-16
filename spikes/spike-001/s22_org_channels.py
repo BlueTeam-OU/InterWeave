@@ -61,7 +61,7 @@ import tempfile
 import time
 import traceback
 
-from spike_common import CLAUDE, REPO, child_env, raw_dir
+from spike_common import CLAUDE, HOST_PATH, REPO, child_env, raw_dir
 from s16_run import PROFILE, STRANGER, Home, Peer, free_port, private_ipv4
 from s19_channels import ANSI, long_term_token, seed_config
 
@@ -82,8 +82,6 @@ RUNS = {
 }
 SETTLE_S = 45
 # extract.py's own pattern, which scrub has to see the paths through.
-# An absolute path under /home or /run/user, not already a placeholder.
-HOST_PATH = re.compile(r"(?<![\w$.~-])/(?:home|run/user)/[^\s\"'/]+")
 UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 
 
