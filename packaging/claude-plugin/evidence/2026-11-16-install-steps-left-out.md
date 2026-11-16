@@ -204,8 +204,8 @@ What the runs show:
 - **No warning screen, 4 runs of 4** that reached the prompt with step 7 (x2, i1 to i3). No screen named a
   development channel or asked to confirm one. The screens before the prompt were Claude Code's own first-run screens
   in a new `HOME` — text style, security notes, folder trust. x0 and x1 ended at them, with no channel registered. The
-  two that x1 answered, text style and security notes, were not shown again, nor was the folder trust once x2
-  answered it: x2 showed only the folder trust, and i1 to i3 showed none. x0's answer to the picker, given as the
+  two that x1 accepted, text style and security notes, were not shown again. The folder trust, which x1 answered
+  "No, exit", was shown again in x2, and not again once x2 answered "Yes": x2 showed only the folder trust, and i1 to i3 showed none. x0's answer to the picker, given as the
   driver ended it, was not kept.
 - **The registration line, 4 runs of 4** that reached the prompt with step 7, as INSTALL.md gives it.
 - **Without step 7 the terminal says so.** In ic1, besides the debug log's line, the terminal showed `plugin
