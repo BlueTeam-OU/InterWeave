@@ -768,6 +768,34 @@ mod tests {
         link.lost()
     }
 
+    /// A side whose every model owes Connect, as the root's does under a
+    /// held C4 or R4: the marker is written at the seal and the restore
+    /// (`onboard.rs`), and each fresh model asks it (`activity.rs`).
+    fn owed_side() -> ViewSide<Blank, Blank> {
+        ViewSide::new(|| {
+            let mut side = ModelSide::new(Blank, Blank);
+            side.connect_owed();
+            side
+        })
+    }
+
+    /// The held screen decides the running start: not while the owed
+    /// reads are unanswered, and once they settle it.
+    fn held_screen_decides(side: &mut ViewSide<Blank, Blank>, asked_at: StoreGeneration) {
+        use interweave_human_client_api::{AddressList, TrustList};
+
+        assert!(!side.start_decided(asked_at), "owed, the reads unanswered");
+        side.side_mut().apply(Update::TrustRead(Ok(TrustList {
+            local_peer: None,
+            allowed: Vec::new(),
+        })));
+        side.side_mut().apply(Update::AddressesRead(Ok(AddressList {
+            addresses: Vec::new(),
+        })));
+        let _ = side.side_mut().turn();
+        assert!(side.start_decided(asked_at), "the reads settled it");
+    }
+
     fn attached(hub: &crate::Hub) -> crate::ViewLink {
         hub.attach(std::sync::Arc::new(|| {}))
     }
@@ -786,14 +814,15 @@ mod tests {
     /// exists. No facade runs before the return, so no running service
     /// stops and the view reads no stop: the start made at the return is
     /// not ended (`start_ended`) and is decided by the held screen
-    /// (`start_decided`), as the note says. Mutation: `start_ended` read
-    /// from any answer counted past `asked_at` rather than from a stop the
-    /// view saw fails here.
+    /// (`start_decided`, over a model owing Connect as a held one does), as
+    /// the note says. Mutation: `start_ended` read from any answer counted
+    /// past `asked_at` rather than from a stop the view saw fails here, and
+    /// so does `start_decided` dropping its Connect-phase term.
     #[test]
     fn home_before_the_service_exists_leaves_the_return_to_the_held_screen() {
         let hub = crate::Hub::new();
         let mut link = attached(&hub);
-        let mut side = view_side();
+        let mut side = owed_side();
         assert!(!pump(&mut side, &mut link));
         let asked_at = hub.store_generation();
 
@@ -812,10 +841,8 @@ mod tests {
             !side.start_ended(asked_at),
             "the return's start is not ended"
         );
-        assert!(
-            side.start_decided(asked_at),
-            "and the held screen decides it, as the note says"
-        );
+        // And the held screen decides it, as the note says.
+        held_screen_decides(&mut side, asked_at);
     }
 
     /// The second case: the service's messages to the window fill the
@@ -829,7 +856,8 @@ mod tests {
     /// What the test shows, reported to architect-cto with the note's
     /// case; the rule is unchanged. Mutation: recording nothing at the
     /// stop fails the control; `start_ended` read from any answer counted
-    /// past `asked_at` fails after the attach.
+    /// past `asked_at` fails after the attach; `start_decided` dropping
+    /// its Connect-phase term fails at the return.
     #[test]
     fn a_stop_lost_with_a_full_queue_leaves_the_return_to_the_held_screen() {
         use interweave_human_client_api::Diagnostics;
@@ -838,7 +866,7 @@ mod tests {
         // start has ended.
         let hub = crate::Hub::new();
         let mut link = attached(&hub);
-        let mut side = view_side();
+        let mut side = owed_side();
         let asked_at = hub.store_generation();
         let generation = service_starts(&hub);
         assert!(!pump(&mut side, &mut link));
@@ -849,7 +877,7 @@ mod tests {
         // The queue full while the held start runs.
         let hub = crate::Hub::new();
         let mut link = attached(&hub);
-        let mut side = view_side();
+        let mut side = owed_side();
         let asked_at = hub.store_generation();
         let generation = service_starts(&hub);
         let relists = hub.wants_listing(generation).expect("a listing owed");
@@ -868,7 +896,7 @@ mod tests {
 
         // Attached again, as the root does on a lost link: a fresh side.
         let mut link = attached(&hub);
-        let mut side = view_side();
+        let mut side = owed_side();
         assert!(!pump(&mut side, &mut link));
         assert!(!side.running(), "control: told nothing runs");
         assert!(!side.start_ended(asked_at), "and still no stop recorded");
@@ -881,7 +909,7 @@ mod tests {
             !side.start_ended(asked_at),
             "the return's start is not ended"
         );
-        assert!(side.start_decided(asked_at), "the held screen decides it");
+        held_screen_decides(&mut side, asked_at);
     }
 
     /// The third case: the stop and the next start read in two turns
@@ -895,7 +923,7 @@ mod tests {
     fn a_stop_and_the_next_start_read_in_two_turns_end_the_held_start_at_the_first() {
         let hub = crate::Hub::new();
         let mut link = attached(&hub);
-        let mut side = view_side();
+        let mut side = owed_side();
         let asked_at = hub.store_generation();
         let generation = service_starts(&hub);
         assert!(!pump(&mut side, &mut link));
