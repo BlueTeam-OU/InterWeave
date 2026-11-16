@@ -38,7 +38,7 @@ runs are named x0 to x2, i1 to i3 and ic1, and the run names r1 to r3 elsewhere 
   (port 4002, one `human` endpoint for `human-client`, `allowed_peers` the `claude` PeerId), its address added with
   `interweave-human --profile peer peers add /ip4/<host LAN address>/tcp/4001/p2p/<claude>`, which answered `added`.
   Both daemons answered `transportctl --profile <p> status` with `health Healthy`.
-- **Sessions.** Each was `claude -p --input-format stream-json --output-format stream-json --verbose --debug-file …
+- **Sessions** (sections 1 to 4). Each was `claude -p --input-format stream-json --output-format stream-json --verbose --debug-file …
   --allowedTools mcp__plugin_interweave_interweave__reply mcp__plugin_interweave_interweave__status`, plus
   `--channels plugin:interweave@interweave` in run r3. A driver wrote the user turns, ran the steps between them,
   and closed stdin once every `init` had its `result`. Each turn that asked for the bridge's state was "Call the
@@ -190,7 +190,7 @@ and `/etc/claude-code` a directory holding the host's `managed-settings.json` un
 
 | run | step 7 | screens before the prompt | debug log | `status` |
 |---|---|---|---|---|
-| x0 | yes | the text-style picker, unanswered; the session ended there | no `Channel` line for the server | not called |
+| x0 | yes | the text-style picker; the closing `/exit` and Enter answered it with its default, the security notes followed, and the driver ended the session there with SIGTERM 5 s later | no `Channel` line for the server | not called |
 | x1 | yes | text style, then the security notes ("Press Enter to continue"), then the folder-trust question, whose default is "No, exit"; the closing `/exit` and Enter answered it with that default, and the session ended | no `Channel` line for the server | not called |
 | x2 | yes | the folder-trust question; Down and Enter chose "Yes, I trust this folder" | `Channel notifications registered` | not called |
 | i1, i2, i3 | yes | none | `Channel notifications registered`, twice in each | `endpoint_lease_state` `held`, `local_peer_id` the profile's PeerId, `local_endpoint` `claude`, `transport_health` `healthy`, `log.level` `info` |
@@ -223,9 +223,9 @@ screens and debug logs stayed in the session's scratch directory and are not com
 
 ## What INSTALL.md said that this changes
 
-- **Step 8.** It now cites section 5 for the absence of a warning screen and for the registration line, names the
-  first-run screens a new account sees before the prompt, and says the terminal showed the refusal without step 7 in
-  the one run made.
+- **Step 8.** It now cites section 5 for the absence of a warning screen and for the registration line, limits both
+  counts to the 4 sessions of 6 that reached the prompt, names the first-run screens seen in the one new `HOME` run,
+  and quotes the refusal fragment the terminal showed without step 7 in the one run made.
 - **Step 6, configure.** It said a JSON object piped to `--values-stdin` changes the settings and the next start
   gets them. It did not say that a key left out keeps its value, that a value is not checked until the bridge
   starts, or that an empty value is shown as `not set` and still refused by the bridge. INSTALL.md now says so.
