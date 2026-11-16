@@ -1694,7 +1694,7 @@ impl ConnectionManager {
 
     /// A direct connection to `relay` is established: every route held
     /// on it is admitted again, and every retry that waits on it is due
-    /// now -- the one whose last hop failure named `relay`
+    /// now, or at the end of a peer backoff still running -- the one whose last hop failure named `relay`
     /// ([`Self::record_relay_hop_unreached`]), and the one with ANY held
     /// circuit through `relay`, whichever relay its last failure named:
     /// that circuit is a candidate admitted again (ADR-0011 A 2026-11-14,
@@ -1711,7 +1711,19 @@ impl ConnectionManager {
         let lifted = self.policy.release_relay_holds(relay, now_ms);
         for (peer, entry) in &mut self.retries {
             if !entry.claimed && (entry.waits_on.as_ref() == Some(relay) || lifted.contains(peer)) {
-                entry.set_due(entry.due_at_ms.min(now_ms));
+                // Due when the GATE would admit the circuit, by its own
+                // order: a peer backoff answers an admit before the hold
+                // does, so a retry made due inside one was refused
+                // `PeerBackoff` on every tick until it ended, and lost its
+                // wake at that end (#685 review F1). On either arm: a hop
+                // failure neither sets nor clears the backoff a direct
+                // route's failure left.
+                let admitted_at = self
+                    .policy
+                    .peer(peer)
+                    .and_then(|b| b.until_ms)
+                    .map_or(now_ms, |until| until.max(now_ms));
+                entry.set_due(entry.due_at_ms.min(admitted_at));
                 entry.waits_on = None;
             }
         }
@@ -3457,42 +3469,108 @@ mod tests {
     /// then fails and is forgotten, and that failure's reschedule names no
     /// relay. R's first direct connection still makes the retry due,
     /// because C's hold through R is what it lifts (architect-cto's trace
-    /// on #680, j170). THE CONTROL: before R connects, C is refused and
-    /// nothing is due.
+    /// on #680, j170) -- but never inside the peer backoff D's failure
+    /// set, which the gate asks before the hold (#685 review F1).
+    ///
+    /// The retry is a flat 30 s and the hold doubles on the attempt
+    /// count, so with one attempt behind the peer C's hold outlasts D's
+    /// backoff: at the backoff's end the retry is refused `RouteHeld` and
+    /// deferred to the hold's end, and only R's connection brings it
+    /// back. THE CONTROLS: before R connects nothing is due; a relay
+    /// connection inside the backoff lifts the hold and leaves the retry
+    /// at the backoff's end, the moment the gate admits C.
     #[test]
     fn a_relays_connection_makes_due_a_retry_whose_last_failure_was_another_route() {
         let circuit = format!("/ip4/10.0.0.9/tcp/4001/p2p/{P2}/p2p-circuit");
         let direct = "/ip4/10.0.0.7/tcp/4001";
         let p = peer(P1);
         let relay = peer(P2);
-        let mut m = manager(4);
-        assert!(m.learn_address(&p, direct, 0));
-        let ticket = m
-            .handle()
-            .admit(&request_at(P1, &circuit, DialOrigin::RelayCircuit), 0)
-            .expect("admitted");
-        let _ = m.record_relay_hop_unreached(ticket, &relay, false, 0);
-        let ticket = m
-            .handle()
-            .admit(&request_at(P1, direct, DialOrigin::Manual), 5_000)
-            .expect("the direct route is not held");
-        let _ = m.record_failure(ticket, 5_000);
-        assert!(m.forget_address(&p, direct, 5_000), "D is forgotten");
-        // Read from the gate's report: D's failure backed the peer off, and
-        // the backoff answers an admit before the hold does.
-        let circuit_held =
-            |m: &ConnectionManager, at| m.peer_gate_state(&p, at).route_held_until_ms.is_some();
-        assert!(circuit_held(&m, 9_000), "the control: C is still held");
+        let held_then_backed_off = || {
+            let mut m = manager(4);
+            assert!(m.learn_address(&p, direct, 0));
+            // One attempt behind the peer, so the hold below is 60 s.
+            let ticket = m
+                .handle()
+                .admit(&request_at(P1, direct, DialOrigin::Manual), 0)
+                .expect("admitted");
+            let _ = m.record_failure(ticket, 0);
+            let ticket = m
+                .handle()
+                .admit(&request_at(P1, &circuit, DialOrigin::RelayCircuit), 30_000)
+                .expect("admitted");
+            let _ = m.record_relay_hop_unreached(ticket, &relay, false, 30_000);
+            let ticket = m
+                .handle()
+                .admit(&request_at(P1, direct, DialOrigin::Manual), 40_000)
+                .expect("the direct route is not held, and its backoff ended");
+            let _ = m.record_failure(ticket, 40_000);
+            assert!(m.forget_address(&p, direct, 40_000), "D is forgotten");
+            m
+        };
+        let state = |m: &ConnectionManager, at| m.peer_gate_state(&p, at);
+
+        let mut m = held_then_backed_off();
+        let backoff_end = state(&m, 41_000)
+            .backoff_until_ms
+            .expect("D backed the peer off");
+        let hold_end = state(&m, 41_000).route_held_until_ms.expect("C is held");
         assert!(
-            m.take_due_retries(9_000, 4).is_empty(),
-            "and nothing is due"
+            hold_end > backoff_end,
+            "the control: the hold outlasts the backoff"
         );
-        m.relay_reached(&relay, 10_000);
-        assert!(!circuit_held(&m, 10_000), "R's connection lifts C's hold");
+        assert_eq!(state(&m, 41_000).retry_due_at_ms, Some(backoff_end));
+        m.relay_reached(&relay, 50_000);
         assert_eq!(
-            m.take_due_retries(10_000, 4),
+            state(&m, 50_000).route_held_until_ms,
+            None,
+            "R's connection lifts C's hold"
+        );
+        assert!(
+            m.take_due_retries(50_000, 4).is_empty(),
+            "but inside the backoff the retry is not due"
+        );
+        assert_eq!(
+            m.take_due_retries(backoff_end, 4),
             std::slice::from_ref(&p),
-            "and makes the retry due, though its last failure named no relay"
+            "it is due at the backoff's end"
+        );
+        assert!(
+            m.handle()
+                .admit(
+                    &request_at(P1, &circuit, DialOrigin::ConnectionManager),
+                    backoff_end
+                )
+                .is_ok(),
+            "when the gate admits C"
+        );
+
+        let mut m = held_then_backed_off();
+        assert_eq!(
+            m.take_due_retries(backoff_end, 4),
+            std::slice::from_ref(&p),
+            "due at the backoff's end"
+        );
+        assert_eq!(
+            m.handle()
+                .admit(
+                    &request_at(P1, &circuit, DialOrigin::ConnectionManager),
+                    backoff_end
+                )
+                .map(|_| ()),
+            Err(DialDenial::RouteHeld),
+            "where C, its only candidate, is still held"
+        );
+        m.defer_retry_to_route_hold(&p, backoff_end);
+        let at = backoff_end + 5_000;
+        assert!(
+            m.take_due_retries(at, 4).is_empty(),
+            "the control: deferred to the hold"
+        );
+        m.relay_reached(&relay, at);
+        assert_eq!(
+            m.take_due_retries(at, 4),
+            std::slice::from_ref(&p),
+            "R's connection makes it due, though its last failure named no relay"
         );
     }
 
