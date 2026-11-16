@@ -3,7 +3,8 @@
 //! The reader's Show source with a character past the cluster bound,
 //! drawn by the desktop's own window and software renderer, whose text
 //! shaper counts a character's code points in eight bits (HUMAN-CHAT.md,
-//! Bounds: "Show source draws a replaced cluster as the body does").
+//! the raw source's bullet: "Show source draws a replaced cluster as
+//! the body does").
 //! `long_message.rs` reaches the reader's source on the testing backend,
 //! which shapes no text; `source_draw.rs` draws a row's source in a real
 //! window. Here a long body opens in the reader, its Show source is

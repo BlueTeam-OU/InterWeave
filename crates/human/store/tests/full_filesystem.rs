@@ -7,12 +7,14 @@
 //! refuses the write, so the store meets the failure where a full disk
 //! puts it, in the WAL's frames or its checkpoint, not at a page count.
 //!
-//! The medium is a tmpfs capped by `size=`, which only a mount namespace
-//! of the test's own can make without root: the test re-runs itself as a
-//! child under `unshare -rm` (an unprivileged user plus mount namespace)
-//! that mounts it, and reads the child's verdict. Where that namespace
-//! cannot be made the test FAILS, never skips (the reason CI lifts the
-//! `AppArmor` restriction before its tests, `.github/workflows/ci.yml`).
+//! The medium is a tmpfs capped by `size=`, which the test mounts without
+//! root in a user plus mount namespace of its own: it re-runs itself as a
+//! child under `unshare -rm` that mounts it, and reads the child's
+//! verdict. Growing the mount afterwards takes util-linux 2.39 or later
+//! (`mount --options-mode`); an older `mount` fails the test there.
+//! Where that namespace cannot be made the test FAILS, never skips (the
+//! reason CI lifts the `AppArmor` restriction before its tests,
+//! `.github/workflows/ci.yml`).
 //! The mount lives and dies with the child, so the child also proves the
 //! recovery: it remounts the same filesystem larger, as a person freeing
 //! the disk would give it room, and opens the store again on it.
