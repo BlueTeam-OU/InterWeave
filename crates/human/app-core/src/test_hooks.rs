@@ -2,7 +2,9 @@
 // Copyright 2026 Andrea Benetton
 //! TEST BUILDS ONLY (the `test-hooks` feature): faults a test lays on the
 //! facade's windowed reads -- a page or the contacts failing or held, a
-//! photo slowed or unreadable -- so the desktop's headless tests drive
+//! photo slowed or unreadable -- and on four store reads and writes whose
+//! failure the desktop logs by class (the start's listing, the unread
+//! listing, the own card rows' read, a share's record), so the desktop's headless tests drive
 //! design/2026-10-27-start-window.md section 10's failure paths through
 //! the real facade thread and a real store; and on a row's read or
 //! decline, so the command line's tests drive a store that refuses one
@@ -36,6 +38,10 @@ pub const HOLD_LIMIT: Duration = Duration::from_secs(20);
 struct Faults {
     pages: Fault,
     contacts: Fault,
+    start_listing: Fault,
+    unread_listing: Fault,
+    cards_read: Fault,
+    share_record: Fault,
     photo_delay: Duration,
     unreadable_photos: HashSet<String>,
     refused_rows: HashSet<RowId>,
@@ -54,6 +60,10 @@ pub struct StoreFaults {
 pub(crate) enum Read {
     Page,
     Contacts,
+    StartListing,
+    UnreadListing,
+    OwnCards,
+    ShareRecord,
 }
 
 impl StoreFaults {
@@ -65,6 +75,30 @@ impl StoreFaults {
     /// What reads of every contact do from now, the start's included.
     pub fn set_contacts(&self, fault: Fault) {
         self.set(|f| f.contacts = fault);
+    }
+
+    /// What [`FacadeSide::start`](crate::FacadeSide::start) does from now:
+    /// `Fail` is a store that cannot be listed.
+    pub fn set_start_listing(&self, fault: Fault) {
+        self.set(|f| f.start_listing = fault);
+    }
+
+    /// What the reads that list unread content again do from now (a
+    /// received card's proposal, the summaries after `UnreadInStore`).
+    pub fn set_unread_listing(&self, fault: Fault) {
+        self.set(|f| f.unread_listing = fault);
+    }
+
+    /// What the read of the own card rows pending in the store does from
+    /// now, each turn.
+    pub fn set_cards_read(&self, fault: Fault) {
+        self.set(|f| f.cards_read = fault);
+    }
+
+    /// What recording a share (the write once an own card is accepted)
+    /// does from now.
+    pub fn set_share_record(&self, fault: Fault) {
+        self.set(|f| f.share_record = fault);
     }
 
     /// How long each photo read takes from now.
@@ -107,6 +141,10 @@ impl StoreFaults {
         let fault = |f: &Faults| match read {
             Read::Page => f.pages,
             Read::Contacts => f.contacts,
+            Read::StartListing => f.start_listing,
+            Read::UnreadListing => f.unread_listing,
+            Read::OwnCards => f.cards_read,
+            Read::ShareRecord => f.share_record,
         };
         let guard = self.faults.lock().unwrap_or_else(PoisonError::into_inner);
         let (guard, _) = self
