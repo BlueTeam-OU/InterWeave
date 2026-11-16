@@ -918,9 +918,10 @@ it, those checks are blocked, never passed.
   not report when a frame is drawn, so the trace gives the time the
   rows were handed to the window, not the time a frame was drawn);
   distinct headings past the first turn on a host that is not loaded,
-  which is needed before the check can be called passed (on
-  2026-11-15, too, the host's load was above its number of CPUs for
-  most of the runs); the build that ships, which has no trace;
+  which is needed before distinct headings past the first turn on the
+  desktop can be called passed (on 2026-11-15, too, the host's load
+  was above its number of CPUs for most of the runs); the build that
+  ships, which has no trace;
   Wayland; and a screen reader during the opening. The two failed
   rounds of 2026-11-14 remain failures.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
