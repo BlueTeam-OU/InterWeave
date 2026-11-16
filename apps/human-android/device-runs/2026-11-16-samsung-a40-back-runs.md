@@ -4,7 +4,8 @@ Device: the **Samsung A40** (SM-A405FN, Android 11, **API 30**), at
 192.168.1.9:37606 over wireless debugging, on this login's own adb
 server (port 15065) under the `samsung-a40` lease; no adb process of
 this login remained after any step. Every time below is UTC. The phone
-was unlocked throughout; `stay_on_while_plugged_in` was 7, set 7 for the
+was unlocked when its keyguard was read (16:54Z), and every case drove
+its screens; `stay_on_while_plugged_in` was 7, set 7 for the
 run and restored 7.
 
 What was asked (architect-cto-01, REQUEST 01a1e240, for ux-designer-01's
@@ -94,6 +95,25 @@ neither was lost and the two were not merged.
   line for the bar. The list round closed 256 ms after the Enter, under
   the 0.5 s before which the reader shows nothing (design §8), but that
   is the view's rule, not a frame seen on the phone.
+- **The pressed-together headings round may not have been past the
+  first turn.** Its trace's first `page=reader` line, which a render
+  writes, came at 776014.026: 632 ms after the Enter was sent, 32 ms
+  after the first Back and 2 ms after the second. So no render showed
+  the reader, or its bar, while either Back was pressed; the Backs most
+  likely waited out the opening's first turn (§5.4), rather than being
+  pressed "while the bar shows" as A5 intends for the 0.6 s Back. The
+  round passes by A5's own void rules, which do not cover this. In the
+  links round the reader's page was rendered at 776168.380, 5 ms before
+  the first Back; whether that render showed the bar is not recorded.
+- **Where the conversation was, and focus after two Backs.** A5 asks,
+  after the Back that closes the reader, that focus is on the row's Open
+  the whole message and the conversation is where it was. Neither case
+  reads the conversation's scroll position, so "where it was" was not
+  checked in any round. The list case judged focus (`read:0`); the
+  pressed-together case does not judge focus after the closing Back
+  (`Screens::read_whole_then_back` skips it when a second Back follows),
+  though its trace shows `focus=read:0` and `focus=read:1` after each
+  close.
 - **One round each**, as asked; the 2026-11-13 record ran three.
 - The times are the sender's send and the app's trace line, not the
   frame on the screen.
