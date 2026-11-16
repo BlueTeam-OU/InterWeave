@@ -1,0 +1,19 @@
+{
+  "version": "2.1.311",
+  "sha256": "86dc1fcc69498159eaf15f446613e847010f9036bfbbdffd4c49350be8489ada",
+  "wire_turn": "wireTurn(){let e=this.store.getState(),n=this.allMcpClients(e);this.registerElicitationHandlers(n);for(let r of n)this.registerChannelHandler(r);return this.buildAllTools(e)}",
+  "wire_turn_site": "wireTurn:()=>zi.wireTurn()",
+  "batch_calls_wire_turn": null,
+  "registration_callers": [
+    "onReconnected:Af",
+    "registerChannelHandler:Af"
+  ],
+  "registration_callers_share_one_function": true,
+  "reconnect_watcher_skip": "||!le(i.config))continue",
+  "reconnect_watcher_transports": "function le(n){return n.type!==void 0&&n.type!==\"stdio\"&&n.type!==\"sdk\"}",
+  "prewait_deadline_expr": "deadlineMs:ee??yue});this.firstCommandTaken",
+  "prewait_default_ms_candidates": [
+    20,
+    2000
+  ]
+}
