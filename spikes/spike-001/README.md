@@ -855,7 +855,7 @@ The 40 runs spent 3,601,215 tokens, by S32 (b)'s sum, against the 3.55M estimate
     - **The peer** received every reply as sent, 10 of 10.
     - **Not established:** whether the first turn's own work would be done again for a request that is not the work's tool.
 114. The sentence only in the server's instructions got no reply where the message joined a tool-calling turn, for a greeting and for a request: 0 runs of 10 (`plugin-greet-tool`, `plugin-task-tool`). S32 (b) got 0 of 5 in each, and S33 0 of 5 for a question (fact 101).
-    - **What the model did:** in all ten runs the event entered as a `queued_command`, the model made its three `status` calls, and it ended the turn with `READY`. It called no other tool.
+    - **What the model did:** in all ten runs the event entered as a `queued_command`, the model made its three `status` calls, and it called no other tool. Eight of the ten results end in a paragraph that is `READY` alone (S35's rule); `plugin-task-tool-1` and `-2` end in a paragraph about the peer's message.
     - **The peer's request:** in 4 of the 5 `plugin-task-tool` runs (`-1`, `-2`, `-3`, `-5`), the model wrote that a peer message had asked about the transport and that, since "it didn't come from you", it would not act on it. That is fact 103's account, now for a request.
     - **Not established:** another wording or placement of the sentence in the instructions (fact 93's).
 115. Where the message came during a turn writing text alone, it started a turn of its own and got a reply in 20 runs of 20, told either way (the four `text` cells). None joined the counting turn; each started one turn after it.
@@ -872,7 +872,7 @@ The 40 runs spent 3,601,215 tokens, by S32 (b)'s sum, against the 3.55M estimate
 
 Not established by S34: each fact's own, above; the six cells not run; the `none` and `promptw` cells, which were outside the request; a model other than `claude-sonnet-5-5`; a build after 2.1.322; and a conversation longer than one turn.
 
-What this changes in the bridge: nothing. The bridge stays in the legacy era, which the 2.1.322 gate still requires before any other check (facts 99 and 107). A deployment says the answer sentence in the first user turn, as INSTALL.md says. On 2.1.322 with the real bridge, the sentence only in the server's instructions got no reply from a message that joined a tool-calling turn, for a greeting, a question or a request (facts 101 and 114). Expect the first turn's other output to reach the peer (facts 113 and 115). S35 has since found a wording that kept it out in the cells where it leaked (fact 119).
+What this changes in the bridge: nothing. The bridge stays in the legacy era, which the 2.1.322 gate still requires second among its checks, straight after the capability (facts 99 and 107). A deployment says the answer sentence in the first user turn, as INSTALL.md says. On 2.1.322 with the real bridge, the sentence only in the server's instructions got no reply from a message that joined a tool-calling turn, for a greeting, a question or a request (facts 101 and 114). Expect the first turn's other output to reach the peer (facts 113 and 115). S35 has since found a wording that kept it out in the cells where it leaked (fact 119).
 
 ## S35: a first-turn wording that keeps that turn's other output away from the peer (plan §19)
 
