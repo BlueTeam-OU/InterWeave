@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
-"""SPIKE-001's S38 (1), the read: where a print session registers a
+"""SPIKE-001's S38 (1), the read (the README's numbering): where a print session registers a
 channel handler for a server that connects after a turn has started,
 read from the build's own JavaScript. No session is started.
 
@@ -15,14 +15,23 @@ in the binary:
   print session (S36, the review of #670).
 - ``wire_turn_site``: where the runner calls it, once per batch of
   commands, i.e. once per turn.
-- ``registration_callers``: every hook that calls the same registration
-  function: the per-turn wiring, and the reconnect watcher's
-  ``onReconnected``.
+- ``registration_callers``: the two hooks named ``registerChannelHandler``
+  (the per-turn wiring) and ``onReconnected`` (the reconnect watcher),
+  and whether they call one function.
+- ``registration_calls``: every call of that function in the binary,
+  matched as ``<name>(<id>,<its second argument>)``, each with the
+  110 bytes before it, so a reader sees which hook each one is. The
+  first read (#696's review, F2) recorded the two hooks alone and the
+  README then called the watcher "the only other caller"; there are
+  four.
 - ``reconnect_watcher_transports``: the watcher's own transport test,
   which leaves out ``stdio`` and ``sdk``; a plugin channel server is
   ``stdio``.
-- ``prewait_default_ms``: the default deadline the first command waits
-  for pending MCP servers before its turn starts.
+- ``prewait_deadline_expr`` and ``prewait_default_ms_candidates``: the
+  expression giving the first command's deadline for pending MCP
+  servers, and every number assigned anywhere in the binary to its
+  default's name. Minified names are reused across scopes, so these are
+  candidates, not the resolved default.
 
 Names are matched as ``[\\w$]+``: minified names carry ``$`` (S36).
 EVIDENCE ONLY.
@@ -60,6 +69,11 @@ def main() -> int:
                          + rb")\)", blob)
     read["registration_callers"] = sorted({f"{k.decode()}:{f.decode()}" for k, _, f, _ in callers})
     read["registration_callers_share_one_function"] = len({f for _, _, f, _ in callers}) == 1
+    if len({(f, a) for _, _, f, a in callers}) == 1:
+        f, a = callers[0][2], callers[0][3]
+        read["registration_calls"] = [
+            blob[max(0, m.start() - 110):m.end()].decode("latin1")
+            for m in re.finditer(rb"(?<![\w$.])" + re.escape(f) + rb"\(" + N + rb"," + re.escape(a) + rb"\)", blob)]
     # The watcher's own test, matched where it logs its hold-off line.
     at = blob.find(b"transport closed again soon after it connected: reconnecting in ${")
     while at != -1 and not re.search(rb"\|\|!" + N + rb"\(i\.config\)\)continue", blob[at:at + 1500]):

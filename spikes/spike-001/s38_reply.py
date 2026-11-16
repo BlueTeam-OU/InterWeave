@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
-"""SPIKE-001's S38 (1) rate and (2): S37's reply cells, with the release
+"""SPIKE-001's S38 (3), the rate (the README's numbering; the request's
+items (1), its rate, and (2), S37's cells on 2.1.325): S37's reply cells, with the release
 bridge across two daemons, on the build on PATH -- how often a
 ``--channels`` print session starts with no channel, per build, and
 S37's cells on 2.1.325.

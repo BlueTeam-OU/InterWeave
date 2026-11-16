@@ -9,6 +9,12 @@
     "registerChannelHandler:Af"
   ],
   "registration_callers_share_one_function": true,
+  "registration_calls": [
+    ".client.type===\"connected\"&&pe.client===Q.client.client;if(pe!==void 0&&tt){if(pe.type===\"connected\")Xa([pe]),Af(pe,le)",
+    ")=>!ou()||!nu(I));if(Q===\"connected\"||Q===\"degraded\"){let ce=hs().find((pe)=>pe.name===I.name);if(ce!==void 0)Af(ce,le)",
+    "eV5,credentials:x.credentials,isControlReconnectInFlight:(I)=>vt.has(I),isRunEnding:()=>am,onReconnected:(I)=>Af(I,le)",
+    "allMcpClients:(I)=>VS(I.mcp.clients,On,$n.clients),registerElicitationHandlers:Xa,registerChannelHandler:(I)=>Af(I,le)"
+  ],
   "reconnect_watcher_skip": "||!le(i.config))continue",
   "reconnect_watcher_transports": "function le(n){return n.type!==void 0&&n.type!==\"stdio\"&&n.type!==\"sdk\"}",
   "prewait_deadline_expr": "deadlineMs:ee??yue});this.firstCommandTaken",

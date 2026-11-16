@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
-"""SPIKE-001's S38 (1): why a ``--channels`` print session can start
+"""SPIKE-001's S38 (2), the cells (the README's numbering; the request's
+item (1)): why a ``--channels`` print session can start
 with no channel (S37's fact 130), measured by putting the channel
 server's connection before or after the first turn's start on purpose.
 
