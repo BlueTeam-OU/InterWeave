@@ -457,12 +457,13 @@ same day that neither was (GZCoord
 run): with circuits through two relays the peer held a candidate the
 gate admitted while its retry waited up to the hold ladder's spread
 longer, which broke the 30 s bound and #674's own rule that the retry
-predicts the gate. So the body and `CONNECTIVITY.md` §12 state the rule
-and not the code: the retry goes at the later of 30 s and the end of
+predicts the gate. So the body and `CONNECTIVITY.md` §12 were written
+to state the rule and not the code: the retry goes at the later of 30 s and the end of
 the first hold, or at once at the first direct connection to the relay
 of any held circuit; the relay's connection carries no 30 s floor, as
-the relay-hop paragraph's "due now" always said. Both carry the gap as
-it stood on 2026-11-15, in the past tense. One relay did not escape
+the relay-hop paragraph's "due now" always said. Both carried the gap as
+it stood on 2026-11-15, in the past tense, until it was closed (below).
+One relay did not escape
 it: `schedule_retry` wrote `waits_on: None`, so after a later failure
 of another route (a direct address that failed, then was quarantined)
 the retry deferred to the circuit's hold was not made due by its relay's
@@ -474,6 +475,25 @@ scheduled at the peer's ordinary delay" and, inside it, "with no other
 route the retry is scheduled at the hold's end") were owed by
 p2p-network-dev on its next pull request, the gap sentence to come out
 of the body and `CONNECTIVITY.md` when that landed.
+
+The fix was built the same day by p2p-network-dev-01 (ad3c208ef and
+ae70b35c4; GZCoord id beginning `01a1de2f-56f8`), and on 2026-11-16,
+after #680 had merged, the gap sentence came out of the body and of
+`CONNECTIVITY.md` §12 in the pull request that carried those two
+commits; the rule is unchanged. As built at ae70b35c4: a retry every
+hold refuses is deferred to the end of the first of the peer's holds
+(`defer_retry_to_route_hold` over `earliest_hold_end_if_only_held`),
+and a relay's first direct connection makes due the retry of every
+peer a hold through that relay was lifted for, whichever relay or
+route its last failure named (`relay_reached`, over the peers
+`release_relay_holds` returns). In place of the gap sentence both
+texts name the two tests that pin it
+(`a_peer_held_through_two_relays_is_retried_when_the_first_is_admitted`
+and
+`a_relays_connection_makes_due_a_retry_whose_last_failure_was_another_route`,
+run on that head with `main` at 8b6b1d35b folded in), and the two relay-hop paragraphs say whose retry
+the relay's connection makes due. The two comments named above were
+made exact in ad3c208ef.
 
 Not measured, and carried by name: the cost on a phone of dialling each
 absent contact every 30 s. The rule reaches the phone profile
