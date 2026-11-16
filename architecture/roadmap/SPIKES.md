@@ -1067,18 +1067,25 @@ at once and avoids it; 3 sessions of 60 did it with the release
 bridge; and S37's reply cells gave S37's pattern on 2.1.325.** Read
 off `spikes/spike-001/README.md` §S38 (facts 135–141, #696). Three
 parts. (1) A read of the 2.1.311, 2.1.322 and 2.1.325 binaries,
-`s38_read.py`, no session started, the three agreeing in every field:
-a print session registers a plugin's channel handler in the runner's
-per-turn wiring, for every client in the store when the turn is
-wired; the only other caller of that function is the reconnect
-watcher, which leaves out a server whose transport is `stdio`, as a
-plugin's channel server's is; and `channel_enable`'s own site
-registers when the request is answered. So a `stdio` server that
-first connects after a turn's wiring has no handler until the next
-turn's, and an event it sends meanwhile cannot start that turn. The
-first command's wait for pending servers has a default deadline whose
-candidates include 2000 ms in each build (135, read and not
-measured). (2) 54 runs of `s38_late.py` with `s38_stub.py`, 46 at
+`s38_read.py`, no session started, the three agreeing in every field
+but two (in 2.1.311 the batch's call of the per-turn wiring matched
+nothing, so that phase was matched in 2.1.322 and 2.1.325, and its
+deadline candidates include 20 beside 2000): a print session
+registers a plugin's channel handler in the runner's per-turn wiring,
+for every client in the store when the turn is wired; that function
+has four calls in each build, the per-turn wiring, the reconnect
+watcher's, which leaves out a server whose transport is `stdio`, as a
+plugin's channel server's is, the applying of a reconnect attempt's
+result and the redial of a failed row, the last two read from their
+surroundings and not traced; and `channel_enable`'s own site
+registers when the request is answered. So, as read, a `stdio` server
+that first connects after a turn's wiring has no handler until the
+next turn's, and an event it sends meanwhile cannot start that turn;
+that none of the four calls registers such a first connection is what
+(2) measured (136), not the read. The first command's wait for
+pending servers has a deadline whose default's name is assigned 2000
+in each build, a candidate and not the resolved default, minified
+names being reused (135, read and not measured). (2) 54 runs of `s38_late.py` with `s38_stub.py`, 46 at
 `ac1eb72e2`, 4 at `bc8e3c59e` and 4 at `47ba38e3a`, the driver and
 the stub the same at all three: S23's legacy stub behind a gate the
 driver opens, in S37's era session with two user turns, an event
@@ -1104,8 +1111,9 @@ never registered the channel, 6 of 60 with S37's four; on 2.1.325
 one of 30. Each is fact 130's shape. The bridge took 78 to 4,271 ms
 to connect in the sessions that registered and 1,990 to 6,775 ms in
 those that did not, so connect time alone does not predict it: it is
-a race between the bridge's connection and the first turn's wiring,
-and both move with the host's load (139). In each of the three the
+a race between the bridge's connection and the first turn's wiring;
+whether the rate moves with the host or its load was not measured,
+every S37 and S38 run being on one host (139). In each of the three the
 first `init` said `connected` for the server, `init` being written
 after the wiring, so its status is not a sign (140). The cells on
 2.1.325 gave S37's pattern on 2.1.322, as the 2.1.322 runs did: after
@@ -1122,8 +1130,8 @@ fallback for it (`architecture/plugin/CLAUDE-CODE-CHANNEL.md`
 `not connected`; without it, a second user turn written after the
 bridge has connected recovers the channel for the events after it.
 Not established: why the first turn does not wait for a pending
-plugin server when the default deadline read is 2000 ms, and which
-server state that wait is for; a rate beyond 30 sessions a build, or
+plugin server, when the deadline's default candidates include
+2000 ms, and which server state that wait is for; a rate beyond 30 sessions a build, or
 on another host or load; whether a later turn's wiring can also miss
 a server that reconnects after it; the scope sentence with "write" in
 the idle wait's work, the sentence said only in the server's
