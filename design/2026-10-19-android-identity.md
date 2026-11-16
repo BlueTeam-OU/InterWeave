@@ -748,8 +748,11 @@ access.
   order and by the rules above, and set navigating, as they do at any
   other time; `IdCheckWords`, shown disabled, keeps its place in that
   order, as a disabled key does. Moving focus changes no word, so
-  stopping focus from moving would protect nothing, and a keyboard or screen-reader
-  user who waits can read the words back (WCAG 2.1.1, keyboard).
+  stopping focus from moving would protect nothing, and, where the grid
+  shows (at 130 % or below, §4 item 4), a keyboard or screen-reader
+  user who waits can read the words back (WCAG 2.1.1, keyboard). Over
+  130 %, "show all my words" is held, so the words cannot be read back
+  until the check ends.
   Enter, Space or a screen reader's activate on a held control then
   does nothing, as on a
   disabled key. Every other input that does nothing while the check
@@ -1125,9 +1128,11 @@ scale would also be a finding of the Android review
       focus to the clear key and a Tab brings it back to
       `IdCheckWords`; Up moves focus from `IdCheckWords` to a key of
       the keypad's last row, and Down brings it back. A Shift+Tab
-      then puts focus on the clear key again. With focus there, Enter,
-      Space and a screen reader's activate change neither the letters
-      display nor any word. In each case the screen is navigating afterwards. When the test answers the check as a failed checksum,
+      then puts focus on the clear key again, and two more Shift+Tabs,
+      through the delete key, put it on a letter key. With focus
+      there, Enter, Space and a screen reader's activate leave the
+      letters display empty and change no word: an enabled letter key
+      pressed while the words are not held would add a letter. In each case the screen is navigating afterwards. When the test answers the check as a failed checksum,
       the banner shows, with focus on it, and all 24 words are as
       they were. In a second run, the test answers the check as a valid phrase, and R3 opens with
       focus on `IdR3Question`. In a third run, the check is started by
