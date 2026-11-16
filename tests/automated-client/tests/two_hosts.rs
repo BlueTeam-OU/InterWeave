@@ -28,7 +28,9 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::time::Duration;
 
 use interweave_automated_client_tests::{Client, ClientConfig};
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{
+    AdminBinding as _, AdminCapability, AdminPort as _, PeerGateView,
+};
 use interweave_test_support::e2e::netns::{self, Net};
 use interweave_test_support::e2e::{Daemon, Home, PATIENCE, free_port, private_tempdir};
 use interweave_transport_api::{EndpointId, MessageId, TransportError, TransportIdentity};
@@ -143,9 +145,9 @@ observability: {{ log_level: debug }}
         self.daemon.as_ref().map(Daemon::log).unwrap_or_default()
     }
 
-    /// Whether the dial gate holds a connection to `peer` open, read
-    /// through this daemon's admin port.
-    async fn connected_to(&self, peer: &TransportIdentity) -> bool {
+    /// The dial gate's row for `peer` (`admin.peers.list`), read through
+    /// this daemon's admin port; `None` when the gate lists no such peer.
+    async fn gate(&self, peer: &TransportIdentity) -> Option<PeerGateView> {
         let admin = self
             .home
             .binding()
@@ -157,7 +159,20 @@ observability: {{ log_level: debug }}
             .await
             .expect("admin.peers.list")
             .into_iter()
-            .any(|v| &v.peer == peer && v.connected)
+            .find(|v| &v.peer == peer)
+    }
+
+    /// Whether the dial gate holds a connection to `peer` open.
+    async fn connected_to(&self, peer: &TransportIdentity) -> bool {
+        self.gate(peer).await.is_some_and(|v| v.connected)
+    }
+
+    /// The port changed to a fresh one in this host's namespace and the
+    /// config rendered again: the same identity returning on another
+    /// address.
+    fn move_port(&mut self, other: &Self, entry: bool) {
+        self.port = netns::in_net(self.net, || free_port(self.ip));
+        self.render(other, entry, Listen::Wildcard);
     }
 
     async fn client(&self) -> Client {
@@ -429,12 +444,42 @@ async fn an_idle_connection_the_far_host_cannot_dial_back_outlives_the_idle_time
     if !netns::in_overlay(PAST_THE_IDLE_TIMEOUT) {
         return;
     }
+    idle_for(IDLE_PAST).await;
+}
+
+const PAST_THREE_MINUTES: &str =
+    "an_idle_connection_the_far_host_cannot_dial_back_outlives_three_minutes_idle";
+
+/// Past three minutes, with margin: `CONNECTIVITY.md` §14's idle period
+/// "past 180 s", which the measurement that found the hold's gap held a
+/// connection for (main a04400b39, one socket for 180 s).
+const IDLE_PAST_THREE_MINUTES: Duration = Duration::from_secs(200);
+
+/// The case above, idle for 200 s: twelve of the held connection's
+/// 15 s pings and more than three idle timeouts. Two namespaces on one
+/// kernel, not two hosts: no real link, so no NAT mapping or middlebox
+/// that could expire an idle flow in that time, and that is the case's
+/// limit by name. Run by hand, recorded under
+/// `tests/automated-client/runs/`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "idle for over three minutes, run by hand and recorded under tests/automated-client/runs/"]
+async fn an_idle_connection_the_far_host_cannot_dial_back_outlives_three_minutes_idle() {
+    if !netns::in_overlay(PAST_THREE_MINUTES) {
+        return;
+    }
+    idle_for(IDLE_PAST_THREE_MINUTES).await;
+}
+
+/// The fleet's shape, idle for `idle`, then B's message over A's
+/// connection; then the control for the "no close logged" reading: the
+/// link deleted, and both ends log the close the idle watch looked for.
+async fn idle_for(idle: Duration) {
     let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
     until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
 
     // IDLE, watched every quarter second: a close that A redialled
     // within a round would still leave its line in a log.
-    let deadline = tokio::time::Instant::now() + IDLE_PAST;
+    let deadline = tokio::time::Instant::now() + idle;
     while tokio::time::Instant::now() < deadline {
         assert!(
             a.connected_to(&b.peer).await && b.connected_to(&a.peer).await,
@@ -446,7 +491,7 @@ async fn an_idle_connection_the_far_host_cannot_dial_back_outlives_the_idle_time
     }
     for (name, host) in [("A", &a), ("B", &b)] {
         assert!(
-            !host.log().contains("peer disconnected"),
+            !host.log().contains(CLOSED),
             "{name} logged a close while idle:\n{}",
             host.log()
         );
@@ -460,14 +505,31 @@ async fn an_idle_connection_the_far_host_cannot_dial_back_outlives_the_idle_time
         &mut at_a,
         (&b, &a),
         1,
-        "b to a, past the idle timeout",
+        "b to a, after the idle",
     )
     .await;
+
+    // The reading's control: a close is logged, at both ends, so the
+    // absence above was not a line that is never written.
+    netns::overlay_down();
+    until_both(&a, &b, false, CLOSE, "both closed on the link's loss").await;
+    for (name, host) in [("A", &a), ("B", &b)] {
+        assert!(
+            host.log().contains(CLOSED),
+            "{name} logged no close on the link's loss:\n{}",
+            host.log()
+        );
+    }
+    netns::overlay_up();
 
     drop((at_a, from_b));
     a.stop().await;
     b.stop().await;
 }
+
+/// The line a host's composition writes when a peer's last connection
+/// closes (`composition::gate`).
+const CLOSED: &str = "peer disconnected";
 
 /// What [`after_a_close`] saw at B, the side with no entry for A.
 #[derive(Debug)]
@@ -855,6 +917,226 @@ async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_t
     );
     // THE OWNER'S WORD: within 30 s of B's return, plus the dial itself.
     assert!(took <= BOUND + Duration::from_secs(1), "{took:?}");
+
+    a.stop().await;
+    b.stop().await;
+}
+
+/// Now, in milliseconds since the Unix epoch: the clock the gate's
+/// `backoff_until` is read on (`PeerGateView`).
+fn wall_ms() -> u64 {
+    u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after the epoch")
+            .as_millis(),
+    )
+    .expect("fits")
+}
+
+/// Two hosts with A's entry for B, and B's for A when `b_entry`;
+/// connected; then B's DAEMON stopped -- the link stays up, so nothing
+/// changes in A's network and no network addition lifts A's backoff
+/// later (ADR-0011 A 2026-10-09) -- until A's gate holds B in a dial
+/// backoff its failed redial set; then B started again, on another port
+/// when `moved`. Returns the hosts and the backoff A held when B was
+/// started.
+async fn far_end_returns(b_entry: bool, moved: bool) -> (tempfile::TempDir, Host, Host, u64) {
+    let (base, a, mut b) = hosts_with(true, b_entry, Listen::Wildcard).await;
+    until_both(&a, &b, true, PATIENCE, "connected").await;
+    b.stop().await;
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let held = loop {
+        let row = a.gate(&b.peer).await.expect("A's gate lists B");
+        if let (false, Some(until)) = (row.connected, row.backoff_until) {
+            break until;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "A's redial of B never failed into a backoff: {row:?}\n{}",
+            a.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    if moved {
+        b.move_port(&a, b_entry);
+    }
+    b.start().await;
+    // The watches below need the backoff still running once B is up;
+    // the start takes well under a second here.
+    assert!(
+        held > wall_ms() + 10_000,
+        "B's start outlasted A's backoff: {held}, now {}",
+        wall_ms()
+    );
+    (base, a, b, held)
+}
+
+/// How far two readings of one backoff may differ: the row reports a
+/// monotonic deadline on the wall clock, converted at each read, and two
+/// reads of one backoff were measured 1 ms apart.
+const JITTER_MS: u64 = 50;
+
+/// Wait, within `patience`, until A holds a connection to B, and return
+/// the wall clock then.
+async fn until_a_connected(a: &Host, b: &Host, patience: Duration, what: &str) -> u64 {
+    let deadline = tokio::time::Instant::now() + patience;
+    while !a.connected_to(&b.peer).await {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{what} within {patience:?}\nA:\n{}\nB:\n{}",
+            a.log(),
+            b.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    wall_ms()
+}
+
+const RETURNS_AND_DIALS: &str = "a_far_end_that_returns_and_dials_this_side_lifts_its_backoff";
+
+/// `CONNECTIVITY.md` §12 (A 2026-10-06): "a successful inbound
+/// connection from a peer resets that peer's dial backoff". B holds an
+/// entry for A, so when B's daemon returns it dials A; A, holding B in
+/// the backoff its failed redial set, retains that inbound. The pair is
+/// connected before A's backoff would have run out, and A's gate row for
+/// B carries no backoff from then on. Between two namespaces, the unit
+/// test's claim (`a_retained_inbound_lifts_the_peers_backoff_and_a_refused_one_does_not`,
+/// `runtime/dialing.rs`). The control is the case below: the same
+/// return without B's dial lifts nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_far_end_that_returns_and_dials_this_side_lifts_its_backoff() {
+    if !netns::in_overlay(RETURNS_AND_DIALS) {
+        return;
+    }
+    let (_base, mut a, mut b, held) = far_end_returns(true, false).await;
+    let at = until_a_connected(&a, &b, Duration::from_secs(10), "B's dial reached A").await;
+    assert!(
+        at < held,
+        "connected at {at}, after A's backoff ran out at {held}"
+    );
+    let row = a.gate(&b.peer).await.expect("A's gate lists B");
+    assert_eq!(
+        row.backoff_until,
+        None,
+        "the retained inbound left A's backoff standing: {row:?}\n{}",
+        a.log()
+    );
+    // And it is the pair's connection: A's client reaches B over it.
+    let mut from_a = a.client().await;
+    let mut at_b = b.client().await;
+    lands(&mut from_a, &mut at_b, (&a, &b), 1, "a to b, over B's dial").await;
+
+    drop((from_a, at_b));
+    a.stop().await;
+    b.stop().await;
+}
+
+const RETURNS_SILENT: &str =
+    "a_far_end_that_returns_without_dialling_lifts_nothing_and_waits_for_the_retry";
+
+/// The control for the case above: B holds no entry for A and dials
+/// nothing when it returns, so A's backoff stands -- A's row keeps it and
+/// the pair stays apart until it runs out -- and the pair reconnects at
+/// A's retry, within 30 s of the failure that set it (ADR-0011 A
+/// 2026-11-14). The case above passing beside this one is B's dial
+/// lifting the backoff, not B's return.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_far_end_that_returns_without_dialling_lifts_nothing_and_waits_for_the_retry() {
+    if !netns::in_overlay(RETURNS_SILENT) {
+        return;
+    }
+    let (_base, mut a, mut b, held) = far_end_returns(false, false).await;
+    while wall_ms() + 1_000 < held {
+        let row = a.gate(&b.peer).await.expect("A's gate lists B");
+        assert!(
+            !row.connected
+                && row
+                    .backoff_until
+                    .is_some_and(|until| until.abs_diff(held) <= JITTER_MS),
+            "B's return alone moved A's gate from a backoff until {held}: {row:?}\n{}",
+            a.log()
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let at = until_a_connected(&a, &b, PATIENCE, "A's retry reached B").await;
+    assert!(
+        at + 1_000 >= held,
+        "connected at {at}, before A's backoff ran out at {held}"
+    );
+
+    a.stop().await;
+    b.stop().await;
+}
+
+const MOVED_AND_DIALS: &str =
+    "a_far_end_that_returns_on_another_address_and_dials_this_side_is_reached";
+
+/// B returns on another address -- another port in its namespace; A's
+/// entry still names the old one, and the overlay's address is never
+/// learned from Identify (it withholds `100.64.0.0/10`), so A holds no
+/// route to B's new address -- and B, holding an entry for A, dials A.
+/// A retains the inbound whatever its stale route earned: the pair
+/// connects before A's backoff ran out, the backoff is lifted, and a
+/// message goes each way over B's connection. The control is the case
+/// below: the same move without B's dial is never reached.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_far_end_that_returns_on_another_address_and_dials_this_side_is_reached() {
+    if !netns::in_overlay(MOVED_AND_DIALS) {
+        return;
+    }
+    let (_base, mut a, mut b, held) = far_end_returns(true, true).await;
+    let at = until_a_connected(&a, &b, Duration::from_secs(10), "B's dial reached A").await;
+    assert!(
+        at < held,
+        "connected at {at}, after A's backoff ran out at {held}"
+    );
+    let row = a.gate(&b.peer).await.expect("A's gate lists B");
+    assert_eq!(row.backoff_until, None, "{row:?}\n{}", a.log());
+    let mut from_a = a.client().await;
+    let mut from_b = b.client().await;
+    lands(&mut from_a, &mut from_b, (&a, &b), 1, "a to b, moved").await;
+    lands(&mut from_b, &mut from_a, (&b, &a), 2, "b to a, moved").await;
+
+    drop((from_a, from_b));
+    a.stop().await;
+    b.stop().await;
+}
+
+const MOVED_SILENT: &str =
+    "a_far_end_that_returns_on_another_address_without_dialling_is_never_reached";
+
+/// The control for the case above: B returns on another port with no
+/// entry for A. A's retry falls due and dials the address its entry
+/// names, which B no longer listens on, and fails -- the dial count is
+/// the live reading that A was trying -- and the pair stays apart
+/// through it: A holds no other route to B, and nothing in this
+/// deployment would give it one. This is the deployment's limit, not a
+/// defect: a far end that moves and dials nothing is reached only once
+/// this side's entry names its new address.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_far_end_that_returns_on_another_address_without_dialling_is_never_reached() {
+    if !netns::in_overlay(MOVED_SILENT) {
+        return;
+    }
+    let (_base, mut a, mut b, held) = far_end_returns(false, true).await;
+    let failed = |a: &Host| a.log().matches("dial failed").count();
+    let before = failed(&a);
+    // Past A's retry, with margin for the dial and its refusal.
+    while wall_ms() < held + 5_000 {
+        assert!(
+            !a.connected_to(&b.peer).await && !b.connected_to(&a.peer).await,
+            "the moved far end was reached\nA:\n{}\nB:\n{}",
+            a.log(),
+            b.log()
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(
+        failed(&a) > before,
+        "A never redialled its stale entry\n{}",
+        a.log()
+    );
 
     a.stop().await;
     b.stop().await;
