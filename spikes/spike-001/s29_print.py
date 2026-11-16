@@ -194,7 +194,7 @@ def init_record(lines):
                         **{k: v.get(k) for k in ("permissionMode", "apiKeySource", "claude_code_version",
                                                  "model", "output_style", "fast_mode_state") if k in v},
                         **({"mcp_servers": [{"name": s.get("name"), "status": s.get("status")}
-                                            for s in v["mcp_servers"]]} if "mcp_servers" in v else {})})
+                                            for s in v["mcp_servers"] or []]} if "mcp_servers" in v else {})})
     return out
 
 

@@ -47,7 +47,7 @@ def table():
             r = s33_reply.json.loads(m.group(1))
             runs += 1
             ms = int(re.search(r"Successfully connected \(transport: stdio\) in (\d+)ms", text).group(1))
-            if "Channel notifications" in text:
+            if "Channel notifications registered" in text or "Channel notifications re-registered" in text:
                 ok_ms.append(ms)
                 continue
             lost.append(path.parent.name.split("-reply-")[1])
