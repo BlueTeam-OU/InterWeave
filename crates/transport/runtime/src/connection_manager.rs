@@ -3462,6 +3462,25 @@ mod tests {
             std::slice::from_ref(&p),
             "due at R1's connection, though the last failure named R2"
         );
+
+        // And at R2's: the relay the last failure named, whose circuit
+        // is admitted again while R1's is still held.
+        let mut m = both_held();
+        assert!(
+            m.take_due_retries(13_000, 4).is_empty(),
+            "the control: not due yet"
+        );
+        m.relay_reached(&r2, 13_000);
+        assert!(
+            !refused(&m, &through_r2, 13_000),
+            "R2's circuit is admitted"
+        );
+        assert!(refused(&m, &through_r1, 13_000), "R1's is still held");
+        assert_eq!(
+            m.take_due_retries(13_000, 4),
+            std::slice::from_ref(&p),
+            "due at R2's connection"
+        );
     }
 
     /// ONE relay, with another route's failure between: C through R fails
