@@ -889,7 +889,7 @@ it, those checks are blocked, never passed.
       times it: the list shape closed within 1 s in nine rounds of
       nine. Distinct
       headings closed within 0.15 s in all eight judged rounds (15 to
-      76 ms), and its ninth round was void. Distinct links was void in
+      76 ms), and its other round was void. Distinct links was void in
       all nine rounds: its first screen (the rows handed to the window)
       came 391 to 497 ms after Open the whole message was pressed,
       before the Escape at 0.6 s. The two late closes of the day before
@@ -916,8 +916,8 @@ it, those checks are blocked, never passed.
   when a frame is drawn, so the trace gives the time the rows were
   handed to the window, not the time a frame was drawn); distinct
   headings past the first turn on a host that is not loaded, owed
-  before the two fails of 2026-11-14 are called the client's or
-  passed (the runs of 2026-11-15 were on a loaded host too); the
+  before the check is called passed (the runs of 2026-11-15 were on a
+  loaded host too); the two fails of 2026-11-14 stand; the
   build that ships, which has no trace; Wayland; and a screen reader
   during the opening.
 - **A6** Every row of §9's focus table whose check is A6, by keyboard
