@@ -61,11 +61,11 @@ const BACK_PAST_FIRST_TURN: Duration = Duration::from_millis(600);
 
 /// The stress shapes (`long.rs`), whose openings run past the first turn
 /// on the A40; A5 runs the Escape at 0.6 s on them alone. Distinct links
-/// is not judged on the desktop (ux-designer-01, REPLY 01a1ddf6): its
-/// rows reach the window at 391-497 ms here, so its opening has no moment
-/// while the bar shows (`apps/human-desktop/runs/
-/// 2026-11-15-escape-during-opening.md`); its own controls stay checked
-/// on the A40.
+/// is not run here: A5 (`design/2026-11-04-long-message.md`) judges it
+/// on the desktop by its eight passed rounds of 2026-11-14 and asks no
+/// further desktop run, since its rows now reach the window at 391-497 ms,
+/// before the bar would show (`apps/human-desktop/runs/
+/// 2026-11-15-escape-during-opening.md`).
 const STRESS: [&str; 1] = ["distinct headings"];
 
 /// The shape whose Escape comes inside the first turn.
