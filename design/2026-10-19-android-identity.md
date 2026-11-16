@@ -725,24 +725,25 @@ access.
   delete, clear, Backspace, a chip, Enter, a grid position, "show
   all my words", and the action of a notice still showing (`TryAgain`,
   or `IdRestoreOther`'s Continue) do nothing, by any input. A notice
-  that shows when the check starts stays until the result replaces it.
-  A Try again on an R2 notice (`IdBusy`, `IdStorageFailed`,
-  `IdStorageUnknown`) starts a check too, after K1 a write or a read
-  back, and holds the same way. So no chip can be taken
+  that is showing when the check starts stays on the screen while the
+  check runs. A Try again on an R2 notice (`IdBusy`, `IdStorageFailed`,
+  `IdStorageUnknown`) also starts a check (after K1, that check is a
+  write or a read back), and the words are held in the same way while
+  it runs. So no chip can be taken
   while the check runs, and no focus rule for a chip applies. Focus
   does not move: it stays on the control that held it when the check
-  began. That is the control Enter or Space pressed (`IdCheckWords`,
-  or a notice's `TryAgain`), and whatever held focus when the person
-  tapped it, since a
+  began. After a press by Enter or Space, that is the control pressed
+  (`IdCheckWords`, or a notice's `TryAgain`). After a tap, it is
+  whatever held focus when the person tapped that control, since a
   tap does not move focus (above). An input that does nothing while
   the check runs leaves the mode (typing or navigating) as it was, as
   a tap on a disabled key leaves it. When the result comes, focus
   goes as follows. A §6 banner or notice takes focus (the error-banner
   rule below). A valid phrase opens R3, or R4 after K1, with focus on
-  the screen's title, as on C2's PeerId page (below), so the reading
-  starts at the question or at "restored". A cancelled or denied
-  prompt leaves R2 as it was, with `IdCheckWords` enabled again and
-  focus where it was. Why the words
+  the screen's title, as on C2's PeerId page (below), so a screen
+  reader starts at R3's question or at R4's "PeerId restored". A
+  cancelled or denied prompt leaves R2 as it was, with `IdCheckWords`
+  enabled again and focus where it was. Why the words
   are held: a check reports on the words it read. A word changed while
   it runs would leave R3 showing the PeerId of words no longer on the
   screen, or, after K1, restore words other than the ones checked.
@@ -1090,17 +1091,17 @@ scale would also be a finding of the Android review
       focus on the first enabled key.
     - On R2, with positions 1 to 23 filled and 24 current, a chip
       taken by Enter fills 24 and puts focus on `IdCheckWords`, now
-      enabled, and the next Enter runs the check. In a host test that
-      leaves that check unanswered (the flow's check is an effect the
-      test answers itself, as the identity flow's tests in
-      `crates/human/ui-model` do; no device hook holds it, so this
-      part is checked by the host test, not on the phone),
-      a typed "a", a tap on position 5, Escape and another Enter
-      change no word and open nothing; focus stays on
-      `IdCheckWords`, which shows disabled; and the back arrow is
-      inactive. When the test answers the check as a failed checksum,
+      enabled, and the next Enter runs the check. While a host test
+      leaves that check unanswered, a typed "a", a tap on position
+      5, Escape and another Enter change no word and open nothing;
+      focus stays on `IdCheckWords`, which shows disabled; and the
+      back arrow is inactive. When the test answers the check as a failed checksum,
       the banner shows, with focus on it, and all 24 words are as
-      they were. With position 3
+      they were. These two steps run in a host test, not on the
+      phone: no device hook holds the check, and in a host test the
+      flow's check is an effect that the test answers itself, as the
+      identity flow's tests in `crates/human/ui-model` do. With
+      position 3
       empty and 24 current, a chip taken by Enter fills 24 and makes
       3 current, with focus on the first enabled key.
     - With position 5 filled, a tap on it puts focus on the first
