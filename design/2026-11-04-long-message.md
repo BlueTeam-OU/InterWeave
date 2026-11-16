@@ -878,8 +878,9 @@ it, those checks are blocked, never passed.
     time.
     - 2026-11-14 (rust-ui-dev-02, REPLY 01a1da47;
       `apps/human-desktop/runs/2026-11-14-escape-during-opening.md`), on
-      a host whose load was five to six times its number of CPUs: the
-      list shape closed within 1 s in nine rounds of nine. The stress
+      a host whose load, read before and after its second and third
+      runs, was five to six times its number of CPUs (the first run's
+      load was not read): the list shape closed within 1 s in nine rounds of nine. The stress
       shapes closed within 0.15 s in fifteen of the seventeen judged
       rounds; two distinct-headings rounds failed: they closed at 192
       and 312 ms. One distinct-links round was void.
@@ -896,8 +897,8 @@ it, those checks are blocked, never passed.
       to the host's load as their cause, but does not prove it.
     On the desktop, distinct links is judged past the first turn only
     by its eight rounds of 2026-11-14 that were not void, and all
-    eight passed. On that day the host's load was five to six times
-    its number of CPUs, and the shape's first screen came after the
+    eight passed. On that day the host's load, where it was read, was
+    five to six times its number of CPUs, and the shape's first screen came after the
     Escape at 0.6 s. No further desktop run of distinct links is
     asked. On 2026-11-15 it opened before the bar would show at 0.5 s,
     so no Escape could reach it while the bar showed. An Escape inside
