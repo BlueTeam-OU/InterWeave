@@ -1,0 +1,127 @@
+daemons: <branch>/target/release
+variant silent, outage 100s past B's exit
+B's drain: SIGTERM to exit 223 ms; A's sends, ms from SIGTERM:
+  0..0 ms: Accepted x1
+  55..55 ms: PeerUnreachable x1
+accepted during the drain: 1, read by B's client before the exit: 0
+A's sends through the outage, ms from B's exit:
+  0..0 ms: PeerUnreachable (A's hold left Some(29996) ms) x1
+  10001..10001 ms: PeerUnreachable (A's hold left Some(19998) ms) x1
+  20005..20005 ms: PeerUnreachable (A's hold left Some(9986) ms) x1
+  30001..30001 ms: PeerUnreachable (A's hold left Some(29997) ms) x1
+  40001..40001 ms: PeerUnreachable (A's hold left Some(20000) ms) x1
+  50001..50001 ms: PeerUnreachable (A's hold left Some(9996) ms) x1
+  60005..60005 ms: PeerUnreachable (A's hold left Some(29996) ms) x1
+  70001..70001 ms: PeerUnreachable (A's hold left Some(20017) ms) x1
+  80001..80001 ms: PeerUnreachable (A's hold left Some(9996) ms) x1
+  90004..90004 ms: PeerUnreachable (A's hold left Some(12) ms) x1
+B serving 100054 ms after its exit; B's client leased 15 ms after B served
+A's sends after B's return, ms from B serving:
+  0..19877 ms: PeerUnreachable x76
+  20132..22206 ms: Accepted x9
+first accepted at Some(20132) ms, A's gate connected at Some(20138) ms
+accepted after the return: 9, read by B's client: true (lost 0)
+-- A's connectivity lines from the SIGTERM --
+2026-11-17T10:04:05.047679Z DEBUG interweave::connectivity: peer disconnected peer="<B>" reason="closed"
+2026-11-17T10:04:05.214632Z DEBUG interweave::connectivity: dial failed peer="<B>" class="dial_failed"
+2026-11-17T10:04:05.214652Z DEBUG interweave::connectivity: retry scheduled peer="<B>" origin="manual" attempt=1 delay_ms=30000 peer_backoff=true
+2026-11-17T10:04:05.948040Z  INFO interweave::connectivity: reconnect refused peer="<B>" class="PeerBackoff"
+2026-11-17T10:04:15.212373Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:04:25.217350Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:04:35.213912Z DEBUG interweave::connectivity: dial failed peer="<B>" class="dial_failed"
+2026-11-17T10:04:35.213951Z DEBUG interweave::connectivity: retry scheduled peer="<B>" origin="connection_manager" attempt=2 delay_ms=30000 peer_backoff=true
+2026-11-17T10:04:45.212857Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:04:55.213038Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:05.232963Z DEBUG interweave::connectivity: dial failed peer="<B>" class="dial_failed"
+2026-11-17T10:05:05.232992Z DEBUG interweave::connectivity: retry scheduled peer="<B>" origin="connection_manager" attempt=3 delay_ms=30000 peer_backoff=true
+2026-11-17T10:05:05.233000Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:15.213149Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:25.215319Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:35.215716Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:35.234049Z DEBUG interweave::connectivity: dial failed peer="<B>" class="dial_failed"
+2026-11-17T10:05:35.234069Z DEBUG interweave::connectivity: retry scheduled peer="<B>" origin="connection_manager" attempt=4 delay_ms=30000 peer_backoff=true
+2026-11-17T10:05:45.265806Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:45.533279Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:45.793303Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:46.049133Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:46.307145Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:46.633354Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:47.010135Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:47.337589Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:47.601041Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:47.860731Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:48.117416Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:48.386932Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:48.661316Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:48.914594Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:49.173658Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:49.431894Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:49.687629Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:49.984747Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:50.265666Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:50.548379Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:50.819344Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:51.096086Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:51.355013Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:51.612367Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:51.880309Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:52.208861Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:52.468730Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:52.728957Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:53.004338Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:53.268157Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:53.524965Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:53.787205Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:54.050442Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:54.315885Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:54.571929Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:54.827811Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:55.087633Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:55.346475Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:55.601167Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:55.859119Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:56.113718Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:56.378631Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:56.638421Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:56.891476Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:57.145114Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:57.399359Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:57.658665Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:57.917331Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:58.171910Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:58.425885Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:58.695733Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:58.950668Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:59.205747Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:59.472760Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:59.729184Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:05:59.990732Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:00.246353Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:00.500164Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:00.753577Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:01.009813Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:01.263338Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:01.539413Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:01.793959Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:02.051286Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:02.310488Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:02.568126Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:02.822025Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:03.075801Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:03.335770Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:03.596892Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:03.853063Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:04.116711Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:04.370488Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:04.632612Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:04.890005Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:05.143185Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-17T10:06:05.246448Z DEBUG interweave::connectivity: peer connected peer="<B>" path="direct"
+-- B's lines --
+2026-11-17T10:04:04.891205Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<PeerId>"
+2026-11-17T10:04:04.910925Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-17T10:04:04.954144Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"
+2026-11-17T10:04:04.990582Z  INFO transport_daemon::daemon: SIGTERM
+2026-11-17T10:05:45.218304Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<PeerId>"
+2026-11-17T10:05:45.221082Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-17T10:06:05.250233Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"

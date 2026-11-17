@@ -1004,8 +1004,9 @@ const RETURNS_AND_DIALS: &str = "a_far_end_that_returns_and_dials_this_side_lift
 /// entry for A, so when B's daemon returns it dials A; A, holding B in
 /// the backoff its failed redial set, retains that inbound. The pair is
 /// connected before A's backoff would have run out, and A's gate row for
-/// B carries no backoff from then on. Between two namespaces, the unit
-/// test's claim (`a_retained_inbound_lifts_the_peers_backoff_and_a_refused_one_does_not`,
+/// B, read once they are connected, carries no backoff. Between two
+/// namespaces, the unit test's claim
+/// (`a_retained_inbound_lifts_the_peers_backoff_and_a_refused_one_does_not`,
 /// `runtime/dialing.rs`). The control is the case below: the same
 /// return without B's dial lifts nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1041,10 +1042,11 @@ const RETURNS_SILENT: &str =
 
 /// The control for the case above: B holds no entry for A and dials
 /// nothing when it returns, so A's backoff stands -- A's row keeps it and
-/// the pair stays apart until it runs out -- and the pair reconnects at
-/// A's retry, due at the backoff's end, 30 s after the failure that set
-/// it (ADR-0011 A 2026-11-14), within `RETRY_MARGIN_MS` of it. The case above passing beside this one is B's dial
-/// lifting the backoff, not B's return.
+/// the pair stays apart, watched until a second before it runs out -- and
+/// the pair reconnects at A's retry, due at the backoff's end, 30 s after
+/// the failure that set it (ADR-0011 A 2026-11-14), within
+/// `RETRY_MARGIN_MS` of it. The case above passing beside this one is B's
+/// dial lifting the backoff, not B's return.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_far_end_that_returns_without_dialling_lifts_nothing_and_waits_for_the_retry() {
     if !netns::in_overlay(RETURNS_SILENT) {
@@ -1146,6 +1148,345 @@ async fn a_far_end_that_returns_on_another_address_without_dialling_is_never_rea
         a.log()
     );
 
+    a.stop().await;
+    b.stop().await;
+}
+
+const RESTART: &str = "a_restart_of_the_far_daemon_measured_from_its_return";
+
+/// A measurement's message id, numbered past what a `u8` holds.
+fn numbered(n: u32) -> MessageId {
+    let mut bytes = [0x5a; 16];
+    bytes[..4].copy_from_slice(&n.to_be_bytes());
+    MessageId::from_bytes(bytes)
+}
+
+fn answer(outcome: &Result<EndpointId, TransportError>) -> String {
+    match outcome {
+        Ok(_) => "Accepted".to_owned(),
+        Err(e) => format!("{e:?}"),
+    }
+}
+
+/// Consecutive equal answers folded into one line each: the first and
+/// last time, in milliseconds from the phase's mark, and the count.
+fn folded<T: std::fmt::Display>(samples: &[(T, String)]) -> String {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < samples.len() {
+        let mut j = i;
+        while j + 1 < samples.len() && samples[j + 1].1 == samples[i].1 {
+            j += 1;
+        }
+        out.push(format!(
+            "  {}..{} ms: {} x{}",
+            samples[i].0,
+            samples[j].0,
+            samples[i].1,
+            j - i + 1
+        ));
+        i = j + 1;
+    }
+    out.join("\n")
+}
+
+/// `later - earlier` in milliseconds, negative when `later` came first.
+fn signed_ms(later: tokio::time::Instant, earlier: tokio::time::Instant) -> i128 {
+    let ms = |d: Duration| i128::try_from(d.as_millis()).expect("ms");
+    if later >= earlier {
+        ms(later - earlier)
+    } else {
+        -ms(earlier - later)
+    }
+}
+
+/// A measurement, not a pass/fail case: B's daemon restarts while A
+/// holds a connection to it, and A's client sends to B's endpoint
+/// throughout -- pausing 50 ms (`J174_DRAIN_MS`) after each answer,
+/// from `J174_DRAIN_LEAD_MS`
+/// (default 0) before B's `SIGTERM` until it exits (B's drain), while
+/// B's client reads; every 10 s through the outage; and every 250 ms from B's
+/// return until a send is accepted and two seconds past it. B's client
+/// re-opens its session at once: it retries from B's exit. Read from the
+/// environment: `J174_OUTAGE_S`, how long B stays down past its exit
+/// (default 0, a restart), and `J174_B`: `silent` (B holds no entry for A
+/// and sends nothing), `sends` (no entry, and B's client sends to A as
+/// soon as it leases) or `entry` (B holds an entry for A, so its daemon
+/// dials A as it starts, and its client sends to A as soon as it
+/// leases). Run by hand, with `INTERWEAVE_PACKAGE_BIN` for a released
+/// archive's programs; the record is written beside the test binary and
+/// kept under `tests/automated-client/runs/`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "a measurement of minutes, run by hand and recorded under tests/automated-client/runs/"]
+#[allow(clippy::too_many_lines)]
+async fn a_restart_of_the_far_daemon_measured_from_its_return() {
+    if !netns::in_overlay_within(RESTART, Duration::from_mins(20)) {
+        return;
+    }
+    let outage = Duration::from_secs(
+        std::env::var("J174_OUTAGE_S")
+            .ok()
+            .map_or(0, |s| s.parse().expect("seconds")),
+    );
+    let lead = Duration::from_millis(
+        std::env::var("J174_DRAIN_LEAD_MS")
+            .ok()
+            .map_or(0, |s| s.parse().expect("milliseconds")),
+    );
+    let drain_every = Duration::from_millis(
+        std::env::var("J174_DRAIN_MS")
+            .ok()
+            .map_or(50, |s| s.parse().expect("milliseconds")),
+    );
+    let variant = std::env::var("J174_B").unwrap_or_else(|_| "silent".to_owned());
+    let (b_entry, b_sends) = match variant.as_str() {
+        "silent" => (false, false),
+        "sends" => (false, true),
+        "entry" => (true, true),
+        other => panic!("J174_B is silent, sends or entry, not {other}"),
+    };
+    let (_base, mut a, mut b) = hosts_with(true, b_entry, Listen::Wildcard).await;
+    until_both(&a, &b, true, PATIENCE, "connected").await;
+    let mut from_a = a.client().await;
+    let mut at_b = b.client().await;
+    lands(&mut from_a, &mut at_b, (&a, &b), 1, "before the restart").await;
+    let before = a.log().len();
+
+    // B's drain: A's client sends, pausing `drain_every` after each
+    // answer, from `lead` before B's SIGTERM until B's process has exited,
+    // from a task of its own, while B's client reads; each answer is
+    // stamped from the SIGTERM.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sender = {
+        let stop = stop.clone();
+        let b_peer = b.peer.clone();
+        tokio::spawn(async move {
+            let mut sent = Vec::new();
+            let mut n = 0_u32;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                n += 1;
+                let at = tokio::time::Instant::now();
+                let outcome = from_a
+                    .send_once(&b_peer, numbered(n), "across the drain")
+                    .await;
+                sent.push((at, numbered(n), outcome));
+                tokio::time::sleep(drain_every).await;
+            }
+            (from_a, sent, n)
+        })
+    };
+    let lead_until = tokio::time::Instant::now() + lead;
+    while tokio::time::Instant::now() < lead_until {
+        let _ = at_b.pump(Duration::from_millis(1)).await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let pid = b.daemon.as_ref().expect("running").child.id();
+    let status = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(status.success(), "SIGTERM sent");
+    let term = tokio::time::Instant::now();
+    loop {
+        let exited = b
+            .daemon
+            .as_mut()
+            .expect("running")
+            .child
+            .try_wait()
+            .expect("a status");
+        if let Some(status) = exited {
+            assert!(status.success(), "B's clean stop: {status}\n{}", b.log());
+            break;
+        }
+        assert!(term.elapsed() < PATIENCE, "B never exited\n{}", b.log());
+        let _ = at_b.pump(Duration::from_millis(1)).await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let exit = tokio::time::Instant::now();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let (from_a, sent, mut n) = sender.await.expect("the sender task");
+    let b_log_before = b.log();
+    b.daemon = None;
+    let read = |id: &MessageId| at_b.received.inbound.iter().any(|m| m.message_id == *id);
+    let drain: Vec<(i128, String)> = sent
+        .iter()
+        .map(|(at, _, outcome)| (signed_ms(*at, term), answer(outcome)))
+        .collect();
+    let accepted_before = sent
+        .iter()
+        .filter(|(at, _, o)| *at < term && o.is_ok())
+        .map(|(_, id, _)| *id)
+        .collect::<Vec<_>>();
+    let drain_accepted = sent
+        .iter()
+        .filter(|(at, _, o)| *at >= term && o.is_ok())
+        .map(|(_, id, _)| *id)
+        .collect::<Vec<_>>();
+    let lost_before = accepted_before.iter().filter(|id| !read(id)).count();
+    let drain_read = drain_accepted.iter().filter(|id| read(id)).count();
+    drop(at_b);
+
+    // B's client re-opens at once: it retries from B's exit, as a client
+    // whose daemon went does, and, when told to, sends to A once leased.
+    let reopen = {
+        let binding = b.home.binding();
+        let a_peer = a.peer.clone();
+        tokio::spawn(async move {
+            let mut client = Client::new(config(), binding);
+            client
+                .connect(outage + PATIENCE + PATIENCE)
+                .await
+                .expect("B's client leases again");
+            let leased = tokio::time::Instant::now();
+            let sent = if b_sends {
+                Some(answer(
+                    &client
+                        .send_once(&a_peer, numbered(0xb000_0000), "B first")
+                        .await,
+                ))
+            } else {
+                None
+            };
+            (client, leased, sent)
+        })
+    };
+
+    // The outage: A sends every 10 s, and reads its gate's row for B.
+    let mut during = Vec::new();
+    let mut next = exit;
+    while tokio::time::Instant::now() < exit + outage {
+        if tokio::time::Instant::now() >= next {
+            n += 1;
+            let at = exit.elapsed().as_millis();
+            let outcome = from_a
+                .send_once(&b.peer, numbered(n), "during the outage")
+                .await;
+            let row = a.gate(&b.peer).await;
+            let hold = row
+                .as_ref()
+                .and_then(|r| r.backoff_until)
+                .map(|until| i128::from(until) - i128::from(wall_ms()));
+            during.push((
+                at,
+                format!("{} (A's hold left {hold:?} ms)", answer(&outcome)),
+            ));
+            next += Duration::from_secs(10);
+        }
+        tokio::time::sleep_until(next.min(exit + outage)).await;
+    }
+
+    // B's return: from the moment its daemon serves both sockets.
+    b.start().await;
+    let back = tokio::time::Instant::now();
+    let mut after = Vec::new();
+    let mut accepted = Vec::new();
+    let mut first_accepted = None;
+    let mut first_connected = None;
+    let deadline = back + Duration::from_secs(330);
+    loop {
+        n += 1;
+        let at = back.elapsed().as_millis();
+        let outcome = from_a
+            .send_once(&b.peer, numbered(n), "after the return")
+            .await;
+        if outcome.is_ok() {
+            accepted.push(numbered(n));
+            first_accepted.get_or_insert(at);
+        }
+        after.push((at, answer(&outcome)));
+        if first_connected.is_none() && a.connected_to(&b.peer).await {
+            first_connected = Some(back.elapsed().as_millis());
+        }
+        if first_accepted.is_some_and(|f| at > f + 2_000) {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no send accepted within 330 s of B's return\n{}",
+            folded(&after)
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let (mut at_b, leased, b_sent) = reopen.await.expect("the reopen task");
+    let all_read = at_b
+        .pump_until(PATIENCE, |r| {
+            accepted
+                .iter()
+                .all(|id| r.inbound.iter().any(|m| m.message_id == *id))
+        })
+        .await;
+    let lost = accepted
+        .iter()
+        .filter(|id| !at_b.received.inbound.iter().any(|m| m.message_id == **id))
+        .count();
+
+    let a_lines = a.log()[before..]
+        .lines()
+        .filter(|l| {
+            [
+                "dial failed",
+                "retry scheduled",
+                "peer connected",
+                "peer disconnected",
+                "reconnect refused",
+            ]
+            .iter()
+            .any(|w| l.contains(w))
+        })
+        .map(|l| l.replace(b.peer.as_str(), "<B>"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let b_lines = b_log_before
+        .lines()
+        .chain(b.log().lines())
+        .filter(|l| {
+            [
+                "SIGTERM",
+                "dial failed",
+                "retry scheduled",
+                "peer connected",
+                "peer disconnected",
+                "serving",
+                "starting",
+            ]
+            .iter()
+            .any(|w| l.contains(w))
+        })
+        .map(|l| l.replace(a.peer.as_str(), "<A>"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let daemons = std::env::var(interweave_test_support::e2e::PACKAGE_BIN)
+        .unwrap_or_else(|_| "the workspace's build".to_owned());
+    let text = format!(
+        "daemons: {daemons}\nvariant {variant}, outage {outage:?} past B's exit\n\
+         B's drain: SIGTERM to exit {} ms; A's sends, pausing {drain_every:?} after each answer, from {lead:?} before it, ms from SIGTERM:\n{}\n\
+         accepted before the SIGTERM: {}, of them not read by B's client: {lost_before}\n\
+         accepted from the SIGTERM on: {}, read by B's client before the exit: {drain_read}\n\
+         A's sends through the outage, ms from B's exit:\n{}\n\
+         B serving {} ms after its exit; B's client leased {} ms after B served{}\n\
+         A's sends after B's return, ms from B serving:\n{}\n\
+         first accepted at {first_accepted:?} ms, A's gate connected at {first_connected:?} ms\n\
+         accepted after the return: {}, read by B's client: {all_read} (lost {lost})\n\
+         -- A's connectivity lines from the SIGTERM --\n{a_lines}\n\
+         -- B's lines --\n{b_lines}\n",
+        (exit - term).as_millis(),
+        folded(&drain),
+        accepted_before.len(),
+        drain_accepted.len(),
+        folded(&during),
+        (back - exit).as_millis(),
+        signed_ms(leased, back),
+        b_sent.map_or_else(String::new, |s| format!("; B's send to A: {s}")),
+        folded(&after),
+        accepted.len(),
+    );
+    let path = std::env::current_exe()
+        .expect("the test binary's path")
+        .with_file_name(format!("restart-{variant}-{}s.txt", outage.as_secs()));
+    std::fs::write(&path, &text).expect("the record is written");
+
+    drop((from_a, at_b));
     a.stop().await;
     b.stop().await;
 }
