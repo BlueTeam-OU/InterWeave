@@ -1155,7 +1155,7 @@ scale would also be a finding of the Android review
       focus on `IdR3Question`. In a third run, the check is started by
       a screen reader's activate on `IdCheckWords`: focus stays on
       `IdCheckWords` while it runs. In a run after K1, a phrase from
-      which the app derives the PeerId that the record names opens R4 with focus on its title, "PeerId restored". In the second run, with the test answering the restore as a success, Tab moves focus from `IdR3Question` to `CopyPeerId` (§5) and a second Tab to `IdR3Yes`, and an Enter there opens R4 with focus on its title; the next Enter presses nothing and the service does not start, and Tab then moves focus to `CopyPeerId` and a second Tab to Continue. These steps run in a host test, not on the
+      which the app derives the PeerId that the record names opens R4 with focus on its title, "PeerId restored". In the second run, the test answers the restore as a success. On R3, Tab moves focus from `IdR3Question` to `CopyPeerId` (§5), and a second Tab moves it to `IdR3Yes`. An Enter there opens R4 with focus on its title. The next Enter presses nothing, and the service does not start. On R4, Tab then moves focus to `CopyPeerId`, and a second Tab moves it to Continue. These steps run in a host test, not on the
       phone: no device hook holds the check, and in a host test the
       flow's check is an effect that the test answers itself, as the
       identity flow's tests in `crates/human/ui-model` do. With
