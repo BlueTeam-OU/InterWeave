@@ -50,9 +50,9 @@ Every command exited 0. Afterwards `installed_plugins.json` named version `0.2.0
   higher one: "updated from 0.3.0 to 0.2.0". Nothing warned that the version went down, and nothing asked to
   confirm. So `plugin update` follows the version the marketplace holds, higher or lower, and only an equal one is
   "already at the latest version" (S20 case A).
-- **`claude plugin list` showed 0.2.0 straight away.** It read the plugin from the marketplace directory, as S20
-  fact 26 found: with a directory marketplace, what runs is what is in the folder, so the folder already held 0.2.0
-  before the update ran.
+- **`claude plugin list` after the update showed 0.2.0.** With a directory marketplace what runs is what is in the
+  folder (S20 fact 26), so this run cannot tell the folder's effect from the update's: no `claude plugin list` was run
+  between the folder's replacement and the update.
 
 ## Not run
 
