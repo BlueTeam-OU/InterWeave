@@ -1170,7 +1170,7 @@ fn answer(outcome: &Result<EndpointId, TransportError>) -> String {
 
 /// Consecutive equal answers folded into one line each: the first and
 /// last time, in milliseconds from the phase's mark, and the count.
-fn folded(samples: &[(u128, String)]) -> String {
+fn folded<T: std::fmt::Display>(samples: &[(T, String)]) -> String {
     let mut out = Vec::new();
     let mut i = 0;
     while i < samples.len() {
@@ -1202,8 +1202,9 @@ fn signed_ms(later: tokio::time::Instant, earlier: tokio::time::Instant) -> i128
 
 /// A measurement, not a pass/fail case: B's daemon restarts while A
 /// holds a connection to it, and A's client sends to B's endpoint
-/// throughout -- every 50 ms (`J174_DRAIN_MS`) from B's `SIGTERM` until it exits (B's
-/// drain), every 10 s through the outage, and every 250 ms from B's
+/// throughout -- every 50 ms (`J174_DRAIN_MS`) from `J174_DRAIN_LEAD_MS`
+/// (default 0) before B's `SIGTERM` until it exits (B's drain), while
+/// B's client reads; every 10 s through the outage; and every 250 ms from B's
 /// return until a send is accepted and two seconds past it. B's client
 /// re-opens its session at once: it retries from B's exit. Read from the
 /// environment: `J174_OUTAGE_S`, how long B stays down past its exit
@@ -1226,6 +1227,11 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
             .ok()
             .map_or(0, |s| s.parse().expect("seconds")),
     );
+    let lead = Duration::from_millis(
+        std::env::var("J174_DRAIN_LEAD_MS")
+            .ok()
+            .map_or(0, |s| s.parse().expect("milliseconds")),
+    );
     let drain_every = Duration::from_millis(
         std::env::var("J174_DRAIN_MS")
             .ok()
@@ -1244,9 +1250,34 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
     let mut at_b = b.client().await;
     lands(&mut from_a, &mut at_b, (&a, &b), 1, "before the restart").await;
     let before = a.log().len();
-    let mut n = 0_u32;
 
-    // B's drain: from its SIGTERM until its process has exited.
+    // B's drain: A's client sends every `drain_every` from `lead` before
+    // B's SIGTERM until B's process has exited, from a task of its own,
+    // while B's client reads; each answer is stamped from the SIGTERM.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sender = {
+        let stop = stop.clone();
+        let b_peer = b.peer.clone();
+        tokio::spawn(async move {
+            let mut sent = Vec::new();
+            let mut n = 0_u32;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                n += 1;
+                let at = tokio::time::Instant::now();
+                let outcome = from_a
+                    .send_once(&b_peer, numbered(n), "across the drain")
+                    .await;
+                sent.push((at, numbered(n), outcome));
+                tokio::time::sleep(drain_every).await;
+            }
+            (from_a, sent, n)
+        })
+    };
+    let lead_until = tokio::time::Instant::now() + lead;
+    while tokio::time::Instant::now() < lead_until {
+        let _ = at_b.pump(Duration::from_millis(1)).await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
     let pid = b.daemon.as_ref().expect("running").child.id();
     let status = std::process::Command::new("kill")
         .args(["-TERM", &pid.to_string()])
@@ -1254,8 +1285,6 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
         .expect("kill runs");
     assert!(status.success(), "SIGTERM sent");
     let term = tokio::time::Instant::now();
-    let mut drain = Vec::new();
-    let mut drain_accepted = Vec::new();
     loop {
         let exited = b
             .daemon
@@ -1269,25 +1298,31 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
             break;
         }
         assert!(term.elapsed() < PATIENCE, "B never exited\n{}", b.log());
-        n += 1;
-        let at = term.elapsed().as_millis();
-        let outcome = from_a
-            .send_once(&b.peer, numbered(n), "during the drain")
-            .await;
-        if outcome.is_ok() {
-            drain_accepted.push(numbered(n));
-        }
-        drain.push((at, answer(&outcome)));
         let _ = at_b.pump(Duration::from_millis(1)).await;
-        tokio::time::sleep(drain_every).await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
     }
     let exit = tokio::time::Instant::now();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let (from_a, sent, mut n) = sender.await.expect("the sender task");
     let b_log_before = b.log();
     b.daemon = None;
-    let drain_read = drain_accepted
+    let read = |id: &MessageId| at_b.received.inbound.iter().any(|m| m.message_id == *id);
+    let drain: Vec<(i128, String)> = sent
         .iter()
-        .filter(|id| at_b.received.inbound.iter().any(|m| m.message_id == **id))
-        .count();
+        .map(|(at, _, outcome)| (signed_ms(*at, term), answer(outcome)))
+        .collect();
+    let accepted_before = sent
+        .iter()
+        .filter(|(at, _, o)| *at < term && o.is_ok())
+        .map(|(_, id, _)| *id)
+        .collect::<Vec<_>>();
+    let drain_accepted = sent
+        .iter()
+        .filter(|(at, _, o)| *at >= term && o.is_ok())
+        .map(|(_, id, _)| *id)
+        .collect::<Vec<_>>();
+    let lost_before = accepted_before.iter().filter(|id| !read(id)).count();
+    let drain_read = drain_accepted.iter().filter(|id| read(id)).count();
     drop(at_b);
 
     // B's client re-opens at once: it retries from B's exit, as a client
@@ -1423,8 +1458,9 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
         .unwrap_or_else(|_| "the workspace's build".to_owned());
     let text = format!(
         "daemons: {daemons}\nvariant {variant}, outage {outage:?} past B's exit\n\
-         B's drain: SIGTERM to exit {} ms; A's sends, ms from SIGTERM:\n{}\n\
-         accepted during the drain: {}, read by B's client before the exit: {drain_read}\n\
+         B's drain: SIGTERM to exit {} ms; A's sends every {drain_every:?} from {lead:?} before it, ms from SIGTERM:\n{}\n\
+         accepted before the SIGTERM: {}, of them not read by B's client: {lost_before}\n\
+         accepted from the SIGTERM on: {}, read by B's client before the exit: {drain_read}\n\
          A's sends through the outage, ms from B's exit:\n{}\n\
          B serving {} ms after its exit; B's client leased {} ms after B served{}\n\
          A's sends after B's return, ms from B serving:\n{}\n\
@@ -1434,6 +1470,7 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
          -- B's lines --\n{b_lines}\n",
         (exit - term).as_millis(),
         folded(&drain),
+        accepted_before.len(),
         drain_accepted.len(),
         folded(&during),
         (back - exit).as_millis(),
