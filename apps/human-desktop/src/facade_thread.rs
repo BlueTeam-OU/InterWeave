@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use interweave_human_app_core::{Command, FacadeSide, Update};
 use interweave_human_store::StoreError;
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 /// How many messages wait for the window at most. When the window falls
@@ -104,7 +104,7 @@ impl FacadeThread {
         report: fn(&str),
     ) -> std::io::Result<Self>
     where
-        B: DataSessionBinding + 'static,
+        B: interweave_human_transport_client::SessionBinding + 'static,
         A: AdminBinding + 'static,
     {
         Self::spawn_bounded(make, daemon_present, notify, report, TO_WINDOW)
@@ -123,7 +123,7 @@ impl FacadeThread {
         capacity: usize,
     ) -> std::io::Result<Self>
     where
-        B: DataSessionBinding + 'static,
+        B: interweave_human_transport_client::SessionBinding + 'static,
         A: AdminBinding + 'static,
     {
         let (to_facade, mut commands) = unbounded_channel();

@@ -33,8 +33,10 @@ impl<B> Offline<B> {
 /// that type is the composition crate's, which this crate does not reach.
 #[must_use]
 pub fn offline_embedded()
--> Offline<impl DataSessionBinding<Session: Send> + AdminBinding<Admin: Send>> {
-    fn like<B: DataSessionBinding + AdminBinding>(_: fn(&EmbeddedHost) -> B) -> Offline<B> {
+-> Offline<impl DataSessionBinding<Session: Send + Sync + 'static> + AdminBinding<Admin: Send>> {
+    fn like<B: interweave_human_transport_client::SessionBinding + AdminBinding>(
+        _: fn(&EmbeddedHost) -> B,
+    ) -> Offline<B> {
         Offline::new()
     }
     like(EmbeddedHost::binding)

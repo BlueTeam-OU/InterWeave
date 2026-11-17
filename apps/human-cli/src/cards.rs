@@ -19,7 +19,7 @@ use interweave_human_ui_model::{
     AcceptLine, ContactView, ConversationKey, IdentityView, Intent, ItemStatus, KeyProblem,
     KeyView, OwnKey, PhotoEdit, ProposalItem, ProposalNote, ViewEvent,
 };
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use serde_json::{Value, json};
 
@@ -268,7 +268,10 @@ pub(crate) fn proposal_line(
 }
 
 /// `card show`.
-pub(crate) async fn card_show<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn card_show<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     out: &mut String,
@@ -282,7 +285,10 @@ pub(crate) async fn card_show<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// `card set`.
-pub(crate) async fn card_set<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn card_set<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     name: &str,
     surname: Option<&str>,
@@ -308,7 +314,10 @@ pub(crate) async fn card_set<B: DataSessionBinding, A: AdminBinding>(
 
 /// `card share`: the card goes as a pending message, followed as `send`
 /// follows one.
-pub(crate) async fn card_share<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn card_share<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
@@ -395,7 +404,10 @@ pub(crate) async fn card_share<B: DataSessionBinding, A: AdminBinding>(
 ///
 /// # Errors
 /// [`Failure::Store`] when a page of a conversation cannot be read.
-pub(crate) async fn proposals<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn proposals<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     out: &mut String,
@@ -445,7 +457,10 @@ pub(crate) struct Decided<'a> {
 /// the named ones accepted or declined in the same run. Every id is
 /// checked before anything is read; whatever fails after, what was shown
 /// is printed (`a_decision_that_fails_after_the_read_still_prints_the_proposals`).
-pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn proposals_read<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
@@ -572,7 +587,7 @@ fn printed_only(viewed: Vec<Intent>, printed: &[RowId]) -> Vec<Intent> {
 
 /// Carry out `decisions`, as the model offers them: the rows decided,
 /// whatever else failed, and whether everything was.
-async fn decide<B: DataSessionBinding, A: AdminBinding>(
+async fn decide<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     decisions: &[(RowId, bool)],
 ) -> (Vec<RowId>, Result<(), Failure>) {
@@ -614,7 +629,10 @@ async fn decide<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// `contacts`.
-pub(crate) async fn contacts<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn contacts<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     out: &mut String,
@@ -630,7 +648,7 @@ pub(crate) async fn contacts<B: DataSessionBinding, A: AdminBinding>(
 /// Refused when the start could not read the contacts: the model then
 /// knows none, so an empty list or "no contact has that id" would be
 /// false (`contacts_refuse_when_the_start_could_not_read_them`).
-fn contacts_known<B: DataSessionBinding, A: AdminBinding>(
+fn contacts_known<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
 ) -> Result<(), Failure> {
     if s.model().contacts_state() == interweave_human_ui_model::ContactsState::Read {
@@ -643,7 +661,10 @@ fn contacts_known<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// `contacts show`.
-pub(crate) async fn contact_show<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn contact_show<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     id: &str,
@@ -660,7 +681,10 @@ pub(crate) async fn contact_show<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// `contacts rename` and `contacts photo`.
-pub(crate) async fn contact_edit<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn contact_edit<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     id: &str,
     name: Option<&str>,
@@ -694,7 +718,10 @@ pub(crate) async fn contact_edit<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// `contacts delete`: as the model offers it, for a contact it holds.
-pub(crate) async fn contact_delete<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn contact_delete<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     id: &str,
     out: &mut String,
@@ -714,7 +741,10 @@ pub(crate) async fn contact_delete<B: DataSessionBinding, A: AdminBinding>(
 /// `contacts route delete`: one route of a contact, as the model offers
 /// it, and never the last, which goes only with the contact
 /// (`a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete`).
-pub(crate) async fn route_delete<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn route_delete<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     id: &str,
     peer: &TransportIdentity,

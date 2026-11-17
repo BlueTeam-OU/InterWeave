@@ -202,3 +202,46 @@ review of #667 (F1).
 
 Propagation: decision 2; `clients/automated/AUTOMATED-CLIENT.md` §2's
 promise row; this note; the log row; the digest entry.
+
+### Amendment 2026-11-17 — A send's BackendUnavailable may be a remote shutdown
+
+Decision 2 read: "A clean daemon stop answers `ShuttingDown` on the
+session and every later call, where a vanished daemon answers
+`BackendUnavailable`: both mean the session is gone and is re-opened."
+`contracts/TRANSPORT.md` §Error model already said that a remote
+`ShuttingDown` refusal reaches the caller as `BackendUnavailable`
+(`runtime/direct.rs` maps the reject reason), so a client that
+followed the sentence closed a healthy session whenever a peer it sent
+to was shutting down. rust-ui-dev-01 measured it on the human client's
+facade (REPLY 01a1e900, 2026-11-17, #701): with peer B held in its
+shutdown grace, sender A printed reconnecting then ready four times,
+and a third peer's line to A was answered route-unavailable four times
+and accepted only after B's 8 s grace; with the facade asking
+`events(0)` after a send's `BackendUnavailable` and re-opening only on
+an end, A printed no session line and the third peer's line was
+accepted on its first answer.
+
+The sentence stands for the daemon's own end. Decision 2 gains the
+exception: a `BackendUnavailable` answering a send over a connection
+still open is not the session's end by itself, the session is asked
+before a re-open, and a live one keeps its lease and has the send
+retried. On a binding the ask is `events(0)`
+(`local-client-api`'s `DataSessionPort::events`: nothing taken, the
+end of an ended session, an empty list on a live one); on the socket a
+session ends with its connection (`contracts/LOCAL-IPC.md` §Close), so
+a `response` carrying the code while the connection stays up ended
+nothing.
+The Claude Code Channel bridge already read a session's end this
+way, from the session and not from a call's code
+(`apps/claude-channel/src/serve.rs`, `ended`).
+
+Held for the human client's facade by
+`a_remote_shutdown_keeps_the_session_and_retries_the_send` and
+`a_send_on_an_ended_session_re_opens_it`
+(`crates/human/transport-client/tests/facade.rs`) and across daemons by
+`a_peer_shutting_down_leaves_the_senders_session_ready`
+(`tests/desktop-e2e/tests/human_cli/fleet.rs`). Not held by a case of
+`tests/automated-client`: as this amendment was written that suite's
+own client re-opened on either code, which gives up the lease for
+the time of the re-open. Propagation: decision 2; this note; the log row;
+the digest entry; `clients/automated/AUTOMATED-CLIENT.md` §2's row.

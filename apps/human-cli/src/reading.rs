@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::io::Write;
 
 use interweave_human_ui_model::{Anchor, ConversationKey, Direction, ItemKey, MessageItem};
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 
 use crate::Failure;
 use crate::output;
@@ -33,7 +33,10 @@ use crate::walk::{Progress, Walk};
 /// # Errors
 /// [`Failure::Store`] when a page of the conversation cannot be read;
 /// what was written before stays written.
-pub(crate) async fn messages<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn messages<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
@@ -67,7 +70,7 @@ pub(crate) async fn messages<B: DataSessionBinding, A: AdminBinding>(
 /// in the conversation, before anything is read or written; a page that
 /// cannot be read, [`Failure::Store`]; a read or keep the store refuses,
 /// its failure, once the chunk it was in is written.
-pub(crate) async fn read<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn read<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
@@ -151,7 +154,7 @@ pub(crate) async fn read<B: DataSessionBinding, A: AdminBinding>(
 
 /// Note each `--keep` id the model now holds as a message received in
 /// `key`, by the rule the id is printed under.
-fn found<B: DataSessionBinding, A: AdminBinding>(
+fn found<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     key: &ConversationKey,
     keep: &[String],
@@ -176,7 +179,7 @@ fn found<B: DataSessionBinding, A: AdminBinding>(
 
 /// The messages `anchors` name, in their order: a card's row is the
 /// proposals' verbs', not these.
-fn shown<B: DataSessionBinding, A: AdminBinding>(
+fn shown<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     key: &ConversationKey,
     anchors: &[Anchor],
