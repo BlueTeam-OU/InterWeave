@@ -165,7 +165,8 @@ the new that INSTALL.md says to expect. All three settings were read back after 
 0.2.0 to 0.3.0 one, only `profile` is shown kept (row v3).
 
 Not run: an update to a lower version, which was not attempted because the request asked for the upgrade path, though
-the 0.2.0 and 0.3.0 archives on hand would have allowed one; an update, or the folder replaced, while a session was
+the 0.2.0 and 0.3.0 archives on hand would have allowed one (it ran on 2026-11-17:
+`2026-11-17-plugin-update-to-a-lower-version.md`); an update, or the folder replaced, while a session was
 running, which was not attempted: every session here ended before the next step ran; and a 0.2.0
 bridge's channel traffic against the 0.3.0 daemon (only its `status`), since the request was the upgrade path and not
 an old bridge against a new daemon.
