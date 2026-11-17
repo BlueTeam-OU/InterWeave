@@ -150,7 +150,7 @@ impl std::io::Write for Shared {
 
 impl Shared {
     pub(crate) fn text(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().expect("the buffer")).into_owned()
+        String::from_utf8(self.0.lock().expect("the buffer").clone()).expect("utf-8")
     }
 
     /// The JSON lines written so far that `which` accepts.
@@ -168,18 +168,25 @@ impl Shared {
 }
 
 /// A `listen` stop: once `done` holds and no sooner than `window`, so
-/// what the test says must not happen has that long to show.
+/// what the test says must not happen has that long to show. Running out
+/// quotes what `out` holds.
 pub(crate) fn after(
+    out: &Shared,
     window: Duration,
     what: &'static str,
     mut done: impl FnMut() -> bool,
 ) -> impl Future<Output = ()> {
     let since = Instant::now();
-    crate::listen_stops::when(what, move || since.elapsed() >= window && done())
+    let printed = out.clone();
+    crate::listen_stops::when_showing(
+        what,
+        move || since.elapsed() >= window && done(),
+        move || printed.text(),
+    )
 }
 
 /// Rows the store at `file` holds unread, read by a connection of its own.
-fn unread_count(file: &Path) -> i64 {
+pub(crate) fn unread_count(file: &Path) -> i64 {
     rusqlite::Connection::open(file)
         .expect("the store file")
         .query_row("SELECT COUNT(*) FROM unread_inbound", [], |r| r.get(0))
@@ -482,9 +489,12 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
         &mut out.clone(),
         {
             let shown = out.clone();
-            after(Duration::from_millis(500), "its message event", move || {
-                shown.has(|e| e["event"] == "message")
-            })
+            after(
+                &out,
+                Duration::from_millis(500),
+                "its message event",
+                move || shown.has(|e| e["event"] == "message"),
+            )
         },
     )
     .await
@@ -558,6 +568,7 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(1500),
                 "both sends answered and every refusal said",
                 move || {
@@ -655,6 +666,7 @@ async fn an_input_line_is_answered_by_one_outbound_line() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(1000),
                 "the answer accepted",
                 move || {
@@ -716,6 +728,7 @@ async fn an_input_sends_outbound_event_names_its_problem() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(1000),
                 "the refusal answered",
                 move || {
@@ -787,6 +800,7 @@ async fn a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed() {
             let shown = out.clone();
             let at_cap = at_cap.clone();
             after(
+                &out,
                 Duration::from_millis(1000),
                 "the refusal and the echo at the cap",
                 move || {
@@ -845,6 +859,7 @@ async fn listen_consume_marks_each_printed_message_read() {
             let shown = out.clone();
             let held = dir_b.path().join("human.sqlite3");
             after(
+                &out,
                 Duration::from_millis(800),
                 "its message printed and read",
                 move || shown.has(|e| e["text"] == "consumed") && unread_count(&held) == 0,
@@ -1089,14 +1104,7 @@ async fn listen_consume_drains_what_the_store_held_unread_at_open() {
             let path = dir_b.path().join("human.sqlite3");
             let since = Instant::now();
             crate::listen_stops::when("an empty unread table", move || {
-                since.elapsed() >= Duration::from_millis(500)
-                    && rusqlite::Connection::open(&path)
-                        .expect("the store file")
-                        .query_row("SELECT COUNT(*) FROM unread_inbound", [], |r| {
-                            r.get::<_, i64>(0)
-                        })
-                        .expect("a count")
-                        == 0
+                since.elapsed() >= Duration::from_millis(500) && unread_count(&path) == 0
             })
         },
     )
@@ -1243,6 +1251,7 @@ async fn every_read_the_store_refuses_is_said_by_its_row() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(500),
                 "both messages printed and both reads said",
                 move || {
@@ -1319,6 +1328,7 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(1000),
                 "the refusal and the send after it answered",
                 move || {
@@ -1496,20 +1506,27 @@ async fn a_filtered_listen_consumes_only_what_it_prints() {
         consume: true,
         input: None,
     };
-    let mut out = Vec::new();
+    let out = Shared::default();
+    let held = dir_b.path().join("human.sqlite3");
     verbs::listen(
         &mut bob,
         listen(crate::cli::ListenFilter {
             events: None,
             conversation: Some(elsewhere),
         }),
-        &mut out,
-        // The window is the claim: nothing may be printed or consumed within it.
-        tokio::time::sleep(Duration::from_millis(800)),
+        &mut out.clone(),
+        // The window is the claim, from the message's arrival: nothing
+        // may be printed or consumed within it.
+        after(
+            &out,
+            Duration::from_millis(800),
+            "the message held unread",
+            move || unread_count(&held) == 1,
+        ),
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     assert!(
         !lines(&out).iter().any(|e| e["event"] == "message"),
         "{out}"
@@ -1535,6 +1552,7 @@ async fn a_filtered_listen_consumes_only_what_it_prints() {
             let shown = out.clone();
             let held = dir_b.path().join("human.sqlite3");
             after(
+                &out,
                 Duration::from_millis(800),
                 "its message printed and read",
                 move || {
@@ -1583,9 +1601,12 @@ async fn a_listen_not_naming_messages_drains_none_of_them() {
         &mut out.clone(),
         {
             let shown = out.clone();
-            after(Duration::from_millis(500), "its session event", move || {
-                shown.has(|e| e["event"] == "session")
-            })
+            after(
+                &out,
+                Duration::from_millis(500),
+                "its session event",
+                move || shown.has(|e| e["event"] == "session"),
+            )
         },
     )
     .await
@@ -1640,6 +1661,7 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(4000),
                 "the answer and a later status",
                 move || {
@@ -1692,6 +1714,7 @@ async fn a_refused_read_of_a_printed_message_is_said_whatever_the_filter() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(500),
                 "the message and its refused read",
                 move || {

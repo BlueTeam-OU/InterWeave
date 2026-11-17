@@ -27,7 +27,7 @@ use crate::Failure;
 use crate::cli::{PhotoArg, Verb};
 use crate::session::Session;
 use crate::verbs::{self, Run};
-use crate::verbs_tests::{Shared, after};
+use crate::verbs_tests::{Shared, after, unread_count};
 
 const WALL: u64 = 1_792_652_603_000;
 
@@ -503,6 +503,7 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(500),
                 "its proposal event",
                 move || shown.has(|e| e["event"] == "proposal"),
@@ -532,11 +533,13 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
 /// looked up (printed under a filter naming another).
 #[tokio::test]
 async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
-    // `until`: the events it is to print before it may stop.
+    // `until`: the events it is to print before it may stop; `arrived`:
+    // what says the rows it is to see have reached the store.
     async fn listen(
         s: &mut Session<FakeNode, FakeNode>,
         about: ConversationKey,
         until: &[&str],
+        arrived: impl Fn() -> bool,
     ) -> Vec<Value> {
         let out = Shared::default();
         verbs::listen(
@@ -554,10 +557,12 @@ async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
             {
                 let shown = out.clone();
                 after(
+                    &out,
                     Duration::from_millis(500),
                     "the events it was to print",
-                    // With none to wait for, the window is the claim.
-                    move || until.iter().all(|k| shown.has(|e| e["event"] == *k)),
+                    // With none to wait for, the window from the arrival
+                    // is the claim.
+                    move || arrived() && until.iter().all(|k| shown.has(|e| e["event"] == *k)),
                 )
             },
         )
@@ -587,7 +592,8 @@ async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
     let elsewhere = to(&ProfileIdentity::generate()
         .transport_identity()
         .expect("peer id"));
-    let events = listen(&mut b_run, elsewhere, &[]).await;
+    let held = bob.dir.path().join("human.sqlite3");
+    let events = listen(&mut b_run, elsewhere, &[], || unread_count(&held) == 1).await;
     assert!(
         !events.iter().any(|e| e["event"] == "message"),
         "a filter naming another conversation: {events:?}"
@@ -609,7 +615,7 @@ async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
     .await
     .1
     .expect("sent");
-    let events = listen(&mut b_run, alice.route(), &["message", "proposal"]).await;
+    let events = listen(&mut b_run, alice.route(), &["message", "proposal"], || true).await;
     let message = events
         .iter()
         .find(|e| e["event"] == "message")
@@ -1045,6 +1051,7 @@ async fn listen_consume_declines_a_card_held_at_open() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(500),
                 "its proposal declined",
                 move || shown.has(|e| e["event"] == "proposal" && e["status"] == "declined"),
@@ -1095,6 +1102,7 @@ async fn a_refused_decline_of_a_proposal_listen_named_is_said_whatever_the_filte
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(500),
                 "the refused decline said",
                 move || shown.has(|e| e["event"] == "failed"),
@@ -1146,6 +1154,7 @@ async fn listen_consume_declines_a_card_as_it_arrives() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(500),
                 "its proposal declined",
                 move || shown.has(|e| e["event"] == "proposal" && e["status"] == "declined"),
@@ -1186,7 +1195,8 @@ async fn a_listen_filtered_to_messages_declines_no_card() {
         .await
         .1
         .expect("shared");
-    let mut out = Vec::new();
+    let out = Shared::default();
+    let held = bob.dir.path().join("human.sqlite3");
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
@@ -1198,13 +1208,19 @@ async fn a_listen_filtered_to_messages_declines_no_card() {
             consume: true,
             input: None,
         },
-        &mut out,
-        // The window is the claim: nothing may be printed or consumed within it.
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        // The window is the claim, from the card's arrival: nothing may
+        // be printed or consumed within it.
+        after(
+            &out,
+            Duration::from_millis(500),
+            "the card held unread",
+            move || unread_count(&held) == 1,
+        ),
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     assert!(
         !lines(&out).iter().any(|e| e["event"] == "proposal"),
         "{out}"
@@ -1253,6 +1269,7 @@ async fn a_message_received_with_a_card_is_printed_once() {
         {
             let shown = out.clone();
             after(
+                &out,
                 Duration::from_millis(500),
                 "the message and the card printed",
                 move || {
