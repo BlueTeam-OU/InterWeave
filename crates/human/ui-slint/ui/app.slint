@@ -438,8 +438,9 @@ export struct IdentityPage {
     screen: IdScreen,
     title: string,
     // The title's focus key where the title is a stop: R's, K's and K1's,
-    // which a refused start raises with focus on it (section 8); empty,
-    // the title is plain text.
+    // which a refused start raises with focus on it, and R3's and R4's,
+    // which a valid check opens with focus on it (section 8); empty, the
+    // title is plain text.
     heading-key: string,
     paragraphs: [string],
     // An inline banner (section 6), above the content; empty for none.
@@ -2446,7 +2447,9 @@ component IdentityScreen inherits FocusScope {
     property <bool> dialog-shown;
     property <string> notice-shown;
     // The page's notice count as last seen, beside its text: a result
-    // that raises the notice already showing changes only the count.
+    // that raises the notice already showing moves the count and leaves
+    // the text as it was (trace.rs
+    // a_repeated_notice_takes_focus_at_the_result).
     property <int> notices-shown;
     function notice-new() -> bool {
         return root.page.notice != ""
