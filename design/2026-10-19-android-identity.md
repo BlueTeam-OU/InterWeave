@@ -849,8 +849,8 @@ access.
   same way while it runs. The restore moves no focus: focus stays on
   the control that had focus when it began, which after a press is
   the control pressed. Tab, Shift+Tab and the arrows still move focus,
-  in R3's order above; `IdR3Yes` and `IdR3No`, shown disabled, keep
-  their places in it. `CopyPeerId` still copies, since a copy changes
+  in R3's order above; `IdR3Yes`, `IdR3No` and a notice's action,
+  shown disabled, keep their places in it. `CopyPeerId` still copies, since a copy changes
   nothing the restore reads. When the result comes, focus goes as the
   rule above says, wherever the person moved it. Why: the restore
   writes the record. A second press of `IdR3Yes` would start a second
