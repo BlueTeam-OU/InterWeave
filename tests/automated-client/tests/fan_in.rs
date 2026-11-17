@@ -108,7 +108,12 @@ impl Profile {
     }
 
     /// The sink: every source allowed, its two endpoints, no discovery
-    /// provider -- the sources dial it.
+    /// provider -- the sources dial it. Its pre-auth bucket for one source
+    /// address is widened from 30 starts a minute and 8 pending to 120 and
+    /// 32: every source here dials from 127.0.0.1, one bucket, and at the
+    /// defaults the 31st start in a minute is refused before its
+    /// handshake (measured: 30 of 31 connected). Between hosts the bucket
+    /// is each host's address, shared by every account on that host.
     fn render_sink(&self, sources: &[&Self]) {
         let allowed = sources
             .iter()
@@ -125,7 +130,9 @@ endpoints:
     - {{ id: {SIDE}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
 channels: {{ desired: [] }}
 discovery: {{ providers: [] }}
-transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/{port}\"] }} }}
+transport:
+  listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/{port}\"] }}
+  pre_auth: {{ max_pending_per_source_bucket: 32, max_attempts_per_source_bucket_per_minute: 120 }}
 observability: {{ log_level: info }}
 ",
             name = self.home.paths.profile(),
