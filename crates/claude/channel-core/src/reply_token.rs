@@ -9,9 +9,10 @@
 //!
 //! # Binding to the lease epoch is the whole mechanism
 //!
-//! A token stores the `local_lease_epoch` it was minted under. After a
-//! reconnect the epoch is new, so every token from the previous session
-//! stops resolving — [`ReplyResolution::StaleLease`]. Without that a
+//! A direct token stores the `local_lease_epoch` it was minted under.
+//! After a reconnect the epoch is new, so every direct token from the
+//! previous session stops resolving — [`ReplyResolution::StaleLease`]
+//! here, and in the bridge, which discards them, as unknown. Without that a
 //! reply issued after reconnect would be routed by a token whose local
 //! endpoint is now owned by a different session, delivering it as
 //! somebody else.
@@ -197,6 +198,26 @@ impl ReplyTokenTable {
         Ok(())
     }
 
+    /// [`DuplicateToken`] when `token` already names a live route, as
+    /// [`ReplyTokenTable::mint`] would answer; nothing is stored. For a
+    /// token handed out without a route of its own -- a direct message
+    /// taken under an earlier lease -- so a broken generator does not hand
+    /// the host a token the table holds for another route
+    /// (`a_stale_token_repeating_a_live_one_is_refused`). A value that has
+    /// left the table, discarded, expired or evicted, is not remembered.
+    ///
+    /// # Errors
+    /// [`DuplicateToken`] when `token` is live.
+    pub fn refuse_if_live(&mut self, token: &str, now_ms: u64) -> Result<(), DuplicateToken> {
+        self.expire(now_ms);
+        if self.tokens.contains_key(token) {
+            return Err(DuplicateToken {
+                token: token.to_owned(),
+            });
+        }
+        Ok(())
+    }
+
     /// Resolve a token against the lease epoch currently held.
     ///
     /// `current_epoch` is the epoch the caller owns **now**. Passing the
@@ -215,10 +236,8 @@ impl ReplyTokenTable {
             return ReplyResolution::Unknown;
         };
         match route {
-            ReplyRoute::Direct {
-                local_lease_epoch, ..
-            } => {
-                if current_epoch != Some(local_lease_epoch) {
+            ReplyRoute::Direct { .. } => {
+                if is_stale(route, current_epoch) {
                     // A reconnect minted a new epoch; this token's local
                     // endpoint may now belong to a different session.
                     return ReplyResolution::StaleLease;
@@ -236,13 +255,28 @@ impl ReplyTokenTable {
         }
     }
 
+    /// Drop every direct token not minted under `held`, the epoch held
+    /// now -- with none held, every direct token. Such a token can only
+    /// resolve `StaleLease` (`a_token_from_a_previous_lease_epoch_is_stale`), so keeping it would count it in `status` and
+    /// hold one of the table's places until its TTL (LIFECYCLE.md
+    /// §Reconnect: discarded). A broadcast token names a channel, not a
+    /// lease, and stays (`discard_stale_keeps_the_broadcast_and_the_held_epoch`;
+    /// in the bridge, `a_lost_lease_takes_its_direct_tokens_and_leaves_the_broadcast`).
+    pub fn discard_stale(&mut self, held: Option<&Generation>) {
+        self.remove_where(|route, _| is_stale(route, held));
+    }
+
     /// Drop tokens past their TTL.
     pub fn expire(&mut self, now_ms: u64) {
         let ttl = self.ttl_ms;
+        self.remove_where(|_, minted| now_ms.saturating_sub(minted) >= ttl);
+    }
+
+    fn remove_where(&mut self, dead: impl Fn(&ReplyRoute, u64) -> bool) {
         let dead: Vec<String> = self
             .tokens
             .iter()
-            .filter(|(_, (_, minted))| now_ms.saturating_sub(*minted) >= ttl)
+            .filter(|(_, (route, minted))| dead(route, *minted))
             .map(|(t, _)| t.clone())
             .collect();
         for t in dead {
@@ -252,6 +286,13 @@ impl ReplyTokenTable {
             }
         }
     }
+}
+
+/// Whether `route` is a direct route under an epoch other than `held`:
+/// one a reply must refuse, since the local endpoint may now be another
+/// session's.
+pub(crate) fn is_stale(route: &ReplyRoute, held: Option<&Generation>) -> bool {
+    matches!(route, ReplyRoute::Direct { local_lease_epoch, .. } if held != Some(local_lease_epoch))
 }
 
 #[cfg(test)]
@@ -304,6 +345,27 @@ mod tests {
         } else {
             panic!("expected a direct route");
         }
+    }
+
+    #[test]
+    fn discard_stale_keeps_the_broadcast_and_the_held_epoch() {
+        let mut t = ReplyTokenTable::default();
+        t.mint("old", direct_route("old"), 0).expect("fresh");
+        t.mint("new", direct_route("new"), 0).expect("fresh");
+        t.mint("b", ReplyRoute::Broadcast { channel: channel() }, 0)
+            .expect("fresh");
+        t.discard_stale(Some(&epoch("new")));
+        assert_eq!(t.len(), 2, "the other epoch's direct token is gone");
+        assert!(matches!(
+            t.resolve("new", Some(&epoch("new")), &joined, 0),
+            ReplyResolution::Route(_)
+        ));
+        t.discard_stale(None);
+        assert_eq!(t.len(), 1, "with no lease, every direct token is gone");
+        assert!(matches!(
+            t.resolve("b", None, &joined, 0),
+            ReplyResolution::Route(ReplyRoute::Broadcast { .. })
+        ));
     }
 
     #[test]
