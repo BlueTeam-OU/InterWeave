@@ -2377,11 +2377,10 @@ impl Peers {
             return;
         };
         self.take_list(Ok(list));
-        // `take_list` settles only a line it shows missing; this read
-        // settles the listed ones too (§5.7, "listed or not").
+        // `take_list`'s `set_list` settled every unsettled line; this read
+        // also ends the add left unknown, listed or not (§5.7).
         if let Some(page) = self.page.as_mut() {
             page.unknown = None;
-            page.unsettled.clear();
         }
         if self
             .list
@@ -2708,7 +2707,7 @@ impl Peers {
         if let Some(lines) = self.page.as_mut().and_then(|p| p.unknown.take())
             && note_on_show
         {
-            self.settle_lines(&lines);
+            // `set_list` has settled every unsettled line already.
             let _ = self.decide_keeping_focus(Check::Add(lines), moved, trust);
         }
     }
