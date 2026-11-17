@@ -2245,8 +2245,14 @@ impl Peers {
                     // A retry of an add left unknown that writes nothing
                     // settles nothing: still unknown, said again (§5.7).
                     // Any line unsettled counts, from any add left unknown
-                    // on the page (§5.7).
+                    // on the page (§5.7). The note is about this add's
+                    // lines, so `unknown` becomes them: the read that
+                    // decides it and the edit that ends it ask `unknown`
+                    // (`an_unknown_said_for_an_unsettled_line_is_decided_by_its_own_lines`).
                     None if self.carries_unsettled(&lines) => {
+                        if let Some(page) = self.page.as_mut() {
+                            page.unknown = Some(lines.clone());
+                        }
                         AddNote::Unknown { lines: lines.len() }
                     }
                     None => AddNote::Failed,
