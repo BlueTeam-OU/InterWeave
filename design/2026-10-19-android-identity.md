@@ -595,9 +595,8 @@ and R4.
 - A second copy while it shows starts its time again from zero, and
   its text is announced again: the person pressed again and is told
   so.
-- It closes when anything else shows on the screen, over it or in its
-  place: any
-  §6 notice (`IdAlreadyCreated` included, a notice that also hides the
+- It closes when anything else shows on the screen, over the screen
+  or in place of the screen: any §6 notice (`IdAlreadyCreated` included, a notice that also hides the
   PeerId the snackbar confirmed), the system prompt and the progress
   state. One message shows at a time: the one that needs the
   person's attention.
@@ -707,10 +706,10 @@ the way out is Try again, or, while `IdAlreadyCreated` shows, Continue.
   over R3 keeps its own Back, which cancels the prompt.
 - **The app leaves the screen.** Home, a call, or another app opening.
   A stopped Activity is neither completion nor cancellation (§11 Q1):
-  - on return, every screen shows what it showed, with entered words
-    kept in memory only, never in saved-instance state, except the
-    `PeerIdCopied` snackbar below Android 13, which the app going to
-    the background closes (§5);
+  - on return, every screen shows what it showed, except the
+    `PeerIdCopied` snackbar below Android 13, which closes when the
+    app goes to the background (§5); entered words are kept in memory
+    only, never in saved-instance state;
   - S2 shows its words again with no new prompt while it is the same
     Activity instance; a new instance is a new display, behind the
     prompt.
@@ -1633,30 +1632,32 @@ scale would also be a finding of the Android review
     Enter and makes a second announcement. With no input it closes 6 s
     after it appeared; with the accessibility timeout set to 30 s,
     30 s after; and with that timeout set to 5 minutes, 2 minutes
-    after. After it closes, the scrolling area's offset is the one it
-    had while the snackbar showed. On C4, when a seal is answered
-    `AlreadyProvisioned` while the snackbar shows, the snackbar closes
-    when `IdAlreadyCreated` shows; on R3, when a restore is refused
-    with `IdStorageFailed`, it closes when that notice shows. On C4,
-    under `user-presence`, when the seal is refused as authentication
-    needed while the snackbar shows, it closes when the system prompt
-    shows; and when the seal is answered `ProfileLocked`, it closes
-    when the progress state (`IdGoingOffline`) shows. Leaving the screen closes it,
-    and the next screen shows none. The app going to the background
+    after. When the snackbar closes, the scrolling area does not
+    scroll: its offset is the one it had just before the snackbar
+    closed. On C4, when a seal is answered `AlreadyProvisioned` while
+    the snackbar shows, the snackbar closes when `IdAlreadyCreated`
+    shows; on R3, when a restore is refused with `IdStorageFailed`,
+    the snackbar closes when that notice shows. On C4, under
+    `user-presence`, when the seal is refused as authentication needed
+    while the snackbar shows, the snackbar closes when the system
+    prompt shows. On C4, whatever the policy, when the seal is
+    answered `ProfileLocked` while the snackbar shows, the snackbar
+    closes when the progress state (`IdGoingOffline`) shows. Leaving
+    the screen closes it, and the next screen shows none. The app going to the background
     closes it too, and when the app returns, the screen shows none.
     With the platform version 13 or later, the same Enter shows no
     snackbar and makes no announcement. On the Samsung A40 (Android
     11, the project's second test phone,
     `packaging/android/evidence/2026-11-05-samsung-a40-update-and-downgrade.md`),
-    at 200 % font in portrait and in landscape, in dark and in light,
-    on C2's PeerId page, C4 and R3, a person looks at the screen and
-    verifies that the snackbar has the look spec's snackbar colours,
-    is at least 48 dp tall and 12 dp from the screen's sides, sits
-    12 dp above the actions, and covers none of them, nor the PeerId,
-    and that `CopyPeerId` is wholly in view, also when the person
-    scrolled down to `CopyPeerId` before the copy. The rest of this
-    item runs in the host test, and the other items of this list on
-    the Pixel 9a, which shows no snackbar.
+    at 200 % font in portrait and in landscape, in the dark and the
+    light scheme, on C2's PeerId page, C4 and R3, a person looks at
+    the screen and verifies that the snackbar has the look spec's
+    snackbar colours, is at least 48 dp tall and 12 dp from the
+    screen's sides, sits 12 dp above the actions, and covers none of
+    them, nor the PeerId, and that `CopyPeerId` is wholly in view,
+    also when the person scrolled down to `CopyPeerId` before the
+    copy. The rest of this item runs in the host test. The other items
+    of this list run on the Pixel 9a, which shows no snackbar.
 
 ## 11. Questions answered
 
