@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! Send attempts on the wire beside each other, one per destination and
-//! at most `FLIGHT_CAP` in all (architect-cto's ruling 01a1e901, j288): a
-//! peer that never answers holds no line to another peer and no inbound;
-//! lines to one peer go in the order written, a refused one's backoff
-//! included; a session lost or a row cancelled with a send on the wire
-//! leaves no row lost or reported accepted.
+//! Send attempts on the wire beside each other, one per peer or channel
+//! and at most `FLIGHT_CAP` in all, with order held per conversation
+//! (architect-cto's rulings 01a1e901 and 01a1e96d, j288): a peer that
+//! never answers holds no line to another peer and no inbound; lines in
+//! one conversation go in the order written, a refused one's backoff
+//! included, and a dead endpoint holds only its own conversation; a
+//! session lost or a row cancelled with a send on the wire leaves no row
+//! lost or reported accepted.
 //!
 //! The fake answers every send at once, so the sends here go through
 //! `Holding`, a binding over the fake whose `send_direct` to a held peer
@@ -45,6 +47,14 @@ fn human() -> EndpointId {
     EndpointId::parse("human").expect("valid")
 }
 
+fn agent() -> EndpointId {
+    EndpointId::parse("agent").expect("valid")
+}
+
+fn room() -> ChannelId {
+    ChannelId::parse("room").expect("valid")
+}
+
 fn peer() -> TransportIdentity {
     ProfileIdentity::generate()
         .transport_identity()
@@ -54,7 +64,10 @@ fn peer() -> TransportIdentity {
 fn node_config() -> FakeConfig {
     FakeConfig {
         peer: peer(),
-        endpoints: vec![FakeEndpoint::open(human(), true)],
+        endpoints: vec![
+            FakeEndpoint::open(human(), true),
+            FakeEndpoint::open(agent(), true),
+        ],
         default_endpoint: Some(human()),
         queue_bound: 64,
     }
@@ -198,7 +211,7 @@ fn client(node: &FakeNode, gate: &Arc<Gate>) -> Client {
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: vec![human()],
-            channels: Vec::new(),
+            channels: vec![room()],
             max_payload_bytes: 49_152,
         },
         Box::new(|| 1_786_600_000_000),
@@ -221,6 +234,14 @@ fn envelope(text: &str) -> HumanChatV2 {
         reply_to: None,
         sent_at_ms: None,
         from_endpoint: None,
+    }
+}
+
+/// `peer`'s `endpoint`, named.
+fn at(peer: &TransportIdentity, endpoint: EndpointId) -> Destination {
+    Destination::Direct {
+        peer: peer.clone(),
+        endpoint: Some(endpoint),
     }
 }
 
@@ -416,11 +437,12 @@ async fn at_most_the_flight_cap_of_sends_is_in_flight() {
     assert!(gate.most_open.load(Ordering::SeqCst) <= FLIGHT_CAP);
 }
 
-/// A row waiting out its backoff holds the later row to its peer: after
-/// the first line's attempt is refused (not reached), the second is not
-/// attempted before the first's retry, and the peer gets them in the
-/// order written. Mutation: a destination blocked only while a row is on
-/// the wire -- the second goes during the first's backoff.
+/// A row waiting out its backoff holds the later row of its conversation
+/// (`<peer>/<endpoint>`): after the first line's attempt is refused (not
+/// reached), the second is not attempted before the first's retry, and
+/// the endpoint gets them in the order written. Mutation: a conversation
+/// blocked only while a row is on the wire -- the second goes during the
+/// first's backoff.
 #[tokio::test]
 async fn a_row_waiting_its_backoff_holds_the_later_row_to_its_peer() {
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
@@ -430,11 +452,11 @@ async fn a_row_waiting_its_backoff_holds_the_later_row_to_its_peer() {
     ready(&mut sender).await;
     b.inject_send(TransportError::Overloaded);
     let first = sender
-        .send(to(a.peer()), &envelope("first"), 1)
+        .send(at(a.peer(), human()), &envelope("first"), 1)
         .await
         .expect("row");
     let second = sender
-        .send(to(a.peer()), &envelope("second"), 1)
+        .send(at(a.peer(), human()), &envelope("second"), 1)
         .await
         .expect("row");
     sender.tick(1).await;
@@ -550,5 +572,105 @@ async fn a_row_cancelled_on_the_wire_is_cancelled_as_may_have_reached() {
     assert!(
         seen.iter().all(|(r, _)| *r != row),
         "the late answer changes nothing: {seen:?}"
+    );
+}
+
+/// An endpoint that never takes a line holds only its own conversation:
+/// a row to the peer's other endpoint goes and is accepted while the dead
+/// one retries (architect-cto's ruling 01a1e96d). Mutation: the order
+/// unit the peer -- the live endpoint's line waits behind the dead one.
+#[tokio::test]
+async fn an_endpoint_that_never_takes_holds_only_its_own_conversation() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let gate = Arc::new(Gate::default());
+    // Only `human` is held at a: `agent` answers that no client holds it.
+    let at_a = receiver(&a).await;
+    let mut sender = client(&b, &gate);
+    ready(&mut sender).await;
+    let dead = sender
+        .send(at(a.peer(), agent()), &envelope("to nobody"), 1)
+        .await
+        .expect("row");
+    let live = sender
+        .send(at(a.peer(), human()), &envelope("to the live one"), 1)
+        .await
+        .expect("row");
+    for now in [1, 2, 3] {
+        sender.tick(now).await;
+    }
+    let seen = statuses(&mut sender);
+    assert_eq!(accepted(&seen), [live], "{seen:?}");
+    assert!(!accepted(&seen).contains(&dead));
+    assert_eq!(texts(&at_a).await, ["to the live one"]);
+}
+
+/// A person's Retry on a row waiting behind an earlier row's backoff
+/// brings the conversation due: the head goes on the next tick, the row
+/// after it, in order. Mutation: Retry making only its own row due --
+/// nothing goes until the head's backoff ends.
+#[tokio::test]
+async fn a_retry_behind_a_backoff_brings_its_conversation_due() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let gate = Arc::new(Gate::default());
+    let at_a = receiver(&a).await;
+    let mut sender = client(&b, &gate);
+    ready(&mut sender).await;
+    b.inject_send(TransportError::Overloaded);
+    let first = sender
+        .send(at(a.peer(), human()), &envelope("first"), 1)
+        .await
+        .expect("row");
+    let second = sender
+        .send(at(a.peer(), human()), &envelope("second"), 1)
+        .await
+        .expect("row");
+    sender.tick(1).await;
+    assert_eq!(gate.started.load(Ordering::SeqCst), 1);
+    sender.retry(second, 2).expect("pending");
+    sender.tick(2).await;
+    sender.tick(3).await;
+    let seen = statuses(&mut sender);
+    assert_eq!(accepted(&seen), [first, second], "{seen:?}");
+    assert_eq!(texts(&at_a).await, ["first", "second"]);
+}
+
+/// A closing session settles the attempts that have answered before it
+/// takes the rest off the wire: a broadcast already published when a
+/// direct send's lost lease closes the session is reported published,
+/// once, not outcome-unknown. Mutation: the close dropping every attempt
+/// -- the broadcast reads `Unconfirmed` and is sent again.
+#[tokio::test]
+async fn a_close_settles_the_attempts_that_had_answered() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let gate = Arc::new(Gate::default());
+    let _at_a = receiver(&a).await;
+    let mut sender = client(&b, &gate);
+    ready(&mut sender).await;
+    // The direct row first: its attempt is polled first and takes the
+    // injected lost lease; the broadcast has published by then.
+    b.inject_send(TransportError::EndpointNotRegistered);
+    sender
+        .send(at(a.peer(), human()), &envelope("loses the lease"), 1)
+        .await
+        .expect("row");
+    let published = sender
+        .send(Destination::Broadcast(room()), &envelope("published"), 1)
+        .await
+        .expect("row");
+    sender.tick(1).await;
+    assert!(
+        matches!(sender.session_state(), SessionState::Reconnecting { .. }),
+        "{:?}",
+        sender.session_state()
+    );
+    let seen = statuses(&mut sender);
+    let of_published: Vec<&OutboundStatus> = seen
+        .iter()
+        .filter(|(row, _)| *row == published)
+        .map(|(_, s)| s)
+        .collect();
+    assert!(
+        matches!(of_published.last(), Some(OutboundStatus::Published)),
+        "settled by its answer: {seen:?}"
     );
 }

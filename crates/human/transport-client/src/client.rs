@@ -66,31 +66,81 @@ use interweave_human_client_api::{
 const HELD_CAP: usize = interweave_local_client_api::MAX_EVENT_QUEUE;
 
 /// How many send attempts may be on the wire at once, across every
-/// destination: one per destination (`Flight`), and this many in all,
+/// destination: one per wire slot (`Flight`), and this many in all,
 /// under the 64 commands an IPC client may have outstanding
 /// (`TRANSPORT.md` §Backpressure) so that its event reads and admin
-/// calls keep room (architect-cto's ruling 01a1e901, j288).
-/// `a_silent_peer_holds_no_send_to_another_peer` pins the per-destination
-/// half, `at_most_the_flight_cap_of_sends_is_in_flight` this one.
+/// calls keep room (architect-cto's rulings 01a1e901 and 01a1e96d, j288).
+/// `a_silent_peer_holds_no_send_to_another_peer` pins the per-slot half,
+/// `at_most_the_flight_cap_of_sends_is_in_flight` this one.
 pub(crate) const FLIGHT_CAP: usize = 32;
 
-/// What a send attempt is one at a time to: a peer (whichever of its
-/// endpoints), or a channel. One attempt per destination keeps the order
-/// the facade gives a person's lines to one peer; destinations go beside
-/// each other, so a peer that never answers holds no line to another.
+/// The wire slot a send attempt holds: a peer (whichever of its
+/// endpoints), or a channel. One attempt on the wire per slot; slots go
+/// beside each other, so a peer that never answers holds no line to
+/// another (architect-cto's ruling 01a1e901).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Flight {
     Peer(TransportIdentity),
     Channel(ChannelId),
 }
 
-impl Flight {
+/// The order unit: a conversation, the peer and the endpoint as the
+/// destination names it (no endpoint, the peer's default, is its own
+/// unit, never merged with the endpoint it may turn out to be), or a
+/// channel. A conversation whose earliest pending row is on the wire or
+/// waiting out its backoff takes no later row of its own; another
+/// conversation with the same peer goes on (architect-cto's ruling
+/// 01a1e96d, replacing 01a1e901's per-peer unit).
+/// `a_row_waiting_its_backoff_holds_the_later_row_to_its_peer` and
+/// `an_endpoint_that_never_takes_holds_only_its_own_conversation` pin it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Order {
+    Conversation(TransportIdentity, Option<EndpointId>),
+    Channel(ChannelId),
+}
+
+impl Order {
     fn of(destination: &OutboundDestination) -> Self {
         match destination {
-            OutboundDestination::Direct(d) => Self::Peer(d.peer.clone()),
+            OutboundDestination::Direct(d) => {
+                Self::Conversation(d.peer.clone(), d.endpoint.clone())
+            }
             OutboundDestination::Broadcast(c) => Self::Channel(c.clone()),
         }
     }
+
+    fn flight(&self) -> Flight {
+        match self {
+            Self::Conversation(peer, _) => Flight::Peer(peer.clone()),
+            Self::Channel(c) => Flight::Channel(c.clone()),
+        }
+    }
+}
+
+/// Whether a tick's pass could attempt anything: some conversation's
+/// head -- its earliest pending row not held for attention -- is due,
+/// not on the wire, and its slot is free. A row behind a head waiting
+/// out its backoff stays due and attempts nothing, so a guard that asked
+/// only "is any row due" would read the whole pending table every tick
+/// while a peer is unreachable (`a_pass_is_due_only_for_a_head`).
+fn attemptable(rows: &BTreeMap<RowId, Row>, flying: &BTreeMap<RowId, Flight>, now: u64) -> bool {
+    let mut heads: BTreeMap<&Order, (u64, RowId)> = BTreeMap::new();
+    for (row_id, row) in rows {
+        if row.attention.is_some() {
+            continue;
+        }
+        let key = (row.created_at, *row_id);
+        heads
+            .entry(&row.order)
+            .and_modify(|head| *head = (*head).min(key))
+            .or_insert(key);
+    }
+    heads.into_iter().any(|(order, (_, row_id))| {
+        let slot = order.flight();
+        rows.get(&row_id).is_some_and(|r| r.is_due(now))
+            && !flying.contains_key(&row_id)
+            && !flying.values().any(|f| *f == slot)
+    })
 }
 
 /// What a send attempt answers: how the row ends, and the endpoint that
@@ -141,6 +191,10 @@ impl ClientConfig {
 #[derive(Debug, Clone)]
 struct Row {
     app_message_id: AppMessageId,
+    /// The conversation it is in order within, and its place there: the
+    /// store pages pending rows by `(created_at, row_id)`.
+    order: Order,
+    created_at: u64,
     attempts: u32,
     /// `Some` while the facade will not retry on its own.
     attention: Option<SendProblem>,
@@ -303,6 +357,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
                     pending.row_id,
                     Row {
                         app_message_id: pending.app_message_id.clone(),
+                        order: Order::of(&pending.destination),
+                        created_at: pending.created_at,
                         attempts: pending.attempts,
                         attention: None,
                         next_at: Some(now),
@@ -393,7 +449,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
 
     /// Compose: commit the pending copy FIRST (`RETENTION.md` §2's
     /// order); the next [`Self::tick`] attempts it if the session is
-    /// ready. Not attempted here: the caller hands the new row to the
+    /// ready and no earlier row of its conversation is pending (`Order`),
+    /// else it follows them in order. Not attempted here: the caller hands the new row to the
     /// person before an attempt to an unreachable peer has taken its time
     /// to fail (`the_first_attempt_waits_for_the_next_tick`).
     ///
@@ -530,6 +587,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             payload: encoded.bytes,
             created_at: (self.wall)(),
         };
+        let (order, created_at) = (Order::of(&new.destination), new.created_at);
         let row_id = match self.store.commit_pending_outbound(&new) {
             Ok(row_id) => row_id,
             Err(e) if e.is_duplicate() => return Err(SendError::AlreadyPending),
@@ -544,6 +602,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             row_id,
             Row {
                 app_message_id,
+                order,
+                created_at,
                 attempts: 0,
                 attention: None,
                 next_at: Some(now),
@@ -557,8 +617,12 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     /// Retry a row now, whatever its state: the person's "try again". It
-    /// is due at once, and the next [`Self::tick`] attempts it, so the
-    /// caller reports its `Sending` before the attempt's answer.
+    /// is due at once, and so is every earlier row of its conversation
+    /// waiting out a backoff, since the row goes only behind them: the
+    /// next [`Self::tick`] attempts the conversation's head, and the row
+    /// follows in order. The caller reports its `Sending` before the
+    /// attempt's answer
+    /// (`a_retry_behind_a_backoff_brings_its_conversation_due`).
     ///
     /// # Errors
     /// [`RowError::NoSuchRow`] for a row that is not pending.
@@ -566,6 +630,24 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         let row = self.rows.get_mut(&row_id).ok_or(RowError::NoSuchRow)?;
         row.attention = None;
         row.next_at = Some(now);
+        let (order, place) = (row.order.clone(), (row.created_at, row_id));
+        let ahead: Vec<RowId> = self
+            .rows
+            .iter()
+            .filter(|(id, r)| {
+                r.order == order
+                    && r.attention.is_none()
+                    && (r.created_at, **id) < place
+                    && r.next_at.is_some_and(|at| at > now)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ahead {
+            if let Some(r) = self.rows.get_mut(&id) {
+                r.next_at = Some(now);
+            }
+            self.report(id);
+        }
         self.report(row_id);
         Ok(())
     }
@@ -602,9 +684,10 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     /// Take back a cancel: commit the cancelled record again, unchanged
-    /// but for a new row id, due at once: the next [`Self::tick`]
-    /// attempts it as a retry if the session is ready (`RETENTION.md`
-    /// §2, case 16). The same message, never a new
+    /// but for a new row id and its place in its conversation (its
+    /// `created_at`), due at once: the next [`Self::tick`] attempts it as
+    /// a retry if the session is ready and no earlier row of its
+    /// conversation is pending (`Order`) (`RETENTION.md` §2, case 16). The same message, never a new
     /// one: a receiver that admitted the cancelled attempt answers this
     /// one from its dedup entry while it holds it.
     ///
@@ -625,6 +708,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         if !self.config.allows(&record.destination) {
             return Err(SendError::NotConfigured);
         }
+        let (order, created_at) = (Order::of(&record.destination), record.created_at);
         let row_id = match self.store.restore_pending_outbound(&record) {
             Ok(row_id) => row_id,
             Err(e) if e.is_duplicate() => return Err(SendError::AlreadyPending),
@@ -639,6 +723,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             row_id,
             Row {
                 app_message_id: record.app_message_id,
+                order,
+                created_at,
                 attempts: record.attempts,
                 attention: None,
                 next_at: Some(now),
@@ -1093,17 +1179,16 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// Attempt every due row, a page of the store at a time: the store
     /// refuses an unbounded read, and so does this.
     async fn retry_due(&mut self, now: u64) {
-        if !self.rows.values().any(|row| row.is_due(now)) {
+        if !attemptable(&self.rows, &self.flying, now) {
             return;
         }
         let mut after: Option<Cursor> = None;
-        // A destination whose earliest pending row this pass did not
-        // attempt -- on the wire, or waiting out its backoff -- takes no
-        // later row: a person's lines to one peer go in the order written
-        // (`a_row_waiting_its_backoff_holds_the_later_row_to_its_peer`). A
-        // row held for the person's attention waits for the person, not
-        // the transport, and blocks nothing.
-        let mut blocked: BTreeSet<Flight> = BTreeSet::new();
+        // A conversation whose earliest pending row this pass did not
+        // attempt -- on the wire, waiting out its backoff, or its peer's
+        // slot taken -- takes no later row of its own (`Order`). A row
+        // held for the person's attention waits for the person, not the
+        // transport, and blocks nothing.
+        let mut blocked: BTreeSet<Order> = BTreeSet::new();
         loop {
             let Ok(page) = self
                 .store
@@ -1125,12 +1210,13 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
                 if row.attention.is_some() {
                     continue;
                 }
-                let flight = Flight::of(&pending.destination);
-                if !blocked.insert(flight.clone()) {
+                let order = Order::of(&pending.destination);
+                let flight = order.flight();
+                if !blocked.insert(order) {
                     continue;
                 }
-                // A cancelled row's attempt may still be on the wire: its
-                // destination takes none beside it.
+                // One attempt on the wire per slot; a cancelled row's
+                // attempt may still be there.
                 if row.is_due(now)
                     && !self.flying.contains_key(&pending.row_id)
                     && !self.flying.values().any(|f| *f == flight)
@@ -1632,6 +1718,14 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             return;
         }
         self.close_session(Some(now)).await;
+        // The close settled what had answered, and a settle can meet a
+        // full store: degraded then, not merely reconnecting, as for the
+        // take above. No test reaches it: the store's test seams cannot
+        // make a terminal delete fail under its quota.
+        if self.store.health() == StorageHealth::Degraded {
+            self.enter_degraded(now).await;
+            return;
+        }
         self.reopen_attempt = self.reopen_attempt.saturating_add(1);
         let attempt = self.reopen_attempt;
         self.set_state(SessionState::Reconnecting {
@@ -1765,7 +1859,76 @@ mod tests {
     use interweave_human_client_api::Connectivity;
     use interweave_transport_api::Health;
 
-    use super::connectivity_of;
+    use std::collections::BTreeMap;
+
+    use interweave_human_store::{AppMessageId, RowId};
+    use interweave_transport_api::{EndpointId, TransportIdentity};
+
+    use super::{Flight, Order, Row, attemptable, connectivity_of};
+
+    fn peer(seed: u8) -> TransportIdentity {
+        // A fixed Ed25519 public key's PeerId per seed is not needed: any
+        // valid identity does, and the three are told apart by value.
+        let ids = [
+            "12D3KooWB1qCTb256cso59NZaR4Wcq5k1aP7N1MprmBNnhj7YNQv",
+            "12D3KooWLKJUH4yb3jMugHU2EmwxiF3FAtAE5vdBwrfgwe5Lpsra",
+            "12D3KooWJpdARiNPgpq2nSS7KMY4iW9Ba8fA8rKggFJjgPjNqe5t",
+        ];
+        TransportIdentity::parse(ids[usize::from(seed)]).expect("a peer id")
+    }
+
+    fn row(order: &Order, created_at: u64, next_at: Option<u64>) -> Row {
+        Row {
+            app_message_id: AppMessageId::parse(format!("{created_at:032x}")).expect("an id"),
+            order: order.clone(),
+            created_at,
+            attempts: 0,
+            attention: None,
+            next_at,
+            last_problem: None,
+            last_code: None,
+            may_have_reached: false,
+        }
+    }
+
+    /// A pass is due only when a conversation's head can go: rows due
+    /// behind a head waiting out its backoff, or behind one on the wire,
+    /// or whose peer's slot is taken, make no pass. Mutation: the guard
+    /// asking only whether any row is due -- the first two cases pass.
+    #[test]
+    fn a_pass_is_due_only_for_a_head() {
+        let human = EndpointId::parse("human").expect("valid");
+        let a = Order::Conversation(peer(0), Some(human.clone()));
+        let other_of_a = Order::Conversation(peer(0), None);
+        let mut rows = BTreeMap::new();
+        let mut flying = BTreeMap::new();
+        // The head backs off; the row behind it is due.
+        rows.insert(RowId::from_stored(1), row(&a, 10, Some(500)));
+        rows.insert(RowId::from_stored(2), row(&a, 11, Some(0)));
+        assert!(!attemptable(&rows, &flying, 100), "behind a backoff");
+        assert!(attemptable(&rows, &flying, 500), "the head is due");
+        // The head is on the wire.
+        rows.insert(RowId::from_stored(1), row(&a, 10, None));
+        flying.insert(RowId::from_stored(1), Flight::Peer(peer(0)));
+        assert!(!attemptable(&rows, &flying, 100), "behind the wire");
+        // Another conversation with the peer is due, but its slot is taken.
+        rows.insert(RowId::from_stored(3), row(&other_of_a, 12, Some(0)));
+        assert!(!attemptable(&rows, &flying, 100), "the peer's slot");
+        // Another peer's row goes.
+        let b = Order::Conversation(peer(1), Some(human));
+        rows.insert(RowId::from_stored(4), row(&b, 13, Some(0)));
+        assert!(attemptable(&rows, &flying, 100), "another peer");
+        // A head held for attention blocks nothing.
+        let mut held = BTreeMap::new();
+        let mut attention = row(&a, 10, None);
+        attention.attention = Some(interweave_human_client_api::SendProblem::PeerUntrusted);
+        held.insert(RowId::from_stored(1), attention);
+        held.insert(RowId::from_stored(2), row(&a, 11, Some(0)));
+        assert!(
+            attemptable(&held, &BTreeMap::new(), 100),
+            "attention holds nothing"
+        );
+    }
 
     /// A runtime that is there and gave no summary leaves the indicator as
     /// it was; one that is not is offline whatever it summarised.
