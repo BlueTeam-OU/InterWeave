@@ -245,7 +245,8 @@ impl BridgeState {
         // A message taken under an earlier lease than the one held keeps
         // its token in `meta`, stale by its epoch, but the table does not
         // store it: it could only be refused, and stored it would be
-        // counted and hold a place (LIFECYCLE.md §Reconnect).
+        // counted and hold a place (LIFECYCLE.md §Reconnect;
+        // `a_message_taken_under_a_lost_lease_stores_no_token`).
         let held = self.lease.as_ref().map(|(_, epoch)| epoch);
         let route = route.filter(|route| !is_stale(route, held));
         if let (Some(route), Some(token)) = (route, token) {

@@ -239,7 +239,8 @@ impl ReplyTokenTable {
     /// resolve `StaleLease`, so keeping it would count it in `status` and
     /// hold one of the table's places until its TTL (LIFECYCLE.md
     /// §Reconnect: discarded). A broadcast token names a channel, not a
-    /// lease, and stays.
+    /// lease, and stays (`a_token_from_a_previous_lease_epoch_is_stale`;
+    /// in the bridge, `a_lost_lease_takes_its_direct_tokens_and_leaves_the_broadcast`).
     pub fn discard_stale(&mut self, held: Option<&Generation>) {
         self.remove_where(|route, _| is_stale(route, held));
     }
