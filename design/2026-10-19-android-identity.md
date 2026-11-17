@@ -59,7 +59,7 @@ language-culture-en's two questions on it.
 Revised 2026-11-17: when R3's yes opens R4, focus goes to R4's title,
 as #698 builds it (§8, acceptance 15), at rust-ui-dev-01's QUESTION
 01a1e76e (provisional REPLY 01a1e76e-e7f0). Before this revision, §8
-named focus only for R4 after K1.
+named R4's focus only for R4 opened after K1.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -791,13 +791,14 @@ access.
   looks enabled but does nothing is the fault the hypothesis is
   about, whichever control it is.
 - When R3's "Yes, restore it" succeeds and opens R4, by any input,
-  focus goes to R4's title, "PeerId restored", and the screen is
-  navigating, as for R4 after K1 (above). The reading starts at what
-  happened, and an Enter pressed at once presses nothing: Continue
-  starts the service, so it is reached by Tab, not by a second Enter
-  on a screen the person has not read. Where R3's yes ends in a §6
-  row instead (a banner, a notice or a cancelled prompt), that row's
-  focus rule holds: a banner or notice takes focus (the error-banner
+  focus goes to R4's title, "PeerId restored", as when R4 opens after
+  K1 (above), and the screen is navigating. Reading starts at the
+  title, which says what happened. An Enter pressed right after R4
+  opens presses nothing. Continue starts the service, so Continue is
+  reached by Tab, not by a second Enter on a screen the person has
+  not read. Where R3's yes ends in a §6 row instead (a banner, a
+  notice, or a cancelled or denied prompt), that row's focus rule
+  holds: a banner or notice takes focus (the error-banner
   rule below), and a cancelled or denied prompt leaves R3 as it was,
   with focus where it was before the prompt.
 - When a grid position is chosen to edit, by any input, focus goes as
@@ -1154,7 +1155,7 @@ scale would also be a finding of the Android review
       focus on `IdR3Question`. In a third run, the check is started by
       a screen reader's activate on `IdCheckWords`: focus stays on
       `IdCheckWords` while it runs. In a run after K1, a phrase from
-      which the app derives the PeerId that the record names opens R4 with focus on its title, "PeerId restored". In the second run, Tab from `IdR3Question` to `IdR3Yes` and Enter, with the test answering the restore as a success, opens R4 with focus on its title and the screen navigating; an Enter pressed at once then starts nothing, and a Tab reaches Continue. These steps run in a host test, not on the
+      which the app derives the PeerId that the record names opens R4 with focus on its title, "PeerId restored". In the second run, with the test answering the restore as a success, Tab moves focus from `IdR3Question` to `IdR3Yes`, and an Enter there opens R4 with focus on its title and the screen navigating; the next Enter presses nothing and the service does not start, and Tab then reaches Continue. These steps run in a host test, not on the
       phone: no device hook holds the check, and in a host test the
       flow's check is an effect that the test answers itself, as the
       identity flow's tests in `crates/human/ui-model` do. With
