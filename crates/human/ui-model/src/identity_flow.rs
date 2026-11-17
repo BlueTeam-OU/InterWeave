@@ -2309,6 +2309,58 @@ mod tests {
         assert_eq!(flow.notices_raised(), 4, "R3's restore again");
     }
 
+    /// After K1, R2's other two results count each raise, the same one
+    /// again included: another identity's PeerId, and a restore against
+    /// the record that failed (#698 review F3).
+    #[test]
+    fn notices_raised_counts_r2s_results_after_k1() {
+        let mut flow = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+        flow.primary();
+        fill(&mut flow);
+        for raised in 1..=2 {
+            flow.primary();
+            flow.checked(Some(other()));
+            assert!(matches!(flow.notice(), Some(Notice::OtherIdentity { .. })));
+            assert_eq!(flow.notices_raised(), raised, "another identity");
+        }
+        for raised in 3..=4 {
+            flow.primary();
+            flow.checked(Some(mine()));
+            flow.restored(Err(StepFailed::Busy));
+            assert_eq!(flow.notice(), Some(&Notice::Busy));
+            assert_eq!(flow.notices_raised(), raised, "the restore on R2");
+        }
+    }
+
+    /// C4's seal and S1's going offline count each failure, the same
+    /// one again included (#698 review F3).
+    #[test]
+    fn notices_raised_counts_c4s_seal_and_s1s_going_offline() {
+        let mut flow = created_at_c2();
+        flow.primary();
+        enter(&mut flow, "galaxy");
+        enter(&mut flow, "saddle");
+        for raised in 1..=2 {
+            flow.primary();
+            flow.sealed(Err(StepFailed::Storage));
+            assert_eq!(flow.notices_raised(), raised, "the seal");
+        }
+        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        for raised in 1..=2 {
+            flow.primary();
+            flow.prompted(true);
+            flow.offline(Err(StepFailed::Busy));
+            assert_eq!(flow.notices_raised(), raised, "going offline");
+        }
+    }
+
     #[test]
     fn back_from_c3_with_words_asks_first_and_delete_asks_both_again() {
         let mut flow = created_at_c2();
