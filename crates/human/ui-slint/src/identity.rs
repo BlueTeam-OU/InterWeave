@@ -208,6 +208,31 @@ fn held_start(flow: &IdentityFlow, page: &mut IdentityPage) {
     }
 }
 
+/// R2's grid, its position line and its primary: enabled once all 24
+/// are filled and no check runs, and while one runs every word is held
+/// (section 8, `IdentityFlow::words_held`).
+fn entry_grid(flow: &IdentityFlow, page: &mut IdentityPage) {
+    let Some(entry) = flow.entry() else {
+        return;
+    };
+    page.position = numbered(UiText::IdWordPosition, entry.current() + 1).into();
+    page.grid = ModelRc::new(VecModel::from(
+        (0..PHRASE_WORDS)
+            .map(|i| IdSlot {
+                number: i32::try_from(i + 1).unwrap_or(0),
+                word: entry.word(i).unwrap_or_default().into(),
+                current: i == entry.current(),
+            })
+            .collect::<Vec<_>>(),
+    ));
+    page.current = i32::try_from(entry.current()).unwrap_or(0);
+    page.review_label = text(UiText::IdReviewWords).into();
+    page.review = flow.reviewing();
+    page.primary_enabled = entry.complete() && !flow.waiting();
+    // On R2, waiting is the check running.
+    page.checking = flow.waiting();
+}
+
 /// The page for the flow's current screen.
 #[must_use]
 pub fn page(flow: &IdentityFlow) -> IdentityPage {
@@ -390,22 +415,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             page.tertiary = text(UiText::IdShowAgain).into();
         }
     }
-    if let Some(entry) = flow.entry() {
-        page.position = numbered(UiText::IdWordPosition, entry.current() + 1).into();
-        page.grid = ModelRc::new(VecModel::from(
-            (0..PHRASE_WORDS)
-                .map(|i| IdSlot {
-                    number: i32::try_from(i + 1).unwrap_or(0),
-                    word: entry.word(i).unwrap_or_default().into(),
-                    current: i == entry.current(),
-                })
-                .collect::<Vec<_>>(),
-        ));
-        page.current = i32::try_from(entry.current()).unwrap_or(0);
-        page.review_label = text(UiText::IdReviewWords).into();
-        page.review = flow.reviewing();
-        page.primary_enabled = entry.complete() && !flow.waiting();
-    }
+    entry_grid(flow, &mut page);
 
     match screen {
         ScreenId::W if page.secondary.is_empty() => {

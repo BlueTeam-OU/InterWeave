@@ -490,6 +490,9 @@ export struct IdentityPage {
     back-label: string,
     primary: string,
     primary-enabled: bool,
+    // R2's check is running: every word is held until its result, and an
+    // input that does nothing leaves the mode as it was (section 8).
+    checking: bool,
     // The store's key-lost screen: the primary deletes stored data, in
     // `error` (design 2026-10-21 section 7.1).
     primary-danger: bool,
@@ -2612,7 +2615,7 @@ component IdentityScreen inherits FocusScope {
     // goes to (section 8). The page that shows it may set navigating
     // again: a chip that leaves no R2 position empty (`changed page`).
     function take(word: string) {
-        root.typing = true;
+        root.mode(true);
         root.chip(word);
     }
     // Enter and Space follow the last input (section 8). Typing -- the
@@ -2640,8 +2643,17 @@ component IdentityScreen inherits FocusScope {
             root.review(false);
         }
     }
+    // The mode an input sets (section 8). While R2's check runs the
+    // words are held and the input does nothing, so the mode stays as it
+    // was, as a tap on a disabled key leaves it. The input still goes to
+    // the flow, which refuses it: a key queued behind the press that
+    // started the check reaches it after, on a page this one has not
+    // shown yet (IdentityFlow::words_held).
+    function mode(typing: bool) {
+        if (!root.page.checking) { root.typing = typing; }
+    }
     function press-key(letter: string, tap: bool) {
-        root.typing = tap;
+        root.mode(tap);
         root.key(letter);
     }
     // The rule's Enter as this page shows it: the only chip, or the whole
@@ -2694,18 +2706,18 @@ component IdentityScreen inherits FocusScope {
         // The full list hides the picker: no letter edits a word unseen.
         if (root.page.review) { return reject; }
         if (event.text == Key.Backspace && root.page.picker) {
-            root.typing = true;
+            root.mode(true);
             root.delete-letter();
             return accept;
         }
         if (root.page.picker && event.text >= "a" && event.text <= "z" && event.text.character-count == 1) {
-            root.typing = true;
+            root.mode(true);
             root.key(event.text);
             return accept;
         }
         // Enter with no control focused: the suggestion rule's.
         if (event.text == Key.Return && root.enter-takes()) {
-            root.typing = false;
+            root.mode(false);
             root.enter();
             return accept;
         }
@@ -2940,7 +2952,7 @@ component IdentityScreen inherits FocusScope {
                             self.absolute-position, self.width, self.height);
                     }
                     focus-wanted: root.want-seg == 1;
-                    pressed => { root.typing = false; root.review(true); }
+                    pressed => { root.mode(false); root.review(true); }
                     focused(k) => { root.took(k, 1, 0); }
                 }
                 // R2's phrase so far: four columns of six (section 4.4).
@@ -2962,7 +2974,7 @@ component IdentityScreen inherits FocusScope {
                         focus-wanted: root.want-seg == 1 && root.want-idx == i;
                         // A position chosen returns typing (section 8);
                         // the page that shows it moves focus to the keypad.
-                        pressed => { root.typing = true; root.slot(i); }
+                        pressed => { root.mode(true); root.slot(i); }
                         focus-taken => { root.took("identity-slot:" + i, 1, i); }
                         Rectangle {
                             border-width: slot.current ? 2px : 1px;
@@ -3124,7 +3136,7 @@ component IdentityScreen inherits FocusScope {
                             self.absolute-position, self.width, self.height);
                     }
                     focus-wanted: root.want-seg == 4;
-                    pressed => { root.typing = self.by-tap; root.delete-letter(); }
+                    pressed => { root.mode(self.by-tap); root.delete-letter(); }
                     focused(k) => { root.took(k, 4, 0); }
                 }
                 ActionButton {
@@ -3140,7 +3152,7 @@ component IdentityScreen inherits FocusScope {
                             self.absolute-position, self.width, self.height);
                     }
                     focus-wanted: root.want-seg == 5;
-                    pressed => { root.typing = self.by-tap; root.clear-word(); }
+                    pressed => { root.mode(self.by-tap); root.clear-word(); }
                     focused(k) => { root.took(k, 5, 0); }
                 }
             }
@@ -3208,7 +3220,7 @@ component IdentityScreen inherits FocusScope {
                         self.absolute-position, self.width, self.height);
                 }
                 focus-wanted: root.want-seg == 7;
-                pressed => { root.typing = false; root.secondary(); }
+                pressed => { root.mode(false); root.secondary(); }
                 focused(k) => { root.took(k, 7, 0); }
             }
         }
