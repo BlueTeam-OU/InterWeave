@@ -2,8 +2,10 @@
 // Copyright 2026 Andrea Benetton
 //! Send attempts on the wire beside each other, one per destination and
 //! at most `FLIGHT_CAP` in all (architect-cto's ruling 01a1e901, j288): a
-//! peer that never answers holds no line to another peer, no inbound, and
-//! no later line to itself out of order.
+//! peer that never answers holds no line to another peer and no inbound;
+//! lines to one peer go in the order written, a refused one's backoff
+//! included; a session lost or a row cancelled with a send on the wire
+//! leaves no row lost or reported accepted.
 //!
 //! The fake answers every send at once, so the sends here go through
 //! `Holding`, a binding over the fake whose `send_direct` to a held peer
@@ -134,10 +136,19 @@ impl DataSessionPort for HoldingSession {
         message_id: MessageId,
         payload: Payload,
     ) -> Result<EndpointId, TransportError> {
+        /// Counts the send open until it answers or is dropped: a closed
+        /// session drops the attempts it takes off the wire.
+        struct Open<'g>(&'g Gate);
+        impl Drop for Open<'_> {
+            fn drop(&mut self) {
+                self.0.open.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
         let gate = &self.gate;
         gate.started.fetch_add(1, Ordering::SeqCst);
         let open = gate.open.fetch_add(1, Ordering::SeqCst) + 1;
         gate.most_open.fetch_max(open, Ordering::SeqCst);
+        let _open = Open(gate);
         loop {
             let released = gate.released.notified();
             if !gate.is_held(&destination.peer) {
@@ -145,12 +156,9 @@ impl DataSessionPort for HoldingSession {
             }
             released.await;
         }
-        let answer = self
-            .inner
+        self.inner
             .send_direct(destination, message_id, payload)
-            .await;
-        gate.open.fetch_sub(1, Ordering::SeqCst);
-        answer
+            .await
     }
 
     async fn events(&self, max: usize) -> Result<Vec<SessionEvent>, TransportError> {
@@ -406,4 +414,141 @@ async fn at_most_the_flight_cap_of_sends_is_in_flight() {
     sender.tick(3).await;
     assert_eq!(gate.started.load(Ordering::SeqCst), FLIGHT_CAP + 1);
     assert!(gate.most_open.load(Ordering::SeqCst) <= FLIGHT_CAP);
+}
+
+/// A row waiting out its backoff holds the later row to its peer: after
+/// the first line's attempt is refused (not reached), the second is not
+/// attempted before the first's retry, and the peer gets them in the
+/// order written. Mutation: a destination blocked only while a row is on
+/// the wire -- the second goes during the first's backoff.
+#[tokio::test]
+async fn a_row_waiting_its_backoff_holds_the_later_row_to_its_peer() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let gate = Arc::new(Gate::default());
+    let at_a = receiver(&a).await;
+    let mut sender = client(&b, &gate);
+    ready(&mut sender).await;
+    b.inject_send(TransportError::Overloaded);
+    let first = sender
+        .send(to(a.peer()), &envelope("first"), 1)
+        .await
+        .expect("row");
+    let second = sender
+        .send(to(a.peer()), &envelope("second"), 1)
+        .await
+        .expect("row");
+    sender.tick(1).await;
+    sender.tick(2).await;
+    assert_eq!(
+        gate.started.load(Ordering::SeqCst),
+        1,
+        "the second waits behind the first's backoff"
+    );
+    assert!(texts(&at_a).await.is_empty());
+    for now in [100_000, 100_001, 100_002] {
+        sender.tick(now).await;
+    }
+    let seen = statuses(&mut sender);
+    assert_eq!(accepted(&seen), [first, second], "{seen:?}");
+    assert_eq!(texts(&at_a).await, ["first", "second"]);
+}
+
+/// A session lost while a send is on the wire takes that send off it: its
+/// row is outcome-unknown and due again, and after the re-open it is sent
+/// once. Mutation: the close drops the attempts without failing their
+/// rows -- the row is never due again and never sent.
+#[tokio::test]
+async fn a_session_lost_with_a_send_on_the_wire_retries_it() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let gate = Arc::new(Gate::default());
+    let at_a = receiver(&a).await;
+    let mut sender = client(&b, &gate);
+    ready(&mut sender).await;
+    gate.hold(a.peer());
+    let held = sender
+        .send(to(a.peer()), &envelope("held"), 1)
+        .await
+        .expect("row");
+    sender.tick(1).await;
+    assert_eq!(gate.open.load(Ordering::SeqCst), 1, "on the wire");
+    // A send to another peer answers a lost lease: the session goes.
+    b.inject_send(TransportError::EndpointNotRegistered);
+    sender
+        .send(to(&peer()), &envelope("loses the lease"), 2)
+        .await
+        .expect("row");
+    sender.tick(2).await;
+    assert!(
+        matches!(sender.session_state(), SessionState::Reconnecting { .. }),
+        "{:?}",
+        sender.session_state()
+    );
+    let seen = statuses(&mut sender);
+    let last_of_held = seen
+        .iter()
+        .rev()
+        .find(|(row, _)| *row == held)
+        .map(|(_, s)| s.clone());
+    assert!(
+        matches!(
+            last_of_held,
+            Some(OutboundStatus::Unconfirmed {
+                next_retry_at: Some(_),
+                ..
+            })
+        ),
+        "outcome unknown and due again: {seen:?}"
+    );
+    assert_eq!(gate.open.load(Ordering::SeqCst), 0, "off the wire");
+    gate.release(a.peer());
+    for now in [100_000, 200_000, 300_000] {
+        sender.tick(now).await;
+    }
+    let seen = statuses(&mut sender);
+    assert!(
+        accepted(&seen).contains(&held),
+        "sent after the re-open: {seen:?}"
+    );
+    assert_eq!(texts(&at_a).await, ["held"], "once");
+}
+
+/// A row cancelled while its attempt is on the wire is cancelled as one
+/// that may have reached, and the attempt's late answer changes nothing.
+/// Mutation: the cancel reads only the row's own may-have-reached -- it
+/// says the cancelled line did not reach.
+#[tokio::test]
+async fn a_row_cancelled_on_the_wire_is_cancelled_as_may_have_reached() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let gate = Arc::new(Gate::default());
+    let _at_a = receiver(&a).await;
+    let mut sender = client(&b, &gate);
+    ready(&mut sender).await;
+    gate.hold(a.peer());
+    let row = sender
+        .send(to(a.peer()), &envelope("cancelled on the wire"), 1)
+        .await
+        .expect("row");
+    sender.tick(1).await;
+    let _ = statuses(&mut sender);
+    sender.cancel(row).expect("cancelled");
+    let seen = statuses(&mut sender);
+    assert!(
+        seen.iter().any(|(r, s)| *r == row
+            && matches!(
+                s,
+                OutboundStatus::Cancelled {
+                    may_have_reached: true
+                }
+            )),
+        "{seen:?}"
+    );
+    gate.release(a.peer());
+    tokio::task::yield_now().await;
+    sender.tick(2).await;
+    sender.tick(3).await;
+    let seen = statuses(&mut sender);
+    assert!(
+        seen.iter().all(|(r, _)| *r != row),
+        "the late answer changes nothing: {seen:?}"
+    );
 }

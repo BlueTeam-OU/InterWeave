@@ -1567,8 +1567,13 @@ async fn a_snapshot_past_the_cap_is_kept_in_the_store_and_announced() {
     .expect("published");
     events(&mut receiver);
     b.inject_send(TransportError::EndpointNotRegistered);
+    // To another peer: "x" to a waits out its backoff (nobody holds a's
+    // default endpoint), and a later row to a waits behind it (j288).
+    let elsewhere = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer id");
     receiver
-        .send(to(a.peer()), &envelope("y"), 100_001)
+        .send(to(&elsewhere), &envelope("y"), 100_001)
         .await
         .expect("row");
     receiver.tick(100_001).await;

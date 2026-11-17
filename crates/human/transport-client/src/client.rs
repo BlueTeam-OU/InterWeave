@@ -1097,6 +1097,13 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             return;
         }
         let mut after: Option<Cursor> = None;
+        // A destination whose earliest pending row this pass did not
+        // attempt -- on the wire, or waiting out its backoff -- takes no
+        // later row: a person's lines to one peer go in the order written
+        // (`a_row_waiting_its_backoff_holds_the_later_row_to_its_peer`). A
+        // row held for the person's attention waits for the person, not
+        // the transport, and blocks nothing.
+        let mut blocked: BTreeSet<Flight> = BTreeSet::new();
         loop {
             let Ok(page) = self
                 .store
@@ -1112,11 +1119,19 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
                 if self.flying.len() >= FLIGHT_CAP {
                     return;
                 }
+                let Some(row) = self.rows.get(&pending.row_id) else {
+                    continue;
+                };
+                if row.attention.is_some() {
+                    continue;
+                }
                 let flight = Flight::of(&pending.destination);
-                if self
-                    .rows
-                    .get(&pending.row_id)
-                    .is_some_and(|r| r.is_due(now))
+                if !blocked.insert(flight.clone()) {
+                    continue;
+                }
+                // A cancelled row's attempt may still be on the wire: its
+                // destination takes none beside it.
+                if row.is_due(now)
                     && !self.flying.contains_key(&pending.row_id)
                     && !self.flying.values().any(|f| *f == flight)
                 {
@@ -1209,6 +1224,17 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// it is retried on the next session. `None` on the final close, which
     /// reports nothing more.
     async fn close_session(&mut self, now: Option<u64>) {
+        // What has answered is settled first, an acceptance included: only
+        // what is still on the wire is taken off it. Settled, not landed --
+        // the session is closing already.
+        if let Some(now) = now {
+            while let Some(Some((row_id, landing))) = self.in_flight.next().now_or_never() {
+                self.flying.remove(&row_id);
+                // Boxed: a settle that degrades the store closes the session
+                // again, which drains this same set, so it ends.
+                let _ = Box::pin(self.settle(row_id, landing, now)).await;
+            }
+        }
         self.in_flight = FuturesUnordered::new();
         let rows: Vec<RowId> = std::mem::take(&mut self.flying).into_keys().collect();
         if let Some(now) = now {
@@ -1217,11 +1243,22 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             }
         }
         if let Some(session) = self.session.take() {
-            // The attempts that held it are gone, so it is the only owner.
+            // The attempts that held it are gone, so it is the only owner;
+            // a debug build says so loudly if that stops holding, since the
+            // lease would then be released only when the last holder drops.
             // A close that fails leaves nothing to undo: the binding ends
             // the session either way.
-            if let Ok(session) = Arc::try_unwrap(session) {
-                let _ = session.close().await;
+            match Arc::try_unwrap(session) {
+                Ok(session) => {
+                    let _ = session.close().await;
+                }
+                Err(shared) => {
+                    debug_assert_eq!(
+                        Arc::strong_count(&shared),
+                        1,
+                        "a session shared at its close"
+                    );
+                }
             }
         }
     }
@@ -1229,11 +1266,28 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// What an attempt answered, applied to its row. A row cancelled while
     /// its attempt was on the wire is gone, and the answer with it.
     async fn land(&mut self, row_id: RowId, landing: Landing, now: u64) {
-        if !self.rows.contains_key(&row_id) {
-            return;
+        if let Err(e) = self.settle(row_id, landing, now).await
+            && self.send_ended_session(e).await
+        {
+            self.lose_session(now).await;
         }
-        let outcome = landing;
-        match outcome {
+    }
+
+    /// Apply an attempt's answer to its row, and return the error it
+    /// answered, if any, for the caller to ask whether the session ended.
+    /// A row cancelled while its attempt was on the wire is gone, and the
+    /// answer with it
+    /// (`a_row_cancelled_on_the_wire_is_cancelled_as_may_have_reached`).
+    async fn settle(
+        &mut self,
+        row_id: RowId,
+        landing: Landing,
+        now: u64,
+    ) -> Result<(), TransportError> {
+        if !self.rows.contains_key(&row_id) {
+            return Ok(());
+        }
+        match landing {
             Ok((cause, endpoint)) => {
                 // Terminal whether or not the store can delete the copy
                 // now: if it cannot, the row is sent again after a
@@ -1248,12 +1302,11 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
                     OutboundStatus::Accepted { endpoint }
                 });
                 self.finish(row_id, status);
+                Ok(())
             }
             Err(e) => {
                 self.failed(row_id, e, now);
-                if self.send_ended_session(e).await {
-                    self.lose_session(now).await;
-                }
+                Err(e)
             }
         }
     }
