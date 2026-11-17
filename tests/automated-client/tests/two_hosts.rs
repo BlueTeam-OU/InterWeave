@@ -1202,7 +1202,7 @@ fn signed_ms(later: tokio::time::Instant, earlier: tokio::time::Instant) -> i128
 
 /// A measurement, not a pass/fail case: B's daemon restarts while A
 /// holds a connection to it, and A's client sends to B's endpoint
-/// throughout -- every 50 ms from B's `SIGTERM` until it exits (B's
+/// throughout -- every 50 ms (`J174_DRAIN_MS`) from B's `SIGTERM` until it exits (B's
 /// drain), every 10 s through the outage, and every 250 ms from B's
 /// return until a send is accepted and two seconds past it. B's client
 /// re-opens its session at once: it retries from B's exit. Read from the
@@ -1225,6 +1225,11 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
         std::env::var("J174_OUTAGE_S")
             .ok()
             .map_or(0, |s| s.parse().expect("seconds")),
+    );
+    let drain_every = Duration::from_millis(
+        std::env::var("J174_DRAIN_MS")
+            .ok()
+            .map_or(50, |s| s.parse().expect("milliseconds")),
     );
     let variant = std::env::var("J174_B").unwrap_or_else(|_| "silent".to_owned());
     let (b_entry, b_sends) = match variant.as_str() {
@@ -1274,7 +1279,7 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
         }
         drain.push((at, answer(&outcome)));
         let _ = at_b.pump(Duration::from_millis(1)).await;
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(drain_every).await;
     }
     let exit = tokio::time::Instant::now();
     let b_log_before = b.log();
