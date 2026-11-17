@@ -2310,7 +2310,7 @@ mod tests {
     }
 
     /// After K1, R2's other two results count each raise, the same one
-    /// again included: another identity's PeerId, and a restore against
+    /// again included: another identity's `PeerId`, and a restore against
     /// the record that failed (#698 review F3).
     #[test]
     fn notices_raised_counts_r2s_results_after_k1() {
