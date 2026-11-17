@@ -185,6 +185,38 @@ pub(crate) fn after(
     )
 }
 
+/// A stop condition: `held` has held, without a break, for `window`.
+/// The window then runs from what the test waits on, the row's
+/// arrival, rather than from the stop's making, which a slow delivery
+/// would eat into.
+pub(crate) fn held_for(window: Duration, held: impl Fn() -> bool) -> impl FnMut() -> bool {
+    let mut since: Option<Instant> = None;
+    move || {
+        if held() {
+            since.get_or_insert_with(Instant::now).elapsed() >= window
+        } else {
+            since = None;
+            false
+        }
+    }
+}
+
+/// Mutation: `since` kept across a break -- the third look then ends
+/// the wait on time the condition did not hold.
+#[test]
+fn held_for_restarts_its_window_on_a_break() {
+    let held = std::cell::Cell::new(true);
+    let mut done = held_for(Duration::from_millis(50), || held.get());
+    assert!(!done(), "not yet held for the window");
+    std::thread::sleep(Duration::from_millis(60));
+    held.set(false);
+    assert!(!done(), "broken");
+    held.set(true);
+    assert!(!done(), "the window starts again");
+    std::thread::sleep(Duration::from_millis(60));
+    assert!(done(), "held for the window since");
+}
+
 /// Rows the store at `file` holds unread, read by a connection of its own.
 pub(crate) fn unread_count(file: &Path) -> i64 {
     rusqlite::Connection::open(file)
@@ -1519,9 +1551,9 @@ async fn a_filtered_listen_consumes_only_what_it_prints() {
         // may be printed or consumed within it.
         after(
             &out,
-            Duration::from_millis(800),
+            Duration::ZERO,
             "the message held unread",
-            move || unread_count(&held) == 1,
+            held_for(Duration::from_millis(800), move || unread_count(&held) == 1),
         ),
     )
     .await

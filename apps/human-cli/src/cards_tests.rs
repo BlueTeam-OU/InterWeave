@@ -27,7 +27,7 @@ use crate::Failure;
 use crate::cli::{PhotoArg, Verb};
 use crate::session::Session;
 use crate::verbs::{self, Run};
-use crate::verbs_tests::{Shared, after, unread_count};
+use crate::verbs_tests::{Shared, after, held_for, unread_count};
 
 const WALL: u64 = 1_792_652_603_000;
 
@@ -558,11 +558,13 @@ async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
                 let shown = out.clone();
                 after(
                     &out,
-                    Duration::from_millis(500),
+                    Duration::ZERO,
                     "the events it was to print",
                     // With none to wait for, the window from the arrival
                     // is the claim.
-                    move || arrived() && until.iter().all(|k| shown.has(|e| e["event"] == *k)),
+                    held_for(Duration::from_millis(500), move || {
+                        arrived() && until.iter().all(|k| shown.has(|e| e["event"] == *k))
+                    }),
                 )
             },
         )
@@ -1213,9 +1215,9 @@ async fn a_listen_filtered_to_messages_declines_no_card() {
         // be printed or consumed within it.
         after(
             &out,
-            Duration::from_millis(500),
+            Duration::ZERO,
             "the card held unread",
-            move || unread_count(&held) == 1,
+            held_for(Duration::from_millis(500), move || unread_count(&held) == 1),
         ),
     )
     .await

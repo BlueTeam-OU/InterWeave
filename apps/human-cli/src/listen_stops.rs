@@ -24,7 +24,7 @@ const POLL: Duration = Duration::from_millis(50);
 /// # Panics
 /// When [`BOUND`] runs out first, naming `what`.
 pub(crate) async fn when(what: &str, done: impl FnMut() -> bool) {
-    within(BOUND, what, done, String::new).await;
+    within(BOUND, what, done, || None).await;
 }
 
 /// [`when`], whose failure also says what `listen` printed: the
@@ -38,7 +38,7 @@ pub(crate) async fn when_showing(
     done: impl FnMut() -> bool,
     printed: impl Fn() -> String,
 ) {
-    within(BOUND, what, done, printed).await;
+    within(BOUND, what, done, || Some(printed())).await;
 }
 
 /// Ends when `stopped` is sent or dropped.
@@ -60,14 +60,18 @@ async fn within(
     bound: Duration,
     what: &str,
     mut done: impl FnMut() -> bool,
-    printed: impl Fn() -> String,
+    printed: impl Fn() -> Option<String>,
 ) {
     let deadline = tokio::time::Instant::now() + bound;
     while !done() {
         assert!(
             tokio::time::Instant::now() < deadline,
-            "listen never reached {what} within {bound:?}; it printed:\n{}",
+            "listen never reached {what} within {bound:?}{}",
+            // Said only by a test that holds the output: an empty quote
+            // would say nothing was printed.
             printed()
+                .map(|out| format!("; it printed:\n{out}"))
+                .unwrap_or_default()
         );
         tokio::time::sleep(POLL).await;
     }
@@ -98,7 +102,7 @@ mod tests {
             Duration::from_millis(100),
             "the drain",
             || false,
-            || "row 1".to_owned(),
+            || Some("row 1".to_owned()),
         )))
         .await;
         assert!(
@@ -106,6 +110,20 @@ mod tests {
             "{message}"
         );
         assert!(message.ends_with("it printed:\nrow 1"), "{message}");
+    }
+
+    /// A wait that holds no output says nothing of it, rather than
+    /// quoting nothing. Mutation: the quote made whatever `printed` says.
+    #[tokio::test]
+    async fn running_out_without_the_output_quotes_none() {
+        let message = panic_of(tokio::spawn(within(
+            Duration::from_millis(100),
+            "the drain",
+            || false,
+            || None,
+        )))
+        .await;
+        assert!(message.ends_with("within 100ms"), "{message}");
     }
 
     /// The same for a stop sent by the test, the sender held alive.
@@ -134,7 +152,7 @@ mod tests {
                 polls += 1;
                 polls == 3
             },
-            String::new,
+            || None,
         )
         .await;
         assert_eq!(polls, 3);
