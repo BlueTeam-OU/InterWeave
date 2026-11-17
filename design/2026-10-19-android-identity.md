@@ -98,6 +98,13 @@ notice, a cancelled prompt, and "show all my words" held while the
 check runs. One of its existing runs now also checks the mode after
 an input that does nothing.
 
+Revised later on 2026-11-17, for a question from the build: §5 gave
+"Copy PeerId" a `PeerIdCopied` snackbar below Android 13 and said
+nothing of where it shows, how long, whether it takes focus or is
+announced, or on which screens. §5 now says (The copy's
+confirmation), §8 keeps it out of every focus order, and acceptance
+18 checks it.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -551,7 +558,8 @@ keypad stay left-to-right: they are English words in Latin letters.
   (`CopyPeerId`, the Details dialog's key, #313) puts the canonical
   string on the clipboard, with no spaces. On Android 13 and later the
   platform confirms the copy; below 13 a `PeerIdCopied` snackbar
-  without Undo does. Focus stays on the button. A copy is never of a
+  without Undo does (The copy's confirmation, below). Focus stays on
+  the button. A copy is never of a
   word: the button is on no screen that shows words: the PeerIds in R2's
   and R3's banners (`IdOtherIdentity`, `IdRestoreOther`) are shown in full for
   comparing by eye and have no copy button.
@@ -561,6 +569,33 @@ keypad stay left-to-right: they are English words in Latin letters.
   pages the page title names it and a note follows (`IdPeerIdLabel`,
   `IdPeerIdNoteShown`); on C4 and R4 its label does both
   (`IdPeerIdLabelShown`).
+
+**The copy's confirmation, below Android 13.** It is the same on
+every screen with `CopyPeerId`: C2's and S2's PeerId pages, C4, R3
+and R4.
+
+- It is the look spec's snackbar (`design/2026-10-16-android-look.md`
+  §7: its colours, at least 48 dp tall, 12 dp from the screen's
+  sides), with the text `PeerIdCopied` and no action. It sits 12 dp
+  above the screen's actions, which are fixed at the bottom (§3), and
+  covers none of them, nor the PeerId or `CopyPeerId`. It may cover
+  the scrolling content, since the person has just copied what it
+  would hide.
+- It takes no focus and is not in the Tab order (§8): it has no
+  action, and focus stays on `CopyPeerId`. A screen reader can still
+  read it by touch.
+- It shows for 6 s, or for longer when the platform's accessibility
+  timeout asks for it (`getRecommendedTimeoutMillis(6000,
+  FLAG_CONTENT_TEXT)`), and never for more than 2 minutes, as
+  `design/2026-10-16-message-swipe.md` §6 does. When it appears it is
+  announced once, politely, with its own words.
+- A second copy while it shows starts its time again and is
+  announced again: the person pressed again and is told so.
+- Leaving the screen closes it, by any way out (Continue, Back, the
+  next C2 or S2 page, a §6 state taking the screen). It never shows on
+  the next screen.
+- On Android 13 and later the app shows nothing and announces
+  nothing: the platform's own confirmation is the only one.
 
 A 52-character string is compared by chunks. Chunks of four make that
 comparison a matter of groups, not of single characters.
@@ -701,6 +736,8 @@ access.
     which is made focusable for this, as R4's is (below): Continue
     seals the PeerId and starts the service, so it is reached by Tab,
     not by a second Enter on a screen the person has not read.
+  - The `PeerIdCopied` snackbar below Android 13 (§5) takes no focus
+    and is in none of these orders.
 - A typed hardware letter acts as its key, and Backspace as the delete
   key.
 - An arrow moves focus to the nearest control in its direction, a
@@ -1568,6 +1605,22 @@ scale would also be a finding of the Android review
     tried while the notice is open is refused as `ProfileLocked`, and
     Try again succeeds on the same lock. After a success, the service starts. This item waits on
     §11b Q9 and Q10 in the crate.
+18. Below Android 13, "Copy PeerId" is confirmed as §5 says (The
+    copy's confirmation). A host test with the platform version set
+    below 13 checks it on C2's PeerId page, S2's PeerId page, C4, R3
+    and R4: after Enter on `CopyPeerId`, `PeerIdCopied` shows with no
+    action, focus stays on `CopyPeerId`, Tab moves to the next control
+    of §8's order and never to the snackbar, and one polite
+    announcement with its words is made. A second Enter within 6 s
+    keeps it shown 6 s from that Enter and makes a second
+    announcement. With no input it closes 6 s after it appeared, and,
+    with the accessibility timeout set to 30 s, 30 s after. Leaving
+    the screen closes it, and the next screen shows none. With the
+    platform version 13 or later, the same Enter shows no snackbar and
+    makes no announcement. Its place above the fixed actions, covering
+    none of them nor the PeerId or `CopyPeerId`, is checked by looking
+    at the screen on a device or emulator below Android 13. None is
+    recorded for this project, so that check is blocked until one is.
 
 ## 11. Questions answered
 
