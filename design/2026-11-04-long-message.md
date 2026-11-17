@@ -901,7 +901,7 @@ it, those checks are blocked, never passed.
     - 2026-11-14 (rust-ui-dev-02, REPLY 01a1da47;
       `apps/human-desktop/runs/2026-11-14-escape-during-opening.md`), on
       a host whose load, read before and after the record's second and third
-      runs, was 4.8 to 6.0 times the number of CPUs (48 to 60 on 10; the load was not
+      runs, was 4.8 to 6.0 times the number of CPUs (a load of 48 to 60 on 10 CPUs; the load was not
       read for the first run): the list shape closed within 1 s in nine rounds of nine. The stress
       shapes closed within 0.15 s in fifteen of the seventeen judged
       rounds; two distinct-headings rounds failed: they closed at 192

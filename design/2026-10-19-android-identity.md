@@ -60,14 +60,15 @@ Revised 2026-11-17: when R3's yes opens R4, focus goes to R4's title,
 as #698 builds it (§8, acceptance 15), at rust-ui-dev-01's QUESTION
 01a1e76e (provisional REPLY 01a1e76e-e7f0). Before this revision, §8
 named R4's focus only for R4 opened after K1.
-Revised later on 2026-11-17, after #693's full review (F11 and the
-problems it found already there). While R3's restore runs, `IdR3Yes`
-and `IdR3No` show disabled, Back does nothing and the restore moves
-no focus (§6 Restore running, §7, §8). Before, nothing held R3 while
-its restore wrote the record, so a second press of yes or a No could
-act during the write. A §6 notice on R3 shows under the app bar,
-above the question, and comes first in R3's focus order, which §8 now
-gives (§6, §8). Before, §6 placed notices only on R2. Acceptance 15
+Revised later on 2026-11-17, after #693's full review (F11, and the
+problems it found in text that was already there). While R3's restore
+runs, `IdR3Yes` and `IdR3No` show disabled, Back does nothing and the
+restore moves no focus (§6 Restore running, §7, §8). Before, nothing
+held R3 while its restore wrote the record, so a second press of
+`IdR3Yes`, or a press of `IdR3No`, could act during the write. A §6
+notice on R3 shows under the app bar, above the question. In R3's
+focus order, which §8 now gives, the notice comes right after the app
+bar (§6, §8). Before, §6 placed notices only on R2. Acceptance 15
 gains runs for a held restore, a refusal and a cancelled prompt at
 R3's yes. The typing and navigating modes are R2's and C3's only, and
 "R2 and C3 open as typing" replaces "a screen opens as typing". The
@@ -575,7 +576,7 @@ place too: under the app bar, above the question. These are `IdBusy`,
 `IdStorageFailed`, `IdStorageUnknown` and `IdRestoreOther`, each the
 outcome of one restore, so at most one shows, with its action under
 its text as on R2. R3 has no title, so the notice is the first thing
-read on the screen, before the question it answers.
+read on the screen, before the question.
 
 ## 7. Leaving, Back and interruptions
 
@@ -604,10 +605,10 @@ read on the screen, before the question it answers.
   (§6, Authentication needed).
 - **Back while R3's restore runs** (§6, Restore running) does nothing
   until the result, for the same reason: the restore writes the
-  record. Back does nothing, and the app bar's back arrow is drawn
-  inactive until the result. `IdR3No` is disabled for the same
-  time, since it too would return to R2, where the words could change
-  while the restore of the words read writes them. A system prompt
+  record. The app bar's back arrow is drawn inactive until the
+  result. `IdR3No` is disabled for the same time, since it too would
+  return to R2, where the words could change while the restore writes
+  the record from the words it read. A system prompt
   over R3 keeps its own Back, which cancels the prompt.
 - **The app leaves the screen.** Home, a call, or another app opening.
   A stopped Activity is neither completion nor cancellation (§11 Q1):
@@ -652,10 +653,10 @@ access.
   disabled key included (below), as the platform's directional focus
   does: across a keypad row, between rows, and between the grid's
   positions. Tab and Shift+Tab follow the order above.
-- On R2 and C3, the screens with a keypad, what Enter and Space do
-  depends on the last input. On every other screen of this note, Enter
-  and Space press the focused control, and nothing below about typing
-  and navigating applies there:
+- On every screen of this note other than R2 and C3, Enter and Space
+  press the focused control, and nothing below about typing and
+  navigating applies. On R2 and C3, the screens with a keypad, what
+  Enter and Space do depends on the last input:
   - **Typing** — the last input was a hardware letter, Backspace, an
     Enter that acted under this rule, or a tap on an enabled letter
     key, the delete key or the clear key. A tap on one of these keys
@@ -838,8 +839,9 @@ access.
   before the prompt.
 - **While R3's restore runs** (§6, Restore running), `IdR3Yes` and
   `IdR3No` are disabled, and Enter, Space or a screen reader's
-  activate on either does nothing. So does the action of a notice
-  still showing, which stays on the screen while the restore runs. A
+  activate on either does nothing. The action of a notice still
+  showing does nothing too, and the notice stays on the screen while
+  the restore runs. A
   Try again on an R3 notice (`IdBusy`, `IdStorageFailed`,
   `IdStorageUnknown`) starts the restore again, and R3 is held in the
   same way while it runs. The restore moves no focus: focus stays on
@@ -851,12 +853,13 @@ access.
   rule above says, wherever the person moved it. Why: the restore
   writes the record. A second press of `IdR3Yes` would start a second
   restore over the first, and an Enter pressed twice by a person who
-  meant one press would do it: the rule that R4's opening Enter
-  presses nothing protects that person only once R4 is open. `IdR3No`
-  would return to R2 and let the words change while the restore of
-  the words read was writing. Both show disabled, unlike R2's held
-  keys, because a restore always waits on a key operation, so it can
-  last long enough for a person to try one, and R3 has only these two
+  meant one press would do it: the rule that an Enter pressed right
+  after R4 opens presses nothing protects that person only after R4 is
+  open. `IdR3No` would return to R2 and let the words change while the
+  restore was writing the record from the words it read. Both show
+  disabled, unlike R2's held keys, because a restore always waits on a
+  key operation, so it can last long enough for a person to try to
+  press `IdR3Yes` or `IdR3No`, and R3 has only these two
   actions: a control that looks enabled and does nothing is the fault
   §8's hypothesis for R2 is about.
 - When a grid position is chosen to edit, by any input, focus goes as
@@ -1214,7 +1217,7 @@ scale would also be a finding of the Android review
       focus on `IdR3Question`. In a third run, the check is started by
       a screen reader's activate on `IdCheckWords`: focus stays on
       `IdCheckWords` while it runs. In a run after K1, a phrase from
-      which the app derives the PeerId that the record names opens R4 with focus on its title, "PeerId restored". In the second run, the test answers the restore as a success. On R3, Tab moves focus from `IdR3Question` to `CopyPeerId` (§5), and a second Tab moves it to `IdR3Yes`. An Enter there opens R4 with focus on its title. The next Enter presses nothing, and the service does not start. On R4, Tab then moves focus to `CopyPeerId`, and a second Tab moves it to Continue. In a fourth run, the steps of the second run are repeated as far as the Enter on `IdR3Yes`, and the test leaves the restore unanswered. Meanwhile, a second Enter, a screen reader's activate on `IdR3Yes`, Escape and Back start no second restore and leave R3 open; `IdR3Yes` and `IdR3No` show disabled; and the back arrow is inactive. A Tab moves focus to `IdR3No`, and Enter there leaves R3 open, with no word changed. When the test then answers the restore as a success, R4 opens with focus on its title, although focus was on `IdR3No`. In a fifth run, from R3 as in the second run, the test answers the restore with a refusal that wrote nothing (`IdStorageFailed`). The notice shows under the app bar, above the question, with focus on the notice; R3 still shows the same PeerId; and Tab moves focus to `TryAgain`, then to `IdR3Question`. Enter on `TryAgain` starts the restore again, with `IdR3Yes`, `IdR3No` and `TryAgain` held while it runs. In a sixth run, the test answers the restore as authentication needed and then the prompt as cancelled. R3 stays as it was, with no notice, `IdR3Yes` and `IdR3No` enabled again and focus on `IdR3Yes`, and the flow asks for no further restore until `IdR3Yes` is pressed again. These steps run in a host test, not on the
+      which the app derives the PeerId that the record names opens R4 with focus on its title, "PeerId restored". In the second run, the test answers the restore as a success. On R3, Tab moves focus from `IdR3Question` to `CopyPeerId` (§5), and a second Tab moves it to `IdR3Yes`. An Enter there opens R4 with focus on its title. The next Enter presses nothing, and the service does not start. On R4, Tab then moves focus to `CopyPeerId`, and a second Tab moves it to Continue. In a fourth run, the steps of the second run are repeated as far as the Enter on `IdR3Yes`, and the test leaves the restore unanswered. Meanwhile, a second Enter, a screen reader's activate on `IdR3Yes`, Escape and Back start no second restore and leave R3 open; `IdR3Yes` and `IdR3No` show disabled; and the back arrow is inactive. A Tab moves focus to `IdR3No`, and Enter there leaves R3 open, with no word changed. When the test then answers the restore as a success, R4 opens with focus on its title, although focus was on `IdR3No`. In a fifth run, from R3 as in the second run, the test answers the restore with a refusal that wrote nothing (`IdStorageFailed`). The notice shows under the app bar, above the question, with focus on the notice; R3 still shows the same PeerId; and Tab moves focus to `TryAgain`, and a second Tab moves it to `IdR3Question`. Enter on `TryAgain` starts the restore again, with `IdR3Yes`, `IdR3No` and `TryAgain` held while it runs. In a sixth run, the test answers the restore as authentication needed and then the prompt as cancelled. R3 stays as it was, with no notice, `IdR3Yes` and `IdR3No` enabled again and focus on `IdR3Yes`, and the flow asks for no further restore until `IdR3Yes` is pressed again. These steps run in a host test, not on the
       phone: no device hook holds the check, and in a host test the
       flow's check is an effect that the test answers itself, as the
       identity flow's tests in `crates/human/ui-model` do. With
