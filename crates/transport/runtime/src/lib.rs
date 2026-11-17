@@ -19,6 +19,7 @@ pub mod endpoint_queue;
 pub mod endpoint_registry;
 pub mod fingerprint;
 pub mod ingress;
+pub mod loss_ladder;
 pub mod mesh_id;
 pub mod preauth;
 pub mod reachability;
@@ -46,6 +47,7 @@ pub use direct_inbound::{
     AdmissionContext, Clocks, Outcome, PrefixContext, Refusal, admit_inbound, admit_prefix,
     admit_structured,
 };
+pub use loss_ladder::{LOSS_LADDER_FLOOR_MS, LOSS_LADDER_MS};
 // RE-EXPORTED, so a backend composing admission does not have to name
 // `trust-api` itself. `AdmissionContext` holds a `PeerTrustPolicy`, so
 // the type is already in this crate's public API — a consumer that could
