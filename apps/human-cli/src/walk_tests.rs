@@ -694,16 +694,10 @@ async fn listen_consume_drains_a_conversation_past_the_held_row_ceiling() {
             input: None,
         },
         &mut out,
-        // Until the store holds none unread; the bound keeps a broken
-        // drain from hanging the suite.
-        async move {
-            let _ = tokio::time::timeout(Duration::from_secs(10), async {
-                while count(&path, "unread_inbound") > 0 {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-            })
-            .await;
-        },
+        // Until the store holds none unread.
+        crate::listen_stops::when("an empty unread table", move || {
+            count(&path, "unread_inbound") == 0
+        }),
     )
     .await
     .expect("listened");

@@ -968,7 +968,22 @@ async fn listen_consume_drains_what_the_store_held_unread_at_open() {
             input: None,
         },
         &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        // Until the store holds none unread, and no sooner than half a
+        // second: a row printed twice has that long to show.
+        {
+            let path = dir_b.path().join("human.sqlite3");
+            let since = Instant::now();
+            crate::listen_stops::when("an empty unread table", move || {
+                since.elapsed() >= Duration::from_millis(500)
+                    && rusqlite::Connection::open(&path)
+                        .expect("the store file")
+                        .query_row("SELECT COUNT(*) FROM unread_inbound", [], |r| {
+                            r.get::<_, i64>(0)
+                        })
+                        .expect("a count")
+                        == 0
+            })
+        },
     )
     .await
     .expect("listened");
@@ -1042,10 +1057,7 @@ async fn a_printed_message_is_read_before_listen_ends() {
             input: None,
         },
         &mut tap,
-        // The bound only keeps a broken listen from hanging the test.
-        async {
-            let _ = tokio::time::timeout(Duration::from_secs(5), stopped).await;
-        },
+        crate::listen_stops::on("its first message line", stopped),
     )
     .await
     .expect("listened");
