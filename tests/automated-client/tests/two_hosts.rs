@@ -1202,7 +1202,8 @@ fn signed_ms(later: tokio::time::Instant, earlier: tokio::time::Instant) -> i128
 
 /// A measurement, not a pass/fail case: B's daemon restarts while A
 /// holds a connection to it, and A's client sends to B's endpoint
-/// throughout -- every 50 ms (`J174_DRAIN_MS`) from `J174_DRAIN_LEAD_MS`
+/// throughout -- pausing 50 ms (`J174_DRAIN_MS`) after each answer,
+/// from `J174_DRAIN_LEAD_MS`
 /// (default 0) before B's `SIGTERM` until it exits (B's drain), while
 /// B's client reads; every 10 s through the outage; and every 250 ms from B's
 /// return until a send is accepted and two seconds past it. B's client

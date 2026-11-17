@@ -38,18 +38,26 @@ INTERWEAVE_PACKAGE_BIN=$PKG cargo test -p interweave-automated-client-tests \
   --ignored --test-threads 1
 ```
 
-The fan-in rounds and the four restart variants ran at 2b27f3ab4. The
-eight repeats (`repeat-*`) ran at 69d3ae7bd, which only reads the drain
-cadence from the environment. The drain runs (`drain-*`) ran at
-2062778f7, where A's sends run on a task of their own across the
-SIGTERM.
+Each set of runs, its commit and its variables:
+
+- **The fan-in rounds**: at 2b27f3ab4, no variables.
+- **The four restart variants** (`restart-*`): at 2b27f3ab4, `J174_B` and
+  `J174_OUTAGE_S` as the file name says, the drain pause at its default of
+  50 ms.
+- **The eight repeats** (`repeat-*`): at 69d3ae7bd, which only reads the
+  drain pause from the environment. `J174_B=silent J174_OUTAGE_S=0
+  J174_DRAIN_MS=5`.
+- **The drain runs** (`drain-*`): at 2062778f7, where A's sends run on a
+  task of their own across the SIGTERM. `J174_B=silent J174_OUTAGE_S=0
+  J174_DRAIN_MS=5 J174_DRAIN_LEAD_MS=300`.
 
 ## 1. Fan-in: thirty sources, one endpoint
 
 `tests/fan_in.rs`. 32 daemons on this host's loopback. One sink holds
 `fabric-control` and `side`. Thirty sources each hold one static entry
-for the sink, and a thirty-first sends to `side` twice a second, from
-1 s before each round's window until 2 s after it. Each source sends k
+for the sink, and a thirty-first sends to `side` 17 times a round: its
+first two together at the round's start, 0.5 s before the window, then
+every 0.5 s until 2 s after it. Each source sends k
 direct messages of 32 768 bytes, one at a time, each answered before the
 next. *Spread* places all 30·k sends evenly over 5 s, interleaved across
 the sources. *Burst* sends back to back from the window's start. The
@@ -83,8 +91,10 @@ F3).
 "All read at" is measured from the window's start. Each run's record also
 has the answer latency: p99 at most 323 ms on either release build.
 
-- **The largest fan-in with no refusal is k = 9: 270 messages of 32 KiB
-  from thirty peers inside 5 s**, on both builds and at both paces.
+- **The largest k measured with no refusal is 9 (of 1, 4, 9 and 16):
+  270 messages of 32 KiB from thirty peers inside 5 s**, on both builds
+  and at both paces. Nothing between 9 and 16 ran. By the buckets'
+  arithmetic, spread at k = 10 or 11 would also fit.
 - **At k = 16, Overloaded and nothing else**, on both builds. Spread,
   about 350 of 480 are accepted: the global burst of 256 plus about 20 a
   second refilled over the 5 s (1200 a minute). Burst, 278–299 are
@@ -124,11 +134,11 @@ The variants (`J174_B`):
 |---|---|---|---|---|
 | v0.3.0 | silent | 0 | 0.28 s | none |
 | v0.3.0 | sends | 0 | 0.27 s (B's send: Accepted) | none |
-| v0.3.0 | entry | 0 | 0 s | one 30 000, lifted by B's dial |
+| v0.3.0 | entry | 0 | 0 s (B's send: Accepted) | none |
 | v0.3.0 | silent | 100 s | **110.0 s** | 30 000, 60 000, 120 000 |
 | main | silent | 0 | 0.29 s | none |
 | main | sends | 0 | 30.1 s (B's send: PeerUnknown) | 30 000 |
-| main | entry | 0 | 0 s | one 30 000, lifted by B's dial |
+| main | entry | 0 | 0 s (B's send: Accepted) | none |
 | main | silent | 100 s | **20.1 s** | 30 000 ×4 |
 
 The quick restart, repeated eight times per build (*silent*, 0 s,
@@ -145,7 +155,7 @@ below (12 of 12) it was 29.9–30.2 s.
   refused at the gate (`dial failed class="PeerBackoff"`, answered
   PeerUnreachable at once) until the retry falls due. A redial on the
   close itself has the same race. Where nothing dials before B listens,
-  reach is the next send. So on both builds the worst a 0.1–0.2 s
+  reach is the next send. So on both builds the worst a sub-0.3 s
   restart costs is one backoff step, 30 s. It was paid in 6 of the 22
   quick restarts where A sent only from B's SIGTERM on, and in 12 of 12
   where A was already sending every 5 ms when the SIGTERM came.
@@ -162,8 +172,12 @@ below (12 of 12) it was 29.9–30.2 s.
   retries moved it. The step at the *start* of an outage is different,
   as above: there a send is what dials.
 - **B sending first reaches A only if B knows where A is.** With *entry*,
-  B's start-up dial lifts A's backoff (an inbound from B resets it,
-  `CONNECTIVITY.md` §12) and reach is 0 s on both builds. With *sends*
+  B's restarted daemon dialled A 2–3 ms after it served, and the pair was
+  connected before A's first send; reach was 0 s on both builds. A held
+  no backoff in either run, so these runs do not show B's dial lifting
+  one (`far_end_returns`' case `a_far_end_that_returns_and_dials_this_side_lifts_its_backoff`
+  pins that). The `retry scheduled ... 30000` in B's lines is from B's
+  first start, before the SIGTERM. One run per build. With *sends*
   and no entry, B's send to A succeeded when A's own dial had already
   connected (v0.3.0's run, B's send Accepted). It was PeerUnknown when it
   had not (main's run): a restarted daemon holds no address for a peer
@@ -172,6 +186,10 @@ below (12 of 12) it was 29.9–30.2 s.
 ## 3. Refusals around B's drain and return
 
 - **The drain is short.** SIGTERM to exit took 2–223 ms in these runs.
+  That figure is an upper bound: once B's session closed, the harness's
+  client paused 100 ms in its reconnect before the loop polled B's exit
+  again. The runs that read 2–6 ms are the ones where the exit was seen
+  first.
   The server closes the IPC sessions and releases the leases first, and
   then the runtime stops (the daemon's stop order, `daemon.rs`). From the
   SIGTERM, A's sends were answered PeerUnreachable, the connection
@@ -179,10 +197,16 @@ below (12 of 12) it was 29.9–30.2 s.
   (main *sends* and repeat 1): the connection was still up, the lease
   already released.
 - **A message answered Accepted just before B's SIGTERM can be lost.**
-  In the drain runs (`drain-*`), A sent every 5 ms from 300 ms before the
-  SIGTERM, and B's client read every 2 ms until the exit. In 6 of 12 runs
-  (3 on v0.3.0, 3 on main), one of the 18–31 messages answered Accepted in
-  those 300 ms never reached B's client. The same happened once in the
+  In the drain runs (`drain-*`), A sent from 300 ms before the SIGTERM,
+  with a 5 ms pause after each answer, so 18–31 sends about 10–17 ms
+  apart. B's client read every 2 ms until its session closed. In 6 of 12
+  runs (4 on main, 2 on v0.3.0), one of the 18–31 messages answered
+  Accepted in those 300 ms never reached B's client. In v0.3.0's run 3, a
+  second message, sent at +0 ms and answered Accepted, was not read
+  either. Three runs (main 6, v0.3.0 2 and 4) were answered Overloaded 1–2
+  times in the last 60 ms before the SIGTERM, by A's per-peer bucket at
+  B. All three lost nothing, so those three probed the last milliseconds
+  less closely. The same happened once in the
   first eight restart runs (main, silent 100 s: the one send answered
   Accepted, at the SIGTERM). This is not a breach of the contract:
   AcceptedV2 means bounded admission to the remote endpoint's queue, not
@@ -237,7 +261,7 @@ no transport, daemon, IPC or configuration file since then.
   sender can retry), or deliver what the queue holds before the session's
   close.
 - **F2. A send dials a peer that has just closed, and a failure costs
-  30 s.** A peer that restarts in 0.1 s waits a full backoff step because
+  30 s.** A peer that restarts in under 0.3 s waits a full backoff step because
   the first send after the close dialled it mid-stop. Options (ADR-0011's
   ground): a shorter first step after a connection that closed cleanly,
   or no send-triggered dial for a short time after a clean close, leaving
@@ -251,8 +275,8 @@ no transport, daemon, IPC or configuration file since then.
   profile setting (`transport.pre_auth.max_attempts_per_source_bucket_per_minute`,
   up to 600; this case set 120 on the sink). The coordinator's profile
   should carry a value fitting its fleet.
-- **F4. 30 peers on one control endpoint fit inside ADR-0026 up to nine
-  32 KiB parts each per 5 s.** At sixteen the global bucket refuses
+- **F4. 30 peers on one control endpoint fit inside ADR-0026 at nine
+  32 KiB parts each per 5 s, the largest k measured below sixteen.** At sixteen the global bucket refuses
   Overloaded, retryable under the same id, and the refusal spills onto
   every other endpoint of the daemon. No daemon change is needed for
   k ≤ 9. Past it, the choices are the sender's (retry Overloaded) or an
