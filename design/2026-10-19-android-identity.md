@@ -76,6 +76,23 @@ the notice shows on R3. The typing and navigating modes are R2's and C3's only, 
 "R2 and C3 open as typing" replaces "a screen opens as typing". The
 hypothesis for R2's held controls now names the back arrow, drawn
 inactive beside `IdCheckWords`.
+Revised again on 2026-11-17, for what #700's review rounds carried. §6 says
+where Back from a notice goes on each screen (Back from a notice):
+on R3 it returns to R2 with every word kept, as §3.3 says. Before,
+two §6 rows said "Back (words dropped)" and acceptance 12 said
+"Back leaves with nothing changed", which R3's Back contradicted. A
+§6 notice on C4 shows below the title, above the PeerId's label, and
+§8 gives C4's focus order. Before, neither was given.
+`IdAlreadyCreated` has no action of its own, because C4's Continue is
+its way out. Acceptance 7 checks R1's order on the screen and marks
+the accessibility-tree check blocked, as acceptance 12 does. Before,
+it read the order from a `uiautomator dump`, which sees no node of
+the app on Android; for the same reason, acceptance 15's
+launch-count run reads K1 and R2 on the phone, not from a dump.
+Acceptance 15 gains runs for the running-check
+rules that had no step: focus after a check started by a tap, Try
+again on an R2 notice, a cancelled prompt, "show all my words" held,
+and the mode after an input that does nothing.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -553,11 +570,11 @@ comparison a matter of groups, not of single characters.
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen when the operation is refused, never by the service; the operation is retried after a success. The app keeps no clock of the window: the refusal is its only reading of it (ADR-0042, A 2026-10-20). The person sees the same either way: the prompt comes before anything happens. Cancelled or denied: no error dialog and no error text. C4 and the restores stay on their screen with the words kept, and nothing is committed. A rotation or a return to that screen retries nothing: it stays as it was until the person uses its primary action again. Once the identity is committed, a cancelled start after C4's or R4's continue ends offline and locked, as S2's Done does below, but on Chats: the locked notice and Unlock, with focus on the notice. S2's Done drops the words and returns to Settings offline, with focus on "Show recovery phrase", the item that opened the flow; the locked notice shows where the app's notices show, under the app bar of Chats and of a conversation; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). At a launch past the window the start is refused and the prompt answers it before the service runs; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service. A process that keeps running answers each refused restart the same way (`design/2026-11-05-unlock-policy-pending.md` §11) | The primary action again, or Back |
 | Check running | R2, from the start of the check (`IdCheckWords`, or the Try again of an R2 notice, by any input) until its result, including R2's check after K1 | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was when the check began: the check moves no focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1 |
 | Restore running | R3, from the start of the restore (`IdR3Yes`, or the Try again of an R3 notice, by any input) until its result | `IdR3Yes`, `IdR3No` and the action of any notice on R3 disabled, the app bar's back arrow inactive, and focus where it was when the restore began: the restore moves no focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). `CopyPeerId` still copies. The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R3 when the restore needs one | The result, from one of the rows of this table, or R4 |
-| Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
+| Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back (Back from a notice, below the table) |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
-| Read-back fails, or the record does not open to that PeerId | after those two refusals. The record is always there after them (both follow the publish, and nothing removes it), so no row for a missing record is needed. A record opening to another PeerId cannot follow this flow's own write while it holds the profile lock (§2); should one appear anyway, the app cannot tell what happened, so it is this row | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
-| Any other refusal: nothing was written | C4, R3's yes, R2's check after K1 | Every refusal no other row names. That is `Storage` with any inner error but `Unsynced` (an I/O error, a directory or lock file that is not private, an unsupported platform); `Cipher` other than `UserNotAuthenticated` (the Keystore unavailable, a key invalidated, missing or refused); `CipherShape`; `Identity`; and `Unreadable` (a record that cannot be read, at R3 or after K1). All come before the publish, so `IdStorageFailed`: nothing was changed, with Try again. A restore after K1 never reaches R4 this way | Try again, or Back (words dropped) |
+| Read-back fails, or the record does not open to that PeerId | after those two refusals. The record is always there after them (both follow the publish, and nothing removes it), so no row for a missing record is needed. A record opening to another PeerId cannot follow this flow's own write while it holds the profile lock (§2); should one appear anyway, the app cannot tell what happened, so it is this row | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (Back from a notice, below the table) |
+| Any other refusal: nothing was written | C4, R3's yes, R2's check after K1 | Every refusal no other row names. That is `Storage` with any inner error but `Unsynced` (an I/O error, a directory or lock file that is not private, an unsupported platform); `Cipher` other than `UserNotAuthenticated` (the Keystore unavailable, a key invalidated, missing or refused); `CipherShape`; `Identity`; and `Unreadable` (a record that cannot be read, at R3 or after K1). All come before the publish, so `IdStorageFailed`: nothing was changed, with Try again. A restore after K1 never reaches R4 this way | Try again, or Back (Back from a notice, below the table) |
 | Another identity already on record (`AlreadyProvisioned`; at a restore, a record naming another PeerId) | C4's continue; at a restore, R3's yes and R2's check after K1 | The record was there before this flow's write. `recorded_identity` names the PeerId the phone holds. `IdAlreadyCreated`: the words just shown were not used; Continue opens that identity. At a restore, a record naming another PeerId shows `IdRestoreOther` with that PeerId | Continue |
 | The record names another identity (`RecordNamesOther`) | R2's check after K1 | Not reachable while the flow holds the profile lock: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it, the another-identity row above applies (`IdRestoreOther`) | Continue |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
@@ -578,7 +595,22 @@ place too: under the app bar, above the question. These are `IdBusy`,
 `IdStorageFailed`, `IdStorageUnknown` and `IdRestoreOther`, each the
 outcome of one restore, so at most one shows, with its action under
 its text as on R2. R3 has no title, so the notice is read right
-after the app bar, before the question.
+after the app bar, before the question. On C4 a notice of this table
+shows in one place as well: below the title, above the PeerId's label.
+These are `IdBusy`, `IdStorageFailed`, `IdStorageUnknown` and
+`IdAlreadyCreated`, each the outcome of one seal, so at most one
+shows. The first three carry `TryAgain` under their text.
+`IdAlreadyCreated` has no action of its own: C4's primary, Continue,
+is its way out (the another-identity row), so C4 never shows two
+Continue buttons. The notice is read after the title, before the
+PeerId's label.
+
+**Back from a notice.** Where a row's way out is Back, Back does what
+it does on that screen at any other time. On R2 after K1 it returns
+to K1, through the discard dialog when words are entered, and only
+`IdDiscard` drops the words (§7). On R3 it returns to R2 with every
+word kept, as `IdR3No` does (§3.3). C4 has no Back (§3.2), so there
+Try again is the way out, or, with `IdAlreadyCreated`, Continue.
 
 ## 7. Leaving, Back and interruptions
 
@@ -649,6 +681,10 @@ access.
     (§6: under the app bar), the question (`IdR3Question`),
     `CopyPeerId` (§5), then `IdR3Yes` and `IdR3No`. The PeerId and
     `IdR3NoPeerId` are text and take no focus.
+  - **C4**: the notice while one shows and then its action (§6: below
+    the title), `CopyPeerId` (§5), then Continue (`IdContinue`). C4 has
+    no Back (§3.2), so its app bar has no back arrow. The title, the
+    PeerId, its label and `IdCreatedBody` are text and take no focus.
 - A typed hardware letter acts as its key, and Backspace as the delete
   key.
 - An arrow moves focus to the nearest control in its direction, a
@@ -1071,9 +1107,12 @@ landscape:
    its PeerId. "No" returns to R2 with all 24 words. "Yes" restores,
    and the PeerId on the Settings screen matches. R1 shows
    `IdActiveElsewhere` and `IdR1NewKeys` before its primary, in that
-   order in the accessibility tree (a `uiautomator dump`), with no
-   control between them and nothing to accept; R2 shows neither. Read
-   by TalkBack once TalkBack reaches the app (§8).
+   order on the screen, with no control between them and nothing to
+   accept; R2 shows neither. The tester checks that order by looking
+   at the screen. The check of the same order in the accessibility
+   tree is blocked, not passed, on Android until the build exposes an
+   accessibility tree, as in item 12 (§8). TalkBack reads them once
+   TalkBack reaches the app.
 8. A pinned fixture phrase of distinct words, with a pinned swap of two
    positions that the test first shows fails the BIP-39 checksum (an
    8-bit checksum passes about one swap in 256), shows
@@ -1139,7 +1178,11 @@ landscape:
     words with no new prompt.
 12. Profile busy and storage failure, by rust-ui-dev's test hooks, show
     §6's notices. A refused write whose read-back fails (a hook) shows
-    `IdStorageUnknown`, never "nothing was changed". Try again works, and Back leaves with nothing changed.
+    `IdStorageUnknown`, never "nothing was changed". Try again works.
+    Back goes where §6 (Back from a notice) says: on R2 after K1, to
+    K1, through the discard dialog, with the words dropped only by
+    `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
+    does nothing.
     On R3, a hook's `IdStorageFailed` shows under the app bar, above
     the question (§6), and the tester checks that place by
     looking at the screen. The check of its place in the accessibility tree (right
@@ -1147,6 +1190,9 @@ landscape:
     on Android until the build exposes an accessibility tree (§8;
     acceptance 15's screen-reader check). Until then, acceptance 15's
     Tab runs check R3's Tab order.
+    On C4, a hook's `IdStorageFailed` shows below the title, above the
+    PeerId's label (§6), checked the same way; its place in the
+    accessibility tree is blocked in the same way.
 13. Run twice: at the Pixel 9a's own size, and set to 360 × 640 dp
     (`adb shell wm size 945x1680` at its 420 dpi, through
     `phone-run`, then `wm size reset`), the size §4's figures are for.
@@ -1176,7 +1222,8 @@ scale would also be a finding of the Android review
     - Tab from the app bar visits §8's order for R2 in portrait and in
       landscape, with the checksum banner shown and, by a test hook,
       with `IdStorageFailed` shown; for C3 with `IdCheckWrong`
-      shown; and for R3, with no notice and, by a test hook, with
+      shown; for R3, with no notice and, by a test hook, with
+      `IdStorageFailed` shown; and for C4, by a test hook, with
       `IdStorageFailed` shown.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
       key, and Enter does nothing. After typing "ab",
@@ -1212,7 +1259,8 @@ scale would also be a finding of the Android review
       taken by Enter fills 24 and puts focus on `IdCheckWords`, now
       enabled, and the next Enter runs the check. While a host test
       leaves that check unanswered, a typed "a", a tap on position
-      5, Escape and another Enter change no word and open nothing;
+      5, Escape and another Enter change no word and open nothing,
+      and after each of them the screen is still navigating;
       focus stays on `IdCheckWords`, which shows disabled; and the
       back arrow is inactive. In portrait, a Shift+Tab then moves
       focus to the clear key and a Tab brings it back to
@@ -1235,6 +1283,29 @@ scale would also be a finding of the Android review
       position 3
       empty and 24 current, a chip taken by Enter fills 24 and makes
       3 current, with focus on the first enabled key.
+    - Four more host-test runs check the running-check rules of §8
+      that the runs above do not reach. Each starts with all 24
+      positions filled and focus on `IdCheckWords`, and Enter there
+      starts the check unless the run says otherwise. In the first, a Shift+Tab moves focus from
+      `IdCheckWords` to the clear key, and a tap on `IdCheckWords`
+      starts the check: while the test leaves it unanswered, focus
+      stays on the clear key. In the second, after K1, the test
+      answers the check with a refusal that wrote nothing
+      (`IdStorageFailed`), and the notice shows with focus on it. A
+      Tab moves focus to its `TryAgain`, and Enter there starts the
+      check again, which the test leaves unanswered. Meanwhile a
+      second Enter, a Space and a screen reader's activate on
+      `TryAgain` start no second check, a typed "a" changes no word,
+      focus stays on `TryAgain`, `IdCheckWords` shows disabled and
+      the back arrow is inactive. In the third, after K1, the test
+      answers the check as authentication needed and then the prompt
+      as cancelled. R2 stays as it was, with every word, no notice,
+      `IdCheckWords` enabled again and focus on it, and no further
+      check starts until `IdCheckWords` is pressed again. In the
+      fourth, with the text over 130 %, the check is started by Enter
+      on `IdCheckWords` and left unanswered. Then a tap on "show all
+      my words" (`IdReviewWords`), and an Enter on it once Shift+Tab
+      has moved focus there, open no list.
     - With position 5 filled, a tap on it puts focus on the first
       enabled key (the delete key when none is enabled), and Enter
       then takes the whole-word chip, so position 5 keeps its word.
@@ -1454,8 +1525,9 @@ scale would also be a finding of the Android review
       trace, by the flag read through `dumpsys`, or rendered. K1 and
       R2 are secured (step 1), so a screenshot of them is black, as
       item 2 says of R2: what
-      they show is read on the phone or from the accessibility tree (a
-      `uiautomator dump`), and a screenshot is evidence only for Chats
+      they show is read on the phone, since a `uiautomator dump` sees
+      no node of the app on Android until the build exposes an
+      accessibility tree (§8), and a screenshot is evidence only for Chats
       or Connect to someone after R4.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
