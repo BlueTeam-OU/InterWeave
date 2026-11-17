@@ -301,6 +301,11 @@ pub struct IdentityFlow {
     /// window hands focus to the keypad on the page that shows the
     /// position chosen (design section 8).
     positions_chosen: u32,
+    /// How many notices a step's result has raised on C4, R2, R3 or S1:
+    /// the page carries it, so the window gives focus to a notice raised
+    /// again with the text it already showed, such as a second failed
+    /// checksum (design section 8, #697 review P-2).
+    notices_raised: u32,
 }
 
 impl IdentityFlow {
@@ -336,6 +341,7 @@ impl IdentityFlow {
             new_keys,
             chips_taken: 0,
             positions_chosen: 0,
+            notices_raised: 0,
         }
     }
 
@@ -910,6 +916,13 @@ impl IdentityFlow {
         self.positions_chosen
     }
 
+    /// How many notices a step's result has raised: a page whose count
+    /// moved shows one just raised, even with the text it showed before.
+    #[must_use]
+    pub fn notices_raised(&self) -> u32 {
+        self.notices_raised
+    }
+
     // --- the platform's answers ----------------------------------------
 
     /// The new identity, unsealed: its words, its `PeerId`, and the two
@@ -971,6 +984,7 @@ impl IdentityFlow {
                 *notice = Some(failed.into());
                 *held = false;
                 *starting = false;
+                self.notices_raised += 1;
                 Vec::new()
             }
         }
@@ -992,6 +1006,7 @@ impl IdentityFlow {
         *checking = false;
         let Some(derived) = derived else {
             *notice = Some(Notice::ChecksumFailed);
+            self.notices_raised += 1;
             return Vec::new();
         };
         let expected = match origin {
@@ -1012,6 +1027,7 @@ impl IdentityFlow {
             }
             Some(expected) if expected != derived => {
                 *notice = Some(Notice::OtherIdentity { derived, expected });
+                self.notices_raised += 1;
                 Vec::new()
             }
             Some(_) => match entry.phrase() {
@@ -1056,10 +1072,12 @@ impl IdentityFlow {
             ) => {
                 *checking = false;
                 *notice = Some(failed.into());
+                self.notices_raised += 1;
                 Vec::new()
             }
             (Screen::R3 { notice, .. }, Err(failed)) => {
                 *notice = Some(failed.into());
+                self.notices_raised += 1;
                 Vec::new()
             }
             _ => Vec::new(),
@@ -1183,6 +1201,7 @@ impl IdentityFlow {
             }
             Err(failed) => {
                 *notice = Some(failed.into());
+                self.notices_raised += 1;
                 Vec::new()
             }
         }
@@ -2257,6 +2276,37 @@ mod tests {
         assert!(flow.discard_asked(), "control: the dialog is up");
         flow.edit(1);
         assert_eq!(flow.positions_chosen(), 3, "nothing edited behind it");
+    }
+
+    /// Each result that raises a notice counts, the same notice again
+    /// included, so the window can give focus to a repeated one (#697
+    /// review P-2); a cancelled prompt raises none.
+    #[test]
+    fn notices_raised_counts_each_result_that_raises_one() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        assert_eq!(flow.notices_raised(), 0, "R2 opens on none");
+        flow.primary();
+        flow.checked(None);
+        assert_eq!(flow.notices_raised(), 1);
+        flow.primary();
+        flow.checked(None);
+        assert_eq!(flow.notice(), Some(&Notice::ChecksumFailed), "the same");
+        assert_eq!(flow.notices_raised(), 2, "raised again");
+        flow.primary();
+        flow.cancelled_step();
+        assert_eq!(flow.notices_raised(), 2, "a cancel raises none");
+        flow.primary();
+        flow.checked(Some(mine()));
+        assert_eq!(flow.screen(), ScreenId::R3);
+        flow.primary();
+        flow.restored(Err(StepFailed::Busy));
+        assert_eq!(flow.notices_raised(), 3, "R3's restore");
+        flow.primary();
+        flow.restored(Err(StepFailed::Busy));
+        assert_eq!(flow.notices_raised(), 4, "R3's restore again");
     }
 
     #[test]
