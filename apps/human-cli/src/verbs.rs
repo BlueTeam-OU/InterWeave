@@ -16,7 +16,7 @@ use interweave_human_ui_model::{
     ConversationKey, EntryProblem, Intent, ItemKey, ItemStatus, MessageItem, RowId, TrustInput,
     TrustOutcome, ViewEvent,
 };
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use serde_json::json;
 
@@ -41,7 +41,7 @@ pub(crate) struct Run<'a> {
 /// # Errors
 /// The verb's [`Failure`]; `out` then holds what a script still needs,
 /// the id of a message that did not finish.
-pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn run<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     verb: &Verb,
     r: &Run<'_>,
@@ -137,7 +137,10 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
 ///
 /// # Errors
 /// The verb's [`Failure`].
-pub(crate) async fn stream<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn stream<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     verb: &Verb,
     r: &Run<'_>,
@@ -158,7 +161,7 @@ pub(crate) async fn stream<B: DataSessionBinding, A: AdminBinding>(
 /// whether or not it opens, and what the daemon held for this client is
 /// handed over first when it does. Why it did not open goes to stderr, for
 /// a person; a script reads `status`.
-pub(crate) async fn look<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn look<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
 ) {
@@ -174,7 +177,7 @@ pub(crate) async fn look<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// Open the session for a verb that needs it, or fail as it did.
-pub(crate) async fn ready<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn ready<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
 ) -> Result<(), Failure> {
@@ -182,7 +185,7 @@ pub(crate) async fn ready<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// A command the model side reports as not carried out, as a failure.
-pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) fn problems<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
 ) -> Result<(), Failure> {
     s.side()
@@ -263,7 +266,7 @@ const fn command_name(command: &Command) -> &'static str {
     }
 }
 
-async fn status<B: DataSessionBinding, A: AdminBinding>(
+async fn status<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     out: &mut String,
@@ -339,7 +342,10 @@ async fn status<B: DataSessionBinding, A: AdminBinding>(
 
 /// Keep `to_keep`, read in this run, each beside its place among the
 /// `--keep` ids: a message kept already is what was asked.
-pub(crate) async fn keep_after_read<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn keep_after_read<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     to_keep: &[(usize, ItemKey)],
 ) -> Result<(), Failure> {
@@ -364,7 +370,7 @@ pub(crate) async fn keep_after_read<B: DataSessionBinding, A: AdminBinding>(
     Ok(())
 }
 
-async fn send<B: DataSessionBinding, A: AdminBinding>(
+async fn send<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
@@ -409,7 +415,7 @@ async fn send<B: DataSessionBinding, A: AdminBinding>(
 
 /// Turn until `item`, an outbound message, is accepted or published, needs
 /// the person, or `--wait` ends: its id and status are printed whichever.
-async fn until_done<B: DataSessionBinding, A: AdminBinding>(
+async fn until_done<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
@@ -481,7 +487,10 @@ async fn until_done<B: DataSessionBinding, A: AdminBinding>(
 /// `--no-pending`'s end: `item`, still on its way, is cancelled. One the
 /// transport accepted while the cancel was asked is said as accepted; one
 /// the cancel did not reach is said as it stands, pending.
-async fn cancel_unaccepted<B: DataSessionBinding, A: AdminBinding>(
+async fn cancel_unaccepted<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
@@ -544,7 +553,7 @@ enum RowVerb {
     Unkeep,
 }
 
-async fn row_action<B: DataSessionBinding, A: AdminBinding>(
+async fn row_action<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     verb: RowVerb,
@@ -625,7 +634,7 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
 ///
 /// # Errors
 /// [`Failure::Store`] when a page of a conversation cannot be read.
-async fn walked_to<B: DataSessionBinding, A: AdminBinding>(
+async fn walked_to<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     id: &str,
 ) -> Result<Option<ItemKey>, Failure> {
@@ -649,7 +658,7 @@ async fn walked_to<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// The conversation `item` is shown in.
-fn conversation_of<B: DataSessionBinding, A: AdminBinding>(
+fn conversation_of<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     item: ItemKey,
 ) -> Option<ConversationKey> {
@@ -679,7 +688,7 @@ fn trust_failure(problem: TrustProblem) -> Failure {
 }
 
 /// Turn until the trust settings wait for nothing, or `--wait` ends.
-async fn trust_settled<B: DataSessionBinding, A: AdminBinding>(
+async fn trust_settled<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
 ) -> Result<(), Failure> {
@@ -699,7 +708,7 @@ async fn trust_settled<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// Read the allowlist into the trust settings, as opening them does.
-async fn trust_opened<B: DataSessionBinding, A: AdminBinding>(
+async fn trust_opened<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
 ) -> Result<(), Failure> {
@@ -715,7 +724,7 @@ async fn trust_opened<B: DataSessionBinding, A: AdminBinding>(
     })
 }
 
-async fn trust_list<B: DataSessionBinding, A: AdminBinding>(
+async fn trust_list<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     out: &mut String,
@@ -740,7 +749,7 @@ async fn trust_list<B: DataSessionBinding, A: AdminBinding>(
     Ok(())
 }
 
-async fn set_trust<B: DataSessionBinding, A: AdminBinding>(
+async fn set_trust<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     peer: &TransportIdentity,
@@ -814,7 +823,9 @@ async fn set_trust<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// The endpoint this session's lease holds, while it holds one.
-fn leased<B: DataSessionBinding, A: AdminBinding>(s: &Session<B, A>) -> Option<&EndpointId> {
+fn leased<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+) -> Option<&EndpointId> {
     match s.state() {
         Some(SessionState::Ready { endpoint }) => endpoint.as_ref(),
         _ => None,
@@ -822,7 +833,7 @@ fn leased<B: DataSessionBinding, A: AdminBinding>(s: &Session<B, A>) -> Option<&
 }
 
 /// One event `listen` prints, or `None` for what it does not.
-fn event_line<B: DataSessionBinding, A: AdminBinding>(
+fn event_line<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     update: &Update,
     json: bool,
@@ -908,7 +919,7 @@ fn outbound_fields(row: RowId, status: &ItemStatus) -> serde_json::Value {
 }
 
 /// The conversation the item named `name` (`u<row>`, `p<row>`) is in.
-fn conversation_of_item<B: DataSessionBinding, A: AdminBinding>(
+fn conversation_of_item<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     name: &str,
 ) -> Option<ConversationKey> {
@@ -925,7 +936,7 @@ fn conversation_of_item<B: DataSessionBinding, A: AdminBinding>(
 /// filter: the conversation it names, a peer's event that peer (with no
 /// endpoint), `None` for this node's own. `None` whole for an update that
 /// prints no event.
-fn listen_about<B: DataSessionBinding, A: AdminBinding>(
+fn listen_about<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     update: &Update,
 ) -> Option<(&'static str, Option<ConversationKey>)> {
@@ -962,7 +973,7 @@ fn listen_about<B: DataSessionBinding, A: AdminBinding>(
 /// The `message` event of unread row `row`, naming `local_endpoint` as
 /// the endpoint that received it, or `None` when the model does not
 /// show the row.
-fn message_line<B: DataSessionBinding, A: AdminBinding>(
+fn message_line<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     row: RowId,
     json: bool,
@@ -1139,7 +1150,7 @@ struct InputSend {
 }
 
 /// An input line read, or why it is refused with the `ref` it carried.
-fn input_send<B: DataSessionBinding, A: AdminBinding>(
+fn input_send<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     line: &str,
 ) -> Result<InputSend, (serde_json::Value, String)> {
@@ -1216,7 +1227,7 @@ struct Consumed {
     clippy::too_many_arguments,
     reason = "listen's state, borrowed apart for one chunk"
 )]
-fn drained<B: DataSessionBinding, A: AdminBinding>(
+fn drained<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &Session<B, A>,
     key: &ConversationKey,
     anchors: &[interweave_human_ui_model::Anchor],
@@ -1285,7 +1296,7 @@ impl Drain {
     /// A drain of every conversation the summaries count an unread row
     /// in, or that holds a proposal, that `filter` prints a message or a
     /// proposal of.
-    fn of<B: DataSessionBinding, A: AdminBinding>(
+    fn of<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
         s: &Session<B, A>,
         filter: &crate::cli::ListenFilter,
     ) -> Self {
@@ -1321,7 +1332,7 @@ impl Drain {
 /// Open the drain's next walk, if it has none: the next conversation
 /// queued, or every conversation again after a relist; the drain ends
 /// with its queue.
-fn next_walk<B: DataSessionBinding, A: AdminBinding>(
+fn next_walk<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     drain: &mut Option<Drain>,
     s: &mut Session<B, A>,
     filter: &crate::cli::ListenFilter,
@@ -1356,7 +1367,10 @@ fn next_walk<B: DataSessionBinding, A: AdminBinding>(
     clippy::too_many_lines,
     reason = "one loop: what is printed, consumed and sent each step, in order"
 )]
-pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn listen<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     mode: ListenMode,
     out: &mut dyn std::io::Write,

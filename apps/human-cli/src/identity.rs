@@ -14,7 +14,7 @@ use std::fmt::Write as _;
 use interweave_human_app_core::KeySource;
 use interweave_human_store::identity_key::{self, FilesystemCustody};
 use interweave_human_ui_model::{ConversationKey, Intent, KeyProblem, KeyStep, OwnKey, ViewEvent};
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 use interweave_profile_config::ProfilePaths;
 use interweave_transport_api::EndpointId;
 use serde_json::json;
@@ -55,7 +55,7 @@ fn no_key(endpoint: &EndpointId, problem: &str) -> Failure {
 }
 
 /// `identity show` of the identity in front, as the model holds it.
-pub(crate) async fn show<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn show<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     out: &mut String,
@@ -99,7 +99,7 @@ pub(crate) fn show_file(
 }
 
 /// Turn until the key step is one of `done`, or `--wait` ends.
-async fn until_step<B: DataSessionBinding, A: AdminBinding>(
+async fn until_step<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     done: fn(&KeyStep) -> bool,
@@ -121,7 +121,10 @@ async fn until_step<B: DataSessionBinding, A: AdminBinding>(
 /// key would do and changes nothing, exit 1; with it the key is made, as
 /// the confirmation's Make a new key makes it
 /// (`a_new_key_is_made_only_when_confirmed_and_offered`).
-pub(crate) async fn new_key<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn new_key<
+    B: interweave_human_transport_client::SessionBinding,
+    A: AdminBinding,
+>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     confirm: bool,

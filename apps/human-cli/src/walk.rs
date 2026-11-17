@@ -28,7 +28,7 @@ use interweave_human_client_api::Origin;
 use interweave_human_ui_model::{
     Anchor, ConversationKey, DrawnAt, Edge, ItemKey, MarkKind, MessageItem, WindowInput,
 };
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 
 use crate::Failure;
 use crate::session::Session;
@@ -87,7 +87,7 @@ pub(crate) struct Walk {
 
 impl Walk {
     /// Open `key` and start walking it.
-    pub(crate) fn open<B: DataSessionBinding, A: AdminBinding>(
+    pub(crate) fn open<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
         s: &mut Session<B, A>,
         key: &ConversationKey,
     ) -> Self {
@@ -109,7 +109,10 @@ impl Walk {
     /// steps take for [`Self::take_passed`]: a verb that prints the
     /// session's events while it walks loses none of them
     /// (`listen_consume_drains_a_conversation_past_the_held_row_ceiling`).
-    pub(crate) fn open_passing<B: DataSessionBinding, A: AdminBinding>(
+    pub(crate) fn open_passing<
+        B: interweave_human_transport_client::SessionBinding,
+        A: AdminBinding,
+    >(
         s: &mut Session<B, A>,
         key: &ConversationKey,
     ) -> Self {
@@ -143,7 +146,10 @@ impl Walk {
     ///
     /// # Errors
     /// As [`Self::advance`].
-    pub(crate) async fn up_to_the_top<B: DataSessionBinding, A: AdminBinding>(
+    pub(crate) async fn up_to_the_top<
+        B: interweave_human_transport_client::SessionBinding,
+        A: AdminBinding,
+    >(
         &mut self,
         s: &mut Session<B, A>,
     ) -> Result<(), Failure> {
@@ -155,7 +161,10 @@ impl Walk {
 
     /// Close the conversation: the rows it held are let go, and stay in
     /// the store.
-    pub(crate) fn close<B: DataSessionBinding, A: AdminBinding>(self, s: &mut Session<B, A>) {
+    pub(crate) fn close<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
+        self,
+        s: &mut Session<B, A>,
+    ) {
         s.side().window(WindowInput::Closed(self.key));
     }
 
@@ -165,7 +174,10 @@ impl Walk {
     /// [`Failure::Store`] when a page of the conversation cannot be read,
     /// naming the conversation; nothing of the pass that failed has been
     /// handed over by then.
-    pub(crate) async fn advance<B: DataSessionBinding, A: AdminBinding>(
+    pub(crate) async fn advance<
+        B: interweave_human_transport_client::SessionBinding,
+        A: AdminBinding,
+    >(
         &mut self,
         s: &mut Session<B, A>,
     ) -> Result<Progress, Failure> {
@@ -176,7 +188,7 @@ impl Walk {
         }
     }
 
-    async fn up<B: DataSessionBinding, A: AdminBinding>(
+    async fn up<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
         &mut self,
         s: &mut Session<B, A>,
     ) -> Result<Progress, Failure> {
@@ -233,7 +245,7 @@ impl Walk {
         Ok(Progress::Working)
     }
 
-    async fn down<B: DataSessionBinding, A: AdminBinding>(
+    async fn down<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
         &mut self,
         s: &mut Session<B, A>,
     ) -> Result<Progress, Failure> {
@@ -308,7 +320,11 @@ impl Walk {
         Ok(Progress::Working)
     }
 
-    fn place<B: DataSessionBinding, A: AdminBinding>(&self, s: &mut Session<B, A>, key: ItemKey) {
+    fn place<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
+        &self,
+        s: &mut Session<B, A>,
+        key: ItemKey,
+    ) {
         s.side().window(WindowInput::Place {
             conversation: self.key.clone(),
             focused: Some(key),
@@ -318,7 +334,7 @@ impl Walk {
 
     /// One step of the session, its failures and late rows taken, and the
     /// walk's progress checked.
-    async fn step<B: DataSessionBinding, A: AdminBinding>(
+    async fn step<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
         &mut self,
         s: &mut Session<B, A>,
     ) -> Result<(), Failure> {
@@ -365,7 +381,10 @@ impl Walk {
     /// (`read_prints_a_row_arriving_during_its_own_step_last_and_unread`).
     /// `listen` takes its own steps' updates itself instead: it prints an
     /// arrival from its update, and its drain skips a row printed already.
-    pub(crate) fn take_arrivals<B: DataSessionBinding, A: AdminBinding>(
+    pub(crate) fn take_arrivals<
+        B: interweave_human_transport_client::SessionBinding,
+        A: AdminBinding,
+    >(
         &mut self,
         s: &mut Session<B, A>,
     ) {
@@ -388,7 +407,10 @@ impl Walk {
 
     /// Whether the window opened again since the walk last looked: the
     /// opening is recorded at the first look.
-    fn reopened<B: DataSessionBinding, A: AdminBinding>(&mut self, s: &Session<B, A>) -> bool {
+    fn reopened<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
+        &mut self,
+        s: &Session<B, A>,
+    ) -> bool {
         let now = s
             .model()
             .window_opening()
