@@ -215,6 +215,19 @@ below (12 of 12) it was 29.9–30.2 s.
   holding an entry for the coordinator is the *entry* row. One holding
   none is *silent* or *sends*.
 
+## Which commit of main to tag for the fleet
+
+**773b2c685**, the main these figures were taken on (built at 2b27f3ab4,
+the same transport). Up to the posting of this record main has changed
+no transport, daemon, IPC or configuration file since then.
+
+- It admits the same fan-in as v0.3.0: k = 9 with no refusal, Overloaded
+  alone past it, nothing lost after Accepted.
+- Its reach after a restart is at most one 30 s step however long the
+  outage, where v0.3.0's grows to 110 s after 100 s down and to 300 s
+  past 7.5 minutes.
+- What it does not fix is common to both builds: F1 and F2 below.
+
 ## Findings, for architect-cto (proposals, nothing built)
 
 - **F1. Accepted-then-lost at a stop.** A daemon that has been told to
