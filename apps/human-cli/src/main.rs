@@ -20,6 +20,8 @@ mod cards;
 mod cards_tests;
 mod cli;
 mod identity;
+#[cfg(test)]
+mod listen_stops;
 mod output;
 mod reading;
 mod session;
