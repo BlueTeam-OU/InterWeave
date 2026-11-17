@@ -71,7 +71,8 @@ focus order, which §8 now gives, the notice comes right after the app
 bar (§6, §8). Before, §6 placed notices only on R2. Acceptance 15
 gains runs for a held restore, a refusal and a cancelled prompt at
 R3's yes, and checks R3's Tab order with no notice and with
-`IdStorageFailed` shown. The typing and navigating modes are R2's and C3's only, and
+`IdStorageFailed` shown; acceptance 12 reads the notice's place
+on R3 on the device. The typing and navigating modes are R2's and C3's only, and
 "R2 and C3 open as typing" replaces "a screen opens as typing". The
 hypothesis for R2's held controls now names the back arrow, drawn
 inactive beside `IdCheckWords`.
@@ -1140,7 +1141,9 @@ landscape:
     §6's notices. A refused write whose read-back fails (a hook) shows
     `IdStorageUnknown`, never "nothing was changed". Try again works, and Back leaves with nothing changed.
     On R3, a hook's `IdStorageFailed` shows under the app bar, above
-    the question, and is the first thing read on the screen (§6).
+    the question (§6), and comes right after the app bar, before
+    `IdR3Question`, in the accessibility tree (a `uiautomator dump`),
+    as in item 7; read by TalkBack once TalkBack reaches the app (§8).
 13. Run twice: at the Pixel 9a's own size, and set to 360 × 640 dp
     (`adb shell wm size 945x1680` at its 420 dpi, through
     `phone-run`, then `wm size reset`), the size §4's figures are for.
