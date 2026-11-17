@@ -14,6 +14,7 @@ pub struct Counters {
     admin_connections: AtomicU64,
     cross_domain_capability_denied: AtomicU64,
     peer_credential_refused: AtomicU64,
+    events_dropped_at_stop: AtomicU64,
 }
 
 impl Counters {
@@ -28,6 +29,21 @@ impl Counters {
                 .load(Ordering::Relaxed),
             peer_credential_refused_total: self.peer_credential_refused.load(Ordering::Relaxed),
         }
+    }
+
+    /// The events the stop's hand-over could not give a client before its
+    /// grace ended: what was still in the connection's lane and what its
+    /// session still held. Not part of `admin.status`, which is not read
+    /// once the server stops; the daemon adds it to the stop's
+    /// dropped-event count (`LOCAL-IPC.md` §Shutdown order).
+    #[must_use]
+    pub fn events_dropped_at_stop(&self) -> u64 {
+        self.events_dropped_at_stop.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn dropped_at_stop(&self, events: u64) {
+        self.events_dropped_at_stop
+            .fetch_add(events, Ordering::Relaxed);
     }
 
     pub(crate) fn peer_credential_refused(&self) {

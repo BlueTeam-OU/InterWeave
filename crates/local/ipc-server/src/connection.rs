@@ -25,7 +25,12 @@
 //!
 //! The end, however it comes -- the client gone, a close, the server
 //! stopping -- aborts what is in flight and closes the session: its lease
-//! and its joins are released at once.
+//! and its joins are released at once. A stop first HANDS OVER what the
+//! session's queue holds (`LOCAL-IPC.md` §Shutdown order, A 2026-11-17):
+//! the queue is written out and the writer has taken every event before
+//! the `close`, until the queue is empty or the stop's grace ends, and
+//! what the client did not take by then is counted as dropped
+//! ([`Counters::events_dropped_at_stop`]).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -94,6 +99,9 @@ enum End {
     /// The client stopped reading: its writer's lane is full, so nothing
     /// more can be queued for it, a `close` included.
     Stalled,
+    /// The server is stopping: hand the session's queue over, then close
+    /// with `ShuttingDown`.
+    Stop,
 }
 
 /// Serve one admitted connection to its end. `slot` is released when
@@ -103,7 +111,7 @@ pub(crate) async fn run<B>(
     domain: AuthorityDomain,
     binding: B,
     shared: Arc<Shared>,
-    stop: watch::Receiver<bool>,
+    stop: watch::Receiver<Option<tokio::time::Instant>>,
     slot: Slot,
 ) where
     B: DataSessionBinding + AdminBinding + Send + Sync + 'static,
@@ -161,7 +169,17 @@ pub(crate) async fn run<B>(
         keepalive: keepalive.then(|| Keepalive::new(policy, Instant::now())),
         sequence: 0,
     };
-    let end = connection.serve(&mut reader, stop).await;
+    let until = stop.clone();
+    let mut end = connection.serve(&mut reader, stop).await;
+    if matches!(end, End::Stop) {
+        // The deadline the server sent with the stop: the stop's grace
+        // from the moment it began, the same for every connection.
+        let until = (*until.borrow()).unwrap_or_else(tokio::time::Instant::now);
+        end = connection
+            .hand_over(until)
+            .await
+            .unwrap_or(End::Close(TransportError::ShuttingDown));
+    }
     connection.end(end).await;
     // The writer may be blocked on a client that no longer reads: it gets
     // CLOSE_GRACE to flush the close, and is aborted after, so the slot is
@@ -222,7 +240,7 @@ where
     async fn serve<R: AsyncRead + Unpin>(
         &mut self,
         reader: &mut FrameReader<R>,
-        mut stop: watch::Receiver<bool>,
+        mut stop: watch::Receiver<Option<tokio::time::Instant>>,
     ) -> End {
         let pumps_events = match &self.port {
             Port::Data(session) => session.session().holds(DataCapability::Events),
@@ -274,7 +292,7 @@ where
                 // The writer gave up on a client that stopped reading;
                 // seen here even when nothing else would wake the loop.
                 () = self.lanes.control.closed() => Some(End::Gone),
-                _ = stop.changed() => Some(End::Close(TransportError::ShuttingDown)),
+                _ = stop.changed() => Some(End::Stop),
             };
             if let Some(end) = outcome {
                 return end;
@@ -500,10 +518,101 @@ where
         }
     }
 
+    /// The stop's hand-over (`LOCAL-IPC.md` §Shutdown order, A 2026-11-17):
+    /// the session is drained into the event lane until it holds nothing
+    /// more, and the writer is waited for until it has taken every event,
+    /// so the `close` -- which goes on the control lane, ahead of any
+    /// event still queued -- is written after them. Bounded by `until`,
+    /// the stop's grace: a client that does not read is closed when it
+    /// ends, and what it had not taken -- the events still in the lane and
+    /// what the session still holds -- is counted as dropped. The runtime
+    /// is already draining when this runs (the daemon's stop order), so
+    /// the queue only shrinks: nothing new is admitted to it.
+    ///
+    /// `None` when the hand-over ran to its end or ran out of time; the
+    /// connection then closes `ShuttingDown`. Pinned between real daemons
+    /// by `tests/automated-client`'s
+    /// `a_message_admitted_before_the_stop_is_read_before_the_close`, and
+    /// here by `a_stop_writes_what_the_session_held_before_the_close` and
+    /// `a_stop_counts_what_a_client_that_does_not_read_left`.
+    async fn hand_over(&mut self, until: tokio::time::Instant) -> Option<End> {
+        let handing = match &self.port {
+            Port::Data(session) => session.session().holds(DataCapability::Events),
+            Port::Admin(_) => false,
+        };
+        if !handing {
+            return None;
+        }
+        let gone = loop {
+            // One free slot, or the grace is over.
+            match tokio::time::timeout_at(until, self.lanes.events.reserve()).await {
+                Err(_) => break false,
+                Ok(Err(_)) => break true,
+                Ok(Ok(permit)) => drop(permit),
+            }
+            let room = self.lanes.events.capacity();
+            let taken = match self.pump_taking().await {
+                Ok(taken) => taken,
+                Err(End::Gone) => break true,
+                Err(end) => return Some(end),
+            };
+            if taken >= room {
+                // The lane took all it had room for: the session may hold more.
+                continue;
+            }
+            // The session held no more. Every slot free again means the
+            // writer has taken every event, so the close cannot pass one.
+            let all = self.lanes.events.max_capacity();
+            match tokio::time::timeout_at(until, self.lanes.events.reserve_many(all)).await {
+                Ok(Ok(permits)) => {
+                    drop(permits);
+                    return None;
+                }
+                Ok(Err(_)) => break true,
+                Err(_) => break false,
+            }
+        };
+        self.count_left(gone).await;
+        gone.then_some(End::Gone)
+    }
+
+    /// What a stopped client did not take: the events still in its lane,
+    /// which the `close` overtakes, and what its session still holds,
+    /// taken out here to be counted -- the session's close would drop
+    /// them uncounted.
+    async fn count_left(&self, lanes_gone: bool) {
+        let Port::Data(session) = &self.port else {
+            return;
+        };
+        let in_lane = if lanes_gone {
+            0
+        } else {
+            self.lanes
+                .events
+                .max_capacity()
+                .saturating_sub(self.lanes.events.capacity())
+        };
+        let held = session
+            .events(usize::MAX)
+            .await
+            .map_or(0, |events| events.len());
+        self.shared
+            .counters
+            .dropped_at_stop(u64::try_from(in_lane.saturating_add(held)).unwrap_or(u64::MAX));
+    }
+
     /// Drain the session into the event lane; `Some` ends the connection.
     async fn pump(&mut self) -> Option<End> {
+        self.pump_taking().await.err()
+    }
+
+    /// [`pump`](Self::pump), answering how many events the session
+    /// handed over -- those skipped or refused included, since each left
+    /// the session's queue -- so the hand-over can tell a drained session
+    /// from a full lane.
+    async fn pump_taking(&mut self) -> Result<usize, End> {
         let Port::Data(session) = &self.port else {
-            return None;
+            return Ok(0);
         };
         // The lane's free slots are reserved before the session is asked,
         // and the session is asked for no more than that: what does not
@@ -511,17 +620,18 @@ where
         // taken is ever dropped here (#151 review, F3; relay seq 9709).
         let room = self.lanes.events.capacity();
         if room == 0 {
-            return None;
+            return Ok(0);
         }
         let mut permits = match self.lanes.events.try_reserve_many(room) {
             Ok(permits) => permits,
-            Err(mpsc::error::TrySendError::Closed(())) => return Some(End::Gone),
-            Err(mpsc::error::TrySendError::Full(())) => return None,
+            Err(mpsc::error::TrySendError::Closed(())) => return Err(End::Gone),
+            Err(mpsc::error::TrySendError::Full(())) => return Ok(0),
         };
         let reserved = permits.len();
         let Ok(events) = session.events(reserved).await else {
-            return None;
+            return Ok(0);
         };
+        let taken = events.len();
         // The port returns at most what it was asked for; a binding that
         // broke that would have its excess dropped below, so the tests
         // catch it here.
@@ -556,7 +666,7 @@ where
             };
             permit.send(Frame::Event(event.into_frame(sequence)));
         }
-        None
+        Ok(taken)
     }
 
     /// End the connection: abort what is in flight, answering only what
@@ -578,6 +688,7 @@ where
         let close = match end {
             End::Gone | End::Stalled => None,
             End::Close(code) => Some(Close::new(code)),
+            End::Stop => Some(Close::new(TransportError::ShuttingDown)),
             End::Violation(detail) => {
                 Some(Close::new(TransportError::ProtocolViolation).with_message(&detail))
             }
