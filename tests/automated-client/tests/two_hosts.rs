@@ -1252,9 +1252,10 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
     lands(&mut from_a, &mut at_b, (&a, &b), 1, "before the restart").await;
     let before = a.log().len();
 
-    // B's drain: A's client sends every `drain_every` from `lead` before
-    // B's SIGTERM until B's process has exited, from a task of its own,
-    // while B's client reads; each answer is stamped from the SIGTERM.
+    // B's drain: A's client sends, pausing `drain_every` after each
+    // answer, from `lead` before B's SIGTERM until B's process has exited,
+    // from a task of its own, while B's client reads; each answer is
+    // stamped from the SIGTERM.
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let sender = {
         let stop = stop.clone();
@@ -1459,7 +1460,7 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
         .unwrap_or_else(|_| "the workspace's build".to_owned());
     let text = format!(
         "daemons: {daemons}\nvariant {variant}, outage {outage:?} past B's exit\n\
-         B's drain: SIGTERM to exit {} ms; A's sends every {drain_every:?} from {lead:?} before it, ms from SIGTERM:\n{}\n\
+         B's drain: SIGTERM to exit {} ms; A's sends, pausing {drain_every:?} after each answer, from {lead:?} before it, ms from SIGTERM:\n{}\n\
          accepted before the SIGTERM: {}, of them not read by B's client: {lost_before}\n\
          accepted from the SIGTERM on: {}, read by B's client before the exit: {drain_read}\n\
          A's sends through the outage, ms from B's exit:\n{}\n\

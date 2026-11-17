@@ -158,7 +158,8 @@ below (12 of 12) it was 29.9–30.2 s.
   reach is the next send. So on both builds the worst a sub-0.3 s
   restart costs is one backoff step, 30 s. It was paid in 6 of the 22
   quick restarts where A sent only from B's SIGTERM on, and in 12 of 12
-  where A was already sending every 5 ms when the SIGTERM came.
+  where A was already sending, with a 5 ms pause after each answer, when
+  the SIGTERM came.
 - **Through a longer outage the builds part.** v0.3.0 doubles the backoff
   at each failed retry (30, 60, 120 s): after 100 s down, B was reached
   110 s after it returned. Main stays at 30 s: B was reached 20.1 s after
@@ -172,7 +173,8 @@ below (12 of 12) it was 29.9–30.2 s.
   retries moved it. The step at the *start* of an outage is different,
   as above: there a send is what dials.
 - **B sending first reaches A only if B knows where A is.** With *entry*,
-  B's restarted daemon dialled A 2–3 ms after it served, and the pair was
+  B's restarted daemon was connected to A 3–8 ms after it served (3 on
+  main, 8 on v0.3.0), and the pair was
   connected before A's first send; reach was 0 s on both builds. A held
   no backoff in either run, so these runs do not show B's dial lifting
   one (`far_end_returns`' case `a_far_end_that_returns_and_dials_this_side_lifts_its_backoff`
@@ -198,8 +200,9 @@ below (12 of 12) it was 29.9–30.2 s.
   already released.
 - **A message answered Accepted just before B's SIGTERM can be lost.**
   In the drain runs (`drain-*`), A sent from 300 ms before the SIGTERM,
-  with a 5 ms pause after each answer, so 18–31 sends about 10–17 ms
-  apart. B's client read every 2 ms until its session closed. In 6 of 12
+  with a 5 ms pause after each answer, so 18–34 sends about 10–17 ms
+  apart (18–31 of them Accepted). Each drain file's header reads "A's
+  sends every 5ms"; it means that pause, not a period. B's client read every 2 ms until its session closed. In 6 of 12
   runs (4 on main, 2 on v0.3.0), one of the 18–31 messages answered
   Accepted in those 300 ms never reached B's client. In v0.3.0's run 3, a
   second message, sent at +0 ms and answered Accepted, was not read
