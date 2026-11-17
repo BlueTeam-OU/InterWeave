@@ -1377,6 +1377,12 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
         std::collections::HashMap::new();
     // The input line whose send was issued and is not yet answered.
     let mut issued: Option<serde_json::Value> = None;
+    // The status and problem each answer printed, by row, until the row's
+    // first outbound event: the facade reports the new row in the step
+    // that answered it, and that report is the answer already printed, so
+    // a line is answered once (`an_input_line_is_answered_by_one_outbound_line`).
+    let mut answered: std::collections::HashMap<RowId, serde_json::Value> =
+        std::collections::HashMap::new();
     let mut consumed = Consumed::default();
     // What the store held unread when the session opened is the first
     // drain; a relist the facade asks for (`UnreadInStore`) is the next.
@@ -1522,6 +1528,7 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                     let mut value = outbound_fields(*row, &status);
                     value["event"] = json!("outbound");
                     value["ref"] = reference;
+                    answered.insert(*row, json!([value["status"], value["problem"]]));
                     Some(output::json_line(&value))
                 }
                 Update::SendRefused { error, .. } if issued.is_some() => {
@@ -1538,11 +1545,15 @@ pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
                     } else {
                         refs.get(&o.row).cloned()
                     };
-                    event_line(s, &update, json).map(|line| {
+                    let already = answered.remove(&o.row);
+                    event_line(s, &update, json).and_then(|line| {
                         let mut value: serde_json::Value =
                             serde_json::from_str(&line).unwrap_or_default();
+                        if already == Some(json!([value["status"], value["problem"]])) {
+                            return None;
+                        }
                         value["ref"] = reference.unwrap_or_default();
-                        output::json_line(&value)
+                        Some(output::json_line(&value))
                     })
                 }
                 _ => event_line(s, &update, json),

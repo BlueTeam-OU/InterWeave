@@ -548,6 +548,57 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
     }
 }
 
+/// j288 item 3: an input line is answered once. The facade reports a new
+/// row in the step whose send answered the line, with the status the
+/// answer printed, so that report is not printed again: no two outbound
+/// lines of the row in a row say the same status and problem, and the
+/// last says accepted. Mutation: the row's first outbound event printed
+/// whatever the answer said -- `sending` twice.
+#[tokio::test]
+async fn an_input_line_is_answered_by_one_outbound_line() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let to_alice = format!("{}/human", a.peer().as_str());
+    let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
+    let stdin = format!(
+        "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"once\",\"ref\":\"r\"}}}}\n"
+    )
+    .into_bytes();
+    std::thread::spawn(move || verbs::read_input(stdin.as_slice(), &lines_in));
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut bob,
+        verbs::ListenMode {
+            filter: crate::cli::ListenFilter::default(),
+            json: true,
+            consume: false,
+            input: Some(input),
+        },
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(1_000)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let said: Vec<(Value, Value)> = lines(&out)
+        .into_iter()
+        .filter(|e| e["event"] == "outbound" && e["ref"] == "r")
+        .map(|e| (e["status"].clone(), e["problem"].clone()))
+        .collect();
+    assert!(
+        said.windows(2).all(|pair| pair[0] != pair[1]),
+        "each answer printed once: {out}"
+    );
+    assert_eq!(said.last().map(|s| &s.0), Some(&json!("accepted")), "{out}");
+}
+
 /// G5: an outbound event names the send problem its status carries
 /// beside the status, `null` when there is none, so a carrier tells a
 /// refusal from a route that may come back. Mutation: the problem left
@@ -1400,6 +1451,10 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
     let to_alice = format!("{}/human", a.peer().as_str());
+    // The first attempt times out, so the answer is not the row's last
+    // status: the retry's `accepted` is a later event (j288: an answer's
+    // own status is printed once).
+    b.inject_send(TransportError::Timeout);
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     let stdin = format!(
         "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"filtered\",\"ref\":9}}}}\n"
@@ -1419,7 +1474,7 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
             input: Some(input),
         },
         &mut out,
-        tokio::time::sleep(Duration::from_millis(1_500)),
+        tokio::time::sleep(Duration::from_millis(4_000)),
     )
     .await
     .expect("listened");
@@ -1432,6 +1487,11 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
     // One from the send's own answer, the rest the row's later status
     // events: the send answers once, so a second is a later one.
     assert!(answers.len() >= 2, "the answer and a later status: {out}");
+    assert_eq!(
+        answers.last().map(|e| &e["status"]),
+        Some(&json!("accepted")),
+        "{out}"
+    );
 }
 
 /// A read the store refuses for a message this listen printed is said,
