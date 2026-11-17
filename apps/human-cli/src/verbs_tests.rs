@@ -132,6 +132,60 @@ fn lines(out: &str) -> Vec<Value> {
         .collect()
 }
 
+/// What `listen` writes, readable while it runs: the stop a test hands
+/// it reads the output through a clone.
+#[derive(Clone, Default)]
+pub(crate) struct Shared(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Shared {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("the buffer").extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Shared {
+    pub(crate) fn text(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().expect("the buffer")).into_owned()
+    }
+
+    /// The JSON lines written so far that `which` accepts.
+    pub(crate) fn count(&self, which: impl Fn(&Value) -> bool) -> usize {
+        self.text()
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter(|e| which(e))
+            .count()
+    }
+
+    pub(crate) fn has(&self, which: impl Fn(&Value) -> bool) -> bool {
+        self.count(which) > 0
+    }
+}
+
+/// A `listen` stop: once `done` holds and no sooner than `window`, so
+/// what the test says must not happen has that long to show.
+pub(crate) fn after(
+    window: Duration,
+    what: &'static str,
+    mut done: impl FnMut() -> bool,
+) -> impl Future<Output = ()> {
+    let since = Instant::now();
+    crate::listen_stops::when(what, move || since.elapsed() >= window && done())
+}
+
+/// Rows the store at `file` holds unread, read by a connection of its own.
+fn unread_count(file: &Path) -> i64 {
+    rusqlite::Connection::open(file)
+        .expect("the store file")
+        .query_row("SELECT COUNT(*) FROM unread_inbound", [], |r| r.get(0))
+        .expect("a count")
+}
+
 fn send(key: &ConversationKey, text: &str) -> Verb {
     Verb::Send {
         conversation: key.clone(),
@@ -416,7 +470,7 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
         .await
         .1
         .expect("sent");
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -425,12 +479,17 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
             consume: false,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(Duration::from_millis(500), "its message event", move || {
+                shown.has(|e| e["event"] == "message")
+            })
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let events = lines(&out);
     let message = events
         .iter()
@@ -486,7 +545,7 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
     // On a thread of its own, as main runs it: it waits while the channel
     // is full.
     std::thread::spawn(move || verbs::read_input(stdin.as_slice(), &lines_in));
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -495,12 +554,23 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
             consume: false,
             input: Some(input),
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(1_500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(1500),
+                "both sends answered and every refusal said",
+                move || {
+                    shown.count(|e| e["event"] == "input-refused") >= 4
+                        && shown.has(|e| e["event"] == "outbound" && e["ref"] == 7)
+                        && shown.has(|e| e["event"] == "outbound" && e["ref"] == 8)
+                },
+            )
+        },
     )
     .await
     .expect("listened past EOF");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let events = lines(&out);
     let refused: Vec<&Value> = events
         .iter()
@@ -572,7 +642,7 @@ async fn an_input_line_is_answered_by_one_outbound_line() {
     )
     .into_bytes();
     std::thread::spawn(move || verbs::read_input(stdin.as_slice(), &lines_in));
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -581,12 +651,23 @@ async fn an_input_line_is_answered_by_one_outbound_line() {
             consume: false,
             input: Some(input),
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(1_000)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(1000),
+                "the answer accepted",
+                move || {
+                    shown.has(|e| {
+                        e["event"] == "outbound" && e["ref"] == "r" && e["status"] == "accepted"
+                    })
+                },
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let said: Vec<(Value, Value)> = lines(&out)
         .into_iter()
         .filter(|e| e["event"] == "outbound" && e["ref"] == "r")
@@ -622,7 +703,7 @@ async fn an_input_sends_outbound_event_names_its_problem() {
             r#"{{"send":{{"conversation":"{to_alice}","text":"held","ref":"r1"}}}}"#
         )))
         .expect("queued");
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -631,13 +712,26 @@ async fn an_input_sends_outbound_event_names_its_problem() {
             consume: false,
             input: Some(input),
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(1_000)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(1000),
+                "the refusal answered",
+                move || {
+                    shown.has(|e| {
+                        e["event"] == "outbound"
+                            && e["ref"] == "r1"
+                            && e["status"] == "needs-attention"
+                    })
+                },
+            )
+        },
     )
     .await
     .expect("listened");
     drop(lines_in);
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let outbound: Vec<Value> = lines(&out)
         .into_iter()
         .filter(|e| e["event"] == "outbound")
@@ -679,7 +773,7 @@ async fn a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed() {
         lines_in.try_send(Ok(line.to_string())).expect("queued");
     }
     drop(lines_in);
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -688,12 +782,25 @@ async fn a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed() {
             consume: false,
             input: Some(input),
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(1_000)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            let at_cap = at_cap.clone();
+            after(
+                Duration::from_millis(1000),
+                "the refusal and the echo at the cap",
+                move || {
+                    shown.has(|e| e["event"] == "input-refused")
+                        && shown.has(|e| {
+                            e["event"] == "outbound" && e["ref"] == Value::String(at_cap.clone())
+                        })
+                },
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let events = lines(&out);
     let refused: Vec<&Value> = events
         .iter()
@@ -724,7 +831,7 @@ async fn listen_consume_marks_each_printed_message_read() {
         .await
         .1
         .expect("sent");
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -733,12 +840,20 @@ async fn listen_consume_marks_each_printed_message_read() {
             consume: true,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(800)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            let held = dir_b.path().join("human.sqlite3");
+            after(
+                Duration::from_millis(800),
+                "its message printed and read",
+                move || shown.has(|e| e["text"] == "consumed") && unread_count(&held) == 0,
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     assert!(lines(&out).iter().any(|e| e["text"] == "consumed"), "{out}");
     bob.close().await;
     let unread = store(dir_b.path()).unread_inbound().expect("read");
@@ -1088,9 +1203,9 @@ async fn a_line_not_written_leaves_its_message_unread() {
             input: None,
         },
         &mut tap,
-        // Ended by the reader going away; the bound only keeps a broken
-        // listen from hanging the test.
-        tokio::time::sleep(Duration::from_secs(5)),
+        // Ended by the reader going away; a listen that does not end is
+        // failed by the bound, not stopped by it.
+        crate::listen_stops::when("the reader's going away to end it", || false),
     )
     .await
     .expect("the reader gone ends it");
@@ -1115,7 +1230,7 @@ async fn every_read_the_store_refuses_is_said_by_its_row() {
     bob.close().await;
     // Each read refused by the store after its row's page was read.
     let mut bob = refusing(&b, dir_b.path());
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -1124,12 +1239,22 @@ async fn every_read_the_store_refuses_is_said_by_its_row() {
             consume: true,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(500),
+                "both messages printed and both reads said",
+                move || {
+                    shown.count(|e| e["event"] == "message") >= 2
+                        && shown.count(|e| e["event"] == "failed") >= 2
+                },
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let events = lines(&out);
     let printed: Vec<&Value> = events
         .iter()
@@ -1181,7 +1306,7 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
         lines_in.try_send(Ok(line.to_string())).expect("queued");
     }
     drop(lines_in);
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -1190,12 +1315,22 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
             consume: false,
             input: Some(input),
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(1_000)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(1000),
+                "the refusal and the send after it answered",
+                move || {
+                    shown.has(|e| e["event"] == "input-refused" && e["ref"] == "big")
+                        && shown.has(|e| e["event"] == "outbound" && e["ref"] == "after")
+                },
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let events = lines(&out);
     assert!(
         events.iter().any(|e| e["event"] == "input-refused"
@@ -1369,6 +1504,7 @@ async fn a_filtered_listen_consumes_only_what_it_prints() {
             conversation: Some(elsewhere),
         }),
         &mut out,
+        // The window is the claim: nothing may be printed or consumed within it.
         tokio::time::sleep(Duration::from_millis(800)),
     )
     .await
@@ -1384,7 +1520,7 @@ async fn a_filtered_listen_consumes_only_what_it_prints() {
         "not printed, not read"
     );
 
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         listen(crate::cli::ListenFilter {
@@ -1394,12 +1530,22 @@ async fn a_filtered_listen_consumes_only_what_it_prints() {
                 endpoint: None,
             }),
         }),
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(800)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            let held = dir_b.path().join("human.sqlite3");
+            after(
+                Duration::from_millis(800),
+                "its message printed and read",
+                move || {
+                    shown.has(|e| e["text"] == "not for this filter") && unread_count(&held) == 0
+                },
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let events = lines(&out);
     assert!(events.iter().all(|e| e["event"] == "message"), "{out}");
     assert!(
@@ -1422,7 +1568,7 @@ async fn a_filtered_listen_consumes_only_what_it_prints() {
 #[tokio::test]
 async fn a_listen_not_naming_messages_drains_none_of_them() {
     let (_b, dir_b, mut bob, _dir_a) = Box::pin(unread_at_open(&["held"])).await;
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -1434,12 +1580,17 @@ async fn a_listen_not_naming_messages_drains_none_of_them() {
             consume: true,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(Duration::from_millis(500), "its session event", move || {
+                shown.has(|e| e["event"] == "session")
+            })
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let events = lines(&out);
     assert!(!events.is_empty(), "the session event: {out}");
     assert!(events.iter().all(|e| e["event"] == "session"), "{out}");
@@ -1473,7 +1624,7 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
     )
     .into_bytes();
     std::thread::spawn(move || verbs::read_input(stdin.as_slice(), &lines_in));
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -1485,12 +1636,22 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
             consume: false,
             input: Some(input),
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(4_000)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(4000),
+                "the answer and a later status",
+                move || {
+                    shown.count(|e| e["event"] == "outbound" && e["ref"] == 9) >= 2
+                        && shown.has(|e| e["event"] == "outbound" && e["status"] == "accepted")
+                },
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let answers: Vec<Value> = lines(&out)
         .into_iter()
         .filter(|e| e["event"] == "outbound")
@@ -1515,7 +1676,7 @@ async fn a_refused_read_of_a_printed_message_is_said_whatever_the_filter() {
     let (b, dir_b, bob, _dir_a) = Box::pin(unread_at_open(&["refused"])).await;
     bob.close().await;
     let mut bob = refusing(&b, dir_b.path());
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut bob,
         verbs::ListenMode {
@@ -1527,12 +1688,21 @@ async fn a_refused_read_of_a_printed_message_is_said_whatever_the_filter() {
             consume: true,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(500),
+                "the message and its refused read",
+                move || {
+                    shown.has(|e| e["event"] == "message") && shown.has(|e| e["event"] == "failed")
+                },
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let events = lines(&out);
     let printed = events
         .iter()

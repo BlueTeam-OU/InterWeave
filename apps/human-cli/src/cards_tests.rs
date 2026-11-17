@@ -27,6 +27,7 @@ use crate::Failure;
 use crate::cli::{PhotoArg, Verb};
 use crate::session::Session;
 use crate::verbs::{self, Run};
+use crate::verbs_tests::{Shared, after};
 
 const WALL: u64 = 1_792_652_603_000;
 
@@ -489,7 +490,7 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
         .await
         .1
         .expect("shared");
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
@@ -498,12 +499,19 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
             consume: false,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(500),
+                "its proposal event",
+                move || shown.has(|e| e["event"] == "proposal"),
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let card = lines(&out)
         .into_iter()
         .find(|e| e["event"] == "proposal")
@@ -524,8 +532,13 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
 /// looked up (printed under a filter naming another).
 #[tokio::test]
 async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
-    async fn listen(s: &mut Session<FakeNode, FakeNode>, about: ConversationKey) -> Vec<Value> {
-        let mut out = Vec::new();
+    // `until`: the events it is to print before it may stop.
+    async fn listen(
+        s: &mut Session<FakeNode, FakeNode>,
+        about: ConversationKey,
+        until: &[&str],
+    ) -> Vec<Value> {
+        let out = Shared::default();
         verbs::listen(
             s,
             verbs::ListenMode {
@@ -537,12 +550,20 @@ async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
                 consume: false,
                 input: None,
             },
-            &mut out,
-            tokio::time::sleep(Duration::from_millis(500)),
+            &mut out.clone(),
+            {
+                let shown = out.clone();
+                after(
+                    Duration::from_millis(500),
+                    "the events it was to print",
+                    // With none to wait for, the window is the claim.
+                    move || until.iter().all(|k| shown.has(|e| e["event"] == *k)),
+                )
+            },
         )
         .await
         .expect("listened");
-        lines(&String::from_utf8(out).expect("utf-8"))
+        lines(&out.text())
     }
     fn send(to: ConversationKey, text: &str) -> Verb {
         Verb::Send {
@@ -566,7 +587,7 @@ async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
     let elsewhere = to(&ProfileIdentity::generate()
         .transport_identity()
         .expect("peer id"));
-    let events = listen(&mut b_run, elsewhere).await;
+    let events = listen(&mut b_run, elsewhere, &[]).await;
     assert!(
         !events.iter().any(|e| e["event"] == "message"),
         "a filter naming another conversation: {events:?}"
@@ -588,7 +609,7 @@ async fn listen_prints_a_message_and_a_card_for_a_conversation_not_open() {
     .await
     .1
     .expect("sent");
-    let events = listen(&mut b_run, alice.route()).await;
+    let events = listen(&mut b_run, alice.route(), &["message", "proposal"]).await;
     let message = events
         .iter()
         .find(|e| e["event"] == "message")
@@ -1011,7 +1032,7 @@ async fn listen_consume_declines_a_card_held_at_open() {
     assert_eq!(lines(&out).len(), 1, "held: {out}");
     b_run.close().await;
     let mut b_run = bob.session();
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
@@ -1020,12 +1041,19 @@ async fn listen_consume_declines_a_card_held_at_open() {
             consume: true,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(500),
+                "its proposal declined",
+                move || shown.has(|e| e["event"] == "proposal" && e["status"] == "declined"),
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let card = lines(&out)
         .into_iter()
         .find(|e| e["event"] == "proposal")
@@ -1051,7 +1079,7 @@ async fn a_refused_decline_of_a_proposal_listen_named_is_said_whatever_the_filte
     b_run.close().await;
     // The store refuses the decline after the card's page was read.
     let mut b_run = bob.session_refusing(&[row]);
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
@@ -1063,12 +1091,19 @@ async fn a_refused_decline_of_a_proposal_listen_named_is_said_whatever_the_filte
             consume: true,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(500),
+                "the refused decline said",
+                move || shown.has(|e| e["event"] == "failed"),
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     assert!(
         lines(&out)
             .iter()
@@ -1098,7 +1133,7 @@ async fn listen_consume_declines_a_card_as_it_arrives() {
         .await
         .1
         .expect("shared");
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
@@ -1107,12 +1142,19 @@ async fn listen_consume_declines_a_card_as_it_arrives() {
             consume: true,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(500),
+                "its proposal declined",
+                move || shown.has(|e| e["event"] == "proposal" && e["status"] == "declined"),
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let cards: Vec<Value> = lines(&out)
         .into_iter()
         .filter(|e| e["event"] == "proposal")
@@ -1157,6 +1199,7 @@ async fn a_listen_filtered_to_messages_declines_no_card() {
             input: None,
         },
         &mut out,
+        // The window is the claim: nothing may be printed or consumed within it.
         tokio::time::sleep(Duration::from_millis(500)),
     )
     .await
@@ -1197,7 +1240,7 @@ async fn a_message_received_with_a_card_is_printed_once() {
         pending: true,
     };
     run(&mut a_run, message, false).await.1.expect("sent");
-    let mut out = Vec::new();
+    let out = Shared::default();
     verbs::listen(
         &mut b_run,
         verbs::ListenMode {
@@ -1206,12 +1249,22 @@ async fn a_message_received_with_a_card_is_printed_once() {
             consume: true,
             input: None,
         },
-        &mut out,
-        tokio::time::sleep(Duration::from_millis(500)),
+        &mut out.clone(),
+        {
+            let shown = out.clone();
+            after(
+                Duration::from_millis(500),
+                "the message and the card printed",
+                move || {
+                    shown.has(|e| e["text"] == "beside the card")
+                        && shown.has(|e| e["event"] == "proposal")
+                },
+            )
+        },
     )
     .await
     .expect("listened");
-    let out = String::from_utf8(out).expect("utf-8");
+    let out = out.text();
     let messages = lines(&out)
         .into_iter()
         .filter(|e| e["event"] == "message" && e["text"] == "beside the card")
