@@ -64,9 +64,11 @@ What r3 also shows:
   daemon.
 - **`reply_tokens` still counted question one's token after the restart** (1 in r3's second status, and in the
   control's), though `reply` refused that token. The count includes tokens of an earlier lease. That was ruled a defect
-  (architect-cto, REQUEST 01a1e9a9, by `architecture/plugin/LIFECYCLE.md` §Reconnect); a bridge built after the
-  v0.3.0 release discards a lost lease's direct tokens (read from `crates/claude/channel-core/src/bridge.rs`,
-  `a_lost_lease_takes_its_direct_tokens_and_leaves_the_broadcast`). Not re-run here.
+  (architect-cto, REQUEST 01a1e9a9, by `architecture/plugin/LIFECYCLE.md` §Reconnect); a bridge built from a tree with
+  PR #706 merged (still version 0.3.0 until the next release) discards a lost lease's direct tokens and keeps a
+  broadcast token, counted even while its channel is left (read from `crates/claude/channel-core/src/bridge.rs`,
+  `a_lost_lease_takes_its_direct_tokens_and_leaves_the_broadcast` and
+  `a_left_channels_broadcast_token_is_counted_and_routes_after_a_rejoin`). Not re-run here.
 - In r3 the debug log has `Channel notifications re-registered after reconnect` five times, at 03:14:15, 03:14:29,
   03:15:30, 03:15:51 and 03:15:56. They are not one per restart; what each is was not traced.
 

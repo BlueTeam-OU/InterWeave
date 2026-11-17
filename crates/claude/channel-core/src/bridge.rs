@@ -609,6 +609,33 @@ mod tests {
         assert_eq!(bridge.joined_channels().count(), 0, "nothing rejoined");
     }
 
+    /// A left channel's broadcast token stays in the table and is counted
+    /// while `reply` refuses it, and routes again once the channel is
+    /// joined again (INSTALL.md, "What a missed message was").
+    #[test]
+    fn a_left_channels_broadcast_token_is_counted_and_routes_after_a_rejoin() {
+        let mut bridge = BridgeState::new();
+        bridge.joined(channel("general"));
+        let n = bridge
+            .notification(&broadcast("general"), [12; 16], NOW)
+            .expect("ok")
+            .expect("some");
+        let token = n.meta.get(MetaKey::ReplyToken).expect("token").to_owned();
+        bridge.left(&channel("general"));
+        assert_eq!(bridge.live_tokens(NOW), 1, "counted while left");
+        assert_eq!(
+            bridge.reply_route(&token, NOW),
+            Err(TransportError::ChannelNotJoined)
+        );
+        bridge.joined(channel("general"));
+        assert_eq!(
+            bridge.reply_route(&token, NOW),
+            Ok(ReplyRoute::Broadcast {
+                channel: channel("general")
+            })
+        );
+    }
+
     /// Without the lease the message arrived on there is no route to
     /// mint: no `reply_token`, and nothing in the table.
     #[test]
