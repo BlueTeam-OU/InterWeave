@@ -622,7 +622,10 @@ access.
   disabled key included (below), as the platform's directional focus
   does: across a keypad row, between rows, and between the grid's
   positions. Tab and Shift+Tab follow the order above.
-- What Enter and Space do depends on the last input:
+- On R2 and C3, the screens with a keypad, what Enter and Space do
+  depends on the last input. On every other screen of this note, Enter
+  and Space press the focused control, and nothing below about typing
+  and navigating applies there:
   - **Typing** — the last input was a hardware letter, Backspace, an
     Enter that acted under this rule, or a tap on an enabled letter
     key, the delete key or the clear key. A tap on one of these keys
@@ -676,7 +679,7 @@ access.
     R2 position empty sets navigating, with focus on `IdCheckWords`
     (below). No word is left to type, so the next Enter can only mean
     "check".
-  - A screen opens as typing. Either way the focus ring is drawn on
+  - R2 and C3 open as typing. Either way the focus ring is drawn on
     the focused control, so the person sees what Enter would press
     once they move.
 - The full list (§4 item 4): when it opens, focus is on the current
