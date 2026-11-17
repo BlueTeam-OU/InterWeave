@@ -11,6 +11,7 @@
 //! answers a reset at once), and the fabric's own process reading the
 //! lines.
 
+use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::process::ChildStdin;
 use std::time::{Duration, Instant};
@@ -18,7 +19,7 @@ use std::time::{Duration, Instant};
 use interweave_transport_api::TransportIdentity;
 use serde_json::Value;
 
-use super::common::{Daemon, Home, free_port};
+use super::common::{Daemon, Home, PATIENCE, free_port};
 use super::{Listener, runtime_up};
 
 /// The fleet's human endpoint, the one every control child leases.
@@ -287,21 +288,25 @@ async fn a_peer_shutting_down_leaves_the_senders_session_ready() {
     }
 }
 
-/// The line's `accepted`, within `patience`: a measurement waits longer
-/// than a case's `PATIENCE`, since what it measures may pass it.
-fn accepted_within(listener: &Listener, reference: &str, patience: Duration) -> Value {
+/// Every line of `references` accepted, in whatever order, within
+/// `patience`: sends to different peers answer in any order, so a wait
+/// for one that drops the lines of another would lose them.
+fn all_accepted(listener: &Listener, mut references: BTreeSet<String>, patience: Duration) {
     let deadline = Instant::now() + patience;
-    loop {
+    while !references.is_empty() {
         let left = deadline.saturating_duration_since(Instant::now());
         let line = listener
             .lines
             .recv_timeout(left)
-            .unwrap_or_else(|e| panic!("{reference} not accepted within {patience:?}: {e}"));
-        if line["event"] == "outbound" && line["ref"] == reference {
-            match line["status"].as_str() {
-                Some("accepted") => return line,
-                Some("needs-attention") => panic!("{reference} held for attention: {line}"),
-                _ => {}
+            .unwrap_or_else(|e| panic!("{references:?} not accepted within {patience:?}: {e}"));
+        if line["event"] == "outbound" {
+            if line["status"] == "needs-attention" {
+                panic!("held for attention: {line}");
+            }
+            if line["status"] == "accepted"
+                && let Some(reference) = line["ref"].as_str()
+            {
+                references.remove(reference);
             }
         }
     }
@@ -354,7 +359,8 @@ async fn fan_out_of_thirty_lines_timed() {
     for spoke in &mut spokes {
         spoke.start().await;
     }
-    let children: Vec<(Listener, ChildStdin)> = spokes.iter().map(Account::control_child).collect();
+    let mut children: Vec<(Listener, ChildStdin)> =
+        spokes.iter().map(Account::control_child).collect();
     let mut stopped: Vec<usize> = Vec::new();
     let mut frozen: Vec<String> = Vec::new();
     let mut record = Vec::new();
@@ -375,11 +381,12 @@ async fn fan_out_of_thirty_lines_timed() {
                 );
             }
         }
-        for (i, _) in spokes.iter().enumerate() {
-            if !stopped.contains(&i) {
-                accepted(&hub_child, &format!("w{n}-{i}"), &mut Vec::new());
-            }
-        }
+        // Answers come in any order: attempts to peers go beside each other.
+        let warm: BTreeSet<String> = (0..PEERS)
+            .filter(|i| !stopped.contains(i))
+            .map(|i| format!("w{n}-{i}"))
+            .collect();
+        all_accepted(&hub_child, warm, PATIENCE);
         for &i in &silent {
             let pid = spokes[i].daemon.as_ref().map(|d| d.child.id().to_string());
             match (how, pid) {
@@ -405,14 +412,77 @@ async fn fan_out_of_thirty_lines_timed() {
                 &format!("f{n}-{i}"),
             );
         }
-        let mut last = Duration::ZERO;
-        for i in (0..PEERS).filter(|i| !silent.contains(i)) {
-            accepted_within(&hub_child, &format!("f{n}-{i}"), Duration::from_secs(600));
-            last = last.max(first.elapsed());
+        // Two lines to the last spoke, after the rest: the spoke must
+        // print them in the order written.
+        let last_spoke = PEERS - 1;
+        for k in 1..=2 {
+            send_line(
+                &mut hub_input,
+                &spokes[last_spoke].control(),
+                &format!("order-{n}-{k}"),
+                &format!("o{n}-{k}"),
+            );
         }
+        // While the silent peers' lines are held, the first answering
+        // spoke sends the hub a line: inbound must not wait on them.
+        let back = format!("back-{n}");
+        let back_from = *down;
+        let back_sent = Instant::now();
+        send_line(
+            &mut children[back_from].1,
+            &hub.control(),
+            &back,
+            &format!("b{n}"),
+        );
+        let mut waiting: BTreeSet<String> = (0..PEERS)
+            .filter(|i| !silent.contains(i))
+            .map(|i| format!("f{n}-{i}"))
+            .chain((1..=2).map(|k| format!("o{n}-{k}")))
+            .collect();
+        let mut last = Duration::ZERO;
+        let mut back_at: Option<Duration> = None;
+        let deadline = first + Duration::from_secs(600);
+        while !waiting.is_empty() || back_at.is_none() {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let line = hub_child
+                .lines
+                .recv_timeout(left)
+                .unwrap_or_else(|e| panic!("run {n}: {waiting:?} and back={back_at:?}: {e}"));
+            if line["event"] == "outbound"
+                && line["status"] == "accepted"
+                && let Some(reference) = line["ref"].as_str()
+                && waiting.remove(reference)
+                && reference.starts_with('f')
+            {
+                last = last.max(first.elapsed());
+            }
+            if line["event"] == "outbound" && line["status"] == "needs-attention" {
+                panic!("run {n}: held for attention: {line}");
+            }
+            if line["event"] == "message" && line["text"] == back.as_str() {
+                back_at = Some(back_sent.elapsed());
+            }
+        }
+        let spoke_child = &children[last_spoke].0;
+        let first_seen = spoke_child.until("an order line", |l| {
+            l["event"] == "message"
+                && l["text"]
+                    .as_str()
+                    .is_some_and(|t| t.starts_with(&format!("order-{n}-")))
+        });
+        assert_eq!(
+            first_seen["text"],
+            format!("order-{n}-1"),
+            "two lines to one peer arrive in the order written"
+        );
+        spoke_child.until("the second order line", |l| {
+            l["event"] == "message" && l["text"] == format!("order-{n}-2").as_str()
+        });
         let load = std::fs::read_to_string("/proc/loadavg").unwrap_or_default();
         let line = format!(
-            "{down} of {PEERS} {how:?}: last accepted of an answering peer {last:?} after the first line (loadavg {})",
+            "{down} of {PEERS} {how:?}: last accepted of an answering peer {last:?} after the first line; \
+             a line from a spoke reached the hub {:?} after it was written; two lines to one spoke in order (loadavg {})",
+            back_at.unwrap_or_default(),
             load.trim()
         );
         eprintln!("{line}");
