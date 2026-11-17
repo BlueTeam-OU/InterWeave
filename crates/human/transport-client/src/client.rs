@@ -117,13 +117,17 @@ impl Order {
     }
 }
 
-/// Whether a tick's pass could attempt anything: some conversation's
-/// head -- its earliest pending row not held for attention -- is due,
-/// not on the wire, and its slot is free. A row behind a head waiting
+/// Whether a tick's pass could attempt anything: the flights are under
+/// `FLIGHT_CAP`, and some conversation's head -- its earliest pending row
+/// not held for attention -- is due, not on the wire, and its slot is
+/// free. A row behind a head waiting
 /// out its backoff stays due and attempts nothing, so a guard that asked
 /// only "is any row due" would read the whole pending table every tick
 /// while a peer is unreachable (`a_pass_is_due_only_for_a_head`).
 fn attemptable(rows: &BTreeMap<RowId, Row>, flying: &BTreeMap<RowId, Flight>, now: u64) -> bool {
+    if flying.len() >= FLIGHT_CAP {
+        return false;
+    }
     let mut heads: BTreeMap<&Order, (u64, RowId)> = BTreeMap::new();
     for (row_id, row) in rows {
         if row.attention.is_some() {
@@ -1893,8 +1897,9 @@ mod tests {
 
     /// A pass is due only when a conversation's head can go: rows due
     /// behind a head waiting out its backoff, or behind one on the wire,
-    /// or whose peer's slot is taken, make no pass. Mutation: the guard
-    /// asking only whether any row is due -- the first two cases pass.
+    /// or whose peer's slot is taken, or with the flights at the cap, make
+    /// no pass. Mutation: the guard asking only whether any row is due --
+    /// the first two cases pass; the guard without the cap -- the last.
     #[test]
     fn a_pass_is_due_only_for_a_head() {
         let human = EndpointId::parse("human").expect("valid");
@@ -1928,6 +1933,22 @@ mod tests {
             attemptable(&held, &BTreeMap::new(), 100),
             "attention holds nothing"
         );
+        // The flights full: another peer's due head waits for a slot.
+        let full: BTreeMap<RowId, Flight> = (0..super::FLIGHT_CAP)
+            .map(|n| {
+                let n = i64::try_from(n).expect("small");
+                let channel =
+                    interweave_transport_api::ChannelId::parse(format!("c{n}")).expect("valid");
+                (RowId::from_stored(1_000 + n), Flight::Channel(channel))
+            })
+            .collect();
+        let mut one = BTreeMap::new();
+        one.insert(
+            RowId::from_stored(4),
+            row(&Order::Conversation(peer(2), None), 13, Some(0)),
+        );
+        assert!(attemptable(&one, &BTreeMap::new(), 100), "the control");
+        assert!(!attemptable(&one, &full, 100), "the cap");
     }
 
     /// A runtime that is there and gave no summary leaves the indicator as

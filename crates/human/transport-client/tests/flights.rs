@@ -674,3 +674,36 @@ async fn a_close_settles_the_attempts_that_had_answered() {
         "settled by its answer: {seen:?}"
     );
 }
+
+/// A row held for the person's attention holds nothing behind it: the
+/// next line of its conversation goes and is accepted while the first
+/// waits for the person. Mutation: the pass letting an attention row
+/// claim its conversation -- the second line is never sent.
+#[tokio::test]
+async fn a_row_held_for_attention_holds_nothing_behind_it() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let gate = Arc::new(Gate::default());
+    let at_a = receiver(&a).await;
+    let mut sender = client(&b, &gate);
+    ready(&mut sender).await;
+    b.inject_send(TransportError::UnauthorizedPeer);
+    let held = sender
+        .send(at(a.peer(), human()), &envelope("for the person"), 1)
+        .await
+        .expect("row");
+    let after = sender
+        .send(at(a.peer(), human()), &envelope("after it"), 1)
+        .await
+        .expect("row");
+    for now in [1, 2, 3] {
+        sender.tick(now).await;
+    }
+    let seen = statuses(&mut sender);
+    assert!(
+        seen.iter()
+            .any(|(r, s)| *r == held && matches!(s, OutboundStatus::NeedsAttention { .. })),
+        "{seen:?}"
+    );
+    assert_eq!(accepted(&seen), [after], "{seen:?}");
+    assert_eq!(texts(&at_a).await, ["after it"]);
+}
