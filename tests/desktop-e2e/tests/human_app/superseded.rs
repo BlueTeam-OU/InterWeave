@@ -1145,14 +1145,14 @@ async fn a_superseded_add_of_an_unknown_line(read_back_fails: bool) {
 /// line still unsettled.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_superseded_add_whose_read_back_fails_leaves_an_unknown_line_unsettled() {
-    a_superseded_add_of_an_unknown_line(true).await;
+    Box::pin(a_superseded_add_of_an_unknown_line(true)).await;
 }
 
 /// [`a_superseded_add_of_an_unknown_line`], its read back succeeding: the
 /// line settled, not added.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_superseded_add_read_back_settles_an_unknown_line() {
-    a_superseded_add_of_an_unknown_line(false).await;
+    Box::pin(a_superseded_add_of_an_unknown_line(false)).await;
 }
 
 /// The step-2 block left `TrustStepSupersededUnread`, a Trust whose
@@ -1261,11 +1261,11 @@ async fn a_superseded_unread_trust_decided_by_a_later_read(allowed: bool) {
 /// [`a_superseded_unread_trust_decided_by_a_later_read`], trusted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_superseded_unread_trust_is_decided_trusted_by_a_later_read() {
-    a_superseded_unread_trust_decided_by_a_later_read(true).await;
+    Box::pin(a_superseded_unread_trust_decided_by_a_later_read(true)).await;
 }
 
 /// [`a_superseded_unread_trust_decided_by_a_later_read`], not trusted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_superseded_unread_trust_is_decided_not_trusted_by_a_later_read() {
-    a_superseded_unread_trust_decided_by_a_later_read(false).await;
+    Box::pin(a_superseded_unread_trust_decided_by_a_later_read(false)).await;
 }
