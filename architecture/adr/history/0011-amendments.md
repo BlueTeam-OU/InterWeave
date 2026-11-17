@@ -527,3 +527,31 @@ each, and the far daemon reconnected 955 ms after its return. It was
 made before the four review fixes to the scheduler's wake and its
 retry (51d05fa52, 3852cca34, 01fef73c9, aa6e07843, all on #674), and
 has not been run again on them.
+
+### Amendment 2026-11-17 — After the loss of an established connection the first retries are short: 1, 2, 4, 8 and 16 s, then 30 s
+
+The owner's word of 2026-11-17, on p2p-network-dev-01's finding F2 in
+`tests/automated-client/runs/2026-11-17-fleet-control-path.md`. The
+amendment of 2026-11-14 made 30 s the most that passes between two
+attempts; it also left 30 s as the first step. A far daemon that
+restarted in under 0.3 s was reached 29.9–30.2 s later whenever a dial
+met it while it was stopping or not yet listening: in 6 of 22 quick
+restarts where the sender sent only from the SIGTERM on, and in 12 of
+12 where it was already sending, on v0.3.0 and on main. The dial was a
+`send`'s dial-once in those runs; a redial on the close has the same
+race.
+
+The body's §Address-scoped failure gains a paragraph: after the loss
+of a connection that held 30 s or more, the delays are 1, 2, 4, 8 and
+16 s, then 30 s. The 2026-11-14 bound is not widened, since every step
+is under it. The 30 s floor on the lost connection's age is what keeps
+a peer that accepts and drops from being dialled every second.
+
+Two alternatives were put to the owner and not taken: one short step
+(the Linux unit's `RestartSec=5` is past it), and no `send`-triggered
+dial for a time after a close (the redial on the close races the same
+way).
+
+Not built when this was recorded: the code set 30 s at the first
+failure, and no test held the ladder. Not measured: its cost on a
+phone, five dials per loss beyond what the 30 s step made.
