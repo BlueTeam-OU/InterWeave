@@ -950,6 +950,165 @@ fn a_superseded_add_settles_unknown_lines_only_by_its_read() {
     }
 }
 
+/// An add carrying a line any earlier add on the page left unknown is
+/// judged by that line (§5.7, "unsettled lines"): every add left unknown
+/// counts, not only the latest; one that writes nothing still says
+/// `AddUnknown`, never `AddFailed`; a refusal wrote nothing and settles
+/// nothing (its read back failing); and one answered unchanged reads
+/// `AddedChecked`, never `AddedUnchanged`, since the earlier write may be
+/// what stored it.
+#[test]
+fn an_add_carrying_an_unsettled_line_is_judged_by_it() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let leave_unknown = |m: &mut UiModel, line: String| {
+        let _ = input(m, PeersInput::FieldChanged(line.clone()));
+        let _ = input(m, PeersInput::Add);
+        m.addresses_added(
+            &[line],
+            Err(AddressChangeFailure::Unconfirmed(
+                AddressProblem::Unavailable,
+            )),
+        );
+        assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+        m.addresses_read(Err(AddressProblem::Internal));
+        assert_eq!(
+            m.peers().add_page_note(),
+            Some(&AddNote::Unknown { lines: 1 })
+        );
+    };
+    let add = |m: &mut UiModel, line: String, answer| {
+        let _ = input(m, PeersInput::FieldChanged(line.clone()));
+        let _ = input(m, PeersInput::Add);
+        m.addresses_added(&[line], answer);
+    };
+    let wrote_nothing = || Err(AddressChangeFailure::NotMade(AddressProblem::Internal));
+
+    // A then B left unknown: A, the earlier, still counts.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    leave_unknown(&mut m, at(&a));
+    leave_unknown(&mut m, at(&b));
+    add(&mut m, at(&a), wrote_nothing());
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 }),
+        "the earlier add's line"
+    );
+    // Answered unchanged: the earlier write may be what stored it.
+    add(
+        &mut m,
+        at(&a),
+        answer(AddressOutcome::Unchanged, &[added(&a), added(&b)]),
+    );
+    assert_eq!(
+        m.peers().add_result(),
+        Some(&AddResult::Checked { lines: 1 })
+    );
+
+    // A refusal whose read back failed settles nothing: the next add
+    // writing nothing is still unknown. (Its read back succeeding would
+    // decide the line, as any read started after the add does.)
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    leave_unknown(&mut m, at(&a));
+    add(
+        &mut m,
+        at(&a),
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Refused(AddressRefused::Bound),
+            list: Err(AddressProblem::Internal),
+        }),
+    );
+    add(&mut m, at(&a), wrote_nothing());
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 }),
+        "the refusal decided nothing"
+    );
+}
+
+/// An `AddUnknown` said for an unsettled line is about the lines of the
+/// add it reports (§5.7): a later successful read decides those lines and
+/// no other add's, and an edit leaving the field holding none of them
+/// takes the note away -- also when the latest add left unknown was
+/// another line, or none is left (a refusal ended it).
+#[test]
+fn an_unknown_said_for_an_unsettled_line_is_decided_by_its_own_lines() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let leave_unknown = |m: &mut UiModel, line: String| {
+        let _ = input(m, PeersInput::FieldChanged(line.clone()));
+        let _ = input(m, PeersInput::Add);
+        m.addresses_added(
+            &[line],
+            Err(AddressChangeFailure::Unconfirmed(
+                AddressProblem::Unavailable,
+            )),
+        );
+        assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+        m.addresses_read(Err(AddressProblem::Internal));
+    };
+    let add = |m: &mut UiModel, line: String, answer| {
+        let _ = input(m, PeersInput::FieldChanged(line.clone()));
+        let _ = input(m, PeersInput::Add);
+        m.addresses_added(&[line], answer);
+    };
+    let wrote_nothing = || Err(AddressChangeFailure::NotMade(AddressProblem::Internal));
+    let unknown_about_a = |b_left_latest: bool| {
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        leave_unknown(&mut m, at(&a));
+        if b_left_latest {
+            leave_unknown(&mut m, at(&b));
+        } else {
+            add(
+                &mut m,
+                at(&a),
+                Ok(AddressAnswer {
+                    outcome: AddressOutcome::Refused(AddressRefused::Bound),
+                    list: Err(AddressProblem::Internal),
+                }),
+            );
+        }
+        add(&mut m, at(&a), wrote_nothing());
+        assert_eq!(
+            m.peers().add_page_note(),
+            Some(&AddNote::Unknown { lines: 1 }),
+            "the premise, B latest {b_left_latest}"
+        );
+        m
+    };
+
+    for b_left_latest in [true, false] {
+        // A read showing B and not A: a verdict on A, never on B.
+        let mut m = unknown_about_a(b_left_latest);
+        m.addresses_read(Ok(list(&[added(&b)])));
+        assert_eq!(
+            m.peers().add_page_note(),
+            Some(&AddNote::Failed),
+            "A decided missing, B latest {b_left_latest}"
+        );
+        assert_eq!(m.peers().add_result(), None, "no result for B");
+
+        // A read showing A: decided stored.
+        let mut m = unknown_about_a(b_left_latest);
+        m.addresses_read(Ok(list(&[added(&a)])));
+        assert_eq!(
+            m.peers().add_result(),
+            Some(&AddResult::Checked { lines: 1 }),
+            "A decided stored, B latest {b_left_latest}"
+        );
+
+        // An edit to a line other than A takes the note away.
+        let mut m = unknown_about_a(b_left_latest);
+        let _ = input(&mut m, PeersInput::FieldChanged(at(&b)));
+        assert_eq!(
+            m.peers().add_page_note(),
+            None,
+            "edited away, B latest {b_left_latest}"
+        );
+    }
+}
+
 /// A removal refused `superseded` is decided on its list read back: the
 /// row listed, `RemoveSuperseded` with no action and focus on the row's
 /// menu; not listed, as Remove done, its snackbar with Undo; the read

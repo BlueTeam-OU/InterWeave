@@ -7591,9 +7591,21 @@ owner:
   (rust-ui-dev-01's j157); #428 covers the read-back. Closed by #695
   (2026-11-16, j284) for eleven of them, run against a real daemon in
   `tests/desktop-e2e/tests/human_app/superseded.rs`, the hook the test
-  crate's. Not run against a daemon: the five kinds the design note's
-  §5.7 names (`design/2026-10-22-add-a-peer.md`), held by `ui-model`'s
-  and `ui-slint`'s `tests/peers.rs`.
+  crate's. Not run against a daemon then: the five kinds the design
+  note's §5.7 named (`design/2026-10-22-add-a-peer.md`), held by
+  `ui-model`'s and `ui-slint`'s `tests/peers.rs`. #707 (2026-11-17,
+  rust-ui-dev-02's j121) runs five more cases in that file against
+  real daemons, sixteen in all, each asserting focus: a superseded add
+  carrying an earlier `AddUnknown`'s line (read back failing and
+  succeeding), Trust again after `TrustStepSupersededUnread` writing
+  nothing (`TrustUnavailable`, the daemon stopped), and a
+  superseded-unread Trust decided by a later read (trusted and not
+  trusted). Still not run against a daemon, by the note's §5.7: that
+  Trust again answered `Internal` (`TrustFailed`; the app reads the
+  daemon's `Internal` as unconfirmed, so only an invented answer
+  gives it), and the announcement and the no-action snackbars' time
+  (the view's; that client has none). Neither the window nor Android
+  was run for these cases.
 - The allow-list reads the source manifests; a permission a library's
   manifest merges in is visible only in the merged manifest (#436):
   rust-ui-dev's, the check's authors, with devex-tooling for its

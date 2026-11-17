@@ -31,19 +31,36 @@
 //! The read back "made to fail" is the hold's: armed so, the first read
 //! of the list or the trust set after the held write is answered
 //! `BackendUnavailable` without reaching the daemon, the write itself
-//! still the daemon's.
+//! still the daemon's. So is a lost answer: armed so, the write reaches
+//! the daemon and the app hears `BackendUnavailable` in place of its
+//! answer, which is how an earlier add is left `AddUnknown`.
 //!
-//! Acceptance 10's superseded cases NOT run here: a superseded add
-//! carrying a line of an earlier `AddUnknown`; a Trust again after
-//! `TrustStepSupersededUnread` answered `Internal`, showing
-//! `TrustFailed`; a superseded Trust left unread then decided by a later
-//! read of the trust set, and the focus and announcement rules of that
-//! read; the two snackbars without an action staying 10 seconds, under
-//! focus or the pointer, or for Android's accessibility timeout; and
-//! focus after each outcome. `ui-model`'s and `ui-slint`'s
-//! `tests/peers.rs` hold those on the model and the rendered views, not
-//! against a daemon. Nor the window, or Android, whose facade is the
-//! same crate in process.
+//! Every case asserts where focus is asked to go after its outcome
+//! (§8's table), on the model, since this client has no view. Also run:
+//! a superseded add carrying a line an earlier `AddUnknown` left
+//! unsettled, the line settled only by the refusal's successful read
+//! back; Trust again after `TrustStepSupersededUnread` writing nothing,
+//! which says its own class -- `TrustUnavailable`, A's daemon stopped so
+//! the trust connection cannot open; and a superseded Trust left unread,
+//! then decided by a later read of the trust set (the settings opened),
+//! focus not moved by it.
+//!
+//! NOT run here, and why. The `Internal` class of that Trust again
+//! (`TrustFailed`): the daemon's own `Internal` to `admin.trust.set`
+//! may have reached it, so the facade reads it as unconfirmed, not as a
+//! write that wrote nothing (`set_trust` asks `may_have_reached`, whose
+//! set `problem.rs`'s `exactly_the_post_dispatch_errors_may_have_reached`
+//! holds). The other classes `classify_trust` reads as `Internal` are
+//! not the daemon's answers to that method, so the hold would have to
+//! invent one; `TrustUnavailable` holds the same rule from the real
+//! daemon.
+//! The announcement after the later read, and the two snackbars without
+//! an action staying 10 seconds, under focus or the pointer, or for
+//! Android's accessibility timeout: the view's (`ui-slint`'s
+//! `NO_ACTION_MIN_MS` and its announcer), after the outcome this file
+//! holds, which no daemon enters. `ui-model`'s and `ui-slint`'s
+//! `tests/peers.rs` hold those on the model and the rendered views. Nor
+//! the window, or Android, whose facade is the same crate in process.
 
 use std::cell::RefCell;
 use std::collections::{BTreeSet, VecDeque};
@@ -55,10 +72,12 @@ use std::time::{Duration, Instant};
 
 use interweave_human_app_core::{Command, FacadeSide, ModelSide, Opener, Surface, Update};
 use interweave_human_store::{HumanStore, StoreOptions};
-use interweave_human_transport_client::{ClientConfig, TransportClient};
+use interweave_human_transport_client::{
+    AddressOrigin, ClientConfig, TransportClient, TrustProblem,
+};
 use interweave_human_ui_model::{
-    AddNote, AddResult, BlockProblem, BlockState, BlockView, Peers, PeersInput, PeersSnack,
-    UiModel, ViewEvent,
+    AddNote, AddResult, BlockHeld, BlockProblem, BlockState, BlockView, Peers, PeersFocus,
+    PeersInput, PeersSnack, TrustInput, TrustSettings, UiModel, ViewEvent,
 };
 use interweave_ipc_client::IpcBinding;
 use interweave_local_client_api::{
@@ -75,16 +94,30 @@ use crate::world::{World, two_daemons};
 
 // --- the hold ------------------------------------------------------------
 
+/// What an arming does besides holding the write: whether the read
+/// after it fails, and whether the write's own answer is lost.
+#[derive(Clone, Copy, Default)]
+struct Arming {
+    /// The first read of the list or the trust set after the write is
+    /// answered `BackendUnavailable` without being sent.
+    fail_read_back: bool,
+    /// The write is sent and the daemon's answer to it dropped, the call
+    /// answered `BackendUnavailable` in its place: the answer lost after
+    /// the request left, which the facade reports unconfirmed.
+    lose_answer: bool,
+}
+
 /// One armed hold: who to tell the write is held, what releases it, and
-/// whether the read after it fails.
-type Armed = (oneshot::Sender<&'static str>, oneshot::Receiver<()>, bool);
+/// what else it does.
+type Armed = (oneshot::Sender<&'static str>, oneshot::Receiver<()>, Arming);
 
 /// The next write on an admin port [`Holding`] opened waits here once
 /// armed; one write per arming. Armed to fail the read back, the first
 /// read of the list or the trust set after that write, on any port the
 /// binding opened, is answered `BackendUnavailable` without being sent:
 /// the read back "made to fail" of acceptance 10, the write itself still
-/// the daemon's.
+/// the daemon's. Armed to lose the answer, the write reaches the daemon
+/// and the app hears `BackendUnavailable` instead of its answer.
 #[derive(Clone, Default)]
 struct Hold {
     armed: Arc<Mutex<Option<Armed>>>,
@@ -94,32 +127,45 @@ struct Hold {
 impl Hold {
     /// Hold the next write: the receiver hears its method once it is
     /// held, and the sender lets it go.
-    fn arm(&self, fail_read_back: bool) -> (oneshot::Receiver<&'static str>, oneshot::Sender<()>) {
+    fn arm(&self, arming: Arming) -> (oneshot::Receiver<&'static str>, oneshot::Sender<()>) {
         let (held, heard) = oneshot::channel();
         let (release, released) = oneshot::channel();
-        *self.armed.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some((held, released, fail_read_back));
+        *self.armed.lock().unwrap_or_else(PoisonError::into_inner) = Some((held, released, arming));
         (heard, release)
     }
 
     /// Wait here if armed: after the port was opened, before `method` is
-    /// sent on it.
-    async fn wait(&self, method: &'static str) {
+    /// sent on it. Answers whether the write's answer is to be lost.
+    async fn wait(&self, method: &'static str) -> bool {
         let armed = self
             .armed
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        if let Some((held, released, fail_read_back)) = armed {
-            let _ = held.send(method);
-            let _ = released.await;
-            self.read_fails.store(fail_read_back, Ordering::SeqCst);
-        }
+        let Some((held, released, arming)) = armed else {
+            return false;
+        };
+        let _ = held.send(method);
+        let _ = released.await;
+        self.read_fails
+            .store(arming.fail_read_back, Ordering::SeqCst);
+        arming.lose_answer
     }
 
     /// Whether this read is the one made to fail; once.
     fn read_fails(&self) -> bool {
         self.read_fails.swap(false, Ordering::SeqCst)
+    }
+}
+
+/// `answer` as the app hears it: lost after the daemon gave it, when
+/// `lost`.
+fn heard<T>(answer: Result<T, TransportError>, lost: bool) -> Result<T, TransportError> {
+    if lost {
+        drop(answer);
+        Err(TransportError::BackendUnavailable)
+    } else {
+        answer
     }
 }
 
@@ -207,24 +253,24 @@ impl<P: AdminPort + Sync> AdminPort for HeldPort<P> {
         &self,
         address: String,
     ) -> Result<AddressChange, TransportError> {
-        self.hold.wait("admin.peers.add_address").await;
-        self.port.add_bootstrap_address(address).await
+        let lost = self.hold.wait("admin.peers.add_address").await;
+        heard(self.port.add_bootstrap_address(address).await, lost)
     }
 
     async fn add_bootstrap_addresses(
         &self,
         addresses: Vec<String>,
     ) -> Result<AddressesChange, TransportError> {
-        self.hold.wait("admin.peers.add_addresses").await;
-        self.port.add_bootstrap_addresses(addresses).await
+        let lost = self.hold.wait("admin.peers.add_addresses").await;
+        heard(self.port.add_bootstrap_addresses(addresses).await, lost)
     }
 
     async fn remove_bootstrap_address(
         &self,
         address: String,
     ) -> Result<AddressChange, TransportError> {
-        self.hold.wait("admin.peers.remove_address").await;
-        self.port.remove_bootstrap_address(address).await
+        let lost = self.hold.wait("admin.peers.remove_address").await;
+        heard(self.port.remove_bootstrap_address(address).await, lost)
     }
 
     async fn bootstrap_addresses(&self) -> Result<Vec<BootstrapAddress>, TransportError> {
@@ -243,8 +289,8 @@ impl<P: AdminPort + Sync> AdminPort for HeldPort<P> {
         peer: TransportIdentity,
         allowed: bool,
     ) -> Result<TrustChange, TransportError> {
-        self.hold.wait("admin.trust.set").await;
-        self.port.set_trust(peer, allowed).await
+        let lost = self.hold.wait("admin.trust.set").await;
+        heard(self.port.set_trust(peer, allowed).await, lost)
     }
 
     fn shutdown(&self, grace: Duration) -> impl Future<Output = Result<(), TransportError>> + Send {
@@ -259,6 +305,28 @@ impl<P: AdminPort + Sync> AdminPort for HeldPort<P> {
 struct Seen {
     peers: Peers,
     blocks: Vec<BlockView>,
+    trust: TrustSettings,
+}
+
+impl Seen {
+    /// Where the page asks focus to be, on what is drawn.
+    fn focus(&self) -> Option<PeersFocus> {
+        self.peers.focus().0
+    }
+
+    /// The row A's profile authors, its static route to B: listed after
+    /// every row added here.
+    fn configured(&self) -> String {
+        self.peers
+            .list()
+            .expect("a list")
+            .addresses
+            .iter()
+            .find(|row| row.origin == AddressOrigin::Configured)
+            .expect("the configured route to B")
+            .address
+            .clone()
+    }
 }
 
 /// A surface whose person acts from a queue the case fills, keeping what
@@ -274,6 +342,7 @@ impl Surface for Scripted {
         *self.seen.borrow_mut() = Seen {
             peers: model.peers().clone(),
             blocks: model.peers().blocks(model.trust_settings()),
+            trust: model.trust_settings().clone(),
         };
     }
 
@@ -423,19 +492,18 @@ impl App {
     /// port while `meanwhile` runs, then sent. Answers the commands made
     /// from the input on.
     async fn held_while(&mut self, input: PeersInput, meanwhile: impl FnOnce()) -> Vec<Command> {
-        self.held_with(input, false, meanwhile).await
+        self.held_with(input, Arming::default(), meanwhile).await
     }
 
-    /// [`Self::held_while`], the read back after the write made to fail
-    /// when `fail_read_back`.
+    /// [`Self::held_while`], the hold armed as `arming` says.
     async fn held_with(
         &mut self,
         input: PeersInput,
-        fail_read_back: bool,
+        arming: Arming,
         meanwhile: impl FnOnce(),
     ) -> Vec<Command> {
         let from = self.commands.len();
-        let (held, release) = self.hold.arm(fail_read_back);
+        let (held, release) = self.hold.arm(arming);
         self.person
             .events
             .borrow_mut()
@@ -460,6 +528,12 @@ impl App {
 }
 
 // --- the cases -----------------------------------------------------------
+
+/// The hold with the read back after the write made to fail.
+const READ_FAILS: Arming = Arming {
+    fail_read_back: true,
+    lose_answer: false,
+};
 
 /// A fresh peer's address at a private host the add floor admits.
 fn fresh_address() -> (TransportIdentity, String) {
@@ -552,6 +626,11 @@ async fn an_add_held_while_transportctl_removes_the_address_reads_add_superseded
     );
     let seen = app.seen();
     assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::AddButton),
+        "Add, the line under it"
+    );
+    assert_eq!(
         seen.peers.add_page_note(),
         Some(&AddNote::Superseded { lines: 1 })
     );
@@ -593,6 +672,11 @@ async fn an_add_held_while_transportctl_adds_it_reads_added_checked_and_offers_s
     );
     let seen = app.seen();
     assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::Block(peer.clone())),
+        "step 2's title"
+    );
+    assert_eq!(
         seen.peers.add_result(),
         Some(&AddResult::Checked { lines: 1 })
     );
@@ -629,6 +713,11 @@ async fn a_remove_held_while_transportctl_adds_it_shows_remove_superseded_the_ro
         world.a_daemon.log()
     );
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::RowMenu(address.clone())),
+        "the row's menu button"
+    );
     assert_eq!(
         seen.peers.snack().0,
         Some(&PeersSnack::RemoveSuperseded {
@@ -672,6 +761,11 @@ async fn a_remove_held_while_transportctl_removes_it_shows_removed_with_undo() {
         world.a_daemon.log()
     );
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::Row(seen.configured())),
+        "as Remove done: the next row"
+    );
     assert!(
         matches!(
             seen.peers.snack().0,
@@ -714,6 +808,11 @@ async fn an_undo_held_while_transportctl_removes_it_shows_undo_superseded_the_ro
         world.a_daemon.log()
     );
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::Row(seen.configured())),
+        "as after Remove: the next row"
+    );
     assert_eq!(
         seen.peers.snack().0,
         Some(&PeersSnack::UndoSuperseded {
@@ -760,6 +859,11 @@ async fn a_step_two_trust_held_while_transportctl_revokes_reads_trust_step_super
         world.a_daemon.log()
     );
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::BlockProblem(peer.clone())),
+        "the line in the block"
+    );
     assert_eq!(
         seen.blocks.first(),
         Some(&BlockView {
@@ -808,6 +912,11 @@ async fn a_step_two_trust_held_while_transportctl_allows_reads_trust_step_done()
     // Read back as trusted, the one block is decided: the page closes
     // as after any Trust it decides (§5.3), saying the peer is trusted.
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::Opener),
+        "the page closed: the control that opened it"
+    );
     assert!(
         !seen.peers.add_open(),
         "every block decided: the page closes"
@@ -845,6 +954,11 @@ async fn an_undo_held_while_transportctl_adds_it_restores_the_row() {
     );
 
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::Row(address.clone())),
+        "the restored row"
+    );
     assert!(page_lists(&seen, &address), "the row back");
     assert_eq!(seen.peers.snack().0, None, "as Undo done: no snackbar");
     sent_once_read_once(&commands, add_of(&address));
@@ -861,7 +975,7 @@ async fn a_superseded_remove_whose_read_back_fails_leaves_peers_unreadable() {
     let mut app = App::on(&world).await;
 
     let commands = app
-        .held_with(PeersInput::Remove(address.clone()), true, || {
+        .held_with(PeersInput::Remove(address.clone()), READ_FAILS, || {
             transportctl_ok(&world.a, &["peers", "remove", &address], "");
         })
         .await;
@@ -872,6 +986,11 @@ async fn a_superseded_remove_whose_read_back_fails_leaves_peers_unreadable() {
     );
 
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::ListProblem),
+        "the problem line"
+    );
     assert_eq!(seen.peers.list(), None, "no list claimed");
     assert!(seen.peers.list_problem().is_some(), "the unreadable state");
     assert_eq!(seen.peers.snack().0, None, "no snackbar");
@@ -888,7 +1007,7 @@ async fn a_superseded_add_whose_read_back_fails_reads_add_superseded() {
     typed(&mut app, &address).await;
 
     let commands = app
-        .held_with(PeersInput::Add, true, || {
+        .held_with(PeersInput::Add, READ_FAILS, || {
             transportctl_ok(&world.a, &["peers", "remove", &address], "");
         })
         .await;
@@ -899,6 +1018,11 @@ async fn a_superseded_add_whose_read_back_fails_reads_add_superseded() {
     );
 
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::AddButton),
+        "Add, the line under it"
+    );
     assert_eq!(
         seen.peers.add_page_note(),
         Some(&AddNote::Superseded { lines: 1 })
@@ -920,7 +1044,7 @@ async fn a_superseded_trust_whose_read_back_fails_reads_superseded_unread() {
     app.act(PeersInput::Add).await;
 
     let commands = app
-        .held_with(PeersInput::Trust(peer.clone()), true, || {
+        .held_with(PeersInput::Trust(peer.clone()), READ_FAILS, || {
             transportctl_ok(&world.a, &["trust", "revoke", peer.as_str()], "");
         })
         .await;
@@ -931,6 +1055,11 @@ async fn a_superseded_trust_whose_read_back_fails_reads_superseded_unread() {
     );
 
     let seen = app.seen();
+    assert_eq!(
+        seen.focus(),
+        Some(PeersFocus::BlockProblem(peer.clone())),
+        "the line in the block"
+    );
     assert_eq!(
         seen.blocks.first(),
         Some(&BlockView {
@@ -946,4 +1075,200 @@ async fn a_superseded_trust_whose_read_back_fails_reads_superseded_unread() {
         1,
         "the trust set read once, and it failed: {commands:?}"
     );
+}
+
+/// An add left unknown -- its answer lost after the daemon wrote it, its
+/// read back failing -- then the same line sent again and refused
+/// `superseded` while `transportctl` removes it: `AddSuperseded`, never
+/// `AddUnknown`. The line stays unsettled unless that refusal's read
+/// back succeeds (§5.7, "unsettled lines"), which the next add, answered
+/// unchanged once `transportctl` has added the line, shows: unsettled,
+/// `AddedChecked`, since the earlier write may be what stored it;
+/// settled by the read, `AddedUnchanged`.
+async fn a_superseded_add_of_an_unknown_line(read_back_fails: bool) {
+    let world = two_daemons().await;
+    let (_, address) = fresh_address();
+    let mut app = App::on(&world).await;
+    typed(&mut app, &address).await;
+
+    let lost = Arming {
+        fail_read_back: true,
+        lose_answer: true,
+    };
+    let _ = app.held_with(PeersInput::Add, lost, || {}).await;
+    assert_eq!(
+        app.seen().peers.add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 }),
+        "the control: the add left unknown"
+    );
+    assert!(
+        transportctl_lists(&world, &address),
+        "the control: the answer was lost, not the write"
+    );
+
+    let arming = Arming {
+        fail_read_back: read_back_fails,
+        lose_answer: false,
+    };
+    let commands = app
+        .held_with(PeersInput::Add, arming, || {
+            transportctl_ok(&world.a, &["peers", "remove", &address], "");
+        })
+        .await;
+    assert!(
+        audited_superseded(&world, "admin.peers.add_address", &address),
+        "the daemon refused the app's held write superseded: {}",
+        world.a_daemon.log()
+    );
+    let seen = app.seen();
+    assert_eq!(
+        seen.peers.add_page_note(),
+        Some(&AddNote::Superseded { lines: 1 }),
+        "never AddUnknown, read back failing {read_back_fails}"
+    );
+    assert_eq!(seen.focus(), Some(PeersFocus::AddButton), "Add");
+    assert_eq!(seen.peers.field(), address, "the field is kept");
+    sent_once_read_once(&commands, add_of(&address));
+
+    transportctl_ok(&world.a, &["peers", "add", &address], "");
+    app.act(PeersInput::Add).await;
+    let expected = if read_back_fails {
+        AddResult::Checked { lines: 1 }
+    } else {
+        AddResult::Unchanged { lines: 1 }
+    };
+    assert_eq!(
+        app.seen().peers.add_result(),
+        Some(&expected),
+        "read back failing {read_back_fails}"
+    );
+}
+
+/// [`a_superseded_add_of_an_unknown_line`], its read back failing: the
+/// line still unsettled.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_superseded_add_whose_read_back_fails_leaves_an_unknown_line_unsettled() {
+    Box::pin(a_superseded_add_of_an_unknown_line(true)).await;
+}
+
+/// [`a_superseded_add_of_an_unknown_line`], its read back succeeding: the
+/// line settled, not added.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_superseded_add_read_back_settles_an_unknown_line() {
+    Box::pin(a_superseded_add_of_an_unknown_line(false)).await;
+}
+
+/// The step-2 block left `TrustStepSupersededUnread`, a Trust whose
+/// trust set could not be read again.
+async fn superseded_unread(world: &World, app: &mut App, peer: &TransportIdentity) {
+    app.act(PeersInput::Add).await;
+    let _ = app
+        .held_with(PeersInput::Trust(peer.clone()), READ_FAILS, || {
+            transportctl_ok(&world.a, &["trust", "revoke", peer.as_str()], "");
+        })
+        .await;
+    assert_eq!(
+        app.seen().blocks.first().and_then(|b| b.problem),
+        Some(BlockProblem::SupersededUnread),
+        "the control: left unread"
+    );
+}
+
+/// Trust again on a `TrustStepSupersededUnread` block, writing nothing:
+/// no Trust is pending after the refusal, so the answer says its own
+/// class (`TrustUnavailable`), never `TrustStepUnknown`, focus on the
+/// block's line (§5.3, §5.7). Nothing is written because A's daemon has
+/// stopped, so the app's trust connection cannot open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn trust_again_after_a_superseded_unread_trust_writing_nothing_says_its_class() {
+    let mut world = two_daemons().await;
+    let (peer, address) = fresh_address();
+    let mut app = App::on(&world).await;
+    typed(&mut app, &address).await;
+    superseded_unread(&world, &mut app, &peer).await;
+
+    let _ = world.a_daemon.terminate().await;
+    let from = app.commands.len();
+    app.act(PeersInput::Trust(peer.clone())).await;
+
+    let seen = app.seen();
+    assert_eq!(
+        seen.blocks.first(),
+        Some(&BlockView {
+            peer: peer.clone(),
+            state: BlockState::Undecided,
+            problem: Some(BlockProblem::Trust(TrustProblem::Unavailable)),
+        })
+    );
+    assert_eq!(seen.focus(), Some(PeersFocus::BlockProblem(peer.clone())));
+    let sets = |c: &Command| matches!(c, Command::SetTrust(t) if t.peer == peer);
+    assert_eq!(count(&app.commands[from..], sets), 1, "{:?}", app.commands);
+}
+
+/// A `TrustStepSupersededUnread` block decided by a read of the trust
+/// set the person did not ask for -- the trust settings opened --
+/// started after the refusal (§5.3, §8): trusted when `transportctl`
+/// allowed the peer meanwhile, `TrustStepSuperseded` when nothing did;
+/// the page stays open, and focus is not moved by the read, the block's
+/// new line taking the place of the one focus was on.
+async fn a_superseded_unread_trust_decided_by_a_later_read(allowed: bool) {
+    let world = two_daemons().await;
+    let (peer, address) = fresh_address();
+    let mut app = App::on(&world).await;
+    typed(&mut app, &address).await;
+    superseded_unread(&world, &mut app, &peer).await;
+    let asked = app.seen().peers.focus();
+    assert_eq!(asked.0, Some(PeersFocus::BlockProblem(peer.clone())));
+
+    if allowed {
+        transportctl_ok(&world.a, &["trust", "allow", peer.as_str()], "");
+    }
+    let from = app.commands.len();
+    app.person
+        .events
+        .borrow_mut()
+        .push_back(vec![ViewEvent::Trust(TrustInput::Opened)]);
+    app.settle().await;
+    assert_eq!(
+        count(&app.commands[from..], |c| matches!(c, Command::ReadTrust)),
+        1,
+        "the control: the settings read the trust set: {:?}",
+        app.commands
+    );
+
+    let seen = app.seen();
+    assert!(seen.peers.add_open(), "the page stays open");
+    assert_eq!(seen.peers.focus(), asked, "focus not moved by the read");
+    let block = seen.blocks.first().expect("the block");
+    if allowed {
+        assert_eq!(
+            (block.state, block.problem),
+            (BlockState::Trusted, None),
+            "decided trusted"
+        );
+        assert_eq!(
+            seen.peers
+                .focus_after_block_decided(&seen.trust, &peer, BlockHeld::Problem),
+            Some(PeersFocus::BlockState(peer.clone())),
+            "from its line, the block's new line in its place"
+        );
+    } else {
+        assert_eq!(
+            (block.state, block.problem),
+            (BlockState::Undecided, Some(BlockProblem::Superseded)),
+            "decided not trusted"
+        );
+    }
+}
+
+/// [`a_superseded_unread_trust_decided_by_a_later_read`], trusted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_superseded_unread_trust_is_decided_trusted_by_a_later_read() {
+    Box::pin(a_superseded_unread_trust_decided_by_a_later_read(true)).await;
+}
+
+/// [`a_superseded_unread_trust_decided_by_a_later_read`], not trusted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_superseded_unread_trust_is_decided_not_trusted_by_a_later_read() {
+    Box::pin(a_superseded_unread_trust_decided_by_a_later_read(false)).await;
 }

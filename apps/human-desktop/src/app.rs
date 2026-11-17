@@ -333,5 +333,13 @@ mod tests {
             }),
             "refused: EndpointInUse"
         );
+        assert_eq!(
+            session_class(&SessionState::StorageDegraded),
+            "storage degraded"
+        );
+        // Never written by the shipped desktop
+        // (`tests/log_lines.rs::a_closed_session_writes_no_closed_line`):
+        // its text is held here alone.
+        assert_eq!(session_class(&SessionState::Closed), "closed");
     }
 }

@@ -759,9 +759,16 @@ struct AddPage {
     /// The peers the add's lines carry, this device's own left out: what
     /// Connect counts as added once the page closes.
     add_peers: Vec<TransportIdentity>,
-    /// The lines an add left unknown -- its answer lost and the read back
-    /// failed: a retry of them that writes nothing leaves them so (§5.7).
+    /// The lines of the add the `AddUnknown` note reports: an add whose
+    /// answer was lost and whose read back failed, or an add carrying an
+    /// unsettled line that wrote nothing (§5.7). The read that decides the
+    /// note and the edit that ends it ask this.
     unknown: Option<Vec<String>>,
+    /// The lines every add on this page left unknown, trimmed, until an
+    /// answer stating their presence or a read decides them: an add
+    /// carrying one that writes nothing is still unknown, and one
+    /// answered unchanged reads checked (§5.7, "unsettled lines").
+    unsettled: Vec<String>,
 }
 
 mod note_slot {
@@ -2172,6 +2179,25 @@ impl Peers {
         self.ask_focus(PeersFocus::ListProblem);
     }
 
+    /// Whether any of `lines` is unsettled on the page: left unknown by an
+    /// earlier add and not decided since, compared as trimmed (§5.7).
+    fn carries_unsettled(&self, lines: &[String]) -> bool {
+        self.page.as_ref().is_some_and(|p| {
+            lines
+                .iter()
+                .any(|l| p.unsettled.iter().any(|u| u == l.trim()))
+        })
+    }
+
+    /// `lines` decided by an answer stating their presence: no longer
+    /// unsettled, the others left as they were.
+    fn settle_lines(&mut self, lines: &[String]) {
+        if let Some(page) = self.page.as_mut() {
+            page.unsettled
+                .retain(|u| !lines.iter().any(|l| l.trim() == u));
+        }
+    }
+
     fn page_answered(
         &mut self,
         lines: Vec<String>,
@@ -2185,11 +2211,26 @@ impl Peers {
                 return;
             }
             Ok(answer) => {
+                // Asked before the answer settles them: an add answered
+                // unchanged that carries an unsettled line reads checked,
+                // since the earlier write may be what stored it (§5.7).
+                let carried = self.carries_unsettled(&lines);
                 // A real answer decides the add: nothing is unknown now.
                 if let Some(page) = self.page.as_mut() {
                     page.unknown = None;
                 }
-                answer
+                // An answer stating the lines' presence -- added or
+                // unchanged -- settles them; a refusal wrote nothing and
+                // decides nothing (§5.7, "unsettled lines").
+                if matches!(
+                    answer.outcome,
+                    AddressOutcome::Added { .. }
+                        | AddressOutcome::AddedLines(_)
+                        | AddressOutcome::Unchanged
+                ) {
+                    self.settle_lines(&lines);
+                }
+                (answer, carried)
             }
             Err(AddressChangeFailure::NotMade(problem)) => {
                 let note = match barred(problem) {
@@ -2205,7 +2246,15 @@ impl Peers {
                     }
                     // A retry of an add left unknown that writes nothing
                     // settles nothing: still unknown, said again (§5.7).
-                    None if self.page.as_ref().and_then(|p| p.unknown.as_ref()) == Some(&lines) => {
+                    // Any line unsettled counts, from any add left unknown
+                    // on the page (§5.7). The note is about this add's
+                    // lines, so `unknown` becomes them: the read that
+                    // decides it and the edit that ends it ask `unknown`
+                    // (`an_unknown_said_for_an_unsettled_line_is_decided_by_its_own_lines`).
+                    None if self.carries_unsettled(&lines) => {
+                        if let Some(page) = self.page.as_mut() {
+                            page.unknown = Some(lines.clone());
+                        }
                         AddNote::Unknown { lines: lines.len() }
                     }
                     None => AddNote::Failed,
@@ -2233,6 +2282,7 @@ impl Peers {
                 return;
             }
         };
+        let (answer, carried) = answer;
         self.take_list(answer.list);
         match answer.outcome {
             AddressOutcome::Added { peer } => {
@@ -2268,7 +2318,11 @@ impl Peers {
                 self.accepted(result, &peers_of(&lines), trust);
             }
             AddressOutcome::Unchanged => {
-                let result = AddResult::Unchanged { lines: lines.len() };
+                let result = if carried {
+                    AddResult::Checked { lines: lines.len() }
+                } else {
+                    AddResult::Unchanged { lines: lines.len() }
+                };
                 self.accepted(result, &peers_of(&lines), trust);
             }
             AddressOutcome::Refused(why) | AddressOutcome::RefusedLine { why, .. } => {
@@ -2325,8 +2379,8 @@ impl Peers {
             return;
         };
         self.take_list(Ok(list));
-        // `take_list` settles only a line it shows missing; this read
-        // settles the listed ones too (§5.7, "listed or not").
+        // `take_list`'s `set_list` settled every unsettled line; this read
+        // also ends the add left unknown, listed or not (§5.7).
         if let Some(page) = self.page.as_mut() {
             page.unknown = None;
         }
@@ -2567,6 +2621,14 @@ impl Peers {
             Check::Add(lines) => {
                 let count = lines.len();
                 if let Some(page) = self.page.as_mut() {
+                    // Every add left unknown on the page counts, not only
+                    // the latest (§5.7).
+                    for line in &lines {
+                        let line = line.trim().to_owned();
+                        if !page.unsettled.contains(&line) {
+                            page.unsettled.push(line);
+                        }
+                    }
                     page.unknown = Some(lines);
                 }
                 self.page_note(AddNote::Unknown { lines: count }, PeersFocus::AddButton);
@@ -2647,6 +2709,7 @@ impl Peers {
         if let Some(lines) = self.page.as_mut().and_then(|p| p.unknown.take())
             && note_on_show
         {
+            // `set_list` has settled every unsettled line already.
             let _ = self.decide_keeping_focus(Check::Add(lines), moved, trust);
         }
     }
@@ -2919,8 +2982,14 @@ impl Peers {
     }
 
     /// The list read in, its rows' order kept in [`Self::places`] with
-    /// every row it dropped at its place among them.
+    /// every row it dropped at its place among them: the runtime's answer,
+    /// a read back's or a read's.
     fn set_list(&mut self, list: AddressList) {
+        // A list that was read decides every unsettled line, listed
+        // (there) or not (not added) (§5.7, "unsettled lines").
+        if let Some(page) = self.page.as_mut() {
+            page.unsettled.clear();
+        }
         let mut places: Vec<String> = shown(&list).map(|a| a.address.clone()).collect();
         for (at, row) in self.places.iter().enumerate() {
             if places.contains(row) {

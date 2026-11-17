@@ -328,7 +328,9 @@ async fn the_list_is_read_in_the_runtimes_order_with_its_peers() {
 }
 
 /// An add is sent as given, answers the peer it reaches and the list read
-/// back; a second add of it is unchanged, and a removal removes it.
+/// back; a second add of it is unchanged, and a removal removes it. Each
+/// change opens a connection of its own holding `admin.peers` alone
+/// (TM-42): never trust's or any other authority beside it.
 #[tokio::test]
 async fn an_add_answers_its_peer_and_the_list_after_it() {
     let p = peer();
@@ -367,6 +369,11 @@ async fn an_add_answers_its_peer_and_the_list_after_it() {
     assert_eq!(removed.outcome, AddressOutcome::Removed);
     assert_eq!(removed.list, Ok(AddressList::default()));
     assert_eq!(book.0.lock().unwrap().sent, vec![direct(&p); 3]);
+    assert_eq!(
+        book.0.lock().unwrap().asked,
+        vec![BTreeSet::from([AdminCapability::Peers]); 3],
+        "admin.peers alone, a connection per change"
+    );
 }
 
 /// Every refusal the method names is an answer naming its rule, with the
