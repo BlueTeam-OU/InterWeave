@@ -606,8 +606,9 @@ These are `IdBusy`, `IdStorageFailed`, `IdStorageUnknown` and
 shows. On C4 no notice carries an action of its own: C4 has one
 action, its primary. While `IdBusy`, `IdStorageFailed` or
 `IdStorageUnknown` shows, the primary is Try again (`TryAgain`) in
-Continue's place, and it seals again. `design/2026-10-22-add-a-peer.md`
-§5.1 already names that one button "Continue (or Try again)". So C4 never shows two controls that both seal. While
+Continue's place, and it seals again. So C4 never shows two controls
+that both seal. `design/2026-10-22-add-a-peer.md` §5.1 agrees: it
+calls C4's primary "Continue (or Try again)". While
 `IdAlreadyCreated` shows, the primary is Continue, which opens the
 identity on record (the another-identity row). The words just shown
 were not used, so C4 then hides the PeerId they made, its label,
