@@ -27,7 +27,8 @@
 //! which the shipped desktop never writes -- the facade's `close` makes
 //! the session `Closed` in the facade thread's last step, which forwards
 //! nothing after it, and `App::close` has taken the facade, so no pump
-//! runs after it; `session_class`'s unit test in `app.rs` holds its text.
+//! runs after it (`a_closed_session_writes_no_closed_line`);
+//! `session_class`'s unit test in `app.rs` holds its text.
 //! The daemon's log is p2p-network-dev's.
 
 #![cfg(unix)]
@@ -369,6 +370,28 @@ fn a_ready_session_is_logged_without_its_endpoint() {
     );
     assert_content_free();
     assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+}
+
+/// A session closed by the app writes no "session closed" line: the
+/// facade thread's last step forwards nothing after the facade's
+/// `close`, and `App::close` has taken the facade, so the turns after it
+/// pump nothing. Mutation: `App::close` writing the closed line after the
+/// facade's close -- the absence assertion fails.
+#[test]
+fn a_closed_session_writes_no_closed_line() {
+    let from = peer();
+    let faults = Arc::new(StoreFaults::default());
+    let mut app = desktop(planted(&from, 1), &faults, &WORKING);
+    let _ = until_line(&mut app, "session ready");
+    assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+    for _ in 0..5 {
+        turn(&mut app);
+    }
+    let closed: Vec<_> = lines()
+        .into_iter()
+        .filter(|l| l.starts_with("session closed"))
+        .collect();
+    assert!(closed.is_empty(), "{closed:?}");
 }
 
 /// A refused session is logged by the refusal's class. Mutation: the
