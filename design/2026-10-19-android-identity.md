@@ -101,9 +101,9 @@ an input that does nothing.
 Revised later on 2026-11-17, for a question from the build: §5 gave
 "Copy PeerId" a `PeerIdCopied` snackbar below Android 13 and said
 nothing of where it shows, how long, whether it takes focus or is
-announced, or on which screens. §5 now says (The copy's
+announced, or on which screens. §5 now says each of these (The copy's
 confirmation), §8 keeps it out of every focus order, and acceptance
-18 checks it, its look on the Samsung A40 at Android 11.
+18 checks it, and checks its look on the Samsung A40, at Android 11.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -559,9 +559,9 @@ keypad stay left-to-right: they are English words in Latin letters.
   string on the clipboard, with no spaces. On Android 13 and later the
   platform confirms the copy; below 13 a `PeerIdCopied` snackbar
   without Undo does (The copy's confirmation, below). Focus stays on
-  the button. A copy is never of a
-  word: the button is on no screen that shows words: the PeerIds in R2's
-  and R3's banners (`IdOtherIdentity`, `IdRestoreOther`) are shown in full for
+  the button. A copy is never of a word: the button is on no screen
+  that shows words: the PeerIds in R2's and R3's banners
+  (`IdOtherIdentity`, `IdRestoreOther`) are shown in full for
   comparing by eye and have no copy button.
 - It wraps by groups, never mid-group.
 - What is shown with it says what it is for: it is not a password,
@@ -580,31 +580,36 @@ and R4.
   above the screen's actions, which are fixed at the bottom (§3), and
   covers nothing: while it shows, the scrolling area above the actions
   ends 12 dp above it, and when `CopyPeerId` would then sit below that
-  end, the area scrolls by as much as keeps `CopyPeerId` in view. When
-  the snackbar closes, the area ends where it ended before and does
-  not scroll back.
+  end, the area scrolls just far enough to keep `CopyPeerId` in
+  view. When the snackbar closes, the area ends where it ended before
+  and does not scroll back.
 - It takes no focus and is not in the Tab order (§8): it has no
   action, and focus stays on `CopyPeerId`. A screen reader can still
   read it by touch.
 - It shows for 6 s, or for longer when the platform's accessibility
   timeout asks for it (`getRecommendedTimeoutMillis(6000,
-  FLAG_CONTENT_TEXT)`), and never for more than 2 minutes, as
-  `design/2026-10-16-message-swipe.md` §6 does. When it appears it is
-  announced once, politely, with its own words.
-- A second copy while it shows starts its time again and is
-  announced again: the person pressed again and is told so.
+  FLAG_CONTENT_TEXT)`), and never for more than 2 minutes: the
+  limits `design/2026-10-16-message-swipe.md` §6 sets for its
+  snackbar. When it appears, its text is announced once, as a polite
+  announcement.
+- A second copy while it shows starts its time again from zero, and
+  its text is announced again: the person pressed again and is told
+  so.
 - It closes when anything else shows on the screen or over it: any
-  §6 notice (`IdAlreadyCreated` included, which also hides the PeerId
-  it confirmed), the system prompt and the progress state. One
-  message shows at a time, and the one that needs the person wins.
+  §6 notice (`IdAlreadyCreated` included, a notice that also hides the
+  PeerId the snackbar confirmed), the system prompt and the progress
+  state. One message shows at a time: the one that needs the
+  person's attention.
 - Leaving the screen closes it, by any way out (Continue, Back, the
-  next C2 or S2 page), and so does the app going to the background
-  (Home, Recents, the screen turned off), as the swipe spec's snackbar
-  does. It never shows on the next screen, nor again when the app
-  returns: it is the one thing on these screens that §7's "every
-  screen shows what it showed" does not keep.
-- On Android 13 and later the app shows nothing and announces
-  nothing: the platform's own confirmation is the only one.
+  next C2 or S2 page). The app going to the background (Home,
+  Recents, the screen turned off) closes it too, as it closes the
+  message-swipe spec's snackbar. It never shows on the next screen,
+  nor again when the app returns: it is the only thing on these
+  screens that §7's rule "every screen shows what it showed" does not
+  cover.
+- On Android 13 and later the app shows no confirmation of the copy
+  and announces none: the platform's own confirmation is the only
+  one.
 
 A 52-character string is compared by chunks. Chunks of four make that
 comparison a matter of groups, not of single characters.
@@ -1615,32 +1620,33 @@ scale would also be a finding of the Android review
     Try again succeeds on the same lock. After a success, the service starts. This item waits on
     §11b Q9 and Q10 in the crate.
 18. Below Android 13, "Copy PeerId" is confirmed as §5 says (The
-    copy's confirmation). A host test with the platform version set
-    below 13 checks it on C2's PeerId page, S2's PeerId page, C4, R3
+    copy's confirmation). In a host test with the platform version set
+    below 13, on each of C2's PeerId page, S2's PeerId page, C4, R3
     and R4: after Enter on `CopyPeerId`, `PeerIdCopied` shows with no
     action, focus stays on `CopyPeerId`, Tab and Shift+Tab move focus
     to the same controls as on the same screen with no snackbar and
-    never to the snackbar, and one polite announcement with its words
-    is made. A second Enter within 6 s keeps it shown 6 s from that
+    never to the snackbar, and one polite announcement of its text is
+    made. A second Enter within 6 s keeps it shown 6 s from that
     Enter and makes a second announcement. With no input it closes 6 s
     after it appeared; with the accessibility timeout set to 30 s,
-    30 s after; and with it set to 5 minutes, 2 minutes after. On C4,
-    a seal answered `AlreadyProvisioned` while it shows closes it as
-    `IdAlreadyCreated` shows, and on R3 a restore refused with
-    `IdStorageFailed` closes it as that notice shows. Leaving the
-    screen closes it, and the next screen shows none; so does the app
-    going to the background, and on its return the screen shows none.
+    30 s after; and with that timeout set to 5 minutes, 2 minutes
+    after. On C4, when a seal is answered `AlreadyProvisioned` while
+    the snackbar shows, the snackbar closes when `IdAlreadyCreated`
+    shows; on R3, when a restore is refused with `IdStorageFailed`,
+    it closes when that notice shows. Leaving the screen closes it,
+    and the next screen shows none. The app going to the background
+    closes it too, and when the app returns, the screen shows none.
     With the platform version 13 or later, the same Enter shows no
     snackbar and makes no announcement. On the Samsung A40 (Android
     11, the project's second test phone,
     `packaging/android/evidence/2026-11-05-samsung-a40-update-and-downgrade.md`),
     at 200 % font in portrait and in landscape, on C4 and R4, a person
-    checks by looking at the screen: the snackbar has the look spec's
-    snackbar colours, is at least 48 dp tall and 12 dp from the
+    looks at the screen and verifies that the snackbar has the look
+    spec's snackbar colours, is at least 48 dp tall and 12 dp from the
     screen's sides, sits 12 dp above the actions, and covers none of
-    them, nor the PeerId or `CopyPeerId`, also after scrolling down to
-    `CopyPeerId` before the copy. The rest of this list runs on the
-    Pixel 9a, which shows no snackbar.
+    them, nor the PeerId or `CopyPeerId`, also when the person scrolled
+    down to `CopyPeerId` before the copy. The rest of this list runs
+    on the Pixel 9a, which shows no snackbar.
 
 ## 11. Questions answered
 
