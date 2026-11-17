@@ -300,9 +300,10 @@ fn all_accepted(listener: &Listener, mut references: BTreeSet<String>, patience:
             .recv_timeout(left)
             .unwrap_or_else(|e| panic!("{references:?} not accepted within {patience:?}: {e}"));
         if line["event"] == "outbound" {
-            if line["status"] == "needs-attention" {
-                panic!("held for attention: {line}");
-            }
+            assert!(
+                line["status"] != "needs-attention",
+                "held for attention: {line}"
+            );
             if line["status"] == "accepted"
                 && let Some(reference) = line["ref"].as_str()
             {
@@ -456,9 +457,10 @@ async fn fan_out_of_thirty_lines_timed() {
             {
                 last = last.max(first.elapsed());
             }
-            if line["event"] == "outbound" && line["status"] == "needs-attention" {
-                panic!("run {n}: held for attention: {line}");
-            }
+            assert!(
+                !(line["event"] == "outbound" && line["status"] == "needs-attention"),
+                "run {n}: held for attention: {line}"
+            );
             if line["event"] == "message" && line["text"] == back.as_str() {
                 back_at = Some(back_sent.elapsed());
             }
