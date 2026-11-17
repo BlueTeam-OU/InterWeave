@@ -901,7 +901,7 @@ it, those checks are blocked, never passed.
     - 2026-11-14 (rust-ui-dev-02, REPLY 01a1da47;
       `apps/human-desktop/runs/2026-11-14-escape-during-opening.md`), on
       a host whose load, read before and after the record's second and third
-      runs, was five to six times the number of CPUs (the load was not
+      runs, was 4.8 to 6.0 times the number of CPUs (48 to 60 on 10; the load was not
       read for the first run): the list shape closed within 1 s in nine rounds of nine. The stress
       shapes closed within 0.15 s in fifteen of the seventeen judged
       rounds; two distinct-headings rounds failed: they closed at 192
@@ -920,7 +920,7 @@ it, those checks are blocked, never passed.
     On the desktop, distinct links is judged past the first turn only
     by its eight rounds of 2026-11-14 that were not void, and all
     eight passed. On that day the host's load, where it was read, was
-    five to six times the number of CPUs, and the shape's first screen came after the
+    4.8 to 6.0 times the number of CPUs, and the shape's first screen came after the
     Escape at 0.6 s. No further desktop run of distinct links is
     asked. On 2026-11-15 it opened before the bar would show at 0.5 s,
     so no Escape could reach it while the bar showed. An Escape inside
@@ -939,6 +939,10 @@ it, those checks are blocked, never passed.
   pressed together, a judgement of focus after the closing Back (the
   pressed-together case does not judge focus, and the focus lines in
   that case's trace are not a judgement);
+  Back past the first go and the two Backs 0.3 s apart, as judged
+  on the uptime clock since #669, which have not run on a device
+  (the 2026-11-16 record's "Not run here", and TM-57 in
+  `tests/SECURITY-MATRIX.md`);
   the two Backs 0.3 s apart by the app bar's Back; the Pixel; and the
   release APK. On the desktop: a frame-level test that no frame shows
   the bar inside the first turn (the desktop's software renderer does
