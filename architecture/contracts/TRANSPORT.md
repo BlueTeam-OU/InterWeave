@@ -82,7 +82,7 @@ Starts or attaches to the configured transport runtime. Idempotent only when the
 
 ### shutdown(grace)
 
-Stops accepting new work, drains in-flight control responses within a bounded grace interval, then terminates. It does not promise network delivery of queued messages.
+Stops accepting new work, drains in-flight control responses within a bounded grace interval, then terminates. It does not promise network delivery of queued messages. Inbound direct is refused from the stop's start, and a message already admitted to an open session's queue is handed to that session before it is closed, inside the grace (A 2026-11-17; `transport/libp2p/DIRECT.md` §Graceful shutdown).
 
 `shutdown` is an administrative transport operation. A concrete IPC binding must not expose it to ordinary Channel clients; see `contracts/LOCAL-IPC.md`.
 
