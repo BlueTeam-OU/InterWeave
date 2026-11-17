@@ -927,6 +927,92 @@ fn a_raised_store_or_recovery_screen_opens_on_its_heading() {
     );
 }
 
+/// Twenty-four words for R2, any of which the flow's list offers.
+const WORDS: &[&str] = &[
+    "act", "action", "actor", "bean", "cabin", "dawn", "eagle", "fabric", "galaxy", "habit",
+    "icon", "jacket", "kale", "label", "machine", "napkin", "oak", "paddle", "quarter", "rabbit",
+    "saddle", "table", "ugly", "vacant",
+];
+
+/// A flow past R2's valid check: at R3, and at R4 once `restored`.
+fn checked_flow(restored: bool) -> interweave_human_ui_model::IdentityFlow {
+    use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    apply_identity(&mut flow, IdentityInput::Secondary);
+    apply_identity(&mut flow, IdentityInput::Primary);
+    assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
+    for (at, word) in WORDS.iter().enumerate() {
+        apply_identity(&mut flow, IdentityInput::Slot(at));
+        for letter in word.chars() {
+            if flow.picker().and_then(|p| p.chip(word)).is_some() {
+                break;
+            }
+            apply_identity(&mut flow, IdentityInput::Key(letter));
+        }
+        apply_identity(&mut flow, IdentityInput::Chip((*word).to_owned()));
+    }
+    apply_identity(&mut flow, IdentityInput::Primary);
+    flow.checked(Some(peer()));
+    assert_eq!(flow.screen(), ScreenId::R3, "control: at R3");
+    if restored {
+        flow.restored(Ok(()));
+        assert_eq!(flow.screen(), ScreenId::R4, "control: at R4");
+    }
+    flow
+}
+
+/// Focus on any identity or store screen's title goes with the screen:
+/// K's, K1's, R3's and R4's, as R's (the test above), hand focus to
+/// Chats' heading when the page closes, never leave it nowhere (#698
+/// review risk 2: R3's and R4's titles were added to the page's keys
+/// with nothing failing had they been left out).
+#[test]
+fn focus_on_any_screens_title_goes_with_the_page() {
+    use interweave_human_ui_model::{
+        IdentityFlow, RecoveryReason, Start, StoreRecovery, StoreScreen,
+    };
+    use interweave_human_ui_slint::{identity_page, store_page};
+    let k1 = IdentityFlow::new(
+        WORDS,
+        Start::Recovery {
+            reason: RecoveryReason::Key,
+            expected: Some(peer()),
+            new_keys: false,
+        },
+    );
+    let pages = [
+        (
+            "k-heading",
+            store_page(&StoreRecovery::new(StoreScreen::KeyLost, 1)),
+        ),
+        ("k1-heading", identity_page(&k1)),
+        ("r3-heading", identity_page(&checked_flow(false))),
+        ("r4-heading", identity_page(&checked_flow(true))),
+    ];
+    let mut view = view();
+    resize(&view, 390.0);
+    let model = UiModel::new();
+    view.render(&model);
+    settle();
+    for (heading, page) in pages {
+        raise(&view, page);
+        assert_eq!(
+            view.window().get_focus_id(),
+            heading,
+            "control: on its title"
+        );
+        view.show_identity(None);
+        view.render(&model);
+        settle();
+        assert_eq!(
+            view.window().get_focus_id(),
+            "conversations-heading",
+            "{heading} gone: Chats' heading"
+        );
+    }
+}
+
 /// A discard's restart opens on Chats, prompt granted or cancelled (unlock
 /// note section 11, L1; A16 bullet 1): the conversation R covered, with
 /// the data the discard deleted, is gone, and so is a page over it.
