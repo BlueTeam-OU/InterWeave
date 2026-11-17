@@ -107,6 +107,25 @@ ignore = [
     # graph through it -- and delete this entry the moment the graph no
     # longer names the crate.
     { id = "RUSTSEC-2026-0441", reason = "pin-utils is three declarative macros, reached only through spin_on 0.1.1, from Slint 1.18.1 (renderer-skia, slint-macros, slint-build) and crates/human/ui-slint's own dev-dependency; unmaintained, not vulnerable, no safe upgrade; revisit at the next Slint bump, together with ui-slint's spin_on dev-dependency" },
+    # `chrono` 0.4.45 -- unmaintained, not vulnerable (the advisory is
+    # informational, `patched = []`, all versions; dated 2026-09-14,
+    # first red in this repository's CI on 2026-11-17).
+    # Unlike the entries above it is RUNTIME code on both shipped graphs:
+    # i-slint-core depends on it unconditionally, whatever its features
+    # (`date_time.rs`: the date picker's calendar arithmetic; `std` adds
+    # chrono's `clock` for the local date), so every Slint backend
+    # reaches it on the desktop and on Android
+    # (`cargo tree -i chrono --target all`), and crates/human/ui-slint
+    # names it directly (`src/clock.rs`: the local offset and calendar
+    # date behind the message timestamps). i-slint-core 1.19.0, the
+    # latest Slint, still depends on chrono the same way, so neither a Slint
+    # bump nor replacing ui-slint's own use removes the crate today.
+    # Revisit at the next Slint bump together with ui-slint's direct
+    # dependency -- dropping one alone leaves chrono in the graph through
+    # the other -- and delete this entry the moment the graph no longer
+    # names the crate, or at once should chrono gain a vulnerability
+    # advisory.
+    { id = "RUSTSEC-2026-0543", reason = "chrono is reached through Slint's i-slint-core (unconditionally: calendar and local date; 1.19.0, the latest, too) on the desktop and Android graphs, and crates/human/ui-slint's clock.rs; unmaintained, not vulnerable, no patched release; revisit at the next Slint bump, together with ui-slint's direct chrono dependency" },
 ]
 
 [licenses]
