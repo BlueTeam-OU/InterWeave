@@ -9,9 +9,10 @@
 //!
 //! # Binding to the lease epoch is the whole mechanism
 //!
-//! A token stores the `local_lease_epoch` it was minted under. After a
-//! reconnect the epoch is new, so every token from the previous session
-//! stops resolving — [`ReplyResolution::StaleLease`]. Without that a
+//! A direct token stores the `local_lease_epoch` it was minted under.
+//! After a reconnect the epoch is new, so every direct token from the
+//! previous session stops resolving — [`ReplyResolution::StaleLease`]
+//! here, and in the bridge, which discards them, as unknown. Without that a
 //! reply issued after reconnect would be routed by a token whose local
 //! endpoint is now owned by a different session, delivering it as
 //! somebody else.
@@ -194,6 +195,24 @@ impl ReplyTokenTable {
 
         self.order.push_back(token.clone());
         self.tokens.insert(token, (route, now_ms));
+        Ok(())
+    }
+
+    /// [`DuplicateToken`] when `token` already names a live route, as
+    /// [`ReplyTokenTable::mint`] would answer; nothing is stored. For a
+    /// token handed out without a route of its own -- a direct message
+    /// taken under an earlier lease -- so a broken generator cannot hand
+    /// the host another route's token (`a_stale_token_repeating_a_live_one_is_refused`).
+    ///
+    /// # Errors
+    /// [`DuplicateToken`] when `token` is live.
+    pub fn refuse_if_live(&mut self, token: &str, now_ms: u64) -> Result<(), DuplicateToken> {
+        self.expire(now_ms);
+        if self.tokens.contains_key(token) {
+            return Err(DuplicateToken {
+                token: token.to_owned(),
+            });
+        }
         Ok(())
     }
 

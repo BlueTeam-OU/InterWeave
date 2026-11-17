@@ -248,11 +248,17 @@ impl BridgeState {
         // counted and hold a place (LIFECYCLE.md §Reconnect;
         // `a_message_taken_under_a_lost_lease_stores_no_token`).
         let held = self.lease.as_ref().map(|(_, epoch)| epoch);
-        let route = route.filter(|route| !is_stale(route, held));
-        if let (Some(route), Some(token)) = (route, token) {
-            self.tokens
-                .mint(token, route, now_ms)
-                .map_err(ConvertError::Token)?;
+        match (route.filter(|route| !is_stale(route, held)), &token) {
+            (Some(route), Some(token)) => self
+                .tokens
+                .mint(token.clone(), route, now_ms)
+                .map_err(ConvertError::Token)?,
+            // Not stored, but still not another route's token.
+            (None, Some(token)) => self
+                .tokens
+                .refuse_if_live(token, now_ms)
+                .map_err(ConvertError::Token)?,
+            (_, None) => {}
         }
         Ok(Some(ChannelNotification { content, meta }))
     }
@@ -784,6 +790,26 @@ mod tests {
             bridge.reply_route(token, NOW),
             Err(TransportError::InvalidArgument)
         );
+    }
+
+    /// Repeated entropy on the stale path is refused as at a mint: the
+    /// host is never handed a token that names another route.
+    #[test]
+    fn a_stale_token_repeating_a_live_one_is_refused() {
+        let mut bridge = leased();
+        let arrived = bridge.lease_held().expect("held");
+        bridge.lease_lost();
+        bridge.leased(endpoint("claude"), epoch("BBBBBBBBBBBBBBBBBBBBBB"));
+        bridge.joined(channel("general"));
+        bridge
+            .notification(&broadcast("general"), [14; 16], NOW)
+            .expect("ok")
+            .expect("some");
+        assert!(matches!(
+            bridge.notification_under(&direct("claude"), Some(&arrived), [14; 16], NOW),
+            Err(ConvertError::Token(_))
+        ));
+        assert_eq!(bridge.live_tokens(NOW), 1, "the broadcast's kept");
     }
 
     #[test]
