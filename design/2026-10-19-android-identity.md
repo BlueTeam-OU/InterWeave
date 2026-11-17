@@ -82,9 +82,11 @@ on R3 it returns to R2 with every word kept, as §3.3 says. Before,
 two §6 rows said "Back (words dropped)" and acceptance 12 said
 "Back leaves with nothing changed", which R3's Back contradicted. A
 §6 notice on C4 shows below the title, above the PeerId's label, and
-§8 gives C4's focus order. Before, neither was given.
-`IdAlreadyCreated` has no action of its own, because C4's Continue is
-its way out. Acceptance 7 checks R1's order on the screen and marks
+§8 gives C4's focus order, with focus on the title when C4 opens, as
+on R4. Before, neither was given. On C4 no notice has an action of its
+own: Try again takes Continue's place, and under `IdAlreadyCreated`,
+Continue opens the identity on record while the unused PeerId is
+hidden. Acceptance 7 checks R1's order on the screen and marks
 the accessibility-tree check blocked, as acceptance 12 does. Before,
 it read the order from a `uiautomator dump`, which sees no node of
 the app on Android; for the same reason, acceptance 15's
@@ -599,11 +601,17 @@ after the app bar, before the question. On C4 a notice of this table
 shows in one place as well: below the title, above the PeerId's label.
 These are `IdBusy`, `IdStorageFailed`, `IdStorageUnknown` and
 `IdAlreadyCreated`, each the outcome of one seal, so at most one
-shows. The first three carry `TryAgain` under their text.
-`IdAlreadyCreated` has no action of its own: C4's primary, Continue,
-is its way out (the another-identity row), so C4 never shows two
-Continue buttons. The notice is read after the title, before the
-PeerId's label.
+shows. On C4 no notice carries an action of its own: C4 has one
+action, its primary. While `IdBusy`, `IdStorageFailed` or
+`IdStorageUnknown` shows, the primary is Try again (`TryAgain`) in
+Continue's place, and it seals again, as `design/2026-10-22-add-a-peer.md`
+§5.1 reads it. So C4 never shows two controls that both seal. While
+`IdAlreadyCreated` shows, the primary is Continue, which opens the
+identity on record (the another-identity row). The words just shown
+were not used, so C4 then hides the PeerId they made, its label,
+`CopyPeerId` and `IdCreatedBody`: each would call that PeerId the
+person's. The notice is read after the title, before the PeerId's
+label.
 
 **Back from a notice.** Where a row's way out is Back, Back does what
 it does on that screen at any other time. On R2 after K1 it returns
@@ -681,10 +689,15 @@ access.
     (§6: under the app bar), the question (`IdR3Question`),
     `CopyPeerId` (§5), then `IdR3Yes` and `IdR3No`. The PeerId and
     `IdR3NoPeerId` are text and take no focus.
-  - **C4**: the notice while one shows and then its action (§6: below
-    the title), `CopyPeerId` (§5), then Continue (`IdContinue`). C4 has
-    no Back (§3.2), so its app bar has no back arrow. The title, the
-    PeerId, its label and `IdCreatedBody` are text and take no focus.
+  - **C4**: the title (`IdCreatedTitle`), the notice while one shows
+    (§6: below the title), `CopyPeerId` (§5) unless `IdAlreadyCreated`
+    shows, then the primary: Continue (`IdContinue`), or Try again in
+    its place (§6). C4 has no Back (§3.2), so its app bar has no back
+    arrow. The PeerId, its label and `IdCreatedBody` are text and take
+    no focus. When C4 opens, by any input, focus goes to its title,
+    which is made focusable for this, as R4's is (below): Continue
+    seals the PeerId and starts the service, so it is reached by Tab,
+    not by a second Enter on a screen the person has not read.
 - A typed hardware letter acts as its key, and Backspace as the delete
   key.
 - An arrow moves focus to the nearest control in its direction, a
@@ -1223,8 +1236,10 @@ scale would also be a finding of the Android review
       landscape, with the checksum banner shown and, by a test hook,
       with `IdStorageFailed` shown; for C3 with `IdCheckWrong`
       shown; for R3, with no notice and, by a test hook, with
-      `IdStorageFailed` shown; and for C4, by a test hook, with
-      `IdStorageFailed` shown.
+      `IdStorageFailed` shown; and for C4, from its title, by a test
+      hook, with `IdStorageFailed` shown: the notice, `CopyPeerId`,
+      then Try again in Continue's place. A newly opened C4 has focus
+      on its title, and Enter then presses nothing.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
       key, and Enter does nothing. After typing "ab",
       Enter does nothing and Space does nothing, and after each the
