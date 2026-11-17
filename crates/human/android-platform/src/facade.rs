@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use interweave_human_app_core::{Command, FacadeSide, Update};
 use interweave_human_store::StoreError;
 use interweave_human_transport_client::ClientEvent;
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::hub::{Hub, ToView};
@@ -28,7 +28,9 @@ const POLL: Duration = Duration::from_millis(100);
 
 /// The facade's state now, as the updates that would have set it: what a
 /// view that attaches late needs beside the store's rows.
-fn snapshot<B: DataSessionBinding, A: AdminBinding>(side: &FacadeSide<B, A>) -> Vec<Update> {
+fn snapshot<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
+    side: &FacadeSide<B, A>,
+) -> Vec<Update> {
     let client = side.client();
     // This node's PeerId, which a Ready brings and the late view missed:
     // Peers reads this device's own row by it (design section 5.2).
@@ -131,7 +133,7 @@ impl FacadeLoop {
         hub: &Arc<Hub>,
     ) -> Result<Self, SpawnError>
     where
-        B: DataSessionBinding + 'static,
+        B: interweave_human_transport_client::SessionBinding + 'static,
         A: AdminBinding + 'static,
     {
         // Not bounded by a number, as the desktop's is not

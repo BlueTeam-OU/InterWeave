@@ -18,7 +18,6 @@ use interweave_human_store::at_rest;
 use interweave_human_store::key_custody::KeyCipher;
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
-use interweave_local_client_api::DataSessionBinding;
 pub use interweave_profile_config::runtime::AvailabilityMode;
 pub use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
@@ -304,7 +303,7 @@ impl ServiceHost {
         source: KeySource,
     ) -> impl FnOnce() -> Result<FacadeSide<B, A>, StoreError> + Send + 'static
     where
-        B: DataSessionBinding,
+        B: interweave_human_transport_client::SessionBinding,
         A: interweave_local_client_api::AdminBinding,
     {
         let refused = Arc::clone(&self.key_refused);
@@ -625,7 +624,7 @@ impl ServiceHost {
         data: impl FnOnce(&EmbeddedHost) -> B,
     ) -> Result<(), StartRefused>
     where
-        B: DataSessionBinding + Send + 'static,
+        B: interweave_human_transport_client::SessionBinding + Send + 'static,
     {
         let mut running = self.lock();
         if running.is_some() {
@@ -662,7 +661,7 @@ impl ServiceHost {
         data: impl FnOnce(&EmbeddedHost) -> B,
     ) -> Result<(), StartRefused>
     where
-        B: DataSessionBinding + Send + 'static,
+        B: interweave_human_transport_client::SessionBinding + Send + 'static,
     {
         let host = EmbeddedHost::start(EmbeddedLaunch {
             app_data_dir: launch.app_data_dir,

@@ -26,7 +26,7 @@ use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{
     ConversationKey, PhotoBasis, PhotoEdit, Proposal, ProposalContext, Table,
 };
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use crate::protocol::{Command, Failure, Start, Update, WindowCommand};
@@ -56,7 +56,7 @@ pub const CANCELLED_CAP: usize = 65;
 const DRAIN_PER_TURN: usize = 64;
 
 /// The facade side of the root.
-pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
+pub struct FacadeSide<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> {
     client: TransportClient<B, A>,
     wall: Box<dyn Fn() -> u64 + Send + Sync>,
     copies: ReadCopies<ReadEphemeral>,
@@ -286,7 +286,7 @@ struct CardUndo {
     accept: Option<AcceptUndo>,
 }
 
-impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
+impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// Wrap a facade, `wall` the wall clock in Unix milliseconds. A sent
     /// message names as its `from_endpoint` the endpoint the facade
     /// leases ([`TransportClient::endpoint`]), which an open may move.

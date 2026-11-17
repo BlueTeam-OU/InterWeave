@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use interweave_human_app_core::{FacadeSide, ModelSide, Opener, Surface, Update};
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{UiModel, ViewEvent};
-use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_local_client_api::AdminBinding;
 
 use crate::Failure;
 
@@ -102,7 +102,7 @@ impl Opening {
 }
 
 /// The root.
-pub(crate) struct Session<B: DataSessionBinding, A: AdminBinding> {
+pub(crate) struct Session<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> {
     facade: FacadeSide<B, A>,
     model: ModelSide<Script, NoOpener>,
     state: Option<SessionState>,
@@ -116,7 +116,7 @@ pub(crate) struct Session<B: DataSessionBinding, A: AdminBinding> {
     updates: Vec<Update>,
 }
 
-impl<B: DataSessionBinding, A: AdminBinding> Session<B, A> {
+impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Session<B, A> {
     /// A root over `facade`, started as the desktop starts: from the
     /// store's summaries, a conversation's rows read only when it is
     /// opened -- a verb that prints one walks it ([`crate::walk`]).

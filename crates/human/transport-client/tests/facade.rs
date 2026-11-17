@@ -1287,29 +1287,76 @@ async fn an_envelope_a_receiver_would_discard_is_refused_with_no_row() {
 }
 
 #[tokio::test]
-async fn a_session_closed_after_a_lost_connection_keeps_what_it_had_accepted() {
-    // TRANSPORT.md: a REMOTE shutdown reaches the caller as
+async fn a_remote_shutdown_keeps_the_session_and_retries_the_send() {
+    // TRANSPORT.md §Error model: a REMOTE shutdown reaches the caller as
     // BackendUnavailable, with this session healthy and holding accepted
-    // inbound. The re-open must not drop it.
+    // inbound. The peer is going, not this session: its lease stays, what
+    // it holds is handed over as ever, and the send is retried (j288).
+    // Mutation: the facade closing the session on any send's
+    // BackendUnavailable, as before j288 -- it goes Reconnecting.
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let held = raw(&a, Some(human())).await;
     let mut client_b = client(&b, human(), memory());
     ready(&mut client_b, 0).await;
-    let from = raw(&a, Some(agent())).await;
-    deliver(&from, b.peer(), 4, "accepted before the close").await;
+    deliver(&held, b.peer(), 4, "accepted before the refusal").await;
     b.inject_send(TransportError::BackendUnavailable);
     client_b
         .send(to(a.peer()), &envelope("x"), 1)
         .await
         .expect("row");
     client_b.tick(1).await;
-    assert!(matches!(
-        client_b.session_state(),
-        SessionState::Reconnecting { .. }
-    ));
+    assert!(
+        matches!(client_b.session_state(), SessionState::Ready { .. }),
+        "{:?}",
+        client_b.session_state()
+    );
+    assert_eq!(b.open_sessions(), 1, "no re-open: the lease was kept");
     assert_eq!(
         client_b.drain(16, 2).await.len(),
         1,
-        "committed before the close, handed over after it"
+        "what the live session held, handed over"
+    );
+    // Not confirmed (the refusal is outcome-unknown) and due again: never
+    // held for the person.
+    let (OutboundStatus::Unconfirmed {
+        next_retry_at: Some(due),
+        ..
+    }
+    | OutboundStatus::Sending {
+        next_retry_at: Some(due),
+        ..
+    }) = last_status(&mut client_b)
+    else {
+        panic!("retried, never held");
+    };
+    client_b.tick(due).await;
+    assert_eq!(
+        last_status(&mut client_b),
+        OutboundStatus::Accepted { endpoint: human() },
+        "the retry is accepted on the same session"
+    );
+    assert_eq!(b.open_sessions(), 1);
+}
+
+#[tokio::test]
+async fn a_send_on_an_ended_session_re_opens_it() {
+    // The other side of the probe: BackendUnavailable from a session that
+    // has ended -- its runtime gone -- is the session's end, and the
+    // facade re-opens. Mutation: taking every send's BackendUnavailable
+    // as remote -- it stays Ready over a dead session.
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut client_b = client(&b, human(), memory());
+    ready(&mut client_b, 0).await;
+    b.stop();
+    client_b
+        .send(to(a.peer()), &envelope("x"), 1)
+        .await
+        .expect("row");
+    client_b.tick(1).await;
+    assert!(
+        matches!(client_b.session_state(), SessionState::Reconnecting { .. }),
+        "{:?}",
+        client_b.session_state()
     );
 }
 
@@ -1450,9 +1497,10 @@ async fn a_snapshot_past_the_cap_is_kept_in_the_store_and_announced() {
         .expect("broadcast published");
     }
     events(&mut receiver);
-    // A lost connection: the facade closes the session, taking its
-    // snapshot first.
-    b.inject_send(TransportError::BackendUnavailable);
+    // A lost lease: the facade closes the session, taking its snapshot
+    // first. (Not BackendUnavailable: on a live session that is a remote
+    // shutdown and closes nothing, j288.)
+    b.inject_send(TransportError::EndpointNotRegistered);
     receiver
         .send(to(a.peer()), &envelope("x"), 1)
         .await
@@ -1518,9 +1566,14 @@ async fn a_snapshot_past_the_cap_is_kept_in_the_store_and_announced() {
     .await
     .expect("published");
     events(&mut receiver);
-    b.inject_send(TransportError::BackendUnavailable);
+    b.inject_send(TransportError::EndpointNotRegistered);
+    // To another peer: "x" to a waits out its backoff (nobody holds a's
+    // default endpoint), and a later row to a waits behind it (j288).
+    let elsewhere = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer id");
     receiver
-        .send(to(a.peer()), &envelope("y"), 100_001)
+        .send(to(&elsewhere), &envelope("y"), 100_001)
         .await
         .expect("row");
     receiver.tick(100_001).await;
@@ -1543,9 +1596,9 @@ async fn a_close_whose_take_meets_a_full_store_degrades_rather_than_reconnects()
     let from = raw(&a, Some(agent())).await;
     deliver(&from, b.peer(), 1, "first").await;
     deliver(&from, b.peer(), 2, "second").await;
-    // Neither drained: the close's take commits the first and meets a
-    // full store on the second.
-    b.inject_send(TransportError::BackendUnavailable);
+    // Neither drained: the close's take -- for a lost lease -- commits the
+    // first and meets a full store on the second.
+    b.inject_send(TransportError::EndpointNotRegistered);
     receiver
         .send(to(a.peer()), &envelope("x"), 1)
         .await
@@ -2340,7 +2393,10 @@ async fn a_card_of_an_unknown_kind_or_over_a_bound_is_rejected_with_no_network_e
             .await
             .expect("row");
     }
+    // The two directs are to one peer, so they go one at a time: the
+    // second in the tick after the first lands (j288).
     receiver.tick(3).await;
+    receiver.tick(4).await;
     let lanes = |seen: Vec<SessionEvent>| {
         let direct = seen
             .iter()

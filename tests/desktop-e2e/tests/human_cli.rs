@@ -15,6 +15,8 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 mod common;
+#[path = "human_cli/fleet.rs"]
+mod fleet;
 
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, Command, Output, Stdio};
