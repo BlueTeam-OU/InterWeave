@@ -1141,11 +1141,12 @@ landscape:
     §6's notices. A refused write whose read-back fails (a hook) shows
     `IdStorageUnknown`, never "nothing was changed". Try again works, and Back leaves with nothing changed.
     On R3, a hook's `IdStorageFailed` shows under the app bar, above
-    the question (§6), as seen on the screen. Its place in the
-    accessibility tree (right after the app bar, before
-    `IdR3Question`) is blocked, not passed, on Android until the build
-    exposes a tree (§8; acceptance 15's screen-reader check); until
-    then R3's order is checked by acceptance 15's Tab runs.
+    the question (§6), and the tester checks that place by
+    looking at the screen. The check of its place in the accessibility tree (right
+    after the app bar, before `IdR3Question`) is blocked, not passed,
+    on Android until the build exposes an accessibility tree (§8;
+    acceptance 15's screen-reader check). Until then, acceptance 15's
+    Tab runs check R3's Tab order.
 13. Run twice: at the Pixel 9a's own size, and set to 360 × 640 dp
     (`adb shell wm size 945x1680` at its 420 dpi, through
     `phone-run`, then `wm size reset`), the size §4's figures are for.
