@@ -759,8 +759,10 @@ struct AddPage {
     /// The peers the add's lines carry, this device's own left out: what
     /// Connect counts as added once the page closes.
     add_peers: Vec<TransportIdentity>,
-    /// The lines an add left unknown -- its answer lost and the read back
-    /// failed: a retry of them that writes nothing leaves them so (§5.7).
+    /// The lines of the add the `AddUnknown` note reports: an add whose
+    /// answer was lost and whose read back failed, or an add carrying an
+    /// unsettled line that wrote nothing (§5.7). The read that decides the
+    /// note and the edit that ends it ask this.
     unknown: Option<Vec<String>>,
     /// The lines every add on this page left unknown, trimmed, until an
     /// answer stating their presence or a read decides them: an add
