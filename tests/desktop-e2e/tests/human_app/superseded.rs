@@ -46,11 +46,14 @@
 //! focus not moved by it.
 //!
 //! NOT run here, and why. The `Internal` class of that Trust again
-//! (`TrustFailed`): the facade reports a write that writes nothing as
-//! `Internal` only for an error the daemon does not answer to
-//! `admin.trust.set` (its own `Internal` there may have reached it, so
-//! it is unconfirmed), so only the hold inventing an answer would give
-//! it, and `TrustUnavailable` holds the same rule from the real daemon.
+//! (`TrustFailed`): the daemon's own `Internal` to `admin.trust.set`
+//! may have reached it, so the facade reads it as unconfirmed, not as a
+//! write that wrote nothing (`set_trust` asks `may_have_reached`, whose
+//! set `problem.rs`'s `exactly_the_post_dispatch_errors_may_have_reached`
+//! holds). The other classes `classify_trust` reads as `Internal` are
+//! not the daemon's answers to that method, so the hold would have to
+//! invent one; `TrustUnavailable` holds the same rule from the real
+//! daemon.
 //! The announcement after the later read, and the two snackbars without
 //! an action staying 10 seconds, under focus or the pointer, or for
 //! Android's accessibility timeout: the view's (`ui-slint`'s
