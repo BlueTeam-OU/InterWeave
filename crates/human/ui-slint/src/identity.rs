@@ -18,6 +18,11 @@ use crate::generated::{IdKey, IdKeyRow, IdScreen, IdSlot, IdentityPage};
 /// K1's heading as the focus trace names it: a refused start that raises
 /// K1 puts focus on it (section 8).
 pub(crate) const K1_HEADING: &str = "k1-heading";
+/// R3's and R4's titles, stops so that a valid check puts focus on the
+/// question or on what was restored before the action that answers it
+/// (design section 8, #697 review P-1).
+pub(crate) const R3_HEADING: &str = "r3-heading";
+pub(crate) const R4_HEADING: &str = "r4-heading";
 
 /// QWERTY rows of 10, 9 and 7 (section 4.3).
 const QWERTY: [&str; 3] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
@@ -388,6 +393,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
 
     page.chips_taken = flow.chips_taken().cast_signed();
     page.positions_chosen = flow.positions_chosen().cast_signed();
+    page.notices_raised = flow.notices_raised().cast_signed();
     if let Some(picker) = flow.picker() {
         page.picker = true;
         page.typed = picker.typed().into();
@@ -421,10 +427,14 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::W if page.secondary.is_empty() => {
             page.secondary = text(UiText::IdRestore).into();
         }
-        ScreenId::R3 if page.secondary.is_empty() => {
-            page.secondary = text(UiText::IdR3No).into();
-            page.footnote = text(UiText::IdR3NoPeerId).into();
+        ScreenId::R3 => {
+            page.heading_key = R3_HEADING.into();
+            if page.secondary.is_empty() {
+                page.secondary = text(UiText::IdR3No).into();
+                page.footnote = text(UiText::IdR3NoPeerId).into();
+            }
         }
+        ScreenId::R4 => page.heading_key = R4_HEADING.into(),
         ScreenId::K1 => {
             page.heading_key = K1_HEADING.into();
             page.footnote = text(UiText::IdQLost).into();

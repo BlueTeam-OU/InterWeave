@@ -464,6 +464,10 @@ export struct IdentityPage {
     // How many grid positions R2 has opened to edit: a page whose count
     // moved shows one just chosen (section 8's focus rule).
     positions-chosen: int,
+    // How many notices a step's result has raised: a page whose count
+    // moved shows one just raised, even with the text it showed before,
+    // such as a second failed checksum (section 8's banner rule).
+    notices-raised: int,
     // The letters in QWERTY rows of 10, 9 and 7, and in alphabetical
     // rows of 7 for a narrow screen: the view picks by width (section
     // 4.3). Rows, so a shorter row centres under the first.
@@ -2429,9 +2433,10 @@ component IdentityScreen inherits FocusScope {
     }
     // Section 8's focus rules, applied to each page an input makes: a
     // screen that opens is `opened`'s, and Back from R2 or C3 focuses
-    // the primary that opened it; the dialog takes focus on Continue
+    // the primary that opened it; R3 and R4, opened forward, put it on
+    // their title; the dialog takes focus on Continue
     // entering, its default, and gives it and the mode back to what had
-    // them; a banner that appears takes it; a chip that fills a
+    // them; a banner that appears, or is raised again, takes it; a chip that fills a
     // position, or a grid position chosen to edit, hands it to the
     // keypad's first enabled key, except a chip that leaves no R2
     // position empty while no check is running, which hands it to Check
@@ -2440,6 +2445,14 @@ component IdentityScreen inherits FocusScope {
     // stays on its stop.
     property <bool> dialog-shown;
     property <string> notice-shown;
+    // The page's notice count as last seen, beside its text: a result
+    // that raises the notice already showing changes only the count.
+    property <int> notices-shown;
+    function notice-new() -> bool {
+        return root.page.notice != ""
+            && (root.page.notice != root.notice-shown
+                || root.page.notices-raised != root.notices-shown);
+    }
     // The page's chip count as last seen: a page whose count moved shows a
     // chip just taken, by a tap or by Enter, which the flow judged.
     property <int> chips-shown;
@@ -2496,6 +2509,7 @@ component IdentityScreen inherits FocusScope {
         root.chips-shown = root.page.chips-taken;
         root.positions-shown = root.page.positions-chosen;
         root.notice-shown = root.page.notice;
+        root.notices-shown = root.page.notices-raised;
         root.review-shown = root.page.review;
         root.screen-shown = root.page.screen;
         if (!root.heading-asked()) { root.opened(); }
@@ -2508,6 +2522,7 @@ component IdentityScreen inherits FocusScope {
             root.dialog-shown = root.page.dialog;
             root.review-shown = root.page.review;
             root.notice-shown = root.page.notice;
+            root.notices-shown = root.page.notices-raised;
             return;
         }
         if (root.page.screen != root.screen-shown) {
@@ -2515,8 +2530,9 @@ component IdentityScreen inherits FocusScope {
             root.screen-shown = root.page.screen;
             root.dialog-shown = root.page.dialog;
             root.review-shown = root.page.review;
-            let notice-new = root.page.notice != "" && root.page.notice != root.notice-shown;
+            let notice-new = root.notice-new();
             root.notice-shown = root.page.notice;
+            root.notices-shown = root.page.notices-raised;
             root.chips-shown = root.page.chips-taken;
             root.positions-shown = root.page.positions-chosen;
             root.row-chosen = false;
@@ -2531,6 +2547,14 @@ component IdentityScreen inherits FocusScope {
                 // focus on the primary that opened the screen just left
                 // (section 7). R3 and C4 are forward, not Back.
                 root.go(6, 0);
+            } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4) {
+                // A valid check opens R3, or R4 after K1, and R3's Yes
+                // opens R4: focus on the title, so the screen is read from
+                // its question or "PeerId restored" and an Enter pressed
+                // twice does not answer it unread (section 8, #697 review
+                // P-1).
+                root.typing = false;
+                root.go(0, root.heading-idx());
             } else if (notice-new) {
                 root.go(0, root.banner-idx());
             } else if (root.at-seg >= 0) {
@@ -2541,6 +2565,7 @@ component IdentityScreen inherits FocusScope {
         if (root.page.review != root.review-shown) {
             root.review-shown = root.page.review;
             root.notice-shown = root.page.notice;
+            root.notices-shown = root.page.notices-raised;
             let row = root.row-chosen;
             let font = root.font-closed;
             root.row-chosen = false;
@@ -2569,8 +2594,9 @@ component IdentityScreen inherits FocusScope {
             }
             return;
         }
-        let notice-new = root.page.notice != "" && root.page.notice != root.notice-shown;
+        let notice-new = root.notice-new();
         root.notice-shown = root.page.notice;
+        root.notices-shown = root.page.notices-raised;
         // A chip taken or a position chosen, by any input: focus to the
         // keypad, judged on the page that shows it (section 8).
         let chip-taken = root.page.chips-taken != root.chips-shown;
@@ -2777,7 +2803,8 @@ component IdentityScreen inherits FocusScope {
                 accessible-label: Drawn.spoken(self.text);
             }
             // R's, K's and K1's title, a stop so that a refused start can
-            // put focus on it (section 8): no press, read from the top.
+            // put focus on it, and R3's and R4's, which a valid check
+            // focuses (section 8): no press, read from the top.
             if root.page.heading-key != "": VerticalLayout {
                 horizontal-stretch: 1;
                 alignment: center;
