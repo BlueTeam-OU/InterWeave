@@ -218,6 +218,12 @@ enum Screen {
         entry: PhraseEntry,
         derived: TransportIdentity,
         notice: Option<Notice>,
+        /// The restore runs: from the press that starts it (Yes, or a
+        /// notice's Try again) until its result or a cancelled prompt.
+        /// R3 holds meanwhile -- no second restore, no Back, no "no,
+        /// check my words" -- and the notice it showed stays (design
+        /// section 8, While R3's restore runs).
+        restoring: bool,
     },
     R4 {
         peer: Option<TransportIdentity>,
@@ -456,8 +462,10 @@ impl IdentityFlow {
         }
     }
 
-    /// S1 is taking the service offline (`IdGoingOffline`), or R2 is
-    /// checking: the primary action waits.
+    /// S1 is taking the service offline (`IdGoingOffline`), R2 is
+    /// checking, or R3 is restoring: the primary action waits, and Back
+    /// with it. On R3 the secondary ("no, check my words") and a notice's
+    /// Try again wait too (design section 6, Restore running).
     #[must_use]
     pub fn waiting(&self) -> bool {
         matches!(
@@ -466,6 +474,10 @@ impl IdentityFlow {
                 going_offline: true,
                 ..
             } | Screen::R2 { checking: true, .. }
+                | Screen::R3 {
+                    restoring: true,
+                    ..
+                }
         )
     }
 
@@ -622,9 +634,19 @@ impl IdentityFlow {
                 }
                 _ => Vec::new(),
             },
-            Screen::R3 { entry, derived, .. } => match entry.phrase() {
-                Some(phrase) => vec![Effect::RestoreConfirmed(phrase, derived.clone())],
-                None => Vec::new(),
+            // Yes, or a notice's Try again: one restore at a time, and the
+            // notice stays while it runs (section 8).
+            Screen::R3 {
+                entry,
+                derived,
+                restoring,
+                ..
+            } => match entry.phrase() {
+                Some(phrase) if !*restoring => {
+                    *restoring = true;
+                    vec![Effect::RestoreConfirmed(phrase, derived.clone())]
+                }
+                _ => Vec::new(),
             },
             Screen::R4 { held, starting, .. } => {
                 *held = true;
@@ -724,8 +746,12 @@ impl IdentityFlow {
                     Vec::new()
                 }
             }
-            Screen::R3 { .. } => {
-                self.back_to_r2();
+            // While the restore runs Back does nothing: it writes the
+            // record from the words it read (section 7).
+            Screen::R3 { restoring, .. } => {
+                if !*restoring {
+                    self.back_to_r2();
+                }
                 Vec::new()
             }
             Screen::S1 { going_offline, .. } => {
@@ -762,9 +788,16 @@ impl IdentityFlow {
     }
 
     /// R3's secondary action, "no, check my words": back to R2 with every
-    /// word kept.
+    /// word kept. While the restore runs it does nothing, since R2 would
+    /// let the words change under the restore reading them (section 7).
     pub fn recheck(&mut self) {
-        if matches!(self.screen, Screen::R3 { .. }) {
+        if matches!(
+            self.screen,
+            Screen::R3 {
+                restoring: false,
+                ..
+            }
+        ) {
             self.back_to_r2();
         }
     }
@@ -1022,6 +1055,7 @@ impl IdentityFlow {
                     entry,
                     derived,
                     notice: None,
+                    restoring: false,
                 };
                 Vec::new()
             }
@@ -1075,7 +1109,13 @@ impl IdentityFlow {
                 self.notices_raised += 1;
                 Vec::new()
             }
-            (Screen::R3 { notice, .. }, Err(failed)) => {
+            (
+                Screen::R3 {
+                    notice, restoring, ..
+                },
+                Err(failed),
+            ) => {
+                *restoring = false;
                 *notice = Some(failed.into());
                 self.notices_raised += 1;
                 Vec::new()
@@ -1087,10 +1127,13 @@ impl IdentityFlow {
     /// A key operation this flow asked for did not run: its prompt was
     /// cancelled or denied (the presence window, `PresenceGate`). Nothing
     /// was committed and the screen stays, with its words, and no notice:
-    /// the person chose not to. R2's check gives the primary action back.
+    /// the person chose not to. R2's check gives the primary action back,
+    /// and R3's restore gives Yes and No back, with the notice it showed
+    /// if any; nothing restores again until Yes or Try again is pressed.
     pub fn cancelled_step(&mut self) {
         match &mut self.screen {
             Screen::R2 { checking, .. } => *checking = false,
+            Screen::R3 { restoring, .. } => *restoring = false,
             // The seal's prompt, cancelled: C4 as it was, Continue enabled
             // again (§5.1).
             Screen::C4 { held, starting, .. } => {
@@ -2276,6 +2319,96 @@ mod tests {
         assert!(flow.discard_asked(), "control: the dialog is up");
         flow.edit(1);
         assert_eq!(flow.positions_chosen(), 3, "nothing edited behind it");
+    }
+
+    /// R3, a valid check of every word on a fresh install.
+    fn at_r3() -> IdentityFlow {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        flow.primary();
+        flow.checked(Some(mine()));
+        assert_eq!(flow.screen(), ScreenId::R3, "control: at R3");
+        flow
+    }
+
+    /// While R3's restore runs (design section 8, section 6 Restore
+    /// running) Yes, No, Back and a notice's Try again (the primary
+    /// again, as `apply` routes it) start nothing and leave R3 as it
+    /// was; the screen waits, so the back arrow is inactive. Its result
+    /// gives them back. Mutation: dropping the `!*restoring` guard in
+    /// `primary`, or the one in `back` or `recheck`, fails here.
+    #[test]
+    fn r3_holds_while_its_restore_runs() {
+        let mut flow = at_r3();
+        let phrase = words().join(" ");
+        assert!(!flow.waiting(), "control: nothing runs");
+        assert_eq!(
+            flow.primary(),
+            [Effect::RestoreConfirmed(phrase.clone(), mine())]
+        );
+        assert!(flow.waiting(), "the restore runs");
+        let held = |flow: &mut IdentityFlow| {
+            assert_eq!(flow.primary(), [], "no second restore");
+            assert_eq!(flow.back(), [], "Back does nothing");
+            assert_eq!(flow.screen(), ScreenId::R3, "Back leaves R3 open");
+            flow.recheck();
+            assert_eq!(flow.screen(), ScreenId::R3, "No leaves R3 open");
+            assert!(flow.waiting(), "still held");
+        };
+        held(&mut flow);
+
+        flow.restored(Err(StepFailed::Storage));
+        assert!(!flow.waiting(), "the result gives R3 back");
+        assert_eq!(flow.notice(), Some(&Notice::StorageFailed));
+        // Try again: the restore again, and R3 held the same way, with
+        // the notice still showing.
+        assert_eq!(
+            flow.primary(),
+            [Effect::RestoreConfirmed(phrase.clone(), mine())]
+        );
+        held(&mut flow);
+        assert_eq!(
+            flow.notice(),
+            Some(&Notice::StorageFailed),
+            "the notice stays while the restore runs"
+        );
+        assert_eq!(flow.restored(Ok(())), []);
+        assert_eq!(flow.screen(), ScreenId::R4);
+
+        // Not held, No and Back go back to R2, words kept.
+        let mut flow = at_r3();
+        flow.recheck();
+        assert_eq!(flow.screen(), ScreenId::R2, "control: No acts");
+        let mut flow = at_r3();
+        assert_eq!(flow.back(), []);
+        assert_eq!(flow.screen(), ScreenId::R2, "control: Back acts");
+    }
+
+    /// A restore whose prompt was cancelled or denied leaves R3 as it
+    /// was: no notice, not held, and no further restore asked until Yes
+    /// is pressed again (acceptance 15's sixth run). Mutation: dropping
+    /// the R3 arm of `cancelled_step` leaves R3 held, and fails here.
+    #[test]
+    fn a_cancelled_restore_gives_r3_back_with_no_notice() {
+        let mut flow = at_r3();
+        let phrase = words().join(" ");
+        assert_eq!(
+            flow.primary(),
+            [Effect::RestoreConfirmed(phrase.clone(), mine())]
+        );
+        let raised = flow.notices_raised();
+        flow.cancelled_step();
+        assert_eq!(flow.screen(), ScreenId::R3);
+        assert!(!flow.waiting(), "Yes and No enabled again");
+        assert_eq!(flow.notice(), None, "no notice");
+        assert_eq!(flow.notices_raised(), raised, "none raised");
+        assert_eq!(
+            flow.primary(),
+            [Effect::RestoreConfirmed(phrase, mine())],
+            "Yes again restores again"
+        );
     }
 
     /// Each result that raises a notice counts, the same notice again

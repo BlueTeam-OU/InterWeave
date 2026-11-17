@@ -885,8 +885,9 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
                     match o.gate.prompted(granted, now_ms()) {
                         // The prompt a key operation waited on.
                         Prompted::Resume(effect) => vec![effect],
-                        // A cancelled restore gives R2's check back; a cancelled seal
-                        // leaves C4 as it was, Continue enabled again (§5.1).
+                        // A cancelled restore gives R2's check back, or R3's Yes
+                        // and No; a cancelled seal leaves C4 as it was, Continue
+                        // enabled again (§5.1).
                         Prompted::Dropped(
                             Effect::RestoreRecorded(_)
                             | Effect::RestoreConfirmed(..)
