@@ -779,8 +779,9 @@ access.
   are held: a check reports on the words it read. A word changed while
   it runs would leave R3 showing the PeerId of words no longer on the
   screen, or, after K1, restore words other than the ones checked.
-  The held keys and chips keep their look and only `IdCheckWords`
-  shows disabled, because a check that waits on no key operation ends
+  The held keys and chips keep their look. Of R2's controls, only
+  `IdCheckWords` shows disabled, with the app bar's back arrow drawn
+  inactive (§7), because a check that waits on no key operation ends
   before a person can type again, and keys that went grey for that
   moment would look like a fault. This is a hypothesis for the device
   run, falsified if a check after K1, the only one that waits on a key
