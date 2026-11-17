@@ -1004,8 +1004,9 @@ const RETURNS_AND_DIALS: &str = "a_far_end_that_returns_and_dials_this_side_lift
 /// entry for A, so when B's daemon returns it dials A; A, holding B in
 /// the backoff its failed redial set, retains that inbound. The pair is
 /// connected before A's backoff would have run out, and A's gate row for
-/// B carries no backoff from then on. Between two namespaces, the unit
-/// test's claim (`a_retained_inbound_lifts_the_peers_backoff_and_a_refused_one_does_not`,
+/// B, read once they are connected, carries no backoff. Between two
+/// namespaces, the unit test's claim
+/// (`a_retained_inbound_lifts_the_peers_backoff_and_a_refused_one_does_not`,
 /// `runtime/dialing.rs`). The control is the case below: the same
 /// return without B's dial lifts nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1041,10 +1042,11 @@ const RETURNS_SILENT: &str =
 
 /// The control for the case above: B holds no entry for A and dials
 /// nothing when it returns, so A's backoff stands -- A's row keeps it and
-/// the pair stays apart until it runs out -- and the pair reconnects at
-/// A's retry, due at the backoff's end, 30 s after the failure that set
-/// it (ADR-0011 A 2026-11-14), within `RETRY_MARGIN_MS` of it. The case above passing beside this one is B's dial
-/// lifting the backoff, not B's return.
+/// the pair stays apart, watched until a second before it runs out -- and
+/// the pair reconnects at A's retry, due at the backoff's end, 30 s after
+/// the failure that set it (ADR-0011 A 2026-11-14), within
+/// `RETRY_MARGIN_MS` of it. The case above passing beside this one is B's
+/// dial lifting the backoff, not B's return.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_far_end_that_returns_without_dialling_lifts_nothing_and_waits_for_the_retry() {
     if !netns::in_overlay(RETURNS_SILENT) {
