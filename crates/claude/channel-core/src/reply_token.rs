@@ -201,8 +201,10 @@ impl ReplyTokenTable {
     /// [`DuplicateToken`] when `token` already names a live route, as
     /// [`ReplyTokenTable::mint`] would answer; nothing is stored. For a
     /// token handed out without a route of its own -- a direct message
-    /// taken under an earlier lease -- so a broken generator cannot hand
-    /// the host another route's token (`a_stale_token_repeating_a_live_one_is_refused`).
+    /// taken under an earlier lease -- so a broken generator does not hand
+    /// the host a token the table holds for another route
+    /// (`a_stale_token_repeating_a_live_one_is_refused`). A value that has
+    /// left the table, discarded, expired or evicted, is not remembered.
     ///
     /// # Errors
     /// [`DuplicateToken`] when `token` is live.
@@ -258,7 +260,7 @@ impl ReplyTokenTable {
     /// resolve `StaleLease`, so keeping it would count it in `status` and
     /// hold one of the table's places until its TTL (LIFECYCLE.md
     /// §Reconnect: discarded). A broadcast token names a channel, not a
-    /// lease, and stays (`a_token_from_a_previous_lease_epoch_is_stale`;
+    /// lease, and stays (`discard_stale_keeps_the_broadcast_and_the_held_epoch`;
     /// in the bridge, `a_lost_lease_takes_its_direct_tokens_and_leaves_the_broadcast`).
     pub fn discard_stale(&mut self, held: Option<&Generation>) {
         self.remove_where(|route, _| is_stale(route, held));
@@ -343,6 +345,27 @@ mod tests {
         } else {
             panic!("expected a direct route");
         }
+    }
+
+    #[test]
+    fn discard_stale_keeps_the_broadcast_and_the_held_epoch() {
+        let mut t = ReplyTokenTable::default();
+        t.mint("old", direct_route("old"), 0).expect("fresh");
+        t.mint("new", direct_route("new"), 0).expect("fresh");
+        t.mint("b", ReplyRoute::Broadcast { channel: channel() }, 0)
+            .expect("fresh");
+        t.discard_stale(Some(&epoch("new")));
+        assert_eq!(t.len(), 2, "the other epoch's direct token is gone");
+        assert!(matches!(
+            t.resolve("new", Some(&epoch("new")), &joined, 0),
+            ReplyResolution::Route(_)
+        ));
+        t.discard_stale(None);
+        assert_eq!(t.len(), 1, "with no lease, every direct token is gone");
+        assert!(matches!(
+            t.resolve("b", None, &joined, 0),
+            ReplyResolution::Route(ReplyRoute::Broadcast { .. })
+        ));
     }
 
     #[test]

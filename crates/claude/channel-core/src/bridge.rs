@@ -210,10 +210,11 @@ impl BridgeState {
     }
 
     /// [`BridgeState::notification`] for a message taken from the session
-    /// under `lease` -- pull mode mints its token when the host TAKES it,
-    /// with the lease it ARRIVED under, so a message from before a
-    /// reconnect gets a token stale by its epoch, as one pushed then
-    /// would have (architect-cto's ruling, relay seq 18784).
+    /// under `lease` -- pull mode gives a message its token when the host
+    /// TAKES it, judged by the lease it ARRIVED under, so a message from
+    /// before a reconnect carries a token the table does not store and
+    /// `reply` refuses as unknown, as one pushed then would be refused
+    /// (architect-cto's ruling, relay seq 18784).
     ///
     /// # Errors
     /// As [`BridgeState::notification`].
@@ -793,7 +794,9 @@ mod tests {
     }
 
     /// Repeated entropy on the stale path is refused as at a mint: the
-    /// host is never handed a token that names another route.
+    /// host is not handed a token the table holds for another route. A
+    /// token that has left the table guards nothing after it, as an
+    /// expired or evicted one did before.
     #[test]
     fn a_stale_token_repeating_a_live_one_is_refused() {
         let mut bridge = leased();
