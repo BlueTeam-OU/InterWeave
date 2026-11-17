@@ -27,8 +27,11 @@
 //!    `identity_lifecycle::the_golden_entropy_is_the_seed_not_a_derivation`
 //!    and `the_recovery_entropy_is_the_seed_never_the_64_byte_keypair_form`.
 //! 8. Export/import unavailable through IPC: `ipc-protocol`'s
-//!    `no_method_reaches_the_identity`. Through Claude tools: no Claude
-//!    tool exists before Stage 16, and that stage owes the test.
+//!    `no_method_reaches_the_identity`. Through Claude tools: the bridge's
+//!    `fake::no_administrative_request_leaves_the_bridge` (`claude-channel`)
+//!    calls every one of its tools and finds no daemon call outside the
+//!    data socket's, and `fake::the_host_is_kept_in_the_2025_11_25_era`
+//!    holds the tool list at those seven.
 //! 9. The phrase absent from logs, crash reports and config fixtures:
 //!    `identity_lifecycle::no_secret_material_reaches_debug_output`,
 //!    `a_record_carries_no_words_into_debug_output`,
