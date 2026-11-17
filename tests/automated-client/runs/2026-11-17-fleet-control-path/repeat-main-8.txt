@@ -1,0 +1,24 @@
+daemons: <branch>/target/release
+variant silent, outage 0ns past B's exit
+B's drain: SIGTERM to exit 111 ms; A's sends, ms from SIGTERM:
+  0..0 ms: PeerUnreachable x1
+accepted during the drain: 0, read by B's client before the exit: 0
+A's sends through the outage, ms from B's exit:
+
+B serving 68 ms after its exit; B's client leased 41 ms after B served
+A's sends after B's return, ms from B serving:
+  0..0 ms: RemoteEndpointUnavailable x1
+  275..2315 ms: Accepted x9
+first accepted at Some(275) ms, A's gate connected at Some(23) ms
+accepted after the return: 9, read by B's client: true (lost 0)
+-- A's connectivity lines from the SIGTERM --
+2026-11-17T10:11:44.337680Z DEBUG interweave::connectivity: peer disconnected peer="<B>" reason="closed"
+2026-11-17T10:11:44.524598Z DEBUG interweave::connectivity: peer connected peer="<B>" path="direct"
+-- B's lines --
+2026-11-17T10:11:44.159771Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<PeerId>"
+2026-11-17T10:11:44.191968Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-17T10:11:44.209417Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"
+2026-11-17T10:11:44.335866Z  INFO transport_daemon::daemon: SIGTERM
+2026-11-17T10:11:44.479633Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<PeerId>"
+2026-11-17T10:11:44.492308Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-17T10:11:44.528442Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"

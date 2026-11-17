@@ -1,0 +1,25 @@
+daemons: <v0.3.0 archive>/bin
+variant entry, outage 0ns past B's exit
+B's drain: SIGTERM to exit 155 ms; A's sends, ms from SIGTERM:
+  0..0 ms: PeerUnreachable x1
+accepted during the drain: 0, read by B's client before the exit: 0
+A's sends through the outage, ms from B's exit:
+
+B serving 128 ms after its exit; B's client leased -23 ms after B served; B's send to A: Accepted
+A's sends after B's return, ms from B serving:
+  0..2118 ms: Accepted x9
+first accepted at Some(0) ms, A's gate connected at Some(84) ms
+accepted after the return: 9, read by B's client: true (lost 0)
+-- A's connectivity lines from the SIGTERM --
+2026-11-17T09:59:37.937898Z DEBUG interweave::connectivity: peer disconnected peer="<B>" reason="closed"
+2026-11-17T09:59:38.187128Z DEBUG interweave::connectivity: peer connected peer="<B>" path="direct"
+-- B's lines --
+2026-11-17T09:59:37.553478Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<PeerId>"
+2026-11-17T09:59:37.559603Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-17T09:59:37.561441Z DEBUG interweave::connectivity: dial failed peer="<A>" class="dial_failed"
+2026-11-17T09:59:37.561462Z DEBUG interweave::connectivity: retry scheduled peer="<A>" origin="discovery_reconnect" attempt=1 delay_ms=30000 peer_backoff=true
+2026-11-17T09:59:37.757982Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"
+2026-11-17T09:59:37.935135Z  INFO transport_daemon::daemon: SIGTERM
+2026-11-17T09:59:38.167999Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<PeerId>"
+2026-11-17T09:59:38.178740Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-17T09:59:38.186429Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"

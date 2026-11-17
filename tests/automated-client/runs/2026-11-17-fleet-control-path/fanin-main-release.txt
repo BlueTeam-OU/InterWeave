@@ -1,0 +1,59 @@
+daemons: <branch>/target/release
+round 1: pace Spread, k 1: 30 sent of 32768 bytes, last sent at 4834 ms
+  answered: {"Accepted": 30}
+  senders refused at least once: 0 of 30; refusals per refused sender: []
+  lost after Accepted: 0; read without an Accepted: 0; duplicates read: 0
+  answer latency: p50 12 ms, p99 41 ms, max 41 ms; last answer at 4850 ms
+  every accepted message read by the fabric-control client at 4871 ms
+  side endpoint: 17 sent, answered {"Accepted": 17}, lost after Accepted 0, duplicates 0, worst send-to-read 84 ms
+round 2: pace Spread, k 4: 120 sent of 32768 bytes, last sent at 4966 ms
+  answered: {"Accepted": 120}
+  senders refused at least once: 0 of 30; refusals per refused sender: []
+  lost after Accepted: 0; read without an Accepted: 0; duplicates read: 0
+  answer latency: p50 8 ms, p99 47 ms, max 59 ms; last answer at 4977 ms
+  every accepted message read by the fabric-control client at 5001 ms
+  side endpoint: 17 sent, answered {"Accepted": 17}, lost after Accepted 0, duplicates 0, worst send-to-read 68 ms
+round 3: pace Spread, k 9: 270 sent of 32768 bytes, last sent at 4982 ms
+  answered: {"Accepted": 270}
+  senders refused at least once: 0 of 30; refusals per refused sender: []
+  lost after Accepted: 0; read without an Accepted: 0; duplicates read: 0
+  answer latency: p50 12 ms, p99 73 ms, max 88 ms; last answer at 4995 ms
+  every accepted message read by the fabric-control client at 5035 ms
+  side endpoint: 17 sent, answered {"Accepted": 17}, lost after Accepted 0, duplicates 0, worst send-to-read 71 ms
+round 4: pace Spread, k 16: 480 sent of 32768 bytes, last sent at 4991 ms
+  answered: {"Accepted": 349, "Overloaded": 131}
+  senders refused at least once: 30 of 30; refusals per refused sender: [3, 4, 3, 3, 5, 5, 5, 3, 4, 4, 5, 4, 3, 4, 3, 4, 6, 6, 3, 4, 6, 5, 4, 5, 3, 5, 6, 5, 6, 5]
+  refusals sent between 3281 and 4991 ms
+  lost after Accepted: 0; read without an Accepted: 0; duplicates read: 0
+  answer latency: p50 12 ms, p99 93 ms, max 140 ms; last answer at 4999 ms
+  every accepted message read by the fabric-control client at 5001 ms
+  side endpoint: 17 sent, answered {"Accepted": 13, "Overloaded": 4}, lost after Accepted 0, duplicates 0, worst send-to-read 60 ms
+round 5: pace Burst, k 1: 30 sent of 32768 bytes, last sent at 116 ms
+  answered: {"Accepted": 30}
+  senders refused at least once: 0 of 30; refusals per refused sender: []
+  lost after Accepted: 0; read without an Accepted: 0; duplicates read: 0
+  answer latency: p50 94 ms, p99 117 ms, max 183 ms; last answer at 251 ms
+  every accepted message read by the fabric-control client at 277 ms
+  side endpoint: 17 sent, answered {"Accepted": 17}, lost after Accepted 0, duplicates 0, worst send-to-read 128 ms
+round 6: pace Burst, k 4: 120 sent of 32768 bytes, last sent at 444 ms
+  answered: {"Accepted": 120}
+  senders refused at least once: 0 of 30; refusals per refused sender: []
+  lost after Accepted: 0; read without an Accepted: 0; duplicates read: 0
+  answer latency: p50 92 ms, p99 173 ms, max 214 ms; last answer at 464 ms
+  every accepted message read by the fabric-control client at 1326 ms
+  side endpoint: 17 sent, answered {"Accepted": 17}, lost after Accepted 0, duplicates 0, worst send-to-read 187 ms
+round 7: pace Burst, k 9: 270 sent of 32768 bytes, last sent at 743 ms
+  answered: {"Accepted": 270}
+  senders refused at least once: 0 of 30; refusals per refused sender: []
+  lost after Accepted: 0; read without an Accepted: 0; duplicates read: 0
+  answer latency: p50 63 ms, p99 229 ms, max 983 ms; last answer at 1707 ms
+  every accepted message read by the fabric-control client at 3638 ms
+  side endpoint: 17 sent, answered {"Accepted": 17}, lost after Accepted 0, duplicates 0, worst send-to-read 99 ms
+round 8: pace Burst, k 16: 480 sent of 32768 bytes, last sent at 2367 ms
+  answered: {"Accepted": 299, "Overloaded": 181}
+  senders refused at least once: 30 of 30; refusals per refused sender: [3, 5, 5, 5, 8, 6, 7, 6, 6, 6, 6, 7, 6, 10, 6, 6, 4, 5, 6, 5, 6, 5, 5, 8, 5, 5, 6, 8, 8, 7]
+  refusals sent between 1552 and 2367 ms
+  lost after Accepted: 0; read without an Accepted: 0; duplicates read: 0
+  answer latency: p50 135 ms, p99 323 ms, max 400 ms; last answer at 2375 ms
+  every accepted message read by the fabric-control client at 3475 ms
+  side endpoint: 17 sent, answered {"Accepted": 16, "Overloaded": 1}, lost after Accepted 0, duplicates 0, worst send-to-read 237 ms
