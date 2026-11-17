@@ -792,7 +792,7 @@ access.
   about, whichever control it is.
 - When R3's "Yes, restore it" succeeds and opens R4, by any input,
   focus goes to R4's title, "PeerId restored", as when R4 opens after
-  K1 (above), and the screen is navigating. Reading starts at the
+  K1 (above). Reading starts at the
   title, which says what happened. An Enter pressed right after R4
   opens presses nothing. Continue starts the service, so Continue is
   reached by Tab, not by a second Enter on a screen the person has
@@ -1155,7 +1155,7 @@ scale would also be a finding of the Android review
       focus on `IdR3Question`. In a third run, the check is started by
       a screen reader's activate on `IdCheckWords`: focus stays on
       `IdCheckWords` while it runs. In a run after K1, a phrase from
-      which the app derives the PeerId that the record names opens R4 with focus on its title, "PeerId restored". In the second run, with the test answering the restore as a success, Tab moves focus from `IdR3Question` to `IdR3Yes`, and an Enter there opens R4 with focus on its title and the screen navigating; the next Enter presses nothing and the service does not start, and Tab then reaches Continue. These steps run in a host test, not on the
+      which the app derives the PeerId that the record names opens R4 with focus on its title, "PeerId restored". In the second run, with the test answering the restore as a success, Tab moves focus from `IdR3Question` to `CopyPeerId` (§5) and a second Tab to `IdR3Yes`, and an Enter there opens R4 with focus on its title; the next Enter presses nothing and the service does not start, and Tab then moves focus to `CopyPeerId` and a second Tab to Continue. These steps run in a host test, not on the
       phone: no device hook holds the check, and in a host test the
       flow's check is an effect that the test answers itself, as the
       identity flow's tests in `crates/human/ui-model` do. With
