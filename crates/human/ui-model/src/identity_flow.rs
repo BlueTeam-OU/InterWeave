@@ -301,6 +301,11 @@ pub struct IdentityFlow {
     /// window hands focus to the keypad on the page that shows the
     /// position chosen (design section 8).
     positions_chosen: u32,
+    /// How many notices a step's result has raised on C4, R2, R3 or S1:
+    /// the page carries it, so the window gives focus to a notice raised
+    /// again with the text it already showed, such as a second failed
+    /// checksum (design section 8, #697 review P-2).
+    notices_raised: u32,
 }
 
 impl IdentityFlow {
@@ -336,6 +341,7 @@ impl IdentityFlow {
             new_keys,
             chips_taken: 0,
             positions_chosen: 0,
+            notices_raised: 0,
         }
     }
 
@@ -809,9 +815,10 @@ impl IdentityFlow {
     }
 
     /// R2: edit a grid position; chosen from the full list, the list
-    /// closes onto the picker. Behind the discard dialog it does nothing.
+    /// closes onto the picker. Behind the discard dialog, and while the
+    /// check runs, it does nothing.
     pub fn edit(&mut self, position: usize) {
-        if self.discard_asked() {
+        if self.discard_asked() || self.checking() {
             return;
         }
         if let Screen::R2 {
@@ -909,6 +916,13 @@ impl IdentityFlow {
         self.positions_chosen
     }
 
+    /// How many notices a step's result has raised: a page whose count
+    /// moved shows one just raised, even with the text it showed before.
+    #[must_use]
+    pub fn notices_raised(&self) -> u32 {
+        self.notices_raised
+    }
+
     // --- the platform's answers ----------------------------------------
 
     /// The new identity, unsealed: its words, its `PeerId`, and the two
@@ -970,6 +984,7 @@ impl IdentityFlow {
                 *notice = Some(failed.into());
                 *held = false;
                 *starting = false;
+                self.notices_raised += 1;
                 Vec::new()
             }
         }
@@ -991,6 +1006,7 @@ impl IdentityFlow {
         *checking = false;
         let Some(derived) = derived else {
             *notice = Some(Notice::ChecksumFailed);
+            self.notices_raised += 1;
             return Vec::new();
         };
         let expected = match origin {
@@ -1011,6 +1027,7 @@ impl IdentityFlow {
             }
             Some(expected) if expected != derived => {
                 *notice = Some(Notice::OtherIdentity { derived, expected });
+                self.notices_raised += 1;
                 Vec::new()
             }
             Some(_) => match entry.phrase() {
@@ -1055,10 +1072,12 @@ impl IdentityFlow {
             ) => {
                 *checking = false;
                 *notice = Some(failed.into());
+                self.notices_raised += 1;
                 Vec::new()
             }
             (Screen::R3 { notice, .. }, Err(failed)) => {
                 *notice = Some(failed.into());
+                self.notices_raised += 1;
                 Vec::new()
             }
             _ => Vec::new(),
@@ -1182,6 +1201,7 @@ impl IdentityFlow {
             }
             Err(failed) => {
                 *notice = Some(failed.into());
+                self.notices_raised += 1;
                 Vec::new()
             }
         }
@@ -1200,13 +1220,24 @@ impl IdentityFlow {
         }
     }
 
-    /// While the discard dialog or R2's full list shows, no letter, chip
-    /// or Enter reaches the words behind it. The view refuses them too,
-    /// but it judges the page it last showed: inputs queued in one batch
-    /// with the Back or the list's opening reach the flow after it, and
-    /// only the flow, applying them in order, knows (j261, #634 F1).
+    /// While the discard dialog or R2's full list shows, or R2's check
+    /// runs, no letter, chip or Enter reaches the words. The view refuses
+    /// the first two too, but it judges the page it last showed: inputs
+    /// queued in one batch with the Back or the list's opening reach the
+    /// flow after it, and only the flow, applying them in order, knows
+    /// (j261, #634 F1). A check reports on the words it read, and after
+    /// K1 [`Self::checked`] restores the phrase the entry holds at its
+    /// result, so a word changed while it ran would be restored unchecked
+    /// (design section 8, `no_input_changes_the_words_while_the_check_runs`).
     fn words_held(&self) -> bool {
-        self.discard_asked() || self.reviewing()
+        self.discard_asked() || self.reviewing() || self.checking()
+    }
+
+    /// R2's check is running: from the press that starts it (Check my
+    /// words, or a notice's Try again) until its result, a key operation
+    /// after K1 included.
+    fn checking(&self) -> bool {
+        matches!(self.screen, Screen::R2 { checking: true, .. })
     }
 
     fn picker_mut(&mut self) -> Option<&mut WordPicker> {
@@ -2053,6 +2084,89 @@ mod tests {
         assert_eq!(flow.check(), Some((18, None)), "control: taken once closed");
     }
 
+    /// While R2's check runs the words are held (design section 8, Check
+    /// running): a letter, Delete, Clear, a chip, Enter, a grid position,
+    /// the full list and Back change nothing, through the check and,
+    /// after K1, through the restore it starts, so the restore asks for
+    /// the words that were checked.
+    #[test]
+    fn no_input_changes_the_words_while_the_check_runs() {
+        fn hold(flow: &mut IdentityFlow) {
+            let entry = format!("{:?}", flow.entry());
+            let words: Vec<_> = (0..PHRASE_WORDS)
+                .map(|p| flow.entry().and_then(|e| e.word(p)))
+                .collect();
+            let typed = flow.picker().map(|p| p.typed().to_owned());
+            let counts = (flow.chips_taken(), flow.positions_chosen());
+            let current = flow.entry().map(PhraseEntry::current);
+            for letter in 'a'..='z' {
+                assert!(!flow.press(letter), "{letter} held");
+            }
+            flow.delete();
+            flow.clear_letters();
+            for word in LIST {
+                assert_eq!(flow.choose(word), [], "{word} held");
+            }
+            assert_eq!(flow.enter(), []);
+            flow.edit(4);
+            flow.review_words(true);
+            assert_eq!(flow.back(), []);
+            assert_eq!(flow.primary(), [], "one check at a time");
+            assert_eq!(flow.screen(), ScreenId::R2);
+            assert!(!flow.reviewing() && !flow.discard_asked());
+            let after: Vec<_> = (0..PHRASE_WORDS)
+                .map(|p| flow.entry().and_then(|e| e.word(p)))
+                .collect();
+            assert_eq!(after, words, "no word changed");
+            assert_eq!(flow.picker().map(|p| p.typed().to_owned()), typed);
+            assert_eq!((flow.chips_taken(), flow.positions_chosen()), counts);
+            assert_eq!(flow.entry().map(PhraseEntry::current), current);
+            assert_eq!(format!("{:?}", flow.entry()), entry);
+        }
+        // A fresh restore: position 6 reopened with "fabri" typed, so
+        // Delete, Clear and a letter each have something to change.
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        flow.edit(5);
+        flow.delete();
+        assert_eq!(flow.picker().map(WordPicker::typed), Some("fabri"));
+        assert_eq!(flow.primary(), [Effect::Check(words().join(" "))]);
+        hold(&mut flow);
+        assert_eq!(flow.checked(None), []);
+        assert_eq!(flow.notice(), Some(&Notice::ChecksumFailed));
+        assert!(flow.press('c'), "control: the result frees the words");
+
+        // After K1: the check, then the restore it starts, then a Try
+        // again of the refused restore, each holding the words.
+        let mut flow = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+        flow.primary();
+        fill(&mut flow);
+        assert_eq!(flow.primary(), [Effect::Check(words().join(" "))]);
+        hold(&mut flow);
+        assert_eq!(
+            flow.checked(Some(mine())),
+            [Effect::RestoreRecorded(words().join(" "))]
+        );
+        hold(&mut flow);
+        flow.restored(Err(StepFailed::Busy));
+        assert_eq!(flow.notice(), Some(&Notice::Busy));
+        assert_eq!(flow.primary(), [Effect::Check(words().join(" "))]);
+        hold(&mut flow);
+        assert_eq!(flow.notice(), Some(&Notice::Busy), "the notice stays");
+        flow.cancelled_step();
+        flow.edit(4);
+        assert_eq!(flow.positions_chosen(), 1, "control: a cancel frees them");
+    }
+
     /// The screen's actions behind the discard dialog: R2's Check my
     /// words, C3's Try again and Show words again do nothing until the
     /// dialog closes, then act (#634 review, pre-existing 1).
@@ -2162,6 +2276,89 @@ mod tests {
         assert!(flow.discard_asked(), "control: the dialog is up");
         flow.edit(1);
         assert_eq!(flow.positions_chosen(), 3, "nothing edited behind it");
+    }
+
+    /// Each result that raises a notice counts, the same notice again
+    /// included, so the window can give focus to a repeated one (#697
+    /// review P-2); a cancelled prompt raises none.
+    #[test]
+    fn notices_raised_counts_each_result_that_raises_one() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        assert_eq!(flow.notices_raised(), 0, "R2 opens on none");
+        flow.primary();
+        flow.checked(None);
+        assert_eq!(flow.notices_raised(), 1);
+        flow.primary();
+        flow.checked(None);
+        assert_eq!(flow.notice(), Some(&Notice::ChecksumFailed), "the same");
+        assert_eq!(flow.notices_raised(), 2, "raised again");
+        flow.primary();
+        flow.cancelled_step();
+        assert_eq!(flow.notices_raised(), 2, "a cancel raises none");
+        flow.primary();
+        flow.checked(Some(mine()));
+        assert_eq!(flow.screen(), ScreenId::R3);
+        flow.primary();
+        flow.restored(Err(StepFailed::Busy));
+        assert_eq!(flow.notices_raised(), 3, "R3's restore");
+        flow.primary();
+        flow.restored(Err(StepFailed::Busy));
+        assert_eq!(flow.notices_raised(), 4, "R3's restore again");
+    }
+
+    /// After K1, R2's other two results count each raise, the same one
+    /// again included: another identity's `PeerId`, and a restore against
+    /// the record that failed (#698 review F3).
+    #[test]
+    fn notices_raised_counts_r2s_results_after_k1() {
+        let mut flow = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+        flow.primary();
+        fill(&mut flow);
+        for raised in 1..=2 {
+            flow.primary();
+            flow.checked(Some(other()));
+            assert!(matches!(flow.notice(), Some(Notice::OtherIdentity { .. })));
+            assert_eq!(flow.notices_raised(), raised, "another identity");
+        }
+        for raised in 3..=4 {
+            flow.primary();
+            flow.checked(Some(mine()));
+            flow.restored(Err(StepFailed::Busy));
+            assert_eq!(flow.notice(), Some(&Notice::Busy));
+            assert_eq!(flow.notices_raised(), raised, "the restore on R2");
+        }
+    }
+
+    /// C4's seal and S1's going offline count each failure, the same
+    /// one again included (#698 review F3).
+    #[test]
+    fn notices_raised_counts_c4s_seal_and_s1s_going_offline() {
+        let mut flow = created_at_c2();
+        flow.primary();
+        enter(&mut flow, "galaxy");
+        enter(&mut flow, "saddle");
+        for raised in 1..=2 {
+            flow.primary();
+            flow.sealed(Err(StepFailed::Storage));
+            assert_eq!(flow.notices_raised(), raised, "the seal");
+        }
+        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        for raised in 1..=2 {
+            flow.primary();
+            flow.prompted(true);
+            flow.offline(Err(StepFailed::Busy));
+            assert_eq!(flow.notices_raised(), raised, "going offline");
+        }
     }
 
     #[test]

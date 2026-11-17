@@ -11,20 +11,21 @@
 //! ([`App::with_log`]), and holds it to its exact class and every line
 //! to none of the planted words.
 //!
-//! `App::pump` writes seven failure-path lines. Held here: three of them
-//! -- "the message store's pending rows could not be read", "the
-//! transport side has stopped" and a command's "<name> failed: <class>"
-//! (as a page read and as a mark-read) -- and two session lines, ready
-//! and refused. What it does NOT reach, for want of a hook on the host:
-//! the other four failure-path lines -- "the message store could not be
-//! listed" (the start's own store reads), "unread messages could not be
-//! read again", "cards or contacts could not be read" and "a card was
-//! accepted and its share could not be recorded yet". Their text is
-//! fixed or carries the `{why:?}` of a `Failure`, a fieldless class enum
-//! (`app-core`'s `protocol.rs`). Nor the session lines "reconnecting,
-//! attempt N", "storage degraded" and "closed"; `session_class`'s unit
-//! test in `app.rs` holds the reconnecting one's text, and the other two
-//! are fixed. The daemon's log is p2p-network-dev's.
+//! `App::pump` writes seven failure-path lines, and all seven are held
+//! here: "the message store's pending rows could not be read", "the
+//! transport side has stopped", a command's "<name> failed: <class>" (as
+//! a page read and as a mark-read), and -- by the app-core test hooks
+//! that fail the start's listing, the unread listing, the own card rows'
+//! read and a share's record -- "the message store could not be listed",
+//! "unread messages could not be read again", "cards or contacts could not
+//! be read" and "a card was accepted and its share could not be recorded
+//! yet". The last three carry or may carry the `{why:?}` of a `Failure`, a
+//! fieldless class enum (`app-core`'s `protocol.rs`). Two session lines
+//! are held too, ready and refused. Not reached: the session lines
+//! "reconnecting, attempt N", "storage degraded" and "closed";
+//! `session_class`'s unit test in `app.rs` holds the reconnecting one's
+//! text, and the other two are fixed. The daemon's log is
+//! p2p-network-dev's.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -35,19 +36,51 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use interweave_human_app_core::test_hooks::{Fault, StoreFaults};
-use interweave_human_app_core::{FacadeSide, Opener};
+use interweave_human_app_core::{Command, FacadeSide, Opener, Surface};
 use interweave_human_desktop::app::{App, SlintSurface};
 use interweave_human_desktop::facade_thread::FacadeThread;
+use interweave_human_store::identity_key::{self, FilesystemCustody, IdentityKey};
 use interweave_human_store::{HumanStore, RowId, StoreError, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
-use interweave_human_ui_model::{ConversationKey, RuntimeHost};
+use interweave_human_ui_model::{
+    ConversationKey, Intent, PhotoEdit, RuntimeHost, UiModel, ViewEvent, WindowEvent,
+};
 use interweave_human_ui_slint::View;
-use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork};
+use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
+use interweave_profile_config::TrustBoundary;
+use interweave_profile_config::paths::ProfilePaths;
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::ComponentHandle as _;
 
-type Desktop = App<SlintSurface, NoLinks>;
+type Desktop = App<Injecting, NoLinks>;
+
+thread_local! {
+    /// The view events a test raises as the person would: taken after the
+    /// view's own.
+    static RAISED: RefCell<Vec<ViewEvent>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The real view as the surface, and the events a test raises beside
+/// its own: Share is reached through a card editor and a dialog that the
+/// log lines do not need drawn.
+struct Injecting(SlintSurface);
+
+impl Surface for Injecting {
+    fn render(&mut self, model: &UiModel) {
+        self.0.render(model);
+    }
+
+    fn take_events(&mut self, model: &UiModel) -> Vec<ViewEvent> {
+        let mut events = self.0.take_events(model);
+        events.extend(RAISED.with(|raised| std::mem::take(&mut *raised.borrow_mut())));
+        events
+    }
+
+    fn take_window(&mut self) -> Vec<WindowEvent> {
+        self.0.take_window()
+    }
+}
 
 /// Words that appear nowhere but in the content they are planted in, so
 /// a match in a log line can only be that content.
@@ -189,6 +222,19 @@ fn desktop_with_probe(
     die: Arc<AtomicBool>,
 ) -> Desktop {
     let (a, _b) = FakeNetwork::pair(node(build.endpoint_enabled), node(true));
+    desktop_on(a, store, faults, build, die, None)
+}
+
+/// [`desktop_with_probe`] on `a`, a node the test holds the other end of,
+/// the facade signing with `key` when there is one.
+fn desktop_on(
+    a: FakeNode,
+    store: HumanStore,
+    faults: &Arc<StoreFaults>,
+    build: &Build,
+    die: Arc<AtomicBool>,
+    key: Option<IdentityKey>,
+) -> Desktop {
     let faults = Arc::clone(faults);
     let make_fails = build.make_fails;
     i_slint_backend_testing::init_no_event_loop();
@@ -216,7 +262,11 @@ fn desktop_with_probe(
                 0,
             )
             .expect("facade");
-            Ok(FacadeSide::new(client, || 1_786_600_000_000).with_store_faults(faults))
+            let mut side = FacadeSide::new(client, || 1_786_600_000_000).with_store_faults(faults);
+            if let Some(key) = key {
+                side.set_identity_key(key);
+            }
+            Ok(side)
         },
         move || {
             assert!(!die.load(Ordering::SeqCst), "the facade thread dies here");
@@ -226,11 +276,11 @@ fn desktop_with_probe(
         |_| {},
     )
     .expect("the facade thread");
-    App::new(SlintSurface(view), NoLinks, thread).with_log(record)
+    App::new(Injecting(SlintSurface(view)), NoLinks, thread).with_log(record)
 }
 
 fn view(app: &Desktop) -> &View {
-    &app.side().surface().0
+    &app.side().surface().0.0
 }
 
 /// A few frames of the toolkit's work, each frame's layout forced by a
@@ -290,7 +340,7 @@ fn select(app: &mut Desktop, from: &TransportIdentity) {
             .iter()
             .any(|c| c.key == key)
     });
-    app.side_mut().surface_mut().0.select(key);
+    app.side_mut().surface_mut().0.0.select(key);
 }
 
 /// A session leased: the line names the class and the time, and never
@@ -380,7 +430,7 @@ fn a_command_for_a_stopped_facade_is_logged_as_that_class_alone() {
         turn(&mut app);
         std::thread::sleep(Duration::from_millis(10));
     }
-    app.side_mut().surface_mut().0.select(key);
+    app.side_mut().surface_mut().0.0.select(key);
     let line = until_line(&mut app, "the transport side has stopped");
     assert_eq!(line, "the transport side has stopped");
     assert_content_free();
@@ -420,6 +470,193 @@ fn a_refused_mark_read_is_logged_by_the_command_and_the_class() {
     select(&mut app, &from);
     let line = until_line(&mut app, "mark read failed");
     assert_eq!(line, "mark read failed: StorageUnavailable");
+    assert_content_free();
+    assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+}
+
+/// The message store that cannot be listed at the start: one fixed line,
+/// and nothing the store holds. Mutation: the line (`app.rs`,
+/// `FromFacade::ListingFailed`) saying what the model holds, `{:?}` of
+/// its conversations' summaries -- the exact-line assertion fails.
+#[test]
+fn a_start_that_cannot_list_the_store_is_logged_as_that_class_alone() {
+    let from = peer();
+    let faults = Arc::new(StoreFaults::default());
+    faults.set_start_listing(Fault::Fail);
+    let mut app = desktop(planted(&from, 3), &faults, &WORKING);
+    let line = until_line(&mut app, "the message store could not be listed");
+    assert_eq!(line, "the message store could not be listed");
+    assert_content_free();
+    assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+}
+
+/// The own card rows that cannot be read back: the class of the failure,
+/// and no card. Mutation: the line (`app.rs`, `Problem::CardsNotRead`)
+/// printing the model's contacts with `{:?}` after the class -- the
+/// exact-line assertion fails.
+#[test]
+fn cards_that_cannot_be_read_are_logged_by_the_class() {
+    let from = peer();
+    let faults = Arc::new(StoreFaults::default());
+    faults.set_cards_read(Fault::Fail);
+    let mut app = desktop(planted(&from, 3), &faults, &WORKING);
+    let line = until_line(&mut app, "cards or contacts could not be read");
+    assert_eq!(
+        line,
+        "cards or contacts could not be read: StorageUnavailable"
+    );
+    assert_content_free();
+    assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+}
+
+/// A profile on disk with an identity key for `ENDPOINT`: what signs a
+/// card.
+fn keyed_profile() -> (tempfile::TempDir, IdentityKey) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .expect("tempdir");
+    let paths = ProfilePaths::resolve_embedded(
+        "default",
+        TrustBoundary::new(dir.path()).expect("boundary"),
+    )
+    .expect("paths");
+    let key = identity_key::create(&paths, &human(), &FilesystemCustody).expect("a key");
+    (dir, key)
+}
+
+/// The other end of the pair as a facade of its own: it leases its
+/// endpoint and sends cards, as the person on the other node would.
+struct Remote {
+    side: FacadeSide<FakeNode, FakeNode>,
+    runtime: tokio::runtime::Runtime,
+    now: u64,
+    _dir: tempfile::TempDir,
+}
+
+impl Remote {
+    fn new(node: &FakeNode) -> Self {
+        let (dir, key) = keyed_profile();
+        let client = TransportClient::new(
+            node.clone(),
+            node.clone(),
+            HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+            ClientConfig {
+                client_kind: "human-client".to_owned(),
+                endpoints: vec![human()],
+                channels: vec![],
+                max_payload_bytes: 49_152,
+            },
+            Box::new(|| 1_786_600_000_000),
+            0,
+        )
+        .expect("facade");
+        let mut side = FacadeSide::new(client, || 1_786_600_000_000);
+        side.set_identity_key(key);
+        let mut remote = Self {
+            side,
+            runtime: tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a runtime"),
+            now: 0,
+            _dir: dir,
+        };
+        remote.side.start().expect("started");
+        remote.turn();
+        remote
+    }
+
+    fn turn(&mut self) {
+        self.now += 1;
+        drop(self.runtime.block_on(self.side.turn(self.now)));
+    }
+
+    /// Its card shared to `to`.
+    fn share_card_to(&mut self, to: &TransportIdentity) {
+        self.now += 1;
+        let name = Command::SetOwnCard {
+            name: NAME.to_owned(),
+            surname: Some(SURNAME.to_owned()),
+            photo: PhotoEdit::Keep,
+        };
+        for command in [name, Command::ShareCard(direct(to))] {
+            drop(self.runtime.block_on(self.side.execute(command, self.now)));
+        }
+        self.turn();
+    }
+}
+
+/// Both ends of a pair: the second a facade of its own, up and leased, and
+/// the first a desktop with `faults` and `key`, its session ready. Also
+/// the two peers, desktop first.
+fn paired(
+    faults: &Arc<StoreFaults>,
+    key: Option<IdentityKey>,
+) -> (Desktop, Remote, TransportIdentity, TransportIdentity) {
+    let (a, b) = FakeNetwork::pair(node(true), node(true));
+    let (desktop_peer, remote_peer) = (a.peer().clone(), b.peer().clone());
+    let remote = Remote::new(&b);
+    let mut app = desktop_on(
+        a,
+        planted(&remote_peer, 1),
+        faults,
+        &WORKING,
+        Arc::new(AtomicBool::new(false)),
+        key,
+    );
+    until_line(&mut app, "session ready");
+    (app, remote, desktop_peer, remote_peer)
+}
+
+/// A card that arrives while the store cannot be listed again: the line
+/// says that unread messages could not be read again, and nothing of the
+/// card. Mutation: the line (`app.rs`, `Problem::UnreadNotListed`)
+/// printing the update's content with `{:?}` -- the exact-line assertion
+/// fails.
+#[test]
+fn an_unread_listing_that_fails_is_logged_by_the_class() {
+    let faults = Arc::new(StoreFaults::default());
+    faults.set_unread_listing(Fault::Fail);
+    let (mut app, mut remote, desktop_peer, _) = paired(&faults, None);
+    remote.share_card_to(&desktop_peer);
+    let line = until_line(&mut app, "unread messages could not be read again");
+    assert_eq!(
+        line,
+        "unread messages could not be read again: StorageUnavailable"
+    );
+    assert_content_free();
+    assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+}
+
+/// An own card the remote end accepts while the store cannot record the
+/// share: the line says so by the class alone, and not the card. The
+/// card is shared by the desktop's own facade (Share, raised as the view
+/// would) and its row reaches Accepted at the leased remote endpoint.
+/// Mutation: the line (`app.rs`, `Problem::ShareNotRecorded`) printing
+/// `{why:?}` and the model's own card -- the exact-line assertion fails.
+#[test]
+fn a_share_that_cannot_be_recorded_is_logged_by_the_class() {
+    let faults = Arc::new(StoreFaults::default());
+    faults.set_share_record(Fault::Fail);
+    let (_dir, key) = keyed_profile();
+    let (mut app, _remote, _, remote_peer) = paired(&faults, Some(key));
+    RAISED.with(|raised| {
+        raised.borrow_mut().extend([
+            ViewEvent::Intent(Intent::SetOwnCard {
+                name: NAME.to_owned(),
+                surname: Some(SURNAME.to_owned()),
+                photo: PhotoEdit::Keep,
+            }),
+            ViewEvent::Intent(Intent::ShareCard(direct(&remote_peer))),
+        ]);
+    });
+    let line = until_line(&mut app, "a card was accepted and its share");
+    assert_eq!(
+        line,
+        "a card was accepted and its share could not be recorded yet: StorageUnavailable"
+    );
     assert_content_free();
     assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
 }

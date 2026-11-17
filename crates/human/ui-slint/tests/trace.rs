@@ -1062,6 +1062,243 @@ fn a_chip_that_fills_the_last_empty_position_hands_focus_to_check() {
     assert!(page.flow.waiting(), "the check started");
 }
 
+/// Acceptance 15's held check (design section 8, section 6 Check
+/// running): while the check runs, a typed "a", a tap on position 5,
+/// Escape and another Enter change no word and open nothing, focus stays
+/// on Check my words, shown disabled, and the back arrow is inactive.
+/// The mode stays navigating: had the "a" or the tap set typing, the
+/// Enter would go to the suggestion rule and send an Enter. A failed
+/// checksum then shows the banner with focus on it, the 24 words as
+/// they were.
+#[test]
+fn the_words_are_held_while_the_check_runs() {
+    use i_slint_backend_testing::AccessibleRole;
+    use interweave_human_ui_model::{ScreenId, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    assert_eq!(page.word(23), Some("vacant"), "control: 24 filled");
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: navigating");
+    assert!(page.flow.waiting(), "control: the check runs");
+    let said = page.said_count();
+    let check = |page: &Identity| {
+        ElementHandle::find_by_accessible_label(page.view.window(), text(UiText::IdCheckWords))
+            .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+            .expect("Check my words")
+    };
+    assert_eq!(
+        check(&page).accessible_enabled(),
+        Some(false),
+        "shown disabled"
+    );
+
+    page.key("a");
+    page.tap(&["5 cabin"]);
+    page.key(Key::Escape);
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [
+            IdentityInput::Key('a'),
+            IdentityInput::Slot(4),
+            IdentityInput::Back
+        ],
+        "the Enter pressed the disabled check, navigating, and sent nothing"
+    );
+    let words: Vec<_> = (0..24).map(|p| page.word(p)).collect();
+    let all: Vec<_> = WORDS[..24].iter().copied().map(Some).collect();
+    assert_eq!(words, all, "no word changed");
+    assert_eq!(page.typed(), "", "no letter typed");
+    assert_eq!(page.flow.screen(), ScreenId::R2);
+    assert!(!page.flow.discard_asked(), "no discard dialog");
+    assert_eq!(page.said_count(), said, "focus never moved");
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert!(
+        shown.back_arrow && !shown.back_active,
+        "the arrow is inactive"
+    );
+
+    page.flow.checked(None);
+    page.settle();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner");
+    let words: Vec<_> = (0..24).map(|p| page.word(p)).collect();
+    assert_eq!(words, all, "all 24 words as they were");
+    assert_eq!(
+        check(&page).accessible_enabled(),
+        Some(true),
+        "control: enabled again"
+    );
+}
+
+/// The held check with letters typed (#697 F1): position 5 reopened and
+/// cut to "cab", so a key, delete, clear and the cabin chip are all
+/// live. While the check runs, a tapped key, Backspace, a tapped delete,
+/// a tapped clear and a tapped chip each reach the flow, which refuses
+/// them, and leave the mode navigating. A tap on Check moves no focus,
+/// so focus stays on delete, where "cab" left it, and the Enter after
+/// each probe presses delete, which the flow holds too. Had a probe set
+/// typing, that Enter would go to the suggestion rule and send an Enter.
+#[test]
+fn a_held_input_with_letters_typed_leaves_the_mode_navigating() {
+    use interweave_human_ui_model::{ScreenId, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    assert_eq!(page.word(23), Some("vacant"), "control: 24 filled");
+    page.tap(&["5 cabin"]);
+    for _ in 0..2 {
+        page.key(Key::Backspace);
+    }
+    assert_eq!(page.typed(), "cab", "control: letters typed");
+    page.take();
+    page.tap(&[text(UiText::IdCheckWords)]);
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    assert!(page.flow.waiting(), "control: the check runs");
+    assert_eq!(page.last(), "ui-trace focus=identity-delete", "control");
+    let said = page.said_count();
+
+    let probes: [(&str, IdentityInput); 5] = [
+        ("i", IdentityInput::Key('i')),
+        ("backspace", IdentityInput::Delete),
+        (text(UiText::IdKeyDelete), IdentityInput::Delete),
+        (text(UiText::IdKeyClear), IdentityInput::Clear),
+        ("cabin", IdentityInput::Chip("cabin".to_owned())),
+    ];
+    for (probe, sent) in probes {
+        if probe == "backspace" {
+            page.key(Key::Backspace);
+        } else {
+            page.tap(&[probe]);
+        }
+        page.enter();
+        assert_eq!(
+            page.take(),
+            [sent, IdentityInput::Delete],
+            "{probe}: held, still navigating on delete"
+        );
+        assert_eq!(page.typed(), "cab", "{probe}: no letter changed");
+    }
+    let words: Vec<_> = (0..24).map(|p| page.word(p)).collect();
+    let all: Vec<_> = WORDS[..24].iter().copied().map(Some).collect();
+    assert_eq!(words, all, "no word changed");
+    assert_eq!(page.flow.screen(), ScreenId::R2);
+    assert_eq!(page.said_count(), said, "focus never moved");
+    assert_eq!(page.last(), "ui-trace focus=identity-delete");
+}
+
+/// A valid check opens R3 with focus on its title, the question, not on
+/// Yes: an Enter pressed again before the person read the `PeerId` sends
+/// nothing (design section 8, #697 review P-1). TAB then reaches Yes,
+/// and Yes opens R4, with focus on its title too.
+#[test]
+fn a_valid_check_puts_focus_on_r3s_title_and_yes_on_r4s() {
+    use interweave_human_ui_model::{ScreenId, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+
+    page.flow.checked(Some(peer()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R3, "control: R3");
+    assert_eq!(page.last(), "ui-trace focus=r3-heading");
+    page.enter();
+    assert_eq!(page.take(), [], "the second Enter answers nothing");
+    assert_eq!(page.flow.screen(), ScreenId::R3);
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert_eq!(shown.primary, text(UiText::IdR3Yes), "control: Yes");
+
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Primary],
+        "control: Yes pressed"
+    );
+    page.flow.restored(Ok(()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R4, "control: R4");
+    assert_eq!(page.last(), "ui-trace focus=r4-heading");
+    page.enter();
+    assert_eq!(page.take(), [], "Continue is not pressed unread");
+}
+
+/// After K1 a valid check restores the record's `PeerId` and opens R4
+/// directly, focus on its title, not on Continue (section 8).
+#[test]
+fn a_valid_check_after_k1_puts_focus_on_r4s_title() {
+    use interweave_human_ui_model::{IdentityFlow, RecoveryReason, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    let expected = peer();
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        Start::Recovery {
+            reason: RecoveryReason::Key,
+            expected: Some(expected.clone()),
+            new_keys: false,
+        },
+    );
+    apply_identity(&mut flow, IdentityInput::Primary);
+    assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
+    for (at, word) in WORDS[..24].iter().enumerate() {
+        apply_identity(&mut flow, IdentityInput::Slot(at));
+        take_word(&mut flow, word);
+    }
+    let mut page = Identity::new(flow);
+    tab_to(&mut page, "ui-trace focus=identity-primary");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    page.flow.checked(Some(expected));
+    page.flow.restored(Ok(()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R4, "control: R4");
+    assert_eq!(page.last(), "ui-trace focus=r4-heading");
+}
+
+/// A check whose result is the notice already showing gives it focus
+/// again (section 8, "a section 6 banner or notice takes focus"; #697
+/// review P-2): a second Check after a failed checksum, with no edit,
+/// fails the same way, and focus goes from Check my words to the banner.
+#[test]
+fn a_repeated_notice_takes_focus_at_the_result() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    page.flow.checked(None);
+    page.settle();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner", "control");
+
+    tab_to(&mut page, "ui-trace focus=identity-primary");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: again");
+    page.flow.checked(None);
+    page.settle();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner");
+}
+
 /// The same chip with position 3 still empty keeps the chip's rule:
 /// position 3 becomes current, focus on the keypad's first enabled key,
 /// typing, so the next Enter does nothing.

@@ -58,6 +58,9 @@
 #     <uses-permission-sdk-23> in any manifest read names one of the
 #     seven above, each named by the main manifest, and no manifest
 #     defines a <permission> of its own;
+#   - android/app/permissions.allow, the list the build holds the merged
+#     manifests to: its lines, blank lines and # comments aside, are
+#     exactly the seven above, no more and no fewer;
 #   - the camera feature: the main manifest declares
 #     android.hardware.camera with android:required="false" -- the
 #     CAMERA permission alone makes the platform's store take that
@@ -90,13 +93,17 @@
 #
 # FAIL-CLOSED: an absent main manifest, an absent extraction-rules file,
 # a manifest that does not parse, no lockfile read, no Scan module
-# found, a source root that is absent, or a source that cannot be read
-# is a failure, not a pass. What the check does NOT see: the
+# found, a source root that is absent, a source that cannot be read, or
+# an absent or unreadable permissions.allow is a failure, not a pass. What the check does NOT see: the
 # desktop half of decision 6 (the client reads no system address book
 # there), which no tree check can pin, the desktop having no manifest;
 # and a permission a library's own manifest merges into the APK, which
-# only the merged manifest, a build output, holds -- the lockfile names
-# no library that declares one today, and that is read, not checked.
+# only the merged manifest, a build output, holds. The build checks that
+# one: verify<Variant>MergedPermissions (apps/human-android/android/app/
+# build.gradle.kts) fails the APK's packaging, which an assemble and an
+# install both reach, on a merged permission outside
+# app/permissions.allow, and this check fails when that file's list and
+# the allow-list above differ, or when the file is absent.
 #
 # Exit codes:
 #   0  every rule holds
@@ -134,6 +141,8 @@ ALLOWED_PERMISSIONS = {
         "CAMERA",
     )
 }
+# The merged-manifest check's list, under apps/human-android/android/app.
+ALLOW_FILE = "permissions.allow"
 CAMERA_FEATURE = "android.hardware.camera"
 # The camera APIs by the names they are reached by. Read raw over the
 # Android client's sources, so a comment naming one counts too.
@@ -294,6 +303,24 @@ def check_extraction_rules(path: pathlib.Path, root: pathlib.Path, required: boo
             report(f"{rel}: <{section}> does not exclude the domain(s) {', '.join(missing)} at path \".\" (ADR-0060 decision 8)")
 
 
+def check_allow_file(path: pathlib.Path, root: pathlib.Path) -> None:
+    """The merged-manifest check's list must be this check's list."""
+    rel = path.relative_to(root)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError) as e:
+        report(f"{rel}: not readable ({e.__class__.__name__}); the merged-manifest allow-list was not compared")
+        return
+    listed = {
+        line.strip() for line in text.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+    for name in sorted(listed - ALLOWED_PERMISSIONS):
+        report(f"{rel}: names {name}, which the permission allow-list does not name (plan section 29 step 2)")
+    for name in sorted(ALLOWED_PERMISSIONS - listed):
+        report(f"{rel}: does not name {name}, which the permission allow-list names (plan section 29 step 2)")
+
+
 def check_camera_apis(bases: list[pathlib.Path], root: pathlib.Path) -> None:
     """The camera APIs in the Scan module alone (plan section 29 step 2)."""
     modules = 0
@@ -372,6 +399,8 @@ def main(argv: list[str]) -> int:
                 dirs.insert(0, res / "xml")
             for x in dirs:
                 check_extraction_rules(x / rules, root, d.name == "main" and x.name == "xml")
+
+    check_allow_file(android / "app" / ALLOW_FILE, root)
 
     check_camera_apis([app, root / "crates" / "human" / "android-platform"], root)
 

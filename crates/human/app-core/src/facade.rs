@@ -132,6 +132,10 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
 enum Hooked {
     Page,
     Contacts,
+    StartListing,
+    UnreadListing,
+    OwnCards,
+    ShareRecord,
 }
 
 /// What the own card's editor holds of its photo, on the facade side.
@@ -334,6 +338,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             return faults.admits(match read {
                 Hooked::Page => crate::test_hooks::Read::Page,
                 Hooked::Contacts => crate::test_hooks::Read::Contacts,
+                Hooked::StartListing => crate::test_hooks::Read::StartListing,
+                Hooked::UnreadListing => crate::test_hooks::Read::UnreadListing,
+                Hooked::OwnCards => crate::test_hooks::Read::OwnCards,
+                Hooked::ShareRecord => crate::test_hooks::Read::ShareRecord,
             });
         }
         true
@@ -435,6 +443,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// The store's, when the rows or counts cannot be read. A failed read
     /// of the contacts is the start's [`Start::contacts`], not an error.
     pub fn start(&mut self) -> Result<Start, StoreError> {
+        if !self.admits(Hooked::StartListing) {
+            return Err(StoreError::Degraded);
+        }
         listing::reclassify_if_stale(self.client.store_mut(), &mut self.rows_read)?;
         let store = self.client.store_mut();
         let (pending, undecodable_pending) = listing::list_pending(store)?;
@@ -553,7 +564,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         for inbound in received {
             updates.push(match inbound {
                 Inbound::Message(received) => Update::Received(received),
-                Inbound::Card(card) => match cards::proposal(self.client.store_mut(), card) {
+                Inbound::Card(card) => match if self.admits(Hooked::UnreadListing) {
+                    cards::proposal(self.client.store_mut(), card)
+                } else {
+                    Err(StoreError::Degraded)
+                } {
                     Ok(proposal) => Update::ReceivedCard(Box::new(proposal)),
                     // Committed unread: the conversation's next page or
                     // the next read of the summaries shows it.
@@ -739,8 +754,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         if relist {
             // The rows wait in the store, which the counts and the newest
             // rows say; the open conversation's window reads them.
+            let admitted = self.admits(Hooked::UnreadListing);
             let store = self.client.store_mut();
-            match listing::summaries(store).and_then(|s| Ok((s, store.inbound_counts()?))) {
+            match if admitted {
+                listing::summaries(store).and_then(|s| Ok((s, store.inbound_counts()?)))
+            } else {
+                Err(StoreError::Degraded)
+            } {
                 Ok((summarised, counts)) => {
                     self.rows_read += summarised.read;
                     updates.push(Update::SummariesListed {
@@ -1374,6 +1394,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         else {
             return Ok(());
         };
+        if !self.admits(Hooked::ShareRecord) {
+            return Err(Failure::StorageUnavailable);
+        }
         let at = (self.wall)();
         self.client
             .store_mut()
@@ -1420,6 +1443,10 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// and the client's own retries read the same pending page, so a read
     /// that keeps failing stops those sends too.
     fn card_rows_due(&mut self, updates: &mut Vec<Update>) {
+        if !self.admits(Hooked::OwnCards) {
+            say(updates, Update::CardsNotRead(Failure::StorageUnavailable));
+            return;
+        }
         if let Err(e) = self.read_card_rows() {
             say(updates, Update::CardsNotRead(store_failure(&e)));
         }

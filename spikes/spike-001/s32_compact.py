@@ -509,6 +509,10 @@ def main() -> int:
     try:
         subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
         scrub(dest / "evidence.md", scratch, out)
+        # The stub's record is committed too, and gets the same scrub and
+        # host-path check (#696's review, F9).
+        if (dest / "stub.jsonl").exists():
+            scrub(dest / "stub.jsonl", scratch, out)
         kept = (dest / "evidence.md").read_text()
         if dashed(scratch.name) in kept or dashed(pathlib.Path.home()) in kept or str(pathlib.Path.home()) in kept:
             raise SystemExit("evidence.md still names the home or scratch directory")

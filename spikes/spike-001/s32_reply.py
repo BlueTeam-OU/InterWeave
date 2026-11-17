@@ -460,6 +460,10 @@ def main() -> int:
     try:
         subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
         scrub(dest / "evidence.md", scratch, out)
+        # The stub's record is committed too, and gets the same scrub and
+        # host-path check (#696's review, F9).
+        if (dest / "stub.jsonl").exists():
+            scrub(dest / "stub.jsonl", scratch, out)
         if dashed(scratch.name) in (dest / "evidence.md").read_text():
             raise SystemExit("evidence.md still names the scratch directory in a project directory's spelling")
         tainted = token_in([out, dest])

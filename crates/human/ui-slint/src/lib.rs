@@ -418,14 +418,17 @@ enum Input {
 }
 
 /// Whether focus key `id` names a control of the identity page: its own
-/// `identity-` keys, and the headings R, K and K1 take when a refused
-/// start raises them. Focus on one goes with the page.
+/// `identity-` keys, the headings R, K and K1 take when a refused start
+/// raises them, and R3's and R4's, which a valid check focuses. Focus on
+/// one goes with the page.
 fn on_identity_page(id: &str) -> bool {
     id.starts_with("identity-")
         || [
             store_screen::R_HEADING,
             store_screen::K_HEADING,
             identity::K1_HEADING,
+            identity::R3_HEADING,
+            identity::R4_HEADING,
         ]
         .contains(&id)
 }
@@ -1853,10 +1856,11 @@ impl View {
     /// [`show_identity`](Self::show_identity) showed, in place of what the
     /// person was on or was opening: focus goes to the page's heading,
     /// whatever had it under the page, so any on-screen keyboard closes
-    /// (design/2026-10-19-android-identity.md section 8). Only R, K and K1
-    /// have a heading stop; on another page the ask moves nothing. A start
-    /// refused again while the page shows did not raise it, so the root
-    /// does not ask then, and focus stays where it was.
+    /// (design/2026-10-19-android-identity.md section 8). The root asks it
+    /// when it raises R, K or K1. R3 and R4 have a heading stop too, which
+    /// a valid check focuses; on a page with no heading stop the ask moves
+    /// nothing. A start refused again while the page shows did not raise
+    /// it, so the root does not ask then, and focus stays where it was.
     pub fn raise_identity_heading(&self) {
         self.window.set_identity_heading_wanted(true);
     }

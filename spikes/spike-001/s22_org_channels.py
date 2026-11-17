@@ -61,7 +61,7 @@ import tempfile
 import time
 import traceback
 
-from spike_common import CLAUDE, REPO, child_env, raw_dir
+from spike_common import CLAUDE, HOST_PATH, REPO, child_env, raw_dir
 from s16_run import PROFILE, STRANGER, Home, Peer, free_port, private_ipv4
 from s19_channels import ANSI, long_term_token, seed_config
 
@@ -332,6 +332,10 @@ def main() -> int:
     try:
         subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
         scrub(dest / "evidence.md", scratch, out)
+        # The stub's record is committed too, and gets the same scrub and
+        # host-path check (#696's review, F9).
+        if (dest / "stub.jsonl").exists():
+            scrub(dest / "stub.jsonl", scratch, out)
         tainted = token_in([out, dest])
     except BaseException:
         # A partial distillation was never checked for the token.
@@ -426,6 +430,13 @@ def scrub(evidence, scratch, out):
     for leftover in (scratch.name, out.parent.name):
         if leftover in text:
             raise SystemExit(f"{evidence.name} still names {leftover}: a host path the scrub missed")
+    # Any absolute path under a home or the runtime directory is a host
+    # path whatever produced it: the two names above missed a prefix
+    # extract.py had left when it cut a path at an inner /tmp (S38,
+    # #696's review F3).
+    leaked = HOST_PATH.search(text)
+    if leaked:
+        raise SystemExit(f"{evidence.name} still names {leaked.group(0)}...: a host path the scrub missed")
 
 
 def token_in(dirs):
