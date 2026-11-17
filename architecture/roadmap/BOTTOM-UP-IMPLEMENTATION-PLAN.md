@@ -3222,7 +3222,12 @@ Only the lock holder removes a stale socket: a pre-existing path that is
 a socket owned by the daemon's uid is unlinked and rebound; anything else
 is fatal (failure-model.md's "IPC bind security failure"). Shutdown: stop
 accepting → revoke leases → settle → close the Swarm → unlink both
-sockets → drop the lock. Peer credentials are a **MUST** on Unix: the
+sockets → drop the lock. (A 2026-11-17, the owner's word: the order gains
+two steps, a refusal of new inbound direct before the first and a
+hand-over of each session's queue before the leases go; `LOCAL-IPC.md`'s
+shutdown order is the text, the fleet control-path run record's F1 the
+reason, and the build is p2p-network-dev's, not on `main` as this was
+written.) Peer credentials are a **MUST** on Unix: the
 peer uid (`UnixStream::peer_cred`) equals the run directory's owner uid,
 or the connection is closed before `hello` and counted. Admin-socket bind
 failure does not take the data socket down (ADR-0037). Not decided:
