@@ -215,10 +215,8 @@ impl ReplyTokenTable {
             return ReplyResolution::Unknown;
         };
         match route {
-            ReplyRoute::Direct {
-                local_lease_epoch, ..
-            } => {
-                if current_epoch != Some(local_lease_epoch) {
+            ReplyRoute::Direct { .. } => {
+                if is_stale(route, current_epoch) {
                     // A reconnect minted a new epoch; this token's local
                     // endpoint may now belong to a different session.
                     return ReplyResolution::StaleLease;
@@ -236,13 +234,27 @@ impl ReplyTokenTable {
         }
     }
 
+    /// Drop every direct token not minted under `held`, the epoch held
+    /// now -- with none held, every direct token. Such a token can only
+    /// resolve `StaleLease`, so keeping it would count it in `status` and
+    /// hold one of the table's places until its TTL (LIFECYCLE.md
+    /// §Reconnect: discarded). A broadcast token names a channel, not a
+    /// lease, and stays.
+    pub fn discard_stale(&mut self, held: Option<&Generation>) {
+        self.remove_where(|route, _| is_stale(route, held));
+    }
+
     /// Drop tokens past their TTL.
     pub fn expire(&mut self, now_ms: u64) {
         let ttl = self.ttl_ms;
+        self.remove_where(|_, minted| now_ms.saturating_sub(minted) >= ttl);
+    }
+
+    fn remove_where(&mut self, dead: impl Fn(&ReplyRoute, u64) -> bool) {
         let dead: Vec<String> = self
             .tokens
             .iter()
-            .filter(|(_, (_, minted))| now_ms.saturating_sub(*minted) >= ttl)
+            .filter(|(_, (route, minted))| dead(route, *minted))
             .map(|(t, _)| t.clone())
             .collect();
         for t in dead {
@@ -252,6 +264,13 @@ impl ReplyTokenTable {
             }
         }
     }
+}
+
+/// Whether `route` is a direct route under an epoch other than `held`:
+/// one a reply must refuse, since the local endpoint may now be another
+/// session's.
+pub(crate) fn is_stale(route: &ReplyRoute, held: Option<&Generation>) -> bool {
+    matches!(route, ReplyRoute::Direct { local_lease_epoch, .. } if held != Some(local_lease_epoch))
 }
 
 #[cfg(test)]

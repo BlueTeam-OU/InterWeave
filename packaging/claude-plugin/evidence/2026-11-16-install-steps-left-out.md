@@ -63,7 +63,9 @@ What r3 also shows:
   `direct` to the `claude` PeerId, with nothing done on either side. Question two was `accepted` by the peer's
   daemon.
 - **`reply_tokens` still counted question one's token after the restart** (1 in r3's second status, and in the
-  control's), though `reply` refused that token. The count includes tokens of an earlier lease.
+  control's), though `reply` refused that token. The count includes tokens of an earlier lease. That was ruled a defect
+  (architect-cto, REQUEST 01a1e9a9, by `architecture/plugin/LIFECYCLE.md` §Reconnect); after 0.3.0 the bridge
+  discards a lost lease's direct tokens. Not re-run here.
 - In r3 the debug log has `Channel notifications re-registered after reconnect` five times, at 03:14:15, 03:14:29,
   03:15:30, 03:15:51 and 03:15:56. They are not one per restart; what each is was not traced.
 
