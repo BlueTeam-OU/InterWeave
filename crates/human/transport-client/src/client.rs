@@ -1134,10 +1134,34 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             }
             Err(e) => {
                 self.failed(row_id, e, now);
-                if ends_session(e) {
+                if self.send_ended_session(e).await {
                     self.lose_session(now).await;
                 }
             }
+        }
+    }
+
+    /// Whether a send's `error` says the SESSION ended, not the exchange.
+    /// A `BackendUnavailable` is also a remote `ShuttingDown` refusal
+    /// mapped back (`TRANSPORT.md` §Error model) over a live connection:
+    /// the peer is going, and closing this session for it would drop the
+    /// lease every other peer sends to. So the session is asked:
+    /// `events(0)` takes nothing, answers an ended session's end and a
+    /// live one's empty list (`DataSessionPort::events`). The other codes
+    /// `ends_session` counts are this session's own -- a lost lease or
+    /// join, a local shutdown -- and end it as they are.
+    /// `a_remote_shutdown_keeps_the_session_and_retries_the_send` and
+    /// `a_send_on_an_ended_session_re_opens_it` pin both sides.
+    async fn send_ended_session(&self, error: TransportError) -> bool {
+        if !ends_session(error) {
+            return false;
+        }
+        if error != TransportError::BackendUnavailable {
+            return true;
+        }
+        match self.session.as_ref() {
+            Some(session) => session.events(0).await.is_err(),
+            None => true,
         }
     }
 
@@ -1426,10 +1450,10 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
 
     // --- session transitions -----------------------------------------------
 
-    /// The session ended under us: re-open with backoff. What it still
-    /// holds is committed first -- a `BackendUnavailable` can be a REMOTE
-    /// shutdown mapped back (`TRANSPORT.md`), with this session healthy
-    /// and holding accepted inbound; from a dead one the read fails fast.
+    /// The session ended under us, or lost its lease or a join: re-open
+    /// with backoff. What it still holds is committed first -- a session
+    /// that lost its lease is alive and may hold accepted inbound; from a
+    /// dead one the read fails fast.
     async fn lose_session(&mut self, now: u64) {
         self.take_the_rest().await;
         if self.store.health() == StorageHealth::Degraded {

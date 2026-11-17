@@ -33,7 +33,9 @@ pub(crate) const fn classify_send(error: TransportError) -> AttemptFailure {
         TransportError::Overloaded => Retry(Some(SendProblem::Busy)),
         TransportError::RemoteEndpointUnavailable => Retry(Some(SendProblem::RouteUnavailable)),
         // The session's runtime went, or the session lost its lease or a
-        // join (the facade checks the configuration BEFORE the transport,
+        // join, or -- `BackendUnavailable` -- the PEER's runtime is
+        // shutting down, its refusal mapped back (the facade checks the
+        // configuration BEFORE the transport,
         // so from the transport these mean the session, never the
         // configuration): it re-opens and the send is retried after.
         // `NotConfigured` comes from that configuration check alone.
@@ -83,10 +85,12 @@ pub(crate) const fn may_have_reached(error: TransportError) -> bool {
     )
 }
 
-/// Whether a send's error says the SESSION is gone or lost its lease or a
-/// join, so the facade must re-open before anything else is sent on it.
+/// Whether a send's error MAY say the SESSION is gone or lost its lease or
+/// a join, so the facade must re-open before anything else is sent on it.
 /// The re-open commits what the session holds before closing it, so
-/// nothing already accepted is lost to it.
+/// nothing already accepted is lost to it. `BackendUnavailable` is also a
+/// remote shutdown mapped back (`TRANSPORT.md` §Error model), so for it
+/// the facade asks the session first (`TransportClient::send_ended_session`).
 pub(crate) const fn ends_session(error: TransportError) -> bool {
     matches!(
         error,
