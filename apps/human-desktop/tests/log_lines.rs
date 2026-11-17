@@ -20,12 +20,15 @@
 //! "unread messages could not be read again", "cards or contacts could not
 //! be read" and "a card was accepted and its share could not be recorded
 //! yet". The last three carry or may carry the `{why:?}` of a `Failure`, a
-//! fieldless class enum (`app-core`'s `protocol.rs`). Two session lines
-//! are held too, ready and refused. Not reached: the session lines
-//! "reconnecting, attempt N", "storage degraded" and "closed";
-//! `session_class`'s unit test in `app.rs` holds the reconnecting one's
-//! text, and the other two are fixed. The daemon's log is
-//! p2p-network-dev's.
+//! fieldless class enum (`app-core`'s `protocol.rs`). Four session lines
+//! are held too: ready, refused, "reconnecting, attempt N" (the fake
+//! runtime restarted under the session) and "storage degraded" (a store
+//! opened under a page ceiling below its size). Not reached: "closed",
+//! which the shipped desktop never writes -- the facade's `close` makes
+//! the session `Closed` in the facade thread's last step, which forwards
+//! nothing after it, and `App::close` has taken the facade, so no pump
+//! runs after it; `session_class`'s unit test in `app.rs` holds its text.
+//! The daemon's log is p2p-network-dev's.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -153,9 +156,16 @@ impl Opener for NoLinks {
 /// the planted body word, and a contact on that route with the planted
 /// name and surname.
 fn planted(from: &TransportIdentity, count: u32) -> HumanStore {
+    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    plant(&mut store, from, count);
+    store
+}
+
+/// `count` unread texts from `from` carrying [`BODY`], and `from`'s
+/// contact named [`NAME`] [`SURNAME`], committed to `store`.
+fn plant(store: &mut HumanStore, from: &TransportIdentity, count: u32) {
     use interweave_human_store::{AppMessageId, InboundKind, InboundOrigin, NewInbound};
     use interweave_transport_api::MediaType;
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
     for n in 1..=count {
         let id = format!("{n:032x}");
         store
@@ -192,7 +202,6 @@ fn planted(from: &TransportIdentity, count: u32) -> HumanStore {
             1,
         )
         .expect("a contact");
-    store
 }
 
 /// How the desktop is built: whether the facade's `make` fails, and
@@ -377,6 +386,64 @@ fn a_refused_session_is_logged_by_its_class() {
     let line = until_line(&mut app, "session refused");
     assert!(
         line.starts_with("session refused: NotAvailableToThisClient at ") && line.ends_with(" ms"),
+        "{line:?}"
+    );
+    assert_content_free();
+    assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+}
+
+/// A session the runtime lost -- it stopped and started again, every
+/// lease gone -- is logged as reconnecting with its attempt, and nothing
+/// else. Mutation: the `Reconnecting` arm of `session_class` (`app.rs`)
+/// naming `{state:?}` (`Reconnecting { attempt: 1, next_at: .. }`): the
+/// exact-line assertion fails.
+#[test]
+fn a_lost_session_is_logged_as_reconnecting_with_its_attempt() {
+    let from = peer();
+    let faults = Arc::new(StoreFaults::default());
+    let (a, _b) = FakeNetwork::pair(node(true), node(true));
+    let runtime = a.clone();
+    let mut app = desktop_on(
+        a,
+        planted(&from, 1),
+        &faults,
+        &WORKING,
+        Arc::new(AtomicBool::new(false)),
+        None,
+    );
+    let _ = until_line(&mut app, "session ready");
+    runtime.restart();
+    let line = until_line(&mut app, "session reconnecting");
+    assert!(
+        line.starts_with("session reconnecting, attempt 1 at ") && line.ends_with(" ms"),
+        "{line:?}"
+    );
+    assert_content_free();
+    assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+}
+
+/// A store that cannot hold unread content takes the session to storage
+/// degraded, logged as that class alone, the store's planted content
+/// still readable and none of it in the log. The store is a file holding
+/// it, opened again under a page ceiling below its size, so it opens
+/// degraded (`StoreOptions::max_pages`). Mutation: the `StorageDegraded`
+/// arm of `session_class` (`app.rs`) naming `{state:?}`
+/// (`StorageDegraded`): the line no longer starts with the class.
+#[test]
+fn a_degraded_store_is_logged_as_storage_degraded_alone() {
+    let from = peer();
+    let faults = Arc::new(StoreFaults::default());
+    let dir = tempfile::tempdir().expect("a directory");
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("a store");
+    plant(&mut store, &from, 1);
+    drop(store);
+    let tight =
+        HumanStore::open(&path, StoreOptions { max_pages: Some(1) }).expect("opens degraded");
+    let mut app = desktop(tight, &faults, &WORKING);
+    let line = until_line(&mut app, "session ");
+    assert!(
+        line.starts_with("session storage degraded at ") && line.ends_with(" ms"),
         "{line:?}"
     );
     assert_content_free();
