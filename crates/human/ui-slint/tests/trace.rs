@@ -1196,6 +1196,109 @@ fn a_held_input_with_letters_typed_leaves_the_mode_navigating() {
     assert_eq!(page.last(), "ui-trace focus=identity-delete");
 }
 
+/// A valid check opens R3 with focus on its title, the question, not on
+/// Yes: an Enter pressed again before the person read the `PeerId` sends
+/// nothing (design section 8, #697 review P-1). TAB then reaches Yes,
+/// and Yes opens R4, with focus on its title too.
+#[test]
+fn a_valid_check_puts_focus_on_r3s_title_and_yes_on_r4s() {
+    use interweave_human_ui_model::{ScreenId, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+
+    page.flow.checked(Some(peer()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R3, "control: R3");
+    assert_eq!(page.last(), "ui-trace focus=r3-heading");
+    page.enter();
+    assert_eq!(page.take(), [], "the second Enter answers nothing");
+    assert_eq!(page.flow.screen(), ScreenId::R3);
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert_eq!(shown.primary, text(UiText::IdR3Yes), "control: Yes");
+
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Primary],
+        "control: Yes pressed"
+    );
+    page.flow.restored(Ok(()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R4, "control: R4");
+    assert_eq!(page.last(), "ui-trace focus=r4-heading");
+    page.enter();
+    assert_eq!(page.take(), [], "Continue is not pressed unread");
+}
+
+/// After K1 a valid check restores the record's `PeerId` and opens R4
+/// directly, focus on its title, not on Continue (section 8).
+#[test]
+fn a_valid_check_after_k1_puts_focus_on_r4s_title() {
+    use interweave_human_ui_model::{IdentityFlow, RecoveryReason, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    let expected = peer();
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        Start::Recovery {
+            reason: RecoveryReason::Key,
+            expected: Some(expected.clone()),
+            new_keys: false,
+        },
+    );
+    apply_identity(&mut flow, IdentityInput::Primary);
+    assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
+    for (at, word) in WORDS[..24].iter().enumerate() {
+        apply_identity(&mut flow, IdentityInput::Slot(at));
+        take_word(&mut flow, word);
+    }
+    let mut page = Identity::new(flow);
+    tab_to(&mut page, "ui-trace focus=identity-primary");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    page.flow.checked(Some(expected));
+    page.flow.restored(Ok(()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R4, "control: R4");
+    assert_eq!(page.last(), "ui-trace focus=r4-heading");
+}
+
+/// A check whose result is the notice already showing gives it focus
+/// again (section 8, "a section 6 banner or notice takes focus"; #697
+/// review P-2): a second Check after a failed checksum, with no edit,
+/// fails the same way, and focus goes from Check my words to the banner.
+#[test]
+fn a_repeated_notice_takes_focus_at_the_result() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    page.flow.checked(None);
+    page.settle();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner", "control");
+
+    tab_to(&mut page, "ui-trace focus=identity-primary");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: again");
+    page.flow.checked(None);
+    page.settle();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner");
+}
+
 /// The same chip with position 3 still empty keeps the chip's rule:
 /// position 3 becomes current, focus on the keypad's first enabled key,
 /// typing, so the next Enter does nothing.
