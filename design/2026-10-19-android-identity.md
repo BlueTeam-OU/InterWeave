@@ -1147,7 +1147,9 @@ landscape:
    for its shape (a hook damages its magic) with an intact field shows
    K1 with that PeerId and restores only to it.
    A C4 that answers `AlreadyProvisioned` with another identity on
-   record shows `IdAlreadyCreated`. A C4 whose directory sync fails
+   record shows `IdAlreadyCreated`, with no PeerId, no PeerId label,
+   no `CopyPeerId` and no `IdCreatedBody` (§6), and its Continue
+   opens the identity on record. A C4 whose directory sync fails
    after the record is written (a test hook) reads the record back and
    reaches Connect or the Chats screen (C4's rule) as a success, never `IdStorageFailed` or
    `IdAlreadyCreated`; so does a C4 that answers `OldKeyRemains`.
@@ -1238,7 +1240,9 @@ scale would also be a finding of the Android review
       shown; for R3, with no notice and, by a test hook, with
       `IdStorageFailed` shown; and for C4, from its title, by a test
       hook, with `IdStorageFailed` shown: the notice, `CopyPeerId`,
-      then Try again in Continue's place. A newly opened C4 has focus
+      then Try again in Continue's place; and, by a test hook, with
+      `IdAlreadyCreated` shown: the notice, then Continue. A newly
+      opened C4 has focus
       on its title, and Enter then presses nothing.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
       key, and Enter does nothing. After typing "ab",
