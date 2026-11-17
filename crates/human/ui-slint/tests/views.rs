@@ -936,7 +936,7 @@ const WORDS: &[&str] = &[
 
 /// A flow past R2's valid check: at R3, and at R4 once `restored`.
 fn checked_flow(restored: bool) -> interweave_human_ui_model::IdentityFlow {
-    use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+    use interweave_human_ui_model::{Effect, IdentityFlow, ScreenId, Start};
     use interweave_human_ui_slint::{IdentityInput, apply_identity};
     let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
     apply_identity(&mut flow, IdentityInput::Secondary);
@@ -952,7 +952,15 @@ fn checked_flow(restored: bool) -> interweave_human_ui_model::IdentityFlow {
         }
         apply_identity(&mut flow, IdentityInput::Chip((*word).to_owned()));
     }
-    apply_identity(&mut flow, IdentityInput::Primary);
+    // `checked` moves R2 on whatever the entry holds; the root calls it
+    // only after the check the full phrase asks for.
+    assert!(
+        matches!(
+            apply_identity(&mut flow, IdentityInput::Primary)[..],
+            [Effect::Check(_)]
+        ),
+        "control: the check asked"
+    );
     flow.checked(Some(peer()));
     assert_eq!(flow.screen(), ScreenId::R3, "control: at R3");
     if restored {
