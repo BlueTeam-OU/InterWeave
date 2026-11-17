@@ -939,9 +939,9 @@ it, those checks are blocked, never passed.
   pressed together, a judgement of focus after the closing Back (the
   pressed-together case does not judge focus, and the focus lines in
   that case's trace are not a judgement);
-  Back past the first go and the two Backs 0.3 s apart, as judged
-  on the uptime clock since #669, which have not run on a device
-  (the 2026-11-16 record's "Not run here", and TM-57 in
+  Back past the first turn, and the two Backs 0.3 s apart, each as
+  judged on the uptime clock since #669: neither has been run on a
+  device that way (the 2026-11-16 record's "Not run here", and TM-57 in
   `tests/SECURITY-MATRIX.md`);
   the two Backs 0.3 s apart by the app bar's Back; the Pixel; and the
   release APK. On the desktop: a frame-level test that no frame shows
