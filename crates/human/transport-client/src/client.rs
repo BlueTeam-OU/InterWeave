@@ -18,6 +18,12 @@
 //! monotonic clock restarts at boot.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use futures::FutureExt as _;
+use futures::stream::{FuturesUnordered, StreamExt as _};
 
 use interweave_human_chat_protocol::{
     CardRoute, Classified, HumanChatV2, classify, decode_envelope_bytes, encode_outbound,
@@ -58,6 +64,42 @@ use interweave_human_client_api::{
 /// re-list unread (`ClientEvent::UnreadInStore`); the facade test
 /// `a_snapshot_past_the_cap_is_kept_in_the_store_and_announced` pins it.
 const HELD_CAP: usize = interweave_local_client_api::MAX_EVENT_QUEUE;
+
+/// How many send attempts may be on the wire at once, across every
+/// destination: one per destination (`Flight`), and this many in all,
+/// under the 64 commands an IPC client may have outstanding
+/// (`TRANSPORT.md` §Backpressure) so that its event reads and admin
+/// calls keep room (architect-cto's ruling 01a1e901, j288).
+/// `a_silent_peer_holds_no_send_to_another_peer` pins the per-destination
+/// half, `at_most_the_flight_cap_of_sends_is_in_flight` this one.
+pub(crate) const FLIGHT_CAP: usize = 32;
+
+/// What a send attempt is one at a time to: a peer (whichever of its
+/// endpoints), or a channel. One attempt per destination keeps the order
+/// the facade gives a person's lines to one peer; destinations go beside
+/// each other, so a peer that never answers holds no line to another.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Flight {
+    Peer(TransportIdentity),
+    Channel(ChannelId),
+}
+
+impl Flight {
+    fn of(destination: &OutboundDestination) -> Self {
+        match destination {
+            OutboundDestination::Direct(d) => Self::Peer(d.peer.clone()),
+            OutboundDestination::Broadcast(c) => Self::Channel(c.clone()),
+        }
+    }
+}
+
+/// What a send attempt answers: how the row ends, and the endpoint that
+/// accepted a direct one.
+type Landing = Result<(TerminalCause, Option<EndpointId>), TransportError>;
+
+/// One attempt on the wire, owning what it needs: the session shared, the
+/// row it is for.
+type InFlight = Pin<Box<dyn Future<Output = (RowId, Landing)> + Send>>;
 
 /// How often a healthy admin connection is asked for status.
 const STATUS_INTERVAL_MS: u64 = 5_000;
@@ -175,7 +217,13 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     store: HumanStore,
     config: ClientConfig,
     wall: WallClock,
-    session: Option<B::Session>,
+    /// Shared with the attempts on the wire, which each hold it until they
+    /// land; a close drops them first.
+    session: Option<Arc<B::Session>>,
+    /// The send attempts on the wire, each landed by a later tick.
+    in_flight: FuturesUnordered<InFlight>,
+    /// Each row on the wire, and the destination it holds.
+    flying: BTreeMap<RowId, Flight>,
     /// The endpoint the last open leased: what a sent message names as
     /// its own until another open leases a different one.
     leased: Option<EndpointId>,
@@ -199,7 +247,7 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     diagnostics: Diagnostics,
 }
 
-impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
+impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// A facade over `binding` and `admin_binding`, holding `store`, with
     /// `wall` the wall clock in Unix ms for what is persisted or sent.
     ///
@@ -225,6 +273,8 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             config,
             wall,
             session: None,
+            in_flight: FuturesUnordered::new(),
+            flying: BTreeMap::new(),
             leased: None,
             admin: None,
             state: SessionState::Reconnecting {
@@ -332,8 +382,12 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         self.tick_storage(now);
         self.tick_session(now).await;
         self.tick_connectivity(now).await;
+        self.land_ready(now).await;
         if matches!(self.state, SessionState::Ready { .. }) {
             self.retry_due(now).await;
+            // An attempt the binding answers at once lands in the tick
+            // that made it.
+            self.land_ready(now).await;
         }
     }
 
@@ -530,7 +584,9 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// (the row stays pending).
     pub fn cancel(&mut self, row_id: RowId) -> Result<Option<CancelledSend>, RowError> {
         let row = self.rows.get(&row_id).ok_or(RowError::NoSuchRow)?;
-        let may_have_reached = row.may_have_reached;
+        // A row on the wire may have reached: its attempt lands after the
+        // cancel and is then ignored (`land`).
+        let may_have_reached = row.may_have_reached || self.flying.contains_key(&row_id);
         // Read before the delete: after it nothing holds the bytes.
         let record = self.store.pending_outbound_row(row_id).ok().flatten();
         self.store
@@ -899,11 +955,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
 
     /// End the session; the facade does nothing more until dropped.
     pub async fn close(&mut self) {
-        if let Some(session) = self.session.take() {
-            // A close that fails leaves nothing to undo: the binding ends
-            // the session either way.
-            let _ = session.close().await;
-        }
+        self.close_session(None).await;
         self.admin = None;
         self.set_state(SessionState::Closed);
     }
@@ -942,7 +994,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         }
         match self.open().await {
             Ok((session, endpoint)) => {
-                self.session = Some(session);
+                self.session = Some(Arc::new(session));
                 self.reopen_attempt = 0;
                 self.leased.clone_from(&endpoint);
                 self.set_state(SessionState::Ready { endpoint });
@@ -1057,12 +1109,18 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
                 if !matches!(self.state, SessionState::Ready { .. }) {
                     return;
                 }
+                if self.flying.len() >= FLIGHT_CAP {
+                    return;
+                }
+                let flight = Flight::of(&pending.destination);
                 if self
                     .rows
                     .get(&pending.row_id)
                     .is_some_and(|r| r.is_due(now))
+                    && !self.flying.contains_key(&pending.row_id)
+                    && !self.flying.values().any(|f| *f == flight)
                 {
-                    self.attempt(&pending, now).await;
+                    self.attempt(&pending, flight, now).await;
                 }
             }
             match page.next {
@@ -1074,7 +1132,9 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
 
     // --- one attempt -------------------------------------------------------
 
-    async fn attempt(&mut self, pending: &PendingOutbound, now: u64) {
+    /// Put one row's attempt on the wire: it lands in a later tick
+    /// ([`Self::land_ready`]), so nothing waits on its exchange.
+    async fn attempt(&mut self, pending: &PendingOutbound, flight: Flight, now: u64) {
         let row_id = pending.row_id;
         // A row that survived a restart into a configuration that cannot
         // send it: the person's to decide, and no session is touched.
@@ -1096,7 +1156,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             row.attempts = row.attempts.saturating_add(1);
             row.next_at = None;
         }
-        let Some(session) = self.session.as_ref() else {
+        let Some(session) = self.session.clone() else {
             return;
         };
         let Ok(payload) = Payload::new(
@@ -1107,23 +1167,72 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             self.failed(row_id, TransportError::PayloadTooLarge, now);
             return;
         };
-        let outcome = match &pending.destination {
-            OutboundDestination::Direct(destination) => session
-                .send_direct(destination.clone(), pending.transport_message_id, payload)
-                .await
-                .map(|endpoint| (TerminalCause::Accepted, Some(endpoint))),
-            OutboundDestination::Broadcast(channel) => session
-                .broadcast(
-                    channel.clone(),
-                    BroadcastMessageV1 {
-                        message_id: pending.transport_message_id,
-                        sent_at_ms: (self.wall)(),
-                        payload,
-                    },
-                )
-                .await
-                .map(|()| (TerminalCause::Published, None)),
+        let message_id = pending.transport_message_id;
+        let flying: InFlight = match pending.destination.clone() {
+            OutboundDestination::Direct(destination) => Box::pin(async move {
+                let landing = session
+                    .send_direct(destination, message_id, payload)
+                    .await
+                    .map(|endpoint| (TerminalCause::Accepted, Some(endpoint)));
+                (row_id, landing)
+            }),
+            OutboundDestination::Broadcast(channel) => {
+                let message = BroadcastMessageV1 {
+                    message_id,
+                    sent_at_ms: (self.wall)(),
+                    payload,
+                };
+                Box::pin(async move {
+                    let landing = session
+                        .broadcast(channel, message)
+                        .await
+                        .map(|()| (TerminalCause::Published, None));
+                    (row_id, landing)
+                })
+            }
         };
+        self.flying.insert(row_id, flight);
+        self.in_flight.push(flying);
+    }
+
+    /// Land every attempt that has answered, without waiting for one that
+    /// has not.
+    async fn land_ready(&mut self, now: u64) {
+        while let Some(Some((row_id, landing))) = self.in_flight.next().now_or_never() {
+            self.flying.remove(&row_id);
+            self.land(row_id, landing, now).await;
+        }
+    }
+
+    /// Take the closing session's attempts off the wire: each row's
+    /// outcome is unknown, as for a call pending when a session ends, and
+    /// it is retried on the next session. `None` on the final close, which
+    /// reports nothing more.
+    async fn close_session(&mut self, now: Option<u64>) {
+        self.in_flight = FuturesUnordered::new();
+        let rows: Vec<RowId> = std::mem::take(&mut self.flying).into_keys().collect();
+        if let Some(now) = now {
+            for row_id in rows {
+                self.failed(row_id, TransportError::CancellationRaced, now);
+            }
+        }
+        if let Some(session) = self.session.take() {
+            // The attempts that held it are gone, so it is the only owner.
+            // A close that fails leaves nothing to undo: the binding ends
+            // the session either way.
+            if let Ok(session) = Arc::try_unwrap(session) {
+                let _ = session.close().await;
+            }
+        }
+    }
+
+    /// What an attempt answered, applied to its row. A row cancelled while
+    /// its attempt was on the wire is gone, and the answer with it.
+    async fn land(&mut self, row_id: RowId, landing: Landing, now: u64) {
+        if !self.rows.contains_key(&row_id) {
+            return;
+        }
+        let outcome = landing;
         match outcome {
             Ok((cause, endpoint)) => {
                 // Terminal whether or not the store can delete the copy
@@ -1469,9 +1578,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             self.enter_degraded(now).await;
             return;
         }
-        if let Some(session) = self.session.take() {
-            let _ = session.close().await;
-        }
+        self.close_session(Some(now)).await;
         self.reopen_attempt = self.reopen_attempt.saturating_add(1);
         let attempt = self.reopen_attempt;
         self.set_state(SessionState::Reconnecting {
@@ -1490,9 +1597,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             SessionState::Refused { problem } => self.refused_before_degrade = Some(*problem),
             SessionState::Ready { .. } | SessionState::Reconnecting { .. } => {}
         }
-        if let Some(session) = self.session.take() {
-            let _ = session.close().await;
-        }
+        self.close_session(Some(now)).await;
         self.recheck_attempt = 0;
         self.next_recheck_at = now + RECHECK.delay(1, 0);
         self.set_state(SessionState::StorageDegraded);

@@ -2388,7 +2388,10 @@ async fn a_card_of_an_unknown_kind_or_over_a_bound_is_rejected_with_no_network_e
             .await
             .expect("row");
     }
+    // The two directs are to one peer, so they go one at a time: the
+    // second in the tick after the first lands (j288).
     receiver.tick(3).await;
+    receiver.tick(4).await;
     let lanes = |seen: Vec<SessionEvent>| {
         let direct = seen
             .iter()

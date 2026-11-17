@@ -29,6 +29,9 @@ interweave-transport-api = { path = "../../api/transport-api" }
 # so the most of one peer's endpoints a direct conversation may be opened
 # with (HUMAN-CHAT.md's malformed rule).
 interweave-profile-config = { path = "../../config/profile-config" }
+# Send attempts on the wire beside each other, landed without waiting
+# (FuturesUnordered, now_or_never).
+futures = { workspace = true }
 # The transport id each pending row is minted with (schema v6).
 rand = { workspace = true }
 # An outbound envelope is round-tripped through HumanChatV2::parse.
@@ -42,4 +45,4 @@ interweave-profile-identity = { path = "../../identity/profile-identity" }
 # Reads a store's page count to size a quota, in one test.
 rusqlite = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

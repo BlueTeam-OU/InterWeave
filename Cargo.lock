@@ -3763,6 +3763,7 @@ name = "interweave-human-transport-client"
 version = "0.3.0"
 dependencies = [
  "ed25519-dalek",
+ "futures",
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-core",
