@@ -952,8 +952,9 @@ fn checked_flow(restored: bool) -> interweave_human_ui_model::IdentityFlow {
         }
         apply_identity(&mut flow, IdentityInput::Chip((*word).to_owned()));
     }
-    // `checked` moves R2 on whatever the entry holds; the root calls it
-    // only after the check the full phrase asks for.
+    // `checked` moves R2 on whatever the entry holds; the Android root
+    // calls it on the `Effect::Check` R2's Check gives for a full phrase
+    // (apps/human-android/src/onboard.rs).
     assert!(
         matches!(
             apply_identity(&mut flow, IdentityInput::Primary)[..],
