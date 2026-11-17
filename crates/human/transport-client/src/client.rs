@@ -160,6 +160,14 @@ impl std::fmt::Debug for CancelledSend {
     }
 }
 
+/// A binding whose sessions the facade's send attempts may share while
+/// they are on the wire (each holds the session until it lands): every
+/// [`DataSessionBinding`] whose session is `Send + Sync + 'static`, which
+/// the platform bindings' are.
+pub trait SessionBinding: DataSessionBinding<Session: Send + Sync + 'static> {}
+
+impl<T> SessionBinding for T where T: DataSessionBinding<Session: Send + Sync + 'static> {}
+
 /// The human client's transport facade.
 pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     binding: B,
