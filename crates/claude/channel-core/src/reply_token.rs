@@ -257,7 +257,7 @@ impl ReplyTokenTable {
 
     /// Drop every direct token not minted under `held`, the epoch held
     /// now -- with none held, every direct token. Such a token can only
-    /// resolve `StaleLease`, so keeping it would count it in `status` and
+    /// resolve `StaleLease` (`a_token_from_a_previous_lease_epoch_is_stale`), so keeping it would count it in `status` and
     /// hold one of the table's places until its TTL (LIFECYCLE.md
     /// §Reconnect: discarded). A broadcast token names a channel, not a
     /// lease, and stays (`discard_stale_keeps_the_broadcast_and_the_held_epoch`;

@@ -104,9 +104,11 @@ pub const PULL_QUEUE_FULL_CANCELLED: &str =
     "the pull queue is full: call receive first; the call was cancelled in flight, outcome unknown";
 
 /// One message waiting in the pull queue, as the session gave it, with
-/// the lease it arrived under: its token is minted when the host takes
-/// it, under that lease, so its TTL runs from the reading and a message
-/// from before a reconnect stays stale by its epoch (relay seq 18784).
+/// the lease it arrived under: its token is given when the host takes
+/// it, judged by that lease, so its TTL runs from the reading, and a
+/// message from before a reconnect carries a token the table does not
+/// store, which `reply` refuses as unknown (relay seq 18784;
+/// `a_message_taken_under_a_lost_lease_stores_no_token`).
 #[derive(Debug)]
 struct Pulled {
     event: SessionEvent,
@@ -1113,7 +1115,8 @@ impl<B: DataSessionBinding> Bridge<B> {
 
     /// `receive(max)`: at most `max` messages from the queue -- `max`
     /// defaulting to and clamped at its bound, never refused -- each
-    /// minted now under the lease it arrived under. None queued yet (no
+    /// given its token now, judged by the lease it arrived under (one from
+    /// an earlier lease is not stored). None queued yet (no
     /// session has opened) is an empty answer.
     fn receive(&mut self, max: Option<u64>) -> String {
         let take = match self.pull.as_mut() {
