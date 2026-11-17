@@ -419,15 +419,15 @@ enum Input {
 
 /// Whether focus key `id` names a control of the identity page: its own
 /// `identity-` keys, the headings R, K and K1 take when a refused start
-/// raises them, and R3's and R4's, which a valid check focuses. Focus on
-/// one goes with the page.
+/// raises them, and R3's question and R4's title, which a valid check
+/// focuses. Focus on one goes with the page.
 fn on_identity_page(id: &str) -> bool {
     id.starts_with("identity-")
         || [
             store_screen::R_HEADING,
             store_screen::K_HEADING,
             identity::K1_HEADING,
-            identity::R3_HEADING,
+            identity::R3_QUESTION,
             identity::R4_HEADING,
         ]
         .contains(&id)

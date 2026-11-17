@@ -1196,12 +1196,23 @@ fn a_held_input_with_letters_typed_leaves_the_mode_navigating() {
     assert_eq!(page.last(), "ui-trace focus=identity-delete");
 }
 
-/// A valid check opens R3 with focus on its title, the question, not on
-/// Yes: an Enter pressed again before the person read the `PeerId` sends
-/// nothing (design section 8, #697 review P-1). TAB then reaches Yes,
-/// and Yes opens R4, with focus on its title too.
+/// What the platform's clipboard holds: the testing backend keeps the
+/// last copy and gives it back as a paste would read it.
+fn clipboard(view: &View) -> Option<String> {
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .platform()
+        .clipboard_text(i_slint_core::platform::Clipboard::DefaultClipboard)
+}
+
+/// A valid check opens R3 with focus on its question, R3 having no
+/// title, not on Yes: an Enter pressed again before the person read the
+/// `PeerId` sends nothing (design section 8, #697 review P-1). TAB then
+/// reaches Copy `PeerId`, then Yes, and Yes opens R4 with focus on its
+/// title; TAB there reaches Copy `PeerId`, then Continue (acceptance 15's
+/// second run).
 #[test]
-fn a_valid_check_puts_focus_on_r3s_title_and_yes_on_r4s() {
+fn a_valid_check_puts_focus_on_r3s_question_and_yes_on_r4s_title() {
     use interweave_human_ui_model::{ScreenId, UiText};
     use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_r2_but_24(None);
@@ -1216,10 +1227,16 @@ fn a_valid_check_puts_focus_on_r3s_title_and_yes_on_r4s() {
     page.flow.checked(Some(peer()));
     page.settle();
     assert_eq!(page.flow.screen(), ScreenId::R3, "control: R3");
-    assert_eq!(page.last(), "ui-trace focus=r3-heading");
+    assert_eq!(page.last(), "ui-trace focus=r3-question");
     page.enter();
     assert_eq!(page.take(), [], "the second Enter answers nothing");
     assert_eq!(page.flow.screen(), ScreenId::R3);
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-copy");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "back once");
     page.tab();
     assert_eq!(page.last(), "ui-trace focus=identity-primary");
     let shown = interweave_human_ui_slint::identity_page(&page.flow);
@@ -1237,6 +1254,127 @@ fn a_valid_check_puts_focus_on_r3s_title_and_yes_on_r4s() {
     assert_eq!(page.last(), "ui-trace focus=r4-heading");
     page.enter();
     assert_eq!(page.take(), [], "Continue is not pressed unread");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-copy");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert_eq!(shown.primary, text(UiText::IdContinue), "Continue");
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "back once");
+}
+
+/// The arrows reach R3's question and Copy `PeerId` as they reach every
+/// other stop (section 8): Down from the question to Copy, Down again to
+/// Yes, and Up back to Copy and the question. On a phone's width: at 900
+/// the full-width question's centre lies so far from Copy's, at the
+/// start, that the weighted distance gives Up to the back arrow, as
+/// Android's directional focus would.
+#[test]
+fn the_arrows_reach_r3s_question_and_copy() {
+    use interweave_human_ui_model::ScreenId;
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2_but_24(None);
+    page.view
+        .window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 640.0));
+    page.key("v");
+    page.backtab();
+    page.enter();
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    page.flow.checked(Some(peer()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R3, "control: R3");
+    assert_eq!(page.last(), "ui-trace focus=r3-question", "control");
+    page.key(Key::DownArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-copy");
+    page.key(Key::DownArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.key(Key::UpArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-copy");
+    page.key(Key::UpArrow);
+    assert_eq!(page.last(), "ui-trace focus=r3-question");
+}
+
+/// Copy `PeerId` on R3 and on R4 (design section 5): Enter on it, and a
+/// screen reader's activate, put the `PeerId`'s canonical string on the
+/// clipboard -- no group spaces -- and focus stays on it; nothing reaches
+/// the flow. R3 has no title, and its question is the page's stop.
+#[test]
+fn copy_peer_id_on_r3_and_r4_copies_the_canonical_string() {
+    use i_slint_backend_testing::AccessibleRole;
+    use interweave_human_ui_model::{ScreenId, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::Model as _;
+    let copy = |page: &Identity| {
+        ElementHandle::find_by_accessible_label(page.view.window(), text(UiText::CopyPeerId))
+            .find(|e| e.accessible_role() == Some(AccessibleRole::Button))
+            .expect("Copy PeerId")
+    };
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    let derived = peer();
+    page.flow.checked(Some(derived.clone()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R3, "control: R3");
+
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert_eq!(shown.title, "", "R3 has no title");
+    assert_eq!(shown.question, text(UiText::IdR3Question));
+    assert!(
+        !shown
+            .paragraphs
+            .iter()
+            .any(|p| p == text(UiText::IdR3Question)),
+        "the question is not a paragraph too"
+    );
+    assert!(
+        ElementHandle::find_by_accessible_label(page.view.window(), text(UiText::IdR1Title))
+            .next()
+            .is_none(),
+        "no title drawn"
+    );
+    assert!(
+        shown.peer_groups.contains(' '),
+        "control: the groups are spaced"
+    );
+
+    assert_eq!(clipboard(&page.view), None, "control: nothing copied");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "control");
+    page.enter();
+    assert_eq!(clipboard(&page.view).as_deref(), Some(derived.as_str()));
+    assert_eq!(page.take(), [], "nothing for the flow");
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "focus stays");
+    assert_eq!(page.view.window().get_focus_id(), "identity-copy");
+
+    page.tab();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: Yes");
+    page.flow.restored(Ok(()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R4, "control: R4");
+    // A screen reader's activate, the clipboard emptied first.
+    i_slint_core::window::WindowInner::from_pub(page.view.window().window())
+        .context()
+        .platform()
+        .set_clipboard_text("", i_slint_core::platform::Clipboard::DefaultClipboard);
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "control");
+    copy(&page).invoke_accessible_default_action();
+    page.settle();
+    assert_eq!(clipboard(&page.view).as_deref(), Some(derived.as_str()));
+    assert_eq!(page.take(), [], "nothing for the flow");
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "focus stays");
 }
 
 /// After K1 a valid check restores the record's `PeerId` and opens R4

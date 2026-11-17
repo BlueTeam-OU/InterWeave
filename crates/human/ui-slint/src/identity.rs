@@ -18,10 +18,11 @@ use crate::generated::{IdKey, IdKeyRow, IdScreen, IdSlot, IdentityPage};
 /// K1's heading as the focus trace names it: a refused start that raises
 /// K1 puts focus on it (section 8).
 pub(crate) const K1_HEADING: &str = "k1-heading";
-/// R3's and R4's titles, stops so that a valid check puts focus on the
-/// question or on what was restored before the action that answers it
+/// R3's question, which takes the stop a title would (R3 has no title),
+/// and R4's title: a valid check, or R3's Yes, puts focus on what the
+/// screen asks or on what was restored before the action that answers it
 /// (design section 8, #697 review P-1).
-pub(crate) const R3_HEADING: &str = "r3-heading";
+pub(crate) const R3_QUESTION: &str = "r3-question";
 pub(crate) const R4_HEADING: &str = "r4-heading";
 
 /// QWERTY rows of 10, 9 and 7 (section 4.3).
@@ -257,14 +258,15 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         back_label: text(UiText::AddClose).into(),
         ..IdentityPage::default()
     };
-    let (title, paragraphs, primary): (UiText, Vec<UiText>, Option<UiText>) = match screen {
+    // R3 alone has no title (section 3.3): its question is what it asks.
+    let (title, paragraphs, primary): (Option<UiText>, Vec<UiText>, Option<UiText>) = match screen {
         ScreenId::W => (
-            UiText::IdWelcomeTitle,
+            Some(UiText::IdWelcomeTitle),
             vec![UiText::IdWelcomeBody],
             Some(UiText::IdCreate),
         ),
         ScreenId::C1 => (
-            UiText::IdC1Title,
+            Some(UiText::IdC1Title),
             vec![
                 UiText::IdC1Point1,
                 UiText::IdC1Point2,
@@ -275,29 +277,29 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             Some(UiText::IdShowWords),
         ),
         ScreenId::C2 => (
-            UiText::IdWordsTitle,
+            Some(UiText::IdWordsTitle),
             Vec::new(),
             Some(UiText::IdWrittenDown),
         ),
-        ScreenId::C3 => (UiText::IdCheckTitle, vec![UiText::IdCheckBody], None),
+        ScreenId::C3 => (Some(UiText::IdCheckTitle), vec![UiText::IdCheckBody], None),
         ScreenId::C4 => (
-            UiText::IdCreatedTitle,
+            Some(UiText::IdCreatedTitle),
             vec![UiText::IdCreatedBody],
             Some(UiText::IdContinue),
         ),
         ScreenId::R1 => (
-            UiText::IdR1Title,
+            Some(UiText::IdR1Title),
             vec![UiText::IdR1Body, UiText::IdR1Settings],
             Some(UiText::IdEnterWords),
         ),
-        ScreenId::R2 => (UiText::IdR1Title, Vec::new(), Some(UiText::IdCheckWords)),
-        ScreenId::R3 => (
-            UiText::IdR1Title,
-            vec![UiText::IdR3Question],
-            Some(UiText::IdR3Yes),
+        ScreenId::R2 => (
+            Some(UiText::IdR1Title),
+            Vec::new(),
+            Some(UiText::IdCheckWords),
         ),
+        ScreenId::R3 => (None, Vec::new(), Some(UiText::IdR3Yes)),
         ScreenId::R4 => (
-            UiText::IdRestoredTitle,
+            Some(UiText::IdRestoredTitle),
             vec![UiText::IdCreatedBody],
             Some(UiText::IdContinue),
         ),
@@ -309,17 +311,17 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             // With no PeerId on the record there is nothing to restore
             // against: the reason and the way out only (section 3.4).
             let primary = flow.can_restore().then_some(UiText::IdEnterPhrase);
-            (UiText::IdQTitle, vec![reason], primary)
+            (Some(UiText::IdQTitle), vec![reason], primary)
         }
         ScreenId::S1 => (
-            UiText::IdS1Title,
+            Some(UiText::IdS1Title),
             vec![UiText::IdS1Body],
             Some(UiText::IdS1Unlock),
         ),
-        ScreenId::S2 => (UiText::IdWordsTitle, Vec::new(), Some(UiText::IdDone)),
+        ScreenId::S2 => (Some(UiText::IdWordsTitle), Vec::new(), Some(UiText::IdDone)),
         ScreenId::Done => return page,
     };
-    page.title = text(title).into();
+    page.title = title.map(text).unwrap_or_default().into();
     // Last, after what the screen is for: the statements the flow owes
     // before R2 takes a word -- ADR-0043's warning (item 11), then the
     // identities' new keys (item 12) -- on whichever screen the model
@@ -360,13 +362,17 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::R3 => Some(UiText::IdDerivedPeerId),
         _ => None,
     };
+    // The PeerId `peer_groups` shows, for a Copy under it.
+    let mut shown = None;
     if let (Some(label), Some(peer)) = (peer_label, flow.peer()) {
         page.peer_label = text(label).into();
         page.peer_groups = grouped(peer).into();
+        shown = Some(peer);
     }
     if let Some((_, Some(expected))) = flow.recovery() {
         page.peer_label = text(UiText::IdExpectedPeerId).into();
         page.peer_groups = grouped(expected).into();
+        shown = Some(expected);
     }
 
     match flow.notice() {
@@ -375,6 +381,8 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             page.notice = text(UiText::IdOtherIdentity).into();
             page.peer_label = text(UiText::IdDerivedPeerId).into();
             page.peer_groups = grouped(derived).into();
+            // A banner's PeerIds are for the eye alone (section 5).
+            shown = None;
             page.second_peer_label = text(UiText::IdExpectedPeerId).into();
             page.second_peer_groups = grouped(expected).into();
         }
@@ -428,7 +436,8 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             page.secondary = text(UiText::IdRestore).into();
         }
         ScreenId::R3 => {
-            page.heading_key = R3_HEADING.into();
+            page.question = text(UiText::IdR3Question).into();
+            page.question_key = R3_QUESTION.into();
             if page.secondary.is_empty() {
                 page.secondary = text(UiText::IdR3No).into();
                 page.footnote = text(UiText::IdR3NoPeerId).into();
@@ -441,6 +450,12 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         }
         ScreenId::S1 if flow.waiting() => page.waiting = text(UiText::IdGoingOffline).into(),
         _ => {}
+    }
+    // Copy PeerId under R3's and R4's PeerId only (section 5): C4's waits
+    // on its own design, and a banner's PeerId has none.
+    if let (ScreenId::R3 | ScreenId::R4, Some(peer)) = (screen, shown) {
+        page.copy_label = text(UiText::CopyPeerId).into();
+        page.peer_id = peer.as_str().into();
     }
     page
 }
