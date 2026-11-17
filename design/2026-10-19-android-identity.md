@@ -80,21 +80,23 @@ Revised again on 2026-11-17, for what #700's review rounds carried. §6 says
 where Back from a notice goes on each screen (Back from a notice):
 on R3 it returns to R2 with every word kept, as §3.3 says. Before,
 two §6 rows said "Back (words dropped)" and acceptance 12 said
-"Back leaves with nothing changed", which R3's Back contradicted. A
+"Back leaves with nothing changed", and R3's Back contradicted both wordings. A
 §6 notice on C4 shows below the title, above the PeerId's label, and
 §8 gives C4's focus order, with focus on the title when C4 opens, as
 on R4. Before, neither was given. On C4 no notice has an action of its
-own: Try again takes Continue's place, and under `IdAlreadyCreated`,
-Continue opens the identity on record while the unused PeerId is
-hidden. Acceptance 7 checks R1's order on the screen and marks
+own; C4's one action is its primary. While `IdBusy`,
+`IdStorageFailed` or `IdStorageUnknown` shows, Try again takes
+Continue's place. While `IdAlreadyCreated` shows, Continue opens the
+identity on record and the unused PeerId is hidden. Acceptance 7 checks R1's order on the screen and marks
 the accessibility-tree check blocked, as acceptance 12 does. Before,
 it read the order from a `uiautomator dump`, which sees no node of
-the app on Android; for the same reason, acceptance 15's
-launch-count run reads K1 and R2 on the phone, not from a dump.
-Acceptance 15 gains runs for the running-check
-rules that had no step: focus after a check started by a tap, Try
-again on an R2 notice, a cancelled prompt, "show all my words" held,
-and the mode after an input that does nothing.
+the app on Android. For the same reason, acceptance 15's
+launch-count run now reads K1 and R2 on the phone, not from a dump.
+Acceptance 15 gains four runs for the running-check rules that had
+no step: focus after a check started by a tap, Try again on an R2
+notice, a cancelled prompt, and "show all my words" held while the
+check runs. One of its existing runs now also checks the mode after
+an input that does nothing.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -609,16 +611,16 @@ Continue's place, and it seals again, as `design/2026-10-22-add-a-peer.md`
 `IdAlreadyCreated` shows, the primary is Continue, which opens the
 identity on record (the another-identity row). The words just shown
 were not used, so C4 then hides the PeerId they made, its label,
-`CopyPeerId` and `IdCreatedBody`: each would call that PeerId the
-person's. The notice is read after the title, before the PeerId's
-label.
+`CopyPeerId` and `IdCreatedBody`: each would show that PeerId as the
+person's own. The notice is read after the title, before the PeerId's
+label, or, with `IdAlreadyCreated`, before Continue.
 
 **Back from a notice.** Where a row's way out is Back, Back does what
 it does on that screen at any other time. On R2 after K1 it returns
 to K1, through the discard dialog when words are entered, and only
 `IdDiscard` drops the words (§7). On R3 it returns to R2 with every
 word kept, as `IdR3No` does (§3.3). C4 has no Back (§3.2), so there
-Try again is the way out, or, with `IdAlreadyCreated`, Continue.
+the way out is Try again, or, while `IdAlreadyCreated` shows, Continue.
 
 ## 7. Leaving, Back and interruptions
 
@@ -690,8 +692,8 @@ access.
     `CopyPeerId` (§5), then `IdR3Yes` and `IdR3No`. The PeerId and
     `IdR3NoPeerId` are text and take no focus.
   - **C4**: the title (`IdCreatedTitle`), the notice while one shows
-    (§6: below the title), `CopyPeerId` (§5) unless `IdAlreadyCreated`
-    shows, then the primary: Continue (`IdContinue`), or Try again in
+    (§6: below the title), `CopyPeerId` (§5; not while `IdAlreadyCreated`
+    shows), then the primary: Continue (`IdContinue`), or Try again in
     its place (§6). C4 has no Back (§3.2), so its app bar has no back
     arrow. The PeerId, its label and `IdCreatedBody` are text and take
     no focus. When C4 opens, by any input, focus goes to its title,
@@ -1206,8 +1208,8 @@ landscape:
     acceptance 15's screen-reader check). Until then, acceptance 15's
     Tab runs check R3's Tab order.
     On C4, a hook's `IdStorageFailed` shows below the title, above the
-    PeerId's label (§6), checked the same way; its place in the
-    accessibility tree is blocked in the same way.
+    PeerId's label (§6), checked the same way; the check of its place
+    in the accessibility tree is blocked in the same way.
 13. Run twice: at the Pixel 9a's own size, and set to 360 × 640 dp
     (`adb shell wm size 945x1680` at its 420 dpi, through
     `phone-run`, then `wm size reset`), the size §4's figures are for.
@@ -1238,12 +1240,12 @@ scale would also be a finding of the Android review
       landscape, with the checksum banner shown and, by a test hook,
       with `IdStorageFailed` shown; for C3 with `IdCheckWrong`
       shown; for R3, with no notice and, by a test hook, with
-      `IdStorageFailed` shown; and for C4, from its title, by a test
-      hook, with `IdStorageFailed` shown: the notice, `CopyPeerId`,
-      then Try again in Continue's place; and, by a test hook, with
-      `IdAlreadyCreated` shown: the notice, then Continue. A newly
-      opened C4 has focus
-      on its title, and Enter then presses nothing.
+      `IdStorageFailed` shown; and for C4, from its title, in two runs: by
+      a test hook with `IdStorageFailed` shown, the notice,
+      `CopyPeerId`, then Try again in Continue's place; and by a test
+      hook with `IdAlreadyCreated` shown, the notice, then Continue.
+      A newly opened C4 has focus on its title, and Enter then
+      presses nothing.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
       key, and Enter does nothing. After typing "ab",
       Enter does nothing and Space does nothing, and after each the
@@ -1305,7 +1307,7 @@ scale would also be a finding of the Android review
     - Four more host-test runs check the running-check rules of §8
       that the runs above do not reach. Each starts with all 24
       positions filled and focus on `IdCheckWords`, and Enter there
-      starts the check unless the run says otherwise. In the first, a Shift+Tab moves focus from
+      starts the check unless the run says otherwise. In the first of the four, a Shift+Tab moves focus from
       `IdCheckWords` to the clear key, and a tap on `IdCheckWords`
       starts the check: while the test leaves it unanswered, focus
       stays on the clear key. In the second, after K1, the test
@@ -1321,7 +1323,7 @@ scale would also be a finding of the Android review
       as cancelled. R2 stays as it was, with every word, no notice,
       `IdCheckWords` enabled again and focus on it, and no further
       check starts until `IdCheckWords` is pressed again. In the
-      fourth, with the text over 130 %, the check is started by Enter
+      fourth, at a font scale over 130 %, the check is started by Enter
       on `IdCheckWords` and left unanswered. Then a tap on "show all
       my words" (`IdReviewWords`), and an Enter on it once Shift+Tab
       has moved focus there, open no list.
@@ -1544,10 +1546,10 @@ scale would also be a finding of the Android review
       trace, by the flag read through `dumpsys`, or rendered. K1 and
       R2 are secured (step 1), so a screenshot of them is black, as
       item 2 says of R2: what
-      they show is read on the phone, since a `uiautomator dump` sees
-      no node of the app on Android until the build exposes an
-      accessibility tree (§8), and a screenshot is evidence only for Chats
-      or Connect to someone after R4.
+      they show is read on the phone. A `uiautomator dump` sees no
+      node of the app on Android until the build exposes an
+      accessibility tree (§8), and a screenshot is evidence only for
+      Chats or Connect to someone after R4.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
