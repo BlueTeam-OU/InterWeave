@@ -581,8 +581,7 @@ and R4.
   covers nothing: while it shows, the scrolling area above the actions
   ends 12 dp above it, and when `CopyPeerId` would then sit below that
   end, the area scrolls just far enough to keep `CopyPeerId` in
-  view. When the snackbar closes, the area ends where it ended before
-  and does not scroll back.
+  view. When the snackbar closes, the area ends where it ended before.
 - It takes no focus and is not in the Tab order (§8): it has no
   action, and focus stays on `CopyPeerId`. A screen reader can still
   read it by touch.
@@ -601,8 +600,10 @@ and R4.
   PeerId the snackbar confirmed), the system prompt and the progress
   state. One message shows at a time: the one that needs the
   person's attention.
-- Leaving the screen closes it, by any way out (Continue, Back, the
-  next C2 or S2 page). The app going to the background (Home,
+- Leaving the screen closes it, by any way out (the next screen opening
+  after Continue, Back, the next C2 or S2 page). On C4 a Continue
+  pressed while it shows does not close it: the seal it starts leaves
+  C4 on screen until its result, which closes it as above. The app going to the background (Home,
   Recents, the screen turned off) closes it too, as it closes the
   message-swipe spec's snackbar. It never shows on the next screen,
   nor again when the app returns: it is the only thing on these
@@ -1633,8 +1634,7 @@ scale would also be a finding of the Android review
     Enter and makes a second announcement. With no input it closes 6 s
     after it appeared; with the accessibility timeout set to 30 s,
     30 s after; and with that timeout set to 5 minutes, 2 minutes
-    after. After it closes, the scrolling area's offset is the one it
-    had while the snackbar showed. On C4, when a seal is answered
+    after. On C4, when a seal is answered
     `AlreadyProvisioned` while the snackbar shows, the snackbar closes
     when `IdAlreadyCreated` shows; on R3, when a restore is refused
     with `IdStorageFailed`, it closes when that notice shows. On C4,
