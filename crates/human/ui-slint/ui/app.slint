@@ -447,9 +447,16 @@ export struct IdentityPage {
     // here (section 8); empty on every other screen.
     question: string,
     question-key: string,
+    // Text under R3's question (`IdR3NoPeerId`, section 3.3): no stop.
+    question-note: string,
     paragraphs: [string],
     // An inline banner (section 6), above the content; empty for none.
     notice: string,
+    // The action under the banner's text, a stop right after it: R3's
+    // Try again (section 6); empty for none. Held while R3's restore
+    // runs: it keeps its stop, shown disabled, and presses nothing.
+    notice-action: string,
+    notice-action-held: bool,
     peer-label: string,
     // A PeerId grouped by fours for comparing by eye (section 5).
     peer-groups: string,
@@ -499,7 +506,8 @@ export struct IdentityPage {
     review: bool,
     // The app bar's back arrow (section 3), on the screens whose Back
     // stays in the app; drawn inactive while Back waits too (S1 going
-    // offline, R2 checking). Its label names the full list's arrow too.
+    // offline, R2 checking, R3 restoring). Its label names the full
+    // list's arrow too.
     back-arrow: bool,
     back-active: bool,
     back-label: string,
@@ -518,6 +526,9 @@ export struct IdentityPage {
     // indeterminate mark beside it (add-a-peer section 5.1).
     starting: string,
     secondary: string,
+    // The secondary keeps its stop, shown disabled, and presses nothing:
+    // R3's "no, check my words" while its restore runs (section 8).
+    secondary-held: bool,
     // The store's recovery screen: the secondary deletes stored data,
     // outlined in `error`.
     secondary-danger: bool,
@@ -865,6 +876,10 @@ component ActionButton inherits FocusScope {
     // What the control acts on, when its label alone does not say it: a
     // list's "Remove trust" names its peer here.
     in property <string> detail;
+    // Disabled: drawn at 38 %, marked disabled, and Enter, Space, a tap
+    // or a screen reader's activate press nothing, while the control
+    // keeps its stop (identity section 8, R3 while its restore runs).
+    in property <bool> enabled-action: true;
     callback pressed();
     callback focused(string);
     // Whether the press `pressed` is running for came from a finger:
@@ -874,14 +889,19 @@ component ActionButton inherits FocusScope {
     accessible-role: button;
     accessible-label: Drawn.spoken(text);
     accessible-description: Drawn.spoken(detail);
+    accessible-enabled: root.enabled-action;
     accessible-action-default => {
-        root.by-tap = false;
-        root.pressed();
+        if (root.enabled-action) {
+            root.by-tap = false;
+            root.pressed();
+        }
     }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
-            root.by-tap = false;
-            root.pressed();
+            if (root.enabled-action) {
+                root.by-tap = false;
+                root.pressed();
+            }
             return accept;
         }
         reject
@@ -927,6 +947,7 @@ component ActionButton inherits FocusScope {
     min-width: root.wraps ? root.target
         : max(root.target, label.preferred-width + (root.filled || root.tonal ? 48px : 16px));
     Rectangle {
+        opacity: root.enabled-action ? 1 : 0.38;
         border-width: root.text-button || root.filled || root.tonal ? 0px : 1px;
         border-color: root.on-notice ? Palette.notice-text
             : root.danger ? Palette.error : Palette.outline;
@@ -956,6 +977,7 @@ component ActionButton inherits FocusScope {
         }
     }
     TapArea {
+        enabled: root.enabled-action;
         tapped => {
             root.by-tap = true;
             root.pressed();
@@ -2202,6 +2224,8 @@ component IdentityScreen inherits FocusScope {
     callback primary();
     callback secondary();
     callback tertiary();
+    // The action under the banner's text (`notice-action`).
+    callback notice-action();
     callback back();
     callback key(string);
     callback delete-letter();
@@ -2227,7 +2251,8 @@ component IdentityScreen inherits FocusScope {
     // Slint's own navigation would, past the last stop). The stops are
     // segments, in reading order: 0 the app bar's back arrow, then the
     // heading (`heading-idx`) where the page makes it a stop, then the
-    // banner (`banner-idx`), R3's question (`question-idx`) and the
+    // banner (`banner-idx`) and the action under its text
+    // (`notice-action-idx`), R3's question (`question-idx`) and the
     // PeerId's Copy (`copy-idx`), 1 the grid's positions
     // (over 130 % font, its one button), 2 the chips, 3 the keypad's
     // letters, 4 delete, 5 clear, 6 the primary, 7 the secondary, 8 the
@@ -2269,9 +2294,15 @@ component IdentityScreen inherits FocusScope {
     function banner-idx() -> int {
         return root.heading-idx() + (root.page.heading-key != "" ? 1 : 0);
     }
-    // R3's question's stop: after the banner, which shows above it.
+    // The banner's action: right after its text (section 8, R3).
+    function notice-action-idx() -> int {
+        return root.banner-idx() + 1;
+    }
+    // R3's question's stop: after the banner and its action, which show
+    // above it.
     function question-idx() -> int {
-        return root.banner-idx() + (root.page.notice != "" ? 1 : 0);
+        return root.banner-idx() + (root.page.notice != "" ? 1 : 0)
+            + (root.page.notice != "" && root.page.notice-action != "" ? 1 : 0);
     }
     // Copy PeerId's stop: after the question, under the PeerId.
     function copy-idx() -> int {
@@ -2897,6 +2928,7 @@ component IdentityScreen inherits FocusScope {
                     border-radius: 4px;
                     VerticalLayout {
                         padding: 12px;
+                        spacing: 8px;
                         FocusNote {
                             text: root.page.notice;
                             // No tap moves focus (section 8); trace.rs
@@ -2915,6 +2947,31 @@ component IdentityScreen inherits FocusScope {
                             }
                             focus-wanted: root.want-seg == 0 && root.want-idx == root.banner-idx();
                             focused(k) => { root.took(k, 0, root.banner-idx()); }
+                        }
+                        // Its action, under its text (section 6): held,
+                        // it keeps its stop and presses nothing.
+                        if root.page.notice-action != "": HorizontalLayout {
+                            alignment: start;
+                            ActionButton {
+                                text: root.page.notice-action;
+                                text-button: true;
+                                target: 48px;
+                                enabled-action: !root.page.notice-action-held;
+                                // No tap moves focus (section 8).
+                                focus-on-click: false;
+                                focus-key: "identity-notice-action";
+                                focus-seq: root.focus-seq;
+                                property <int> arrow: root.arrow-seq;
+                                changed arrow => { root.source(0, root.notice-action-idx(), 0, 1, self.absolute-position, self.width, self.height); }
+                                property <int> probe: root.probe-seq;
+                                changed probe => {
+                                    root.offer(0, root.notice-action-idx(), 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
+                                        self.absolute-position, self.width, self.height);
+                                }
+                                focus-wanted: root.want-seg == 0 && root.want-idx == root.notice-action-idx();
+                                pressed => { root.typing = false; root.notice-action(); }
+                                focused(k) => { root.took(k, 0, root.notice-action-idx()); }
+                            }
                         }
                     }
                 }
@@ -2937,6 +2994,16 @@ component IdentityScreen inherits FocusScope {
                     }
                     focus-wanted: root.want-seg == 0 && root.want-idx == root.question-idx();
                     focused(k) => { root.took(k, 0, root.question-idx()); }
+                }
+                // Under the question, text with no stop (section 3.3).
+                if root.page.question-note != "": Text {
+                    text: root.page.question-note;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                    accessible-role: text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 for paragraph in root.page.paragraphs: Text {
                     text: paragraph;
@@ -3312,6 +3379,7 @@ component IdentityScreen inherits FocusScope {
                 text-button: !root.page.secondary-danger;
                 danger: root.page.secondary-danger;
                 target: 48px;
+                enabled-action: !root.page.secondary-held;
                 focus-key: "identity-secondary";
                 focus-seq: root.focus-seq;
                 property <int> arrow: root.arrow-seq;
@@ -4400,6 +4468,7 @@ export component AppWindow inherits Window {
     callback identity-primary();
     callback identity-secondary();
     callback identity-tertiary();
+    callback identity-notice-action();
     callback identity-back();
     callback identity-key(string);
     callback identity-delete();
@@ -10773,6 +10842,7 @@ export component AppWindow inherits Window {
             primary => { root.identity-primary(); }
             secondary => { root.identity-secondary(); }
             tertiary => { root.identity-tertiary(); }
+            notice-action => { root.identity-notice-action(); }
             back => { root.identity-back(); }
             key(letter) => { root.identity-key(letter); }
             delete-letter => { root.identity-delete(); }

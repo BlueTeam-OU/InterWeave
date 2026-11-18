@@ -59,6 +59,10 @@ pub enum IdentityInput {
     /// R2's words as a full list: "Show all my words" opens it (`true`);
     /// the text falling to 130 % or below closes it (section 4.4).
     Review(bool),
+    /// The action under a notice's text, R3's Try again (section 6: on
+    /// R3 it stands under the notice, and "no, check my words" keeps the
+    /// secondary's place).
+    NoticeAction,
 }
 
 /// Apply `input` to `flow`; the effects are the root's to carry out.
@@ -70,7 +74,9 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
         IdentityInput::Secondary => match screen {
             // On Welcome a refusal's Try again takes the secondary's place.
             ScreenId::W if !failed => flow.restore(),
-            ScreenId::R3 if !failed => {
+            // R3's secondary is always "no, check my words": its notice's
+            // Try again is the notice's own action (`NoticeAction`).
+            ScreenId::R3 => {
                 flow.recheck();
                 Vec::new()
             }
@@ -82,6 +88,10 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
             _ if failed => flow.primary(),
             _ => Vec::new(),
         },
+        // Section 6's "Try again" retries the restore; the flow holds R3
+        // while one runs, so a second press starts nothing.
+        IdentityInput::NoticeAction if screen == ScreenId::R3 && failed => flow.primary(),
+        IdentityInput::NoticeAction => Vec::new(),
         IdentityInput::Tertiary => {
             flow.show_words_again();
             Vec::new()
@@ -239,6 +249,22 @@ fn entry_grid(flow: &IdentityFlow, page: &mut IdentityPage) {
     page.checking = flow.waiting();
 }
 
+/// R3's question, the line under it, and its secondary, "no, check my
+/// words". While the restore runs Yes, No and the notice's action keep
+/// their stops, shown disabled, and Back waits (section 8, While R3's
+/// restore runs; `back_active` in [`page`]).
+fn r3(flow: &IdentityFlow, page: &mut IdentityPage) {
+    page.question = text(UiText::IdR3Question).into();
+    page.question_key = R3_QUESTION.into();
+    // Under the question, text that takes no focus (sections 3.3 and 8).
+    page.question_note = text(UiText::IdR3NoPeerId).into();
+    page.secondary = text(UiText::IdR3No).into();
+    let restoring = flow.waiting();
+    page.primary_enabled = !restoring;
+    page.secondary_held = restoring;
+    page.notice_action_held = restoring;
+}
+
 /// The page for the flow's current screen.
 #[must_use]
 pub fn page(flow: &IdentityFlow) -> IdentityPage {
@@ -394,7 +420,13 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
                 UiText::IdStorageFailed
             })
             .into();
-            page.secondary = text(UiText::TryAgain).into();
+            // R3's notice carries Try again under its text (section 6);
+            // on the other screens it takes the secondary's place.
+            if screen == ScreenId::R3 {
+                page.notice_action = text(UiText::TryAgain).into();
+            } else {
+                page.secondary = text(UiText::TryAgain).into();
+            }
         }
         None => {}
     }
@@ -435,14 +467,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::W if page.secondary.is_empty() => {
             page.secondary = text(UiText::IdRestore).into();
         }
-        ScreenId::R3 => {
-            page.question = text(UiText::IdR3Question).into();
-            page.question_key = R3_QUESTION.into();
-            if page.secondary.is_empty() {
-                page.secondary = text(UiText::IdR3No).into();
-                page.footnote = text(UiText::IdR3NoPeerId).into();
-            }
-        }
+        ScreenId::R3 => r3(flow, &mut page),
         ScreenId::R4 => page.heading_key = R4_HEADING.into(),
         ScreenId::K1 => {
             page.heading_key = K1_HEADING.into();
@@ -703,6 +728,63 @@ mod tests {
             matches!(effects.as_slice(), [Effect::Check(_)]),
             "Try again retries: {effects:?}"
         );
+    }
+
+    /// R3's page (sections 3.3, 6 and 8): `IdR3NoPeerId` under the
+    /// question, a failed restore's Try again under the notice with No
+    /// still the secondary, and while a restore runs Yes, No and Try
+    /// again held and Back inactive. Mutation: Try again back in the
+    /// secondary's place, or any of the four held fields left as they
+    /// were, fails here.
+    #[test]
+    fn r3s_notice_action_is_its_own_and_the_restore_holds_the_page() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut flow, IdentityInput::Secondary);
+        apply(&mut flow, IdentityInput::Primary);
+        for (at, word) in words().into_iter().enumerate() {
+            apply(&mut flow, IdentityInput::Slot(at));
+            for letter in word.chars() {
+                if flow.picker().and_then(|p| p.chip(word)).is_some() {
+                    break;
+                }
+                apply(&mut flow, IdentityInput::Key(letter));
+            }
+            apply(&mut flow, IdentityInput::Chip(word.to_owned()));
+        }
+        apply(&mut flow, IdentityInput::Primary);
+        flow.checked(Some(mine()));
+        assert_eq!(flow.screen(), ScreenId::R3, "control: R3");
+        let r3 = page(&flow);
+        assert_eq!(r3.question_note, en(UiText::IdR3NoPeerId));
+        assert_eq!(r3.footnote, "", "not below the actions");
+        assert_eq!(r3.secondary, en(UiText::IdR3No));
+        assert!(r3.primary_enabled && !r3.secondary_held && r3.back_active);
+
+        assert!(matches!(
+            apply(&mut flow, IdentityInput::Primary).as_slice(),
+            [Effect::RestoreConfirmed(..)]
+        ));
+        let held = page(&flow);
+        assert!(!held.primary_enabled, "Yes held");
+        assert!(held.secondary_held, "No held");
+        assert!(!held.back_active, "Back inactive");
+        assert_eq!(apply(&mut flow, IdentityInput::Secondary), []);
+        assert_eq!(flow.screen(), ScreenId::R3, "No did nothing");
+
+        flow.restored(Err(StepFailed::Storage));
+        let failed = page(&flow);
+        assert_eq!(failed.notice, en(UiText::IdStorageFailed));
+        assert_eq!(failed.notice_action, en(UiText::TryAgain));
+        assert_eq!(failed.secondary, en(UiText::IdR3No), "No keeps its place");
+        assert!(!failed.notice_action_held, "control: Try again enabled");
+        assert!(matches!(
+            apply(&mut flow, IdentityInput::NoticeAction).as_slice(),
+            [Effect::RestoreConfirmed(..)]
+        ));
+        let again = page(&flow);
+        assert!(again.notice_action_held, "Try again held");
+        assert_eq!(again.notice, en(UiText::IdStorageFailed), "it stays");
+        assert_eq!(apply(&mut flow, IdentityInput::NoticeAction), []);
     }
 
     /// Welcome with the lock refused: the notice and Try again, which

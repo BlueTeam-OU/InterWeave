@@ -1913,6 +1913,8 @@ impl View {
         let i = Rc::clone(&input);
         w.on_identity_tertiary(move || i(IdentityInput::Tertiary));
         let i = Rc::clone(&input);
+        w.on_identity_notice_action(move || i(IdentityInput::NoticeAction));
+        let i = Rc::clone(&input);
         w.on_identity_back(move || i(IdentityInput::Back));
         let i = Rc::clone(&input);
         w.on_identity_key(move |letter| {

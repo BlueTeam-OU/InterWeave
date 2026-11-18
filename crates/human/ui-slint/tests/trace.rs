@@ -1377,6 +1377,205 @@ fn copy_peer_id_on_r3_and_r4_copies_the_canonical_string() {
     assert_eq!(page.last(), "ui-trace focus=identity-copy", "focus stays");
 }
 
+impl Identity {
+    /// R3 after a valid check of WORDS' first 24, focus on its question
+    /// (acceptance 15's second run, as far as R3).
+    fn at_r3() -> Self {
+        use interweave_human_ui_model::ScreenId;
+        use interweave_human_ui_slint::IdentityInput;
+        let mut page = Self::at_r2_but_24(None);
+        page.key("v");
+        page.backtab();
+        page.enter();
+        page.take();
+        page.enter();
+        assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+        page.flow.checked(Some(peer()));
+        page.settle();
+        assert_eq!(page.flow.screen(), ScreenId::R3, "control: R3");
+        assert_eq!(page.last(), "ui-trace focus=r3-question", "control");
+        page
+    }
+
+    /// The one button labelled `label` on the page: whether it is shown
+    /// enabled.
+    fn enabled(&self, label: &str) -> Option<bool> {
+        use i_slint_backend_testing::AccessibleRole;
+        let mut found = ElementHandle::find_by_accessible_label(self.view.window(), label)
+            .filter(|e| e.accessible_role() == Some(AccessibleRole::Button));
+        let button = found
+            .next()
+            .unwrap_or_else(|| panic!("no button labelled {label:?}"));
+        assert!(found.next().is_none(), "one button labelled {label:?}");
+        button.accessible_enabled()
+    }
+}
+
+/// Acceptance 15's fourth run (design section 8, While R3's restore
+/// runs; section 7, Back while R3's restore runs): Enter on Yes starts
+/// the restore, left unanswered. Meanwhile Back, a second Enter, a Space
+/// and a screen reader's activate on Yes start no second restore and
+/// leave R3 open with focus on Yes; Yes and No show disabled and the
+/// back arrow inactive. TAB reaches No, and Enter there leaves R3 open.
+/// A success then opens R4 with focus on its title, though focus was on
+/// No. Mutation: `page` leaving R3's primary or secondary enabled while
+/// the restore runs sends the Enter, and fails here.
+#[test]
+fn r3_holds_yes_no_and_back_while_its_restore_runs() {
+    use interweave_human_ui_model::{ScreenId, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r3();
+    page.tab();
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
+    assert_eq!(page.enabled(text(UiText::IdR3Yes)), Some(true), "control");
+    assert_eq!(page.enabled(text(UiText::IdR3No)), Some(true), "control");
+    assert_eq!(page.enabled(text(UiText::AddClose)), Some(true), "control");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: Yes");
+    assert!(page.flow.waiting(), "control: the restore runs");
+    let said = page.said_count();
+    assert_eq!(page.enabled(text(UiText::IdR3Yes)), Some(false), "Yes");
+    assert_eq!(page.enabled(text(UiText::IdR3No)), Some(false), "No");
+    assert_eq!(
+        page.enabled(text(UiText::AddClose)),
+        Some(false),
+        "the back arrow is inactive"
+    );
+
+    page.key(Key::Escape);
+    page.enter();
+    page.key(" ");
+    page.activate(text(UiText::IdR3Yes));
+    page.tap(&[text(UiText::AddClose)]);
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Back],
+        "only Back reached the flow, which holds it"
+    );
+    assert_eq!(page.flow.screen(), ScreenId::R3, "R3 open");
+    assert!(page.flow.waiting(), "one restore, still running");
+    assert_eq!(page.said_count(), said, "focus never moved");
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-secondary");
+    page.enter();
+    assert_eq!(page.take(), [], "No pressed nothing");
+    assert_eq!(page.flow.screen(), ScreenId::R3, "R3 open, no word changed");
+
+    page.flow.restored(Ok(()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R4, "control: R4");
+    assert_eq!(page.last(), "ui-trace focus=r4-heading");
+}
+
+/// Acceptance 15's fifth run (design section 6's last paragraph, section
+/// 8's R3 order): a refusal that wrote nothing shows `IdStorageFailed`
+/// with focus on it and Try again under its text, the same `PeerId`, and
+/// No still in the secondary's place. TAB reaches Try again, then the
+/// question; Shift+TAB returns to Try again, whose Enter starts the
+/// restore again, left unanswered. While it runs Yes, No and Try again
+/// show disabled, focus stays on Try again, and a second Enter, a Space
+/// and a screen reader's activate on it start nothing; Copy `PeerId`,
+/// reached by TAB, still copies. Mutation: `question-idx` not counting
+/// the notice's action, or the action left enabled while held, fails
+/// here.
+#[test]
+fn r3s_notice_carries_try_again_under_it_held_while_the_restore_runs() {
+    use interweave_human_ui_model::{ScreenId, StepFailed, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r3();
+    let derived = page.flow.peer().expect("R3 shows a PeerId").clone();
+    page.tab();
+    page.tab();
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: Yes");
+    page.flow.restored(Err(StepFailed::Storage));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R3);
+    assert_eq!(page.last(), "ui-trace focus=identity-banner");
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert_eq!(shown.notice, text(UiText::IdStorageFailed));
+    assert_eq!(shown.notice_action, text(UiText::TryAgain));
+    assert_eq!(shown.secondary, text(UiText::IdR3No), "No keeps its place");
+    assert_eq!(shown.peer_id, derived.as_str(), "the same PeerId");
+
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-notice-action");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=r3-question");
+    page.shift_tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-notice-action");
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::NoticeAction], "Try again");
+    assert!(page.flow.waiting(), "the restore runs again");
+    let said = page.said_count();
+    assert_eq!(page.enabled(text(UiText::IdR3Yes)), Some(false), "Yes");
+    assert_eq!(page.enabled(text(UiText::IdR3No)), Some(false), "No");
+    assert_eq!(
+        page.enabled(text(UiText::TryAgain)),
+        Some(false),
+        "Try again"
+    );
+
+    page.enter();
+    page.key(" ");
+    page.activate(text(UiText::TryAgain));
+    assert_eq!(page.take(), [], "no second restore");
+    assert_eq!(page.said_count(), said, "focus never moved");
+    assert_eq!(page.last(), "ui-trace focus=identity-notice-action");
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert_eq!(shown.notice, text(UiText::IdStorageFailed), "it stays");
+
+    page.tab();
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "control");
+    page.enter();
+    assert_eq!(clipboard(&page.view).as_deref(), Some(derived.as_str()));
+    assert_eq!(page.take(), [], "nothing for the flow");
+    assert!(page.flow.waiting(), "the restore still runs");
+}
+
+/// Acceptance 15's sixth run (design section 8, "When R3's 'Yes,
+/// restore it' succeeds"): the restore answered as authentication
+/// needed, then the prompt cancelled, leaves R3 as it was -- no notice,
+/// Yes and No enabled again, focus on Yes -- and nothing restores until
+/// Yes is pressed again. Mutation: `cancelled_step` leaving R3 held
+/// keeps Yes disabled, and fails here.
+#[test]
+fn a_cancelled_restore_prompt_leaves_r3_as_it_was() {
+    use interweave_human_ui_model::{ScreenId, UiText};
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r3();
+    page.tab();
+    page.tab();
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: Yes");
+    assert!(page.flow.waiting(), "control: held for the prompt");
+
+    // The root's gate raised the prompt; its cancel drops the restore.
+    page.flow.cancelled_step();
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R3);
+    assert!(!page.flow.waiting(), "no restore asked");
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    assert_eq!(shown.notice, "", "no notice");
+    assert_eq!(page.enabled(text(UiText::IdR3Yes)), Some(true), "Yes");
+    assert_eq!(page.enabled(text(UiText::IdR3No)), Some(true), "No");
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    assert_eq!(page.take(), [], "nothing pressed");
+
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "Yes again");
+    assert!(page.flow.waiting(), "the restore asked again");
+}
+
 /// After K1 a valid check restores the record's `PeerId` and opens R4
 /// directly, focus on its title, not on Continue (section 8).
 #[test]
