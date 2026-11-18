@@ -147,7 +147,7 @@ leaves C4 as it was, and that one for the service start ends on
 Chats, as §6 says. Acceptance 3 names the clipboard removal, and
 acceptance 9 names `IdAlreadyTitle` and the notice's place.
 Acceptance 18 gains three host-test clipboard runs, each made below
-Android 13 and at 13 or later, and a Pixel 9a check that is blocked
+Android 13 and again at 13 or later, and a Pixel 9a check that is blocked
 until a debug-build hook exists.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
