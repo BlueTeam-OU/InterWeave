@@ -438,16 +438,33 @@ export struct IdentityPage {
     screen: IdScreen,
     title: string,
     // The title's focus key where the title is a stop: R's, K's and K1's,
-    // which a refused start raises with focus on it, and R3's and R4's,
-    // which a valid check opens with focus on it (section 8); empty, the
-    // title is plain text.
+    // which a refused start raises with focus on it, and R4's, which a
+    // valid check or R3's Yes opens with focus on it (section 8); empty,
+    // the title is plain text.
     heading-key: string,
+    // R3's question (`IdR3Question`), a stop under the notice and above
+    // the PeerId: R3 has no title, so a valid check opens it with focus
+    // here (section 8); empty on every other screen.
+    question: string,
+    question-key: string,
+    // Text under R3's question (`IdR3NoPeerId`, section 3.3): no stop.
+    question-note: string,
     paragraphs: [string],
     // An inline banner (section 6), above the content; empty for none.
     notice: string,
+    // The action under the banner's text, a stop right after it: R3's
+    // Try again (section 6); empty for none. Held while R3's restore
+    // runs: it keeps its stop, shown disabled, and presses nothing.
+    notice-action: string,
+    notice-action-held: bool,
     peer-label: string,
     // A PeerId grouped by fours for comparing by eye (section 5).
     peer-groups: string,
+    // The text button under the PeerId, R3's and R4's (section 5): its
+    // label, empty for none, and what it copies -- the PeerId's
+    // canonical string, with none of the groups' spaces.
+    copy-label: string,
+    peer-id: string,
     second-peer-label: string,
     second-peer-groups: string,
     // C2's and S2's numbered words.
@@ -489,7 +506,8 @@ export struct IdentityPage {
     review: bool,
     // The app bar's back arrow (section 3), on the screens whose Back
     // stays in the app; drawn inactive while Back waits too (S1 going
-    // offline, R2 checking). Its label names the full list's arrow too.
+    // offline, R2 checking, R3 restoring). Its label names the full
+    // list's arrow too.
     back-arrow: bool,
     back-active: bool,
     back-label: string,
@@ -508,11 +526,15 @@ export struct IdentityPage {
     // indeterminate mark beside it (add-a-peer section 5.1).
     starting: string,
     secondary: string,
+    // The secondary keeps its stop, shown disabled, and presses nothing:
+    // R3's "no, check my words" while its restore runs (section 8).
+    secondary-held: bool,
     // The store's recovery screen: the secondary deletes stored data,
     // outlined in `error`.
     secondary-danger: bool,
     tertiary: string,
-    // Plain text below the actions (K1's way out, R3's no-paper line).
+    // Plain text below the actions: K1's way out. (R3's no-paper line
+    // is `question-note`, under its question.)
     footnote: string,
     dialog: bool,
     dialog-title: string,
@@ -855,6 +877,10 @@ component ActionButton inherits FocusScope {
     // What the control acts on, when its label alone does not say it: a
     // list's "Remove trust" names its peer here.
     in property <string> detail;
+    // Disabled: drawn at 38 %, marked disabled, and Enter, Space, a tap
+    // or a screen reader's activate press nothing, while the control
+    // keeps its stop (identity section 8, R3 while its restore runs).
+    in property <bool> enabled-action: true;
     callback pressed();
     callback focused(string);
     // Whether the press `pressed` is running for came from a finger:
@@ -864,14 +890,19 @@ component ActionButton inherits FocusScope {
     accessible-role: button;
     accessible-label: Drawn.spoken(text);
     accessible-description: Drawn.spoken(detail);
+    accessible-enabled: root.enabled-action;
     accessible-action-default => {
-        root.by-tap = false;
-        root.pressed();
+        if (root.enabled-action) {
+            root.by-tap = false;
+            root.pressed();
+        }
     }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
-            root.by-tap = false;
-            root.pressed();
+            if (root.enabled-action) {
+                root.by-tap = false;
+                root.pressed();
+            }
             return accept;
         }
         reject
@@ -917,6 +948,7 @@ component ActionButton inherits FocusScope {
     min-width: root.wraps ? root.target
         : max(root.target, label.preferred-width + (root.filled || root.tonal ? 48px : 16px));
     Rectangle {
+        opacity: root.enabled-action ? 1 : 0.38;
         border-width: root.text-button || root.filled || root.tonal ? 0px : 1px;
         border-color: root.on-notice ? Palette.notice-text
             : root.danger ? Palette.error : Palette.outline;
@@ -946,6 +978,7 @@ component ActionButton inherits FocusScope {
         }
     }
     TapArea {
+        enabled: root.enabled-action;
         tapped => {
             root.by-tap = true;
             root.pressed();
@@ -2192,6 +2225,8 @@ component IdentityScreen inherits FocusScope {
     callback primary();
     callback secondary();
     callback tertiary();
+    // The action under the banner's text (`notice-action`).
+    callback notice-action();
     callback back();
     callback key(string);
     callback delete-letter();
@@ -2205,6 +2240,10 @@ component IdentityScreen inherits FocusScope {
     // R2's words as a full list: open (true) or, the text back to 130 %
     // or below, close (section 4.4).
     callback review(bool);
+    // `CopyPeerId` pressed: the canonical PeerId, which the window puts on
+    // the clipboard through its own hidden field, so this page still
+    // holds no TextInput (section 5).
+    callback copy(string);
     // A control of the page took focus: its focus key, for the window's
     // focus-id and the debug build's trace.
     callback focused(string);
@@ -2213,7 +2252,9 @@ component IdentityScreen inherits FocusScope {
     // Slint's own navigation would, past the last stop). The stops are
     // segments, in reading order: 0 the app bar's back arrow, then the
     // heading (`heading-idx`) where the page makes it a stop, then the
-    // banner (`banner-idx`), 1 the grid's positions
+    // banner (`banner-idx`) and the action under its text
+    // (`notice-action-idx`), R3's question (`question-idx`) and the
+    // PeerId's Copy (`copy-idx`), 1 the grid's positions
     // (over 130 % font, its one button), 2 the chips, 3 the keypad's
     // letters, 4 delete, 5 clear, 6 the primary, 7 the secondary, 8 the
     // tertiary -- each as long as the
@@ -2234,7 +2275,7 @@ component IdentityScreen inherits FocusScope {
         if (root.page.review) {
             return seg == 0 ? 1 : seg == 1 ? root.page.grid.length : 0;
         }
-        if (seg == 0) { return root.banner-idx() + (root.page.notice != "" ? 1 : 0); }
+        if (seg == 0) { return root.copy-idx() + (root.page.copy-label != "" ? 1 : 0); }
         // Over 130 % the grid is one stop, "Show all my words".
         if (seg == 1) { return root.large-text ? min(root.page.grid.length, 1) : root.page.grid.length; }
         if (seg == 2) { return root.page.picker ? root.page.chips.length : 0; }
@@ -2253,6 +2294,20 @@ component IdentityScreen inherits FocusScope {
     // The banner's stop in segment 0: after the arrow and the heading.
     function banner-idx() -> int {
         return root.heading-idx() + (root.page.heading-key != "" ? 1 : 0);
+    }
+    // The banner's action: right after its text (section 8, R3).
+    function notice-action-idx() -> int {
+        return root.banner-idx() + 1;
+    }
+    // R3's question's stop: after the banner and its action, which show
+    // above it.
+    function question-idx() -> int {
+        return root.banner-idx() + (root.page.notice != "" ? 1 : 0)
+            + (root.page.notice != "" && root.page.notice-action != "" ? 1 : 0);
+    }
+    // Copy PeerId's stop: after the question, under the PeerId.
+    function copy-idx() -> int {
+        return root.question-idx() + (root.page.question-key != "" ? 1 : 0);
     }
     // A refused start raised this page (section 8): focus to its heading,
     // once, whatever had it under the page. Set by the window, taken here;
@@ -2435,7 +2490,7 @@ component IdentityScreen inherits FocusScope {
     // Section 8's focus rules, applied to each page an input makes: a
     // screen that opens is `opened`'s, and Back from R2 or C3 focuses
     // the primary that opened it; R3 and R4, opened forward, put it on
-    // their title; the dialog takes focus on Continue
+    // R3's question and R4's title; the dialog takes focus on Continue
     // entering, its default, and gives it and the mode back to what had
     // them; a banner that appears, or is raised again, takes it; a chip that fills a
     // position, or a grid position chosen to edit, hands it to the
@@ -2500,12 +2555,24 @@ component IdentityScreen inherits FocusScope {
             root.go(4, 0);
         }
     }
-    // R2 and C3 open on the keypad's first enabled key, typing (section 8).
+    // R2 and C3 open on the keypad's first enabled key, typing; R3 and R4
+    // read first, from R3's question or R4's title (section 8).
     function opened() {
         if (root.page.picker) {
             root.typing = true;
             root.keypad();
+        } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4) {
+            root.read-first();
         }
+    }
+    // A valid check opens R3, or R4 after K1, and R3's Yes opens R4:
+    // focus on R3's question, R3 having no title, or on R4's title, so
+    // the screen is read from what it asks or "PeerId restored" and an
+    // Enter pressed twice does not answer it unread (section 8, #697
+    // review P-1).
+    function read-first() {
+        root.typing = false;
+        root.go(0, root.page.question-key != "" ? root.question-idx() : root.heading-idx());
     }
     init => {
         root.dialog-shown = root.page.dialog;
@@ -2551,13 +2618,7 @@ component IdentityScreen inherits FocusScope {
                 // (section 7). R3 and C4 are forward, not Back.
                 root.go(6, 0);
             } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4) {
-                // A valid check opens R3, or R4 after K1, and R3's Yes
-                // opens R4: focus on the title, so the screen is read from
-                // its question or "PeerId restored" and an Enter pressed
-                // twice does not answer it unread (section 8, #697 review
-                // P-1).
-                root.typing = false;
-                root.go(0, root.heading-idx());
+                root.read-first();
             } else if (notice-new) {
                 root.go(0, root.banner-idx());
             } else if (root.at-seg >= 0) {
@@ -2806,7 +2867,7 @@ component IdentityScreen inherits FocusScope {
                 accessible-label: Drawn.spoken(self.text);
             }
             // R's, K's and K1's title, a stop so that a refused start can
-            // put focus on it, and R3's and R4's, which a valid check
+            // put focus on it, and R4's, which a valid check or R3's Yes
             // focuses (section 8): no press, read from the top.
             if root.page.heading-key != "": VerticalLayout {
                 horizontal-stretch: 1;
@@ -2869,6 +2930,7 @@ component IdentityScreen inherits FocusScope {
                     border-radius: 4px;
                     VerticalLayout {
                         padding: 12px;
+                        spacing: 8px;
                         FocusNote {
                             text: root.page.notice;
                             // No tap moves focus (section 8); trace.rs
@@ -2888,7 +2950,62 @@ component IdentityScreen inherits FocusScope {
                             focus-wanted: root.want-seg == 0 && root.want-idx == root.banner-idx();
                             focused(k) => { root.took(k, 0, root.banner-idx()); }
                         }
+                        // Its action, under its text (section 6): held,
+                        // it keeps its stop and presses nothing.
+                        if root.page.notice-action != "": HorizontalLayout {
+                            alignment: start;
+                            ActionButton {
+                                text: root.page.notice-action;
+                                text-button: true;
+                                target: 48px;
+                                enabled-action: !root.page.notice-action-held;
+                                // No tap moves focus (section 8).
+                                focus-on-click: false;
+                                focus-key: "identity-notice-action";
+                                focus-seq: root.focus-seq;
+                                property <int> arrow: root.arrow-seq;
+                                changed arrow => { root.source(0, root.notice-action-idx(), 0, 1, self.absolute-position, self.width, self.height); }
+                                property <int> probe: root.probe-seq;
+                                changed probe => {
+                                    root.offer(0, root.notice-action-idx(), 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
+                                        self.absolute-position, self.width, self.height);
+                                }
+                                focus-wanted: root.want-seg == 0 && root.want-idx == root.notice-action-idx();
+                                pressed => { root.typing = false; root.notice-action(); }
+                                focused(k) => { root.took(k, 0, root.notice-action-idx()); }
+                            }
+                        }
                     }
+                }
+                // R3's question, in its title's place as the stop a valid
+                // check focuses (section 8): no press, read from the top.
+                if root.page.question-key != "": FocusNote {
+                    text: root.page.question;
+                    // No tap moves focus (section 8).
+                    focus-on-click: false;
+                    font-size: Type.body-large;
+                    rtl: root.rtl;
+                    focus-key: root.page.question-key;
+                    focus-seq: root.focus-seq;
+                    property <int> arrow: root.arrow-seq;
+                    changed arrow => { root.source(0, root.question-idx(), 0, 1, self.absolute-position, self.width, self.height); }
+                    property <int> probe: root.probe-seq;
+                    changed probe => {
+                        root.offer(0, root.question-idx(), 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
+                            self.absolute-position, self.width, self.height);
+                    }
+                    focus-wanted: root.want-seg == 0 && root.want-idx == root.question-idx();
+                    focused(k) => { root.took(k, 0, root.question-idx()); }
+                }
+                // Under the question, text with no stop (section 3.3).
+                if root.page.question-note != "": Text {
+                    text: root.page.question-note;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                    accessible-role: text;
+                    accessible-label: Drawn.spoken(self.text);
                 }
                 for paragraph in root.page.paragraphs: Text {
                     text: paragraph;
@@ -2944,6 +3061,30 @@ component IdentityScreen inherits FocusScope {
                         min-height: self.preferred-height;
                         accessible-role: text;
                         accessible-label: Drawn.spoken(root.page.peer-label + " " + root.page.peer-groups);
+                    }
+                    // Copy PeerId (section 5): the canonical string, through
+                    // the window's field; focus stays here.
+                    if root.page.copy-label != "": HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.page.copy-label;
+                            text-button: true;
+                            target: 48px;
+                            // No tap moves focus (section 8).
+                            focus-on-click: false;
+                            focus-key: "identity-copy";
+                            focus-seq: root.focus-seq;
+                            property <int> arrow: root.arrow-seq;
+                            changed arrow => { root.source(0, root.copy-idx(), 0, 1, self.absolute-position, self.width, self.height); }
+                            property <int> probe: root.probe-seq;
+                            changed probe => {
+                                root.offer(0, root.copy-idx(), 0, 1, self.absolute-position.y + self.height / 2 >= page-flick.absolute-position.y && self.absolute-position.y + self.height / 2 <= page-flick.absolute-position.y + page-flick.height,
+                                    self.absolute-position, self.width, self.height);
+                            }
+                            focus-wanted: root.want-seg == 0 && root.want-idx == root.copy-idx();
+                            pressed => { root.typing = false; root.copy(root.page.peer-id); }
+                            focused(k) => { root.took(k, 0, root.copy-idx()); }
+                        }
                     }
                 }
                 if root.page.second-peer-groups != "": VerticalLayout {
@@ -3240,6 +3381,10 @@ component IdentityScreen inherits FocusScope {
                 text-button: !root.page.secondary-danger;
                 danger: root.page.secondary-danger;
                 target: 48px;
+                enabled-action: !root.page.secondary-held;
+                // A tap moves no focus (section 8): held, the TapArea lets
+                // the press through to this scope, which would focus.
+                focus-on-click: false;
                 focus-key: "identity-secondary";
                 focus-seq: root.focus-seq;
                 property <int> arrow: root.arrow-seq;
@@ -4328,6 +4473,7 @@ export component AppWindow inherits Window {
     callback identity-primary();
     callback identity-secondary();
     callback identity-tertiary();
+    callback identity-notice-action();
     callback identity-back();
     callback identity-key(string);
     callback identity-delete();
@@ -10701,6 +10847,7 @@ export component AppWindow inherits Window {
             primary => { root.identity-primary(); }
             secondary => { root.identity-secondary(); }
             tertiary => { root.identity-tertiary(); }
+            notice-action => { root.identity-notice-action(); }
             back => { root.identity-back(); }
             key(letter) => { root.identity-key(letter); }
             delete-letter => { root.identity-delete(); }
@@ -10710,6 +10857,15 @@ export component AppWindow inherits Window {
             slot(i) => { root.identity-slot(i); }
             dialog(delete) => { root.identity-dialog(delete); }
             review(open) => { root.identity-review(open); }
+            // Through the field Copy message source uses, outside this
+            // page, which holds no TextInput.
+            copy(peer) => {
+                root.copy-text = peer;
+                peers-copy.select-all();
+                peers-copy.copy();
+                peers-copy.clear-selection();
+                root.copy-text = "";
+            }
             focused(k) => { root.focus-id = k; }
             heading-wanted <=> root.identity-heading-wanted;
             init => { self.focus(); }

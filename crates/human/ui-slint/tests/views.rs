@@ -972,10 +972,12 @@ fn checked_flow(restored: bool) -> interweave_human_ui_model::IdentityFlow {
 }
 
 /// Focus on any identity or store screen's title goes with the screen:
-/// K's, K1's, R3's and R4's, as R's (the test above), hand focus to
-/// Chats' heading when the page closes, never leave it nowhere (#698
-/// review risk 2: R3's and R4's titles were added to the page's keys
-/// with nothing failing had they been left out).
+/// K's, K1's and R4's, as R's (the test above), and R3's question, which
+/// takes the stop R3's missing title would, hand focus to Chats' heading
+/// when the page closes, never leave it nowhere (#698 review risk 2: R3's
+/// and R4's stops were added to the page's keys with nothing failing had
+/// they been left out). R3 and R4 put focus there on opening, as a page
+/// created on them does too.
 #[test]
 fn focus_on_any_screens_title_goes_with_the_page() {
     use interweave_human_ui_model::{
@@ -996,7 +998,7 @@ fn focus_on_any_screens_title_goes_with_the_page() {
             store_page(&StoreRecovery::new(StoreScreen::KeyLost, 1)),
         ),
         ("k1-heading", identity_page(&k1)),
-        ("r3-heading", identity_page(&checked_flow(false))),
+        ("r3-question", identity_page(&checked_flow(false))),
         ("r4-heading", identity_page(&checked_flow(true))),
     ];
     let mut view = view();
@@ -1009,7 +1011,7 @@ fn focus_on_any_screens_title_goes_with_the_page() {
         assert_eq!(
             view.window().get_focus_id(),
             heading,
-            "control: on its title"
+            "control: on its title, or R3's question"
         );
         view.show_identity(None);
         view.render(&model);

@@ -8,7 +8,10 @@
 //! the service. A cancelled prompt runs nothing the gate held: a
 //! cancelled service start leaves the person offline, and the window says
 //! why, with an Unlock that raises the prompt again (the root's; design
-//! section 6, acceptance 10; android-key-custody.md's failure list).
+//! section 6, acceptance 10; android-key-custody.md's failure list). A
+//! prompt asked and dropped before anything raised it releases what it
+//! held the same way, so no screen is held by a prompt nobody will raise
+//! ([`PresenceGate::unasked`]).
 //!
 //! It stands between [`crate::IdentityFlow`]'s effects and the platform
 //! that carries them out, so every key operation passes it whichever
@@ -48,6 +51,9 @@ pub struct PresenceGate {
     required: bool,
     last_authenticated: Option<u64>,
     held: Option<Effect>,
+    /// The root's number for the ask of the held effect's prompt
+    /// ([`Self::asked`]); 0 before it said one.
+    ask: u64,
 }
 
 impl PresenceGate {
@@ -59,6 +65,7 @@ impl PresenceGate {
             required,
             last_authenticated: None,
             held: None,
+            ask: 0,
         }
     }
 
@@ -69,7 +76,32 @@ impl PresenceGate {
             return Admit::Run(effect);
         }
         self.held = Some(effect);
+        self.ask = 0;
         Admit::Prompt
+    }
+
+    /// The prompt [`Self::admit`] asked for went to the platform as ask
+    /// number `ask`, counted up from 1 by the root, so a dropped ask names
+    /// the hold it was for ([`Self::unasked`]).
+    pub const fn asked(&mut self, ask: u64) {
+        self.ask = ask;
+    }
+
+    /// The platform dropped the root's asks for a prompt up to number
+    /// `through` before anything raised them (a new showing of the window,
+    /// a new Activity): when the held effect's ask was among them, no
+    /// answer will ever come for it, and it is released unrun. Not a
+    /// cancel -- the person decided nothing -- so the window opens to
+    /// nothing and the caller does what a cancel does to the screen: gives
+    /// it back as it was, retrying nothing (design section 6,
+    /// Authentication needed). A held effect whose ask is still up, or
+    /// was numbered after `through`, stays held.
+    pub fn unasked(&mut self, through: u64) -> Option<Effect> {
+        if self.ask == 0 || self.ask > through {
+            return None;
+        }
+        self.ask = 0;
+        self.held.take()
     }
 
     /// The prompt's answer at `now`. A grant opens the window, whoever's
@@ -78,6 +110,7 @@ impl PresenceGate {
         if granted {
             self.last_authenticated = Some(now);
         }
+        self.ask = 0;
         match self.held.take() {
             Some(effect) if granted => Prompted::Resume(effect),
             Some(effect) => Prompted::Dropped(effect),
@@ -153,6 +186,58 @@ mod tests {
             Prompted::Dropped(Effect::StartService)
         );
         assert_eq!(gate.admit(Effect::Seal, 2), Admit::Prompt, "still closed");
+    }
+
+    /// A held effect whose prompt's ask was dropped before anything raised
+    /// it is released, and nothing it held runs on a later answer: the
+    /// next prompt's grant -- a locked start's, S1's -- finds nothing to
+    /// resume, and the window stays closed. Mutation: `unasked` keeping
+    /// the hold (returning `None` always) fails the first assertion; the
+    /// grant then resumes the seal, the retry section 6 forbids.
+    #[test]
+    fn a_dropped_ask_releases_its_hold_unrun_and_opens_nothing() {
+        let mut gate = PresenceGate::new(true);
+        assert_eq!(gate.admit(Effect::Seal, 0), Admit::Prompt);
+        gate.asked(7);
+        assert_eq!(gate.unasked(7), Some(Effect::Seal));
+        assert!(!gate.holding(), "nothing holds the screen any more");
+        assert_eq!(
+            gate.prompted(true, 1),
+            Prompted::NotHeld,
+            "a later grant retries nothing"
+        );
+
+        let mut gate = PresenceGate::new(true);
+        assert_eq!(gate.admit(Effect::StartService, 0), Admit::Prompt);
+        gate.asked(3);
+        assert_eq!(gate.unasked(9), Some(Effect::StartService));
+        assert_eq!(
+            gate.admit(Effect::Seal, 1),
+            Admit::Prompt,
+            "a dropped ask authenticated nobody"
+        );
+    }
+
+    /// Only the hold whose own ask was dropped is released: one asked
+    /// after the dropped ones, or one whose ask was raised and waits on
+    /// its answer, stays held for that answer. Mutation: `unasked` ignoring
+    /// `through` fails the first assertion.
+    #[test]
+    fn a_dropped_ask_leaves_a_hold_asked_after_it() {
+        let mut gate = PresenceGate::new(true);
+        assert_eq!(
+            gate.admit(Effect::RestoreRecorded("w".into()), 0),
+            Admit::Prompt
+        );
+        gate.asked(5);
+        assert_eq!(gate.unasked(4), None, "asked after the dropped asks");
+        assert!(gate.holding());
+        assert_eq!(gate.unasked(0), None, "no ask of the gate's was dropped");
+        assert_eq!(
+            gate.prompted(false, 1),
+            Prompted::Dropped(Effect::RestoreRecorded("w".into()))
+        );
+        assert_eq!(gate.unasked(5), None, "answered: nothing left to release");
     }
 
     #[test]

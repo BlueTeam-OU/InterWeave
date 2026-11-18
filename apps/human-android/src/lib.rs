@@ -45,6 +45,15 @@ mod unlock_route;
     )
 )]
 mod identity_keys;
+// On every target, so the host tests what a dropped ask reports.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs queues with it on Android"
+    )
+)]
+mod asks;
 // On every target, so the host tests how an ask and its argument travel.
 #[cfg_attr(
     not(target_os = "android"),
