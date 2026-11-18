@@ -207,6 +207,9 @@ pub(crate) enum Request {
     /// over the runtime's whole life -- the last value, which nothing can
     /// read from the runtime afterwards (#139 review N1).
     Shutdown(Duration, oneshot::Sender<u64>),
+    /// Put the substrate into its drain: answered once it refuses new
+    /// work, `false` when the substrate did not answer.
+    Drain(oneshot::Sender<bool>),
     /// The data-plane trust policy as the driver holds it.
     Trust(oneshot::Sender<TrustAdminView>),
     /// Allow a peer, or revoke it (`admin.trust.set`), for the asking
@@ -746,6 +749,28 @@ impl ComposedRuntime {
             .await
     }
 
+    /// The stop's first act (`DIRECT.md` §Graceful shutdown, A 2026-11-17):
+    /// from the answer on, an inbound direct request is answered
+    /// `shutting_down` and enters no endpoint queue, a new local exchange
+    /// is refused `ShuttingDown`, and no new connection is admitted;
+    /// what is already queued stays readable by the sessions holding it,
+    /// and the connections already up stay up, until [`stop`](Self::stop).
+    /// The composition root drains BEFORE it closes any session, so a
+    /// sender meets a refusal it can retry on rather than an admission
+    /// whose reader is about to go (`tests/automated-client`'s
+    /// `an_inbound_direct_after_the_stop_began_is_refused_shutting_down`).
+    ///
+    /// # Errors
+    /// `BackendUnavailable` once the runtime has stopped, or when the
+    /// substrate did not answer.
+    pub async fn drain(&self) -> Result<(), TransportError> {
+        if self.ask(Request::Drain).await? {
+            Ok(())
+        } else {
+            Err(TransportError::BackendUnavailable)
+        }
+    }
+
     /// [`stop`](Self::stop), letting exchanges already in flight settle for
     /// `grace` -- the grace an admin port's shutdown named
     /// ([`ShutdownRequest::grace`]).
@@ -1239,6 +1264,9 @@ impl Driver {
             }
             Request::Shutdown(_, reply) => {
                 let _ = reply.send(self.dropped.load(Ordering::Relaxed));
+            }
+            Request::Drain(reply) => {
+                let _ = reply.send(self.swarm.drain().await.is_ok());
             }
             // Handled by `run`, which ends the loop on it; answered here
             // only for completeness.

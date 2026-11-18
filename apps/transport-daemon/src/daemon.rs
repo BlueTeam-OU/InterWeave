@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use interweave_ipc_server::{
     Counters, KeepalivePolicy, Limits, ServerConfig, SocketPaths, WRITE_STALL,
-    bind_replacing_stale, serve,
+    bind_replacing_stale, serve_handing_over,
 };
 use interweave_profile_config::lock::{DAEMON_LOCK_WAIT, ProfileLock};
 use interweave_profile_config::profile_format;
@@ -179,10 +179,16 @@ pub(crate) async fn run(args: Args) -> Result<Stopped, Refused> {
         command_deadline: COMMAND_DEADLINE,
         write_stall: WRITE_STALL,
     };
-    let (stop_server, server_stopped) = oneshot::channel::<()>();
-    let mut server = tokio::spawn(serve(listeners, runtime.sessions(), config, async {
-        let _ = server_stopped.await;
-    }));
+    let (stop_server, server_stopped) = oneshot::channel::<Duration>();
+    let mut server = tokio::spawn(serve_handing_over(
+        listeners,
+        runtime.sessions(),
+        config,
+        async {
+            // A sender dropped unsent is a stop with no grace to hand over in.
+            server_stopped.await.unwrap_or(Duration::ZERO)
+        },
+    ));
     tracing::info!(data = %sockets.data.display(), "serving");
 
     let Stop {
@@ -193,14 +199,34 @@ pub(crate) async fn run(args: Args) -> Result<Stopped, Refused> {
     } = signals.wait_for_stop(&runtime, &mut server).await;
 
     tracing::info!(grace_ms = millis(grace), "stopping");
-    let _ = stop_server.send(());
+    let began = tokio::time::Instant::now();
+    // THE STOP ORDER (`LOCAL-IPC.md`'s shutdown order, A 2026-11-17). The
+    // runtime drains FIRST: from its answer an inbound direct request is
+    // answered `shutting_down` and no endpoint queue takes a new message,
+    // so a sender gets a refusal it can retry on rather than an
+    // `AcceptedV2` whose reader is about to go. Then the server hands each
+    // session what its queue held and closes it, inside the grace, and
+    // only then do the leases go and the runtime stop. As the gap was
+    // found the server closed every session first and the runtime drained
+    // after, and a message admitted in between was lost
+    // (`tests/automated-client`'s
+    // `an_inbound_direct_after_the_stop_began_is_refused_shutting_down`).
+    // A runtime that ended on its own cannot drain and need not.
+    if !runtime_ended && let Err(e) = runtime.drain().await {
+        tracing::warn!(error = ?e, "the runtime did not drain");
+    }
+    let _ = stop_server.send(grace);
     // Every connection closed, so every session closed and every lease
     // released, before the runtime goes.
     let server_outcome = match ended_early {
         Some(outcome) => outcome,
         None => server.await,
     };
-    let stopped = runtime.stop_within(grace).await;
+    // One grace for the whole stop: the runtime settles in what the
+    // hand-over left of it.
+    let stopped = runtime
+        .stop_within(grace.saturating_sub(began.elapsed()))
+        .await;
     unlink(&sockets);
     // Released, never unlinked (ADR-0028, A 2026-09-28).
     drop(lock);
@@ -218,17 +244,21 @@ pub(crate) async fn run(args: Args) -> Result<Stopped, Refused> {
 /// reported as one and not a clean shutdown, however cleanly its stop
 /// went -- the daemon stopped serving because nothing was left to serve
 /// (`a_runtime_that_ended_is_a_failure_however_its_stop_went`); then the
-/// stop's own result, the dropped-event count.
+/// stop's own result, the dropped-event count: the runtime's, and what
+/// the server's hand-over could not give a client before the grace ended
+/// (`LOCAL-IPC.md`'s shutdown order).
 fn stopped_outcome(
     server: Result<Arc<Counters>, tokio::task::JoinError>,
     runtime_ended: bool,
     stopped: Result<u64, impl fmt::Debug>,
 ) -> Result<u64, Refused> {
-    server.map_err(|e| refused("the IPC server")(&e))?;
+    let counters = server.map_err(|e| refused("the IPC server")(&e))?;
     if runtime_ended {
         return Err(Refused("the transport runtime ended on its own".into()));
     }
-    stopped.map_err(|e| Refused(format!("the runtime's stop: {e:?}")))
+    stopped
+        .map(|dropped| dropped.saturating_add(counters.events_dropped_at_stop()))
+        .map_err(|e| Refused(format!("the runtime's stop: {e:?}")))
 }
 
 /// The lock's refusal: a running daemon is asked about only when the

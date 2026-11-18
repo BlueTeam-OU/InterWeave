@@ -14,6 +14,8 @@
 //!   refused by the Swarm before any socket, and the refusal is its own
 //!   class, `own_listen_address`, not `dial_failed`; the control is a
 //!   peer on a port of its own, reached by the same call.
+//! - after the loss of a connection that held 30 s the first retries are
+//!   short (ADR-0011 A 2026-11-17), and after a shorter one they are not.
 //!
 //! NOT OBSERVED HERE: the origin itself. `DiscoveryReconnect` and
 //! `Manual` are admitted alike today (both name an application
@@ -123,6 +125,9 @@ async fn a_reconnect_reaches_a_learned_peer_and_dials_nothing_once_connected() {
 /// ladder this replaced, whose second wait was already 60 s -- and
 /// returns on the same address with the same identity just after a
 /// failure, the worst moment, when the subject reconnects within 30 s.
+/// The connection before the loss holds well under 30 s and is the
+/// first, so ADR-0011 A 2026-11-17's loss ladder does not start and
+/// every step is the 30 s one.
 ///
 /// Paused time, so six steps cost nothing; the refusals are the
 /// kernel's, instant on a port nobody holds. The subject's `retry_tick`
@@ -270,6 +275,165 @@ async fn a_peer_down_past_several_steps_is_redialled_within_30_s_of_its_return()
 
     subject.shutdown().await.expect("clean shutdown");
     target.shutdown().await.expect("clean shutdown");
+}
+
+/// What one loss costs, over real sockets in paused time: the subject
+/// is connected to the target for `held`, the target stops, the
+/// subject's reconnect after the loss fails against the closed port,
+/// and the target returns on the same address with the same identity at
+/// once. Returns the delay the first failure scheduled, how long after
+/// that failure the target was back, and how long after its return the
+/// subject was connected again.
+async fn one_loss(held: Duration) -> (u64, Duration, Duration) {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let subject_id = ProfileIdentity::generate();
+    let target_id = ProfileIdentity::generate();
+    let subject_peer = subject_id.transport_identity().expect("peer id");
+    let target_peer = target_id.transport_identity().expect("peer id");
+    let mut subject = SwarmRuntime::start(
+        &subject_id,
+        SubstrateConfig::default(),
+        data_plane(&target_peer),
+    )
+    .expect("starts");
+    let target = SwarmRuntime::start(
+        &target_id,
+        SubstrateConfig::default(),
+        data_plane(&subject_peer),
+    )
+    .expect("starts");
+    let _ = subject
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("listens");
+    let target_addr = target
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("listens");
+    assert_eq!(
+        subject
+            .learn(target_peer.clone(), [target_addr.to_string()])
+            .await
+            .expect("delivered"),
+        1
+    );
+    subject
+        .reconnect(target_peer.clone())
+        .await
+        .expect("delivered")
+        .expect("admitted");
+    wait_connected(&mut subject, &target_peer).await;
+
+    // HELD, by the runtime's own clock: the events are drained meanwhile,
+    // and the connection must still be up at the end, or this would be a
+    // test of a different loss.
+    let until = tokio::time::Instant::now() + held;
+    loop {
+        let remaining = until.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, subject.next_event()).await {
+            Ok(Some(SwarmEvent::Disconnected { peer, .. })) if peer == target_peer => {
+                panic!("lost inside the hold")
+            }
+            Ok(Some(_)) | Err(_) => {}
+            Ok(None) => panic!("the runtime stopped"),
+        }
+    }
+
+    // DOWN, and the first redial after the loss fails.
+    target.shutdown().await.expect("clean shutdown");
+    loop {
+        match tokio::time::timeout(PATIENCE, subject.next_event()).await {
+            Ok(Some(SwarmEvent::Disconnected { peer, .. })) if peer == target_peer => break,
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the runtime stopped"),
+            Err(elapsed) => panic!("the loss was never seen ({elapsed})"),
+        }
+    }
+    subject
+        .reconnect(target_peer.clone())
+        .await
+        .expect("delivered")
+        .expect("admitted");
+    let first_delay = loop {
+        match tokio::time::timeout(PATIENCE, subject.next_event()).await {
+            Ok(Some(SwarmEvent::RetryScheduled { peer, delay_ms, .. })) if peer == target_peer => {
+                break delay_ms;
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the runtime stopped"),
+            Err(elapsed) => panic!("the redial never failed ({elapsed})"),
+        }
+    };
+    let failed = tokio::time::Instant::now();
+
+    // BACK at once, as a daemon its unit restarts would be.
+    let target = SwarmRuntime::start(
+        &target_id,
+        SubstrateConfig::default(),
+        data_plane(&subject_peer),
+    )
+    .expect("restarts");
+    assert_eq!(
+        target.listen(target_addr.clone()).await.expect("listens"),
+        target_addr,
+        "the same address"
+    );
+    let back = tokio::time::Instant::now();
+    loop {
+        match tokio::time::timeout(Duration::from_secs(60), subject.next_event()).await {
+            Ok(Some(SwarmEvent::Connected { peer, .. })) if peer == target_peer => break,
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the runtime stopped"),
+            Err(elapsed) => panic!("never reconnected ({elapsed})"),
+        }
+    }
+    let took = back.elapsed();
+    subject.shutdown().await.expect("clean shutdown");
+    target.shutdown().await.expect("clean shutdown");
+    (first_delay, back - failed, took)
+}
+
+/// ADR-0011 A 2026-11-17, the owner's word: after the loss of a
+/// connection that held 30 s or more the first retries are short, so a
+/// far end that restarts at once is reached in seconds rather than at
+/// the 30 s step. The first redial after the loss fails against the
+/// closed port and schedules 1 s; the far end is back within 1.5 s of
+/// that failure; the subject is connected again well under 30 s after
+/// the return. The connection's age is the runtime's own clock from its
+/// establishment (paused time, so the 31 s hold costs nothing).
+#[tokio::test(start_paused = true)]
+async fn a_peer_lost_after_a_held_connection_is_redialled_on_the_short_steps() {
+    let (first_delay, returned_after, took) = one_loss(Duration::from_secs(31)).await;
+    assert_eq!(first_delay, 1_000, "the ladder's first step");
+    assert!(
+        returned_after <= Duration::from_millis(1_500),
+        "the far end was back {returned_after:?} after the failure"
+    );
+    assert!(
+        took < Duration::from_secs(5),
+        "reconnected {took:?} after the return"
+    );
+}
+
+/// THE CONTROL: a connection that held less than 30 s does not start the
+/// ladder, and the subject had not been connected to the far end before
+/// it, so there is no ladder to continue -- the first failure takes the
+/// 30 s step, and a far end back at once is reached only at its end.
+#[tokio::test(start_paused = true)]
+async fn a_peer_lost_after_a_short_connection_keeps_the_30_s_step() {
+    let (first_delay, returned_after, took) = one_loss(Duration::from_secs(29)).await;
+    assert_eq!(first_delay, 30_000, "the 30 s step");
+    assert!(
+        returned_after <= Duration::from_millis(1_500),
+        "the far end was back {returned_after:?} after the failure"
+    );
+    assert!(
+        took >= Duration::from_secs(25) && took <= Duration::from_secs(31),
+        "reconnected {took:?} after the return, at the step's end"
+    );
 }
 
 /// THE BUDGET IS PER TICK, NOT PER WAKE (#674 review F2). The wake at

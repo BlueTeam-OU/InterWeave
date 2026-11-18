@@ -40,7 +40,8 @@
 //! - **Backoff for a server that will not CONNECT** is the adapter's
 //!   own ladder over the dial gate's: the gate holds the server off for
 //!   its 30 s (`ConnectionManager::retry_delay_ms`, flat since ADR-0011
-//!   A 2026-11-14) with `ConnectionPolicy` scoping it to the address
+//!   A 2026-11-14; the loss ladder's shorter steps of A 2026-11-17 are a
+//!   data-plane peer's, which a server need not be) with `ConnectionPolicy` scoping it to the address
 //!   before the peer, and the adapter asks again on `AUTONAT.md` §4's
 //!   30 s doubling to a 5-minute ceiling (`autonat_driver::retest_backoff_ms`),
 //!   which until that amendment was the gate's own. A server that connects

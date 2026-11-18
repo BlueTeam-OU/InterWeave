@@ -310,6 +310,12 @@ const MATRIX: &[Clause] = &[
     },
     Clause {
         doc: DIRECT,
+        text: "a new direct request is answered `shutting_down` and enters no endpoint queue",
+        error: "shutting_down",
+        proof: Proof::Test("an_inbound_direct_after_the_stop_began_is_refused_shutting_down"),
+    },
+    Clause {
+        doc: DIRECT,
         text: "Coarse reason codes: `no_route`, `unauthorized_peer`, `overloaded`, `malformed`, `too_large`, `shutting_down`, `unsupported`.",
         error: "no_route",
         proof: Proof::Vocabulary("every_direct_reject_reason_validates"),

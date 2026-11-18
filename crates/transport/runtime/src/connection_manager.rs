@@ -60,6 +60,7 @@ use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 use crate::connection_policy::{
     ConnectionClass, ConnectionPolicy, DialDenial, DialOrigin, DialRequest,
 };
+use crate::loss_ladder::LossLadder;
 
 /// Who this profile trusts, and for what.
 ///
@@ -884,6 +885,12 @@ pub struct ConnectionManager {
     /// constructed by a test that never had one.
     local_peer: Option<TransportIdentity>,
     retries: std::collections::BTreeMap<TransportIdentity, Retry>,
+    /// The peers on the loss ladder (ADR-0011 A 2026-11-17) and the step
+    /// each stands on: the one place the short steps after a loss are
+    /// kept, read only through [`Self::retry_delay_ms`]. Bounded by the
+    /// data-plane allowlist and `ConnectionPolicy::max_peers`
+    /// (`crate::loss_ladder`).
+    loss_ladder: LossLadder,
     /// When each peer was last lifted by a network addition, for the
     /// lift floor ([`Self::network_added`]). Each addition first prunes
     /// every entry older than [`RETRY_BASE_MS`] or for a peer no longer
@@ -968,6 +975,7 @@ impl ConnectionManager {
             shutting_down,
             local_peer: None,
             retries: std::collections::BTreeMap::new(),
+            loss_ladder: LossLadder::default(),
             network_lifts: std::collections::BTreeMap::new(),
             retired: std::collections::VecDeque::new(),
             notes: std::collections::VecDeque::new(),
@@ -1097,6 +1105,13 @@ impl ConnectionManager {
         let mut trust = trust;
         trust.local_peer.clone_from(&self.local_peer);
         self.trust = Arc::new(trust);
+        // THE LOSS LADDER FOLLOWS IT TOO, at once: its steps are for a
+        // data-plane peer, and a peer the trust no longer classifies so
+        // keeps none, even if it is trusted again later -- a peer this
+        // runtime then reaches afresh (`a_revoked_peer_leaves_the_loss_ladder`).
+        let current = Arc::clone(&self.trust);
+        self.loss_ladder
+            .retain(|peer| current.classify(peer) == ConnectionClass::DataPlaneTrusted);
         // THE BOOK FOLLOWS THE TRUST, WITH A MEMORY (review R3 on
         // fa3eab8, and #117's blind review F3 against the first fix). It
         // admits addresses only for a peer the trust classifies, and
@@ -2131,8 +2146,8 @@ impl ConnectionManager {
     /// ONCE PER LIFT FLOOR (ADR-0011 A 2026-10-09): additions can repeat
     /// -- a LAN router announcing new IPv6 prefixes, a flapping VPN --
     /// and each would otherwise redial every held-off peer, so a peer is
-    /// lifted at most once per [`RETRY_BASE_MS`], the cadence's first
-    /// step, measured from its previous lift; an addition inside the
+    /// lifted at most once per [`RETRY_BASE_MS`], the step of a peer off
+    /// the loss ladder, measured from its previous lift; an addition inside the
     /// floor lifts nothing for it. Returns how many peers were made
     /// dialable.
     pub fn network_added(&mut self, now_ms: u64) -> usize {
@@ -2194,6 +2209,30 @@ impl ConnectionManager {
     pub fn record_connection_closed(&mut self, slot: ConnectionSlot) {
         drop(slot);
         self.publish();
+    }
+
+    /// The LAST connection to `peer` closed -- the runtime's open set for
+    /// it is empty -- after that connection held `held_ms` by the
+    /// runtime's clock from its establishment.
+    ///
+    /// ADR-0011 A 2026-11-17: a data-plane peer whose last connection
+    /// held [`crate::LOSS_LADDER_FLOOR_MS`] or more goes on the loss
+    /// ladder at its first step, so the next failures wait 1, 2, 4, 8 and
+    /// 16 s before the 30 s step (`crate::loss_ladder`). A shorter
+    /// connection changes nothing: the retries go on from the step they
+    /// had reached, or the 30 s step for a peer not on the ladder.
+    /// Nothing else is touched -- the peer backoff and the retry are the
+    /// failures' to set. Returns whether the peer is at the first step.
+    pub fn record_peer_lost(&mut self, peer: &TransportIdentity, held_ms: u64) -> bool {
+        let data_plane = self.classify(peer) == ConnectionClass::DataPlaneTrusted;
+        self.loss_ladder
+            .lost(peer, held_ms, data_plane, self.policy.max_peers)
+    }
+
+    /// Peers on the loss ladder, for the bound's tests.
+    #[cfg(test)]
+    fn loss_ladder_peers(&self) -> usize {
+        self.loss_ladder.len()
     }
 
     /// Whether a connection of this class is still authorized to be
@@ -2471,14 +2510,18 @@ impl ConnectionManager {
     /// The delay before this peer is retried, given what it has already
     /// cost.
     ///
-    /// The cadence `CONNECTIVITY.md` §11 states for a peer that is not
-    /// yet verified: 30 seconds, whatever the attempt count (ADR-0011
-    /// A 2026-11-14). The numbers are restated here rather than
-    /// referenced, and the test names the document, so a drift fails
-    /// rather than becoming a discrepancy nobody compares.
+    /// The cadence `CONNECTIVITY.md` §11 states: the loss ladder's step
+    /// for a peer on it (ADR-0011 A 2026-11-17: 1, 2, 4, 8, 16 s after
+    /// the loss of a connection that held), else 30 seconds whatever the
+    /// attempt count (ADR-0011 A 2026-11-14). THE ONE READER of the
+    /// ladder: the peer backoff, the address's failure record and the
+    /// scheduled retry all take what this returns. Reading it advances
+    /// nothing; [`Self::schedule_retry`] takes the step.
     fn retry_delay_ms(&self, peer: &TransportIdentity) -> u64 {
         let attempts = self.retries.get(peer).map_or(0, |r| r.attempts);
-        retry_backoff_ms(attempts)
+        self.loss_ladder
+            .delay_ms(peer)
+            .unwrap_or_else(|| retry_backoff_ms(attempts))
     }
 
     /// `claimed` carries a claim forward that this failure did not own;
@@ -2509,6 +2552,11 @@ impl ConnectionManager {
         }
 
         let attempt = attempts.saturating_add(1);
+        // The failure that scheduled this took the ladder's step, if the
+        // peer is on it; the next takes the one after. Here, the one place
+        // a failure schedules a retry, so a failure cannot take a step
+        // twice or not at all.
+        self.loss_ladder.failed(&peer);
         self.retries.insert(
             peer,
             Retry {
@@ -2625,8 +2673,11 @@ pub struct PeerGateState {
     pub retry_due_at_ms: Option<u64>,
 }
 
-/// The gate's first retry delay for a data-plane peer that would not
-/// connect: 30 seconds (`CONNECTIVITY.md` §11).
+/// The gate's retry delay for a data-plane peer that would not connect
+/// and is not on the loss ladder: 30 seconds (`CONNECTIVITY.md` §11). A
+/// peer this runtime has not been connected to keeps it from the first
+/// failure; the short steps after the loss of a connection that held are
+/// [`crate::LOSS_LADDER_MS`] (ADR-0011 A 2026-11-17).
 ///
 /// PUBLIC, because the profile's `address_backoff_min` default is held
 /// to it (`translate.rs`'s `the_accepted_defaults_are_what_the_runtime_runs`).
@@ -2641,17 +2692,20 @@ pub const RETRY_BASE_MS: u64 = 30_000;
 /// returns is dialled within 30 s of its return however long it was
 /// away, so no more than this passes between the settlement of one
 /// failed attempt and the start of the next. With the ceiling at the
-/// base the ladder below is flat; the attempt count is kept for
-/// diagnostics and no longer lengthens the wait. Before it the ceiling
+/// base `retry_backoff_ms` is flat; the attempt count is kept for
+/// diagnostics and no longer lengthens the wait, and the loss ladder's
+/// shorter steps (ADR-0011 A 2026-11-17) are all under it. Before it the ceiling
 /// was five minutes, and an outage of 480 s reconnected 272 s after
 /// the far end's return (#672's run record).
 pub const RETRY_CEILING_MS: u64 = 30_000;
 
-/// The delay before the `attempts`-th retry: exponential from
-/// [`RETRY_BASE_MS`], bounded by [`RETRY_CEILING_MS`] -- which, with
-/// the two equal, is [`RETRY_BASE_MS`] for every attempt. The shape is
-/// kept so the profile's `address_backoff_min`/`max` pair still names
-/// what it governs.
+/// The delay before the `attempts`-th retry of a peer NOT on the loss
+/// ladder: exponential from [`RETRY_BASE_MS`], bounded by
+/// [`RETRY_CEILING_MS`] -- which, with the two equal, is
+/// [`RETRY_BASE_MS`] for every attempt. The shape is kept so the
+/// profile's `address_backoff_min`/`max` pair still names what it
+/// governs. A peer on the ladder takes the ladder's step instead
+/// (`ConnectionManager::retry_delay_ms`, ADR-0011 A 2026-11-17).
 ///
 /// Shifted by a CLAMPED exponent. `1u64 << 64` is undefined-ish in the
 /// sense that it panics in debug and wraps in release, and an attempt
@@ -2719,6 +2773,203 @@ mod tests {
         }
         assert_eq!(RETRY_BASE_MS, 30_000);
         assert_eq!(RETRY_CEILING_MS, 30_000);
+        // The loss ladder's steps (ADR-0011 A 2026-11-17) are under the
+        // bound too, so the amendment widens nothing.
+        assert!(
+            crate::LOSS_LADDER_MS
+                .iter()
+                .all(|step| *step <= RETRY_CEILING_MS),
+            "{:?}",
+            crate::LOSS_LADDER_MS
+        );
+    }
+
+    /// One connection to P1 at `/a`, established at `since` and lost at
+    /// `at` as the runtime reports it: the slot closed, then the open set
+    /// empty after the connection held `at - since`.
+    fn connect_and_lose(m: &mut ConnectionManager, since: u64, at: u64) -> bool {
+        let t = m
+            .handle()
+            .load()
+            .admit(&request(P1, "/a"), since)
+            .expect("admitted");
+        let slot = m.record_success(t, since);
+        m.record_connection_closed(slot);
+        m.record_peer_lost(&peer(P1), at - since)
+    }
+
+    /// One failed dial to P1 at `/a` settled at `at`, admitted then; the
+    /// delay the gate and the retry took, after checking the two agree:
+    /// the peer backoff and the retry both end at `at + delay`, and a
+    /// dial a millisecond before is refused `PeerBackoff`.
+    fn fail_once(m: &mut ConnectionManager, at: u64) -> u64 {
+        let t = m
+            .handle()
+            .load()
+            .admit(&request(P1, "/a"), at)
+            .expect("admitted");
+        let retry = m.record_failure(t, at).expect("a retry");
+        let delay = retry.delay_ms;
+        assert!(retry.peer_backoff, "the only route, so the peer backs off");
+        let state = m.peer_gate_state(&peer(P1), at);
+        assert_eq!(
+            (state.backoff_until_ms, state.retry_due_at_ms),
+            (Some(at + delay), Some(at + delay)),
+            "one delay serves the peer backoff and the retry"
+        );
+        assert_eq!(
+            m.handle()
+                .load()
+                .admit(&request(P1, "/a"), at + delay - 1)
+                .err(),
+            Some(DialDenial::PeerBackoff),
+            "held for the whole step"
+        );
+        delay
+    }
+
+    /// Failures at each step's end from `start`, returning the delays.
+    fn walk(m: &mut ConnectionManager, start: u64, failures: usize) -> (Vec<u64>, u64) {
+        let mut at = start;
+        let mut delays = Vec::new();
+        for _ in 0..failures {
+            let delay = fail_once(m, at);
+            delays.push(delay);
+            at += delay;
+        }
+        (delays, at)
+    }
+
+    /// ADR-0011 A 2026-11-17 (a): after the loss of a connection that
+    /// held 30 s or more, the delays are 1, 2, 4, 8 and 16 s, then 30 s
+    /// from the sixth failure on -- for the peer backoff and the retry
+    /// alike (`fail_once`), and for an address scored without a ticket,
+    /// whose failure sets the same backoff.
+    #[test]
+    fn the_loss_of_a_connection_that_held_starts_the_ladder_at_1_s() {
+        let mut m = manager(8);
+        assert!(connect_and_lose(&mut m, 0, 60_000), "on the ladder");
+        let (delays, at) = walk(&mut m, 60_000, 9);
+        assert_eq!(
+            delays,
+            [
+                1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000
+            ]
+        );
+        assert_eq!(m.loss_ladder_peers(), 0, "off it past its end");
+        // An address scored without a ticket takes the step the peer
+        // stands on -- P2, lost after an inbound that held, with no
+        // proven route to spare it the peer backoff -- and takes no step
+        // itself: the dial's own ticket does.
+        assert!(m.record_peer_lost(&peer(P2), 30_000));
+        m.record_address_failure_unadmitted(&peer(P2), "/b", at);
+        assert_eq!(
+            m.peer_gate_state(&peer(P2), at).backoff_until_ms,
+            Some(at + 1_000),
+            "the address's failure takes the ladder's first step"
+        );
+        m.record_address_failure_unadmitted(&peer(P2), "/c", at);
+        assert_eq!(
+            m.peer_gate_state(&peer(P2), at).backoff_until_ms,
+            Some(at + 1_000),
+            "and a second one the same step"
+        );
+    }
+
+    /// (b) THE FLOOR: a connection that held 29.999 s does not start the
+    /// ladder -- a peer never on it keeps 30 s, and a peer on it goes on
+    /// from the step reached -- while one that held exactly 30 s does.
+    #[test]
+    fn a_connection_that_held_under_30_s_does_not_restart_the_ladder() {
+        // Never on it: 30 s.
+        let mut m = manager(8);
+        assert!(!connect_and_lose(&mut m, 0, 29_999));
+        assert_eq!(walk(&mut m, 29_999, 2).0, [30_000, 30_000]);
+
+        // On it, two steps taken: the short connection's loss goes on at
+        // the third, 4 s, not back at 1 s.
+        let mut m = manager(8);
+        assert!(connect_and_lose(&mut m, 0, 30_000));
+        let (delays, at) = walk(&mut m, 30_000, 2);
+        assert_eq!(delays, [1_000, 2_000]);
+        assert!(!connect_and_lose(&mut m, at, at + 29_999));
+        assert_eq!(walk(&mut m, at + 29_999, 2).0, [4_000, 8_000]);
+
+        // THE CONTROL, at exactly the floor: the ladder starts.
+        let mut m = manager(8);
+        assert!(connect_and_lose(&mut m, 0, 30_000));
+        assert_eq!(walk(&mut m, 30_000, 1).0, [1_000]);
+    }
+
+    /// (c) A peer this runtime has never been connected to keeps the
+    /// flat 30 s from its first failure (ADR-0011 A 2026-11-14).
+    #[test]
+    fn a_peer_never_connected_keeps_30_s_from_the_first_failure() {
+        let mut m = manager(8);
+        assert_eq!(walk(&mut m, 1_000, 3).0, [30_000, 30_000, 30_000]);
+        assert_eq!(m.loss_ladder_peers(), 0);
+    }
+
+    /// (d) A connection that holds ends the ladder: its loss starts it
+    /// again at 1 s, from mid-ladder and from past its end alike.
+    #[test]
+    fn a_connection_that_holds_then_is_lost_restarts_the_ladder_at_1_s() {
+        let mut m = manager(8);
+        assert!(connect_and_lose(&mut m, 0, 30_000));
+        let (_, at) = walk(&mut m, 30_000, 3);
+        assert!(connect_and_lose(&mut m, at, at + 45_000));
+        let (delays, at) = walk(&mut m, at + 45_000, 7);
+        assert_eq!(
+            delays,
+            [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000],
+            "from mid-ladder"
+        );
+        assert_eq!(m.loss_ladder_peers(), 0, "off it past its end");
+        assert!(connect_and_lose(&mut m, at, at + 30_000));
+        assert_eq!(
+            walk(&mut m, at + 30_000, 2).0,
+            [1_000, 2_000],
+            "from past its end"
+        );
+    }
+
+    /// (e) STATE KEYED BY A PEER LEAVES WITH THE PEER: a revoked peer
+    /// leaves the ladder at once and, trusted again, keeps 30 s. Only a
+    /// data-plane peer is put on it -- an infrastructure-only one keeps
+    /// its 30 s.
+    #[test]
+    fn a_revoked_peer_leaves_the_loss_ladder() {
+        let mut m = manager(8);
+        assert!(connect_and_lose(&mut m, 0, 30_000));
+        assert_eq!(m.loss_ladder_peers(), 1);
+        let _ = m.set_trust(trusting(&[P2], &[]), &[peer(P1)]);
+        assert_eq!(m.loss_ladder_peers(), 0, "gone with the trust");
+        let _ = m.set_trust(trusting(&[P1, P2], &[]), &[]);
+        assert_eq!(walk(&mut m, 30_000, 1).0, [30_000], "trusted again, off it");
+
+        // Revoked to infrastructure-only: off it too, and not put back.
+        let mut m = manager(8);
+        assert!(connect_and_lose(&mut m, 0, 30_000));
+        let _ = m.set_trust(trusting(&[P2], &[P1]), &[peer(P1)]);
+        assert_eq!(m.loss_ladder_peers(), 0);
+        assert!(
+            !m.record_peer_lost(&peer(P1), 60_000),
+            "not a data-plane peer"
+        );
+        assert_eq!(m.loss_ladder_peers(), 0);
+    }
+
+    /// The ladder is bounded by the peer-backoff table's bound: a peer
+    /// past `max_peers` is refused a place and keeps 30 s.
+    #[test]
+    fn the_loss_ladder_holds_no_more_peers_than_the_backoff_table() {
+        let mut policy = ConnectionPolicy::new(64, 64);
+        policy.max_peers = 1;
+        let mut m = ConnectionManager::new(policy, 8);
+        let _ = m.set_trust(trusting(&[P1, P2], &[]), &[]);
+        assert!(m.record_peer_lost(&peer(P2), 30_000));
+        assert!(!connect_and_lose(&mut m, 0, 30_000), "no room for a second");
+        assert_eq!(m.loss_ladder_peers(), 1);
     }
 
     const P1: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";

@@ -31,7 +31,7 @@ pub use admission::Limits;
 pub use counters::Counters;
 pub use hello::{KeepalivePolicy, ServerConfig, WRITE_STALL};
 pub use listen::{BindError, Listeners, SocketPaths, bind, bind_replacing_stale};
-pub use server::serve;
+pub use server::{serve, serve_handing_over};
 
 /// Requests one connection may have handed to its session at once
 /// (`LOCAL-IPC.md` §Cancellation mapping and request concurrency: a
