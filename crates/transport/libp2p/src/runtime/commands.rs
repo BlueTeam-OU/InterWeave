@@ -1018,7 +1018,7 @@ pub(super) fn handle_command(
             }
         }
         SwarmCommand::ConfigureDirect { config, reply } => {
-            direct_state.configure(*config);
+            direct_state.configure(*config, now_ms);
             // The profile's directory limits are now in `direct_state`;
             // rebuild the responder budget from them so a non-default rate
             // or concurrency setting is honoured rather than the startup
