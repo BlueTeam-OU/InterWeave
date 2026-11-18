@@ -548,7 +548,9 @@ async fn the_global_bucket_bounds_peers_that_are_each_within_their_own() {
 /// fifth frame can only have been refused by the shared bucket, and so
 /// can the two sent a second and a half later -- 1,200 a minute earns
 /// thirty in that time, and the sender's own bucket three more beside
-/// the twenty-eight it has left. The control is
+/// the twenty-four it has left (every frame of the first flood spent one,
+/// the refused ones too: the per-peer bucket is charged first). The
+/// control is
 /// `the_global_bucket_bounds_peers_that_are_each_within_their_own`, the
 /// same bucket at its defaults admitting about 256 of 512.
 #[tokio::test]
