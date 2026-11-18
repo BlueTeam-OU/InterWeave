@@ -46,6 +46,8 @@ pub use interweave_transport_embedded::{EmbeddedRefused, StayReachable, log_admi
 pub use network::{Link, NetworkReport, Told, Transports, addresses_from_wire};
 pub use notice::Notices;
 pub use profile::provision_profile;
+#[cfg(feature = "test-hooks")]
+pub use service::StopStage;
 pub use service::{
     AvailabilityMode, CLIENT_KIND, Ended, LogLevel, ServiceHost, ServiceLaunch, StartRefused,
     Stopped, StoreActionRefused, StoreDiscarded, profile_log_level,

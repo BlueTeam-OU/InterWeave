@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use interweave_human_android_platform::{ServiceHost, ServiceLaunch, ToView, stand_in};
+use interweave_human_android_platform::{ServiceHost, ServiceLaunch, StopStage, ToView, stand_in};
 use interweave_human_app_core::{Command, Update};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind, encode_outbound};
 use interweave_human_client_api::{ClientEvent, SessionState};
@@ -339,19 +339,28 @@ fn a_send_while_the_close_waits_is_refused() {
             .expect("a session")
     });
 
+    let parked = service.hub().commands_parked_for_test();
     let release = service.hub().hold_commands_for_test();
+    let stages = service.stop_stages_for_test();
     service
         .hub()
         .command(Command::RecheckStorage)
         .expect("a facade takes it");
-    // The facade takes the command within its turn and parks before it.
-    std::thread::sleep(Duration::from_millis(250));
+    parked
+        .recv_timeout(WAIT)
+        .expect("the facade parks inside the held command");
 
-    let began = Instant::now();
     let stopped = std::thread::scope(|scope| {
         let stopping = scope.spawn(|| service.stop(GRACE));
-        // Inside the close's 2 s wait: the drain, which is first, is done.
-        std::thread::sleep(Duration::from_millis(500));
+        // Ordered by the stop itself, not by a sleep: the drain has
+        // returned, and the close that follows waits on the held command,
+        // which this test releases only once the send below is answered
+        // (the close's own bound, `FACADE_CLOSE`, ends it otherwise).
+        assert_eq!(
+            stages.recv_timeout(WAIT),
+            Ok(StopStage::Drained),
+            "the stop's drain returns"
+        );
         let sent = peer_host.runtime().block_on(session.send_direct(
             DirectDestination {
                 peer: phone.clone(),
@@ -360,10 +369,10 @@ fn a_send_while_the_close_waits_is_refused() {
             MessageId::from_bytes([9; 16]),
             message("while the close waits"),
         ));
-        let answered = began.elapsed();
-        assert!(
-            !stopping.is_finished() && answered < Duration::from_millis(1900),
-            "the send was answered inside the close's wait (after {answered:?})"
+        assert_eq!(
+            stages.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty),
+            "the send was answered while the close still waited"
         );
         assert_eq!(
             sent,

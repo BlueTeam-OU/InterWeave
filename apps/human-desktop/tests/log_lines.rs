@@ -34,6 +34,8 @@
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -304,15 +306,11 @@ fn turn(app: &mut Desktop) {
     app.pump();
 }
 
-/// Turn until `done`, or fail after a while.
+/// Turn until `done`, failing at [`common::WAIT_BOUND`] with the log so far.
 fn until(app: &mut Desktop, what: &str, done: impl Fn(&Desktop) -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let wait = common::Wait::on(what);
     while !done(app) {
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {what}; the log so far: {:?}",
-            lines()
-        );
+        wait.check_showing(|| format!("the log so far: {:?}", lines()));
         turn(app);
         std::thread::sleep(Duration::from_millis(10));
     }
