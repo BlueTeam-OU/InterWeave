@@ -58,7 +58,8 @@
 //!
 //! # How a test uses it
 //!
-//! [`in_second_network`] (or [`in_overlay`]) at the top of the test: the
+//! [`in_second_network`] (or [`in_overlay`], or [`in_capped_medium`]) at
+//! the top of the test: the
 //! outer copy re-runs the test's own binary inside the namespaces, asserts
 //! it passed, and returns `false`; the inner copy gets `true` and runs the
 //! body. Where user namespaces, `iproute2`, util-linux's `unshare` (with
@@ -141,7 +142,7 @@ impl Net {
     }
 }
 
-/// What both topologies' shells begin with: `$1` is the new root.
+/// What every entry point's shell begins with: `$1` is the new root.
 /// Every step is `set -e`: a namespace that half-built fails the run.
 const PRELUDE: &str = r#"
 set -e
@@ -210,8 +211,8 @@ nsenter --net=/run/netns/B sh -c 'ip addr add 100.64.0.2/30 dev w1 && ip link se
 /// The overlay's link, deleted: a veth goes with both its ends.
 const OVERLAY_DOWN: &str = "nsenter --net=/run/netns/A ip link del w0";
 
-/// The namespace's own root, made and pivoted into, after either
-/// topology.
+/// The namespace's own root, made and pivoted into, after each entry
+/// point's network.
 const NEW_ROOT: &str = r#"
 # Then the root of the namespace's own.
 mount -t tmpfs -o mode=0755 none "$NR"
