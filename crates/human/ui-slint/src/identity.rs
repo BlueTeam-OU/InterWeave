@@ -407,8 +407,9 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             page.notice = text(UiText::IdOtherIdentity).into();
             page.peer_label = text(UiText::IdDerivedPeerId).into();
             page.peer_groups = grouped(derived).into();
-            // A banner's PeerIds are for the eye alone (section 5;
-            // `copy_peer_id_is_on_r3_and_r4_only`).
+            // A banner's PeerIds are for the eye alone (section 5). No
+            // banner shows on R3 or R4 yet, the one screen pair with Copy,
+            // so no test can observe this until `IdRestoreOther` is built.
             shown = None;
             page.second_peer_label = text(UiText::IdExpectedPeerId).into();
             page.second_peer_groups = grouped(expected).into();
@@ -477,9 +478,9 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::S1 if flow.waiting() => page.waiting = text(UiText::IdGoingOffline).into(),
         _ => {}
     }
-    // Copy PeerId under R3's and R4's PeerId only (section 5): C4's waits
-    // on its own design, and a banner's PeerId has none
-    // (`copy_peer_id_is_on_r3_and_r4_only`).
+    // Copy PeerId is built under R3's and R4's PeerId. Section 5 puts it on
+    // C2's and S2's PeerId pages and C4 too; those come with the copy's
+    // confirmation below Android 13 (`copy_peer_id_is_built_on_r3_and_r4`).
     if let (ScreenId::R3 | ScreenId::R4, Some(peer)) = (screen, shown) {
         page.copy_label = text(UiText::CopyPeerId).into();
         page.peer_id = peer.as_str().into();
@@ -804,15 +805,16 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::R2, "control: R2");
     }
 
-    /// Copy `PeerId` is under R3's and R4's `PeerId` and on no other page
-    /// that shows a `PeerId` (section 5): not on C2, S2 or C4, which show
-    /// the words or wait on their own design, and not on R2's
-    /// `IdOtherIdentity` banner, whose two `PeerIds` are for the eye alone.
-    /// R3 and R4 are the controls. Mutation: `page`'s copy arm matching
-    /// any screen (`(_, Some(peer))`), or the banner's `shown = None`
-    /// removed, fails here.
+    /// Copy `PeerId` is built under R3's and R4's `PeerId`, and so far on no
+    /// other page that shows one. Section 5 also puts it on C2's and S2's
+    /// `PeerId` pages and on C4; their rows here change when those are
+    /// built, with the copy's confirmation below Android 13. R2's
+    /// `IdOtherIdentity` banner has none. R3 and R4 are the controls.
+    /// Mutation: `page`'s copy arm matching any screen (`(_, Some(peer))`)
+    /// fails here. The banner's `shown = None` is not observable yet,
+    /// because no banner shows on R3 or R4.
     #[test]
-    fn copy_peer_id_is_on_r3_and_r4_only() {
+    fn copy_peer_id_is_built_on_r3_and_r4() {
         let copies = |page: &IdentityPage| {
             (
                 page.copy_label == en(UiText::CopyPeerId),
