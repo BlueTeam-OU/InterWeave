@@ -26,7 +26,7 @@
 //! The end, however it comes -- the client gone, a close, the server
 //! stopping -- aborts what is in flight and closes the session: its lease
 //! and its joins are released at once. A stop first HANDS OVER what the
-//! session's queue holds (`LOCAL-IPC.md` §Shutdown order, A 2026-11-17):
+//! session's queue holds (`LOCAL-IPC.md`'s shutdown order, A 2026-11-17):
 //! the queue is written out and the writer has taken every event before
 //! the `close`, until the queue is empty or the stop's grace ends, and
 //! what the client did not take by then is counted as dropped
@@ -518,7 +518,7 @@ where
         }
     }
 
-    /// The stop's hand-over (`LOCAL-IPC.md` §Shutdown order, A 2026-11-17):
+    /// The stop's hand-over (`LOCAL-IPC.md`'s shutdown order, A 2026-11-17):
     /// the session is drained into the event lane until it holds nothing
     /// more, and the writer is waited for until it has taken every event,
     /// so the `close` -- which goes on the control lane, ahead of any

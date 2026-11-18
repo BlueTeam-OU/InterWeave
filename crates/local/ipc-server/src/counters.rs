@@ -35,7 +35,7 @@ impl Counters {
     /// grace ended: what was still in the connection's lane and what its
     /// session still held. Not part of `admin.status`, which is not read
     /// once the server stops; the daemon adds it to the stop's
-    /// dropped-event count (`LOCAL-IPC.md` §Shutdown order).
+    /// dropped-event count (`LOCAL-IPC.md`'s shutdown order).
     #[must_use]
     pub fn events_dropped_at_stop(&self) -> u64 {
         self.events_dropped_at_stop.load(Ordering::Relaxed)

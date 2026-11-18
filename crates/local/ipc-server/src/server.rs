@@ -4,7 +4,7 @@
 //! stop (plan §16 (1)-(8)).
 //!
 //! Stopping here is the server's share of the daemon's shutdown order
-//! (plan §16 (6), `LOCAL-IPC.md` §Shutdown order): stop accepting, hand
+//! (plan §16 (6), `LOCAL-IPC.md`'s shutdown order): stop accepting, hand
 //! each data session what its queue holds, within the stop's grace, then
 //! close every connection -- each gets `close{ShuttingDown}` and its
 //! session is closed, which releases its lease. Refusing new inbound
@@ -909,7 +909,7 @@ mod tests {
         held
     }
 
-    /// The stop's hand-over (`LOCAL-IPC.md` §Shutdown order, A
+    /// The stop's hand-over (`LOCAL-IPC.md`'s shutdown order, A
     /// 2026-11-17): what the session still held when the server was asked
     /// to stop is written to a client that reads, in sequence, and THEN
     /// the `close` -- none dropped, none counted. As the gap was found the
