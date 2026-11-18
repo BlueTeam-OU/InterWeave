@@ -1320,10 +1320,13 @@ async fn idle_seat_arm(ip: std::net::Ipv4Addr, arm: IdleSeat) -> IdleSeatArm {
 /// data-plane trust (`kademlia_driver::may_hold_a_seat`), so an
 /// occupant holding a DIRECT connection stays connected and libp2p-kad
 /// refuses the newcomer outright. Direct only: a relayed connection is
-/// not held (ADR-0068), and the driver can seat a peer by an operator's
-/// circuit route (`the_operators_circuit_reaches_the_routing_stash_for_its_own_peer_only`),
-/// so an occupant reached only over a relay is as takeable as an
-/// unheld one; this test does not exercise that case.
+/// not held (ADR-0068; `runtime/dialing.rs`'s
+/// `exactly_one_direct_data_plane_connection_per_peer_is_held`), and the
+/// driver admits an operator's circuit route to its routing stash
+/// (`the_operators_circuit_reaches_the_routing_stash_for_its_own_peer_only`),
+/// so an occupant seated by such a route and reached only over a relay
+/// would be as takeable as an unheld one; this test does not exercise
+/// that case.
 ///
 /// Three arms at once, so the run waits the pending timeout once:
 /// - HELD, as a profile runs, the honest routers undiallable once idle:
