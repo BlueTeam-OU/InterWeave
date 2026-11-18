@@ -7071,7 +7071,9 @@ Proposed to Accepted in the series that lands this record, by the
 merge named above.
 
 **Measured, and carried as limits.** Every case ran on one host's
-loopback under one uid. Carried by name, from `AUTOMATED-CLIENT.md` §5
+loopback, and under one uid until 2026-11-18: since then one case, the
+cross-account port refusal below, is run by CI under a second account,
+and every other case under one uid as before. Carried by name, from `AUTOMATED-CLIENT.md` §5
 and decision 2: the cross-account port refusal rests on the kernel's
 documented `SO_REUSEPORT` rule and was measured on the host, not in
 the suite — between two accounts: the rule itself in one direction on
