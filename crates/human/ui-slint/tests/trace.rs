@@ -1418,8 +1418,10 @@ impl Identity {
 /// leave R3 open with focus on Yes; Yes and No show disabled and the
 /// back arrow inactive. TAB reaches No, and Enter there leaves R3 open.
 /// A success then opens R4 with focus on its title, though focus was on
-/// No. Mutation: `page` leaving R3's primary or secondary enabled while
-/// the restore runs sends the Enter, and fails here.
+/// No. A tap on held Yes or No presses nothing either. Mutation: `page`
+/// leaving R3's primary or secondary enabled while the restore runs
+/// sends the Enter, and `ActionButton`'s `TapArea` enabled while the
+/// button is not sends the taps, and each fails here.
 #[test]
 fn r3_holds_yes_no_and_back_while_its_restore_runs() {
     use interweave_human_ui_model::{ScreenId, UiText};
@@ -1465,6 +1467,10 @@ fn r3_holds_yes_no_and_back_while_its_restore_runs() {
     page.enter();
     assert_eq!(page.take(), [], "No pressed nothing");
     assert_eq!(page.flow.screen(), ScreenId::R3, "R3 open, no word changed");
+    // Last, as a tap focuses the button it lands on, held or not.
+    page.tap(&[text(UiText::IdR3Yes), text(UiText::IdR3No)]);
+    assert_eq!(page.take(), [], "a tap on held Yes or No presses nothing");
+    assert!(page.flow.waiting(), "still the one restore");
 
     page.flow.restored(Ok(()));
     page.settle();
@@ -1479,10 +1485,11 @@ fn r3_holds_yes_no_and_back_while_its_restore_runs() {
 /// question; Shift+TAB returns to Try again, whose Enter starts the
 /// restore again, left unanswered. While it runs Yes, No and Try again
 /// show disabled, focus stays on Try again, and a second Enter, a Space
-/// and a screen reader's activate on it start nothing; Copy `PeerId`,
-/// reached by TAB, still copies. Mutation: `question-idx` not counting
-/// the notice's action, or the action left enabled while held, fails
-/// here.
+/// and a screen reader's activate on it start nothing, nor does a tap on
+/// it, on Yes or on No; Copy `PeerId`, reached by TAB, still copies.
+/// Mutation: `question-idx` not counting the notice's action, the
+/// action left enabled while held, or `ActionButton`'s `TapArea` enabled
+/// while the button is not, fails here.
 #[test]
 fn r3s_notice_carries_try_again_under_it_held_while_the_restore_runs() {
     use interweave_human_ui_model::{ScreenId, StepFailed, UiText};
@@ -1539,6 +1546,14 @@ fn r3s_notice_carries_try_again_under_it_held_while_the_restore_runs() {
     assert_eq!(clipboard(&page.view).as_deref(), Some(derived.as_str()));
     assert_eq!(page.take(), [], "nothing for the flow");
     assert!(page.flow.waiting(), "the restore still runs");
+    // Last, as a tap focuses the button it lands on, held or not.
+    page.tap(&[
+        text(UiText::TryAgain),
+        text(UiText::IdR3Yes),
+        text(UiText::IdR3No),
+    ]);
+    assert_eq!(page.take(), [], "a tap on a held action presses nothing");
+    assert!(page.flow.waiting(), "still the one restore");
 }
 
 /// Acceptance 15's sixth run (design section 8, "When R3's 'Yes,
