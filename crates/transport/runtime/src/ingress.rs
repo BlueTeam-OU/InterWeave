@@ -177,6 +177,30 @@ impl IngressLimiter {
         }
     }
 
+    /// Install the daemon-wide bucket's rate and burst from a profile
+    /// (`transport.direct.inbound_rate_limit.global_per_minute` and
+    /// `global_burst`, the receiving profile's to set: ADR-0026, the
+    /// owner's ruling of 2026-11-17).
+    ///
+    /// A CHANGED rate is a new bucket, full at its burst, as a daemon
+    /// started under it would hold: carrying the old bucket's tokens
+    /// across would leave a raised burst unreachable until it refilled,
+    /// and a lowered one is clamped by the new burst either way. The SAME
+    /// rate keeps the bucket as it stands, so reinstalling an unchanged
+    /// profile grants nobody a refill
+    /// (`an_unchanged_global_rate_keeps_what_was_spent`). The per-peer
+    /// buckets are untouched: their values are not taken from a profile.
+    pub fn set_global(&mut self, per_minute: u32, burst: u32, now_ms: u64) {
+        if self
+            .global
+            .as_ref()
+            .is_some_and(|g| g.per_minute == per_minute && g.burst == burst)
+        {
+            return;
+        }
+        self.global = Some(Bucket::new(per_minute, burst, now_ms));
+    }
+
     /// Admit one inbound direct request.
     ///
     /// The per-peer bucket is charged **first**, and the global bucket is
@@ -706,6 +730,19 @@ mod tests {
         TransportIdentity::parse(format!("Qm{tail}")).expect("valid identity")
     }
 
+    /// The `n`th of 3,364 distinct canonical identities, for a test that
+    /// needs more peers than [`other_peer`]'s alphabet: [`other_peer`]'s
+    /// shape with only the two lowest-order digits varied, so the decoded
+    /// length and the multihash prefix stay canonical. Not real keys.
+    fn nth_peer(n: usize) -> TransportIdentity {
+        const B58: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        let head = [B58[n / B58.len() % B58.len()], B58[n % B58.len()]];
+        let tail: String = std::iter::repeat_n('a', 42)
+            .chain(head.iter().map(|b| char::from(*b)))
+            .collect();
+        TransportIdentity::parse(format!("Qm{tail}")).expect("valid identity")
+    }
+
     fn ch(n: &str) -> ChannelId {
         ChannelId::parse(n).expect("valid channel")
     }
@@ -906,6 +943,62 @@ mod tests {
         assert!(l.admit(&peer(P1), 0).is_ok());
         assert!(l.admit(&peer(P2), 0).is_ok());
         assert_eq!(l.admit(&peer(P1), 0), Err(IngressDenial::GlobalExhausted));
+    }
+
+    #[test]
+    fn a_set_global_rate_is_the_one_admitted_at() {
+        // Burst 3, one a minute: three admitted from three peers each
+        // inside its own allowance, the fourth refused by the shared
+        // bucket, and a second later still refused -- where the defaults
+        // (256, 1,200 a minute) would have admitted all of it.
+        let mut l = IngressLimiter::with_defaults(0);
+        l.set_global(1, 3, 0);
+        for n in 0..3 {
+            assert!(l.admit(&nth_peer(n), 0).is_ok(), "peer {n}");
+        }
+        assert_eq!(
+            l.admit(&nth_peer(3), 0),
+            Err(IngressDenial::GlobalExhausted)
+        );
+        assert_eq!(
+            l.admit(&nth_peer(4), 1_000),
+            Err(IngressDenial::GlobalExhausted),
+            "1,200 a minute would have earned twenty by now"
+        );
+        assert!(l.admit(&nth_peer(5), 60_000).is_ok(), "one a minute");
+
+        // RAISED past the default burst: a fresh bucket, full at its own.
+        let mut l = IngressLimiter::with_defaults(0);
+        l.set_global(60_000, 300, 0);
+        let admitted = (0..300)
+            .filter(|i| l.admit(&nth_peer(*i), 0).is_ok())
+            .count();
+        assert_eq!(admitted, 300, "the default burst of 256 would refuse 44");
+        assert_eq!(
+            l.admit(&nth_peer(1000), 0),
+            Err(IngressDenial::GlobalExhausted)
+        );
+    }
+
+    #[test]
+    fn an_unchanged_global_rate_keeps_what_was_spent() {
+        let mut l = IngressLimiter::with_defaults(0);
+        l.set_global(1, 2, 0);
+        l.admit(&nth_peer(0), 0).expect("first");
+        l.admit(&nth_peer(1), 0).expect("second");
+        // Reinstalled unchanged: no refill granted.
+        l.set_global(1, 2, 0);
+        assert_eq!(
+            l.admit(&nth_peer(2), 0),
+            Err(IngressDenial::GlobalExhausted)
+        );
+        // Changed: a new bucket, full at the new burst.
+        l.set_global(1, 1, 0);
+        assert!(l.admit(&nth_peer(2), 0).is_ok());
+        assert_eq!(
+            l.admit(&nth_peer(3), 0),
+            Err(IngressDenial::GlobalExhausted)
+        );
     }
 
     #[test]

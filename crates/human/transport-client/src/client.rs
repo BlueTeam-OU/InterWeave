@@ -1043,8 +1043,15 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             .map_err(classify_address)
     }
 
-    /// End the session; the facade does nothing more until dropped.
+    /// End the session; the facade does nothing more until dropped. What
+    /// the session's queue still holds is committed unread first, in one
+    /// read, as for a session lost: it was accepted, and the close
+    /// releases the queue (`DIRECT.md` §Graceful shutdown, A 2026-11-17;
+    /// `a_close_commits_what_the_session_still_held_unread`). A caller
+    /// that stops the runtime puts it into its drain before this, so the
+    /// read is the queue's last.
     pub async fn close(&mut self) {
+        self.take_the_rest().await;
         self.close_session(None).await;
         self.admin = None;
         self.set_state(SessionState::Closed);

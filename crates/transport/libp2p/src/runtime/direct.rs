@@ -163,7 +163,7 @@ impl DirectState {
     /// every open queue: whether a live session survives a reload is a
     /// Stage 13 question, and answering it here would be answering it
     /// for the IPC server.
-    pub(super) fn configure(&mut self, config: DirectEndpoints) {
+    pub(super) fn configure(&mut self, config: DirectEndpoints, now_ms: u64) {
         let endpoints: std::collections::BTreeMap<_, _> = config.endpoints.into_iter().collect();
         self.registry = EndpointRegistry::new(endpoints, config.default);
         self.queues = EndpointQueues::new();
@@ -173,6 +173,8 @@ impl DirectState {
         self.directory_queries_per_min = config.directory_queries_per_min;
         self.directory_max_inflight = config.directory_max_inflight;
         self.directory_cache_ttl_ms = config.directory_cache_ttl_ms;
+        let (per_minute, burst) = config.ingress_global;
+        self.ingress.set_global(per_minute, burst, now_ms);
     }
 
     /// Grant `session` an exclusive lease on `endpoint` and open its queue.
@@ -523,9 +525,23 @@ pub struct DirectEndpoints {
     pub(super) directory_max_inflight: usize,
     /// How long this node caches a remote directory result, in ms.
     pub(super) directory_cache_ttl_ms: u32,
+    /// The daemon-wide direct bucket's refill per minute and burst
+    /// (`transport.direct.inbound_rate_limit.global_per_minute` and
+    /// `global_burst`), the receiving profile's to set (the owner's
+    /// ruling of 2026-11-17). The per-peer pair is not carried: the
+    /// composition root refuses it off its default.
+    pub(super) ingress_global: (u32, u32),
 }
 
 impl DirectEndpoints {
+    /// The daemon-wide direct bucket's `(per_minute, burst)` this
+    /// configuration installs, for a composition that states what it
+    /// built.
+    #[must_use]
+    pub const fn ingress_global(&self) -> (u32, u32) {
+        self.ingress_global
+    }
+
     /// Derive runtime endpoint state from a profile configuration.
     ///
     /// # Errors
@@ -588,6 +604,14 @@ impl DirectEndpoints {
             )
             .unwrap_or(usize::MAX),
             directory_cache_ttl_ms: profile.endpoints.directory.cache_ttl_ms,
+            ingress_global: (
+                profile
+                    .transport
+                    .direct
+                    .inbound_rate_limit
+                    .global_per_minute,
+                profile.transport.direct.inbound_rate_limit.global_burst,
+            ),
         })
     }
 }

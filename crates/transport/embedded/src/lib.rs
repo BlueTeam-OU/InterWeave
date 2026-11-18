@@ -599,10 +599,46 @@ impl EmbeddedHost {
             .map_err(|e| EmbeddedRefused::Internal(format!("{e:?}")))
     }
 
+    /// The stop's first act (`DIRECT.md` §Graceful shutdown, A
+    /// 2026-11-17, binding both bindings): from the answer on, an inbound
+    /// direct request is answered `shutting_down` and enters no endpoint
+    /// queue, and no new connection is admitted, while every open
+    /// in-process session can still take what its queue holds. The
+    /// owner's stop is three steps, the daemon's order: `drain`, then
+    /// each session reads its queue and closes, then
+    /// [`stop`](Self::stop) inside what is left of the grace. The host
+    /// cannot take the middle step for its owner: the sessions are the
+    /// owner's, read on the owner's threads, and a stop that waited for
+    /// them could wait on the thread that called it. Draining twice is
+    /// draining once.
+    /// `the_embedded_stop_refuses_first_and_hands_over` holds the order
+    /// between two hosts.
+    ///
+    /// BLOCKS; call it off any async context.
+    ///
+    /// # Errors
+    /// [`EmbeddedRefused::Internal`] if the runtime has stopped or did not
+    /// answer.
+    pub fn drain(&self) -> Result<(), EmbeddedRefused> {
+        match (self.executor.as_ref(), self.composed.as_ref()) {
+            (Some(executor), Some(composed)) => executor
+                .block_on(composed.drain())
+                .map_err(|e| EmbeddedRefused::Internal(format!("{e:?}"))),
+            _ => Err(EmbeddedRefused::Internal("the host has stopped".into())),
+        }
+    }
+
     /// Stop the runtime, letting exchanges in flight settle for `grace`,
     /// then release the profile lock. Answers the neutral events the
     /// runtime dropped over its whole life, its shutdown backlog
     /// included: a diagnostic count, nothing a person acts on.
+    ///
+    /// Drain and stop are one command here, which ends at once when no
+    /// exchange is in flight: a stop called alone refuses from its start
+    /// but hands no session anything, and what a session had not taken
+    /// goes with the host, counted. The owner that hands its sessions
+    /// their queues calls [`drain`](Self::drain) before them and this
+    /// after.
     ///
     /// BLOCKS; call it off any async context.
     ///

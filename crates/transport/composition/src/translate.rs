@@ -323,7 +323,10 @@ fn usize_of(value: u32) -> usize {
 /// reads is the one run, or the field is refused). `max_subscriptions`
 /// and `max_addresses_per_peer` are taken by the substrate and are not
 /// rows here, nor are `max_connected_peers` and `max_connections_per_peer`,
-/// which the substrate decides at retention.
+/// which the substrate decides at retention, nor the direct ingress
+/// bucket's `global_per_minute` and `global_burst`, which
+/// `DirectEndpoints::from_profile` carries to the daemon-wide bucket (the
+/// owner's ruling of 2026-11-17: the receiving profile's to set).
 ///
 /// Refused off their default, and RUN at it by the runtime's own
 /// constants: the direct in-flight bounds (the substrate's outbound
@@ -342,12 +345,16 @@ fn refuse_unhonoured(profile: &ProfileConfig) -> Result<(), CompositionError> {
         DirectConfig::default(),
     );
     let rate = InboundRateLimitConfig::default();
-    let rate_rows = |prefix: [&'static str; 4], r: &InboundRateLimitConfig| {
+    let per_peer_rows = |prefix: [&'static str; 2], r: &InboundRateLimitConfig| {
         [
             (prefix[0], r.per_peer_per_minute != rate.per_peer_per_minute),
             (prefix[1], r.per_peer_burst != rate.per_peer_burst),
-            (prefix[2], r.global_per_minute != rate.global_per_minute),
-            (prefix[3], r.global_burst != rate.global_burst),
+        ]
+    };
+    let global_rows = |prefix: [&'static str; 2], r: &InboundRateLimitConfig| {
+        [
+            (prefix[0], r.global_per_minute != rate.global_per_minute),
+            (prefix[1], r.global_burst != rate.global_burst),
         ]
     };
     let mut rows = vec![
@@ -381,19 +388,25 @@ fn refuse_unhonoured(profile: &ProfileConfig) -> Result<(), CompositionError> {
             t.direct.max_inflight_per_peer != direct.max_inflight_per_peer,
         ),
     ];
-    rows.extend(rate_rows(
+    // The direct GLOBAL pair is honoured and is no row; the direct
+    // per-peer pair and all four pubsub values are still the runtime's
+    // constants.
+    rows.extend(per_peer_rows(
         [
             "transport.direct.inbound_rate_limit.per_peer_per_minute",
             "transport.direct.inbound_rate_limit.per_peer_burst",
-            "transport.direct.inbound_rate_limit.global_per_minute",
-            "transport.direct.inbound_rate_limit.global_burst",
         ],
         &t.direct.inbound_rate_limit,
     ));
-    rows.extend(rate_rows(
+    rows.extend(per_peer_rows(
         [
             "transport.pubsub.inbound_rate_limit.per_peer_per_minute",
             "transport.pubsub.inbound_rate_limit.per_peer_burst",
+        ],
+        &t.pubsub.inbound_rate_limit,
+    ));
+    rows.extend(global_rows(
+        [
             "transport.pubsub.inbound_rate_limit.global_per_minute",
             "transport.pubsub.inbound_rate_limit.global_burst",
         ],
