@@ -101,6 +101,10 @@ service was running** (`dumpsys activity services`):
 **The overlay is still on both phones as this record is written.**
 Whether to remove it is the owner's call and has not been given.
 
+*Note, 2026-11-18:* the owner has since said to leave the overlay on
+for now, relayed by architect-cto-01. The sentence above was true when
+this record was written.
+
 ## The method
 
 Each window:
@@ -303,6 +307,11 @@ this record.
 - **The cost of redialling each absent contact every 30 s** (§12,
   A 2026-11-14). The far daemon held a static entry for the phone and
   dialled it; the phone held none, so it dialled nothing.
+  *Note, 2026-11-18:* since ADR-0011 A 2026-11-17, a contact lost
+  after a connection that held for 30 s or more is first redialled at
+  1, 2, 4, 8 and 16 s, and only then every 30 s. This run's build,
+  `8b6b1d35b`, has no `loss_ladder.rs`, so the ladder did not run here,
+  and its cost on a phone is not measured either.
 - **A relayed connection's ping.** ADR-0068 pings relayed connections too. Here, the one connection was direct.
 - **The release build.** This run is of the debug APK at `8b6b1d35b`.
 
