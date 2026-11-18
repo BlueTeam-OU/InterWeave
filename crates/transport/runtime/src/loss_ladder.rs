@@ -102,7 +102,8 @@ impl LossLadder {
         self.steps.retain(|peer, _| keep(peer));
     }
 
-    /// Peers on the ladder.
+    /// Peers on the ladder, for the bound's tests.
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.steps.len()
     }
