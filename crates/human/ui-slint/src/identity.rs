@@ -18,10 +18,11 @@ use crate::generated::{IdKey, IdKeyRow, IdScreen, IdSlot, IdentityPage};
 /// K1's heading as the focus trace names it: a refused start that raises
 /// K1 puts focus on it (section 8).
 pub(crate) const K1_HEADING: &str = "k1-heading";
-/// R3's and R4's titles, stops so that a valid check puts focus on the
-/// question or on what was restored before the action that answers it
+/// R3's question, which takes the stop a title would (R3 has no title),
+/// and R4's title: a valid check, or R3's Yes, puts focus on what the
+/// screen asks or on what was restored before the action that answers it
 /// (design section 8, #697 review P-1).
-pub(crate) const R3_HEADING: &str = "r3-heading";
+pub(crate) const R3_QUESTION: &str = "r3-question";
 pub(crate) const R4_HEADING: &str = "r4-heading";
 
 /// QWERTY rows of 10, 9 and 7 (section 4.3).
@@ -58,6 +59,10 @@ pub enum IdentityInput {
     /// R2's words as a full list: "Show all my words" opens it (`true`);
     /// the text falling to 130 % or below closes it (section 4.4).
     Review(bool),
+    /// The action under a notice's text, R3's Try again (section 6: on
+    /// R3 it stands under the notice, and "no, check my words" keeps the
+    /// secondary's place).
+    NoticeAction,
 }
 
 /// Apply `input` to `flow`; the effects are the root's to carry out.
@@ -69,7 +74,9 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
         IdentityInput::Secondary => match screen {
             // On Welcome a refusal's Try again takes the secondary's place.
             ScreenId::W if !failed => flow.restore(),
-            ScreenId::R3 if !failed => {
+            // R3's secondary is always "no, check my words": its notice's
+            // Try again is the notice's own action (`NoticeAction`).
+            ScreenId::R3 => {
                 flow.recheck();
                 Vec::new()
             }
@@ -81,6 +88,10 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
             _ if failed => flow.primary(),
             _ => Vec::new(),
         },
+        // Section 6's "Try again" retries the restore; the flow holds R3
+        // while one runs, so a second press starts nothing.
+        IdentityInput::NoticeAction if screen == ScreenId::R3 && failed => flow.primary(),
+        IdentityInput::NoticeAction => Vec::new(),
         IdentityInput::Tertiary => {
             flow.show_words_again();
             Vec::new()
@@ -238,6 +249,22 @@ fn entry_grid(flow: &IdentityFlow, page: &mut IdentityPage) {
     page.checking = flow.waiting();
 }
 
+/// R3's question, the line under it, and its secondary, "no, check my
+/// words". While the restore runs Yes, No and the notice's action keep
+/// their stops, shown disabled, and Back waits (section 8, While R3's
+/// restore runs; `back_active` in [`page`]).
+fn r3(flow: &IdentityFlow, page: &mut IdentityPage) {
+    page.question = text(UiText::IdR3Question).into();
+    page.question_key = R3_QUESTION.into();
+    // Under the question, text that takes no focus (sections 3.3 and 8).
+    page.question_note = text(UiText::IdR3NoPeerId).into();
+    page.secondary = text(UiText::IdR3No).into();
+    let restoring = flow.waiting();
+    page.primary_enabled = !restoring;
+    page.secondary_held = restoring;
+    page.notice_action_held = restoring;
+}
+
 /// The page for the flow's current screen.
 #[must_use]
 pub fn page(flow: &IdentityFlow) -> IdentityPage {
@@ -257,14 +284,15 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         back_label: text(UiText::AddClose).into(),
         ..IdentityPage::default()
     };
-    let (title, paragraphs, primary): (UiText, Vec<UiText>, Option<UiText>) = match screen {
+    // R3 alone has no title (section 3.3): its question is what it asks.
+    let (title, paragraphs, primary): (Option<UiText>, Vec<UiText>, Option<UiText>) = match screen {
         ScreenId::W => (
-            UiText::IdWelcomeTitle,
+            Some(UiText::IdWelcomeTitle),
             vec![UiText::IdWelcomeBody],
             Some(UiText::IdCreate),
         ),
         ScreenId::C1 => (
-            UiText::IdC1Title,
+            Some(UiText::IdC1Title),
             vec![
                 UiText::IdC1Point1,
                 UiText::IdC1Point2,
@@ -275,29 +303,29 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             Some(UiText::IdShowWords),
         ),
         ScreenId::C2 => (
-            UiText::IdWordsTitle,
+            Some(UiText::IdWordsTitle),
             Vec::new(),
             Some(UiText::IdWrittenDown),
         ),
-        ScreenId::C3 => (UiText::IdCheckTitle, vec![UiText::IdCheckBody], None),
+        ScreenId::C3 => (Some(UiText::IdCheckTitle), vec![UiText::IdCheckBody], None),
         ScreenId::C4 => (
-            UiText::IdCreatedTitle,
+            Some(UiText::IdCreatedTitle),
             vec![UiText::IdCreatedBody],
             Some(UiText::IdContinue),
         ),
         ScreenId::R1 => (
-            UiText::IdR1Title,
+            Some(UiText::IdR1Title),
             vec![UiText::IdR1Body, UiText::IdR1Settings],
             Some(UiText::IdEnterWords),
         ),
-        ScreenId::R2 => (UiText::IdR1Title, Vec::new(), Some(UiText::IdCheckWords)),
-        ScreenId::R3 => (
-            UiText::IdR1Title,
-            vec![UiText::IdR3Question],
-            Some(UiText::IdR3Yes),
+        ScreenId::R2 => (
+            Some(UiText::IdR1Title),
+            Vec::new(),
+            Some(UiText::IdCheckWords),
         ),
+        ScreenId::R3 => (None, Vec::new(), Some(UiText::IdR3Yes)),
         ScreenId::R4 => (
-            UiText::IdRestoredTitle,
+            Some(UiText::IdRestoredTitle),
             vec![UiText::IdCreatedBody],
             Some(UiText::IdContinue),
         ),
@@ -309,17 +337,17 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             // With no PeerId on the record there is nothing to restore
             // against: the reason and the way out only (section 3.4).
             let primary = flow.can_restore().then_some(UiText::IdEnterPhrase);
-            (UiText::IdQTitle, vec![reason], primary)
+            (Some(UiText::IdQTitle), vec![reason], primary)
         }
         ScreenId::S1 => (
-            UiText::IdS1Title,
+            Some(UiText::IdS1Title),
             vec![UiText::IdS1Body],
             Some(UiText::IdS1Unlock),
         ),
-        ScreenId::S2 => (UiText::IdWordsTitle, Vec::new(), Some(UiText::IdDone)),
+        ScreenId::S2 => (Some(UiText::IdWordsTitle), Vec::new(), Some(UiText::IdDone)),
         ScreenId::Done => return page,
     };
-    page.title = text(title).into();
+    page.title = title.map(text).unwrap_or_default().into();
     // Last, after what the screen is for: the statements the flow owes
     // before R2 takes a word -- ADR-0043's warning (item 11), then the
     // identities' new keys (item 12) -- on whichever screen the model
@@ -360,13 +388,17 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::R3 => Some(UiText::IdDerivedPeerId),
         _ => None,
     };
+    // The PeerId `peer_groups` shows, for a Copy under it.
+    let mut shown = None;
     if let (Some(label), Some(peer)) = (peer_label, flow.peer()) {
         page.peer_label = text(label).into();
         page.peer_groups = grouped(peer).into();
+        shown = Some(peer);
     }
     if let Some((_, Some(expected))) = flow.recovery() {
         page.peer_label = text(UiText::IdExpectedPeerId).into();
         page.peer_groups = grouped(expected).into();
+        shown = Some(expected);
     }
 
     match flow.notice() {
@@ -375,6 +407,10 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             page.notice = text(UiText::IdOtherIdentity).into();
             page.peer_label = text(UiText::IdDerivedPeerId).into();
             page.peer_groups = grouped(derived).into();
+            // A banner's PeerIds are for the eye alone (section 5). No
+            // banner shows on R3 or R4 yet, the one screen pair with Copy,
+            // so no test can observe this until `IdRestoreOther` is built.
+            shown = None;
             page.second_peer_label = text(UiText::IdExpectedPeerId).into();
             page.second_peer_groups = grouped(expected).into();
         }
@@ -386,7 +422,13 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
                 UiText::IdStorageFailed
             })
             .into();
-            page.secondary = text(UiText::TryAgain).into();
+            // R3's notice carries Try again under its text (section 6);
+            // on the other screens it takes the secondary's place.
+            if screen == ScreenId::R3 {
+                page.notice_action = text(UiText::TryAgain).into();
+            } else {
+                page.secondary = text(UiText::TryAgain).into();
+            }
         }
         None => {}
     }
@@ -427,13 +469,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::W if page.secondary.is_empty() => {
             page.secondary = text(UiText::IdRestore).into();
         }
-        ScreenId::R3 => {
-            page.heading_key = R3_HEADING.into();
-            if page.secondary.is_empty() {
-                page.secondary = text(UiText::IdR3No).into();
-                page.footnote = text(UiText::IdR3NoPeerId).into();
-            }
-        }
+        ScreenId::R3 => r3(flow, &mut page),
         ScreenId::R4 => page.heading_key = R4_HEADING.into(),
         ScreenId::K1 => {
             page.heading_key = K1_HEADING.into();
@@ -441,6 +477,13 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         }
         ScreenId::S1 if flow.waiting() => page.waiting = text(UiText::IdGoingOffline).into(),
         _ => {}
+    }
+    // Copy PeerId is built under R3's and R4's PeerId. Section 5 puts it on
+    // C2's and S2's PeerId pages and C4 too; those come with the copy's
+    // confirmation below Android 13 (`copy_peer_id_is_built_on_r3_and_r4`).
+    if let (ScreenId::R3 | ScreenId::R4, Some(peer)) = (screen, shown) {
+        page.copy_label = text(UiText::CopyPeerId).into();
+        page.peer_id = peer.as_str().into();
     }
     page
 }
@@ -688,6 +731,145 @@ mod tests {
             matches!(effects.as_slice(), [Effect::Check(_)]),
             "Try again retries: {effects:?}"
         );
+    }
+
+    /// R3's page (sections 3.3, 6 and 8): `IdR3NoPeerId` under the
+    /// question, a failed restore's Try again under the notice with No
+    /// still the secondary, and while a restore runs Yes, No and Try
+    /// again held and Back inactive. Mutation: Try again back in the
+    /// secondary's place, or any of the four held fields left as they
+    /// were, fails here.
+    #[test]
+    fn r3s_notice_action_is_its_own_and_the_restore_holds_the_page() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut flow, IdentityInput::Secondary);
+        apply(&mut flow, IdentityInput::Primary);
+        for (at, word) in words().into_iter().enumerate() {
+            apply(&mut flow, IdentityInput::Slot(at));
+            for letter in word.chars() {
+                if flow.picker().and_then(|p| p.chip(word)).is_some() {
+                    break;
+                }
+                apply(&mut flow, IdentityInput::Key(letter));
+            }
+            apply(&mut flow, IdentityInput::Chip(word.to_owned()));
+        }
+        apply(&mut flow, IdentityInput::Primary);
+        flow.checked(Some(mine()));
+        assert_eq!(flow.screen(), ScreenId::R3, "control: R3");
+        let r3 = page(&flow);
+        assert_eq!(r3.question_note, en(UiText::IdR3NoPeerId));
+        assert_eq!(r3.footnote, "", "not below the actions");
+        assert_eq!(r3.secondary, en(UiText::IdR3No));
+        assert!(r3.primary_enabled && !r3.secondary_held && r3.back_active);
+
+        assert!(matches!(
+            apply(&mut flow, IdentityInput::Primary).as_slice(),
+            [Effect::RestoreConfirmed(..)]
+        ));
+        let held = page(&flow);
+        assert!(!held.primary_enabled, "Yes held");
+        assert!(held.secondary_held, "No held");
+        assert!(!held.back_active, "Back inactive");
+        assert_eq!(apply(&mut flow, IdentityInput::Secondary), []);
+        assert_eq!(flow.screen(), ScreenId::R3, "No did nothing");
+
+        flow.restored(Err(StepFailed::Storage));
+        let failed = page(&flow);
+        assert_eq!(failed.notice, en(UiText::IdStorageFailed));
+        assert_eq!(failed.notice_action, en(UiText::TryAgain));
+        assert_eq!(failed.secondary, en(UiText::IdR3No), "No keeps its place");
+        assert!(!failed.notice_action_held, "control: Try again enabled");
+        assert!(matches!(
+            apply(&mut flow, IdentityInput::NoticeAction).as_slice(),
+            [Effect::RestoreConfirmed(..)]
+        ));
+        let again = page(&flow);
+        assert!(again.notice_action_held, "Try again held");
+        assert_eq!(again.notice, en(UiText::IdStorageFailed), "it stays");
+        assert_eq!(apply(&mut flow, IdentityInput::NoticeAction), []);
+    }
+
+    /// Every word of `words()` typed into `flow`, which is on R2.
+    fn type_all(flow: &mut IdentityFlow) {
+        for (at, word) in words().into_iter().enumerate() {
+            apply(flow, IdentityInput::Slot(at));
+            for letter in word.chars() {
+                if flow.picker().and_then(|p| p.chip(word)).is_some() {
+                    break;
+                }
+                apply(flow, IdentityInput::Key(letter));
+            }
+            apply(flow, IdentityInput::Chip(word.to_owned()));
+        }
+        assert_eq!(flow.screen(), ScreenId::R2, "control: R2");
+    }
+
+    /// Copy `PeerId` is built under R3's and R4's `PeerId`, and so far on no
+    /// other page that shows one. Section 5 also puts it on C2's and S2's
+    /// `PeerId` pages and on C4; their rows here change when those are
+    /// built, with the copy's confirmation below Android 13. R2's
+    /// `IdOtherIdentity` banner has none. R3 and R4 are the controls.
+    /// Mutation: `page`'s copy arm matching any screen (`(_, Some(peer))`)
+    /// fails here. The banner's `shown = None` is not observable yet,
+    /// because no banner shows on R3 or R4.
+    #[test]
+    fn copy_peer_id_is_built_on_r3_and_r4() {
+        let copies = |page: &IdentityPage| {
+            (
+                page.copy_label == en(UiText::CopyPeerId),
+                !page.peer_id.is_empty(),
+            )
+        };
+
+        let mut c2 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut c2, IdentityInput::Primary);
+        c2.created(words(), mine(), [3, 9]);
+        let c2 = page_of(&mut c2, &[IdentityInput::Primary]);
+        assert!(!c2.peer_groups.is_empty(), "control: C2 shows its PeerId");
+        assert_eq!(copies(&c2), (false, false), "C2");
+
+        let mut s2 = IdentityFlow::new(LIST, Start::ShowPhrase);
+        apply(&mut s2, IdentityInput::Primary);
+        s2.prompted(true);
+        s2.offline(Ok((words(), mine())));
+        assert_eq!(s2.screen(), ScreenId::S2, "control: S2");
+        let s2 = page(&s2);
+        assert!(!s2.peer_groups.is_empty(), "control: S2 shows its PeerId");
+        assert_eq!(copies(&s2), (false, false), "S2");
+
+        let c4 = page(&at_c4());
+        assert!(!c4.peer_groups.is_empty(), "control: C4 shows its PeerId");
+        assert_eq!(copies(&c4), (false, false), "C4");
+
+        let mut r2 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut r2, IdentityInput::Secondary);
+        apply(&mut r2, IdentityInput::Primary);
+        type_all(&mut r2);
+        apply(&mut r2, IdentityInput::Primary);
+        // An OtherIdentity banner needs an expected PeerId: R2 after K1.
+        let mut k1 = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+        apply(&mut k1, IdentityInput::Primary);
+        type_all(&mut k1);
+        apply(&mut k1, IdentityInput::Primary);
+        k1.checked(Some(other()));
+        let banner = page(&k1);
+        assert_eq!(banner.notice, en(UiText::IdOtherIdentity), "control");
+        assert_eq!(copies(&banner), (false, false), "R2's banner");
+
+        r2.checked(Some(mine()));
+        assert_eq!(r2.screen(), ScreenId::R3, "control: R3");
+        assert_eq!(copies(&page(&r2)), (true, true), "R3");
+        r2.restored(Ok(()));
+        assert_eq!(r2.screen(), ScreenId::R4, "control: R4");
+        assert_eq!(copies(&page(&r2)), (true, true), "R4");
     }
 
     /// Welcome with the lock refused: the notice and Try again, which
