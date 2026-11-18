@@ -115,7 +115,9 @@ lasts until the result shows on C4 or the next screen opens, so it
 also covers the service start after a success, and the service start
 after Continue while `IdAlreadyCreated` shows. Before, only
 `design/2026-10-22-add-a-peer.md` §5.1 held Continue, and neither note
-held Try again or said what `CopyPeerId` and focus do while C4 is held. On R3, as on C4, a press
+held Try again, said what `CopyPeerId` does, or said that Tab and the
+arrows still move focus while C4 is held and where focus goes on the
+result. On R3, as on C4, a press
 of the screen's primary while the snackbar shows does not close it
 (§5). Before, §5 said so of C4 only. §5 now also says what a press of
 `CopyPeerId` does while a §6 notice shows, and what a rotation does to the
@@ -628,7 +630,7 @@ and R4.
 - It closes when anything else shows on the screen, over the screen
   or in place of the screen: any §6 notice (`IdAlreadyCreated` included, a notice that also hides the
   PeerId the snackbar confirmed), the system prompt and the progress
-  state, and on C4 add-a-peer §5.1's `ConnectStarting`, which shows
+  state, and on C4 and R4 add-a-peer §5.1's `ConnectStarting`, which shows
   under Continue 1 s after the press. One message shows at a time:
   the one that needs the person's attention.
 - A copy while a §6 notice already shows (C4 with `IdBusy`,
@@ -639,6 +641,10 @@ and R4.
   snackbar does not cover. The snackbar answers the press the person
   just made. Taking away the notice, which still needs the person's
   action, would hide what they must do next.
+  A copy while `ConnectStarting` already shows, on a held C4 or R4,
+  is the same: the snackbar shows above the actions, `ConnectStarting`
+  stays under Continue, and only the snackbar's text is announced,
+  since `ConnectStarting` was announced when it showed.
 - A rotation while the snackbar shows keeps it shown, as §7 keeps
   everything on screen. Its time goes on from when it appeared, and
   it is not announced again. In the new layout it sits 12 dp above
@@ -1759,7 +1765,11 @@ scale would also be a finding of the Android review
     after it appeared and before `ConnectStarting` shows. After Enter
     on Continue 2 s after the snackbar appeared, it closes when
     `ConnectStarting` shows, 1 s after the Enter, and only one polite
-    announcement, `ConnectStarting`'s, is made then. On C4, by a test
+    announcement, `ConnectStarting`'s, is made then. In a third run,
+    with no copy before Continue, a copy 1.5 s after Enter on Continue,
+    while `ConnectStarting` shows, shows the snackbar, leaves
+    `ConnectStarting` shown, and makes one polite announcement, the
+    snackbar's. On C4, by a test
     hook with `IdStorageFailed` shown, a copy shows the snackbar and
     the notice stays shown; Enter on Try again 5.5 s later leaves the
     snackbar shown 0.2 s after the Enter and gone 0.7 s after it, as
