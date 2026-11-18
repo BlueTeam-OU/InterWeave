@@ -54,8 +54,9 @@ listen port.
 
 **Main changed after `8b6b1d35b`.** This branch was brought up to main
 before the record was written. Among the changes,
-`crates/transport/libp2p/src/runtime/dialing.rs` gained the
-peer-loss redial ladder (ADR-0011, A 2026-11-17). The A40's dial
+main gained the peer-loss redial ladder (ADR-0011, A 2026-11-17):
+`crates/transport/runtime/src/loss_ladder.rs`, started from
+`crates/transport/libp2p/src/runtime/dialing.rs`. The A40's dial
 pattern below is `8b6b1d35b`'s retry schedule, not main's. This run is
 of `8b6b1d35b`.
 
@@ -208,9 +209,12 @@ ping.
 - **The bound this gives.** The samples are about 5.1 s apart, so a
   sample can miss up to that much of a gap. The longest receive gap
   was therefore at most about 20.5 s.
-- **No missed liveness.** The connection never missed liveness: the
-  ping's timeout is 20 s, and a miss would have closed it. That held
-  while the phone sat in deep Doze for 2h54m of the window.
+- **No missed liveness.** The connection never missed liveness. A
+  missed liveness is two failed pings in a row: the pinger forgives the
+  first (`crates/transport/libp2p/src/relay_keepalive.rs`). It would
+  have closed the connection, and the far daemon logged no disconnect.
+  That held while the phone sat in deep Doze for 2h54m of the window.
+  The sampled bound alone cannot rule out one forgiven timeout.
 
 The spoiled first window shows the same: one socket throughout, longest
 `lastrcv` 15.4 s.
@@ -311,7 +315,7 @@ idle cost known". The clause after it, on the redial cost ("the cost
 of redialling each absent contact every 30 s … is carried beside it"),
 stays: this run did not measure it.
 
-> and the cost on a phone, measured once on 2026-11-18
+> and the cost on a phone, measured once, on 2026-11-17 (no peer) and 2026-11-18 (held)
 > (`apps/human-android/device-runs/2026-11-17-pixel-9a-samsung-a40-hold-ping-cost.md`):
 > under Stay reachable, a Pixel 9a idle with its screen off kept one
 > held peer's direct connection through 2h54m of deep Doze at the 15 s
