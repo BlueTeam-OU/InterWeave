@@ -3382,6 +3382,9 @@ component IdentityScreen inherits FocusScope {
                 danger: root.page.secondary-danger;
                 target: 48px;
                 enabled-action: !root.page.secondary-held;
+                // A tap moves no focus (section 8): held, the TapArea lets
+                // the press through to this scope, which would focus.
+                focus-on-click: false;
                 focus-key: "identity-secondary";
                 focus-seq: root.focus-seq;
                 property <int> arrow: root.arrow-seq;

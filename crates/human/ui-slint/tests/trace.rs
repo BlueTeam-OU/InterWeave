@@ -1534,10 +1534,17 @@ fn r3_holds_yes_no_and_back_while_its_restore_runs() {
     page.enter();
     assert_eq!(page.take(), [], "No pressed nothing");
     assert_eq!(page.flow.screen(), ScreenId::R3, "R3 open, no word changed");
-    // Last, as a tap focuses the button it lands on, held or not.
+    // A tap moves no focus (section 8): from Yes, a tap on held Yes and
+    // No leaves it there. Mutation: the secondary's `focus-on-click:
+    // false` removed fails here.
+    page.shift_tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "control");
+    let said = page.said_count();
     page.tap(&[text(UiText::IdR3Yes), text(UiText::IdR3No)]);
     assert_eq!(page.take(), [], "a tap on held Yes or No presses nothing");
     assert!(page.flow.waiting(), "still the one restore");
+    assert_eq!(page.said_count(), said, "a tap moved no focus");
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
 
     page.flow.restored(Ok(()));
     page.settle();
@@ -1613,7 +1620,8 @@ fn r3s_notice_carries_try_again_under_it_held_while_the_restore_runs() {
     assert_eq!(clipboard(&page.view).as_deref(), Some(derived.as_str()));
     assert_eq!(page.take(), [], "nothing for the flow");
     assert!(page.flow.waiting(), "the restore still runs");
-    // Last, as a tap focuses the button it lands on, held or not.
+    // A tap moves no focus (section 8), held action or not.
+    let said = page.said_count();
     page.tap(&[
         text(UiText::TryAgain),
         text(UiText::IdR3Yes),
@@ -1621,6 +1629,8 @@ fn r3s_notice_carries_try_again_under_it_held_while_the_restore_runs() {
     ]);
     assert_eq!(page.take(), [], "a tap on a held action presses nothing");
     assert!(page.flow.waiting(), "still the one restore");
+    assert_eq!(page.said_count(), said, "a tap moved no focus");
+    assert_eq!(page.last(), "ui-trace focus=identity-copy");
 }
 
 /// Acceptance 15's sixth run (design section 8, "When R3's 'Yes,
