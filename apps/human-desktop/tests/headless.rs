@@ -336,12 +336,14 @@ fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
         REPORTS.lock().expect("reports").push(line.to_owned());
     });
     opener.open(&link);
-    let wait = common::Wait::on("the handler to run");
-    while !record.exists() {
+    // The shell creates the record before `printf` writes it: wait on the
+    // whole line the handler writes last, not on the file.
+    let wait = common::Wait::on("the handler to write its record");
+    let whole = format!("{link}\n");
+    while !std::fs::read_to_string(&record).is_ok_and(|got| got.ends_with(&whole)) {
         wait.check();
         std::thread::sleep(Duration::from_millis(20));
     }
-    std::thread::sleep(Duration::from_millis(100));
     let got = std::fs::read_to_string(&record).expect("record");
     assert_eq!(
         got,
