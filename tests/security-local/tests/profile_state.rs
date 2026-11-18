@@ -14,8 +14,10 @@
 //! cause is put right -- and a set over the admin socket whose write fails
 //! answered failed with nothing changed.
 //!
-//! Every case needs the modes to bind, so none runs as root, which the
-//! filesystem exempts (`not_root`).
+//! Every case but one needs the modes to bind, so none of them runs as
+//! root, which the filesystem exempts (`not_root`). The one is the full
+//! medium's: it runs as its own namespace's root, which a tmpfs's `size=`
+//! binds as it binds anyone.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -326,6 +328,118 @@ impl Drop for Cleanup {
             .arg(&self.path)
             .status();
     }
+}
+
+// ------------------------------------------------------------ full medium
+
+#[cfg(target_os = "linux")]
+/// This case's name, which the outer copy runs again in the namespace.
+const FULL_MEDIUM_TEST: &str =
+    "a_set_whose_overlay_meets_a_full_medium_is_answered_failed_and_changes_nothing";
+
+#[cfg(target_os = "linux")]
+/// The names in `dir`, sorted.
+fn names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .expect("readable")
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+#[cfg(target_os = "linux")]
+/// A file at `path` grown until the medium refuses the next write; the
+/// refusal must be `ENOSPC`, so the medium is full rather than the write
+/// failed some other way.
+fn fill(path: &Path) {
+    use std::io::Write as _;
+    let mut file = std::fs::File::create(path).expect("the filler");
+    let chunk = vec![0_u8; 4096];
+    let refusal = loop {
+        if let Err(e) = file.write_all(&chunk).and_then(|()| file.sync_all()) {
+            break e;
+        }
+    };
+    assert_eq!(
+        refusal.raw_os_error(),
+        Some(28),
+        "the filler stopped on ENOSPC, not: {refusal}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+/// S10, profile state on a medium that is really full (S21-10's row, the
+/// write fault above with `ENOSPC` for `EACCES`): the state directory on
+/// a tmpfs capped by `size=` in the test's own namespace
+/// (`netns::in_capped_medium`), the rest of the medium taken by a filler
+/// after the start, a revoke and a disable over the admin socket are each
+/// answered failed, the state directory holds what it held, and the
+/// running policy is unchanged. The control: the filler removed, the same
+/// two sets are answered and survive a restart. The daemon runs as the
+/// namespace's root, so the modes the other cases rest on do not bind it
+/// here; the medium's cap does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_set_whose_overlay_meets_a_full_medium_is_answered_failed_and_changes_nothing() {
+    use interweave_test_support::e2e::netns;
+    if !netns::in_capped_medium(FULL_MEDIUM_TEST) {
+        return;
+    }
+    let peer = stranger();
+    let mut home = home(&peer);
+    let medium = Path::new(netns::CAPPED_MEDIUM);
+    relocate_state(&mut home, medium.join("state"));
+    let state = home.paths.state_dir().to_path_buf();
+    let (mut daemon, admin) = up(&home).await;
+    let before = names(&state);
+    let filler = medium.join("fill");
+    fill(&filler);
+    let revoke = admin.set_trust(peer.clone(), false).await;
+    let disable = admin.set_endpoint_enabled(agent(), false).await;
+    std::fs::remove_file(&filler).expect("the filler removed");
+    assert_eq!(revoke, Err(TransportError::Internal), "{}", daemon.log());
+    assert!(
+        matches!(disable, Err(TransportError::Internal)),
+        "{disable:?}\n{}",
+        daemon.log()
+    );
+    assert_eq!(names(&state), before, "the state directory as it was");
+    assert_eq!(
+        trusted(&admin).await,
+        vec![peer.clone()],
+        "the peer still trusted"
+    );
+    assert_eq!(
+        endpoints(&admin).await,
+        vec![("agent".to_owned(), true), ("human".to_owned(), true)],
+        "the endpoint still enabled"
+    );
+
+    assert_eq!(
+        admin.set_trust(peer, false).await,
+        Ok(TrustChange::Set),
+        "the control revoke"
+    );
+    admin
+        .set_endpoint_enabled(agent(), false)
+        .await
+        .expect("the control disable");
+    drop(admin);
+    assert!(daemon.terminate().await.success(), "{}", daemon.log());
+    let (daemon, admin) = up(&home).await;
+    let (trust, rows) = (trusted(&admin).await, endpoints(&admin).await);
+    down(daemon, admin).await;
+    assert!(trust.is_empty(), "the control revoke survived: {trust:?}");
+    assert_eq!(
+        rows[0],
+        ("agent".to_owned(), false),
+        "the control disable survived"
+    );
 }
 
 // ---------------------------------------------------------------- TM-50
