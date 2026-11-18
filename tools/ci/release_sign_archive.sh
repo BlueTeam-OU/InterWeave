@@ -98,9 +98,24 @@ scratch="$(mktemp -d)"
 ( umask 077 && printf '%s\n' "$INTERWEAVE_RELEASE_MINISIGN_KEY" > "$scratch/archive.key" )
 for f in "${files[@]}"; do
     written+=("$f.minisig")
+    st=0
     printf '%s\n' "${INTERWEAVE_RELEASE_MINISIGN_PASS-}" \
         | "$minisign" -S -s "$scratch/archive.key" -m "$f" -x "$f.minisig" >/dev/null 2>"$scratch/err" \
-        || die "minisign could not sign $f with the environment's key: $(tail -n 1 "$scratch/err")"
+        || st=$?
+    if (( st != 0 )); then
+        # The last line minisign said, else its status: a minisign killed by a
+        # signal says nothing, and a refusal with no reason cannot be acted on.
+        # A status above 128 is a signal's only if bash knows that signal, and
+        # even then a program may have exited with it, so it is said as "if".
+        why="$(grep -v '^[[:space:]]*$' "$scratch/err" | tail -n 1)" || true
+        if [[ -z "$why" ]]; then
+            why="minisign exited $st with nothing on stderr"
+            if (( st > 128 )) && sig="$(kill -l "$((st - 128))" 2>/dev/null)"; then
+                why+=" (signal $((st - 128)), $sig, if it was killed)"
+            fi
+        fi
+        die "minisign could not sign $f with the environment's key: $why"
+    fi
     "$minisign" -V -q -P "$pub" -m "$f" -x "$f.minisig" >/dev/null 2>&1 \
         || die "$f's signature does not verify with the pinned archive key: the environment's key is another"
 done
