@@ -605,9 +605,9 @@ and R4.
   pressed while the snackbar shows does not close it: Continue starts
   the seal, and C4 stays on screen until the seal's result shows.
   What shows then closes the snackbar: anything that shows on C4, by
-  the bullet above, or the next screen, by this bullet. Its time
-  runs on meanwhile: it closes at the end of its time if that comes
-  first.
+  the bullet above, or the next screen, by this bullet. While the
+  seal runs, the snackbar's time goes on. If that time ends before
+  the seal's result shows, the snackbar closes when that time ends.
   The app going to the background (Home,
   Recents, the screen turned off) closes it too, as it closes the
   message-swipe spec's snackbar. It never shows on the next screen,
@@ -1640,8 +1640,9 @@ scale would also be a finding of the Android review
     after it appeared; with the accessibility timeout set to 30 s,
     30 s after; and with that timeout set to 5 minutes, 2 minutes
     after. On C4, after Enter on Continue while the snackbar shows,
-    with the seal left unanswered, the snackbar still shows until its
-    time ends, 6 s after it appeared. On C4, when a seal is answered `AlreadyProvisioned` while
+    with the seal left unanswered, the snackbar stays shown until its
+    time ends, 6 s after it appeared, and closes then. On C4, when a
+    seal is answered `AlreadyProvisioned` while
     the snackbar shows, the snackbar closes when `IdAlreadyCreated`
     shows; on R3, when a restore is refused with `IdStorageFailed`,
     the snackbar closes when that notice shows. On C4, under
