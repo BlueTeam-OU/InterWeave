@@ -878,7 +878,10 @@ async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_t
 
     // A WENT ON REDIALLING through the outage every 30 s, however many
     // had failed: sixteen dials in 480 s, where the ladder this replaced
-    // made five.
+    // made five. Every step 30 s because B is stopped as soon as the pair
+    // is connected: a connection that held under 30 s starts no loss
+    // ladder (ADR-0011 A 2026-11-17), whose short steps would otherwise
+    // come first.
     assert!(
         delays.len() >= 15 && delays.iter().all(|d| *d == 30_000),
         "{delays:?}\n{during}"

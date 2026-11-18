@@ -553,5 +553,13 @@ dial for a time after a close (the redial on the close races the same
 way).
 
 Not built when this was recorded: the code set 30 s at the first
-failure, and no test held the ladder. Not measured: its cost on a
+failure, and no test held the ladder. Built in the change that
+followed: the ladder's state is one map in
+`crates/transport/runtime/src/loss_ladder.rs`, read only by
+`ConnectionManager::retry_delay_ms` (so the peer backoff and the
+scheduled retry take one step) and started by
+`ConnectionManager::record_peer_lost`, which the libp2p runtime calls
+when a peer's open set empties, with the closing connection's age by
+the runtime's clock from its establishment; held by
+`connection_manager.rs`'s `the_loss_of_a_connection_that_held_starts_the_ladder_at_1_s`, `a_connection_that_held_under_30_s_does_not_restart_the_ladder`, `a_peer_never_connected_keeps_30_s_from_the_first_failure`, `a_connection_that_holds_then_is_lost_restarts_the_ladder_at_1_s` and `a_revoked_peer_leaves_the_loss_ladder`, and over real sockets `crates/transport/libp2p/tests/reconnect.rs`'s `a_peer_lost_after_a_held_connection_is_redialled_on_the_short_steps` with its control `a_peer_lost_after_a_short_connection_keeps_the_30_s_step`. Not measured: its cost on a
 phone, five dials per loss beyond what the 30 s step made.
