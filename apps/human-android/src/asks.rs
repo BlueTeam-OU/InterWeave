@@ -6,6 +6,7 @@
 //! gate's hold it was for (onboard.rs, `unlock_unasked`).
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -15,6 +16,8 @@ use std::time::Duration;
 pub(crate) struct Asks {
     queue: Mutex<VecDeque<(i32, u64)>>,
     changed: Condvar,
+    /// The last number [`Self::push_numbered`] gave, counted up from 1.
+    numbered: AtomicU64,
 }
 
 impl Asks {
@@ -22,7 +25,18 @@ impl Asks {
         Self {
             queue: Mutex::new(VecDeque::new()),
             changed: Condvar::new(),
+            numbered: AtomicU64::new(0),
         }
+    }
+
+    /// `ask` with the next number above every one given before, as its
+    /// argument, and that number: a hold asked after a drop has a number
+    /// above any the drop reports, so the drop never releases it
+    /// (`a_hold_asked_after_a_drop_survives_it`).
+    pub(crate) fn push_numbered(&self, ask: i32) -> u64 {
+        let number = self.numbered.fetch_add(1, Ordering::SeqCst) + 1;
+        self.push_with(ask, number);
+        number
     }
 
     pub(crate) fn push(&self, ask: i32) {
@@ -125,6 +139,27 @@ mod tests {
             "raised: Kotlin took it"
         );
         assert_eq!(asks.drop_all(UNLOCK), None, "a raised ask is not dropped");
+    }
+
+    /// A gate holding for an ask numbered after a drop is not released by
+    /// it, while the hold whose ask the drop took is. Mutation:
+    /// `push_numbered` giving any fixed number fails the second
+    /// assertion.
+    #[test]
+    fn a_hold_asked_after_a_drop_survives_it() {
+        use interweave_human_ui_model::{Admit, Effect, PresenceGate};
+
+        let asks = Asks::new();
+        let mut gate = PresenceGate::new(true);
+        assert_eq!(gate.admit(Effect::Seal, 0), Admit::Prompt);
+        gate.asked(asks.push_numbered(UNLOCK));
+        let through = asks.drop_all(UNLOCK).expect("one dropped");
+        assert_eq!(gate.unasked(through), Some(Effect::Seal), "control");
+
+        assert_eq!(gate.admit(Effect::StartService, 1), Admit::Prompt);
+        gate.asked(asks.push_numbered(UNLOCK));
+        assert_eq!(gate.unasked(through), None, "the later hold stays");
+        assert!(gate.holding());
     }
 
     /// `clear` drops every ask and reports the Unlock asks as `drop_all`

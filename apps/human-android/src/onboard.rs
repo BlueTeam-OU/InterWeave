@@ -12,7 +12,7 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -351,30 +351,20 @@ fn route(route: Route) {
 /// asks it -- the person's Unlock, the presence gate, a locked start --
 /// so a test reading the trace sees every prompt raised.
 fn ask_unlock() {
-    ask_unlock_numbered(0);
-}
-
-/// [`ask_unlock`] carrying `number` as its argument, which Kotlin does not
-/// read: the presence gate's ask number ([`gate_ask`]), 0 for every other
-/// asker, so a dropped ask says which hold it was for.
-fn ask_unlock_numbered(number: u64) {
     #[cfg(feature = "ui-trace")]
     log(&prompt_line(TracedPrompt::Unlock));
-    ASKS.push_with(ask::UNLOCK, number);
+    ASKS.push(ask::UNLOCK);
 }
 
-/// The presence gate's Unlock asks, numbered from 1 across the process,
-/// so a gate holding for an ask made after a drop is never released by
-/// it.
-static GATE_ASKS: AtomicU64 = AtomicU64::new(0);
-
-/// The Unlock prompt for the effect `o`'s gate now holds, numbered so the
-/// gate can be told when the ask is dropped ([`unlock_unasked`]).
+/// The Unlock prompt for the effect `o`'s gate now holds, said in the
+/// trace as [`ask_unlock`] says it, and numbered as its argument, which
+/// Kotlin does not read (`Asks::push_numbered`; every other asker's is 0),
+/// so the gate can be told when the ask is dropped ([`unlock_unasked`]).
 fn gate_ask(o: &mut Onboarding) {
-    let number = GATE_ASKS.fetch_add(1, Ordering::SeqCst) + 1;
-    o.gate.asked(number);
     route_state().asked();
-    ask_unlock_numbered(number);
+    #[cfg(feature = "ui-trace")]
+    log(&prompt_line(TracedPrompt::Unlock));
+    o.gate.asked(ASKS.push_numbered(ask::UNLOCK));
 }
 
 /// Unlock asks were dropped before the Activity raised them (a new
