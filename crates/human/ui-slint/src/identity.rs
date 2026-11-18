@@ -407,7 +407,8 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             page.notice = text(UiText::IdOtherIdentity).into();
             page.peer_label = text(UiText::IdDerivedPeerId).into();
             page.peer_groups = grouped(derived).into();
-            // A banner's PeerIds are for the eye alone (section 5).
+            // A banner's PeerIds are for the eye alone (section 5;
+            // `copy_peer_id_is_on_r3_and_r4_only`).
             shown = None;
             page.second_peer_label = text(UiText::IdExpectedPeerId).into();
             page.second_peer_groups = grouped(expected).into();
@@ -477,7 +478,8 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         _ => {}
     }
     // Copy PeerId under R3's and R4's PeerId only (section 5): C4's waits
-    // on its own design, and a banner's PeerId has none.
+    // on its own design, and a banner's PeerId has none
+    // (`copy_peer_id_is_on_r3_and_r4_only`).
     if let (ScreenId::R3 | ScreenId::R4, Some(peer)) = (screen, shown) {
         page.copy_label = text(UiText::CopyPeerId).into();
         page.peer_id = peer.as_str().into();
@@ -785,6 +787,87 @@ mod tests {
         assert!(again.notice_action_held, "Try again held");
         assert_eq!(again.notice, en(UiText::IdStorageFailed), "it stays");
         assert_eq!(apply(&mut flow, IdentityInput::NoticeAction), []);
+    }
+
+    /// Every word of `words()` typed into `flow`, which is on R2.
+    fn type_all(flow: &mut IdentityFlow) {
+        for (at, word) in words().into_iter().enumerate() {
+            apply(flow, IdentityInput::Slot(at));
+            for letter in word.chars() {
+                if flow.picker().and_then(|p| p.chip(word)).is_some() {
+                    break;
+                }
+                apply(flow, IdentityInput::Key(letter));
+            }
+            apply(flow, IdentityInput::Chip(word.to_owned()));
+        }
+        assert_eq!(flow.screen(), ScreenId::R2, "control: R2");
+    }
+
+    /// Copy `PeerId` is under R3's and R4's `PeerId` and on no other page
+    /// that shows a `PeerId` (section 5): not on C2, S2 or C4, which show
+    /// the words or wait on their own design, and not on R2's
+    /// `IdOtherIdentity` banner, whose two `PeerIds` are for the eye alone.
+    /// R3 and R4 are the controls. Mutation: `page`'s copy arm matching
+    /// any screen (`(_, Some(peer))`), or the banner's `shown = None`
+    /// removed, fails here.
+    #[test]
+    fn copy_peer_id_is_on_r3_and_r4_only() {
+        let copies = |page: &IdentityPage| {
+            (
+                page.copy_label == en(UiText::CopyPeerId),
+                !page.peer_id.is_empty(),
+            )
+        };
+
+        let mut c2 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut c2, IdentityInput::Primary);
+        c2.created(words(), mine(), [3, 9]);
+        let c2 = page_of(&mut c2, &[IdentityInput::Primary]);
+        assert!(!c2.peer_groups.is_empty(), "control: C2 shows its PeerId");
+        assert_eq!(copies(&c2), (false, false), "C2");
+
+        let mut s2 = IdentityFlow::new(LIST, Start::ShowPhrase);
+        apply(&mut s2, IdentityInput::Primary);
+        s2.prompted(true);
+        s2.offline(Ok((words(), mine())));
+        assert_eq!(s2.screen(), ScreenId::S2, "control: S2");
+        let s2 = page(&s2);
+        assert!(!s2.peer_groups.is_empty(), "control: S2 shows its PeerId");
+        assert_eq!(copies(&s2), (false, false), "S2");
+
+        let c4 = page(&at_c4());
+        assert!(!c4.peer_groups.is_empty(), "control: C4 shows its PeerId");
+        assert_eq!(copies(&c4), (false, false), "C4");
+
+        let mut r2 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut r2, IdentityInput::Secondary);
+        apply(&mut r2, IdentityInput::Primary);
+        type_all(&mut r2);
+        apply(&mut r2, IdentityInput::Primary);
+        // An OtherIdentity banner needs an expected PeerId: R2 after K1.
+        let mut k1 = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+        apply(&mut k1, IdentityInput::Primary);
+        type_all(&mut k1);
+        apply(&mut k1, IdentityInput::Primary);
+        k1.checked(Some(other()));
+        let banner = page(&k1);
+        assert_eq!(banner.notice, en(UiText::IdOtherIdentity), "control");
+        assert_eq!(copies(&banner), (false, false), "R2's banner");
+
+        r2.checked(Some(mine()));
+        assert_eq!(r2.screen(), ScreenId::R3, "control: R3");
+        assert_eq!(copies(&page(&r2)), (true, true), "R3");
+        r2.restored(Ok(()));
+        assert_eq!(r2.screen(), ScreenId::R4, "control: R4");
+        assert_eq!(copies(&page(&r2)), (true, true), "R4");
     }
 
     /// Welcome with the lock refused: the notice and Try again, which
