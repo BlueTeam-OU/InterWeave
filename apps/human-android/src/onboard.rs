@@ -10,10 +10,9 @@
 //! the credential prompt, binding the service, finishing.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -33,6 +32,7 @@ use interweave_human_ui_slint::{
 };
 use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustBoundary};
 
+use crate::asks::Asks;
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
 use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end, secure_may_clear};
@@ -113,70 +113,6 @@ pub(crate) mod ask {
     pub(crate) const PHOTO_CANCEL: jint = 15;
 }
 
-/// The asks, in order, for one waiting Kotlin thread: each with its
-/// argument, 0 where it takes none.
-pub(crate) struct Asks {
-    queue: Mutex<VecDeque<(jni::sys::jint, u64)>>,
-    changed: Condvar,
-}
-
-impl Asks {
-    const fn new() -> Self {
-        Self {
-            queue: Mutex::new(VecDeque::new()),
-            changed: Condvar::new(),
-        }
-    }
-
-    pub(crate) fn push(&self, ask: jni::sys::jint) {
-        self.push_with(ask, 0);
-    }
-
-    /// `ask` with an argument, which `wait` hands over above its
-    /// [`ASK_BITS`](crate::ask_word::ASK_BITS).
-    pub(crate) fn push_with(&self, ask: jni::sys::jint, arg: u64) {
-        self.queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push_back((ask, arg));
-        self.changed.notify_all();
-    }
-
-    /// Drop every waiting `ask`: an Unlock prompt asked while a window
-    /// showed is not raised over the next one (unlock note §11: leaving
-    /// while the prompt shows counts as a cancel). Whether one waited.
-    fn drop_all(&self, ask: jni::sys::jint) -> bool {
-        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
-        let before = queue.len();
-        queue.retain(|&(waiting, _)| waiting != ask);
-        queue.len() != before
-    }
-
-    /// Drop what waits: asks an earlier Activity instance left unread
-    /// belong to its window, and a late `SECURE_OFF` would clear the new
-    /// window's flag while its flow runs (#309 review, risk). Whether an
-    /// [`ask::UNLOCK`] was among them.
-    fn clear(&self) -> bool {
-        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
-        let unlock = queue.iter().any(|&(waiting, _)| waiting == ask::UNLOCK);
-        queue.clear();
-        unlock
-    }
-
-    /// The next ask within `timeout`, its argument above its
-    /// [`ASK_BITS`](crate::ask_word::ASK_BITS), or 0.
-    pub(crate) fn wait(&self, timeout: Duration) -> jni::sys::jlong {
-        let queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
-        let (mut queue, _) = self
-            .changed
-            .wait_timeout_while(queue, timeout, |queue| queue.is_empty())
-            .unwrap_or_else(PoisonError::into_inner);
-        queue
-            .pop_front()
-            .map_or(0, |(ask, arg)| crate::ask_word::pack(ask, arg))
-    }
-}
-
 pub(crate) static ASKS: Asks = Asks::new();
 
 /// What `Native.identityState` found, and the cipher it made on a thread
@@ -233,8 +169,8 @@ pub(crate) fn identity_state(
     // earlier instance left in the queue is no longer anyone's. An Unlock
     // a refused start asked since `window_shown` is dropped with it, so
     // the check below asks its own.
-    if ASKS.clear() {
-        route_state().unasked();
+    if let Some(through) = ASKS.clear(ask::UNLOCK) {
+        unlock_unasked(through);
     }
     let found = interweave_human_android_platform::start_identity(
         &app_data_dir,
@@ -415,17 +351,69 @@ fn route(route: Route) {
 /// asks it -- the person's Unlock, the presence gate, a locked start --
 /// so a test reading the trace sees every prompt raised.
 fn ask_unlock() {
+    ask_unlock_numbered(0);
+}
+
+/// [`ask_unlock`] carrying `number` as its argument, which Kotlin does not
+/// read: the presence gate's ask number ([`gate_ask`]), 0 for every other
+/// asker, so a dropped ask says which hold it was for.
+fn ask_unlock_numbered(number: u64) {
     #[cfg(feature = "ui-trace")]
     log(&prompt_line(TracedPrompt::Unlock));
-    ASKS.push(ask::UNLOCK);
+    ASKS.push_with(ask::UNLOCK, number);
+}
+
+/// The presence gate's Unlock asks, numbered from 1 across the process,
+/// so a gate holding for an ask made after a drop is never released by
+/// it.
+static GATE_ASKS: AtomicU64 = AtomicU64::new(0);
+
+/// The Unlock prompt for the effect `o`'s gate now holds, numbered so the
+/// gate can be told when the ask is dropped ([`unlock_unasked`]).
+fn gate_ask(o: &mut Onboarding) {
+    let number = GATE_ASKS.fetch_add(1, Ordering::SeqCst) + 1;
+    o.gate.asked(number);
+    route_state().asked();
+    ask_unlock_numbered(number);
+}
+
+/// Unlock asks were dropped before the Activity raised them (a new
+/// showing, a new Activity instance), the gate's up to number `through`:
+/// nothing will answer them. The route learns no prompt is outstanding,
+/// which is not a decline -- the person decided nothing, and L2 counts
+/// only an answered prompt's cancel -- and a key operation the gate held
+/// for one of them is released on the window's thread as a cancelled
+/// prompt releases it ([`not_run`]): no screen stays held by a prompt
+/// nobody will raise, and nothing is retried.
+fn unlock_unasked(through: u64) {
+    route_state().unasked();
+    if through == 0 {
+        // Only the route's and the notice's asks were dropped: no gate
+        // waited on them.
+        return;
+    }
+    invoke_on_window(move || {
+        let effects = ONBOARDING.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .and_then(|o| {
+                    let effect = o.gate.unasked(through)?;
+                    log("an identity key operation's prompt was dropped unraised: not run");
+                    Some(not_run(o, &effect))
+                })
+                .unwrap_or_default()
+        });
+        run(effects);
+        render();
+    });
 }
 
 /// `Native.shown`: an Activity's window started (true) or stopped
 /// (false) showing. An Unlock prompt asked for an earlier showing is not
 /// raised over this one.
 pub(crate) fn window_shown(shown: bool) {
-    if shown && ASKS.drop_all(ask::UNLOCK) {
-        route_state().unasked();
+    if shown && let Some(through) = ASKS.drop_all(ask::UNLOCK) {
+        unlock_unasked(through);
     }
     route_state().shown(shown);
 }
@@ -885,32 +873,7 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
                     match o.gate.prompted(granted, now_ms()) {
                         // The prompt a key operation waited on.
                         Prompted::Resume(effect) => vec![effect],
-                        // A cancelled restore gives R2's check back, or R3's Yes
-                        // and No; a cancelled seal leaves C4 as it was, Continue
-                        // enabled again (§5.1).
-                        Prompted::Dropped(
-                            Effect::RestoreRecorded(_)
-                            | Effect::RestoreConfirmed(..)
-                            | Effect::Seal,
-                        ) => {
-                            o.flow.cancelled_step();
-                            Vec::new()
-                        }
-                        // A cancelled service start ends the flow with nothing
-                        // started: the person is offline, the window says why,
-                        // and its Unlock raises the prompt again (#309
-                        // acceptance 10; the custody doc's failure list).
-                        Prompted::Dropped(Effect::StartService) => {
-                            o.service_asked = true;
-                            await_authentication(o.over.start_ask());
-                            // C4's or R4's continue ends on Chats with the
-                            // notice focused -- the held screen's start is
-                            // decided, refused -- S2's Done on Settings, which
-                            // keeps its own (identity note §10 item 10).
-                            crate::activity::focus_locked_notice();
-                            o.flow.decided()
-                        }
-                        Prompted::Dropped(_) => Vec::new(),
+                        Prompted::Dropped(effect) => not_run(o, &effect),
                         // S1's own prompt.
                         Prompted::NotHeld => o.flow.prompted(granted),
                     }
@@ -963,6 +926,42 @@ pub(crate) fn offline(stopped: bool) {
     });
 }
 
+/// A key operation the presence gate held did not run: its prompt was
+/// cancelled or denied ([`prompted`]), or dropped before anything raised
+/// it ([`unlock_unasked`]). One answer for both, so a prompt that ends
+/// without running what it held always gives the screen back.
+fn not_run(o: &mut Onboarding, effect: &Effect) -> Vec<Effect> {
+    match effect {
+        // A restore not run gives R2's check back, or R3's Yes and No; a
+        // seal leaves C4 as it was, Continue enabled again (§5.1).
+        // Nothing was committed, and nothing runs again until the
+        // primary action is used again (design section 6).
+        Effect::RestoreRecorded(_) | Effect::RestoreConfirmed(..) | Effect::Seal => {
+            o.flow.cancelled_step();
+            Vec::new()
+        }
+        // A service start not run ends the flow with nothing started: the
+        // person is offline, the window says why, and its Unlock raises
+        // the prompt again (#309 acceptance 10; the custody doc's failure
+        // list). A dropped ask ends it the same way rather than giving the
+        // held C4 or R4 back: the identity is committed, so C4's Continue
+        // would seal again, and asking again by itself is the retry
+        // section 6 forbids. Whether a return prompts is the route's
+        // ([`UnlockRoute`]), which counts no decline for a dropped ask.
+        Effect::StartService => {
+            o.service_asked = true;
+            await_authentication(o.over.start_ask());
+            // C4's or R4's continue ends on Chats with the notice focused
+            // -- the held screen's start is decided, refused -- S2's Done
+            // on Settings, which keeps its own (identity note §10 item
+            // 10).
+            crate::activity::focus_locked_notice();
+            o.flow.decided()
+        }
+        _ => Vec::new(),
+    }
+}
+
 fn failed(refused: &WriteRefused) -> StepFailed {
     log(&format!("an identity write was refused: {refused:?}"));
     match refused {
@@ -1000,8 +999,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                 if let Some(hold) = o.hold.as_mut() {
                     hold.prompt_shown(now_ms());
                 }
-                route_state().asked();
-                ask_unlock();
+                gate_ask(o);
                 return Vec::new();
             }
         };
