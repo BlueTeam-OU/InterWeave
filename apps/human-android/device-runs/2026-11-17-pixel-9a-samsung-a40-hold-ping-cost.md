@@ -26,8 +26,18 @@ mode that keeps the session in a foreground service.
 - Both were reached on this login's own adb server, over wireless
   debugging at the owner's addresses on one Wi-Fi network.
 
-The debug APK of main at **`8b6b1d35b`** was installed on both phones
-on 2026-11-16 at 05:05Z. Built by this login.
+Both phones ran the debug APK of main at **`8b6b1d35b`**, built by this
+login on 2026-11-16 at 05:05Z. The installs:
+
+- **Pixel**: installed at 05:06Z (`lastUpdateTime` 2026-11-16 06:06:03,
+  phone time).
+- **A40**: installed first at 05:05Z. The phone then went to another
+  login for its run (`2026-11-16-samsung-a40-back-runs.md`), which
+  uninstalled this pair with its data at 16:54Z and gave the phone back
+  holding its own pair. This login uninstalled that pair and installed
+  this one again at 17:03Z, from the same build output (sha256 below).
+  The A40 read `lastUpdateTime` 2026-11-16 18:03:29 (phone time,
+  UTC+1) at the start of each of its windows.
 
 - app sha256 `1396145e82edf24928f960594140e31e934a722c47ba420b7b8795bfebc64543`
 - androidTest sha256 `88247508c213fb1d231702646e584c33d53c8257af415fd2eb9ac30b2b3b00db`
@@ -40,19 +50,29 @@ that daemon as its one allowed peer.
 
 **This host cannot be dialled by a phone**, so the far daemon dialled
 the phone: a static entry for the phone's Wi-Fi address and the app's
-listen port. Main changed after `8b6b1d35b` (this branch was brought up
-to main before the record was written). This run is of `8b6b1d35b`.
+listen port.
+
+**Main changed after `8b6b1d35b`.** This branch was brought up to main
+before the record was written. Among the changes,
+`crates/transport/libp2p/src/runtime/dialing.rs` gained the
+peer-loss redial ladder (ADR-0011, A 2026-11-17). The A40's dial
+pattern below is `8b6b1d35b`'s retry schedule, not main's. This run is
+of `8b6b1d35b`.
 
 ### How the phones got there
 
 On the owner's word (GZCoord DECISION `01a1dd7d`, relayed by
-architect-cto), both phones had the app uninstalled with its data. That
-included the earlier build of 2026-11-15, `eb72c4f4b`, which main's
-redial change (A 2026-11-14) superseded before any window ran. The
-debug pair above was installed.
+architect-cto), both phones had the app uninstalled with its data. An
+earlier build of this login's, main at `eb72c4f4b` (2026-11-15), was
+installed first. No window ran on it, and it was replaced by
+`8b6b1d35b` with `install -r` once main had moved. The transport code
+of the two commits is the same: what changed between them is the
+client's UI (`crates/human/ui-slint`) and documentation.
 
-The profile was then written through the app's own cases: identity, a
-fixed listen port, and the far daemon as the one allowed contact.
+After each install with data cleared, the profile was written through
+the app's own cases: identity, a fixed listen port, and the far daemon
+as the one allowed contact. On the A40 that was again at 17:03Z, after
+the reinstall, under a new phone identity.
 
 **main has no switch for Stay reachable**, so on the owner's word
 ("for me you can use both") this login wrote the availability overlay
@@ -71,6 +91,11 @@ service was running** (`dumpsys activity services`):
 - A40, read at every precheck from 2026-11-16T20:54Z to
   2026-11-17T09:40Z: `isForeground=true` on channel `reachable`, pid
   1250. Android 11's dump prints no `types=` field.
+  - No services dump was taken at the control's start (10:40Z), but
+    the process was still pid 1250.
+  - Before the held window, the reading is the control's end read at
+    13:40Z: the same `ServiceRecord`, `isForeground=true`, channel
+    `reachable`, and pid 1250 again at the held start, 13:51:26Z.
 
 **The overlay is still on both phones as this record is written.**
 Whether to remove it is the owner's call and has not been given.
@@ -142,24 +167,50 @@ consecutive days.
 
 So with one held peer, the clean held window had 1822 more kernel
 wakeups than the control, about ten a minute, almost all of them the
-Wi-Fi chip waking the host. It also drew 38 mAh more over three hours
-and 13.7 mAh more Wi-Fi drain. Batterystats' per-app model charges the
-app 0.092 mAh, because it counts the app's radio time and not the
-suspend it interrupts.
+Wi-Fi chip waking the host. It also had 13.7 mAh more Wi-Fi drain.
+Batterystats' per-app model charges the app 0.092 mAh, far below any of
+the whole-phone differences.
 
-**How far the 38 mAh is the ping's is not settled by one pair.** The
-two windows ran on different days, against different background
-traffic from other apps (55 MB against 22 MB of Wi-Fi data). The
-spoiled first held window shows how far that background moves the
-total.
+**The discharge difference depends on which counter is read**, and the
+phone's counters do not nest:
+
+| counter | difference over 3 h |
+|---|---|
+| total | 38 mAh (263 − 225) |
+| screen off | 60 mAh (260 − 200) |
+| deep Doze | 32 mAh (245 − 213) |
+
+- **Screen-on time** accounts for part of the gap between the first
+  two: the control's 1m27s of screen-on used 25 mAh, and the held
+  window's 5.4 s used 2.5 mAh.
+- **The deep-Doze counter exceeds the screen-off counter** in the
+  control (213 against 200 mAh), and in the first held window too
+  (213 against 168). Deep Doze happens only with the screen off, so
+  these counters are not a subset of one another on this build, and
+  this record does not say which is right.
+- **The battery level** fell by 5 % in each window.
+
+So the held window cost between 32 and 60 mAh more in three hours,
+according to the counter.
+
+**How far that is the ping's is not settled by one pair.** The two
+windows ran on different days, against different background traffic
+from other apps (55 MB against 22 MB of Wi-Fi data). The spoiled first
+held window shows how far that background moves the total.
 
 **What Doze did to the ping on the Pixel: nothing that the far end
 could see.** In the clean held window, the far daemon logged one
 connect, at 06:44:18Z, and no disconnect before its shutdown at
 09:59:14Z. All 2123 samples of the socket show the same socket (local
 port 46342), and the longest `lastrcv` was 15.4 s, against the 15 s
-ping. So a ping or its answer crossed the connection within every
-interval while the phone sat in deep Doze for 2h54m of the window.
+ping.
+
+- **The bound this gives.** The samples are about 5.1 s apart, so a
+  sample can miss up to that much of a gap. The longest receive gap
+  was therefore at most about 20.5 s.
+- **No missed liveness.** The connection never missed liveness: the
+  ping's timeout is 20 s, and a miss would have closed it. That held
+  while the phone sat in deep Doze for 2h54m of the window.
 
 The spoiled first window shows the same: one socket throughout, longest
 `lastrcv` 15.4 s.
@@ -173,7 +224,7 @@ It is excluded from every figure above.
 | window | span (UTC) | battery | discharge (screen off) | screen on | Doze | state |
 |---|---|---|---|---|---|---|
 | control (no peer) | 2026-11-17 10:40:13–13:40:22 | 98 → 88 % | 307 mAh (307) | 1 s interactive | light 1h04m, deep 1h53m | clean |
-| held, attempt 1 | 2026-11-17 13:43:39–13:51 | — | — | woken for diagnosis | — | **void** |
+| held, attempt 1 | 2026-11-17 13:43:39–13:51 (far daemon up 13:42) | — | — | woken for diagnosis | — | **void** |
 | held | 2026-11-17 13:51:28–16:51:36 | 88 → 77 % | 347 mAh (239) | **30m07s, 2×** | light 1h28m, deep 57m | **spoiled** |
 
 The control's dump also prints `Screen on: 3d 8h … 0x`. That is a
@@ -195,7 +246,8 @@ and `netpolicy` showed the uid on the Doze allow list with rules
 
 - **The control window** was frozen from 10:41:21Z: seven freezes by 12:43:03Z.
   The seventh was still in force when the freeze log was read at about 13:51Z.
-- **Held attempt 1** (from 13:42Z) never connected: three dials, all
+- **Held attempt 1** never connected. The far daemon came up at 13:42Z
+  and dialled from 13:42:41Z, before the reset at 13:43:39Z: three dials, all
   `dial_failed`. The diagnosis woke the phone, so the attempt was
   voided and its files kept apart. The window restarted clean at
   13:51:28Z.
@@ -214,7 +266,7 @@ not a cost of the hold:
 
 | | control | held |
 |---|---|---|
-| discharge | 307 mAh | 347 mAh (109 of it screen on) |
+| discharge | 307 mAh | 347 mAh (239 screen off, 109 screen on, as batterystats rounds them) |
 | Wi-Fi battery drain | 102 mAh | 106 mAh |
 | Wi-Fi Rx time | 1h33m | 1h36m |
 | the app's Wi-Fi data received / sent | none listed | 162 KB / 82 KB |
@@ -244,23 +296,34 @@ this record.
 - **The cost of redialling each absent contact every 30 s** (§12,
   A 2026-11-14). The far daemon held a static entry for the phone and
   dialled it; the phone held none, so it dialled nothing.
+- **A relayed connection's ping.** ADR-0068 pings relayed connections too. Here, the one connection was direct.
 - **The release build.** This run is of the debug APK at `8b6b1d35b`.
 
 ## The sentence proposed for §14
 
-It is proposed to replace the clause in `CONNECTIVITY.md` §14
-A 2026-11-13's "Not proved" that begins "and the cost on a phone", and
-the matching bullet in ADR-0068's consequences. Both are
-architect-cto's to write:
+It is proposed to replace one clause in `CONNECTIVITY.md` §14
+A 2026-11-13's "Not proved", and the matching bullet in ADR-0068's
+consequences (`0068-…md`, the bullet beginning "Every profile now
+sends a ping"). Both texts are architect-cto's to write.
 
-> the cost on a phone was measured on 2026-11-17 and 2026-11-18
+The clause runs from "and the cost on a phone" to "calls the phone's
+idle cost known". The clause after it, on the redial cost ("the cost
+of redialling each absent contact every 30 s … is carried beside it"),
+stays: this run did not measure it.
+
+> and the cost on a phone, measured once on 2026-11-18
 > (`apps/human-android/device-runs/2026-11-17-pixel-9a-samsung-a40-hold-ping-cost.md`):
 > under Stay reachable, a Pixel 9a idle with its screen off kept one
-> held peer's connection through deep Doze for 3 h at the 15 s
-> interval. It had 1822 more kernel wakeups and drew 38 mAh more (263
-> against 225) than with no peer online, in one window of each. Under
+> held peer's direct connection through 2h54m of deep Doze at the 15 s
+> interval with no missed liveness. Against a window with no peer
+> online, it had 1822 more kernel wakeups in 3 h and drew 32–60 mAh
+> more, according to the counter, in one window of each, which does
+> not separate the ping from other apps' traffic. Under
 > foreground-only, the default, there is no foreground service, so the
 > hold costs nothing with the screen off. On a Samsung A40 (Android 11),
-> the system froze the app in Doze despite its foreground
-> service, so no connection was held and the cost was not measured
-> there. The interval stays 15 s.
+> the system froze the app in Doze despite its foreground service, so
+> no connection was held there and its cost was not measured. Not
+> measured: cellular, several held peers, a relayed connection, the
+> release build. The interval stays 15 s. Whether this is enough for a
+> release note to call the phone's idle cost known is not decided by
+> this measurement;
