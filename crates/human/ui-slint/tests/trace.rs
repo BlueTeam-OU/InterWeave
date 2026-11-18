@@ -1266,10 +1266,7 @@ fn a_valid_check_puts_focus_on_r3s_question_and_yes_on_r4s_title() {
 
 /// The arrows reach R3's question and Copy `PeerId` as they reach every
 /// other stop (section 8): Down from the question to Copy, Down again to
-/// Yes, and Up back to Copy and the question. On a phone's width: at 900
-/// the full-width question's centre lies so far from Copy's, at the
-/// start, that the weighted distance gives Up to the back arrow, as
-/// Android's directional focus would.
+/// Yes, and Up back to Copy and the question, on a phone's width.
 #[test]
 fn the_arrows_reach_r3s_question_and_copy() {
     use interweave_human_ui_model::ScreenId;
@@ -1300,13 +1297,11 @@ fn the_arrows_reach_r3s_question_and_copy() {
     assert_eq!(page.last(), "ui-trace focus=r3-question");
 }
 
-/// The focus lines the arrows give on R3 after a failed restore, at
-/// `width`: from the banner, where the failure puts focus, Down three
-/// times, then Up three times.
-fn r3_notice_arrows(width: f32) -> Vec<String> {
+/// The focus lines `keys` give on R3 after a failed restore, at `width`,
+/// from the banner, where the failure puts focus.
+fn r3_notice_arrows(width: f32, keys: &[slint::platform::Key]) -> Vec<String> {
     use interweave_human_ui_model::{ScreenId, StepFailed};
     use interweave_human_ui_slint::IdentityInput;
-    use slint::platform::Key;
     let mut page = Identity::at_r2_but_24(None);
     page.view
         .window()
@@ -1326,11 +1321,7 @@ fn r3_notice_arrows(width: f32) -> Vec<String> {
     page.settle();
     assert_eq!(page.last(), "ui-trace focus=identity-banner", "control");
     let mut lines = Vec::new();
-    for key in [Key::DownArrow, Key::DownArrow, Key::DownArrow] {
-        page.key(key);
-        lines.push(page.last());
-    }
-    for key in [Key::UpArrow, Key::UpArrow, Key::UpArrow] {
+    for &key in keys {
         page.key(key);
         lines.push(page.last());
     }
@@ -1340,14 +1331,11 @@ fn r3_notice_arrows(width: f32) -> Vec<String> {
 /// The arrows on R3 with a failed restore's notice (section 8's R3
 /// order, banner, Try again, question, Copy): on a phone's width Down
 /// from the banner reaches Try again under its text, then the question
-/// and Copy, and Up walks back the same way. At 900 (measured, not
-/// pinned) Down from the banner goes to the question and Up from Try
-/// again to the back arrow: the full-width question's and banner's
-/// centres outweigh Try again's at the start, as Android's weighted
-/// distance would. Mutation: `question-idx` not counting the notice's
-/// action fails here.
+/// and Copy, and Up walks back the same way. Mutation: `question-idx`
+/// not counting the notice's action fails here.
 #[test]
 fn the_arrows_reach_r3s_try_again_under_its_notice() {
+    use slint::platform::Key::{DownArrow as Down, UpArrow as Up};
     let walk = |lines: &[&str]| {
         lines
             .iter()
@@ -1355,7 +1343,7 @@ fn the_arrows_reach_r3s_try_again_under_its_notice() {
             .collect::<Vec<_>>()
     };
     assert_eq!(
-        r3_notice_arrows(360.0),
+        r3_notice_arrows(360.0, &[Down, Down, Down, Up, Up, Up]),
         walk(&[
             "identity-notice-action",
             "r3-question",
@@ -1363,6 +1351,33 @@ fn the_arrows_reach_r3s_try_again_under_its_notice() {
             "r3-question",
             "identity-notice-action",
             "identity-banner",
+        ])
+    );
+}
+
+/// The same R3 on a wide window, 900 px: the arrows still reach every
+/// stop, by another walk. The full-width banner's and question's centres
+/// outweigh Try again's at the start, so Down from the banner goes to the
+/// question, and Try again is reached by Up from Copy, as Android's
+/// weighted distance would; Up from it goes to the back arrow.
+#[test]
+fn the_arrows_reach_r3s_try_again_on_a_wide_window() {
+    use slint::platform::Key::{DownArrow as Down, UpArrow as Up};
+    let walk = |lines: &[&str]| {
+        lines
+            .iter()
+            .map(|l| format!("ui-trace focus={l}"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        r3_notice_arrows(900.0, &[Down, Down, Down, Up, Up, Up]),
+        walk(&[
+            "r3-question",
+            "identity-copy",
+            "identity-primary",
+            "identity-copy",
+            "identity-notice-action",
+            "identity-back",
         ])
     );
 }
