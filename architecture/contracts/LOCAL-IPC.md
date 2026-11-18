@@ -686,7 +686,8 @@ stops: from then an inbound direct request is answered `shutting_down`
 and no endpoint queue takes a new message. "Stop accepting" is the
 server's: no new connection, no new request. Each data session is then
 written the events its queue held at that moment, ahead of its
-`close{ShuttingDown}`, and its lease is released after the `close`.
+`close{ShuttingDown}`, and its lease is released before the `close` is
+written, so a client that reconnects on it finds the lease free.
 The hand-over is bounded by the session's queue and by the stop's
 grace: a client that does not read is closed when the grace ends, and
 what it did not take is counted as dropped. As the gap was found the

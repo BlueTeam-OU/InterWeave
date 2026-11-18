@@ -53,7 +53,10 @@ cargo test -p interweave-automated-client-tests --test two_hosts -- --exact \
   client before the `close`, and the case had stopped asking for it at
   B's exit. So the earlier line is the harness's, not a
   loss.
-- **Every other run** of both series lost nothing, by either line.
+- **Every other run** of both series lost nothing counting what B's
+  client held at the exit. One, `held-8`, shows one message on the
+  older line ("not read by B's client: 1"), the same harness effect as
+  `repeat-read-1`'s.
 - The refusal itself (`shutting_down` answered from the stop's start)
   is held by `tests/automated_client.rs`'s
   `an_inbound_direct_after_the_stop_began_is_refused_shutting_down`,

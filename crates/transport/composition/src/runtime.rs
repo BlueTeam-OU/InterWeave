@@ -757,7 +757,7 @@ impl ComposedRuntime {
     /// and the connections already up stay up, until [`stop`](Self::stop).
     /// The composition root drains BEFORE it closes any session, so a
     /// sender meets a refusal it can retry on rather than an admission
-    /// whose reader is about to go (`tests/ipc-v2`'s
+    /// whose reader is about to go (`tests/automated-client`'s
     /// `an_inbound_direct_after_the_stop_began_is_refused_shutting_down`).
     ///
     /// # Errors
