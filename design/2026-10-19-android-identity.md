@@ -191,14 +191,15 @@ now says that the clipboard removal waits whenever C4's window does
 not have the focus or the device is locked: in the background, in
 split-screen, under the notification shade, or behind a system window.
 Before, it named only the background, and only from Android 10. The
-platform rule behind it was read in the platform's source
-(`ClipboardService` of Android 11 to 16 and of the platform's main branch), with the app op it also requires. Before, it was taken
+platform rule behind it, and the app op that the rule also requires,
+were read in the platform's source (`ClipboardService` of Android 11
+to 16 and of the platform's main branch). Before, the rule was taken
 from memory. That source also shows that the platform withholds a
 clip's description while the device is locked, which the note did not
 say. §12 now states the
 same conditions as §6, the app op included. §5 now says that the
 progress state never shows for a service start: it answers custody's
-`ProfileLocked`, which a start never gives, and the Profile busy row
+`ProfileLocked`, which a start never gets, and the Profile busy row
 says so. §11c records architect-cto's answer to Q11 (below). §8 now says that the hold after
 `IdRestoreOther`'s Continue lasts until the next screen opens, at most
 add-a-peer §5.1's 10 s bound from the press, plus any time a system
@@ -752,17 +753,18 @@ and R4.
   seal or a restore succeeded, the start after C4's Continue while
   `IdAlreadyCreated` shows, and the start after `IdRestoreOther`'s
   Continue. On C4 and R3 the progress state shows only for the seal
-  or the restore itself. What decides it is the answer, not the wait.
-  The progress state answers custody's `ProfileLocked`, which the
-  seal, the restore and a step that stops the service give (§6,
-  Profile busy). When another holder has the profile lock, the
+  or the restore itself. What decides whether it shows is the answer
+  that the step gets, not how long the step waits. The progress state
+  answers custody's `ProfileLocked`, which the seal, the restore and a
+  step that stops the service can get (§6, Profile busy). When another holder has the profile lock, the
   service start is refused with the runtime's `LockHeld` instead, and
   §6's row for a service start refused with the profile in use
   applies (§11c, Q11). The reseal that a start may retry (§6, the
-  read-back) runs before the start takes its lock, under custody's
-  own hold. If another holder has the profile then, the reseal is
-  skipped and retried at the next start, the start goes on, and
-  nothing shows for it (`crates/human/android-platform/src/identity.rs`,
+  read-back) runs before the start takes its lock, under a lock that
+  custody takes for the reseal alone. If another holder has the
+  profile at that moment, the reseal is skipped and retried at the
+  next start, nothing shows for the skip, and the start goes on to
+  take its own lock (`crates/human/android-platform/src/identity.rs`,
   `Resealed::Held`).
 - A rotation while the snackbar shows keeps it shown, as §7 keeps
   everything on screen. Its time goes on from when it appeared, and
@@ -809,7 +811,7 @@ comparison a matter of groups, not of single characters.
 | Seal running | C4, from the press of its primary (Continue, or Try again in its place, by any input) until a result shows on C4 or the next screen opens. That covers the seal, the read-back after it, the service start after a success, and the service start after Continue while `IdAlreadyCreated` shows | The primary disabled and focus where it was when the press came: the seal moves no focus, but Tab, Shift+Tab and the arrows still move it (§8). C4 has no Back (§3.2). `CopyPeerId` still copies wherever it shows (it is hidden while `IdAlreadyCreated` shows), except under the progress state (§5). A notice already showing stays until the result. The system prompt (Authentication needed, above) shows over C4 when the seal or the service start needs one. The progress state (Profile busy, below) shows over C4 for the seal only, never for the service start (§5) | The result, from one of the rows of this table, or the next screen (§3.2) |
 | Restore running | R3, from the start of the restore (`IdR3Yes`, or the Try again of an R3 notice, by any input) until its result; and from a press of `IdRestoreOther`'s Continue until the next screen opens, which covers the service start that Continue makes | `IdR3Yes`, `IdR3No` and the action of any notice on R3 disabled, the app bar's back arrow inactive, and focus where it was when the restore began or, after `IdRestoreOther`'s Continue, where it was when that Continue was pressed: neither the restore nor the service start moves focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). `CopyPeerId` still copies, except under the progress state (§5). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R3 when the restore needs one | The result, from one of the rows of this table, or R4, or, after `IdRestoreOther`'s Continue, the next screen (`design/2026-10-22-add-a-peer.md` §5.1) |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes, other than a service start and the reseal it retries (§5) | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back (Back from a notice, below the table) |
-| Service start refused: profile in use (the runtime's `LockHeld`, `StartRefused::Runtime`) | The service start after C4's or R4's Continue (or C4's Try again in its place), C4's Continue under `IdAlreadyCreated`, and `IdRestoreOther`'s Continue (R3, R2 after K1) | The start takes the profile lock itself with no wait, so it is answered immediately and no progress state shows (§5). The hold ends, and a notice (`IdStartBusy`) says that the app could not go online because the profile is in use, with Try again. It never says that the identity was not created or not restored: an identity is on record (the one this flow committed, or, under `IdAlreadyCreated` and `IdRestoreOther`, the one already there). It shows where the screen's notices show: on C4 and R4 (R4 has C4's layout, §3.3) in C4's notice place, with Try again in Continue's place; on R3 and on R2 after K1, in `IdRestoreOther`'s place, with that notice's PeerId kept under it and Try again in its Continue's place. Under `IdAlreadyCreated` and `IdRestoreOther` the rest of the screen stays as that notice left it (on C4, the title `IdAlreadyTitle` and the hidden PeerId, label, `CopyPeerId` and `IdCreatedBody`). Try again makes one service start and nothing else: no seal, no restore, no words. The app never retries on its own | Try again (C4 and R4 have no Back; on R3 and R2 after K1, Back as it works at any other time: Back from a notice, below the table) |
+| Service start refused: profile in use (the runtime's `LockHeld`, `StartRefused::Runtime`) | The service start after C4's or R4's Continue (or C4's Try again in its place), C4's Continue under `IdAlreadyCreated`, and `IdRestoreOther`'s Continue (R3, R2 after K1) | The start takes the profile lock itself with no wait, so it is answered immediately and no progress state shows (§5). The hold ends, and a notice (`IdStartBusy`) says that the app could not go online because the profile is in use, with Try again. It never says that the identity was not created or not restored: an identity is on record (the one this flow committed, or, under `IdAlreadyCreated` and `IdRestoreOther`, the one already there). It shows where the screen's notices show: on C4 and R4 (R4 has C4's layout, §3.3) in C4's notice place, with Try again in Continue's place; on R3 and on R2 after K1, in `IdRestoreOther`'s place, with the PeerId that `IdRestoreOther` showed kept under `IdStartBusy`, and Try again in the place of `IdRestoreOther`'s Continue. Under `IdAlreadyCreated` and `IdRestoreOther` the rest of the screen stays as that notice left it (on C4, the title `IdAlreadyTitle` and the hidden PeerId, label, `CopyPeerId` and `IdCreatedBody`). Try again makes one service start and nothing else: no seal, no restore, no words. The app never retries the start on its own | Try again (C4 and R4 have no Back; on R3 and R2 after K1, Back as it works at any other time: Back from a notice, below the table) |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
 | Read-back fails, or the record does not open to that PeerId | after those two refusals. The record is always there after them (both follow the publish, and nothing removes it), so no row for a missing record is needed. A record opening to another PeerId cannot follow this flow's own write while it holds the profile lock (§2); should one appear anyway, the app cannot tell what happened, so it is this row | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (Back from a notice, below the table) |
@@ -879,9 +881,9 @@ unless `clipboardAccessAllowed` finds the app's window focused and
 `isDeviceLocked` is false; read in the platform source of Android 11
 to 16 and of the platform's main branch). `clipboardAccessAllowed`
 also requires that the clipboard read app op (`OP_READ_CLIPBOARD`)
-is allowed to the app (`MODE_ALLOWED`). If a device's system software
-lets the person deny that app op, the description never comes and the
-removal never acts: the copied PeerId stays on the clipboard, as after
+is allowed to the app (`MODE_ALLOWED`). If that app op is not allowed
+(a device's system software may let the person deny it), the
+description never comes and the removal never acts: the copied PeerId stays on the clipboard, as after
 process death (§12). So the removal waits whenever the seal is answered
 `AlreadyProvisioned` while C4's window does not have the focus or the
 device is locked. C4 can lack the focus in the background, and also
@@ -1657,7 +1659,7 @@ scale would also be a finding of the Android review
       seal and no restore, and on C4 no `IdAlreadyCreated` shows.
       Under `IdAlreadyCreated`, C4's title stays `IdAlreadyTitle` and
       its PeerId, label, `CopyPeerId` and `IdCreatedBody` stay hidden;
-      on R3 and R2, the PeerId `IdRestoreOther` showed stays under
+      on R3 and on R2 after K1, the PeerId that `IdRestoreOther` showed stays under
       `IdStartBusy`. With no input for 60 s, the hook records no
       second start. These runs are host tests.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
@@ -2225,7 +2227,7 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   flow restarts at its first screen with nothing half-done kept (§7).
   So `IdAlreadyCreated` does not show again, and the copy stays (§6). Removing a copy at a later launch would act on the
   clipboard at a moment when nothing on the screen tells the person
-  why. The same holds where the clipboard read app op is not allowed
+  why. The same holds when the clipboard read app op is not allowed
   to the app: the description never comes, the removal never acts,
   and the copy stays with no word to the person (§6).
 - **Words saying that the copy was removed** (§6). `IdAlreadyCreated`
