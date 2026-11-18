@@ -989,6 +989,9 @@ fn one(effect: Effect) -> Vec<Effect> {
                 if let Some(hold) = o.hold.as_mut() {
                     hold.prompt_shown(now_ms());
                 }
+                // The prompt shows over the screen: a copy's confirmation
+                // there closes (identity note section 5).
+                o.view.borrow().close_peer_id_copied();
                 gate_ask(o);
                 return Vec::new();
             }

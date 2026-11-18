@@ -384,22 +384,38 @@ fn apply_touch() {
     let Some(settings) = settings else {
         return;
     };
-    let applied = ROOT.with(|root| {
-        let Ok(root) = root.try_borrow() else {
-            return false;
-        };
-        if let Some(root) = root.as_ref() {
-            root.view.borrow().set_touch_settings(settings);
-        }
-        true
-    });
+    // The window's view, the chats attached or not: the identity screens
+    // that show before them read the snackbar's time too (identity note
+    // section 5).
+    let applied = on_window_view(|view| view.set_touch_settings(settings));
     if !applied {
         defer(apply_touch);
     }
 }
 
+/// Run `f` on the window's view, if there is one; false, and `f` not
+/// run, while the view is borrowed, for the caller to defer.
+fn on_window_view(f: impl FnOnce(&View)) -> bool {
+    VIEW.with(|slot| {
+        let Some(view) = slot.borrow().as_ref().map(Rc::clone) else {
+            return true;
+        };
+        let Ok(view) = view.try_borrow() else {
+            return false;
+        };
+        f(&view);
+        true
+    })
+}
+
 /// The app left the foreground: the snackbar closes (swipe spec §5).
 fn stopped() {
+    // The identity screens' copy confirmation too, chats attached or not;
+    // it never shows again on the return (identity note sections 5, 7).
+    if !on_window_view(View::close_peer_id_copied) {
+        defer(stopped);
+        return;
+    }
     let applied = ROOT.with(|root| {
         let Ok(root) = root.try_borrow() else {
             return false;
