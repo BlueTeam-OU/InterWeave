@@ -653,23 +653,30 @@ fn a_reply_is_linked_when_held_and_neutral_when_not() {
     );
 }
 
-/// A message sent to a peer with no endpoint named (`<peer>`, its default
-/// endpoint) is what an answer from any of that peer's endpoints names,
-/// after the send is terminal too, both in the conversation's items and
-/// in the item `listen` prints from an arrival; the store is not asked,
-/// since the target is held; and the same id from another peer is still
-/// not it (j124, the v0.4.0 install run on #722). Mutation: the lookup
-/// kept to the answer's own conversation key.
-#[test]
-fn a_reply_names_a_message_sent_to_the_peers_default_endpoint() {
-    let p = peer();
+/// A send to `<peer>` made terminal, and an answer to it from the peer's
+/// `human` endpoint: the model, the answer as listed and the item `listen`
+/// prints from its arrival.
+fn answered_default_send(
+    p: &TransportIdentity,
+    to: Option<EndpointId>,
+    by_id: bool,
+    session_items: usize,
+) -> (UiModel, Reply, Reply) {
     let mut model = UiModel::new();
+    if by_id {
+        model.name_replies_to_default_sends();
+    }
+    model.set_bounds_for_test(
+        session_items,
+        interweave_human_ui_model::HELD_ROW_CAP,
+        interweave_human_ui_model::READ_PROPOSAL_CAP,
+    );
     let row = RowId::from_stored(1);
     model.sent(
         row,
         &Destination::Direct {
             peer: p.clone(),
-            endpoint: None,
+            endpoint: to,
         },
         envelope(1, "the question"),
         1,
@@ -682,11 +689,6 @@ fn a_reply_names_a_message_sent_to_the_peers_default_endpoint() {
         },
         last_code: None,
     }));
-    let sent = model.messages(&ConversationKey::Direct {
-        peer: p.clone(),
-        endpoint: None,
-    })[0]
-        .key;
     let mut answer = envelope(2, "the answer");
     answer.reply_to = Some(format!("{:032x}", 1));
     let arrival = interweave_human_client_api::Received {
@@ -698,24 +700,72 @@ fn a_reply_names_a_message_sent_to_the_peers_default_endpoint() {
         envelope: answer.clone(),
         received_at: 2,
     };
-    assert_eq!(
-        model.message_of(&arrival).reply,
-        Some(Reply::Present(sent)),
-        "the line listen prints"
-    );
-    model.unread_listed(vec![listed(2, &p, answer.clone(), 2)]);
-    assert_eq!(
-        model.messages(&key(&p))[0].reply,
-        Some(Reply::Present(sent))
-    );
-    assert!(model.take_reply_asks().is_empty(), "held, so not asked");
+    let printed = model.message_of(&arrival).reply.expect("a reply");
+    model.unread_listed(vec![listed(2, p, answer, 2)]);
+    let shown = model.messages(&key(p))[0].reply.clone().expect("a reply");
+    (model, printed, shown)
+}
 
+/// For a client that names replies by id (the command-line one), a message
+/// sent to a peer with no endpoint named (`<peer>`, its default endpoint)
+/// is what an answer from one of that peer's endpoints names, after the
+/// send is terminal too, as listed and as `listen` prints the arrival, and
+/// the store is not asked for it (j124, the v0.4.0 install run on #722).
+/// Never by default, where the line is drawn and `Present` means up this
+/// conversation (#725 review F1); never a send to another named endpoint
+/// of the peer, nor another peer's answer naming the id; and a `<peer>`
+/// send the session bound dropped reads unavailable, unasked. Mutations:
+/// the lookup kept to the answer's own key; taken whatever the setting;
+/// widened to every endpoint of the peer.
+#[test]
+fn a_reply_names_a_message_sent_to_the_peers_default_endpoint() {
+    let p = peer();
+    let gone = Reply::Unavailable(format!("{:032x}", 1));
+    let (mut model, printed, shown) = answered_default_send(&p, None, true, SESSION_ITEM_CAP);
+    let sent = model.messages(&ConversationKey::Direct {
+        peer: p.clone(),
+        endpoint: None,
+    })[0]
+        .key;
+    assert_eq!(printed, Reply::Present(sent), "the line listen prints");
+    assert_eq!(shown, Reply::Present(sent));
+    assert!(model.take_reply_asks().is_empty(), "held, so not asked");
     let other = peer();
-    model.unread_listed(vec![listed(3, &other, answer, 3)]);
+    let mut stray = envelope(3, "from elsewhere");
+    stray.reply_to = Some(format!("{:032x}", 1));
+    model.unread_listed(vec![listed(3, &other, stray, 3)]);
     assert_eq!(
         model.messages(&key(&other))[0].reply,
-        Some(Reply::Unavailable(format!("{:032x}", 1))),
+        Some(gone.clone()),
         "another peer's answer naming the id is not it"
+    );
+
+    let (_, printed, shown) = answered_default_send(&p, None, false, SESSION_ITEM_CAP);
+    assert_eq!(
+        (printed, shown),
+        (gone.clone(), gone.clone()),
+        "a drawn line"
+    );
+
+    let (_, printed, shown) =
+        answered_default_send(&p, Some(endpoint("other")), true, SESSION_ITEM_CAP);
+    assert_eq!(
+        (printed, shown),
+        (gone.clone(), gone.clone()),
+        "a send to another endpoint of the peer"
+    );
+
+    let (mut model, printed, shown) = answered_default_send(&p, None, true, 0);
+    assert_eq!(
+        (printed, shown),
+        (gone.clone(), gone),
+        "the send dropped by the session bound"
+    );
+    let asks = model.take_reply_asks();
+    assert_eq!(
+        asks.len(),
+        1,
+        "asked once as the answer was built: {asks:?}"
     );
 }
 

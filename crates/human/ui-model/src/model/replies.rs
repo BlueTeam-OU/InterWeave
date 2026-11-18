@@ -53,6 +53,10 @@ pub(super) struct Replies {
     due: HashSet<Pair>,
     /// The last ask's [`ReplyAsk::seq`].
     asked: u64,
+    /// Whether a reply in a peer's endpoint conversation also names what
+    /// was sent to that peer with no endpoint
+    /// ([`UiModel::name_replies_to_default_sends`]).
+    pub(super) to_default_sends: bool,
 }
 
 impl Replies {

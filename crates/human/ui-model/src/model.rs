@@ -853,6 +853,19 @@ impl UiModel {
         }
     }
 
+    /// A reply in a peer's endpoint conversation also names a held message
+    /// this client sent to that peer with no endpoint named (`<peer>`, its
+    /// default endpoint), a conversation of its own that no received row
+    /// is ever keyed in, since each records the endpoint its sender
+    /// asserted. For a client that names a message by its id, the
+    /// command-line one, never for one that draws the reply's line: there
+    /// `Present` means the target is up the same conversation (start-window
+    /// §5.2), which this target is not (#725 review F1). Without it every
+    /// answer to such a send reads unavailable.
+    pub fn name_replies_to_default_sends(&mut self) {
+        self.replies.to_default_sends = true;
+    }
+
     /// TEST BUILDS ONLY (the `test-hooks` feature): hold the model to a
     /// session bound, a held-row ceiling and a read-proposal bound below
     /// the published caps, so a test reaches each with a few rows.
@@ -1473,8 +1486,10 @@ impl UiModel {
     }
 
     /// A conversation's messages, in LOCAL time order (A3). Replies are
-    /// resolved here, within the conversation, so a target that was
-    /// evicted or is ambiguous reads `Unavailable` (review F5).
+    /// resolved here, within the conversation (and, for a client that
+    /// names replies by id, among its `<peer>` sends: [`Self::reply_keys`]),
+    /// so a target that was evicted or is ambiguous reads `Unavailable`
+    /// (review F5).
     #[must_use]
     pub fn messages(&self, key: &ConversationKey) -> Vec<MessageItem> {
         let mut list: Vec<MessageItem> = self
@@ -2131,14 +2146,13 @@ impl UiModel {
     }
 
     /// The held items with application id `target` that a reply in
-    /// `conversation` can name. A direct conversation's replies also look
-    /// at what was sent to the same peer with no endpoint named
-    /// (`<peer>`, its default endpoint): no received row is ever keyed
-    /// that way, since each records the endpoint its sender asserted, so
-    /// without this every answer to such a send read unavailable
-    /// (`a_reply_names_a_message_sent_to_the_peers_default_endpoint`).
-    /// The id is the one this client minted, so a peer's other route
-    /// naming it names the same message.
+    /// `conversation` can name: its own, and under
+    /// [`Self::name_replies_to_default_sends`] for a peer's endpoint
+    /// conversation that peer's `<peer>` sends too, never another
+    /// endpoint's (`a_reply_names_a_message_sent_to_the_peers_default_endpoint`).
+    /// When such a send leaves, no record is keyed by its conversation, so
+    /// the store is not asked again; it holds no outbound row to answer
+    /// with, and the line reads unavailable.
     fn reply_keys(&self, conversation: &ConversationKey, target: &str) -> Vec<ItemKey> {
         let mut keys: Vec<ItemKey> = self
             .by_app
@@ -2149,6 +2163,7 @@ impl UiModel {
             peer,
             endpoint: Some(_),
         } = conversation
+            && self.replies.to_default_sends
         {
             let default = ConversationKey::Direct {
                 peer: peer.clone(),
