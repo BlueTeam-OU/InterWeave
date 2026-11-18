@@ -31,6 +31,7 @@ pub mod hex;
 pub mod net;
 #[cfg(feature = "silent-peer")]
 pub mod silent;
+pub mod userns;
 
 use std::path::{Path, PathBuf};
 
