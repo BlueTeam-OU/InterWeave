@@ -1909,8 +1909,8 @@ scale would also be a finding of the Android review
     the Enter on Continue, while `ConnectStarting` shows: the snackbar
     shows, `ConnectStarting` stays shown, and one polite announcement is
     made, the snackbar's. The same three runs are made on R4, with
-    R4's Continue in place of C4's and the service start's reads left
-    unanswered in place of the seal (the hold of
+    Connect owed, R4's Continue in place of C4's and the service
+    start's reads left unanswered in place of the seal (the hold of
     `design/2026-10-22-add-a-peer.md` §5.1), with the same times and
     the same results: so a build that restarts the snackbar's time
     at R4's Continue, or keeps the snackbar once
