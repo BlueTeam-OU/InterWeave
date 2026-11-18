@@ -225,7 +225,12 @@ jobs:
       #     the automated client's multi-network tests go through: `-rnm`
       #     with a private /run, named namespaces joined by veth pairs,
       #     ip_forward written through nsenter, nft nat and forward tables,
-      #     and a pivot_root into a tmpfs its --rbind mounts fill;
+      #     and a pivot_root into a tmpfs its --rbind mounts fill; and,
+      #     through its in_capped_medium, security-local's full-medium
+      #     test in tests/security-local/tests/profile_state.rs: `-rnm`
+      #     with a private /run and only lo up, the same pivot_root, then
+      #     a tmpfs capped by size= at /capped that the test fills to
+      #     ENOSPC and never remounts;
       #   - crates/human/store/tests/full_filesystem.rs: `unshare -rm`, a
       #     pivot_root into a tmpfs root, and a tmpfs capped by size= that
       #     the test fills to ENOSPC and then remounts larger with
