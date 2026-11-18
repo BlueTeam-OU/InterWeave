@@ -193,21 +193,22 @@ split-screen, under the notification shade, or behind a system window.
 Before, it named only the background, and only from Android 10. The
 platform rule behind it was read in the platform's source
 (`ClipboardService` of Android 11, 14 and 15). Before, it was taken
-from memory. That source also withholds a clip's description while
-the device is locked, which the note did not say. §12 now states the
+from memory. That source also shows that the platform withholds a
+clip's description while the device is locked, which the note did not
+say. §12 now states the
 same conditions as §6. §5 now says that the progress state never
 shows over R4, nor after a Continue that only starts the service, and
 §11c asks architect-cto what such a start shows if it is answered
 `ProfileLocked` (Q11). §8 now says that the hold after
 `IdRestoreOther`'s Continue lasts until the next screen opens, at most
-add-a-peer §5.1's 10 s bound from the press, and that the start goes
-on after the bound. Before, it said that the start can last up to the
-bound. In acceptance 15, the R2 run held after `IdRestoreOther`'s
-Continue types "d", a letter that continues "car". Before, it named no
-letter, so a letter disabled anyway could pass the run. Acceptance 15
-also gains a tap run on C4. Acceptance 18's clipboard runs take focus
-away with the app in the foreground, and add a run with the device
-locked. §9's `IdContinue` row names `IdRestoreOther`'s Continue.
+add-a-peer §5.1's 10 s bound from the press, plus any time a system
+prompt is up, and that the start goes on after the bound. Before, it said that the start can last up to the
+bound. In acceptance 15, the run in which R2 is held after
+`IdRestoreOther`'s Continue now types "d", a letter that continues
+"car". Before, it named no letter, so the run could pass on a letter
+that is disabled anyway. Acceptance 15 also gains a tap run on C4. In
+acceptance 18, the fourth clipboard run now takes the focus away with
+the app in the foreground, and a fifth run adds the device locked. §9's `IdContinue` row names `IdRestoreOther`'s Continue.
 architect-cto answered Q11 (REPLY 01a1efb4-1842): a service start
 can be refused with the profile in use, answered at once. §6 gains a
 row for it, a notice (`IdStartBusy`, new in §9) with Try again, and
@@ -862,7 +863,7 @@ unless `clipboardAccessAllowed` finds the app's window focused and
 device is locked. C4 can lack the focus in the background, and also
 in the foreground: in split-screen while the other app has the focus,
 under the notification shade, or while a system window such as a
-prompt is in front. The removal then waits until C4's window has the
+prompt is in front. The removal waits until C4's window has the
 focus with the device unlocked, and then acts only if the clipboard
 still holds that copy. If the process ends first, the copy stays
 (§12). The notice is read after the title, before the PeerId's
@@ -1221,11 +1222,11 @@ access.
   check, the device run decides whether a check lasts long enough to
   need the disabled look (R2's held-look hypothesis, above). For the
   service start that this Continue makes, the look is decided, not
-  measured: the hold lasts until the next screen opens, which is at
-  most add-a-peer §5.1's 10 s bound from the press, and longer while a
+  measured: the hold lasts until the next screen opens. That is at
+  most add-a-peer §5.1's 10 s bound from the press, plus any time a
   system prompt is up, since the bound does not count that time. At
   the bound Chats opens and the start goes on behind it (add-a-peer
-  §5.1). That is long enough
+  §5.1). Such a hold is long enough
   for a person to type into a keypad that looks enabled, and a
   control that looks enabled and does nothing is the fault that the
   hypothesis is about. The start moves no focus, and
@@ -1610,11 +1611,10 @@ scale would also be a finding of the Android review
       a screen reader's activate on that Continue do not start the
       service a second time; that Continue shows disabled, and on R3
       so do `IdR3Yes` and `IdR3No`; Back does nothing and the back
-      arrow is inactive; on R2 every held control shows disabled, a
-      typed "d", a letter that continues "car" (as in "card") and so is
-      enabled when the screen is not held, leaves "car" as it was, and
-      Enter on the "car" chip,
-      reached by Tab, fills no position; focus stays on that Continue, and Tab moves it. When the
+      arrow is inactive; on R2 every held control shows disabled; a
+      press of the "d" key leaves "car" as it was ("d" continues "car",
+      as in "card", so its key is enabled when the screen is not held);
+      Enter on the "car" chip, reached by Tab, fills no position; focus stays on that Continue, and Tab moves it. When the
       test answers the start's prompt as cancelled, Chats opens,
       offline and locked, with focus on the locked notice. These runs
       are host tests.
@@ -2019,15 +2019,16 @@ scale would also be a finding of the Android review
     after the answer. These three runs are made with the platform
     version below 13 and again at 13 or later, and in every run the
     test's clipboard records no read of its content by the app. In a
-    fourth run, the test takes the window's focus away after the copy,
-    with the app still in the foreground (as split-screen or the
+    fourth run, the test takes C4's window's focus away after the
+    copy, with the app still in the foreground (as split-screen or the
     notification shade does), and answers the seal
     `AlreadyProvisioned`: the clipboard still holds the string, and
-    the test's clipboard records no request for its description, until
-    the window has the focus again; then the clipboard no longer holds
-    it. A fifth run is the fourth with the device reported locked when
-    the window has the focus again: the clipboard still holds the
-    string, with no request for its description, until the device is
+    the test's clipboard records no request for the clip's
+    description, until C4's window has the focus again; then the
+    clipboard no longer holds it. A fifth run is the fourth with the
+    device reported locked when C4's window has the focus again: the
+    clipboard still holds the string, with no request for the clip's
+    description, until the device is
     reported unlocked; then the clipboard no longer holds it. On the
     Pixel 9a (Android 13 or later), a person copies the PeerId on C4, a debug-build hook
     answers the seal `AlreadyProvisioned`, and the person verifies
@@ -2180,8 +2181,8 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   their own, which no app can reach. The note promises removal from the
   system clipboard only, and the Pixel 9a check of acceptance 18
   pastes with the platform's paste.
-- **Removing the copy after the process ends** before C4's window has
-  the focus again (§6). When the seal is answered `AlreadyProvisioned`
+- **Removing the copy when the process ends** before the removal can
+  act (§6). When the seal is answered `AlreadyProvisioned`
   while C4's window does not have the focus or the device is locked,
   the removal waits until C4's window has the focus with the device
   unlocked, on every version the app supports (§6). After process death the
