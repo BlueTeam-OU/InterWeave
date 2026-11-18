@@ -210,7 +210,7 @@ that is disabled anyway. Acceptance 15 also gains a tap run on C4. In
 acceptance 18, the fourth clipboard run now takes the focus away with
 the app in the foreground, and a fifth run adds the device locked. §9's `IdContinue` row names `IdRestoreOther`'s Continue.
 architect-cto answered Q11 (REPLY 01a1efb4-1842): a service start
-can be refused with the profile in use, answered at once. §6 gains a
+can be refused because the profile is in use, and the refusal comes immediately. §6 gains a
 row for it, a notice (`IdStartBusy`, new in §9) with Try again, and
 acceptance 15 gains its runs.
 
@@ -749,13 +749,13 @@ and R4.
   after `IdRestoreOther`'s Continue. The progress state is the wait
   of a step that stops the service (§6, Profile busy), and a service
   start waits for nothing: it takes the profile lock with no wait, so
-  another holder refuses it at once (§11c, Q11). The reseal a start
-  may retry (§6, the read-back) is part of that start, under its
-  lock, and never refuses it otherwise than `UserNotAuthenticated`
+  another holder refuses it immediately (§11c, Q11). The reseal a
+  start may retry (§6, the read-back) is part of that start, under
+  its lock, and never refuses it otherwise than `UserNotAuthenticated`
   (ADR-0042, A 2026-11-05).
   On C4 and R3 the progress state shows only for the seal or the
-  restore itself. When such a start is refused because another holder has
-  the profile lock, it is answered at once, and §6's row for a
+  restore itself. When another holder has the profile lock, such a
+  start is refused immediately, and §6's row for a
   service start refused with the profile in use applies (§11c, Q11).
 - A rotation while the snackbar shows keeps it shown, as §7 keeps
   everything on screen. Its time goes on from when it appeared, and
@@ -802,7 +802,7 @@ comparison a matter of groups, not of single characters.
 | Seal running | C4, from the press of its primary (Continue, or Try again in its place, by any input) until a result shows on C4 or the next screen opens. That covers the seal, the read-back after it, the service start after a success, and the service start after Continue while `IdAlreadyCreated` shows | The primary disabled and focus where it was when the press came: the seal moves no focus, but Tab, Shift+Tab and the arrows still move it (§8). C4 has no Back (§3.2). `CopyPeerId` still copies wherever it shows (it is hidden while `IdAlreadyCreated` shows), except under the progress state (§5). A notice already showing stays until the result. The system prompt (Authentication needed, above) shows over C4 when the seal or the start needs one, and the progress state (Profile busy, below) when the seal needs one; the service start never shows it (§5) | The result, from one of the rows of this table, or the next screen (§3.2) |
 | Restore running | R3, from the start of the restore (`IdR3Yes`, or the Try again of an R3 notice, by any input) until its result; and from a press of `IdRestoreOther`'s Continue until the next screen opens, which covers the service start that Continue makes | `IdR3Yes`, `IdR3No` and the action of any notice on R3 disabled, the app bar's back arrow inactive, and focus where it was when the restore began or, after `IdRestoreOther`'s Continue, where it was when that Continue was pressed: neither the restore nor the service start moves focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). `CopyPeerId` still copies, except under the progress state (§5). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R3 when the restore needs one | The result, from one of the rows of this table, or R4, or, after `IdRestoreOther`'s Continue, the next screen (`design/2026-10-22-add-a-peer.md` §5.1) |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back (Back from a notice, below the table) |
-| Service start refused: profile in use (the runtime's `LockHeld`, `StartRefused::Runtime`) | The service start after C4's or R4's Continue (or C4's Try again in its place), C4's Continue under `IdAlreadyCreated`, and `IdRestoreOther`'s Continue (R3, R2 after K1) | The start takes the profile lock itself with no wait, so it is answered at once and no progress state shows (§5). The hold ends, and a notice (`IdStartBusy`) says that the app could not start because the profile is in use, with Try again. It never says that the identity was not created or not restored: the seal or the restore succeeded before this start, and the identity is on record. Try again makes one service start and nothing else: no seal, no restore, no words. The app never retries on its own | Try again (C4 and R4 have no Back; on R3 and R2 after K1, Back as at any other time, below the table) |
+| Service start refused: profile in use (the runtime's `LockHeld`, `StartRefused::Runtime`) | The service start after C4's or R4's Continue (or C4's Try again in its place), C4's Continue under `IdAlreadyCreated`, and `IdRestoreOther`'s Continue (R3, R2 after K1) | The start takes the profile lock itself with no wait, so it is answered immediately and no progress state shows (§5). The hold ends, and a notice (`IdStartBusy`) says that the app could not go online because the profile is in use, with Try again. It never says that the identity was not created or not restored: the seal or the restore succeeded before this start, and the record already holds the identity. Try again makes one service start and nothing else: no seal, no restore, no words. The app never retries on its own | Try again (C4 and R4 have no Back; on R3 and R2 after K1, Back as it works at any other time: Back from a notice, below the table) |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
 | Read-back fails, or the record does not open to that PeerId | after those two refusals. The record is always there after them (both follow the publish, and nothing removes it), so no row for a missing record is needed. A record opening to another PeerId cannot follow this flow's own write while it holds the profile lock (§2); should one appear anyway, the app cannot tell what happened, so it is this row | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (Back from a notice, below the table) |
@@ -1393,7 +1393,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdChecksumFailed` | These words do not form a recovery phrase. A word may be wrong or in the wrong place. Check them against your paper. | §6's checksum banner |
 | `IdOtherIdentity` | These words belong to a different PeerId, so nothing on this phone was changed. Compare the two PeerIds below with your paper. | §6's other-identity banner, above the two labelled PeerIds |
 | `IdBusy` | The app could not go offline. Wait a moment, then try again. | §6's busy notice, with `TryAgain` |
-| `IdStartBusy` (new) | The app could not start because this profile is in use. Try again in a moment. | §6's row for a service start refused with the profile in use, with `TryAgain`. It must say that the start failed; it must not say that the PeerId was not created or not restored, since the identity is on record (after `IdRestoreOther`, the phone's other PeerId) |
+| `IdStartBusy` (new) | The app could not go online because this profile is in use. Wait a moment, then try again. | §6's row for a service start refused with the profile in use, with `TryAgain`. It must say that the start failed; it must not say that the PeerId was not created or not restored, since the record already holds the identity (after `IdRestoreOther`, the phone's other PeerId) |
 | `IdStorageFailed` | The app could not save your PeerId on this phone. Nothing was changed. | §6's storage notice, with `TryAgain` |
 | `IdDiscardTitle` | Delete the words you entered? | §7's dialog title |
 | `IdDiscard` | Delete words | §7's dialog: the action that drops the words |
@@ -2159,19 +2159,19 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   (`crates/transport/embedded/src/lib.rs`, `LOCK_WAIT`), and a held
   lock refuses the start as the runtime's `LockHeld`, which reaches
   the client as a refused start (`StartRefused::Runtime`). That is not
-  custody's `ProfileLocked`, which is the seal's, the restore's and the
-  reseal's. Once the flow has let its lock go, only a host of the same
-  process that has not finished stopping, or a second start racing the
-  first, can hold it (`crates/transport/embedded/tests/host.rs`,
+  custody's `ProfileLocked`, which the seal, the restore and the reseal
+  answer. Once the flow has released its lock, only a service host in
+  the same process that has not finished stopping, or a second start made while the
+  first is running, can hold it (`crates/transport/embedded/tests/host.rs`,
   `a_second_start_is_refused_while_the_first_serves`); the flow still
   holding it at Continue would be a defect. So: no progress state
-  (§5); the person is told it as a refused start, with Try again, and
+  (§5); the person is told that the start was refused, with Try again, and
   never that the identity was not created or restored; no retry by the
-  app on its own, and no bound, since each start is answered at once
+  app on its own, and no bound, since each start is answered immediately
   (§6, the row for a service start refused with the profile in use).
   architect-cto suggested §8's treatment of a refused start, a screen
-  raised in place; the note shows a §6 notice on the screen the start
-  was pressed from instead, since no screen of §8 is for this refusal
+  raised in place; this note instead shows a §6 notice on the
+  screen whose Continue or Try again made the start, since no screen of §8 is for this refusal
   (K1, R and K are the record's and the store's) and §6 shows every
   other refusal of these screens there. Which string the client shows
   today for this refusal is rust-ui-dev's to say when it builds it.
