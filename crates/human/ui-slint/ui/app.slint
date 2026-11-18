@@ -533,7 +533,8 @@ export struct IdentityPage {
     // outlined in `error`.
     secondary-danger: bool,
     tertiary: string,
-    // Plain text below the actions (K1's way out, R3's no-paper line).
+    // Plain text below the actions: K1's way out. (R3's no-paper line
+    // is `question-note`, under its question.)
     footnote: string,
     dialog: bool,
     dialog-title: string,
@@ -2554,7 +2555,8 @@ component IdentityScreen inherits FocusScope {
             root.go(4, 0);
         }
     }
-    // R2 and C3 open on the keypad's first enabled key, typing (section 8).
+    // R2 and C3 open on the keypad's first enabled key, typing; R3 and R4
+    // read first, from R3's question or R4's title (section 8).
     function opened() {
         if (root.page.picker) {
             root.typing = true;

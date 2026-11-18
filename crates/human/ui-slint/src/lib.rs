@@ -1857,8 +1857,9 @@ impl View {
     /// person was on or was opening: focus goes to the page's heading,
     /// whatever had it under the page, so any on-screen keyboard closes
     /// (design/2026-10-19-android-identity.md section 8). The root asks it
-    /// when it raises R, K or K1. R3 and R4 have a heading stop too, which
-    /// a valid check focuses; on a page with no heading stop the ask moves
+    /// when it raises R, K or K1. R4 has a heading stop too, which a valid
+    /// check after K1 and R3's Yes focus; R3 has none -- they focus its
+    /// question -- and on a page with no heading stop the ask moves
     /// nothing. A start refused again while the page shows did not raise
     /// it, so the root does not ask then, and focus stays where it was.
     pub fn raise_identity_heading(&self) {
