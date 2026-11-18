@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use interweave_human_android_platform::{ServiceHost, ServiceLaunch, ToView, stand_in};
+use interweave_human_android_platform::{ServiceHost, ServiceLaunch, StopStage, ToView, stand_in};
 use interweave_human_app_core::{Command, Update};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind, encode_outbound};
 use interweave_human_client_api::{ClientEvent, SessionState};
@@ -341,7 +341,7 @@ fn a_send_while_the_close_waits_is_refused() {
 
     let parked = service.hub().commands_parked_for_test();
     let release = service.hub().hold_commands_for_test();
-    let drained = service.drained_for_test();
+    let stages = service.stop_stages_for_test();
     service
         .hub()
         .command(Command::RecheckStorage)
@@ -353,11 +353,14 @@ fn a_send_while_the_close_waits_is_refused() {
     let stopped = std::thread::scope(|scope| {
         let stopping = scope.spawn(|| service.stop(GRACE));
         // Ordered by the stop itself, not by a sleep: the drain has
-        // returned and the close is waiting on the held command, which
-        // nothing releases until the send below is answered.
-        drained
-            .recv_timeout(WAIT)
-            .expect("the stop's drain returns");
+        // returned, and the close that follows waits on the held command,
+        // which this test releases only once the send below is answered
+        // (the close's own bound, `FACADE_CLOSE`, ends it otherwise).
+        assert_eq!(
+            stages.recv_timeout(WAIT),
+            Ok(StopStage::Drained),
+            "the stop's drain returns"
+        );
         let sent = peer_host.runtime().block_on(session.send_direct(
             DirectDestination {
                 peer: phone.clone(),
@@ -366,8 +369,9 @@ fn a_send_while_the_close_waits_is_refused() {
             MessageId::from_bytes([9; 16]),
             message("while the close waits"),
         ));
-        assert!(
-            !stopping.is_finished(),
+        assert_eq!(
+            stages.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty),
             "the send was answered while the close still waited"
         );
         assert_eq!(
