@@ -143,8 +143,8 @@ mod tests {
 
     /// A gate holding for an ask numbered after a drop is not released by
     /// it, while the hold whose ask the drop took is. Mutation:
-    /// `push_numbered` giving any fixed number fails the second
-    /// assertion.
+    /// `push_numbered` giving a fixed number fails here -- 1 or more at
+    /// "the later hold stays", 0 at the control.
     #[test]
     fn a_hold_asked_after_a_drop_survives_it() {
         use interweave_human_ui_model::{Admit, Effect, PresenceGate};
