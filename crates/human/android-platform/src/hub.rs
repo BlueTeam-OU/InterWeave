@@ -234,6 +234,10 @@ pub struct Hub {
     /// Held by a test: every command waits on it before it is carried out.
     #[cfg(feature = "test-hooks")]
     held: Mutex<Option<Receiver<()>>>,
+    /// Told once per command that parks on [`Self::held`], before it
+    /// waits: a test orders its next step after the park, not by a sleep.
+    #[cfg(feature = "test-hooks")]
+    parked: Mutex<Option<mpsc::Sender<()>>>,
     /// Held by a test: a facade of this hub takes no turn, so what its
     /// session's queue holds stays there until its close.
     #[cfg(feature = "test-hooks")]
@@ -274,6 +278,8 @@ impl Hub {
             notices: Notices::default(),
             #[cfg(feature = "test-hooks")]
             held: Mutex::new(None),
+            #[cfg(feature = "test-hooks")]
+            parked: Mutex::new(None),
             #[cfg(feature = "test-hooks")]
             turns_held: AtomicBool::new(false),
             #[cfg(feature = "dev-stand-ins")]
@@ -443,6 +449,16 @@ impl Hub {
         release
     }
 
+    /// Told each time a command parks on [`Self::hold_commands_for_test`]'s
+    /// hold, before it waits: a test that needs the facade inside a held
+    /// command waits on this rather than sleeping. TEST BUILDS ONLY.
+    #[cfg(feature = "test-hooks")]
+    pub fn commands_parked_for_test(&self) -> Receiver<()> {
+        let (tell, parked) = mpsc::channel();
+        *self.parked.lock().unwrap_or_else(PoisonError::into_inner) = Some(tell);
+        parked
+    }
+
     /// Stop every facade of this hub taking a turn, from its next one, for
     /// good: what reaches its session's queue stays there until the close
     /// reads it -- a message admitted the moment before a stop, which on a
@@ -488,6 +504,14 @@ impl Hub {
             .unwrap_or_else(PoisonError::into_inner)
             .as_ref()
         {
+            if let Some(tell) = self
+                .parked
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+            {
+                let _ = tell.send(());
+            }
             // Every send or the sender's drop lets it go.
             let _ = held.recv();
         }

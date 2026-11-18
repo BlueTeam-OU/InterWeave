@@ -196,6 +196,11 @@ pub struct ServiceHost {
     /// whose key the Keystore invalidated; the last armed wins.
     #[cfg(feature = "dev-stand-ins")]
     refuse_store: Mutex<Option<StartRefused>>,
+    /// Told when a stop's drain has returned, before the facade's close:
+    /// a test orders a send inside the close's wait by it, not by a sleep
+    /// ([`Self::drained_for_test`]).
+    #[cfg(feature = "test-hooks")]
+    drained: Mutex<Option<std::sync::mpsc::Sender<()>>>,
 }
 
 impl Default for ServiceHost {
@@ -225,6 +230,8 @@ impl ServiceHost {
             unlock_starts: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "dev-stand-ins")]
             refuse_store: Mutex::new(None),
+            #[cfg(feature = "test-hooks")]
+            drained: Mutex::new(None),
         }
     }
 
@@ -866,6 +873,15 @@ impl ServiceHost {
         }
     }
 
+    /// Told each time a stop's drain has returned, before the facade's
+    /// close begins. TEST BUILDS ONLY.
+    #[cfg(feature = "test-hooks")]
+    pub fn drained_for_test(&self) -> std::sync::mpsc::Receiver<()> {
+        let (tell, drained) = std::sync::mpsc::channel();
+        *self.drained.lock().unwrap_or_else(PoisonError::into_inner) = Some(tell);
+        drained
+    }
+
     /// Wait until the client is asked to stop. Returns
     /// [`Ended::NotRunning`] at once when no runtime runs: nothing, or
     /// the network-denied posture, which only a stop ends.
@@ -946,6 +962,15 @@ impl ServiceHost {
         // close's commit). An error is a runtime already ended: nothing
         // more can arrive.
         let _ = host.drain();
+        #[cfg(feature = "test-hooks")]
+        if let Some(tell) = self
+            .drained
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+        {
+            let _ = tell.send(());
+        }
         let session_closed = facade.is_none_or(|f| f.close(FACADE_CLOSE));
         let deadline = Instant::now() + FACADE_CLOSE;
         let mut host = host;

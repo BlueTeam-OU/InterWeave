@@ -339,19 +339,25 @@ fn a_send_while_the_close_waits_is_refused() {
             .expect("a session")
     });
 
+    let parked = service.hub().commands_parked_for_test();
     let release = service.hub().hold_commands_for_test();
+    let drained = service.drained_for_test();
     service
         .hub()
         .command(Command::RecheckStorage)
         .expect("a facade takes it");
-    // The facade takes the command within its turn and parks before it.
-    std::thread::sleep(Duration::from_millis(250));
+    parked
+        .recv_timeout(WAIT)
+        .expect("the facade parks inside the held command");
 
-    let began = Instant::now();
     let stopped = std::thread::scope(|scope| {
         let stopping = scope.spawn(|| service.stop(GRACE));
-        // Inside the close's 2 s wait: the drain, which is first, is done.
-        std::thread::sleep(Duration::from_millis(500));
+        // Ordered by the stop itself, not by a sleep: the drain has
+        // returned and the close is waiting on the held command, which
+        // nothing releases until the send below is answered.
+        drained
+            .recv_timeout(WAIT)
+            .expect("the stop's drain returns");
         let sent = peer_host.runtime().block_on(session.send_direct(
             DirectDestination {
                 peer: phone.clone(),
@@ -360,10 +366,9 @@ fn a_send_while_the_close_waits_is_refused() {
             MessageId::from_bytes([9; 16]),
             message("while the close waits"),
         ));
-        let answered = began.elapsed();
         assert!(
-            !stopping.is_finished() && answered < Duration::from_millis(1900),
-            "the send was answered inside the close's wait (after {answered:?})"
+            !stopping.is_finished(),
+            "the send was answered while the close still waited"
         );
         assert_eq!(
             sent,
