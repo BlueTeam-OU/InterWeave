@@ -693,7 +693,14 @@ what it did not take is counted as dropped. As the gap was found the
 order began at the server's stop, the runtime drained after every lease
 was released, and a connection ended on the stop without reading its
 session's queue again (`tests/automated-client/runs/2026-11-17-fleet-control-path.md` §3, finding F1).
-Not built as this was written.
+Built in the change that followed (`ipc-server`'s
+`a_stop_writes_what_the_session_held_before_the_close` and
+`a_stop_counts_what_a_client_that_does_not_read_left`; between two
+daemons, `tests/automated-client`'s
+`an_inbound_direct_after_the_stop_began_is_refused_shutting_down` and
+`a_message_admitted_before_the_stop_is_read_before_the_close`). Not
+counted: an event the connection's writer was part-way through writing
+when a client that does not read was aborted.
 
 ## Platform scope of the v1 build
 

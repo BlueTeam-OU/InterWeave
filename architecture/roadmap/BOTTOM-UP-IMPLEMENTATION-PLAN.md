@@ -3226,8 +3226,8 @@ sockets → drop the lock. (A 2026-11-17, the owner's word: the order gains
 two steps, a refusal of new inbound direct before the first and a
 hand-over of each session's queue before the leases go; `LOCAL-IPC.md`'s
 shutdown order is the text, the fleet control-path run record's F1 the
-reason, and the build is p2p-network-dev's, not on `main` as this was
-written.) Peer credentials are a **MUST** on Unix: the
+reason, and the build is p2p-network-dev's, landed with the tests
+`LOCAL-IPC.md`'s shutdown order names.) Peer credentials are a **MUST** on Unix: the
 peer uid (`UnixStream::peer_cred`) equals the run directory's owner uid,
 or the connection is closed before `hello` and counted. Admin-socket bind
 failure does not take the data socket down (ADR-0037). Not decided:

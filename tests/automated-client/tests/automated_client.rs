@@ -88,6 +88,12 @@ impl Profile {
     /// The profile a deployment renders: every other profile allowed and a
     /// static-bootstrap entry, this one's own port on loopback.
     fn render(&self, others: &[&Profile]) {
+        self.render_tuned(others, "", "");
+    }
+
+    /// [`render`](Self::render) with `ipc` as the profile's `ipc` block
+    /// (empty for none) and `direct` as its `transport.direct` block.
+    fn render_tuned(&self, others: &[&Profile], ipc: &str, direct: &str) {
         let allowed = others
             .iter()
             .map(|o| format!("\"{}\"", o.peer.as_str()))
@@ -109,11 +115,21 @@ channels: {{ desired: [] }}
 discovery:
   providers:
     - {{ type: static-bootstrap, enabled: true, priority: 5, config: {{ peers: [{entries}] }} }}
-transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/{port}\"] }} }}
-observability: {{ log_level: debug }}
+transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/{port}\"] }}{direct} }}
+{ipc}observability: {{ log_level: debug }}
 ",
             name = self.home.paths.profile(),
             port = self.port,
+            direct = if direct.is_empty() {
+                String::new()
+            } else {
+                format!(", direct: {direct}")
+            },
+            ipc = if ipc.is_empty() {
+                String::new()
+            } else {
+                format!("ipc: {ipc}\n")
+            },
         ));
     }
 
@@ -785,4 +801,189 @@ async fn a_port_held_without_reuseport_refuses_the_start() {
     drop(holder);
     a.start().await;
     a.stop().await;
+}
+
+/// The stop-order cases' deployment (`LOCAL-IPC.md`'s shutdown order, A
+/// 2026-11-17): A, and B with the smallest client queue the schema allows,
+/// so a few dozen messages fill its endpoint.
+async fn stop_order_deployment() -> (tempfile::TempDir, Vec<Profile>) {
+    let base = private_tempdir();
+    let mut profiles = vec![
+        Profile::mint(base.path(), "profile-0"),
+        Profile::mint(base.path(), "profile-1"),
+    ];
+    profiles[0].render(&[&profiles[1]]);
+    // The direct ingress buckets stay at their defaults: this build
+    // refuses any other value (`translate.rs`'s unhonoured rows).
+    profiles[1].render_tuned(&[&profiles[0]], "{ client_event_queue: 16 }", "");
+    for profile in &mut profiles {
+        profile.start().await;
+    }
+    (base, profiles)
+}
+
+/// The tag of the stop-order cases' messages (`burst_id`).
+const STUFFED: u8 = 7;
+
+/// How many 32 KiB messages fill B past what its client's lane, the
+/// client's own channel (16 each, `client_event_queue`) and the socket
+/// between them hold, so some are still in B's endpoint queue when the
+/// stop begins -- under the endpoint queue's 16 more, and sent inside the
+/// 10 s a writer waits on a client that does not read
+/// (`ipc_server::WRITE_STALL`) at A's default bucket at B.
+const FILL: u32 = 45;
+
+/// Fill B's endpoint while B's client reads nothing: the first message
+/// waits for A's connection to B, then A sends [`FILL`] in all, each
+/// retried under its id while A's per-peer bucket at B refuses it
+/// (`Overloaded`). Answers the ids B accepted.
+async fn stuff(from: &mut Client, b: &TransportIdentity) -> Vec<MessageId> {
+    let text = "x".repeat(32 * 1024);
+    let first = from.send(b, burst_id(0, STUFFED), &text, PATIENCE).await;
+    assert!(first.outcome.is_ok(), "A reaches B: {:?}", first.retried);
+    let mut accepted = vec![burst_id(0, STUFFED)];
+    for n in 1..FILL {
+        let id = burst_id(n, STUFFED);
+        let deadline = tokio::time::Instant::now() + PATIENCE;
+        loop {
+            match from.send_once(b, id, &text).await {
+                Ok(_) => break,
+                Err(TransportError::Overloaded) if tokio::time::Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(e) => panic!("filling B: {e:?} after {} accepted", accepted.len()),
+            }
+        }
+        accepted.push(id);
+    }
+    accepted
+}
+
+/// `SIGTERM` to `profile`'s daemon, not waited for.
+fn sigterm(profile: &Profile) {
+    let pid = profile.daemon.as_ref().expect("running").child.id();
+    let status = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(status.success(), "SIGTERM sent");
+}
+
+/// The `events_dropped` the daemon's `stopped` line reports.
+fn events_dropped(log: &str) -> u64 {
+    log.lines()
+        .filter(|line| line.contains("stopped"))
+        .find_map(|line| {
+            let at = line.find("events_dropped=")? + "events_dropped=".len();
+            line[at..]
+                .split(|c: char| !c.is_ascii_digit())
+                .next()?
+                .parse()
+                .ok()
+        })
+        .unwrap_or_else(|| panic!("no stopped line with events_dropped:\n{log}"))
+}
+
+/// The stop's first act is the refusal (`DIRECT.md` §Graceful shutdown, A
+/// 2026-11-17): once B's daemon has its `SIGTERM`, a direct request A
+/// sends is answered `shutting_down` -- a refusal A can retry on -- while
+/// B's session is still open and its lease held, since B's client is
+/// still being handed what it held. That client reads nothing, so the
+/// hand-over runs to the end of the grace, and what it did not take is
+/// counted in the stop's dropped-event count. As the gap was found B's
+/// sessions closed first and the runtime drained after, so A met a
+/// released lease (`RemoteEndpointUnavailable`) or a closed connection,
+/// and the messages B had admitted were dropped uncounted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_inbound_direct_after_the_stop_began_is_refused_shutting_down() {
+    let (_base, mut profiles) = stop_order_deployment().await;
+    let mut from = profiles[0].client().await;
+    let held = profiles[1].client().await;
+    let b_peer = profiles[1].peer.clone();
+    let accepted = stuff(&mut from, &b_peer).await;
+    assert!(
+        !accepted.is_empty(),
+        "B accepted some before its queue filled"
+    );
+    sigterm(&profiles[1]);
+    // B's queue is full, so until B drains its answer is `Overloaded`
+    // (and A's bucket at B may refuse it too); the first other answer is
+    // the drain's -- draining is judged before the bucket.
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let answer = loop {
+        match from.send_once(&b_peer, id(200), "after the stop").await {
+            Err(TransportError::Overloaded) if tokio::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            answer => break answer,
+        }
+    };
+    // B answers `shutting_down` on the wire; A's runtime names a far
+    // end's `shutting_down` `BackendUnavailable` (`direct.rs`'s reject
+    // mapping), its own `ShuttingDown` being for this node's stop.
+    assert_eq!(
+        answer,
+        Err(TransportError::BackendUnavailable),
+        "B's log:\n{}",
+        profiles[1].log()
+    );
+    let mut daemon = profiles[1].daemon.take().expect("running");
+    assert!(daemon.exit().await.success(), "{}", daemon.log());
+    let dropped = events_dropped(&daemon.log());
+    assert!(
+        dropped >= 1,
+        "what B's client did not take is counted: {dropped}\n{}",
+        daemon.log()
+    );
+    drop(held);
+}
+
+/// What B admitted before its stop is handed to B's client before its
+/// session closes (`LOCAL-IPC.md`'s shutdown order, A 2026-11-17): the
+/// client starts reading only after B's `SIGTERM`, so every message B
+/// answered `AcceptedV2` is still in B's queue, lane or socket when the
+/// stop begins, and every one is read. As the gap was found the session
+/// closed on the stop and what its queue held was lost: the fleet
+/// control-path run lost one in 6 of 12 drains
+/// (`runs/2026-11-17-fleet-control-path.md` §3).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_admitted_before_the_stop_is_read_before_the_close() {
+    let (_base, mut profiles) = stop_order_deployment().await;
+    let mut from = profiles[0].client().await;
+    let mut to = profiles[1].client().await;
+    let b_peer = profiles[1].peer.clone();
+    let accepted = stuff(&mut from, &b_peer).await;
+    assert!(
+        !accepted.is_empty(),
+        "B accepted some before its queue filled"
+    );
+    sigterm(&profiles[1]);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let a_peer = profiles[0].peer.clone();
+    let read = |to: &Client| -> Vec<MessageId> {
+        direct_from(&to.received.inbound, &a_peer)
+            .iter()
+            .map(|m| m.message_id)
+            .collect()
+    };
+    while tokio::time::Instant::now() < deadline
+        && accepted.iter().any(|id| !read(&to).contains(id))
+    {
+        // A failed session is dropped and a fresh one tried for 100 ms:
+        // B is stopping, so none opens, and what the old one was handed
+        // is already in the record.
+        let _ = to.pump(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let got = read(&to);
+    let lost: Vec<_> = accepted.iter().filter(|id| !got.contains(id)).collect();
+    assert!(
+        lost.is_empty(),
+        "{} of {} accepted never reached B's client\nB's log:\n{}",
+        lost.len(),
+        accepted.len(),
+        profiles[1].log()
+    );
+    let mut daemon = profiles[1].daemon.take().expect("running");
+    assert!(daemon.exit().await.success(), "{}", daemon.log());
 }
