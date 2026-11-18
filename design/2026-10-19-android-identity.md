@@ -227,8 +227,10 @@ Revised later on 2026-11-18, for what #720's review rounds carried
 refused with the profile in use after add-a-peer §5.1's 10 s bound
 shows `IdStartBusy` as a session notice on Chats or in a
 conversation, with Try again, and moves no focus (§6, A start refused
-with the profile in use after the bound). Before, that case was not
-designed. Acceptance 15 gains its runs. The held Try again run of
+with the profile in use after the bound). A return to the app or a
+recreation retries that start, as the unlock note's §11 L3 retries
+any start after a refused one, and no timer retries it. Before, that
+case was not designed. Acceptance 15 gains its runs. The held Try again run of
 acceptance 15 now says that the hook refuses the first Try again
 with `LockHeld` again before the held press. It now covers C4 under
 `IdAlreadyCreated`, R4 and R2 after K1 as well as C4 after a seal and
@@ -938,7 +940,9 @@ build can show what follows is asked of rust-ui-dev-01 (QUESTION
 - **What shows.** `IdStartBusy`, as a session notice, in the place
   and at the priority where Chats and a conversation show the notice
   of any other refused start: under the app bar, before the list or
-  the messages (`design/2026-11-05-unlock-policy-pending.md` §4).
+  the messages, where the locked notice shows on either
+  (`design/2026-11-05-unlock-policy-pending.md` §4 for Chats, F12 for
+  a conversation).
   Its one action is Try again (`TryAgain`). It shows on Chats or in a
   conversation, whichever is on screen. A page with no place for
   session notices does not show it; the notice shows when the person
@@ -967,28 +971,47 @@ build can show what follows is asked of rust-ui-dev-01 (QUESTION
   moves no focus: after a key or a screen reader's activate, focus
   stays on Try again, and after a tap it stays where it was. Nothing
   else on the screen is held, no `ConnectStarting` shows, and no
-  bound counts: the person is on Chats or a conversation, not on a
-  held screen, and connectivity shows this start as it shows any
-  other. For Connect, this start is a later start that the person
-  asked for (`design/2026-10-22-add-a-peer.md` §5.1, A launch with
-  Connect still owed): its count of openings and its 10 s begin at
-  the press.
+  hold and no 10 s bound of a held screen count: the person is on
+  Chats or a conversation, not on a held screen, and connectivity
+  shows this start as it shows any other. For Connect, this start is
+  a later start that the person asked for
+  (`design/2026-10-22-add-a-peer.md` §5.1, A launch with Connect
+  still owed): its count of openings begins at the press, and the
+  10 s within which the reads must answer for Connect to open counts
+  from that start's success, as for a launch.
 - **Its results.** A start that succeeds removes the notice. If
   focus was on the notice or on Try again, it goes as unlock note F14
   says: on Chats to the list heading, in a conversation to its
   composer. A start refused with `LockHeld` again shows the notice
-  again, with Try again enabled and focus on the notice, since this
-  result answers the person's press, as on C4 before the bound (§8).
+  again, with Try again enabled. When focus was on the notice or on
+  Try again, it goes to the notice, since this result answers the
+  person's press; otherwise it stays where it was, since the screen
+  was not held and the person may be acting elsewhere by then.
   A start that needs the system prompt raises it over the screen.
   If the prompt is cancelled or denied, the locked notice takes
-  `IdStartBusy`'s place, with focus on it (unlock note F12). Any
+  `IdStartBusy`'s place, with focus on it, as unlock note §11's L1
+  answers a network grant that leaves the process running (F11). Any
   other refusal shows what that refusal shows on Chats today, which
   this note does not design.
+- **A return or a recreation.** A return to the app (Home or Recents,
+  then back) or a recreation of the window for a configuration
+  change that the app does not handle itself retries the start, as
+  unlock note §11's L3 retries any start after a refused one: a
+  refused start is not a start that ran (its L4). The notice stays
+  while that start runs, with Try again shown disabled. Its results
+  are Try again's, except that this start answers no press of the
+  person's: a `LockHeld` again leaves the notice and focus as they
+  were and is not announced again, and a success moves focus only as
+  above. A prompt that this start needs rises by itself, and a
+  cancel or denial shows the locked notice with focus on it (L3,
+  F12). A rotation is handled by the app without a recreation (the
+  Activity's `configChanges` in `AndroidManifest.xml`), so it keeps
+  the notice and retries nothing (§7).
 - **How long.** Until a start succeeds, until the notice of another
-  refused start takes its place, or until the process ends. A
-  rotation keeps it (§7). A new launch makes a start of its own and
-  shows what that start answers, never this notice. The app never
-  retries the start on its own.
+  refused start takes its place, or until the process ends. A new
+  launch makes a start of its own and shows what that start answers,
+  never this notice. Apart from the return and the recreation above,
+  the app never retries the start on its own: no timer retries it.
 - **Connect.** At the bound this start counted as deferred
   (`design/2026-10-22-add-a-peer.md` §5.1, the bound). So Connect
   stays owed when it was owed, and stays not owed after
@@ -1777,9 +1800,10 @@ scale would also be a finding of the Android review
       `IdStartBusy`. Then, with no input for 60 s, the hook records no
       further start. That is a bounded check of §6's "the app never
       retries the start on its own", which has no end: 60 s is six
-      times the longest timer that these screens keep (the 10 s
-      bound), so a retry driven by any timer of the flow would show
-      in it, and a retry later than 60 s is not checked. Then, on
+      times the longest timer of the start and its hold (the 10 s
+      bound), so a retry driven by either would show in it. A retry
+      driven by a longer timer, such as the `PeerIdCopied`
+      snackbar's (acceptance 18), or later than 60 s, is not checked. Then, on
       each of the five places (C4 after a seal, C4 under
       `IdAlreadyCreated`, R4, R3, and R2 after K1, with "car" typed
       before the check as in the run above), Enter on Try again, with
@@ -1796,34 +1820,69 @@ scale would also be a finding of the Android review
       These runs are host tests.
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
-      bound): by a test hook, the service start after R4's Continue,
-      and in a second run after C4's Continue with the seal
-      succeeding, is left unanswered, and Chats opens at the 10 s
-      bound with focus on its title. The hook then answers the start
+      bound). In each run below, the test records an address before
+      the start, so add-a-peer §5.6's condition does not hold and
+      Connect cannot open, except where a run says otherwise. By a
+      test hook, the service start after R4's Continue, and in a
+      second run after C4's Continue with the seal succeeding, is
+      left unanswered, and Chats opens at the 10 s bound with focus
+      on its title. The hook then answers the start
       `StartRefused::Runtime` with `LockHeld`. `IdStartBusy` shows
       under Chats' app bar, with Try again; focus stays on Chats'
       title; the notice's text is announced once, politely; and the
-      locked notice does not show. In a third run, the test opens a
-      conversation after Chats opens and puts focus in its composer,
-      and types "ab" before the answer and "c" after it: the notice
-      shows under the conversation's app bar, focus stays in the
-      composer, and the composer holds "abc". In a fourth run, the
-      test opens Settings before the answer: Settings shows no
-      notice, and Back to Chats shows `IdStartBusy` there. Then, on
-      Chats, Tab to Try again and Enter, with the hook leaving this
-      start unanswered: Try again shows disabled, a second Enter, a
-      Space and a screen reader's activate start nothing (the hook
-      records one start), focus stays on Try again, no
-      `ConnectStarting` shows, and the list can still be scrolled and
-      a conversation opened. Answered as started: the notice goes,
-      and focus is on the list heading. In a fifth run, answered
-      `LockHeld` again: the notice shows again, Try again is enabled,
-      and focus is on the notice. In a sixth run, on a
-      `user-presence` profile, the hook asks for the prompt and the
-      test cancels it: the locked notice shows in `IdStartBusy`'s
-      place, with focus on it. With no input for 60 s after the first
-      refusal, the hook records no further start (the bounded check
-      of the run above). These runs are host tests.
+      locked notice does not show. With no input for 60 s after
+      that refusal, the hook records no further start (the bounded
+      check of the run above).
+      - In a conversation: the test opens a conversation after Chats
+        opens, puts focus in its composer, and types "ab" before the
+        answer and "c" after it. The notice shows under the
+        conversation's app bar, focus stays in the composer, and the
+        composer holds "abc". Then Tab to Try again and Enter, with
+        the hook leaving the start unanswered: Try again shows
+        disabled and focus stays on it. Answered as started: the
+        notice goes and focus is on the composer. In a second run,
+        the start is answered `LockHeld` again: the notice shows
+        again and focus is on it.
+      - Elsewhere: the test opens Settings before the answer.
+        Settings shows no notice, and Back to Chats shows
+        `IdStartBusy` there.
+      - Pressed by a key, on Chats: Tab to Try again and Enter, with
+        the hook leaving this start unanswered. Try again shows
+        disabled; a second Enter, a Space and a screen reader's
+        activate start nothing (the hook records one start); focus
+        stays on Try again; no `ConnectStarting` shows. Answered as
+        started: the notice goes, and focus is on the list heading.
+        In a second run, answered `LockHeld` again: the notice
+        shows again, Try again is enabled, and focus is on the
+        notice.
+      - Not held: with the start of a keyed Try again left
+        unanswered, the test scrolls the list and opens a
+        conversation, putting focus in its composer. Answered
+        `LockHeld` again: the notice shows again under the
+        conversation's app bar, and focus stays in the composer.
+        In a second run, answered as started: the notice goes and
+        focus stays in the composer.
+      - Pressed by a tap, on Chats, with focus on Chats' title: Try
+        again shows disabled and focus stays on the title. Answered
+        as started: the notice goes and focus stays on the title.
+      - The prompt: on a `user-presence` profile, the hook asks for
+        the prompt of Try again's start and the test cancels it:
+        the locked notice shows in `IdStartBusy`'s place, with focus
+        on it.
+      - A return: with focus on Chats' title, the test sends the
+        app to the background and back (with Stay reachable on, so
+        the process keeps running). The hook records one start at
+        the return, the notice stays with Try again disabled until it
+        answers, and focus stays on the title. Answered `LockHeld`:
+        the notice stays, focus stays on the title, and nothing is
+        announced. A rotation instead records no start.
+      - Connect: with no address recorded, after R4's Continue (so
+        Connect is owed and was deferred at the bound), Try again's
+        start is answered as started and both reads answer empty
+        within 10 s of that success, with nothing opened from Chats
+        since the press: Connect opens over Chats, with focus on its
+        heading.
+      These runs are host tests.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
       key, and Enter does nothing. After typing "ab",
       Enter does nothing and Space does nothing, and after each the
