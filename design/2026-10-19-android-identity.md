@@ -211,7 +211,7 @@ that is disabled anyway. Acceptance 15 also gains a tap run on C4. In
 acceptance 18, the fourth clipboard run now takes the focus away with
 the app in the foreground, and a fifth run adds the device locked. §9's `IdContinue` row names `IdRestoreOther`'s Continue.
 architect-cto answered Q11 (REPLY 01a1efb4-1842): a service start
-can be refused because the profile is in use, and the refusal comes immediately. §6 gains a
+can be refused because the profile is in use: the start takes its lock with no wait. §6 gains a
 row for it, a notice (`IdStartBusy`, new in §9) with Try again, and
 acceptance 15 gains its runs. On C4 that Try again starts the service
 and seals nothing, and under `IdAlreadyCreated` the screen stays as
@@ -1666,7 +1666,7 @@ scale would also be a finding of the Android review
       second start. Then, on C4 after a seal and on R3, Enter on Try
       again with the start left unanswered holds the screen as after
       Continue: a second Enter starts nothing, Try again shows
-      disabled, and on R3 so do `IdR3Yes` and `IdR3No`, and Back does
+      disabled, focus stays on Try again and Tab moves it, and on R3 so do `IdR3Yes` and `IdR3No`, and Back does
       nothing. `ConnectStarting` shows 1 s after that Enter, and Chats
       opens 10 s after it, not at once. These runs are host tests.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
