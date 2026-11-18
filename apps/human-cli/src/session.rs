@@ -133,6 +133,10 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Sess
             .start()
             .map_err(|e| Failure::Store(format!("the message store could not be read: {e}")))?;
         let mut model = ModelSide::new(Script::default(), NoOpener);
+        // A reply prints the id of what it answers, a send to `<peer>`
+        // included, and is never a line to scroll up from (README, "A
+        // conversation and a message id").
+        model.name_replies_to_default_sends();
         model.apply(Update::Started(Box::new(start)));
         for update in facade.outbound_now() {
             model.apply(update);
