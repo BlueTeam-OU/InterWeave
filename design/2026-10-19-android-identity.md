@@ -114,10 +114,10 @@ copies wherever it shows, and the seal moves no focus (§6 Seal running, §8). T
 lasts until the result shows on C4 or the next screen opens, so it
 also covers the service start after a success, and the service start
 after Continue while `IdAlreadyCreated` shows. Before, only
-`design/2026-10-22-add-a-peer.md` §5.1 held Continue, and neither note
-held Try again, said what `CopyPeerId` does, or said that Tab and the
-arrows still move focus while C4 is held and where focus goes on the
-result. On R3, as on C4, a press
+`design/2026-10-22-add-a-peer.md` §5.1 held Continue, and neither that
+note nor this one held Try again, said what `CopyPeerId` does, or said
+that Tab and the arrows still move focus while C4 is held, or where
+focus goes on the result. On R3, as on C4, a press
 of the screen's primary while the snackbar shows does not close it
 (§5). Before, §5 said so of C4 only. §5 now also says what a press of
 `CopyPeerId` does while a §6 notice shows, and what a rotation does to the
@@ -630,8 +630,9 @@ and R4.
 - It closes when anything else shows on the screen, over the screen
   or in place of the screen: any §6 notice (`IdAlreadyCreated` included, a notice that also hides the
   PeerId the snackbar confirmed), the system prompt and the progress
-  state, and on C4 and R4 add-a-peer §5.1's `ConnectStarting`, which shows
-  under Continue 1 s after the press. One message shows at a time:
+  state, and on C4 and R4 `design/2026-10-22-add-a-peer.md` §5.1's
+  `ConnectStarting`, which shows under Continue 1 s after the person
+  presses Continue. One message shows at a time:
   the one that needs the person's attention.
 - A copy while a §6 notice already shows (C4 with `IdBusy`,
   `IdStorageFailed` or `IdStorageUnknown`; R3 with any of its
@@ -642,7 +643,7 @@ and R4.
   just made. Taking away the notice, which still needs the person's
   action, would hide what they must do next.
   A copy while `ConnectStarting` already shows, on a held C4 or R4,
-  is the same: the snackbar shows above the actions, `ConnectStarting`
+  is handled the same way: the snackbar shows above the actions, `ConnectStarting`
   stays under Continue, and only the snackbar's text is announced,
   since `ConnectStarting` was announced when it showed.
 - A rotation while the snackbar shows keeps it shown, as §7 keeps
@@ -729,11 +730,11 @@ were not used, so C4 then hides the PeerId they made, its label,
 `CopyPeerId` and `IdCreatedBody`: each would show that PeerId as the
 person's own. For the same reason the title is `IdAlreadyTitle`, not
 `IdCreatedTitle`: no PeerId was created. And if the person copied that
-PeerId in this creation, on C2's PeerId page or on C4, by any number
-of presses, the app removes it from the clipboard when
+PeerId while creating it, on C2's PeerId page or on C4, one or more
+times, the app removes it from the clipboard when
 `IdAlreadyCreated` shows, but only while the clipboard still holds
 that copy: whatever the person copied since, from another app or
-from another screen of this one, stays. This keeps the person from pasting to a contact, as their own,
+from another screen of InterWeave, stays. This keeps the person from pasting to a contact, as their own,
 a PeerId that no phone will ever hold. The app tells its own copy
 apart without reading the clipboard's content, so the platform shows
 no notice that the app read the clipboard (how it does so is the
@@ -1060,8 +1061,8 @@ access.
   denied prompt for the seal or its read-back leaves C4 as it was,
   with its primary enabled again and focus where it was before the
   prompt. A cancelled or denied prompt for the service start, after a
-  success or after Continue while `IdAlreadyCreated` shows, ends on
-  Chats, offline and locked, with focus on the locked notice (§6,
+  success or after Continue while `IdAlreadyCreated` shows, ends the
+  flow on Chats, offline and locked, with focus on the locked notice (§6,
   Authentication needed). A success, and Continue
   while `IdAlreadyCreated` shows, open the next screen, whose focus is
   `design/2026-10-22-add-a-peer.md` §5.1's. Why: a second press would
@@ -1248,10 +1249,11 @@ landscape:
    pages, of C3, of R2 (also when reached from K1), of R2's full list
    (§4 item 4) and of both S2 pages is black, and Recents shows no content for the flow.
 3. Long-press on any word copies nothing, and no word ever reaches the
-   clipboard. The only clipboard writes in the flow are "Copy PeerId",
-   which gives the canonical PeerId with no spaces, checked by pasting
-   it into Trust's field, and the removal of that copy when
-   `IdAlreadyCreated` shows on C4 (§6).
+   clipboard. The flow writes to the clipboard in two ways only:
+   "Copy PeerId", which gives the canonical PeerId with no spaces,
+   checked by pasting it into Trust's field; and the removal of the
+   PeerId that "Copy PeerId" put there, when `IdAlreadyCreated` shows
+   on C4 (§6).
 4. C3 asks two positions. A wrong word shows `IdCheckWrong` and clears
    the entry. Try again removes the error and both actions, and so
    does a right word. Two right words reach C4. Continue starts the
@@ -1758,22 +1760,24 @@ scale would also be a finding of the Android review
     appeared, with the restore left unanswered, the snackbar stays
     shown until its time ends, 6 s after it appeared (3 s after the
     Enter), and closes then: it is still shown 2 s after the Enter and
-    gone 4 s after it. On C4, where `ConnectStarting` shows 1 s after
-    the press, two runs, each with the seal left unanswered. After
-    Enter on Continue 5.5 s after the snackbar appeared, the snackbar
-    is still shown 0.2 s after the Enter and gone 0.7 s after it, 6 s
-    after it appeared and before `ConnectStarting` shows. After Enter
-    on Continue 2 s after the snackbar appeared, it closes when
+    gone 4 s after it. On C4, `ConnectStarting` shows 1 s after the
+    person presses Continue, and three runs, each with the seal left
+    unanswered, check the snackbar beside `ConnectStarting`. In the first, the test presses Enter on
+    Continue 5.5 s after the snackbar appeared: the snackbar
+    closes when its time ends, 6 s after it appeared and before
+    `ConnectStarting` shows; it is still shown 0.2 s after the Enter
+    and gone 0.7 s after it. In the second, the test presses Enter on
+    Continue 2 s after the snackbar appeared: the snackbar closes when
     `ConnectStarting` shows, 1 s after the Enter, and only one polite
-    announcement, `ConnectStarting`'s, is made then. In a third run,
-    with no copy before Continue, a copy 1.5 s after Enter on Continue,
-    while `ConnectStarting` shows, shows the snackbar, leaves
-    `ConnectStarting` shown, and makes one polite announcement, the
-    snackbar's. On C4, by a test
+    announcement, `ConnectStarting`'s, is made then. In the third,
+    nothing is copied before Continue, and the test copies 1.5 s after
+    the Enter on Continue, while `ConnectStarting` shows: the snackbar
+    shows, `ConnectStarting` stays shown, and one polite announcement is
+    made, the snackbar's. On C4, by a test
     hook with `IdStorageFailed` shown, a copy shows the snackbar and
-    the notice stays shown; Enter on Try again 5.5 s later leaves the
-    snackbar shown 0.2 s after the Enter and gone 0.7 s after it, as
-    for Continue. A rotation 3 s after the snackbar appeared (in the host
+    the notice stays shown; after Enter on Try again 5.5 s after the
+    snackbar appeared, the snackbar is still shown 0.2 s after the
+    Enter and gone 0.7 s after it, as for Continue. A rotation 3 s after the snackbar appeared (in the host
     test, the window's size swapped from portrait to landscape) keeps
     it shown, 12 dp above the actions, with no second announcement,
     and it closes 6 s after it appeared. Before a copy, the test
@@ -1793,14 +1797,14 @@ scale would also be a finding of the Android review
     In a third run, the test copies another text to the clipboard
     after the copy and before the answer, and that text is still there
     after the answer. These three runs are made with the platform
-    version below 13 and again at 13 or later, and in each the test's
-    clipboard records no read of its content by the app. On the Pixel
-    9a (Android 13 or later), a person copies on C4, a debug-build hook
+    version below 13 and again at 13 or later, and in every run the
+    test's clipboard records no read of its content by the app. On the
+    Pixel 9a (Android 13 or later), a person copies the PeerId on C4, a debug-build hook
     answers the seal `AlreadyProvisioned`, and the person verifies
     that pasting into another app no longer gives the PeerId and that
     the platform showed no notice that InterWeave read the clipboard.
-    That hook is rust-ui-dev's to add, as acceptance 12's hooks are;
-    until it exists, this check is blocked, not passed. On C4, whatever the policy, when the seal is
+    rust-ui-dev adds that hook, as it adds acceptance 12's hooks;
+    until it exists, this Pixel 9a check is blocked, not passed. On C4, whatever the policy, when the seal is
     answered `ProfileLocked` while the snackbar shows, the snackbar
     closes when the progress state (`IdGoingOffline`) shows. Leaving
     the screen closes it, and the next screen shows none. The app going to the background
@@ -1809,12 +1813,14 @@ scale would also be a finding of the Android review
     snackbar and makes no announcement. On the Samsung A40 (Android
     11, the project's second test phone,
     `packaging/android/evidence/2026-11-05-samsung-a40-update-and-downgrade.md`),
-    at 200 % font in portrait and in landscape (set with `adb -s <the A40's address> shell settings put system
-    font_scale 2.0`, under the `samsung-a40` lease on an adb server of
-    the login's own, since `.agent-fabric/bin/phone-run` holds only the
-    Pixel 9a's lease, and back to the phone's own scale after the run,
-    since whether the A40's own settings offer 200 % is not known; the
-    run records the scale its settings offer), in the dark and the
+    at 200 % font in portrait and in landscape (set with `adb -s <the
+    A40's address> shell settings put system font_scale 2.0`, and set
+    back to the phone's own scale after the run, since whether the
+    A40's own settings offer 200 % is not known; the command runs
+    under the `samsung-a40` lease, on the running login's own adb
+    server, since `.agent-fabric/bin/phone-run` holds only the Pixel
+    9a's lease; the run records the scale the A40's settings
+    offer), in the dark and the
     light scheme, on C2's PeerId page, C4 and R3, a person looks at
     the screen and verifies that the snackbar has the look spec's
     snackbar colours, is at least 48 dp tall and 12 dp from the
