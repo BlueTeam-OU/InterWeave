@@ -174,8 +174,8 @@ that Continue started the service with the screen not held. The
 add-a-peer note's §5.1 now names that Continue, and C4's Try again in
 Continue's place, for `ConnectStarting`. §5's snackbar rules name that Continue
 and its `ConnectStarting` as they name C4's and R4's, and on R2 every
-held control shows disabled during that start, since it can wait on a
-prompt (§8). §6 now says that the
+held control shows disabled during that start, which can last up to
+the 10 s bound and longer while a prompt is up (§8). §6 now says that the
 clipboard removal reaches the system clipboard only, not a keyboard's
 own clipboard history, and that, from Android 10, when the seal is
 answered `AlreadyProvisioned` while C4 is in the background, the removal waits until C4
@@ -755,7 +755,7 @@ comparison a matter of groups, not of single characters.
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done, R4's or C4's continue, and `IdRestoreOther`'s Continue (R3, R2 after K1) | The system prompt, raised by the screen when the operation is refused, never by the service; the operation is retried after a success. The app keeps no clock of the window: the refusal is its only reading of it (ADR-0042, A 2026-10-20). The person sees the same either way: the prompt comes before anything happens. Cancelled or denied: no error dialog and no error text. C4 and the restores stay on their screen with the words kept, and nothing is committed. A rotation or a return to that screen retries nothing: it stays as it was until the person uses its primary action again. Once the identity is committed, a cancelled start after C4's or R4's continue, and a cancelled start after `IdRestoreOther`'s Continue (the identity on record), ends offline and locked, as S2's Done does below, but on Chats: the locked notice and Unlock, with focus on the notice. S2's Done drops the words and returns to Settings offline, with focus on "Show recovery phrase", the item that opened the flow; the locked notice shows where the app's notices show, under the app bar of Chats and of a conversation; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). At a launch past the window the start is refused and the prompt answers it before the service runs; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service. A process that keeps running answers each refused restart the same way (`design/2026-11-05-unlock-policy-pending.md` §11) | The primary action again, or Back |
-| Check running | R2, from the start of the check (`IdCheckWords`, or the Try again of an R2 notice, by any input) until its result, including R2's check after K1; and after K1, from a press of `IdRestoreOther`'s Continue until the next screen opens, which covers the service start that Continue makes | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was when the check began: the check moves no focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1, or, after `IdRestoreOther`'s Continue, the next screen (`design/2026-10-22-add-a-peer.md` §5.1) |
+| Check running | R2, from the start of the check (`IdCheckWords`, or the Try again of an R2 notice, by any input) until its result, including R2's check after K1; and after K1, from a press of `IdRestoreOther`'s Continue until the next screen opens, which covers the service start that Continue makes | `IdCheckWords` disabled (after `IdRestoreOther`'s Continue, that Continue and every held control show disabled, §8), the app bar's back arrow inactive, every word held, and focus where it was when the check began: the check moves no focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1, or, after `IdRestoreOther`'s Continue, the next screen (`design/2026-10-22-add-a-peer.md` §5.1) |
 | Seal running | C4, from the press of its primary (Continue, or Try again in its place, by any input) until a result shows on C4 or the next screen opens. That covers the seal, the read-back after it, the service start after a success, and the service start after Continue while `IdAlreadyCreated` shows | The primary disabled and focus where it was when the press came: the seal moves no focus, but Tab, Shift+Tab and the arrows still move it (§8). C4 has no Back (§3.2). `CopyPeerId` still copies wherever it shows (it is hidden while `IdAlreadyCreated` shows), except under the progress state (§5). A notice already showing stays until the result. The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over C4 when the seal or the start needs one | The result, from one of the rows of this table, or the next screen (§3.2) |
 | Restore running | R3, from the start of the restore (`IdR3Yes`, or the Try again of an R3 notice, by any input) until its result; and from a press of `IdRestoreOther`'s Continue until the next screen opens, which covers the service start that Continue makes | `IdR3Yes`, `IdR3No` and the action of any notice on R3 disabled, the app bar's back arrow inactive, and focus where it was when the restore began: the restore moves no focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). `CopyPeerId` still copies, except under the progress state (§5). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R3 when the restore needs one | The result, from one of the rows of this table, or R4, or, after `IdRestoreOther`'s Continue, the next screen (`design/2026-10-22-add-a-peer.md` §5.1) |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back (Back from a notice, below the table) |
@@ -1171,11 +1171,14 @@ access.
   nothing (§7). On R2 every held control shows
   disabled for this time, each keeping its place in the focus order:
   the letter keys, delete and clear, the chips, the grid positions,
-  "show all my words" and `IdCheckWords`, beside that Continue. Unlike
-  a check, this start can wait on a system prompt and lasts up to
-  10 s (add-a-peer §5.1's bound), long enough for a person to type
-  into a keypad that looks enabled, which is the fault R2's held-look
-  hypothesis (above) is about. The start moves no focus, and
+  "show all my words" and `IdCheckWords`, beside that Continue. For a
+  check, whether it lasts long enough to need this look is left to
+  R2's held-look hypothesis (above), for the device run. For this
+  start it is decided, not measured: the start can last up to
+  add-a-peer §5.1's 10 s bound, and longer while a system prompt is
+  up, since the bound does not count that time. That is long enough
+  for a person to type into a keypad that looks enabled, which is
+  the fault the hypothesis is about. The start moves no focus, and
   Tab, Shift+Tab and the arrows still move it. A cancelled or denied
   prompt for the service start ends on Chats, offline and locked,
   with focus on the locked notice, as after C4's Continue while
@@ -2082,8 +2085,8 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   system clipboard only, and the Pixel 9a check of acceptance 18
   pastes with the platform's paste.
 - **Removing the copy after the process ends** before C4 is in the
-  foreground again (§6). The removal is made when `IdAlreadyCreated`
-  shows, and after process death the flow restarts at its first
+  foreground again (§6). The removal waits for C4's window focus
+  after `IdAlreadyCreated` shows (§6), and after process death the flow restarts at its first
   screen with nothing half-done kept (§7), so `IdAlreadyCreated` does
   not show again. Removing a copy at a later launch would act on the
   clipboard at a moment when nothing on the screen tells the person
