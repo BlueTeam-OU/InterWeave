@@ -24,7 +24,7 @@ use crate::meta::{ChannelMeta, MetaError, MetaKey};
 use crate::received_at::rfc3339_utc;
 use crate::reply_token::{
     DEFAULT_MAX_TOKENS, DEFAULT_TTL_MS, DuplicateToken, ReplyResolution, ReplyRoute,
-    ReplyTokenTable,
+    ReplyTokenTable, is_stale,
 };
 
 /// Bytes of entropy behind a reply token: 128 bits, so a token cannot be
@@ -124,14 +124,24 @@ impl BridgeState {
 
     /// The session's open granted `endpoint` at `epoch`: direct messages
     /// arrive for it and replies leave from it.
+    ///
+    /// The direct tokens of any other epoch leave the table, as at
+    /// [`BridgeState::lease_lost`], so a lease regained without its loss
+    /// being seen first counts none of them either.
     pub fn leased(&mut self, endpoint: EndpointId, epoch: Generation) {
+        self.tokens.discard_stale(Some(&epoch));
         self.lease = Some((endpoint, epoch));
     }
 
     /// The lease ended -- a revocation, or the session closed. Every direct
-    /// token minted under it now resolves `StaleLease`; a reacquired lease
-    /// has a new epoch and does not revive them (LIFECYCLE.md).
+    /// token minted under it leaves the table: `reply` answers it as an
+    /// unknown token (the same `InvalidArgument`), `status` no longer
+    /// counts it, and it holds no place until its TTL; a reacquired lease
+    /// has a new epoch and does not revive them (LIFECYCLE.md
+    /// §Reconnect). A broadcast token stays: it names a channel, not the
+    /// lease.
     pub fn lease_lost(&mut self) {
+        self.tokens.discard_stale(None);
         self.lease = None;
     }
 
@@ -200,10 +210,11 @@ impl BridgeState {
     }
 
     /// [`BridgeState::notification`] for a message taken from the session
-    /// under `lease` -- pull mode mints its token when the host TAKES it,
-    /// with the lease it ARRIVED under, so a message from before a
-    /// reconnect gets a token stale by its epoch, as one pushed then
-    /// would have (architect-cto's ruling, relay seq 18784).
+    /// under `lease` -- pull mode gives a message its token when the host
+    /// TAKES it, judged by the lease it ARRIVED under, so a message from
+    /// before a reconnect carries a token the table does not store and
+    /// `reply` refuses as unknown, as one pushed then would be refused
+    /// (architect-cto's ruling, relay seq 18784).
     ///
     /// # Errors
     /// As [`BridgeState::notification`].
@@ -232,10 +243,23 @@ impl BridgeState {
             meta.set(MetaKey::ReplyToken, token.clone())?;
         }
         let content = bounded(content, encoding, &mut meta)?;
-        if let (Some(route), Some(token)) = (route, token) {
-            self.tokens
-                .mint(token, route, now_ms)
-                .map_err(ConvertError::Token)?;
+        // A message taken under an earlier lease than the one held keeps
+        // its token in `meta`, stale by its epoch, but the table does not
+        // store it: it could only be refused, and stored it would be
+        // counted and hold a place (LIFECYCLE.md §Reconnect;
+        // `a_message_taken_under_a_lost_lease_stores_no_token`).
+        let held = self.lease.as_ref().map(|(_, epoch)| epoch);
+        match (route.filter(|route| !is_stale(route, held)), &token) {
+            (Some(route), Some(token)) => self
+                .tokens
+                .mint(token.clone(), route, now_ms)
+                .map_err(ConvertError::Token)?,
+            // Not stored, but still not another route's token.
+            (None, Some(token)) => self
+                .tokens
+                .refuse_if_live(token, now_ms)
+                .map_err(ConvertError::Token)?,
+            (_, None) => {}
         }
         Ok(Some(ChannelNotification { content, meta }))
     }
@@ -296,7 +320,8 @@ impl BridgeState {
         }
     }
 
-    /// Live reply tokens, after expiring those past their TTL.
+    /// Live reply tokens, after expiring those past their TTL: none of a
+    /// lost lease, whose direct tokens left at the change.
     pub fn live_tokens(&mut self, now_ms: u64) -> usize {
         self.tokens.expire(now_ms);
         self.tokens.len()
@@ -591,6 +616,33 @@ mod tests {
         assert_eq!(bridge.joined_channels().count(), 0, "nothing rejoined");
     }
 
+    /// A left channel's broadcast token stays in the table and is counted
+    /// while `reply` refuses it, and routes again once the channel is
+    /// joined again (INSTALL.md, "What a missed message was").
+    #[test]
+    fn a_left_channels_broadcast_token_is_counted_and_routes_after_a_rejoin() {
+        let mut bridge = BridgeState::new();
+        bridge.joined(channel("general"));
+        let n = bridge
+            .notification(&broadcast("general"), [12; 16], NOW)
+            .expect("ok")
+            .expect("some");
+        let token = n.meta.get(MetaKey::ReplyToken).expect("token").to_owned();
+        bridge.left(&channel("general"));
+        assert_eq!(bridge.live_tokens(NOW), 1, "counted while left");
+        assert_eq!(
+            bridge.reply_route(&token, NOW),
+            Err(TransportError::ChannelNotJoined)
+        );
+        bridge.joined(channel("general"));
+        assert_eq!(
+            bridge.reply_route(&token, NOW),
+            Ok(ReplyRoute::Broadcast {
+                channel: channel("general")
+            })
+        );
+    }
+
     /// Without the lease the message arrived on there is no route to
     /// mint: no `reply_token`, and nothing in the table.
     #[test]
@@ -660,6 +712,107 @@ mod tests {
             bridge.reply_route(token, NOW),
             Ok(ReplyRoute::Broadcast { .. })
         ));
+    }
+
+    /// A lost lease takes its direct tokens out of the table, so `status`
+    /// does not count them, while a broadcast token stays and routes
+    /// (LIFECYCLE.md §Reconnect).
+    #[test]
+    fn a_lost_lease_takes_its_direct_tokens_and_leaves_the_broadcast() {
+        let mut bridge = leased();
+        bridge.joined(channel("general"));
+        let direct = bridge
+            .notification(&direct("claude"), [10; 16], NOW)
+            .expect("ok")
+            .expect("some");
+        let direct = direct
+            .meta
+            .get(MetaKey::ReplyToken)
+            .expect("token")
+            .to_owned();
+        let shared = bridge
+            .notification(&broadcast("general"), [11; 16], NOW)
+            .expect("ok")
+            .expect("some");
+        let shared = shared
+            .meta
+            .get(MetaKey::ReplyToken)
+            .expect("token")
+            .to_owned();
+        assert_eq!(bridge.live_tokens(NOW), 2, "the control: both counted");
+
+        bridge.lease_lost();
+        assert_eq!(bridge.live_tokens(NOW), 1, "the direct token is gone");
+        bridge.leased(endpoint("claude"), epoch("BBBBBBBBBBBBBBBBBBBBBB"));
+        assert_eq!(bridge.live_tokens(NOW), 1);
+        assert_eq!(
+            bridge.reply_route(&direct, NOW),
+            Err(TransportError::InvalidArgument)
+        );
+        assert_eq!(
+            bridge.reply_route(&shared, NOW),
+            Ok(ReplyRoute::Broadcast {
+                channel: channel("general")
+            }),
+            "the broadcast token survives the lease change"
+        );
+    }
+
+    /// A lease regained under a new epoch without the loss being seen
+    /// first discards the old epoch's direct tokens all the same.
+    #[test]
+    fn a_new_epoch_discards_the_old_epochs_direct_tokens() {
+        let mut bridge = leased();
+        bridge
+            .notification(&direct("claude"), [12; 16], NOW)
+            .expect("ok")
+            .expect("some");
+        assert_eq!(bridge.live_tokens(NOW), 1, "the control");
+        bridge.leased(endpoint("claude"), epoch("BBBBBBBBBBBBBBBBBBBBBB"));
+        assert_eq!(bridge.live_tokens(NOW), 0);
+    }
+
+    /// Pull mode: a message taken under the lease it arrived on, after
+    /// that lease was lost, carries its stale token, and the table does
+    /// not store it.
+    #[test]
+    fn a_message_taken_under_a_lost_lease_stores_no_token() {
+        let mut bridge = leased();
+        let arrived = bridge.lease_held().expect("held");
+        bridge.lease_lost();
+        bridge.leased(endpoint("claude"), epoch("BBBBBBBBBBBBBBBBBBBBBB"));
+        let n = bridge
+            .notification_under(&direct("claude"), Some(&arrived), [13; 16], NOW)
+            .expect("ok")
+            .expect("some");
+        let token = n.meta.get(MetaKey::ReplyToken).expect("a token still");
+        assert_eq!(bridge.live_tokens(NOW), 0, "not stored");
+        assert_eq!(
+            bridge.reply_route(token, NOW),
+            Err(TransportError::InvalidArgument)
+        );
+    }
+
+    /// Repeated entropy on the stale path is refused as at a mint: the
+    /// host is not handed a token the table holds for another route. A
+    /// token that has left the table guards nothing after it, as an
+    /// expired or evicted one did before.
+    #[test]
+    fn a_stale_token_repeating_a_live_one_is_refused() {
+        let mut bridge = leased();
+        let arrived = bridge.lease_held().expect("held");
+        bridge.lease_lost();
+        bridge.leased(endpoint("claude"), epoch("BBBBBBBBBBBBBBBBBBBBBB"));
+        bridge.joined(channel("general"));
+        bridge
+            .notification(&broadcast("general"), [14; 16], NOW)
+            .expect("ok")
+            .expect("some");
+        assert!(matches!(
+            bridge.notification_under(&direct("claude"), Some(&arrived), [14; 16], NOW),
+            Err(ConvertError::Token(_))
+        ));
+        assert_eq!(bridge.live_tokens(NOW), 1, "the broadcast's kept");
     }
 
     #[test]

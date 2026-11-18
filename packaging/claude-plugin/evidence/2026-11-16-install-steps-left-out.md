@@ -63,7 +63,12 @@ What r3 also shows:
   `direct` to the `claude` PeerId, with nothing done on either side. Question two was `accepted` by the peer's
   daemon.
 - **`reply_tokens` still counted question one's token after the restart** (1 in r3's second status, and in the
-  control's), though `reply` refused that token. The count includes tokens of an earlier lease.
+  control's), though `reply` refused that token. The count includes tokens of an earlier lease. That was ruled a defect
+  (architect-cto, REQUEST 01a1e9a9, by `architecture/plugin/LIFECYCLE.md` §Reconnect); a bridge built from a tree with
+  PR #706 merged (still version 0.3.0 until the next release) discards a lost lease's direct tokens and keeps a
+  broadcast token, counted even while its channel is left (read from `crates/claude/channel-core/src/bridge.rs`,
+  `a_lost_lease_takes_its_direct_tokens_and_leaves_the_broadcast` and
+  `a_left_channels_broadcast_token_is_counted_and_routes_after_a_rejoin`). Not re-run here.
 - In r3 the debug log has `Channel notifications re-registered after reconnect` five times, at 03:14:15, 03:14:29,
   03:15:30, 03:15:51 and 03:15:56. They are not one per restart; what each is was not traced.
 
@@ -163,7 +168,8 @@ the new that INSTALL.md says to expect. All three settings were read back after 
 0.2.0 to 0.3.0 one, only `profile` is shown kept (row v3).
 
 Not run: an update to a lower version, which was not attempted because the request asked for the upgrade path, though
-the 0.2.0 and 0.3.0 archives on hand would have allowed one; an update, or the folder replaced, while a session was
+the 0.2.0 and 0.3.0 archives on hand would have allowed one (it ran on 2026-11-17:
+`2026-11-17-plugin-update-to-a-lower-version.md`); an update, or the folder replaced, while a session was
 running, which was not attempted: every session here ended before the next step ran; and a 0.2.0
 bridge's channel traffic against the 0.3.0 daemon (only its `status`), since the request was the upgrade path and not
 an old bridge against a new daemon.
