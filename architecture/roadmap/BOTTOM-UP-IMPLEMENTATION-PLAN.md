@@ -7073,8 +7073,8 @@ merge named above.
 **Measured, and carried as limits.** Every case ran on one host's
 loopback, and under one uid until 2026-11-18: since then one case, the
 cross-account port refusal below, has a second account in it when CI
-runs it -- the port's holder, the test and the daemon staying the
-runner's -- and every other case runs under one uid as before. Carried by name, from `AUTOMATED-CLIENT.md` §5
+runs it, the port's holder; the test and the daemon stay the
+runner's, and every other case runs under one uid as before. Carried by name, from `AUTOMATED-CLIENT.md` §5
 and decision 2: the cross-account port refusal rests on the kernel's
 documented `SO_REUSEPORT` rule and was measured on the host, not in
 the suite — between two accounts: the rule itself in one direction on
