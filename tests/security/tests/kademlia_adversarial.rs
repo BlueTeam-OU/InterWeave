@@ -27,6 +27,11 @@
 //! - a bucket full of connected honest seats gives no seat to a trusted
 //!   newcomer in it, nor to a peer its answers name, and gives up none,
 //!   while a seat freed by a revocation is taken by the next peer;
+//! - with the data plane held, as every profile runs, a bucket of idle
+//!   honest seats loses no connection and no seat to a connected trusted
+//!   newcomer past libp2p-kad's pending timeout; unheld, the newcomer
+//!   takes one from an occupant the subject cannot dial back and none
+//!   from one it can;
 //! - a trusted router opening far more Kademlia streams than libp2p-kad
 //!   serves on one connection has exactly that many kept, one of them
 //!   answering a `FIND_NODE`, while another router is still answered.
@@ -58,8 +63,8 @@ use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
 use interweave_transport_libp2p::runtime::kademlia_driver::{KademliaSettings, kad_protocol};
 use interweave_transport_libp2p::{
-    DialFailureClass, DialRefusal, IDENTIFY_PROTOCOL_VERSION, SubstrateConfig, SwarmEvent,
-    SwarmRuntime,
+    DialFailureClass, DialRefusal, IDENTIFY_PROTOCOL_VERSION, PeerPath, SubstrateConfig,
+    SwarmEvent, SwarmRuntime,
 };
 use interweave_transport_runtime::{DialDenial, DialOrigin, TrustSources};
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
@@ -150,6 +155,13 @@ enum Order {
     /// start a walk on another task knows the router can name it
     /// (`HostileRouter::know`).
     Know(PeerId, Multiaddr, oneshot::Sender<()>),
+    /// Ask for the peers closest to this peer's own key, which that
+    /// peer, once known, is asked for itself.
+    FindNode(PeerId),
+    /// Close the router's listener, keeping every connection it holds:
+    /// from here a dial to it fails, as a dial to a peer behind a NAT
+    /// does. Answered once the listener has closed.
+    Unlisten(oneshot::Sender<()>),
 }
 
 /// A hostile router on its own task: its table already stuffed, driven
@@ -169,6 +181,13 @@ impl HostileRouter {
             .send(Order::Know(peer, address, done))
             .expect("alive");
         known.await.expect("the router's task answers");
+    }
+
+    /// Close the router's listener and wait until it has closed.
+    async fn unlisten(&self) {
+        let (done, closed) = oneshot::channel();
+        self.orders.send(Order::Unlisten(done)).expect("alive");
+        closed.await.expect("the router's task answers");
     }
 }
 
@@ -214,9 +233,10 @@ async fn hostile_router_as(
         .expect("behaviour")
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
         .build();
-    swarm
+    let listener = swarm
         .listen_on(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
         .expect("listens");
+    let mut unlistened: Option<oneshot::Sender<()>> = None;
     let address = loop {
         if let libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } =
             tokio::time::timeout(PATIENCE, swarm.select_next_some())
@@ -258,13 +278,28 @@ async fn hostile_router_as(
                         swarm.behaviour_mut().kad.add_address(&peer, address);
                         let _ = done.send(());
                     }
+                    Some(Order::FindNode(peer)) => {
+                        let _ = swarm.behaviour_mut().kad.get_closest_peers(peer);
+                    }
+                    Some(Order::Unlisten(done)) => {
+                        assert!(swarm.remove_listener(listener), "the listener is open");
+                        unlistened = Some(done);
+                    }
                     None => return,
                 },
-                event = swarm.select_next_some() => {
-                    if let libp2p::swarm::SwarmEvent::Behaviour(HostileEvent::Kad(e)) = event {
+                event = swarm.select_next_some() => match event {
+                    libp2p::swarm::SwarmEvent::Behaviour(HostileEvent::Kad(e)) => {
                         let _ = forward.send(e);
                     }
-                }
+                    libp2p::swarm::SwarmEvent::ListenerClosed { listener_id, .. }
+                        if listener_id == listener =>
+                    {
+                        if let Some(done) = unlistened.take() {
+                            let _ = done.send(());
+                        }
+                    }
+                    _ => {}
+                },
             }
         }
     });
@@ -993,6 +1028,463 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
 
     subject.shutdown().await.expect("stops");
     drop((honest, newcomers, observed, late));
+}
+
+/// Seats in the idle-seat test's bucket: the least `kbucket_size` the
+/// driver accepts (8..=20), so one bucket of honest routers fills it.
+const IDLE_SEATS: usize = BUCKET;
+/// The subject's idle timeout in the idle-seat test. Short so the run
+/// is short: what is under test is what happens to an honest seat once
+/// the idle timeout has closed (or failed to close) its connection,
+/// whatever the timeout's value -- a profile's is longer, so this is
+/// the same sequence compressed, not a different one.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long the honest seats sit idle before the newcomer comes: three
+/// idle timeouts, so an unheld connection has been closed by then.
+const IDLE_WINDOW: Duration = Duration::from_secs(6);
+/// libp2p-kad's pending timeout: how long a newcomer queued behind a
+/// disconnected occupant waits before `apply_pending` replaces it
+/// (`kbucket/bucket.rs`, `KBucketConfig::default`, read at 0.49.0; the
+/// driver does not configure it).
+const KAD_PENDING_TIMEOUT: Duration = Duration::from_secs(60);
+/// Past the pending timeout, for the newcomer's next request to touch
+/// the table and the replacement to be reported.
+const PAST_PENDING: Duration = Duration::from_secs(5);
+/// How often the newcomer asks the subject for its own key: below the
+/// idle timeout, so the newcomer's connection stays busy even unheld,
+/// and each answer reads the subject's table, which is what runs
+/// `apply_pending`.
+const NEWCOMER_TICK: Duration = Duration::from_millis(500);
+
+/// One arm of the idle-seat test: whether the subject holds data-plane
+/// connections, and whether the honest routers can still be dialled
+/// once their connections are idle.
+#[derive(Clone, Copy)]
+struct IdleSeat {
+    hold_data_plane: bool,
+    dialable: bool,
+}
+
+/// One arm of the idle-seat test, as it was seen.
+struct IdleSeatArm {
+    honest: Vec<TransportIdentity>,
+    newcomer: TransportIdentity,
+    /// Every subject event after the honest seats were taken, with its
+    /// time since the last of them was.
+    events: Vec<(Duration, SwarmEvent)>,
+    /// The honest routers' `Connected` events, from their seating.
+    honest_paths: Vec<(TransportIdentity, PeerPath)>,
+    /// When the newcomer was first connected, since the last honest seat.
+    newcomer_connected: Duration,
+    /// When the subject's own exploration started: events before it
+    /// are the newcomer's doing and libp2p-kad's.
+    explored: Duration,
+    /// Whether the subject answered the newcomer's requests.
+    served: bool,
+}
+
+impl IdleSeatArm {
+    fn who(&self, peer: &TransportIdentity) -> String {
+        self.honest.iter().position(|h| h == peer).map_or_else(
+            || {
+                if *peer == self.newcomer {
+                    "newcomer".to_owned()
+                } else {
+                    format!("{peer:?}")
+                }
+            },
+            |i| format!("honest[{i}]"),
+        )
+    }
+
+    fn seated(&self, who: &TransportIdentity) -> Option<Duration> {
+        self.events
+            .iter()
+            .find(|(_, e)| matches!(e, SwarmEvent::Kademlia { event: KademliaEvent::RoutingPeerAdded { peer } } if peer == who))
+            .map(|(at, _)| *at)
+    }
+
+    fn an_honest_seat_given_up(&self) -> bool {
+        self.events.iter().any(|(_, e)| matches!(e, SwarmEvent::Kademlia { event: KademliaEvent::RoutingPeerRemoved { peer } } if self.honest.contains(peer)))
+    }
+
+    /// Whether every honest router was disconnected before the newcomer
+    /// came: the idle timeout closed them.
+    fn idled_out(&self) -> bool {
+        self.honest.iter().all(|h| {
+            self.events.iter().any(|(at, e)| {
+                *at < self.newcomer_connected
+                    && matches!(e, SwarmEvent::Disconnected { peer, .. } if peer == h)
+            })
+        })
+    }
+}
+
+/// [`drive`], with each event stamped by its time since `t0`.
+async fn drive_timed<F>(
+    subject: &mut SwarmRuntime,
+    t0: tokio::time::Instant,
+    window: Duration,
+    mut until: F,
+) -> Vec<(Duration, SwarmEvent)>
+where
+    F: FnMut(&SwarmEvent) -> bool,
+{
+    let mut seen = Vec::new();
+    let deadline = tokio::time::Instant::now() + window;
+    loop {
+        match tokio::time::timeout_at(deadline, subject.next_event()).await {
+            Err(_) => return seen,
+            Ok(None) => panic!("the subject stopped"),
+            Ok(Some(event)) => {
+                let done = until(&event);
+                seen.push((t0.elapsed(), event));
+                if done {
+                    return seen;
+                }
+            }
+        }
+    }
+}
+
+/// Fill one bucket of the subject with honest routers, let them idle
+/// past the subject's idle timeout, then connect a trusted newcomer in
+/// the same bucket and wait past libp2p-kad's pending timeout.
+async fn idle_seat_arm(ip: std::net::Ipv4Addr, arm: IdleSeat) -> IdleSeatArm {
+    let subject_id = ProfileIdentity::generate();
+    let subject_peer = subject_id.transport_identity().expect("peer id");
+    let subject_libp2p = peer_id(&subject_peer);
+    let mut keys = far_keys(&subject_libp2p, IDLE_SEATS + 1).into_iter();
+    // RAW ROUTERS, on purpose: libp2p's Kademlia server and Identify and
+    // nothing else, with a ten-minute idle timeout of their own. They
+    // speak no gossipsub, whose parked `Extensions` stream keeps a
+    // connection between two substrates open by itself, and no ping, so
+    // nothing they run keeps an idle connection open: every close below
+    // is the subject's, and the hold is the one thing that can keep it
+    // (`crates/transport/libp2p/tests/held_data_plane.rs` makes the same
+    // choice). A held peer that refuses ping is kept, unpinged
+    // (`relay_keepalive`'s module note).
+    let mut honest = Vec::new();
+    for k in keys.by_ref().take(IDLE_SEATS) {
+        honest.push(hostile_router_as(k, ip, Vec::new()).await);
+    }
+    let mut newcomer =
+        hostile_router_as(keys.next().expect("one more far key"), ip, Vec::new()).await;
+    let honest_peers: Vec<TransportIdentity> = honest.iter().map(|h| h.peer.clone()).collect();
+    let mut everyone: Vec<&TransportIdentity> = honest_peers.iter().collect();
+    everyone.push(&newcomer.peer);
+
+    let mut subject = SwarmRuntime::start(
+        &subject_id,
+        SubstrateConfig {
+            kademlia: Some(KademliaSettings {
+                kbucket_size: NonZeroUsize::new(IDLE_SEATS).expect("nonzero"),
+                ..settings()
+            }),
+            idle_timeout: IDLE_TIMEOUT,
+            hold_data_plane: arm.hold_data_plane,
+            ..SubstrateConfig::default()
+        },
+        trusting(&everyone),
+    )
+    .expect("subject");
+    let subject_address = listening(&subject, ip).await;
+
+    let mut honest_paths = Vec::new();
+    for h in &honest {
+        for e in seat(&mut subject, &h.peer, h.address.clone()).await {
+            if let SwarmEvent::Connected { peer, path } = e {
+                honest_paths.push((peer, path));
+            }
+        }
+    }
+    let t0 = tokio::time::Instant::now();
+
+    // IDLE: nothing is sent to or by the honest routers.
+    let mut events = drive_timed(&mut subject, t0, IDLE_WINDOW, |_| false).await;
+    // UNDIALLABLE: an honest peer the subject cannot dial back -- behind
+    // a NAT, its address stale -- which is the peer the hold is for.
+    // The connections already open are kept.
+    if !arm.dialable {
+        for h in &honest {
+            h.unlisten().await;
+        }
+    }
+
+    // THE NEWCOMER connects with its bucket full. Held, every occupant is
+    // connected and libp2p-kad refuses it; unheld, an occupant is
+    // disconnected, the newcomer is queued behind it for the pending
+    // timeout, and libp2p-kad dials the occupant to see whether it is
+    // still there (`add_address`'s `InsertResult::Pending` arm,
+    // `behaviour.rs`, read at 0.49.0).
+    subject
+        .dial(newcomer.peer.clone(), newcomer.address.clone())
+        .await
+        .expect("delivered")
+        .expect("a trusted router is admitted");
+    events.extend(
+        drive_timed(
+            &mut subject,
+            t0,
+            PATIENCE,
+            |e| matches!(e, SwarmEvent::Connected { peer, .. } if *peer == newcomer.peer),
+        )
+        .await,
+    );
+    let newcomer_connected = events
+        .iter()
+        .find(|(_, e)| matches!(e, SwarmEvent::Connected { peer, .. } if *peer == newcomer.peer))
+        .map(|(at, _)| *at)
+        .expect("the newcomer connected");
+    newcomer.know(subject_libp2p, subject_address.clone()).await;
+    let ticker = {
+        let orders = newcomer.orders.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(NEWCOMER_TICK);
+            loop {
+                tick.tick().await;
+                if orders.send(Order::FindNode(subject_libp2p)).is_err() {
+                    return;
+                }
+            }
+        })
+    };
+
+    // PAST THE PENDING TIMEOUT, stopping early only on the take.
+    let newcomer_peer = newcomer.peer.clone();
+    events.extend(
+        drive_timed(&mut subject, t0, KAD_PENDING_TIMEOUT + PAST_PENDING, |e| {
+            matches!(e, SwarmEvent::Kademlia { event: KademliaEvent::RoutingPeerAdded { peer } } if *peer == newcomer_peer)
+        })
+        .await,
+    );
+    // AND THE TABLE TOUCHED by the subject itself, as a walk would:
+    // `apply_pending` runs on any read of the bucket.
+    let explored = t0.elapsed();
+    let handle = QueryHandle::commanded(1);
+    subject
+        .kademlia(KademliaCommand::StartQuery {
+            handle,
+            class: QueryClass::Exploration,
+            key: LookupKey::KeySpacePoint {
+                point: key_of(&newcomer.peer),
+            },
+        })
+        .await
+        .expect("delivered");
+    events.extend(
+        drive_timed(&mut subject, t0, PATIENCE, |e| {
+            matches!(e, SwarmEvent::Kademlia { event: KademliaEvent::QueryResults { handle: h, .. } | KademliaEvent::QueryFailed { handle: h, .. } } if *h == handle)
+        })
+        .await,
+    );
+    events.extend(drive_timed(&mut subject, t0, SETTLE, |_| false).await);
+    ticker.abort();
+
+    let mut served = false;
+    while let Ok(e) = newcomer.events.try_recv() {
+        if let kad::Event::OutboundQueryProgressed {
+            result: kad::QueryResult::GetClosestPeers(Ok(ok)),
+            ..
+        } = e
+            && ok.peers.iter().any(|p| p.peer_id == subject_libp2p)
+        {
+            served = true;
+        }
+    }
+
+    subject.shutdown().await.expect("stops");
+    let outcome = IdleSeatArm {
+        honest: honest_peers,
+        newcomer: newcomer.peer.clone(),
+        events,
+        honest_paths,
+        newcomer_connected,
+        explored,
+        served,
+    };
+    drop((honest, newcomer));
+    outcome
+}
+
+/// S21-06's idle seat, judged against the shipped profile.
+///
+/// The row's limit said: libp2p-kad queues a newcomer behind a
+/// DISCONNECTED occupant and replaces it after its 60 s pending
+/// timeout, and the subject closes an idle connection at its idle
+/// timeout, so an idle honest seat can be taken by a connected trusted
+/// router. Since ADR-0068 (`transport/libp2p/CONNECTIVITY.md` §14,
+/// A 2026-11-13) every profile HOLDS one direct data-plane connection
+/// per peer past the idle timeout (`SubstrateConfig::hold_data_plane`,
+/// on in `composition::translate`), and a routing seat is held to
+/// data-plane trust (`kademlia_driver::may_hold_a_seat`), so its
+/// occupant stays connected and libp2p-kad refuses the newcomer
+/// outright.
+///
+/// Three arms at once, so the run waits the pending timeout once:
+/// - HELD, as a profile runs, the honest routers undiallable once idle:
+///   no honest occupant disconnects, no seat is given up, the newcomer
+///   takes none;
+/// - TAKEN, the same with the hold off -- the bare substrate's default
+///   -- the positive control: the old sentence's case happening in the
+///   same run, the newcomer seated after the pending timeout, so the
+///   window was long enough and the newcomer's path into the table was
+///   live;
+/// - REDIALLED, the hold off and the honest routers still diallable:
+///   libp2p-kad dials the disconnected occupant when it queues the
+///   newcomer, the occupant answers, and the newcomer is dropped -- so
+///   even unheld, the take needs an occupant the subject cannot dial
+///   back, which is the peer the hold exists for.
+///
+/// The other tests here run unheld with a ten-minute idle timeout, so
+/// none models a profile's idle seat.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_idle_honest_seat_is_held_so_a_connected_newcomer_cannot_take_it() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let started = tokio::time::Instant::now();
+    let (held, taken, redialled) = tokio::join!(
+        idle_seat_arm(
+            ip,
+            IdleSeat {
+                hold_data_plane: true,
+                dialable: false
+            }
+        ),
+        idle_seat_arm(
+            ip,
+            IdleSeat {
+                hold_data_plane: false,
+                dialable: false
+            }
+        ),
+        idle_seat_arm(
+            ip,
+            IdleSeat {
+                hold_data_plane: false,
+                dialable: true
+            }
+        ),
+    );
+    println!("MEASURE wall time {:?}", started.elapsed());
+
+    let arms = [
+        ("held", &held),
+        ("taken", &taken),
+        ("redialled", &redialled),
+    ];
+    for (arm, outcome) in arms {
+        println!(
+            "MEASURE {arm}: newcomer connected at {:?}, exploration at {:?}",
+            outcome.newcomer_connected, outcome.explored
+        );
+        for (at, e) in &outcome.events {
+            match e {
+                SwarmEvent::Disconnected { peer, .. } => {
+                    println!(
+                        "MEASURE {arm}: {} disconnected at {at:?}",
+                        outcome.who(peer)
+                    );
+                }
+                SwarmEvent::Connected { peer, .. } => {
+                    println!("MEASURE {arm}: {} connected at {at:?}", outcome.who(peer));
+                }
+                SwarmEvent::Kademlia {
+                    event: KademliaEvent::RoutingPeerAdded { peer },
+                } => println!("MEASURE {arm}: {} seated at {at:?}", outcome.who(peer)),
+                SwarmEvent::Kademlia {
+                    event: KademliaEvent::RoutingPeerRemoved { peer },
+                } => println!("MEASURE {arm}: {} unseated at {at:?}", outcome.who(peer)),
+                _ => {}
+            }
+        }
+    }
+
+    for (arm, outcome) in arms {
+        // THE CLASS the hold is for: every honest occupant was reached
+        // over a direct path and seated, and a seat is held to data-plane
+        // trust (`kademlia_driver::may_hold_a_seat`).
+        for h in &outcome.honest {
+            assert!(
+                outcome
+                    .honest_paths
+                    .iter()
+                    .any(|(p, path)| p == h && *path == PeerPath::Direct),
+                "{arm}: {h:?} was not reached directly: {:?}",
+                outcome.honest_paths
+            );
+        }
+        // THE NEWCOMER'S PATH: the subject answered it.
+        assert!(outcome.served, "{arm}: the subject answered the newcomer");
+    }
+
+    // HELD: no honest occupant disconnected, no seat was given up, and
+    // the newcomer took none.
+    for (at, e) in &held.events {
+        match e {
+            SwarmEvent::Disconnected { peer, .. } if held.honest.contains(peer) => {
+                panic!(
+                    "held: occupant {} disconnected at {at:?} although its connection is held",
+                    held.who(peer)
+                )
+            }
+            SwarmEvent::Kademlia {
+                event: KademliaEvent::RoutingPeerRemoved { peer },
+            } => panic!("held: seat {} was given up at {at:?}", held.who(peer)),
+            SwarmEvent::Kademlia {
+                event: KademliaEvent::RoutingPeerAdded { peer },
+            } if *peer == held.newcomer => {
+                panic!("held: the newcomer took an idle honest seat at {at:?}")
+            }
+            _ => {}
+        }
+    }
+
+    // TAKEN, THE CONTROL: the idle timeout closed the honest connections
+    // before the newcomer came, and the newcomer took the seat an honest
+    // router gave up -- only once the pending timeout had run, since it
+    // was queued after it connected.
+    assert!(
+        taken.idled_out(),
+        "taken: the idle timeout closed every honest connection"
+    );
+    let seated = taken
+        .seated(&taken.newcomer)
+        .expect("taken: the newcomer took an idle honest seat");
+    assert!(
+        seated >= taken.newcomer_connected + KAD_PENDING_TIMEOUT,
+        "taken: the seat went only after the pending timeout: {seated:?}"
+    );
+    assert!(
+        taken.an_honest_seat_given_up(),
+        "taken: an honest seat was given up for the newcomer"
+    );
+    println!(
+        "MEASURE taken: newcomer seated {:?} after it connected",
+        seated.saturating_sub(taken.newcomer_connected)
+    );
+
+    // REDIALLED: idled out the same way, and libp2p-kad's dial to the
+    // occupant it queued the newcomer behind reconnected an honest
+    // router before anything of the subject's own dialled; the newcomer
+    // took no seat and none was given up.
+    assert!(
+        redialled.idled_out(),
+        "redialled: the idle timeout closed every honest connection"
+    );
+    assert!(
+        redialled.events.iter().any(|(at, e)| *at > redialled.newcomer_connected
+            && *at < redialled.explored
+            && matches!(e, SwarmEvent::Connected { peer, .. } if redialled.honest.contains(peer))),
+        "redialled: libp2p-kad redialled a disconnected occupant"
+    );
+    assert!(
+        redialled.seated(&redialled.newcomer).is_none(),
+        "redialled: the newcomer took a seat from a diallable occupant"
+    );
+    assert!(
+        !redialled.an_honest_seat_given_up(),
+        "redialled: an honest seat was given up"
+    );
 }
 
 /// libp2p-kad's inbound stream ceiling per connection (`MAX_NUM_STREAMS`
