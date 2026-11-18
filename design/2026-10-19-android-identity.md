@@ -995,10 +995,13 @@ build can show what follows is asked of rust-ui-dev-01 (QUESTION
   this note does not design.
 - **A return or a recreation.** A return to the app (Home or Recents,
   then back) or a recreation of the window for a configuration
-  change that the app does not handle itself retries the start, as
-  unlock note §11's L3 retries any start after a refused one: a
-  refused start is not a start that ran (its L4). The notice stays
-  while that start runs, with Try again shown disabled. Its results
+  change that the app does not handle itself retries the start when
+  no start is running, as unlock note §11's L3 retries any start
+  after a refused one: a refused start is not a start that ran (its
+  L4). A return or a recreation while Try again's start runs starts
+  nothing, and that start's answer stands, so only one start is ever
+  in flight (Try again, above). The notice stays while the retried
+  start runs, with Try again shown disabled. Its results
   are Try again's, except that this start answers no press of the
   person's: a `LockHeld` again leaves the notice and focus as they
   were and is not announced again, and a success moves focus only as
@@ -1869,13 +1872,27 @@ scale would also be a finding of the Android review
         the prompt of Try again's start and the test cancels it:
         the locked notice shows in `IdStartBusy`'s place, with focus
         on it.
-      - A return: with focus on Chats' title, the test sends the
-        app to the background and back (with Stay reachable on, so
-        the process keeps running). The hook records one start at
-        the return, the notice stays with Try again disabled until it
+      - A return: each run below is made with Stay reachable on and
+        again in foreground-only mode, the mode a new profile starts
+        in. With focus on Chats' title, the test sends the app to the
+        background and back. The hook records one start at the
+        return, the notice stays with Try again disabled until it
         answers, and focus stays on the title. Answered `LockHeld`:
         the notice stays, focus stays on the title, and nothing is
-        announced. A rotation instead records no start.
+        announced. In a second run, answered as started: the notice
+        goes and focus stays on the title. In a third run, with focus
+        on Try again before the return: answered as started, the
+        notice goes and focus is on the list heading. In a fourth
+        run, on a `user-presence` profile, the return's start asks
+        for the prompt, which rises with no input, and the test
+        cancels it: the locked notice shows in `IdStartBusy`'s
+        place, with focus on it. In a fifth run, the test recreates
+        the window as a change of the system language does: the hook
+        records one start, answered as in the first run. A rotation
+        instead records no start. In a sixth run, Enter on Try again,
+        with the hook leaving that start unanswered, then the return:
+        the hook records that one start and none at the return, and
+        when it is answered as started, the notice goes.
       - Connect: with no address recorded, after R4's Continue (so
         Connect is owed and was deferred at the bound), Try again's
         start is answered as started and both reads answer empty
