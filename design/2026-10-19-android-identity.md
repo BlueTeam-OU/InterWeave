@@ -1000,7 +1000,11 @@ build can show what follows is asked of rust-ui-dev-01 (QUESTION
   after a refused one: a refused start is not a start that ran (its
   L4). A return or a recreation while Try again's start runs starts
   nothing, and that start's answer stands, so only one start is ever
-  in flight (Try again, above). The notice stays while the retried
+  in flight (Try again, above). In foreground-only mode, leaving the
+  app ends a running start (`design/2026-10-22-add-a-peer.md` §5.1,
+  Interruptions), so a return after Home finds no start running and
+  retries; a recreation keeps the service in either mode, so a start
+  that runs through it goes on. The notice stays while the retried
   start runs, with Try again shown disabled. Its results
   are Try again's, except that this start answers no press of the
   person's: a `LockHeld` again leaves the notice and focus as they
@@ -1012,7 +1016,9 @@ build can show what follows is asked of rust-ui-dev-01 (QUESTION
   the notice and retries nothing (§7).
 - **How long.** Until a start succeeds, until the notice of another
   refused start takes its place, or until the process ends. A new
-  launch makes a start of its own and shows what that start answers,
+  launch (the Activity created anew, as the unlock note counts it; a
+  foreground-only return to a live Activity is not one here) makes a
+  start of its own and shows what that start answers,
   never this notice. Apart from the return and the recreation above,
   the app never retries the start on its own: no timer retries it.
 - **Connect.** At the bound this start counted as deferred
@@ -1889,10 +1895,17 @@ scale would also be a finding of the Android review
         place, with focus on it. In a fifth run, the test recreates
         the window as a change of the system language does: the hook
         records one start, answered as in the first run. A rotation
-        instead records no start. In a sixth run, Enter on Try again,
-        with the hook leaving that start unanswered, then the return:
-        the hook records that one start and none at the return, and
-        when it is answered as started, the notice goes.
+        instead records no start. In a sixth run, made with Stay
+        reachable on only, Enter on Try again, with the hook leaving
+        that start unanswered, then the return: the hook records that
+        one start and none at the return, and when it is answered as
+        started, the notice goes. Its recreation variant, in either
+        mode, recreates the window while that start runs: the hook
+        records that one start and none at the recreation. Its
+        foreground-only variant: the Home ends Try again's start, and
+        the hook records a second start at the return, with the notice
+        shown and Try again disabled until that start answers, as in
+        the first run.
       - Connect: with no address recorded, after R4's Continue (so
         Connect is owed and was deferred at the bound), Try again's
         start is answered as started and both reads answer empty
