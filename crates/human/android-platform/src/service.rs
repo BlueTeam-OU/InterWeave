@@ -37,7 +37,8 @@ use crate::offline::offline_embedded;
 /// endpoint entry must allow it.
 pub const CLIENT_KIND: &str = "human-client";
 
-/// How long a stop waits for the facade to close its session before the
+/// How long a stop waits for the facade to commit what its session holds
+/// and close it, after the runtime began refusing and before the
 /// runtime stops under it.
 const FACADE_CLOSE: Duration = Duration::from_secs(2);
 
@@ -901,9 +902,11 @@ impl ServiceHost {
         self.network().told()
     }
 
-    /// Stop the client: the facade closes its session (releasing the
-    /// lease), then the runtime stops within `grace` and releases the
-    /// profile lock. `None` when nothing ran.
+    /// Stop the client: the runtime refuses inbound direct first, the
+    /// facade commits what its session's queue holds unread and closes
+    /// the session (releasing the lease), then the runtime stops within
+    /// what is left of `grace` and releases the profile lock. `None` when
+    /// nothing ran.
     ///
     /// BLOCKS; call it off the Service's main thread.
     #[must_use]
@@ -927,15 +930,26 @@ impl ServiceHost {
                 runtime: Ok(0),
             });
         };
+        let began = Instant::now();
         // Releases a thread parked in `wait_ended` with this request: it
-        // holds the host until it returns.
+        // holds the host until it returns. It refuses nothing.
         let _ = host.request_shutdown(grace);
+        // The daemon's order (`DIRECT.md` §Graceful shutdown, A
+        // 2026-11-17): the runtime refuses inbound direct from here, so
+        // the facade's close below reads its session's queue for the last
+        // time and commits it unread before the session closes. With the
+        // close first, a message admitted between the close and the stop
+        // went with the session unread
+        // (`a_message_admitted_before_the_stop_is_unread_after_it`). An
+        // error is a runtime already ended: nothing more can arrive.
+        let _ = host.drain();
         let session_closed = facade.is_none_or(|f| f.close(FACADE_CLOSE));
         let deadline = Instant::now() + FACADE_CLOSE;
         let mut host = host;
         let runtime = loop {
             match Arc::try_unwrap(host) {
-                Ok(owned) => break owned.stop(grace),
+                // What is left of the grace: the hand-over is inside it.
+                Ok(owned) => break owned.stop(grace.saturating_sub(began.elapsed())),
                 Err(shared) if Instant::now() < deadline => {
                     host = shared;
                     std::thread::sleep(Duration::from_millis(10));
