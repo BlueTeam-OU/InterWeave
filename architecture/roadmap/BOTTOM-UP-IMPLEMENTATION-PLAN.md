@@ -5809,8 +5809,9 @@ the current target API's enforcement (the Pixel 9a at API 37, gate
 (measured on 2026-11-17 and 2026-11-18 under Stay reachable, the
 paragraph on that run below, and leaves this list with the A40's limit
 carried in its place) and a real low-memory kill, other OEMs' power managers and plain
-Sleeping apps (SPIKE-008's item, in that record's words: no Samsung
-setting's name was read on the A40 in the run of 2026-11-17), cellular transitions, `batterystats` and `netstats`, B4
+"Sleeping apps" with Samsung's automatic sleeping of unused apps
+(SPIKE-008's wording, `spikes/spike-008/README.md`; the device run of
+2026-11-17 read no Samsung setting's name on the A40), cellular transitions, `batterystats` and `netstats`, B4
 device-to-device and B5 Smart Switch, duplicate suppression and the
 byte search across a reboot, a power loss mid-truncate, L2 with the
 screen off or unplugged, R2 on other launchers and API levels, freed
