@@ -136,7 +136,14 @@ the scrolling area ends after the snackbar closes. Its A40 runs set
 the font scale to 200 % with the `settings` command, because it is
 not known whether the A40's own settings offer 200 %. Acceptance 15 gains three host-test runs for a held seal.
 In the revision note of 2026-11-17 on Back from a notice, the
-sentence on what Back contradicted is made exact.
+sentence on what Back contradicted is made exact. §5 also closes the snackbar
+when `ConnectStarting` shows on C4 and R4, and keeps both on screen
+when a copy comes after `ConnectStarting`. In §8, a cancelled or
+denied prompt for the seal leaves C4 as it was, and one for the
+service start ends on Chats, as §6 says. Acceptance 3 names the
+clipboard removal, and acceptance 9 names `IdAlreadyTitle` and the
+notice's place. Acceptance 18's clipboard runs also run at Android 13
+or later, and its Pixel 9a check waits on a debug-build hook.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
