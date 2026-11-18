@@ -7075,8 +7075,16 @@ the suite — between two accounts: the rule itself in one direction on
 A 2026-10-27), and a held port refused in the other on 2026-11-04
 (step 4's second record), whose holder's build was not read, so that
 run shows the refusal and not the rule — the suite staying one uid as
-decision 5 says, so the CI case is still owed
-until CI has a second account; a second
+decision 5 said then, so the CI case was owed
+until CI had a second account. Since 2026-11-18 the refusal is a case
+CI runs (ADR-0055 A 2026-11-18): `a_port_another_account_holds_refuses_the_start`
+in `tests/automated-client`, ignored in a plain run and run by the
+`rust` job's foreign-uid step as `nobody` (§21's decided (4)), whose
+holder is a `python3` with two `SO_REUSEPORT` sockets and so shows the
+rule, with the same holder under the daemon's own account (the port
+shared) and the released port (the same profile listens) as controls;
+what stays a host record is the unit's retry and two daemons of two
+accounts on one port; a second
 host is ADR-0034 §7's and SPIKE-004's limit; the second delivery of a
 retry after the dedup WINDOW is by decision (ADR-0019) and measured
 here only across the receiving daemon's restart; ordering across
