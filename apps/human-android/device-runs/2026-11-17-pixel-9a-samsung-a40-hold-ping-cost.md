@@ -303,31 +303,17 @@ this record.
 - **A relayed connection's ping.** ADR-0068 pings relayed connections too. Here, the one connection was direct.
 - **The release build.** This run is of the debug APK at `8b6b1d35b`.
 
-## The sentence proposed for §14
+## Where the measured cost is recorded
 
-It is proposed to replace one clause in `CONNECTIVITY.md` §14
-A 2026-11-13's "Not proved", and the matching bullet in ADR-0068's
-consequences (`0068-…md`, the bullet beginning "Every profile now
-sends a ping"). Both texts are architect-cto's to write.
+architect-cto wrote this measurement into the architecture in the same
+change as this record:
 
-The clause runs from "and the cost on a phone" to "calls the phone's
-idle cost known". The clause after it, on the redial cost ("the cost
-of redialling each absent contact every 30 s … is carried beside it"),
-stays: this run did not measure it.
+- **`architecture/transport/libp2p/CONNECTIVITY.md` §14**, in A
+  2026-11-13's "Not proved": the clause on the cost on a phone.
+- **ADR-0068's consequence bullet** on the ping per held peer, with its
+  amendment in `architecture/adr/history/0068-amendments.md`.
+- **The plan's §20 closing record**: the A40's freeze, carried as a
+  named limit of Stay reachable.
 
-> and the cost on a phone, measured once, on 2026-11-17 (no peer) and 2026-11-18 (held)
-> (`apps/human-android/device-runs/2026-11-17-pixel-9a-samsung-a40-hold-ping-cost.md`):
-> under Stay reachable, a Pixel 9a idle with its screen off kept one
-> held peer's direct connection through 2h54m of deep Doze at the 15 s
-> interval with no missed liveness. Against a window with no peer
-> online, it had 1822 more kernel wakeups in 3 h and drew 32–60 mAh
-> more, according to the counter, in one window of each, which does
-> not separate the ping from other apps' traffic. Under
-> foreground-only, the default, there is no foreground service, so the
-> hold costs nothing with the screen off. On a Samsung A40 (Android 11),
-> the system froze the app in Doze despite its foreground service, so
-> no connection was held there and its cost was not measured. Not
-> measured: cellular, several held peers, a relayed connection, the
-> release build. The interval stays 15 s. Whether this is enough for a
-> release note to call the phone's idle cost known is not decided by
-> this measurement;
+The figures they cite are this record's. Where they and this record
+differ, this record is the measurement.
