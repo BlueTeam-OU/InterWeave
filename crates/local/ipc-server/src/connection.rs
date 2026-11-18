@@ -195,10 +195,16 @@ pub(crate) async fn run<B>(
         Ok(Ok(unwritten)) => unwritten,
         Ok(Err(_)) => 0,
         Err(_) => {
-            writer.abort();
-            events_lane
+            // Read BEFORE the abort: an aborted writer dropped on another
+            // worker drops its receiver, which empties the lane, and a
+            // read after that would count none of it. Read first, a frame
+            // written in between is counted as well, an over-count by
+            // that frame.
+            let in_lane = events_lane
                 .max_capacity()
-                .saturating_sub(events_lane.capacity())
+                .saturating_sub(events_lane.capacity());
+            writer.abort();
+            in_lane
         }
     };
     drop(events_lane);
@@ -539,7 +545,8 @@ where
     /// so the `close` -- which goes on the control lane, ahead of any
     /// event still queued -- is written after them. Bounded by `until`,
     /// the stop's grace: a client that does not read is closed when it
-    /// ends, and what it had not taken -- the events still in the lane and
+    /// ends (or sooner, when its writer gives up on it after
+    /// `write_stall`), and what it had not taken -- the events still in the lane and
     /// what the session still holds -- is counted as dropped. The runtime
     /// is already draining when this runs (the daemon's stop order), so
     /// the queue only shrinks: nothing new is admitted to it.

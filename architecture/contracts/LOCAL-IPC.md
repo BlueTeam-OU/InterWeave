@@ -689,7 +689,8 @@ written the events its queue held at that moment, ahead of its
 `close{ShuttingDown}`, and its lease is released before the `close` is
 written, so a client that reconnects on it finds the lease free.
 The hand-over is bounded by the session's queue and by the stop's
-grace: a client that does not read is closed when the grace ends, and
+grace: a client that does not read is closed when the grace ends, or
+sooner when its writer gives up on it after the write stall, and
 what it did not take is counted as dropped. As the gap was found the
 order began at the server's stop, the runtime drained after every lease
 was released, and a connection ended on the stop without reading its
