@@ -98,9 +98,21 @@ scratch="$(mktemp -d)"
 ( umask 077 && printf '%s\n' "$INTERWEAVE_RELEASE_MINISIGN_KEY" > "$scratch/archive.key" )
 for f in "${files[@]}"; do
     written+=("$f.minisig")
+    st=0
     printf '%s\n' "${INTERWEAVE_RELEASE_MINISIGN_PASS-}" \
         | "$minisign" -S -s "$scratch/archive.key" -m "$f" -x "$f.minisig" >/dev/null 2>"$scratch/err" \
-        || die "minisign could not sign $f with the environment's key: $(tail -n 1 "$scratch/err")"
+        || st=$?
+    if (( st != 0 )); then
+        # The last line minisign said, else its status: a minisign killed by a
+        # signal says nothing, and a refusal with no reason cannot be acted on.
+        why="$(grep -v '^[[:space:]]*$' "$scratch/err" | tail -n 1)" || true
+        if [[ -z "$why" ]] && (( st > 128 )); then
+            why="minisign was killed by signal $((st - 128)) ($(kill -l "$((st - 128))" 2>/dev/null || echo '?')), with nothing on stderr"
+        elif [[ -z "$why" ]]; then
+            why="minisign exited $st with nothing on stderr"
+        fi
+        die "minisign could not sign $f with the environment's key: $why"
+    fi
     "$minisign" -V -q -P "$pub" -m "$f" -x "$f.minisig" >/dev/null 2>&1 \
         || die "$f's signature does not verify with the pinned archive key: the environment's key is another"
 done

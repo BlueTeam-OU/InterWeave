@@ -11,7 +11,9 @@
 # password included; every refusal leaves no .minisig behind -- no
 # archive key pinned (fail closed), no secret key in the environment, a
 # wrong password, an environment key that is not the pinned one, a file
-# that does not exist. The password never appears in what it prints.
+# that does not exist, a minisign that fails with nothing on stderr (its
+# status or signal is the reason given; a refusal never ends at the
+# colon). The password never appears in what it prints.
 # --values writes the pinned key for the page once every signature
 # verified, and a refusal leaves no values file, an earlier one included.
 #
@@ -38,8 +40,14 @@ fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
 PASS='correct horse 1'
 printf '%s\n%s\n' "$PASS" "$PASS" | "$MS" -G -p "$SANDBOX/a.pub" -s "$SANDBOX/a.key" >/dev/null 2>&1 \
     || { echo "test_release_sign_archive: minisign could not make a key" >&2; exit 1; }
-printf 'other\nother\n' | "$MS" -G -p "$SANDBOX/b.pub" -s "$SANDBOX/b.key" >/dev/null 2>&1
-"$MS" -G -W -p "$SANDBOX/n.pub" -s "$SANDBOX/n.key" </dev/null >/dev/null 2>&1
+printf 'other\nother\n' | "$MS" -G -p "$SANDBOX/b.pub" -s "$SANDBOX/b.key" >/dev/null 2>&1 \
+    || { echo "test_release_sign_archive: minisign could not make the second key" >&2; exit 1; }
+"$MS" -G -W -p "$SANDBOX/n.pub" -s "$SANDBOX/n.key" </dev/null >/dev/null 2>&1 \
+    || { echo "test_release_sign_archive: minisign could not make a key without a password" >&2; exit 1; }
+# Stand-ins for a minisign that fails saying nothing: one exits 3, one is killed.
+printf '#!/usr/bin/env bash\nexit 3\n' > "$SANDBOX/ms-silent"
+printf '#!/usr/bin/env bash\nkill -KILL $$\n' > "$SANDBOX/ms-killed"
+chmod +x "$SANDBOX/ms-silent" "$SANDBOX/ms-killed"
 pub() { sed -n 2p "$SANDBOX/$1.pub"; }
 pin() { printf '[archive]\nminisign_public_key = "%s"\n' "$1" > "$SANDBOX/keys.toml"; }
 
@@ -52,7 +60,7 @@ run() {  # run <key file or ""> <password> <file>...
     rm -f "$F1.minisig" "$F2.minisig"
     status=0
     out="$(INTERWEAVE_RELEASE_MINISIGN_KEY="$( [[ -n "$key" ]] && cat "$SANDBOX/$key.key")" \
-        INTERWEAVE_RELEASE_MINISIGN_PASS="$pw" MINISIGN="$MS" \
+        INTERWEAVE_RELEASE_MINISIGN_PASS="$pw" MINISIGN="${RUN_MS:-$MS}" \
         bash "$UNDER_TEST" --keys "$SANDBOX/keys.toml" "$@" 2>&1)" || status=$?
 }
 expect() {  # expect <label> <status> [<output fragment>]
@@ -101,6 +109,14 @@ expect "no secret key in the environment is refused" 1 "has no INTERWEAVE_RELEAS
 none_left
 run a "wrong" "$F1" "$F2"
 expect "a wrong password is refused" 1 "could not sign"
+[[ "$out" != *"key: " && "$out" != *"key: "$'\n'* ]] && pass "  and says why" || fail "  the refusal gives no reason" "$out"
+none_left
+pin "$(pub a)"
+RUN_MS="$SANDBOX/ms-silent" run a "$PASS" "$F1"
+expect "a minisign that fails silently is refused with its status" 1 "minisign exited 3 with nothing on stderr"
+none_left
+RUN_MS="$SANDBOX/ms-killed" run a "$PASS" "$F1"
+expect "a minisign killed by a signal is refused naming it" 1 "killed by signal 9 (KILL)"
 none_left
 run b other "$F1" "$F2"
 expect "an environment key that is not the pinned one is refused" 1 "does not verify with the pinned archive key"
