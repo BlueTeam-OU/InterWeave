@@ -5907,8 +5907,7 @@ the held connection's ping costs a phone (2026-11-17 and 2026-11-18,
 OBSERVATION 01a1e9c7-a298): natural Doze, carried above from SPIKE-008
 where forced Doze stood in, was measured under Stay reachable on both
 phones, and they differ. The Pixel 9a (Android 17) kept one connection
-through 2 h 54 min of deep Doze, a ping or its answer crossing it
-inside every 15 s interval. On the Samsung A40 (Android 11, One UI)
+through 2 h 54 min of deep Doze with no missed liveness. On the Samsung A40 (Android 11, One UI)
 the vendor's power manager froze the app's process about a minute
 after the screen went off, its foreground service running, and thawed
 it for 8 s to 2 min at a time until Doze ended: while frozen the

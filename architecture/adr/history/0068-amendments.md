@@ -26,8 +26,9 @@ measured it on 2026-11-17 and 2026-11-18
 InterWeave #712): under Stay reachable a Pixel 9a (Android 17), idle
 with its screen off on Wi-Fi, kept one held peer's connection through
 2 h 54 min of deep Doze at the 15 s interval, with 1822 more kernel
-wakeups and 38 mAh more drawn (263 against 225) than a control window
-with no peer online. Under foreground-only, the default, there is no
+wakeups and 32 to 60 mAh more drawn than a control window with no peer
+online, according to which of the phone's three discharge counters is
+read (total 38, screen off 60, deep Doze 32), and no missed liveness. Under foreground-only, the default, there is no
 foreground service, so nothing is held with the screen off. A Samsung
 A40 (Android 11) froze the app's process in Doze despite its
 foreground service, so it held nothing and gave no cost.
