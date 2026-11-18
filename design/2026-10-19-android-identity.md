@@ -158,27 +158,28 @@ Revised later on 2026-11-18, for what #711's review rounds carried
 (PR comment 6973094962). On R4, as on C4 and R3, a press of the primary
 does not close the snackbar and its time goes on (§5). Before, §5
 named C4 and R3 only. A Try again that ends in the notice it was
-pressed from closes the snackbar when that result shows (§5). Before,
+pressed in closes the snackbar when that result shows (§5). Before,
 §5 did not say whether the same notice shown again counted as
 showing after the snackbar. §5 points to
 `design/2026-10-22-add-a-peer.md` §5.1 for when `ConnectStarting`
-shows. Before, it said "1 s after the person presses Continue", which
-a system prompt makes false, since a prompt starts the 1 s again.
+shows. Before, §5 said "1 s after the person presses Continue", which
+a system prompt makes false, since a prompt makes the 1 s count again
+from zero.
 While the progress state shows, `CopyPeerId` copies nothing (§5, §6,
 §8). Before, the hold rules said that `CopyPeerId` still copies, and
-did not say whether that held under the progress state. After
+did not say whether that was still true under the progress state. After
 `IdRestoreOther`'s Continue, on R3 and on R2 after K1, the screen is
 held until the next screen opens, as C4 is (§6, §7, §8). Before,
-that Continue started the service with nothing held. The
+that Continue started the service with the screen not held. The
 add-a-peer note's §5.1 now names that Continue, and C4's Try again in
 Continue's place, for `ConnectStarting`. §6 now says that the
 clipboard removal reaches the system clipboard only, not a keyboard's
 own clipboard history, and that, from Android 10, when the seal is
-answered in the background the removal waits until C4 has the
-window's focus again. §12 gains both limits. Acceptance 15 gains runs
+answered `AlreadyProvisioned` while C4 is in the background, the removal waits until C4
+has the window's focus again. §12 gains both limits. Acceptance 15 gains runs
 for the progress state and for `IdRestoreOther`'s Continue.
 Acceptance 18 gains R4's three `ConnectStarting` runs, a Try again
-ending in the same notice, and a background answer of the seal, and
+ending in the same notice, and a seal answered while C4 is in the background, and
 its Pixel 9a check names the platform's paste.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
@@ -677,14 +678,14 @@ and R4.
   state, and on C4 and R4 `design/2026-10-22-add-a-peer.md` §5.1's
   `ConnectStarting`, which shows under the primary once the screen
   has been held for 1 s, counted as that section counts it (a system
-  prompt stops the 1 s, and it starts again from zero when the prompt
-  succeeds). Whatever shows after the snackbar replaces
+  prompt stops the count, and the count begins again from zero when
+  the prompt succeeds). Whatever shows after the snackbar replaces
   the snackbar, because what shows later is what needs the person's
   attention. The result of a press counts as showing after the
   snackbar even when it is the notice that showed before the press: a
   Try again that ends in the same notice closes the snackbar when that
-  result shows, as it takes focus then (§8). The person pressed
-  Try again and is now told how it ended.
+  result shows, since that notice takes focus when it shows (§8). The person pressed
+  Try again and is now told how that Try again ended.
 - A copy while a §6 notice already shows (C4 with `IdBusy`,
   `IdStorageFailed` or `IdStorageUnknown`; R3 with any of its
   notices) shows the snackbar, and the notice stays. The rule above
@@ -698,11 +699,12 @@ and R4.
   stays under the primary, and only the snackbar's text is announced,
   since `ConnectStarting` was announced when it showed.
 - While the progress state (`IdGoingOffline`) shows over C4 or R3,
-  nothing under it can be pressed, `CopyPeerId` included: Enter,
+  nothing under the progress state can be pressed, `CopyPeerId` included: Enter,
   Space, a screen reader's activate or a tap on it copies nothing and
   shows no snackbar. The progress state closes the snackbar (above),
   so a copy under it would bring back what the progress state has
-  just replaced, beside a wait the person is meant to read.
+  just replaced, while the person is meant to read the progress
+  state's text.
 - A rotation while the snackbar shows keeps it shown, as §7 keeps
   everything on screen. Its time goes on from when it appeared, and
   it is not announced again. In the new layout it sits 12 dp above
@@ -711,9 +713,9 @@ and R4.
 - Leaving the screen closes it, by any way out: Back, the next C2 or
   S2 page, `IdR3No`, or a primary once the next screen opens. On C4,
   R3 and R4, a press of the screen's primary while the snackbar shows
-  does not close it. That is Continue or Try again on C4 (§6), on
-  R3 `IdR3Yes` or a notice's Try again, and on R4 Continue. The press
-  starts the seal, the restore or, on R4, the service start, and the
+  does not close it. The primary is Continue or Try again on C4 (§6),
+  `IdR3Yes` or a notice's Try again on R3, and Continue on R4. The
+  press starts the seal, the restore or, on R4, the service, and the
   screen stays shown, held (§6 Seal running,
   Restore running; on R4 `design/2026-10-22-add-a-peer.md` §5.1),
   until a result shows. What shows then closes the snackbar: anything
@@ -792,8 +794,8 @@ PeerId while creating it, on C2's PeerId page or on C4, one or more
 times, the app removes it from the clipboard when
 `IdAlreadyCreated` shows, but only while the clipboard still holds
 that copy: whatever the person copied since, from another app or
-from another screen of InterWeave, stays. This keeps the person from pasting to a contact, as their own,
-a PeerId that no phone will ever hold, by the platform's paste. The
+from another screen of InterWeave, stays. This keeps the person from using the platform's paste to give a
+contact, as their own, a PeerId that no phone will ever hold. The
 removal reaches the system clipboard only: a keyboard's own clipboard
 history (Gboard's, Samsung Keyboard's) belongs to the keyboard, which
 the app cannot reach, so a paste from that history can still give the
@@ -852,7 +854,7 @@ the way out is Try again, or, while `IdAlreadyCreated` shows, Continue.
   Check running) does nothing until the next screen opens, on R3 and
   on R2 after K1, with the back arrow drawn inactive: that Continue
   starts the service, and a screen left during the start would not
-  say whether it started. A system prompt keeps its own Back, which
+  say whether the service started. A system prompt keeps its own Back, which
   cancels the prompt (§8).
 - **The app leaves the screen.** Home, a call, or another app opening.
   A stopped Activity is neither completion nor cancellation (§11 Q1):
@@ -1150,16 +1152,17 @@ access.
   the screen is held until the next screen opens, as R3 is while its
   restore runs and R2 while its check runs (above; §6 Restore running,
   Check running). That Continue shows disabled, and Enter, Space or a
-  screen reader's activate on it does nothing; so do every control
-  those bullets hold, and Back (§7). The start moves no focus, and
+  screen reader's activate on it does nothing. Every control that the
+  R3 and R2 bullets above hold is held here too, and Back does
+  nothing (§7). The start moves no focus, and
   Tab, Shift+Tab and the arrows still move it. A cancelled or denied
   prompt for the service start ends on Chats, offline and locked,
   with focus on the locked notice, as after C4's Continue while
   `IdAlreadyCreated` shows (§6, Authentication needed). The next
   screen and its focus are `design/2026-10-22-add-a-peer.md` §5.1's.
   Why: this Continue starts the service, as C4's does under
-  `IdAlreadyCreated`, and a second press would start it a second
-  time; while it starts, `IdR3Yes` or a chip would act on a screen
+  `IdAlreadyCreated`, and a second press would start the service a
+  second time; while the service starts, `IdR3Yes` or a chip would act on a screen
   that is about to close.
 - When a grid position is chosen to edit, by any input, focus goes as
   for a row chosen from the full list: to the keypad's first enabled
@@ -1886,8 +1889,8 @@ scale would also be a finding of the Android review
     R4's Continue in place of C4's and the service start's reads left
     unanswered in place of the seal (the hold of
     `design/2026-10-22-add-a-peer.md` §5.1), with the same times and
-    the same results: so a build that starts the snackbar's time
-    again at R4's Continue, or keeps the snackbar once
+    the same results: so a build that restarts the snackbar's time
+    at R4's Continue, or keeps the snackbar once
     `ConnectStarting` shows, fails. On C4, by a test
     hook with `IdStorageFailed` shown, a copy shows the snackbar and
     the notice stays shown; after Enter on Try again 5.5 s after the
@@ -2048,15 +2051,15 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   to keep it is theirs.
 - **Removing the PeerId from a keyboard's own clipboard history**
   (§6). Gboard and Samsung Keyboard keep recent copies in a history of
-  their own, which no app can reach. The note promises the system
-  clipboard only, and the Pixel 9a check of acceptance 18 pastes by
-  the platform's paste.
+  their own, which no app can reach. The note promises removal from the
+  system clipboard only, and the Pixel 9a check of acceptance 18
+  pastes with the platform's paste.
 - **Removing the copy after the process ends** before C4 is in the
-  foreground again (§6). The removal goes with `IdAlreadyCreated`
-  showing, and after process death the flow restarts at its first
-  screen with nothing half-done kept (§7), so that notice does not
-  show again. Removing a copy at a later launch would act on the
-  clipboard at a moment the person did not see anything that says
+  foreground again (§6). The removal is made when `IdAlreadyCreated`
+  shows, and after process death the flow restarts at its first
+  screen with nothing half-done kept (§7), so `IdAlreadyCreated` does
+  not show again. Removing a copy at a later launch would act on the
+  clipboard at a moment when nothing on the screen tells the person
   why.
 - **Words saying that the copy was removed** (§6). `IdAlreadyCreated`
   already says that the words just seen were not used, and the
