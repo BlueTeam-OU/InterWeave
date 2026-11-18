@@ -5901,6 +5901,40 @@ address line with `adb shell input text` (key events, so a PeerId's
 capitals are lowercased on 1.18.1) and has no caller today, as the
 host-side case (the review of #596, 2026-11-08). Whether a hardware keyboard is a target of the v0.3 release
 is the owner's question, put 2026-11-08 and open at this writing.
+Found after the close, from p2p-network-dev-02's measurement of what
+the held connection's ping costs a phone (2026-11-17 and 2026-11-18,
+`apps/human-android/device-runs/2026-11-17-pixel-9a-samsung-a40-hold-ping-cost.md`;
+OBSERVATION 01a1e9c7-a298): natural Doze, carried above from SPIKE-008
+where forced Doze stood in, was measured under Stay reachable on both
+phones, and they differ. The Pixel 9a (Android 17) kept one connection
+through 2 h 54 min of deep Doze with no missed liveness. On the Samsung A40 (Android 11, One UI)
+the vendor's power manager froze the app's process about a minute
+after the screen went off, its foreground service running, and thawed
+it for 8 s to 2 min at a time until Doze ended: while frozen the
+listening socket accepted nothing, and of the far daemon's 227 dials
+in the 3 h window 8 connected, two while a person was using the phone
+and six in thaws, for 2 to 102 s each. SPIKE-008's L3 on the same
+phone (forced deep Doze, the process and the network kept) stands for
+what it ran, which was not natural Doze. So natural Doze leaves the
+carried list as measured, and a LIMIT is carried in its place, by
+name: **on a phone whose vendor freezes a foreground-service process
+in Doze, measured on the A40, Stay reachable does not keep the profile
+reachable while the screen is off; a peer reaches it in the moments
+the system thaws the app, and while the screen is on**. The limit is
+inside what is decided, and changes none of it: ADR-0041's Operational
+implications (the platform or the vendor may still stop the process;
+the product presents availability honestly), the glossary's "the
+mode's name, not a promise", and the notification's "tries to stay
+reachable". It is the first measured case of "other OEMs' power
+managers", which stay carried for every other vendor. Not measured,
+each carried to the owner's release gate: whether Samsung's per-app
+battery setting ("Unrestricted", "Never sleeping apps") lifts the
+freeze (a second A40 window with the setting changed, asked of the
+owner on 2026-11-17); what the notification and the app's own status
+show while the process is frozen; a message sent to the frozen phone.
+Whether the client points a person to that setting is decided after
+the second window: an instruction not shown to work on the phone is
+not written into the client.
 
 ## 21. Stage 18 — full adversarial/security gate
 
