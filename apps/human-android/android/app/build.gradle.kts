@@ -59,8 +59,9 @@ android {
         // Not a version (ADR-0065 decision 5): the counter Android orders
         // installs by, raised by one in a commit for every APK published,
         // pre-releases included, never reused and never derived from
-        // versionName. 1 was v0.1.0's APK, 2 v0.2.0's; 3 is v0.3.0's.
-        versionCode = 3
+        // versionName. 1 was v0.1.0's APK, 2 v0.2.0's, 3 v0.3.0's;
+        // 4 is v0.4.0's.
+        versionCode = 4
         versionName = workspaceVersion
         // The android-e2e cases' runner (src/androidTest/, tests/android-e2e's
         // src/adb.rs): one case per `am instrument`, in the app's process.
