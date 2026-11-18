@@ -243,6 +243,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.surface.model_made();
     }
 
+    /// Replies name what was sent to a peer with no endpoint named, for a
+    /// root that prints ids rather than drawing the line
+    /// ([`UiModel::name_replies_to_default_sends`]).
+    pub fn name_replies_to_default_sends(&mut self) {
+        self.model.name_replies_to_default_sends();
+    }
+
     /// Whether the platform gives this app network access, as the root
     /// sees it ([`UiModel::network_access`]).
     pub fn network_access(&mut self, allowed: bool) {
