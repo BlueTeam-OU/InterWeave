@@ -653,6 +653,72 @@ fn a_reply_is_linked_when_held_and_neutral_when_not() {
     );
 }
 
+/// A message sent to a peer with no endpoint named (`<peer>`, its default
+/// endpoint) is what an answer from any of that peer's endpoints names,
+/// after the send is terminal too, both in the conversation's items and
+/// in the item `listen` prints from an arrival; the store is not asked,
+/// since the target is held; and the same id from another peer is still
+/// not it (j124, the v0.4.0 install run on #722). Mutation: the lookup
+/// kept to the answer's own conversation key.
+#[test]
+fn a_reply_names_a_message_sent_to_the_peers_default_endpoint() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let row = RowId::from_stored(1);
+    model.sent(
+        row,
+        &Destination::Direct {
+            peer: p.clone(),
+            endpoint: None,
+        },
+        envelope(1, "the question"),
+        1,
+    );
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row,
+        app_message_id: AppMessageId::parse(format!("{:032x}", 1)).expect("id"),
+        status: OutboundStatus::Accepted {
+            endpoint: endpoint("human"),
+        },
+        last_code: None,
+    }));
+    let sent = model.messages(&ConversationKey::Direct {
+        peer: p.clone(),
+        endpoint: None,
+    })[0]
+        .key;
+    let mut answer = envelope(2, "the answer");
+    answer.reply_to = Some(format!("{:032x}", 1));
+    let arrival = interweave_human_client_api::Received {
+        row: RowId::from_stored(2),
+        origin: Origin::Direct {
+            peer: p.clone(),
+            endpoint: endpoint("human"),
+        },
+        envelope: answer.clone(),
+        received_at: 2,
+    };
+    assert_eq!(
+        model.message_of(&arrival).reply,
+        Some(Reply::Present(sent)),
+        "the line listen prints"
+    );
+    model.unread_listed(vec![listed(2, &p, answer.clone(), 2)]);
+    assert_eq!(
+        model.messages(&key(&p))[0].reply,
+        Some(Reply::Present(sent))
+    );
+    assert!(model.take_reply_asks().is_empty(), "held, so not asked");
+
+    let other = peer();
+    model.unread_listed(vec![listed(3, &other, answer, 3)]);
+    assert_eq!(
+        model.messages(&key(&other))[0].reply,
+        Some(Reply::Unavailable(format!("{:032x}", 1))),
+        "another peer's answer naming the id is not it"
+    );
+}
+
 /// Item 17 (b): a reply whose target was dropped by the session bound
 /// reads unavailable at once -- the model knows no store row backs a
 /// session-only item -- while the store is asked, after it answers, and

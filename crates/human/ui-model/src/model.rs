@@ -2130,12 +2130,40 @@ impl UiModel {
         }
     }
 
-    fn reply(&self, conversation: &ConversationKey, target: Option<&str>) -> Option<Reply> {
-        let target = target?;
-        let keys = self
+    /// The held items with application id `target` that a reply in
+    /// `conversation` can name. A direct conversation's replies also look
+    /// at what was sent to the same peer with no endpoint named
+    /// (`<peer>`, its default endpoint): no received row is ever keyed
+    /// that way, since each records the endpoint its sender asserted, so
+    /// without this every answer to such a send read unavailable
+    /// (`a_reply_names_a_message_sent_to_the_peers_default_endpoint`).
+    /// The id is the one this client minted, so a peer's other route
+    /// naming it names the same message.
+    fn reply_keys(&self, conversation: &ConversationKey, target: &str) -> Vec<ItemKey> {
+        let mut keys: Vec<ItemKey> = self
             .by_app
             .get(&(conversation.clone(), target.to_owned()))
-            .map_or(&[][..], Vec::as_slice);
+            .cloned()
+            .unwrap_or_default();
+        if let ConversationKey::Direct {
+            peer,
+            endpoint: Some(_),
+        } = conversation
+        {
+            let default = ConversationKey::Direct {
+                peer: peer.clone(),
+                endpoint: None,
+            };
+            if let Some(sent) = self.by_app.get(&(default, target.to_owned())) {
+                keys.extend(sent.iter().copied());
+            }
+        }
+        keys
+    }
+
+    fn reply(&self, conversation: &ConversationKey, target: Option<&str>) -> Option<Reply> {
+        let target = target?;
+        let keys = self.reply_keys(conversation, target);
         // A hidden message is not held as far as a reply is concerned, nor
         // stored, while its snackbar can bring it back (§5.2): the neutral
         // placeholder, whatever the store holds.

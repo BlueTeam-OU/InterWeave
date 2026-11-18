@@ -134,7 +134,7 @@ impl UiModel {
         let due: Vec<Pair> = self.replies.due.drain().collect();
         let mut asks = Vec::new();
         for pair in due {
-            if self.by_app.get(&pair).is_some_and(|keys| !keys.is_empty()) {
+            if !self.reply_keys(&pair.0, &pair.1).is_empty() {
                 continue;
             }
             let Some(record) = self.replies.targets.get_mut(&pair) else {
