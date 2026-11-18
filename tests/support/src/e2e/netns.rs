@@ -417,14 +417,14 @@ fn inside(network: &str, pivoted: &str, test: &str, deadline: Duration) -> bool 
         let _ = Command::new("kill")
             .args(["-KILL", &pid.to_string()])
             .status();
-        panic!("the test inside the second network ran past {deadline:?}: killed");
+        panic!("the test inside its namespaces ran past {deadline:?}: killed");
     };
     let output = output.expect("the inner copy's output");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success() && stdout.contains("1 passed"),
-        "the test inside the second network did not pass ({}). If the namespaces could not \
+        "the test inside its namespaces did not pass ({}). If the namespaces could not \
          be made, this host cannot ask the question (decided (7)).\n--- stdout ---\n{stdout}\n\
          --- stderr ---\n{stderr}",
         output.status
