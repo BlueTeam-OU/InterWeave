@@ -115,10 +115,11 @@ lasts until the result shows on C4 or the next screen opens, so it
 also covers the service start after a success, and the service start
 after Continue while `IdAlreadyCreated` shows. Before, only
 `design/2026-10-22-add-a-peer.md` §5.1 held Continue, and neither that
-note nor this one held Try again, said what `CopyPeerId` does, or said
-that Tab and the arrows still move focus while C4 is held, that the
-result's focus applies wherever the person moved it, or that a
-cancelled seal prompt leaves focus where it was. On R3, as on C4, a press
+note nor this one held Try again or said what `CopyPeerId` does. Nor
+did either say that Tab and the arrows still move focus while C4 is
+held, that, when the result comes, focus goes as §8 says even if the
+person moved it, or that a cancelled or denied prompt for the seal or
+its read-back leaves focus where it was before the prompt. On R3, as on C4, a press
 of the screen's primary while the snackbar shows does not close it
 (§5). Before, §5 said so of C4 only. §5 now also says what a press of
 `CopyPeerId` does while a §6 notice shows, and what a rotation does to the
@@ -136,14 +137,17 @@ the scrolling area ends after the snackbar closes. Its A40 runs set
 the font scale to 200 % with the `settings` command, because it is
 not known whether the A40's own settings offer 200 %. Acceptance 15 gains three host-test runs for a held seal.
 In the revision note of 2026-11-17 on Back from a notice, the
-sentence on what Back contradicted is made exact. §5 also closes the snackbar
-when `ConnectStarting` shows on C4 and R4, and keeps both on screen
-when a copy comes after `ConnectStarting`. In §8, a cancelled or
-denied prompt for the seal leaves C4 as it was, and one for the
-service start ends on Chats, as §6 says. Acceptance 3 names the
-clipboard removal, and acceptance 9 names `IdAlreadyTitle` and the
-notice's place. Acceptance 18's clipboard runs also run at Android 13
-or later, and its Pixel 9a check waits on a debug-build hook.
+sentence on what Back contradicted is made exact. §5 now also says
+that `ConnectStarting`, on C4 and R4, closes the snackbar, and that a
+copy made while `ConnectStarting` shows keeps the snackbar and
+`ConnectStarting` on screen. §8 now
+says that a cancelled or denied prompt for the seal or its read-back
+leaves C4 as it was, and that one for the service start ends on
+Chats, as §6 says. Acceptance 3 names the clipboard removal, and
+acceptance 9 names `IdAlreadyTitle` and the notice's place.
+Acceptance 18's clipboard runs are now made both below Android 13 and
+at 13 or later,
+and its Pixel 9a check is blocked until a debug-build hook exists.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -640,8 +644,9 @@ and R4.
   PeerId the snackbar confirmed), the system prompt and the progress
   state, and on C4 and R4 `design/2026-10-22-add-a-peer.md` §5.1's
   `ConnectStarting`, which shows under Continue 1 s after the person
-  presses Continue. A message that shows after the snackbar replaces
-  it: the one that needs the person's attention.
+  presses Continue. Whatever shows after the snackbar replaces
+  the snackbar, because what shows later is what needs the person's
+  attention.
 - A copy while a §6 notice already shows (C4 with `IdBusy`,
   `IdStorageFailed` or `IdStorageUnknown`; R3 with any of its
   notices) shows the snackbar, and the notice stays. The rule above
