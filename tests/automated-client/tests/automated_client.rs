@@ -13,9 +13,12 @@
 //! and the three names it claims are this file's: the transport gives
 //! none of them a meaning. What the suite does not prove: a second host,
 //! any connectivity behaviour, a durable client record, a production retry
-//! schedule, or the cross-account half of decision 5 (a second account's
-//! daemon refused a taken port), which needs a second uid this suite does
-//! not have.
+//! schedule. The cross-account half of decision 5 (a port another
+//! account holds refuses the daemon) runs only where a second account is
+//! reached with `sudo -n -u`, so its case is `#[ignore]`d and CI runs it
+//! as `nobody` (plan §21's decided (4)); the other account's holder there
+//! is a `python3` with `SO_REUSEPORT`, not a second daemon: the kernel's
+//! sharing rule asks a socket's option and its owner's uid.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -799,6 +802,163 @@ async fn a_port_held_without_reuseport_refuses_the_start() {
         refused.log()
     );
     drop(holder);
+    a.start().await;
+    a.stop().await;
+}
+
+/// The helper-user variable of plan §21's decided (4): the account
+/// reached with `sudo -n -u`, `nobody` in CI.
+#[cfg(target_os = "linux")]
+const FOREIGN_USER: &str = "INTERWEAVE_FOREIGN_UID_USER";
+
+/// The owner uid of every listening socket on `127.0.0.1:port`, as the
+/// kernel's table gives it to this process -- not `id -u` inside a
+/// switch, which a user namespace renames.
+#[cfg(target_os = "linux")]
+fn listening_owners(port: u16) -> Vec<u32> {
+    let local = format!("0100007F:{port:04X}");
+    std::fs::read_to_string("/proc/net/tcp")
+        .expect("the kernel's TCP table")
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            (fields.get(1) == Some(&local.as_str()) && fields.get(3) == Some(&"0A"))
+                .then(|| fields.get(7).and_then(|uid| uid.parse().ok()))
+                .flatten()
+        })
+        .collect()
+}
+
+/// Two listening sockets on one port, both `SO_REUSEPORT`, held by a
+/// `python3` of `user`'s uid (this account's with `None`). That the
+/// second binds beside the first is what shows the holder set the
+/// option: without it the kernel refuses the second. The holder exits
+/// on its stdin's close, or after two minutes if a switch kept the
+/// stdin from it -- another account's process cannot be killed from
+/// here.
+#[cfg(target_os = "linux")]
+struct Holder(std::process::Child);
+
+#[cfg(target_os = "linux")]
+const HOLD: &str = "
+import signal, socket, sys
+signal.alarm(120)
+held = []
+for _ in range(2):
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    s.bind(('127.0.0.1', int(sys.argv[1])))
+    s.listen()
+    held.append(s)
+print('held', flush=True)
+sys.stdin.read()
+";
+
+#[cfg(target_os = "linux")]
+impl Holder {
+    fn hold(port: u16, user: Option<&str>) -> Self {
+        use std::io::BufRead as _;
+        use std::process::{Command, Stdio};
+        let mut command = match user {
+            Some(user) => {
+                let mut c = Command::new("sudo");
+                c.args(["-n", "-u", user, "--", "python3"]);
+                c
+            }
+            None => Command::new("python3"),
+        };
+        let mut child = command
+            .args(["-c", HOLD, &port.to_string()])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("the holder does not run: {e}"));
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().expect("stdout"))
+            .read_line(&mut line)
+            .expect("the holder's line");
+        if line.trim() != "held" {
+            let out = child.wait_with_output().expect("the holder ended");
+            panic!(
+                "the holder ({user:?}) did not hold port {port} ({}): {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        Self(child)
+    }
+
+    /// Close the holder's stdin and wait for it to go, sockets with it.
+    fn release(mut self) {
+        drop(self.0.stdin.take());
+        let status = self.0.wait().expect("the holder ended");
+        assert!(status.success(), "the holder exited {status}");
+    }
+}
+
+/// ADR-0055 decision 5's cross-account half: a port held by ANOTHER
+/// account's sockets refuses the daemon's listen and the daemon exits 1,
+/// even though every holder set `SO_REUSEPORT` as the daemon does -- the
+/// kernel lets a socket share a port only with sockets of its own uid. So
+/// two accounts on one host cannot both run a profile on a port, which is
+/// what the plain holder above cannot show (it set no option). The
+/// controls, both with the same profile: the same holder run as THIS
+/// account, which the daemon shares the port with (so the option was set
+/// and only the uid differs); and the port once the other account lets
+/// go, which the daemon listens on (so the configuration was never the
+/// refusal). Needs a second account `sudo -n -u` reaches.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs INTERWEAVE_FOREIGN_UID_USER, an account sudo -n -u reaches"]
+async fn a_port_another_account_holds_refuses_the_start() {
+    use std::os::unix::fs::MetadataExt as _;
+    let user = std::env::var(FOREIGN_USER).unwrap_or_else(|_| {
+        panic!("{FOREIGN_USER} is unset: this test needs a second account that sudo -n -u reaches")
+    });
+    let own_uid = std::fs::metadata("/proc/self").expect("this process").uid();
+    let base = private_tempdir();
+    let mut a = Profile::mint(base.path(), "profile-0");
+    let b = Profile::mint(base.path(), "profile-1");
+    a.render(&[&b]);
+
+    // This account's holder: the daemon binds beside it.
+    let own = Holder::hold(a.port, None);
+    assert_eq!(listening_owners(a.port), vec![own_uid; 2]);
+    a.start().await;
+    let pid = a.daemon.as_ref().expect("running").child.id();
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while !listening_inodes(a.port).iter().any(|i| holds(pid, i)) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the daemon never listened beside this account's holder:\n{}",
+            a.log()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    a.stop().await;
+    own.release();
+
+    // The other account's holder: the same start is refused.
+    let foreign = Holder::hold(a.port, Some(&user));
+    let owners = listening_owners(a.port);
+    assert_eq!(owners.len(), 2, "two sockets held: {owners:?}");
+    assert!(
+        owners.iter().all(|uid| *uid != own_uid),
+        "sudo -u {user} switched the uid: {owners:?}"
+    );
+    let mut refused = a.home.start(&[]);
+    let status = refused.exit().await;
+    assert_eq!(status.code(), Some(1), "{}", refused.log());
+    assert!(
+        refused.log().contains("Address already in use"),
+        "refused for the held port, not another cause:\n{}",
+        refused.log()
+    );
+    foreign.release();
+
+    // The port let go: the same profile listens on it.
     a.start().await;
     a.stop().await;
 }
