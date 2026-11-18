@@ -713,8 +713,10 @@ fn answered_default_send(
 /// the store is not asked for it (j124, the v0.4.0 install run on #722).
 /// Never by default, where the line is drawn and `Present` means up this
 /// conversation (#725 review F1); never a send to another named endpoint
-/// of the peer, nor another peer's answer naming the id; and a `<peer>`
-/// send the session bound dropped reads unavailable, unasked. Mutations:
+/// of the peer, nor another peer's answer naming the id. A `<peer>` send
+/// the session bound dropped before the answer came reads unavailable,
+/// asked once as the answer is built; one dropped once the answer is
+/// held reads unavailable and is not asked (#725 review F3). Mutations:
 /// the lookup kept to the answer's own key; taken whatever the setting;
 /// widened to every endpoint of the peer.
 #[test]
@@ -758,7 +760,7 @@ fn a_reply_names_a_message_sent_to_the_peers_default_endpoint() {
     let (mut model, printed, shown) = answered_default_send(&p, None, true, 0);
     assert_eq!(
         (printed, shown),
-        (gone.clone(), gone),
+        (gone.clone(), gone.clone()),
         "the send dropped by the session bound"
     );
     let asks = model.take_reply_asks();
@@ -767,6 +769,49 @@ fn a_reply_names_a_message_sent_to_the_peers_default_endpoint() {
         1,
         "asked once as the answer was built: {asks:?}"
     );
+
+    // The answer held first, then the `<peer>` send dropped by the
+    // session bound under one more session-only item.
+    let (mut model, printed, shown) = answered_default_send(&p, None, true, 1);
+    assert!(
+        matches!((&printed, &shown), (Reply::Present(_), Reply::Present(_))),
+        "control: held under a bound of one, {printed:?} {shown:?}"
+    );
+    assert!(model.take_reply_asks().is_empty(), "held, so not asked");
+    let later = RowId::from_stored(3);
+    model.sent(
+        later,
+        &Destination::Direct {
+            peer: p.clone(),
+            endpoint: Some(endpoint("human")),
+        },
+        envelope(3, "a later one"),
+        3,
+    );
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row: later,
+        app_message_id: AppMessageId::parse(format!("{:032x}", 3)).expect("id"),
+        status: OutboundStatus::Accepted {
+            endpoint: endpoint("human"),
+        },
+        last_code: None,
+    }));
+    assert!(
+        model
+            .messages(&ConversationKey::Direct {
+                peer: p.clone(),
+                endpoint: None,
+            })
+            .is_empty(),
+        "the <peer> send dropped"
+    );
+    let reply = model
+        .messages(&key(&p))
+        .into_iter()
+        .find(|m| m.source == "the answer")
+        .and_then(|m| m.reply);
+    assert_eq!(reply, Some(gone), "dropped after the answer");
+    assert!(model.take_reply_asks().is_empty(), "and not asked");
 }
 
 /// Item 17 (b): a reply whose target was dropped by the session bound
