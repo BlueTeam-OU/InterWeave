@@ -219,7 +219,8 @@ enum Screen {
         derived: TransportIdentity,
         notice: Option<Notice>,
         /// The restore runs: from the press that starts it (Yes, or a
-        /// notice's Try again) until its result or a cancelled prompt.
+        /// notice's Try again) until its result, a cancelled prompt, or a
+        /// prompt dropped before it was raised (`PresenceGate::unasked`).
         /// R3 holds meanwhile -- no second restore, no Back, no "no,
         /// check my words" -- and the notice it showed stays (design
         /// section 8, While R3's restore runs).
@@ -1125,9 +1126,11 @@ impl IdentityFlow {
     }
 
     /// A key operation this flow asked for did not run: its prompt was
-    /// cancelled or denied (the presence window, `PresenceGate`). Nothing
-    /// was committed and the screen stays, with its words, and no notice:
-    /// the person chose not to. R2's check gives the primary action back,
+    /// cancelled or denied (the presence window, `PresenceGate`), or
+    /// dropped before anything raised it (`PresenceGate::unasked`), where
+    /// the person decided nothing. Nothing was committed and the screen
+    /// stays, with its words, and no notice; nothing here records a
+    /// decline. R2's check gives the primary action back,
     /// and R3's restore gives Yes and No back, with the notice it showed
     /// if any; nothing restores again until Yes or Try again is pressed.
     pub fn cancelled_step(&mut self) {
