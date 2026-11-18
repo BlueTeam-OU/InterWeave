@@ -235,7 +235,9 @@ The control's dump also prints `Screen on: 3d 8h … 0x`. That is a
 counter carried across the reset, not screen time: the window's
 interactive time was 1.2 s.
 
-**The A40 froze the app, and so held no connection.** One UI's
+**The A40 froze the app, and so held no connection while the screen
+was off and the app frozen.** It connected only in thaws and while a
+person used the phone. One UI's
 `FreecessController` froze the app's process in Doze, foreground
 service and all. In logcat it logs `FZ … reason: LEV` about a minute
 after the screen goes off, and `UFZ … reason: DeviceIdleOFF` only when
@@ -265,7 +267,7 @@ and `netpolicy` showed the uid on the Doze allow list with rules
   - The other six came up in thaws and lasted 2–102 s, 2m57s in total.
 
 So the A40's held window measured a frozen app plus a person's use,
-not a held connection. Its figures are listed for the record and are
+not an idle held connection. Its figures are listed for the record and are
 not a cost of the hold:
 
 | | control | held |
@@ -283,8 +285,9 @@ this record.
 ## What this run does not show
 
 - **A clean held window on the A40.** One UI froze the app, so there
-  was nothing held to measure there. Samsung's per-app battery settings
-  ("Unrestricted", "Put unused apps to sleep") were not read or changed.
+  was no idle held connection to measure there. Samsung's per-app
+  battery settings were not read or changed, and their names on this
+  phone's One UI version were not read either.
 - **What the A40 showed a person while frozen**: the notification, and
   the app's own connection status. Neither was read.
 - **More than one window per condition, and more than one held peer.**
