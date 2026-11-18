@@ -419,15 +419,15 @@ enum Input {
 
 /// Whether focus key `id` names a control of the identity page: its own
 /// `identity-` keys, the headings R, K and K1 take when a refused start
-/// raises them, and R3's and R4's, which a valid check focuses. Focus on
-/// one goes with the page.
+/// raises them, and R3's question and R4's title, which a valid check
+/// focuses. Focus on one goes with the page.
 fn on_identity_page(id: &str) -> bool {
     id.starts_with("identity-")
         || [
             store_screen::R_HEADING,
             store_screen::K_HEADING,
             identity::K1_HEADING,
-            identity::R3_HEADING,
+            identity::R3_QUESTION,
             identity::R4_HEADING,
         ]
         .contains(&id)
@@ -1857,8 +1857,9 @@ impl View {
     /// person was on or was opening: focus goes to the page's heading,
     /// whatever had it under the page, so any on-screen keyboard closes
     /// (design/2026-10-19-android-identity.md section 8). The root asks it
-    /// when it raises R, K or K1. R3 and R4 have a heading stop too, which
-    /// a valid check focuses; on a page with no heading stop the ask moves
+    /// when it raises R, K or K1. R4 has a heading stop too, which a valid
+    /// check after K1 and R3's Yes focus; R3 has none -- they focus its
+    /// question -- and on a page with no heading stop the ask moves
     /// nothing. A start refused again while the page shows did not raise
     /// it, so the root does not ask then, and focus stays where it was.
     pub fn raise_identity_heading(&self) {
@@ -1912,6 +1913,8 @@ impl View {
         w.on_identity_secondary(move || i(IdentityInput::Secondary));
         let i = Rc::clone(&input);
         w.on_identity_tertiary(move || i(IdentityInput::Tertiary));
+        let i = Rc::clone(&input);
+        w.on_identity_notice_action(move || i(IdentityInput::NoticeAction));
         let i = Rc::clone(&input);
         w.on_identity_back(move || i(IdentityInput::Back));
         let i = Rc::clone(&input);

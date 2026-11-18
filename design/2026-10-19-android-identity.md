@@ -80,7 +80,9 @@ Revised again on 2026-11-17, for what #700's review rounds carried. §6 says
 where Back from a notice goes on each screen (Back from a notice):
 on R3 it returns to R2 with every word kept, as §3.3 says. Before,
 two §6 rows said "Back (words dropped)" and acceptance 12 said
-"Back leaves with nothing changed", and R3's Back contradicted both wordings. A
+"Back leaves with nothing changed". R3's Back, which keeps every word
+and returns to R2, contradicted the rows. R2's Back after K1, which can
+drop the words through the discard dialog, contradicted acceptance 12. A
 §6 notice on C4 shows below the title, above the PeerId's label, and
 §8 gives C4's focus order, with focus on the title when C4 opens, as
 on R4. Before, neither was given. On C4 no notice has an action of its
@@ -104,6 +106,49 @@ nothing of where it shows, how long, whether it takes focus or is
 announced, or on which screens. §5 now says each of these (The copy's
 confirmation), §8 keeps it out of every focus order, and acceptance
 18 checks it, and checks its look on the Samsung A40, at Android 11.
+
+Revised 2026-11-18, for what #705's review rounds carried. While C4's
+seal runs, C4 is held as R3 is while its restore runs: its primary
+shows disabled, a second press seals nothing, `CopyPeerId` still
+copies wherever it shows, and the seal moves no focus (§6 Seal running, §8). The hold
+lasts until the result shows on C4 or the next screen opens, so it
+also covers the service start after a success, and the service start
+after Continue while `IdAlreadyCreated` shows. Before, only
+`design/2026-10-22-add-a-peer.md` §5.1 held Continue, and neither that
+note nor this one held Try again or said what `CopyPeerId` does while
+C4 is held. Nor
+did either say that Tab and the arrows still move focus while C4 is
+held, that, when the result comes, focus goes as §8 says even if the
+person moved it, or that a cancelled or denied prompt for the seal or
+its read-back leaves focus where it was before the prompt. On R3, as on C4, a press
+of the screen's primary while the snackbar shows does not close it
+(§5). Before, §5 said so of C4 only. §5 now also says what a press of
+`CopyPeerId` does while a §6 notice shows, and what a rotation does to the
+snackbar. After `IdAlreadyCreated`, the app removes from the
+clipboard the PeerId copied on C2's PeerId page or C4, if the clipboard still holds it
+(§6). Before, the clipboard kept a PeerId that no phone will ever
+hold. While `IdAlreadyCreated` shows, C4's title no longer says that
+a PeerId was created (`IdAlreadyTitle`, §9), `IdAlreadyCreated` no
+longer opens with what that title says (§9), and the notice shows
+below the title, above Continue (§6). §9's `TryAgain` row now names
+C4's primary. Acceptance 18 now says when Continue is pressed, so a
+build that starts the snackbar's time again at Continue fails it. It
+also checks R3's yes, a copy beside a notice, a rotation, and where
+the scrolling area ends after the snackbar closes. Its A40 runs set
+the font scale to 200 % with the `settings` command, because it is
+not known whether the A40's own settings offer 200 %. Acceptance 15 gains three host-test runs for a held seal.
+In the revision note of 2026-11-17 on Back from a notice, the
+sentence on what Back contradicted is made exact. §5 now also says
+that `ConnectStarting`, on C4 and R4, closes the snackbar, and that a
+copy made while `ConnectStarting` shows keeps the snackbar and
+`ConnectStarting` on screen. §8 now
+says that a cancelled or denied prompt for the seal or its read-back
+leaves C4 as it was, and that one for the service start ends on
+Chats, as §6 says. Acceptance 3 names the clipboard removal, and
+acceptance 9 names `IdAlreadyTitle` and the notice's place.
+Acceptance 18 gains three host-test clipboard runs, each made below
+Android 13 and again at 13 or later, and a Pixel 9a check that is blocked
+until a debug-build hook exists.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -598,16 +643,41 @@ and R4.
 - It closes when anything else shows on the screen, over the screen
   or in place of the screen: any §6 notice (`IdAlreadyCreated` included, a notice that also hides the
   PeerId the snackbar confirmed), the system prompt and the progress
-  state. One message shows at a time: the one that needs the
-  person's attention.
+  state, and on C4 and R4 `design/2026-10-22-add-a-peer.md` §5.1's
+  `ConnectStarting`, which shows under Continue 1 s after the person
+  presses Continue. Whatever shows after the snackbar replaces
+  the snackbar, because what shows later is what needs the person's
+  attention.
+- A copy while a §6 notice already shows (C4 with `IdBusy`,
+  `IdStorageFailed` or `IdStorageUnknown`; R3 with any of its
+  notices) shows the snackbar, and the notice stays. The rule above
+  closes the snackbar when something shows after it. Here the notice
+  showed first, and it sits in the scrolling area, which the
+  snackbar does not cover. The snackbar answers the press the person
+  just made. Taking away the notice, which still needs the person's
+  action, would hide what they must do next.
+  A copy while `ConnectStarting` already shows, on a held C4 or R4,
+  is handled the same way: the snackbar shows above the actions, `ConnectStarting`
+  stays under Continue, and only the snackbar's text is announced,
+  since `ConnectStarting` was announced when it showed.
+- A rotation while the snackbar shows keeps it shown, as §7 keeps
+  everything on screen. Its time goes on from when it appeared, and
+  it is not announced again. In the new layout it sits 12 dp above
+  the actions, as before, and the scrolling area keeps `CopyPeerId`
+  in view, as the first point of this list says.
 - Leaving the screen closes it, by any way out: Back, the next C2 or
-  S2 page, or Continue once the next screen opens. On C4, a Continue
-  pressed while the snackbar shows does not close it: Continue starts
-  the seal, and C4 stays on screen until the seal's result shows.
-  What shows then closes the snackbar: anything that shows on C4, by
-  the bullet above, or the next screen, by this bullet. While the
-  seal runs, the snackbar's time goes on. If that time ends before
-  the seal's result shows, the snackbar closes when that time ends.
+  S2 page, `IdR3No`, or a primary once the next screen opens. On C4
+  and R3, a press of the screen's primary while the snackbar shows
+  does not close it. That is Continue or Try again on C4 (§6), and on
+  R3 `IdR3Yes` or a notice's Try again. The press starts the seal or
+  the restore, and the screen stays shown, held (§6 Seal running,
+  Restore running),
+  until a result shows. What shows then closes the snackbar: anything
+  that shows on the screen, by the bullet above, or the next screen,
+  by this bullet. While the screen is held, the snackbar's time goes
+  on from when it appeared: the press does not start it again. If
+  that time ends before a result shows, the snackbar closes when that
+  time ends.
   The app going to the background (Home,
   Recents, the screen turned off) closes it too, as it closes the
   message-swipe spec's snackbar. It never shows on the next screen,
@@ -629,6 +699,7 @@ comparison a matter of groups, not of single characters.
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen when the operation is refused, never by the service; the operation is retried after a success. The app keeps no clock of the window: the refusal is its only reading of it (ADR-0042, A 2026-10-20). The person sees the same either way: the prompt comes before anything happens. Cancelled or denied: no error dialog and no error text. C4 and the restores stay on their screen with the words kept, and nothing is committed. A rotation or a return to that screen retries nothing: it stays as it was until the person uses its primary action again. Once the identity is committed, a cancelled start after C4's or R4's continue ends offline and locked, as S2's Done does below, but on Chats: the locked notice and Unlock, with focus on the notice. S2's Done drops the words and returns to Settings offline, with focus on "Show recovery phrase", the item that opened the flow; the locked notice shows where the app's notices show, under the app bar of Chats and of a conversation; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). At a launch past the window the start is refused and the prompt answers it before the service runs; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service. A process that keeps running answers each refused restart the same way (`design/2026-11-05-unlock-policy-pending.md` §11) | The primary action again, or Back |
 | Check running | R2, from the start of the check (`IdCheckWords`, or the Try again of an R2 notice, by any input) until its result, including R2's check after K1 | `IdCheckWords` disabled, the app bar's back arrow inactive, every word held, and focus where it was when the check began: the check moves no focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R2 when the check needs one | The result, from one of the rows of this table, or R3, or R4 after K1 |
+| Seal running | C4, from the press of its primary (Continue, or Try again in its place, by any input) until a result shows on C4 or the next screen opens. That covers the seal, the read-back after it, the service start after a success, and the service start after Continue while `IdAlreadyCreated` shows | The primary disabled and focus where it was when the press came: the seal moves no focus, but Tab, Shift+Tab and the arrows still move it (§8). C4 has no Back (§3.2). `CopyPeerId` still copies wherever it shows (it is hidden while `IdAlreadyCreated` shows). A notice already showing stays until the result. The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over C4 when the seal or the start needs one | The result, from one of the rows of this table, or the next screen (§3.2) |
 | Restore running | R3, from the start of the restore (`IdR3Yes`, or the Try again of an R3 notice, by any input) until its result | `IdR3Yes`, `IdR3No` and the action of any notice on R3 disabled, the app bar's back arrow inactive, and focus where it was when the restore began: the restore moves no focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). `CopyPeerId` still copies. The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R3 when the restore needs one | The result, from one of the rows of this table, or R4 |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back (Back from a notice, below the table) |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
@@ -656,7 +727,9 @@ place too: under the app bar, above the question. These are `IdBusy`,
 outcome of one restore, so at most one shows, with its action under
 its text as on R2. R3 has no title, so the notice is read right
 after the app bar, before the question. On C4 a notice of this table
-shows in one place as well: below the title, above the PeerId's label.
+shows in one place as well: below the title, before the rest of C4.
+That is above the PeerId's label, or, while `IdAlreadyCreated` hides
+the label, above Continue.
 These are `IdBusy`, `IdStorageFailed`, `IdStorageUnknown` and
 `IdAlreadyCreated`, each the outcome of one seal, so at most one
 shows. On C4 no notice carries an action of its own: C4 has one
@@ -669,7 +742,17 @@ calls C4's primary "Continue (or Try again)". While
 identity on record (the another-identity row). The words just shown
 were not used, so C4 then hides the PeerId they made, its label,
 `CopyPeerId` and `IdCreatedBody`: each would show that PeerId as the
-person's own. The notice is read after the title, before the PeerId's
+person's own. For the same reason the title is `IdAlreadyTitle`, not
+`IdCreatedTitle`: no PeerId was created. And if the person copied that
+PeerId while creating it, on C2's PeerId page or on C4, one or more
+times, the app removes it from the clipboard when
+`IdAlreadyCreated` shows, but only while the clipboard still holds
+that copy: whatever the person copied since, from another app or
+from another screen of InterWeave, stays. This keeps the person from pasting to a contact, as their own,
+a PeerId that no phone will ever hold. The app tells its own copy
+apart without reading the clipboard's content, so the platform shows
+no notice that the app read the clipboard (how it does so is the
+builder's choice: the copy's clip description, for example). The notice is read after the title, before the PeerId's
 label, or, with `IdAlreadyCreated`, before Continue.
 
 **Back from a notice.** Where a row's way out is Back, Back does what
@@ -750,7 +833,8 @@ access.
     (§6: under the app bar), the question (`IdR3Question`),
     `CopyPeerId` (§5), then `IdR3Yes` and `IdR3No`. The PeerId and
     `IdR3NoPeerId` are text and take no focus.
-  - **C4**: the title (`IdCreatedTitle`), the notice while one shows
+  - **C4**: the title (`IdCreatedTitle`, or `IdAlreadyTitle` while
+    `IdAlreadyCreated` shows), the notice while one shows
     (§6: below the title), `CopyPeerId` (§5; not while `IdAlreadyCreated`
     shows), then the primary: Continue (`IdContinue`), or Try again in
     its place (§6). C4 has no Back (§3.2), so its app bar has no back
@@ -978,6 +1062,29 @@ access.
   only other action is `CopyPeerId`, which still copies: a control
   that looks enabled and does nothing is the fault that §8's
   hypothesis for R2 is about.
+- **While C4's seal runs** (§6, Seal running), C4 is held as R3 is
+  while its restore runs (above). Its primary, Continue or Try again,
+  shows disabled, and Enter, Space or a screen reader's activate on it
+  does nothing. The seal moves no focus: focus stays on the control
+  that had focus when it began, which after a press is the primary.
+  Tab, Shift+Tab and the arrows still move focus in C4's order above,
+  where the disabled primary keeps its place. `CopyPeerId` still
+  copies wherever it shows (§6), since a copy changes nothing the seal reads. When the result
+  comes, focus goes as follows, wherever the person moved it. A §6
+  notice takes focus (the error-banner rule below). A cancelled or
+  denied prompt for the seal or its read-back leaves C4 as it was,
+  with its primary enabled again and focus where it was before the
+  prompt. A cancelled or denied prompt for the service start, after a
+  success or after Continue while `IdAlreadyCreated` shows, ends the
+  flow on Chats, offline and locked, with focus on the locked notice (§6,
+  Authentication needed). A success, and Continue
+  while `IdAlreadyCreated` shows, open the next screen, whose focus is
+  `design/2026-10-22-add-a-peer.md` §5.1's. Why: a second press would
+  start a second seal over the first, or start the service a second
+  time, and a person who meant to press Enter once can press it twice.
+  The primary shows disabled for the reason R3's controls do: the seal
+  waits on a key operation and can last long enough for a person to
+  press again.
 - When a grid position is chosen to edit, by any input, focus goes as
   for a row chosen from the full list: to the keypad's first enabled
   key, or to the delete key when the word put back leaves no letter
@@ -1050,7 +1157,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdWelcomeTitle` | Welcome to InterWeave | W's title |
 | `IdWelcomeBody` | Exchange messages with the people you trust, from this phone. There is no account. Your contacts know this phone by its PeerId, a public code. | W's body, three lines; its last sentence says what a PeerId is, before the primary names it. No "directly": a message may go through a relay |
 | `IdVoidPaper` | The words shown last time were never used, so they do not restore this phone's PeerId. Do not use the paper where you wrote those words as your backup. | W's notice while the void-paper marker is set (§3.1), three lines. It says what the old paper is not, and what not to do with it |
-| `IdAlreadyCreated` (new) | This phone already has a PeerId, so the words you just saw were not used. Do not use the paper where you wrote those words as your backup. | C4 when another first run sealed first (`AlreadyProvisioned`, §6). `IdVoidPaper` says "shown last time", which is false on C4 |
+| `IdAlreadyCreated` (new) | The words you just saw were not used. Do not use the paper where you wrote those words as your backup. | C4 when another first run sealed first (`AlreadyProvisioned`, §6). `IdVoidPaper` says "shown last time", which is false on C4. The notice shows under `IdAlreadyTitle`, which is read first and says that this phone already has a PeerId, so the notice does not say that again |
 | `IdCreate` | Create a new PeerId | W's primary |
 | `IdRestore` | Restore my PeerId | W's secondary |
 | `IdC1Title` | About your recovery phrase | C1's title |
@@ -1083,8 +1190,9 @@ names are suggestions; rust-ui-dev names them.
 | `IdWordMatches` | {n} words fit these letters | The suggestions row while more than four words match (§4). {n} is then always more than four, so English needs one plural form; a translation that needs more gets them by key |
 | `IdCheckWrong` | This does not match word {n}. Check word {n} on your paper. | C3's inline error. It names the position and what to do, and says nothing about the word typed |
 | `IdShowAgain` | Show my words again | C3's action after an error |
-| `TryAgain` (exists) | Try again | C3's other action after an error, and the retry action of §6's notices. The key exists, and a second key with the same text would fail `every_ui_text_appears_once_in_all`. One action has one name, so §6 says "Try again" too |
-| `IdCreatedTitle` | PeerId created | C4's title |
+| `TryAgain` (exists) | Try again | C3's other action after an error, the retry action of §6's notices on R2 and R3, and C4's primary in Continue's place while `IdBusy`, `IdStorageFailed` or `IdStorageUnknown` shows (§6). The key exists, and a second key with the same text would fail `every_ui_text_appears_once_in_all`. One action has one name, so §6 says "Try again" too |
+| `IdCreatedTitle` | PeerId created | C4's title, except while `IdAlreadyCreated` shows |
+| `IdAlreadyTitle` (new) | This phone already has a PeerId | C4's title while `IdAlreadyCreated` shows (§6): no PeerId was created, so `IdCreatedTitle` would be false. It takes C4's first focus, so it says what happened. The notice under it then says what that means for the paper, and does not repeat the title |
 | `IdRestoredTitle` (new) | PeerId restored | R4's title. "PeerId created" would be false after a restore |
 | `IdCreatedBody` | When you continue, the app connects to the network with this PeerId. | C4's and R4's body |
 | `IdContinue` | Continue | C4's and R4's primary |
@@ -1155,9 +1263,11 @@ landscape:
    pages, of C3, of R2 (also when reached from K1), of R2's full list
    (§4 item 4) and of both S2 pages is black, and Recents shows no content for the flow.
 3. Long-press on any word copies nothing, and no word ever reaches the
-   clipboard. The only clipboard write in the flow is "Copy PeerId",
-   which gives the canonical PeerId with no spaces, checked by pasting
-   it into Trust's field.
+   clipboard. The flow writes to the clipboard in two ways only:
+   "Copy PeerId", which gives the canonical PeerId with no spaces,
+   checked by pasting it into Trust's field; and the removal of the
+   PeerId that "Copy PeerId" put there, when `IdAlreadyCreated` shows
+   on C4 (§6).
 4. C3 asks two positions. A wrong word shows `IdCheckWrong` and clears
    the entry. Try again removes the error and both actions, and so
    does a right word. Two right words reach C4. Continue starts the
@@ -1210,9 +1320,11 @@ landscape:
    for its shape (a hook damages its magic) with an intact field shows
    K1 with that PeerId and restores only to it.
    A C4 that answers `AlreadyProvisioned` with another identity on
-   record shows `IdAlreadyCreated`, with no PeerId, no PeerId label,
-   no `CopyPeerId` and no `IdCreatedBody` (§6), and its Continue
-   opens the identity on record. A C4 whose directory sync fails
+   record shows `IdAlreadyCreated`, with `IdAlreadyTitle` as C4's
+   title in place of `IdCreatedTitle`, the notice right above
+   Continue, and no PeerId, no PeerId label, no `CopyPeerId` and no
+   `IdCreatedBody` (§6), and its Continue opens the identity on
+   record. A C4 whose directory sync fails
    after the record is written (a test hook) reads the record back and
    reaches Connect or the Chats screen (C4's rule) as a success, never `IdStorageFailed` or
    `IdAlreadyCreated`; so does a C4 that answers `OldKeyRemains`.
@@ -1307,6 +1419,25 @@ scale would also be a finding of the Android review
       hook with `IdAlreadyCreated` shown, the notice, then Continue.
       A newly opened C4 has focus on its title, and Enter then
       presses nothing.
+    - On C4, held while the seal runs (§6 Seal running, §8): Tab to
+      Continue, then Enter, and the test leaves the seal unanswered.
+      Meanwhile a second Enter, a Space and a screen reader's activate
+      on Continue start no second seal, focus stays on Continue,
+      Continue shows disabled, and Shift+Tab to `CopyPeerId` then
+      Enter puts the PeerId's canonical string on the clipboard. When
+      the test answers the seal with a refusal that wrote nothing,
+      `IdStorageFailed` shows with focus on it, and Try again is
+      enabled in Continue's place. Enter on Try again holds C4 the
+      same way until the test answers again. In a second run, the test
+      answers the seal as authentication needed and then the prompt
+      as cancelled: C4 stays as it was, with Continue enabled and
+      focus on it. In a third run, by a test hook with
+      `IdAlreadyCreated` shown, Enter on Continue leaves C4 open until
+      the test answers the service start. Meanwhile a second Enter, a
+      Space and a screen reader's activate on Continue do not start
+      the service a second time, focus stays on Continue, and Continue
+      shows disabled. These three runs are host tests: no device hook
+      holds the seal.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
       key, and Enter does nothing. After typing "ab",
       Enter does nothing and Space does nothing, and after each the
@@ -1639,16 +1770,55 @@ scale would also be a finding of the Android review
     Enter and makes a second announcement. With no input it closes 6 s
     after it appeared; with the accessibility timeout set to 30 s,
     30 s after; and with that timeout set to 5 minutes, 2 minutes
-    after. On C4, after Enter on Continue while the snackbar shows,
-    with the seal left unanswered, the snackbar stays shown until its
-    time ends, 6 s after it appeared, and closes then. On C4, when a
+    after. On R3, after Enter on `IdR3Yes` 3 s after the snackbar
+    appeared, with the restore left unanswered, the snackbar stays
+    shown until its time ends, 6 s after it appeared (3 s after the
+    Enter), and closes then: it is still shown 2 s after the Enter and
+    gone 4 s after it. On C4, `ConnectStarting` shows 1 s after the
+    person presses Continue, and three runs, each with the seal left
+    unanswered, check the snackbar beside `ConnectStarting`. In the first, the test presses Enter on
+    Continue 5.5 s after the snackbar appeared: the snackbar
+    closes when its time ends, 6 s after it appeared and before
+    `ConnectStarting` shows; it is still shown 0.2 s after the Enter
+    and gone 0.7 s after it. In the second, the test presses Enter on
+    Continue 2 s after the snackbar appeared: the snackbar closes when
+    `ConnectStarting` shows, 1 s after the Enter, and only one polite
+    announcement, `ConnectStarting`'s, is made then. In the third,
+    nothing is copied before Continue, and the test copies 1.5 s after
+    the Enter on Continue, while `ConnectStarting` shows: the snackbar
+    shows, `ConnectStarting` stays shown, and one polite announcement is
+    made, the snackbar's. On C4, by a test
+    hook with `IdStorageFailed` shown, a copy shows the snackbar and
+    the notice stays shown; after Enter on Try again 5.5 s after the
+    snackbar appeared, with the seal left unanswered, the snackbar is still shown 0.2 s after the
+    Enter and gone 0.7 s after it, as for Continue. A rotation 3 s after the snackbar appeared (in the host
+    test, the window's size swapped from portrait to landscape) keeps
+    it shown, 12 dp above the actions, with no second announcement,
+    and it closes 6 s after it appeared. Before a copy, the test
+    records where the scrolling area ends; while the snackbar shows,
+    the area ends 12 dp above it; after it closes, the area ends where
+    the test recorded, on each of the screens above. On C4, when a
     seal is answered `AlreadyProvisioned` while
     the snackbar shows, the snackbar closes when `IdAlreadyCreated`
     shows; on R3, when a restore is refused with `IdStorageFailed`,
     the snackbar closes when that notice shows. On C4, under
     `user-presence`, when the seal is refused as authentication needed
     while the snackbar shows, the snackbar closes when the system
-    prompt shows. On C4, whatever the policy, when the seal is
+    prompt shows. On C4, after a copy, when the seal is answered
+    `AlreadyProvisioned`, the clipboard no longer holds the PeerId's
+    string. In a second run, the copy is made on C2's PeerId page and
+    none on C4, and the clipboard no longer holds the string either.
+    In a third run, the test copies another text to the clipboard
+    after the copy and before the answer, and that text is still there
+    after the answer. These three runs are made with the platform
+    version below 13 and again at 13 or later, and in every run the
+    test's clipboard records no read of its content by the app. On the
+    Pixel 9a (Android 13 or later), a person copies the PeerId on C4, a debug-build hook
+    answers the seal `AlreadyProvisioned`, and the person verifies
+    that pasting into another app no longer gives the PeerId and that
+    the platform showed no notice that InterWeave read the clipboard.
+    rust-ui-dev adds that hook, as it adds acceptance 12's hooks;
+    until it exists, this Pixel 9a check is blocked, not passed. On C4, whatever the policy, when the seal is
     answered `ProfileLocked` while the snackbar shows, the snackbar
     closes when the progress state (`IdGoingOffline`) shows. Leaving
     the screen closes it, and the next screen shows none. The app going to the background
@@ -1657,14 +1827,27 @@ scale would also be a finding of the Android review
     snackbar and makes no announcement. On the Samsung A40 (Android
     11, the project's second test phone,
     `packaging/android/evidence/2026-11-05-samsung-a40-update-and-downgrade.md`),
-    at 200 % font in portrait and in landscape, in the dark and the
+    at 200 % font in portrait and in landscape (set with `adb -s <the
+    A40's address> shell settings put system font_scale 2.0`, and set
+    back to the phone's own scale after the run, since whether the
+    A40's own settings offer 200 % is not known; the command runs
+    under the `samsung-a40` lease, on the running login's own adb
+    server, since `.agent-fabric/bin/phone-run` holds only the Pixel
+    9a's lease; the run records the scale the A40's settings
+    offer), in the dark and the
     light scheme, on C2's PeerId page, C4 and R3, a person looks at
     the screen and verifies that the snackbar has the look spec's
     snackbar colours, is at least 48 dp tall and 12 dp from the
     screen's sides, sits 12 dp above the actions, and covers none of
     them, nor the PeerId, and that `CopyPeerId` is wholly in view,
     also when the person scrolled down to `CopyPeerId` before the
-    copy. The rest of this item runs in the host test. The other items
+    copy. In landscape at 200 %, the hypothesis is that the scrolling
+    area left above the snackbar still holds `CopyPeerId` wholly. It
+    is falsified if, on the A40, `CopyPeerId` cannot be wholly in view
+    while the snackbar shows. That is a finding on this note, not on
+    the build, and it comes back to ux-designer with the screen's
+    figures. The rest of this item runs in the host test, except the
+    Pixel 9a's clipboard check above. The other items
     of this list run on the Pixel 9a, which shows no snackbar.
 
 ## 11. Questions answered
@@ -1743,4 +1926,13 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   2026-10-19.
 - **A recovery-phrase file, a QR code, or any export other than
   showing the words.**
+- **Removing a copied PeerId from the clipboard anywhere but C4
+  under `IdAlreadyCreated`.** On R3, a restore refused with
+  `IdRestoreOther` leaves the PeerId the words make on the clipboard.
+  That PeerId belongs to an identity a phone held, and the paper names
+  it; it is not a PeerId no phone will hold. Whether the person meant
+  to keep it is theirs.
+- **Words saying that the copy was removed** (§6). `IdAlreadyCreated`
+  already says that the words just seen were not used, and the
+  removal takes only the app's own copy.
 - **What the Settings screen shows besides the new item.**
