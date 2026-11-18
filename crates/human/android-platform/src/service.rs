@@ -883,8 +883,8 @@ impl ServiceHost {
         }
     }
 
-    /// Told each stage a stop passes ([`StopStage`]), in order. TEST
-    /// BUILDS ONLY.
+    /// Told each stage a stop with a runtime passes ([`StopStage`]), in
+    /// order; a stop with no runtime reports none. TEST BUILDS ONLY.
     #[cfg(feature = "test-hooks")]
     pub fn stop_stages_for_test(&self) -> std::sync::mpsc::Receiver<StopStage> {
         let (tell, stages) = std::sync::mpsc::channel();
