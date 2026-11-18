@@ -460,7 +460,7 @@ export struct IdentityPage {
     peer-label: string,
     // A PeerId grouped by fours for comparing by eye (section 5).
     peer-groups: string,
-    // The text button under the PeerId, R3's and R4's (section 5): its
+    // The text button under the PeerId, C4's, R3's and R4's (section 5): its
     // label, empty for none, and what it copies -- the PeerId's
     // canonical string, with none of the groups' spaces.
     copy-label: string,
@@ -2244,6 +2244,21 @@ component IdentityScreen inherits FocusScope {
     // the clipboard through its own hidden field, so this page still
     // holds no TextInput (section 5).
     callback copy(string);
+    // The `PeerIdCopied` snackbar's text while it shows (section 5), empty
+    // for none: above the actions, in no focus order, taking no focus.
+    in property <string> copied;
+    // The page's area ends 12 px above the snackbar while it shows; when
+    // Copy PeerId, at `top` and `height` in the window, would then sit
+    // past either end, the area scrolls just far enough to show it whole.
+    function keep-in-view(top: length, height: length) {
+        let below = top + height - (page-flick.absolute-position.y + page-flick.height);
+        let above = page-flick.absolute-position.y - top;
+        if (below > 0) {
+            page-flick.content-y = max(page-flick.height - page-flick.content-height, page-flick.content-y - below);
+        } else if (above > 0) {
+            page-flick.content-y = min(0px, page-flick.content-y + above);
+        }
+    }
     // A control of the page took focus: its focus key, for the window's
     // focus-id and the debug build's trace.
     callback focused(string);
@@ -3084,6 +3099,12 @@ component IdentityScreen inherits FocusScope {
                             focus-wanted: root.want-seg == 0 && root.want-idx == root.copy-idx();
                             pressed => { root.typing = false; root.copy(root.page.peer-id); }
                             focused(k) => { root.took(k, 0, root.copy-idx()); }
+                            // The snackbar shrinks the area above it: Copy
+                            // stays in view (section 5).
+                            property <bool> snack: root.copied != "";
+                            changed snack => {
+                                if (self.snack) { root.keep-in-view(self.absolute-position.y, self.height); }
+                            }
                         }
                     }
                 }
@@ -3326,6 +3347,24 @@ component IdentityScreen inherits FocusScope {
                     pressed => { root.mode(self.by-tap); root.clear-word(); }
                     focused(k) => { root.took(k, 5, 0); }
                 }
+            }
+        }
+        // The copy's confirmation below Android 13 (section 5): the look
+        // spec's snackbar, no action, 12 px above the actions and 12 px
+        // from the screen's sides -- the layout's 16 px, less 4 -- so the
+        // area above ends 12 px over it and it covers nothing. Its text is
+        // said through the window's live region, not by itself.
+        if root.copied != "": Rectangle {
+            min-height: copied-snack.min-height;
+            preferred-height: copied-snack.preferred-height;
+            vertical-stretch: 0;
+            copied-snack := Snackbar {
+                x: -4px;
+                width: parent.width + 8px;
+                height: parent.height;
+                text: root.copied;
+                undo: false;
+                rtl: root.rtl;
             }
         }
         if root.page.waiting != "": Text {
@@ -4470,6 +4509,12 @@ export component AppWindow inherits Window {
     // Set by `View::raise_identity_heading`, taken by the page: focus to
     // its heading once it shows.
     in-out property <bool> identity-heading-wanted;
+    // The `PeerIdCopied` snackbar's text while it shows over the identity
+    // page's actions, empty for none: the view's (`copied.rs`).
+    in property <string> identity-copied;
+    // Copy PeerId on an identity page copied: the view confirms it below
+    // Android 13 (section 5).
+    callback identity-peer-copied();
     callback identity-primary();
     callback identity-secondary();
     callback identity-tertiary();
@@ -10865,7 +10910,9 @@ export component AppWindow inherits Window {
                 peers-copy.copy();
                 peers-copy.clear-selection();
                 root.copy-text = "";
+                root.identity-peer-copied();
             }
+            copied: root.identity-copied;
             focused(k) => { root.focus-id = k; }
             heading-wanted <=> root.identity-heading-wanted;
             init => { self.focus(); }

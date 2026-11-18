@@ -478,10 +478,16 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::S1 if flow.waiting() => page.waiting = text(UiText::IdGoingOffline).into(),
         _ => {}
     }
-    // Copy PeerId is built under R3's and R4's PeerId. Section 5 puts it on
-    // C2's and S2's PeerId pages and C4 too; those come with the copy's
-    // confirmation below Android 13 (`copy_peer_id_is_built_on_r3_and_r4`).
-    if let (ScreenId::R3 | ScreenId::R4, Some(peer)) = (screen, shown) {
+    // Copy PeerId under C4's, R3's and R4's PeerId (section 5); not on C4
+    // while `IdVoidPaper` says the words were not used, since its PeerId
+    // is not the person's (section 6); a banner's PeerId has none. C2 and
+    // S2 show their words beside the PeerId, and a screen that shows
+    // words has no copy (section 5), so theirs waits on the PeerId's own
+    // page.
+    let void_c4 = screen == ScreenId::C4 && flow.notice() == Some(&Notice::VoidPaper);
+    if let (ScreenId::C4 | ScreenId::R3 | ScreenId::R4, Some(peer), false) =
+        (screen, shown, void_c4)
+    {
         page.copy_label = text(UiText::CopyPeerId).into();
         page.peer_id = peer.as_str().into();
     }
@@ -805,16 +811,16 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::R2, "control: R2");
     }
 
-    /// Copy `PeerId` is built under R3's and R4's `PeerId`, and so far on no
+    /// Copy `PeerId` is built under C4's, R3's and R4's `PeerId`, and on no
     /// other page that shows one. Section 5 also puts it on C2's and S2's
-    /// `PeerId` pages and on C4; their rows here change when those are
-    /// built, with the copy's confirmation below Android 13. R2's
-    /// `IdOtherIdentity` banner has none. R3 and R4 are the controls.
+    /// `PeerId` pages; their rows here change when those pages are built
+    /// (today C2 and S2 show their words beside the `PeerId`). R2's
+    /// `IdOtherIdentity` banner has none. C4, R3 and R4 are the controls.
     /// Mutation: `page`'s copy arm matching any screen (`(_, Some(peer))`)
     /// fails here. The banner's `shown = None` is not observable yet,
     /// because no banner shows on R3 or R4.
     #[test]
-    fn copy_peer_id_is_built_on_r3_and_r4() {
+    fn copy_peer_id_is_built_on_c4_r3_and_r4() {
         let copies = |page: &IdentityPage| {
             (
                 page.copy_label == en(UiText::CopyPeerId),
@@ -840,7 +846,7 @@ mod tests {
 
         let c4 = page(&at_c4());
         assert!(!c4.peer_groups.is_empty(), "control: C4 shows its PeerId");
-        assert_eq!(copies(&c4), (false, false), "C4");
+        assert_eq!(copies(&c4), (true, true), "C4");
 
         let mut r2 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
         apply(&mut r2, IdentityInput::Secondary);
@@ -988,5 +994,46 @@ mod tests {
             Some("acid")
         );
         assert!(!page(&flow).any_key);
+    }
+
+    /// C4 carries Copy `PeerId` under its `PeerId`, with the canonical
+    /// string (section 5), and not while `IdVoidPaper` says the words were
+    /// not used (section 6); C2 shows words beside its `PeerId` and
+    /// carries none. Mutation: leaving `ScreenId::C4` out of `page`'s Copy
+    /// match, or dropping the void-paper condition, fails here.
+    #[test]
+    fn c4_copies_its_peer_id_unless_the_words_were_not_used() {
+        let flow = at_c4();
+        let shown = page(&flow);
+        assert_eq!(shown.copy_label, en(UiText::CopyPeerId));
+        assert_eq!(shown.peer_id.as_str(), mine().as_str());
+        assert!(shown.peer_groups.contains(' '), "control: grouped");
+
+        for failed in [StepFailed::Busy, StepFailed::Storage] {
+            let mut flow = at_c4();
+            flow.primary();
+            flow.sealed(Err(failed));
+            assert_eq!(
+                page(&flow).copy_label,
+                en(UiText::CopyPeerId),
+                "{failed:?}: kept"
+            );
+        }
+        let mut flow = at_c4();
+        flow.primary();
+        flow.sealed(Err(StepFailed::AlreadyProvisioned));
+        assert_eq!(flow.notice(), Some(&Notice::VoidPaper), "control");
+        assert_eq!(
+            page(&flow).copy_label,
+            "",
+            "not while the words were unused"
+        );
+
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut flow, IdentityInput::Primary);
+        flow.created(words(), mine(), [3, 9]);
+        apply(&mut flow, IdentityInput::Primary);
+        assert_eq!(flow.screen(), ScreenId::C2, "control: C2");
+        assert_eq!(page(&flow).copy_label, "", "C2 shows words");
     }
 }
