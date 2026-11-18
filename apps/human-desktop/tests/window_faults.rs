@@ -11,6 +11,8 @@
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -160,8 +162,9 @@ fn view(app: &Desktop) -> &View {
 /// the list reports what is in view only once laid out; without the
 /// query the three paging tests here time out -- then one turn of the
 /// app. The query stops at the first element: a walk of the whole tree
-/// took 4.4 s on the turn that lets go of 200 held rows, and under the
-/// workspace suite's load ran out a 10 s wait (j215).
+/// took 4.4 s on the turn that lets go of 200 held rows (j215); that
+/// turn's own layout still takes seconds in a debug build, which is why
+/// [`until`]'s bound is [`common::WAIT_BOUND`] (j296).
 fn turn(app: &mut Desktop) {
     for _ in 0..2 {
         slint::platform::update_timers_and_animations();
@@ -170,11 +173,11 @@ fn turn(app: &mut Desktop) {
     app.pump();
 }
 
-/// Turn until `done`, or fail after a while.
+/// Turn until `done`, failing at [`common::WAIT_BOUND`].
 fn until(app: &mut Desktop, what: &str, done: impl Fn(&Desktop) -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let wait = common::Wait::on(what);
     while !done(app) {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        wait.check();
         turn(app);
         std::thread::sleep(Duration::from_millis(10));
     }

@@ -102,15 +102,15 @@ fn app_with(
     App::new(SlintSurface(view), NoLinks, thread)
 }
 
-/// Pump until `done`, or fail after a while.
+/// Pump until `done`, failing at [`common::WAIT_BOUND`].
 fn pump_until(
     app: &mut App<SlintSurface, NoLinks>,
     what: &str,
     done: impl Fn(&App<SlintSurface, NoLinks>) -> bool,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let wait = common::Wait::on(what);
     while !done(app) {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        wait.check();
         app.pump();
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -336,9 +336,9 @@ fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
         REPORTS.lock().expect("reports").push(line.to_owned());
     });
     opener.open(&link);
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let wait = common::Wait::on("the handler to run");
     while !record.exists() {
-        assert!(Instant::now() < deadline, "the handler ran");
+        wait.check();
         std::thread::sleep(Duration::from_millis(20));
     }
     std::thread::sleep(Duration::from_millis(100));
@@ -385,9 +385,9 @@ fn an_opened_links_process_is_reaped() {
         std::path::Path::new("/proc/self").exists(),
         "the check reads /proc"
     );
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let wait = common::Wait::on(format!("process {pid} to end"));
     while proc.exists() {
-        assert!(Instant::now() < deadline, "process {pid} was left behind");
+        wait.check();
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -464,9 +464,9 @@ fn a_window_that_stops_taking_holds_the_facade_to_its_bound() {
         CAPACITY,
     )
     .expect("the facade thread");
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let wait = common::Wait::on("alice's session");
     while a.open_sessions() == 0 {
-        assert!(Instant::now() < deadline, "alice's session");
+        wait.check();
         std::thread::sleep(Duration::from_millis(20));
     }
 
@@ -527,14 +527,10 @@ fn a_window_that_stops_taking_holds_the_facade_to_its_bound() {
 
     // The window takes again; bob keeps retrying until all are through.
     let mut received = Vec::new();
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let wait = common::Wait::on(format!("all {SENT} to reach the window"));
     let mut now = 10_000_000;
     while received.len() < SENT {
-        assert!(
-            Instant::now() < deadline,
-            "{} of {SENT} reached the window",
-            received.len()
-        );
+        wait.check_showing(|| format!("{} of {SENT} reached it", received.len()));
         for message in alice.take() {
             if let FromFacade::Update(update) = message
                 && let Update::Received(r) = *update
@@ -567,12 +563,9 @@ fn a_window_that_stops_taking_holds_the_facade_to_its_bound() {
             )
             .await;
     });
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let wait = common::Wait::on("a message after a take to ask for a wake");
     while wakes.load(Ordering::SeqCst) == before {
-        assert!(
-            Instant::now() < deadline,
-            "a message after a take asks for a wake"
-        );
+        wait.check();
         runtime.block_on(async {
             let _ = bob.turn(now).await;
         });
@@ -599,9 +592,9 @@ fn closing_while_the_facade_waits_on_a_full_queue_completes() {
         1,
     )
     .expect("the facade thread");
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let wait = common::Wait::on("alice's session");
     while a.open_sessions() == 0 {
-        assert!(Instant::now() < deadline, "alice's session");
+        wait.check();
         std::thread::sleep(Duration::from_millis(20));
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
