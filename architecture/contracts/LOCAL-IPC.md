@@ -676,8 +676,33 @@ backup` and `restore` take the same lock, so they cannot run beside a
 daemon. The lock file is released, never unlinked. A stale socket path
 found at start is removed only by the lock holder, and only when it is a
 socket owned by the daemon's uid; anything else at that path is fatal.
-Shutdown order: stop accepting → revoke leases → settle bounded direct
+Shutdown order: refuse new inbound direct → stop accepting → hand each
+session what its queue holds → revoke leases → settle bounded direct
 responses → close the Swarm → unlink both sockets → release the lock.
+
+The first and third steps are A 2026-11-17 (the owner's word;
+`DIRECT.md` §Graceful shutdown). The runtime drains before the server
+stops: from then an inbound direct request is answered `shutting_down`
+and no endpoint queue takes a new message. "Stop accepting" is the
+server's: no new connection, no new request. Each data session is then
+written the events its queue held at that moment, ahead of its
+`close{ShuttingDown}`, and its lease is released before the `close` is
+written, so a client that reconnects on it finds the lease free.
+The hand-over is bounded by the session's queue and by the stop's
+grace: a client that does not read is closed when the grace ends, or
+sooner when its writer gives up on it after the write stall, and
+what it did not take is counted as dropped. As the gap was found the
+order began at the server's stop, the runtime drained after every lease
+was released, and a connection ended on the stop without reading its
+session's queue again (`tests/automated-client/runs/2026-11-17-fleet-control-path.md` §3, finding F1).
+Built in the change that followed (`ipc-server`'s
+`a_stop_writes_what_the_session_held_before_the_close` and
+`a_stop_counts_what_a_client_that_does_not_read_left`; between two
+daemons, `tests/automated-client`'s
+`an_inbound_direct_after_the_stop_began_is_refused_shutting_down` and
+`a_message_admitted_before_the_stop_is_read_before_the_close`). Not
+counted: an event the connection's writer was part-way through writing
+when a client that does not read was aborted.
 
 ## Platform scope of the v1 build
 

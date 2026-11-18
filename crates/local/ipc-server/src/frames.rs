@@ -104,12 +104,19 @@ pub(crate) const CONTROL_LANE: usize = crate::MAX_IN_FLIGHT + crate::MAX_PENDING
 /// A frame not written within `stall` ends the writer: the client
 /// has stopped reading, and dropping the lanes' receivers is how the
 /// connection loop learns it (#151 review, F1).
+///
+/// The task answers how many events it never wrote whole: one that failed
+/// to write, and those still in the event lane when it ended -- the
+/// count a stop's hand-over adds to its dropped events (`LOCAL-IPC.md`'s
+/// shutdown order), whether the writer ended on the `close` or gave up
+/// on a client that stopped reading
+/// (`a_stop_counts_what_a_writer_that_gave_up_left`).
 pub(crate) fn spawn_writer<W>(
     inner: W,
     event_lane: usize,
     state: Option<watch::Receiver<Option<ServerState>>>,
     stall: std::time::Duration,
-) -> (Lanes, tokio::task::JoinHandle<()>)
+) -> (Lanes, tokio::task::JoinHandle<usize>)
 where
     W: AsyncWrite + Unpin + Send + 'static,
 {
@@ -134,7 +141,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(
     mut events: mpsc::Receiver<Frame>,
     mut state: Option<watch::Receiver<Option<ServerState>>>,
     stall: std::time::Duration,
-) {
+) -> usize {
     // On connect: the current view, if one is known.
     let current = state.as_mut().and_then(|s| s.borrow_and_update().clone());
     if let Some(view) = current
@@ -145,8 +152,9 @@ async fn write_loop<W: AsyncWrite + Unpin>(
         )
     {
         let _ = inner.shutdown().await;
-        return;
+        return events.len();
     }
+    let mut unwritten = 0;
     loop {
         let frame = tokio::select! {
             biased;
@@ -165,6 +173,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(
             Some(frame) = events.recv() => frame,
         };
         let closing = matches!(frame, Frame::Close(_));
+        let event = matches!(frame, Frame::Event(_));
         let Ok(bytes) = frame.encode() else {
             // A frame this crate built past the ceiling is its own bug;
             // the connection cannot recover a sensible stream from it.
@@ -174,6 +183,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(
             tokio::time::timeout(stall, inner.write_all(&bytes)).await,
             Ok(Ok(()))
         ) {
+            unwritten = usize::from(event);
             break;
         }
         if closing {
@@ -181,6 +191,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(
         }
     }
     let _ = inner.shutdown().await;
+    unwritten + events.len()
 }
 
 #[cfg(test)]

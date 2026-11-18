@@ -4,10 +4,13 @@
 //! stop (plan §16 (1)-(8)).
 //!
 //! Stopping here is the server's share of the daemon's shutdown order
-//! (plan §16 (6)): stop accepting, then close every connection -- each
-//! gets `close{ShuttingDown}` and its session is closed, which releases
-//! its lease. Settling the network, closing the Swarm, unlinking the
-//! sockets and dropping the lock are the daemon's, after this returns.
+//! (plan §16 (6), `LOCAL-IPC.md`'s shutdown order): stop accepting, hand
+//! each data session what its queue holds, within the stop's grace, then
+//! close every connection -- each gets `close{ShuttingDown}` and its
+//! session is closed, which releases its lease. Refusing new inbound
+//! direct work before any of it (the runtime's drain), settling the
+//! network, closing the Swarm, unlinking the sockets and dropping the
+//! lock are the daemon's, before this starts and after it returns.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -23,16 +26,18 @@ use tokio::task::JoinSet;
 use crate::admission::{Refusal, Slots};
 use crate::connection::{self, CLOSE_GRACE, Shared};
 
-/// How long stopping waits for every connection to end before aborting
-/// what remains: one close grace, and as long again.
+/// How long stopping waits, past the hand-over's grace, for every
+/// connection to end before aborting what remains: one close grace, and
+/// as long again.
 const STOP_GRACE: Duration = CLOSE_GRACE.saturating_mul(2);
 use crate::counters::Counters;
 use crate::hello::ServerConfig;
 use crate::listen::Listeners;
 use crate::state;
 
-/// Serve `binding` on the bound sockets until `stop` resolves, then close
-/// every connection and return.
+/// Serve `binding` on the bound sockets until `stop` resolves, then hand
+/// each data session its queue within the profile's shutdown grace
+/// ([`ServerConfig::shutdown_grace`]), close every connection and return.
 ///
 /// The server holds no lease table and no queue: every lease, join and
 /// event lives in `binding`, which the composition root built.
@@ -41,6 +46,27 @@ pub async fn serve<B>(
     binding: B,
     config: ServerConfig,
     stop: impl Future<Output = ()> + Send,
+) -> Arc<Counters>
+where
+    B: DataSessionBinding + AdminBinding + Clone + Send + Sync + 'static,
+    B::Session: Send + Sync + 'static,
+    B::Admin: Send + Sync + 'static,
+{
+    let grace = config.shutdown_grace;
+    serve_handing_over(listeners, binding, config, async move {
+        stop.await;
+        grace
+    })
+    .await
+}
+
+/// [`serve`], the hand-over bounded by the grace `stop` resolves with:
+/// the stop's own, which an `admin.shutdown` may have named.
+pub async fn serve_handing_over<B>(
+    listeners: Listeners,
+    binding: B,
+    config: ServerConfig,
+    stop: impl Future<Output = Duration> + Send,
 ) -> Arc<Counters>
 where
     B: DataSessionBinding + AdminBinding + Clone + Send + Sync + 'static,
@@ -68,12 +94,12 @@ where
         counters: Arc::clone(&counters),
         state: state_rx,
     });
-    let (stop_tx, stop_rx) = watch::channel(false);
+    let (stop_tx, stop_rx) = watch::channel(None);
     let mut connections = JoinSet::new();
     tokio::pin!(stop);
-    loop {
+    let grace = loop {
         tokio::select! {
-            () = &mut stop => break,
+            grace = &mut stop => break grace,
             accepted = listeners.accept() => {
                 let Ok((stream, domain)) = accepted else {
                     // An accept error (a descriptor limit, say) must not
@@ -108,12 +134,14 @@ where
             }
             Some(_) = connections.join_next(), if !connections.is_empty() => {}
         }
-    }
-    let _ = stop_tx.send(true);
+    };
+    // One deadline for every connection's hand-over, from the stop.
+    let _ = stop_tx.send(Some(tokio::time::Instant::now() + grace));
     // Every connection sees `stop` at once (its loop never waits on the
-    // client) and bounds its own end by CLOSE_GRACE; STOP_GRACE is the
-    // backstop, after which what is left is aborted (#151 review, F1).
-    let drained = tokio::time::timeout(STOP_GRACE, async {
+    // client), hands its session over within `grace` and bounds its own
+    // end by CLOSE_GRACE; STOP_GRACE past the grace is the backstop,
+    // after which what is left is aborted (#151 review, F1).
+    let drained = tokio::time::timeout(grace.saturating_add(STOP_GRACE), async {
         while connections.join_next().await.is_some() {}
     })
     .await;
@@ -854,6 +882,148 @@ mod tests {
         );
         drop((quiet, control));
         harness.stop().await;
+    }
+
+    /// Queue `n` events with the fake session and wait until the pump has
+    /// stopped taking them -- the socket and the lane are full -- so some
+    /// are still with the session; answers how many it still holds.
+    async fn stuff(fake: &Fake, n: usize) -> usize {
+        for _ in 0..n {
+            fake.script().events.push_back(SessionEvent::Local(
+                LocalSessionEvent::PeerDisconnected {
+                    peer: peer(),
+                    reason_class: "policy".into(),
+                },
+            ));
+        }
+        let mut held = n;
+        loop {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let now = fake.script().events.len();
+            if now == held {
+                break;
+            }
+            held = now;
+        }
+        assert!(held > 0, "the pump took what the lane had no room for");
+        held
+    }
+
+    /// The stop's hand-over (`LOCAL-IPC.md`'s shutdown order, A
+    /// 2026-11-17): what the session still held when the server was asked
+    /// to stop is written to a client that reads, in sequence, and THEN
+    /// the `close` -- none dropped, none counted. As the gap was found the
+    /// connection ended on the stop and the close overtook what was
+    /// queued: the client read only what the socket and the lane held.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_writes_what_the_session_held_before_the_close() {
+        const QUEUED: usize = 1000;
+        let fake = Fake::default();
+        let harness = Harness::start(&fake, config());
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let _ = stuff(&fake, QUEUED).await;
+        let stopping = tokio::spawn(harness.stop());
+        let mut next = 0;
+        loop {
+            match client.next_reply().await {
+                Some(Frame::Event(event)) => {
+                    assert_eq!(event.sequence, next as u64, "in sequence, none lost");
+                    next += 1;
+                }
+                Some(Frame::Close(close)) => {
+                    assert_eq!(close.code, TransportError::ShuttingDown);
+                    break;
+                }
+                Some(_) => {}
+                None => panic!("the stream ended without a close after {next} events"),
+            }
+        }
+        assert_eq!(
+            next, QUEUED,
+            "every event the session held, before the close"
+        );
+        let counters = stopping.await.expect("stopped");
+        assert_eq!(
+            counters.events_dropped_at_stop(),
+            0,
+            "nothing left to count"
+        );
+        assert_eq!(fake.script().closed, 1, "the session is closed after");
+    }
+
+    /// A client that does not read is closed when the stop's grace ends,
+    /// and what it did not take is counted: the events still in its lane
+    /// and what its session still held. Read after the server has gone,
+    /// what the socket delivered and what was counted are the queue
+    /// whole, but for the one frame the writer may have been part-way
+    /// through when it was aborted, which nothing counts (a limit, said
+    /// in `LOCAL-IPC.md`'s shutdown order).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_counts_what_a_client_that_does_not_read_left() {
+        const QUEUED: usize = 1000;
+        let fake = Fake::default();
+        let mut short = config();
+        short.shutdown_grace = Duration::from_millis(300);
+        let harness = Harness::start(&fake, short);
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let held = stuff(&fake, QUEUED).await;
+        let counters = harness.stop().await;
+        assert!(
+            fake.script().events.is_empty(),
+            "the session's rest was taken to count"
+        );
+        let dropped = usize::try_from(counters.events_dropped_at_stop()).expect("fits");
+        assert!(
+            dropped >= held,
+            "at least what the session held: {dropped} < {held}"
+        );
+        let mut read = 0;
+        while let Some(frame) = client.next().await {
+            if matches!(frame, Frame::Event(_)) {
+                read += 1;
+            }
+        }
+        assert!(
+            read + dropped == QUEUED || read + dropped + 1 == QUEUED,
+            "read {read} + counted {dropped} is the queue of {QUEUED}, less one at most"
+        );
+    }
+
+    /// A writer that gives up on a client that does not read inside the
+    /// stop's grace (`write_stall` shorter than the grace) drops what its
+    /// lane held, and the stop counts it: what the socket delivered and
+    /// what was counted are the queue whole, the event the writer failed
+    /// on included. As the gap was found, the lane's events went uncounted
+    /// whenever the writer gave up before the grace ended (#709 review F1).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_counts_what_a_writer_that_gave_up_left() {
+        const QUEUED: usize = 1000;
+        let fake = Fake::default();
+        let mut stalling = config();
+        // The stall past the time `stuff` takes to see the pump stop (two
+        // 200 ms looks), so the writer gives up inside the stop's grace,
+        // not before the stop.
+        stalling.shutdown_grace = Duration::from_secs(5);
+        stalling.write_stall = Duration::from_millis(1_500);
+        let harness = Harness::start(&fake, stalling);
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let _ = stuff(&fake, QUEUED).await;
+        let counters = harness.stop().await;
+        let dropped = usize::try_from(counters.events_dropped_at_stop()).expect("fits");
+        let mut read = 0;
+        while let Some(frame) = client.next().await {
+            if matches!(frame, Frame::Event(_)) {
+                read += 1;
+            }
+        }
+        assert_eq!(
+            read + dropped,
+            QUEUED,
+            "read {read} + counted {dropped} is the queue of {QUEUED}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

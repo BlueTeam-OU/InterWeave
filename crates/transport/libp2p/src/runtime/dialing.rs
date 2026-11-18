@@ -1305,6 +1305,15 @@ pub(super) fn settle_outcome(
                 return Announce::Suppress;
             };
             manager.record_connection_closed(connection.slot);
+            // THE PEER IS LOST when this was its last connection, and the
+            // loss ladder asks how long THIS connection held, by the
+            // runtime's clock from its establishment (ADR-0011 A
+            // 2026-11-17). Before the redial the close leads to can
+            // settle, so its failure takes the ladder's first step.
+            if !open.values().any(|c| c.peer == connection.peer) {
+                let _ = manager
+                    .record_peer_lost(&connection.peer, now_ms.saturating_sub(connection.since_ms));
+            }
             last_seen.closed(&connection.peer, wall_ms(), |peer| {
                 manager.classify(peer) != ConnectionClass::Unauthorized
             });

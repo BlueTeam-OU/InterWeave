@@ -1,0 +1,34 @@
+daemons: <branch>/target/release
+variant silent, outage 0ns past B's exit, the connection held 35s before the stop
+B's drain: SIGTERM to exit 5 ms; A's sends, pausing 5ms after each answer, from 0ns before it, ms from SIGTERM:
+  -3..-3 ms: Accepted x1
+  5..5 ms: PeerUnreachable x1
+accepted before the SIGTERM: 1, of them not read by B's client: 0
+accepted from the SIGTERM on: 0, read by B's client before the exit: 0
+accepted and never read, counting what B's client held at the exit: 0
+A's sends through the outage, ms from B's exit:
+
+B serving 163 ms after its exit; B's client leased 51 ms after B served
+A's sends after B's return, ms from B serving:
+  0..782 ms: PeerUnreachable x4
+  1042..3083 ms: Accepted x9
+first accepted at Some(1042) ms, A's gate connected at Some(1054) ms
+accepted after the return: 9, read by B's client: true (lost 0)
+-- A's connectivity lines from the SIGTERM --
+2026-11-18T01:13:32.605422Z DEBUG interweave::connectivity: peer disconnected peer="<B>" reason="closed"
+2026-11-18T01:13:32.609548Z DEBUG interweave::connectivity: dial failed peer="<B>" class="dial_failed"
+2026-11-18T01:13:32.609567Z DEBUG interweave::connectivity: retry scheduled peer="<B>" origin="manual" attempt=1 delay_ms=1000 peer_backoff=true
+2026-11-18T01:13:32.773900Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:13:33.043539Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:13:33.301516Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:13:33.529748Z  INFO interweave::connectivity: reconnect refused peer="<B>" class="PeerBackoff"
+2026-11-18T01:13:33.556681Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:13:33.612070Z DEBUG interweave::connectivity: peer connected peer="<B>" path="direct"
+-- B's lines --
+2026-11-18T01:12:57.447270Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<peer>"
+2026-11-18T01:12:57.450258Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-18T01:12:57.522563Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"
+2026-11-18T01:13:32.602804Z  INFO transport_daemon::daemon: SIGTERM
+2026-11-18T01:13:32.738022Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<peer>"
+2026-11-18T01:13:32.742739Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-18T01:13:33.612991Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"
