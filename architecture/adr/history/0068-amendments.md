@@ -32,7 +32,8 @@ read (total 38, screen off 60, deep Doze 32), and no missed liveness. Under fore
 foreground service, so nothing is held with the screen off. A Samsung
 A40 (Android 11) froze the app's process in Doze despite its
 foreground service, so it held no connection while the screen was off and the app frozen,
-connecting only in thaws and while in use, and gave no idle cost.
+connecting only in thaws and while in use, and no idle cost was
+measured there.
 
 The consequence now states that figure and its bounds: one window of
 each condition on different days, one peer, Wi-Fi, a debug build. The

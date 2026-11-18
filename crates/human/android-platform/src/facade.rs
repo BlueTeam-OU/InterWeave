@@ -246,6 +246,9 @@ impl FacadeLoop {
                                 hub.update(generation, update);
                             }
                         }
+                        if hub.turns_held() {
+                            continue;
+                        }
                         for update in side.turn(now()).await {
                             hub.update(generation, update);
                         }

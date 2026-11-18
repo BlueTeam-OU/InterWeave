@@ -234,6 +234,10 @@ pub struct Hub {
     /// Held by a test: every command waits on it before it is carried out.
     #[cfg(feature = "test-hooks")]
     held: Mutex<Option<Receiver<()>>>,
+    /// Held by a test: a facade of this hub takes no turn, so what its
+    /// session's queue holds stays there until its close.
+    #[cfg(feature = "test-hooks")]
+    turns_held: AtomicBool,
     /// The debug build's hold of the next start's address and trust reads
     /// ([`Self::hold_next_start_reads`]).
     #[cfg(feature = "dev-stand-ins")]
@@ -270,6 +274,8 @@ impl Hub {
             notices: Notices::default(),
             #[cfg(feature = "test-hooks")]
             held: Mutex::new(None),
+            #[cfg(feature = "test-hooks")]
+            turns_held: AtomicBool::new(false),
             #[cfg(feature = "dev-stand-ins")]
             reads_hold: Mutex::new(ReadsHold::default()),
         }
@@ -437,7 +443,33 @@ impl Hub {
         release
     }
 
+    /// Stop every facade of this hub taking a turn, from its next one, for
+    /// good: what reaches its session's queue stays there until the close
+    /// reads it -- a message admitted the moment before a stop, which on a
+    /// device lands between two turns. Commands are still carried out.
+    /// TEST BUILDS ONLY.
+    #[cfg(feature = "test-hooks")]
+    pub fn hold_turns_for_test(&self) {
+        self.turns_held.store(true, Ordering::SeqCst);
+    }
+
     // --- the facade's side -------------------------------------------------
+
+    /// Whether a test holds the facade's turns
+    /// ([`Self::hold_turns_for_test`]); false in a build without the hooks.
+    #[cfg_attr(
+        not(feature = "test-hooks"),
+        expect(
+            clippy::unused_self,
+            reason = "the test-hooks build reads the held turns"
+        )
+    )]
+    pub(crate) fn turns_held(&self) -> bool {
+        #[cfg(feature = "test-hooks")]
+        return self.turns_held.load(Ordering::SeqCst);
+        #[cfg(not(feature = "test-hooks"))]
+        false
+    }
 
     /// Before a facade carries out a command: waits while a test holds
     /// commands ([`Self::hold_commands_for_test`]); nothing otherwise.

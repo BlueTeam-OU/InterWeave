@@ -23,15 +23,17 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AdminBinding, AdminCapability, AdminPort, DataSessionBinding as _, LocalSessionEvent,
-    SessionEvent,
+    AdminBinding, AdminCapability, AdminPort, DataSessionBinding as _, DataSessionPort as _,
+    LocalSessionEvent, SessionEvent,
 };
 use interweave_local_client_conformance_tests as suite;
 use interweave_profile_config::{
     PersistError, ProfilePaths, TrustBoundary, create_private_dir_within,
 };
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
-use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
+use interweave_transport_api::{
+    ChannelId, DirectDestination, EndpointId, MessageId, TransportError, TransportIdentity,
+};
 use interweave_transport_composition::InProcessBinding;
 use interweave_transport_embedded::{EmbeddedHost, EmbeddedLaunch, NetworkView};
 
@@ -469,6 +471,61 @@ fn item_9_a_message_waiting_at_the_end_goes_with_the_host() {
         &session,
     ));
     pair.b.stop();
+}
+
+/// The embedded stop's order (`DIRECT.md` §Graceful shutdown, A
+/// 2026-11-17, binding both bindings): A drains first, so B's next
+/// message is refused -- `shutting_down` on the wire, which B's runtime
+/// names `BackendUnavailable` (`direct.rs`'s reject mapping) -- while A's
+/// open session still takes the message A answered `AcceptedV2` before
+/// the drain; then the session closes and A stops. As the gap was found
+/// the host's stop was one command that ended at once, and A's session
+/// was handed nothing.
+#[test]
+fn the_embedded_stop_refuses_first_and_hands_over() {
+    let pair = EmbeddedPair::start();
+    let (a, b) = pair.bindings();
+    let (to, from) = pair.run(suite::a_session_to_end_with_a_message_waiting(
+        &b,
+        &a,
+        &pair.a_peer,
+        &agent(),
+        &human(),
+    ));
+    pair.a.host().drain().expect("A drains");
+    let after = pair.run(from.send_direct(
+        DirectDestination {
+            peer: pair.a_peer.clone(),
+            endpoint: Some(human()),
+        },
+        MessageId::from_bytes([11; 16]),
+        suite::text("after the drain"),
+    ));
+    assert_eq!(
+        after,
+        Err(TransportError::BackendUnavailable),
+        "refused from the drain on"
+    );
+    let held = pair
+        .a
+        .host()
+        .runtime()
+        .block_on(to.events(usize::MAX))
+        .expect("A's session is open across the drain");
+    let ids: Vec<MessageId> = held
+        .iter()
+        .filter_map(|event| match event {
+            SessionEvent::Direct(message) => Some(message.message_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        ids,
+        [MessageId::from_bytes([10; 16])],
+        "what A admitted before the drain is handed over, and nothing after it"
+    );
+    drop(to);
+    pair.stop();
 }
 
 #[test]

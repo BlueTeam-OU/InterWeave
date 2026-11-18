@@ -153,14 +153,6 @@ fn an_unhonoured_value_is_refused_by_name_and_the_default_is_not() {
             "transport.direct.inbound_rate_limit.per_peer_burst",
         ),
         (
-            "direct: {inbound_rate_limit: {global_per_minute: 1199}}",
-            "transport.direct.inbound_rate_limit.global_per_minute",
-        ),
-        (
-            "direct: {inbound_rate_limit: {global_burst: 255}}",
-            "transport.direct.inbound_rate_limit.global_burst",
-        ),
-        (
             "pubsub: {inbound_rate_limit: {per_peer_per_minute: 119}}",
             "transport.pubsub.inbound_rate_limit.per_peer_per_minute",
         ),
@@ -182,6 +174,39 @@ fn an_unhonoured_value_is_refused_by_name_and_the_default_is_not() {
             Err(other) => panic!("{block}: expected Unhonoured {{ {field} }}, got {other}"),
             Ok(_) => panic!("{block}: expected Unhonoured {{ {field} }}, it composed"),
         }
+    }
+}
+
+/// The direct daemon-wide bucket is the receiving profile's to set (the
+/// owner's ruling of 2026-11-17): off its default, at either end of the
+/// schema's range, the profile composes and the direct configuration
+/// carries the profile's pair, not the runtime's 1,200 / 256. The per-peer
+/// rows beside it still refuse (above).
+#[test]
+fn the_direct_global_bucket_is_taken_from_the_profile() {
+    let defaults = translate(&profile(""), &local(), 256).expect("composes");
+    assert_eq!(
+        defaults.direct.ingress_global(),
+        (1_200, 256),
+        "the defaults"
+    );
+    for (block, pair) in [
+        ("{global_per_minute: 1199, global_burst: 255}", (1_199, 255)),
+        ("{global_per_minute: 1, global_burst: 1}", (1, 1)),
+        (
+            "{global_per_minute: 60000, global_burst: 2048}",
+            (60_000, 2_048),
+        ),
+    ] {
+        let composed = translate(
+            &profile(&format!(
+                "transport:\n  direct: {{inbound_rate_limit: {block}}}\n"
+            )),
+            &local(),
+            256,
+        )
+        .unwrap_or_else(|e| panic!("{block}: it composes, got {e}"));
+        assert_eq!(composed.direct.ingress_global(), pair, "{block}");
     }
 }
 

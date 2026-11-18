@@ -35,6 +35,15 @@
 //! interface taken down goes; [`overlay_up`] makes it again, the same
 //! addresses on the same names.
 //!
+//! # A medium that fills
+//!
+//! The third ([`in_capped_medium`]): no network but the namespace's own
+//! loopback, and a tmpfs capped at [`CAPPED_MEDIUM_SIZE`] mounted at
+//! [`CAPPED_MEDIUM`], so a daemon whose state directory is placed there
+//! meets `ENOSPC` from the kernel once a test has filled the rest -- a
+//! full disk as it reaches a write, not a fault a mode or a quota
+//! stands in for.
+//!
 //! # Why the namespace has a root of its own
 //!
 //! An unprivileged user namespace cannot map the host's root, so `/` and
@@ -49,7 +58,8 @@
 //!
 //! # How a test uses it
 //!
-//! [`in_second_network`] (or [`in_overlay`]) at the top of the test: the
+//! [`in_second_network`] (or [`in_overlay`], or [`in_capped_medium`]) at
+//! the top of the test: the
 //! outer copy re-runs the test's own binary inside the namespaces, asserts
 //! it passed, and returns `false`; the inner copy gets `true` and runs the
 //! body. Where user namespaces, `iproute2`, util-linux's `unshare` (with
@@ -94,6 +104,14 @@ pub const NAT_B: Ipv4Addr = Ipv4Addr::new(203, 0, 113, 6);
 /// The relay's address, on the core.
 pub const RELAY: Ipv4Addr = Ipv4Addr::new(203, 0, 113, 10);
 
+/// Where [`in_capped_medium`] mounts the capped tmpfs, `0700` and the
+/// namespace's own.
+pub const CAPPED_MEDIUM: &str = "/capped";
+
+/// The capped tmpfs's size: room for a profile's state and the files a
+/// start writes there, so a test fills the rest on purpose.
+pub const CAPPED_MEDIUM_SIZE: &str = "1m";
+
 /// One of the namespaces a test places something in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Net {
@@ -124,7 +142,7 @@ impl Net {
     }
 }
 
-/// What both topologies' shells begin with: `$1` is the new root.
+/// What every entry point's shell begins with: `$1` is the new root.
 /// Every step is `set -e`: a namespace that half-built fails the run.
 const PRELUDE: &str = r#"
 set -e
@@ -171,6 +189,10 @@ ip -n core route add 10.1.0.0/24 via 203.0.113.2
 ip -n core route add 10.2.0.0/24 via 203.0.113.6
 "#;
 
+/// The capped medium's network: the namespace's loopback, up, and
+/// nothing else.
+const LOOPBACK_ONLY: &str = "ip link set lo up\n";
+
 /// The overlay's two namespaces; [`OVERLAY_UP`] then makes the link.
 const OVERLAY_NETWORK: &str = r"
 for n in A B; do ip netns add $n; ip -n $n link set lo up; done
@@ -189,8 +211,8 @@ nsenter --net=/run/netns/B sh -c 'ip addr add 100.64.0.2/30 dev w1 && ip link se
 /// The overlay's link, deleted: a veth goes with both its ends.
 const OVERLAY_DOWN: &str = "nsenter --net=/run/netns/A ip link del w0";
 
-/// The namespace's own root, made and pivoted into, after either
-/// topology.
+/// The namespace's own root, made and pivoted into, after each entry
+/// point's network.
 const NEW_ROOT: &str = r#"
 # Then the root of the namespace's own.
 mount -t tmpfs -o mode=0755 none "$NR"
@@ -218,7 +240,24 @@ mkdir "$NR/old"; cd "$NR"; pivot_root . old; cd /; umount -l /old; rmdir /old
 /// copy did not pass -- never a skip.
 #[must_use]
 pub fn in_second_network(test: &str) -> bool {
-    inside(NAT_NETWORK, test, INNER_DEADLINE)
+    inside(NAT_NETWORK, "", test, INNER_DEADLINE)
+}
+
+/// Run the calling test with a capped medium at [`CAPPED_MEDIUM`] and
+/// only loopback for a network: `true` in the inner copy, `false` in the
+/// outer one, as [`in_second_network`]. The inner copy is the
+/// namespace's root, whom tmpfs's `size=` binds as it binds anyone, but
+/// a file mode does not.
+///
+/// # Panics
+/// As [`in_second_network`].
+#[must_use]
+pub fn in_capped_medium(test: &str) -> bool {
+    let mount = format!(
+        "mkdir -m 0700 {CAPPED_MEDIUM}\n\
+         mount -t tmpfs -o size={CAPPED_MEDIUM_SIZE},mode=0700 none {CAPPED_MEDIUM}\n"
+    );
+    inside(LOOPBACK_ONLY, &mount, test, INNER_DEADLINE)
 }
 
 /// [`in_second_network`], in the overlay's topology instead: A and B on
@@ -239,7 +278,12 @@ pub fn in_overlay(test: &str) -> bool {
 /// As [`in_second_network`].
 #[must_use]
 pub fn in_overlay_within(test: &str, deadline: Duration) -> bool {
-    inside(&format!("{OVERLAY_NETWORK}{OVERLAY_UP}"), test, deadline)
+    inside(
+        &format!("{OVERLAY_NETWORK}{OVERLAY_UP}"),
+        "",
+        test,
+        deadline,
+    )
 }
 
 /// Delete the overlay's link, as an overlay interface taken down goes:
@@ -294,8 +338,8 @@ fn shell(what: &str, script: &str) {
 }
 
 /// The outer copy's run of the inner one in the namespaces `network`
-/// builds.
-fn inside(network: &str, test: &str, deadline: Duration) -> bool {
+/// builds, `pivoted` run in the new root before the test.
+fn inside(network: &str, pivoted: &str, test: &str, deadline: Duration) -> bool {
     if std::env::var_os(NETNS_ENV).is_some() {
         return true;
     }
@@ -318,7 +362,7 @@ fn inside(network: &str, test: &str, deadline: Duration) -> bool {
         .tempdir_in(parent)
         .expect("the new root's mount point");
     let script = format!(
-        "{PRELUDE}{network}{NEW_ROOT}\nexport {NETNS_ENV}=1 TMPDIR=/scratch\n\
+        "{PRELUDE}{network}{NEW_ROOT}{pivoted}\nexport {NETNS_ENV}=1 TMPDIR=/scratch\n\
          exec \"$IW_TEST_EXE\" --exact \"$IW_TEST_NAME\" --include-ignored --nocapture --test-threads 1"
     );
     // Every process the inner copy starts dies with this test, whichever
@@ -374,14 +418,14 @@ fn inside(network: &str, test: &str, deadline: Duration) -> bool {
         let _ = Command::new("kill")
             .args(["-KILL", &pid.to_string()])
             .status();
-        panic!("the test inside the second network ran past {deadline:?}: killed");
+        panic!("the test inside its namespaces ran past {deadline:?}: killed");
     };
     let output = output.expect("the inner copy's output");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success() && stdout.contains("1 passed"),
-        "the test inside the second network did not pass ({}). If the namespaces could not \
+        "the test inside its namespaces did not pass ({}). If the namespaces could not \
          be made, this host cannot ask the question (decided (7)).\n--- stdout ---\n{stdout}\n\
          --- stderr ---\n{stderr}",
         output.status

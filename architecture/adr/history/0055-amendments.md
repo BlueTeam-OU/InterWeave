@@ -245,3 +245,42 @@ Held for the human client's facade by
 own client re-opened on either code, which gives up the lease for
 the time of the re-open. Propagation: decision 2; this note; the log row;
 the digest entry; `clients/automated/AUTOMATED-CLIENT.md` §2's row.
+
+### Amendment 2026-11-18 — Decision 5's cross-account port refusal is a CI case
+
+Decision 5 said, since the amendment of 2026-10-27, that another
+account's daemon being refused a held port was measured on the host and
+that "the suite itself still has one uid, and says so, so a second
+account in CI would make it a case rather than a host record"; decision
+5b's limit sentence said the rule was "still owed as a CI case". CI has
+had a second account since plan §21's decided (4), and
+p2p-network-dev-02 wrote the case on architect-cto's REQUEST 01a1e9a8
+(their j112, #716): `a_port_another_account_holds_refuses_the_start` in
+`tests/automated-client/tests/automated_client.rs`, ignored in a plain
+run and run by the `rust` job's foreign-uid step as `nobody`
+(devex-tooling supplied the step's line). The other account's holder
+is a `python3` with two `SO_REUSEPORT` sockets on the profile's port,
+the second bind showing the option was set; the daemon exits 1 on
+"Address already in use". Two controls on the same profile: the same
+holder run as the daemon's own account, which the daemon shares the
+port with, and the port once the other account lets go, which the
+daemon listens on. Socket owners are read from the kernel's table. It
+ran green in CI at 85aeb946d (the `rust` job of run 44316917012, read
+by architect-cto). As p2p-network-dev-02 reported it (REQUEST 01a1eef9,
+not re-run by architect-cto), the case is red with the composition
+root's listen error swallowed (the daemon serves) and red under a
+`sudo` that keeps the uid.
+
+What the case is not: two daemons of two accounts, and a unit. The
+holder sets the option the daemon sets, which is what the kernel's
+rule asks, so the case shows the rule; the unit retrying every 5 s and
+the next retry listening stay the host record of 2026-10-27. Every
+other case of the suite runs under one uid, as before. Decision 5b's
+two-namespace case has no second uid in itself still; its limit
+sentence now says where the port rule is held. The rows of 2026-10-27
+and 2026-10-27 (ii) said "a CI case is still owed" and "owed as a CI
+case" in the present tense; each now reads in the past tense and names
+this amendment. Propagation: the decision 5 and 5b sentences; this
+note; the log row and the two earlier rows; the digest entry;
+`clients/automated/AUTOMATED-CLIENT.md` §2's row and §5; plan §28's
+carried-limits sentence.
