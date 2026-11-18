@@ -115,7 +115,8 @@ lasts until the result shows on C4 or the next screen opens, so it
 also covers the service start after a success, and the service start
 after Continue while `IdAlreadyCreated` shows. Before, only
 `design/2026-10-22-add-a-peer.md` §5.1 held Continue, and neither that
-note nor this one held Try again or said what `CopyPeerId` does. Nor
+note nor this one held Try again or said what `CopyPeerId` does while
+C4 is held. Nor
 did either say that Tab and the arrows still move focus while C4 is
 held, that, when the result comes, focus goes as §8 says even if the
 person moved it, or that a cancelled or denied prompt for the seal or
@@ -145,9 +146,9 @@ says that a cancelled or denied prompt for the seal or its read-back
 leaves C4 as it was, and that one for the service start ends on
 Chats, as §6 says. Acceptance 3 names the clipboard removal, and
 acceptance 9 names `IdAlreadyTitle` and the notice's place.
-Acceptance 18's clipboard runs are now made both below Android 13 and
-at 13 or later,
-and its Pixel 9a check is blocked until a debug-build hook exists.
+Acceptance 18 gains three host-test clipboard runs, each made below
+Android 13 and at 13 or later, and a Pixel 9a check that is blocked
+until a debug-build hook exists.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1789,7 +1790,7 @@ scale would also be a finding of the Android review
     made, the snackbar's. On C4, by a test
     hook with `IdStorageFailed` shown, a copy shows the snackbar and
     the notice stays shown; after Enter on Try again 5.5 s after the
-    snackbar appeared, the snackbar is still shown 0.2 s after the
+    snackbar appeared, with the seal left unanswered, the snackbar is still shown 0.2 s after the
     Enter and gone 0.7 s after it, as for Continue. A rotation 3 s after the snackbar appeared (in the host
     test, the window's size swapped from portrait to landscape) keeps
     it shown, 12 dp above the actions, with no second announcement,
