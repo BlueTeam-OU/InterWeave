@@ -5910,7 +5910,8 @@ phones, and they differ. The Pixel 9a (Android 17) kept one connection
 through 2 h 54 min of deep Doze with no missed liveness. On the Samsung A40 (Android 11, One UI)
 the vendor's power manager froze the app's process about a minute
 after the screen went off, its foreground service running, and thawed
-it for 8 s to 2 min at a time until Doze ended: while frozen the
+it for 8 s to 2 min at a time until Doze ended (the thaws read in the
+control window, with no peer online): while frozen the
 listening socket accepted nothing, and of the far daemon's 227 dials
 in the 3 h window 8 connected, two while a person was using the phone
 and six in thaws, for 2 to 102 s each. SPIKE-008's L3 on the same
