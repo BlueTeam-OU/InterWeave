@@ -853,6 +853,19 @@ impl UiModel {
         }
     }
 
+    /// A reply in a peer's endpoint conversation also names a held message
+    /// this client sent to that peer with no endpoint named (`<peer>`, its
+    /// default endpoint), a conversation of its own that no received row
+    /// is ever keyed in, since each records the endpoint its sender
+    /// asserted. For a client that names a message by its id, the
+    /// command-line one, never for one that draws the reply's line: there
+    /// `Present` means the target is up the same conversation (start-window
+    /// §5.2), which this target is not (#725 review F1). Without it every
+    /// answer to such a send reads unavailable.
+    pub fn name_replies_to_default_sends(&mut self) {
+        self.replies.to_default_sends = true;
+    }
+
     /// TEST BUILDS ONLY (the `test-hooks` feature): hold the model to a
     /// session bound, a held-row ceiling and a read-proposal bound below
     /// the published caps, so a test reaches each with a few rows.
@@ -1473,8 +1486,10 @@ impl UiModel {
     }
 
     /// A conversation's messages, in LOCAL time order (A3). Replies are
-    /// resolved here, within the conversation, so a target that was
-    /// evicted or is ambiguous reads `Unavailable` (review F5).
+    /// resolved here, within the conversation (and, for a client that
+    /// names replies by id, among its `<peer>` sends: `reply_keys`),
+    /// so a target that was evicted or is ambiguous reads `Unavailable`
+    /// (review F5).
     #[must_use]
     pub fn messages(&self, key: &ConversationKey) -> Vec<MessageItem> {
         let mut list: Vec<MessageItem> = self
@@ -2130,12 +2145,40 @@ impl UiModel {
         }
     }
 
-    fn reply(&self, conversation: &ConversationKey, target: Option<&str>) -> Option<Reply> {
-        let target = target?;
-        let keys = self
+    /// The held items with application id `target` that a reply in
+    /// `conversation` can name: its own, and under
+    /// [`Self::name_replies_to_default_sends`] for a peer's endpoint
+    /// conversation that peer's `<peer>` sends too, never another
+    /// endpoint's (`a_reply_names_a_message_sent_to_the_peers_default_endpoint`).
+    /// When such a send leaves, no record is keyed by its conversation, so
+    /// the store is not asked again; it holds no outbound row to answer
+    /// with, and the line reads unavailable.
+    fn reply_keys(&self, conversation: &ConversationKey, target: &str) -> Vec<ItemKey> {
+        let mut keys: Vec<ItemKey> = self
             .by_app
             .get(&(conversation.clone(), target.to_owned()))
-            .map_or(&[][..], Vec::as_slice);
+            .cloned()
+            .unwrap_or_default();
+        if let ConversationKey::Direct {
+            peer,
+            endpoint: Some(_),
+        } = conversation
+            && self.replies.to_default_sends
+        {
+            let default = ConversationKey::Direct {
+                peer: peer.clone(),
+                endpoint: None,
+            };
+            if let Some(sent) = self.by_app.get(&(default, target.to_owned())) {
+                keys.extend(sent.iter().copied());
+            }
+        }
+        keys
+    }
+
+    fn reply(&self, conversation: &ConversationKey, target: Option<&str>) -> Option<Reply> {
+        let target = target?;
+        let keys = self.reply_keys(conversation, target);
         // A hidden message is not held as far as a reply is concerned, nor
         // stored, while its snackbar can bring it back (§5.2): the neutral
         // placeholder, whatever the store holds.
@@ -2224,7 +2267,10 @@ impl UiModel {
     }
 
     /// Forget `keys` entirely: shown nowhere, offered nothing, no reply
-    /// resolved to them; a reply to one asks the store about it (§5.2).
+    /// resolved to them; a reply to one asks the store about it (§5.2),
+    /// but for a reply in one of the peer's endpoint conversations naming
+    /// a `<peer>` send under [`Self::name_replies_to_default_sends`], which
+    /// is not asked again ([`Self::reply_keys`]).
     /// An item's stored rows, if it holds any, stay in the store: the
     /// ceiling and a closed window let go of such items, to load again.
     fn drop_items(&mut self, keys: &[ItemKey]) {

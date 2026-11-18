@@ -1770,3 +1770,64 @@ async fn a_refused_read_of_a_printed_message_is_said_whatever_the_filter() {
         "{out}"
     );
 }
+
+/// An answer to a message this run sent to `<peer>` alone, from that peer's
+/// endpoint, prints `reply_to` as the sent row's id, as `listen` prints the
+/// arrival (README, "A conversation and a message id"; j124, the v0.4.0
+/// install run on #722). Mutation: the session not naming replies to
+/// default-endpoint sends, which prints `{"unavailable": true}`.
+#[tokio::test]
+async fn an_answer_to_a_send_to_a_peer_alone_names_the_sent_row() {
+    use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
+    use interweave_human_client_api::{Origin, Received};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    let alone = ConversationKey::Direct {
+        peer: a.peer().clone(),
+        endpoint: None,
+    };
+    let (out, sent) = run(&mut bob, send(&alone, "the question"), true).await;
+    sent.expect("sent");
+    let row = lines(&out)[0]["id"].as_str().expect("an id").to_owned();
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    drop(alice);
+    let question = store(dir_a.path())
+        .unread_inbound()
+        .expect("alice's store")
+        .into_iter()
+        .next()
+        .expect("the question arrived")
+        .app_message_id;
+    let answer = Received {
+        row: RowId::from_stored(9),
+        origin: Origin::Direct {
+            peer: a.peer().clone(),
+            endpoint: endpoint(),
+        },
+        envelope: HumanChatV2 {
+            v: 2,
+            kind: MessageKind::Text,
+            app_message_id: format!("{:032x}", 9),
+            text: "the answer".to_owned(),
+            reply_to: Some(question.as_str().to_owned()),
+            sent_at_ms: None,
+            from_endpoint: None,
+        },
+        received_at: 9,
+    };
+    assert_eq!(
+        crate::output::message_value(&bob.model().message_of(&answer))["reply_to"],
+        json!({ "id": row }),
+        "{out}"
+    );
+}
