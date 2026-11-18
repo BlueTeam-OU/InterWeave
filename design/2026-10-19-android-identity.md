@@ -116,8 +116,9 @@ also covers the service start after a success, and the service start
 after Continue while `IdAlreadyCreated` shows. Before, only
 `design/2026-10-22-add-a-peer.md` §5.1 held Continue, and neither note
 held Try again, said what `CopyPeerId` does, or said that Tab and the
-arrows still move focus while C4 is held and where focus goes on the
-result. On R3, as on C4, a press
+arrows still move focus while C4 is held, that the result's focus
+applies wherever the person moved it, or that a cancelled seal prompt
+leaves focus where it was. On R3, as on C4, a press
 of the screen's primary while the snackbar shows does not close it
 (§5). Before, §5 said so of C4 only. §5 now also says what a press of
 `CopyPeerId` does while a §6 notice shows, and what a rotation does to the
@@ -631,8 +632,8 @@ and R4.
   or in place of the screen: any §6 notice (`IdAlreadyCreated` included, a notice that also hides the
   PeerId the snackbar confirmed), the system prompt and the progress
   state, and on C4 and R4 add-a-peer §5.1's `ConnectStarting`, which shows
-  under Continue 1 s after the press. One message shows at a time:
-  the one that needs the person's attention.
+  under Continue 1 s after the press. A message that shows after the
+  snackbar replaces it: the one that needs the person's attention.
 - A copy while a §6 notice already shows (C4 with `IdBusy`,
   `IdStorageFailed` or `IdStorageUnknown`; R3 with any of its
   notices) shows the snackbar, and the notice stays. The rule above
@@ -1759,7 +1760,7 @@ scale would also be a finding of the Android review
     shown until its time ends, 6 s after it appeared (3 s after the
     Enter), and closes then: it is still shown 2 s after the Enter and
     gone 4 s after it. On C4, where `ConnectStarting` shows 1 s after
-    the press, two runs, each with the seal left unanswered. After
+    the press, three runs, each with the seal left unanswered. After
     Enter on Continue 5.5 s after the snackbar appeared, the snackbar
     is still shown 0.2 s after the Enter and gone 0.7 s after it, 6 s
     after it appeared and before `ConnectStarting` shows. After Enter
