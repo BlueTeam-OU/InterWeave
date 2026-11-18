@@ -168,6 +168,17 @@ fn endpoints() -> DirectEndpoints {
     .expect("a valid profile")
 }
 
+/// The receiver's endpoints, its profile setting the daemon-wide bucket
+/// (`transport.direct.inbound_rate_limit.global_per_minute` and
+/// `global_burst`, the receiving profile's to set: the owner's ruling of
+/// 2026-11-17).
+fn endpoints_with_global(per_minute: u32, burst: u32) -> DirectEndpoints {
+    let mut profile = profile_with(vec![entry("human"), entry("claude")], Some("human"));
+    let rate = &mut profile.transport.direct.inbound_rate_limit;
+    (rate.global_per_minute, rate.global_burst) = (per_minute, burst);
+    DirectEndpoints::from_profile(&profile, QUEUE_BOUND).expect("a valid profile")
+}
+
 /// The SENDER's endpoints, which are not the receiver's.
 ///
 /// A source endpoint must name a lease the sending node holds, so a
@@ -218,6 +229,20 @@ async fn fan_in(
     TransportIdentity,
     Leases,
 ) {
+    fan_in_to(senders, endpoints()).await
+}
+
+/// [`fan_in`] to a receiver configured with `receiving`.
+async fn fan_in_to(
+    senders: usize,
+    receiving: DirectEndpoints,
+) -> (
+    Vec<SwarmRuntime>,
+    Vec<Leases>,
+    SwarmRuntime,
+    TransportIdentity,
+    Leases,
+) {
     let sending: Vec<(ProfileIdentity, TransportIdentity)> = (0..senders).map(|_| who()).collect();
     let (receiver_id, receiver_peer) = who();
 
@@ -226,7 +251,7 @@ async fn fan_in(
         trusting(&sending.iter().map(|(_, p)| p).collect::<Vec<_>>()),
     );
     receiver
-        .configure_direct(endpoints())
+        .configure_direct(receiving)
         .await
         .expect("endpoints install");
     let held = claim_all(&receiver, &["human", "claude"]).await;
@@ -513,6 +538,103 @@ async fn the_global_bucket_bounds_peers_that_are_each_within_their_own() {
         delivered.len(),
         accepted_total,
         "the queue took exactly what was accepted"
+    );
+}
+
+/// The daemon-wide bucket refuses at the RECEIVING PROFILE'S burst and
+/// rate, not at the runtime's 256 and 1,200 a minute.
+///
+/// Burst 4 at one a minute, and one sender well inside its own 32: the
+/// fifth frame can only have been refused by the shared bucket, and so
+/// can the two sent a second and a half later -- 1,200 a minute earns
+/// thirty in that time, and the sender's own bucket three more beside
+/// the twenty-eight it has left. The control is
+/// `the_global_bucket_bounds_peers_that_are_each_within_their_own`, the
+/// same bucket at its defaults admitting about 256 of 512.
+#[tokio::test]
+async fn the_daemon_wide_bucket_refuses_at_the_profiles_burst_and_rate() {
+    const BURST: u8 = 4;
+    let (senders, lease_sets, receiver, peer, held) =
+        fan_in_to(1, endpoints_with_global(1, u32::from(BURST))).await;
+
+    let first = flood(&senders[0], &lease_sets[0], &peer, BURST * 2, |_| {
+        "human".into()
+    })
+    .await;
+    assert_only_overloaded(&first);
+    assert_eq!(
+        accepted(&first),
+        usize::from(BURST),
+        "the profile's burst, inside the sender's own {PER_PEER_BURST}"
+    );
+
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    // Distinct ids from the first flood's, or a duplicate is answered
+    // without reaching the limiter.
+    let mut later = Vec::new();
+    for id in [200, 201] {
+        later.push(
+            senders[0]
+                .send_direct(&lease_sets[0]["human"], peer.clone(), frame("human", id))
+                .await
+                .expect("the command reaches the task"),
+        );
+    }
+    assert_only_overloaded(&later);
+    assert_eq!(
+        accepted(&later),
+        0,
+        "one a minute earns nothing in 1.5 s; the default rate would have"
+    );
+
+    let delivered = receiver
+        .commander()
+        .drain_leased(&held["claude"], usize::MAX)
+        .await
+        .expect("the receiver answers");
+    assert_eq!(
+        delivered.len(),
+        usize::from(BURST),
+        "the queue was not the refuser"
+    );
+}
+
+/// The daemon-wide bucket admits past the runtime's default burst when the
+/// receiving profile raises it.
+///
+/// Fifteen peers each spend exactly their own 32, 480 in all: at the
+/// defaults the shared bucket cuts that to about 256
+/// (`the_global_bucket_bounds_peers_that_are_each_within_their_own`); at
+/// the schema's ceiling, 2,048 and 60,000 a minute, every one is
+/// admitted. Fifteen rather than sixteen so the 512-message queue is not
+/// the bound being reached.
+#[tokio::test]
+async fn the_daemon_wide_bucket_admits_past_the_default_at_the_profiles_burst() {
+    const SENDERS: usize = 15;
+    let (senders, lease_sets, receiver, peer, held) =
+        fan_in_to(SENDERS, endpoints_with_global(60_000, 2_048)).await;
+
+    let mut accepted_total = 0usize;
+    for (sender, leases) in senders.iter().zip(&lease_sets) {
+        let answers = flood(sender, leases, &peer, PER_PEER_BURST, |_| "human".into()).await;
+        assert_only_overloaded(&answers);
+        accepted_total += accepted(&answers);
+    }
+    let attempted = SENDERS * usize::from(PER_PEER_BURST);
+    assert_eq!(
+        accepted_total, attempted,
+        "the profile's 2,048 admits all {attempted}; the default 256 would not"
+    );
+
+    let delivered = receiver
+        .commander()
+        .drain_leased(&held["claude"], usize::MAX)
+        .await
+        .expect("the receiver answers");
+    assert_eq!(delivered.len(), accepted_total);
+    assert!(
+        delivered.len() < QUEUE_BOUND,
+        "and the queue was never full"
     );
 }
 

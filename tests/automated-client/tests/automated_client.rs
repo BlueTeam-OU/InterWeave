@@ -813,8 +813,10 @@ async fn stop_order_deployment() -> (tempfile::TempDir, Vec<Profile>) {
         Profile::mint(base.path(), "profile-1"),
     ];
     profiles[0].render(&[&profiles[1]]);
-    // The direct ingress buckets stay at their defaults: this build
-    // refuses any other value (`translate.rs`'s unhonoured rows).
+    // The direct ingress buckets stay at their defaults: [`FILL`] is
+    // counted against A's per-peer bucket at B, whose values this build
+    // refuses off their default (`translate.rs`'s unhonoured rows), and
+    // against the daemon-wide one at its default 256.
     profiles[1].render_tuned(&[&profiles[0]], "{ client_event_queue: 16 }", "");
     for profile in &mut profiles {
         profile.start().await;
