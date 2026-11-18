@@ -2230,8 +2230,8 @@ impl ConnectionManager {
     }
 
     /// Peers on the loss ladder, for the bound's tests.
-    #[must_use]
-    pub fn loss_ladder_peers(&self) -> usize {
+    #[cfg(test)]
+    fn loss_ladder_peers(&self) -> usize {
         self.loss_ladder.len()
     }
 
