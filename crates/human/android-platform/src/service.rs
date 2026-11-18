@@ -939,9 +939,12 @@ impl ServiceHost {
         // the facade's close below reads its session's queue for the last
         // time and commits it unread before the session closes. With the
         // close first, a message admitted between the close and the stop
-        // went with the session unread
-        // (`a_message_admitted_before_the_stop_is_unread_after_it`). An
-        // error is a runtime already ended: nothing more can arrive.
+        // went with the session unread, its sender told `AcceptedV2`
+        // (`stop_drain.rs`: `a_send_while_the_close_waits_is_refused`
+        // holds the refusal before the close,
+        // `a_message_admitted_before_the_stop_is_unread_after_it` the
+        // close's commit). An error is a runtime already ended: nothing
+        // more can arrive.
         let _ = host.drain();
         let session_closed = facade.is_none_or(|f| f.close(FACADE_CLOSE));
         let deadline = Instant::now() + FACADE_CLOSE;
