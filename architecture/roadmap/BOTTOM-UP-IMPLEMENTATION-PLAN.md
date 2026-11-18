@@ -5806,7 +5806,9 @@ on the A40 only (p2p-network-dev's second device run, when the phone is
 re-paired). Of SPIKE-008's not-established items, closed by this stage:
 the current target API's enforcement (the Pixel 9a at API 37, gate
 (b)'s record); carried, each to the owner's release gate: natural Doze
-and a real low-memory kill, other OEMs' power managers and plain
+(measured on 2026-11-17 and 2026-11-18 under Stay reachable, the
+paragraph on that run below, and leaves this list with the A40's limit
+carried in its place) and a real low-memory kill, other OEMs' power managers and plain
 Sleeping apps, cellular transitions, `batterystats` and `netstats`, B4
 device-to-device and B5 Smart Switch, duplicate suppression and the
 byte search across a reboot, a power loss mid-truncate, L2 with the
@@ -5929,9 +5931,10 @@ mode's name, not a promise", and the notification's "tries to stay
 reachable". It is the first measured case of "other OEMs' power
 managers", which stay carried for every other vendor. Not measured,
 each carried to the owner's release gate: whether Samsung's per-app
-battery setting ("Unrestricted", "Never sleeping apps") lifts the
-freeze (a second A40 window with the setting changed, asked of the
-owner on 2026-11-17); what the notification and the app's own status
+battery setting lifts the freeze (a second A40 window with the setting
+changed, asked of the owner on 2026-11-17; the setting's name on this
+phone, One UI on Android 11, was not read and is read from its own
+Settings first); what the notification and the app's own status
 show while the process is frozen; a message sent to the frozen phone.
 Whether the client points a person to that setting is decided after
 the second window: an instruction not shown to work on the phone is
