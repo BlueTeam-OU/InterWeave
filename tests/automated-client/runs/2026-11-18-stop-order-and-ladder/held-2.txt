@@ -1,0 +1,47 @@
+daemons: <branch>/target/release
+variant silent, outage 0ns past B's exit, the connection held 35s before the stop
+B's drain: SIGTERM to exit 113 ms; A's sends, pausing 5ms after each answer, from 0ns before it, ms from SIGTERM:
+  -8..-8 ms: Accepted x1
+  1..109 ms: PeerUnreachable x15
+accepted before the SIGTERM: 1, of them not read by B's client: 0
+accepted from the SIGTERM on: 0, read by B's client before the exit: 0
+accepted and never read, counting what B's client held at the exit: 0
+A's sends through the outage, ms from B's exit:
+
+B serving 61 ms after its exit; B's client leased 51 ms after B served
+A's sends after B's return, ms from B serving:
+  0..769 ms: PeerUnreachable x4
+  1024..3151 ms: Accepted x9
+first accepted at Some(1024) ms, A's gate connected at Some(1040) ms
+accepted after the return: 9, read by B's client: true (lost 0)
+-- A's connectivity lines from the SIGTERM --
+2026-11-18T01:12:11.951501Z DEBUG interweave::connectivity: peer disconnected peer="<B>" reason="closed"
+2026-11-18T01:12:11.958769Z DEBUG interweave::connectivity: dial failed peer="<B>" class="dial_failed"
+2026-11-18T01:12:11.958794Z DEBUG interweave::connectivity: retry scheduled peer="<B>" origin="manual" attempt=1 delay_ms=1000 peer_backoff=true
+2026-11-18T01:12:11.965930Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:11.974686Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:11.982703Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:11.989779Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:11.996807Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.003924Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.011137Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.018847Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.025991Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.034608Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.041888Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.050785Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.061088Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.123394Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.378958Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.634396Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.839848Z  INFO interweave::connectivity: reconnect refused peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.893097Z DEBUG interweave::connectivity: dial failed peer="<B>" class="PeerBackoff"
+2026-11-18T01:12:12.962198Z DEBUG interweave::connectivity: peer connected peer="<B>" path="direct"
+-- B's lines --
+2026-11-18T01:11:36.709819Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<peer>"
+2026-11-18T01:11:36.713185Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-18T01:11:36.830786Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"
+2026-11-18T01:12:11.947421Z  INFO transport_daemon::daemon: SIGTERM
+2026-11-18T01:12:12.079601Z  INFO transport_daemon::daemon: starting profile="host-b" peer="<peer>"
+2026-11-18T01:12:12.083564Z  INFO transport_daemon::daemon: serving data=<scratch>/run/interweave/host-b.sock
+2026-11-18T01:12:12.962989Z DEBUG interweave::connectivity: peer connected peer="<A>" path="direct"

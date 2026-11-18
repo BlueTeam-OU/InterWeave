@@ -1211,7 +1211,9 @@ fn signed_ms(later: tokio::time::Instant, earlier: tokio::time::Instant) -> i128
 /// B's client reads; every 10 s through the outage; and every 250 ms from B's
 /// return until a send is accepted and two seconds past it. B's client
 /// re-opens its session at once: it retries from B's exit. Read from the
-/// environment: `J174_OUTAGE_S`, how long B stays down past its exit
+/// environment: `J174_HOLD_S`, how long the connection holds before B's
+/// `SIGTERM` (default 0; past 30 s its loss starts ADR-0011's loss
+/// ladder); `J174_OUTAGE_S`, how long B stays down past its exit
 /// (default 0, a restart), and `J174_B`: `silent` (B holds no entry for A
 /// and sends nothing), `sends` (no entry, and B's client sends to A as
 /// soon as it leases) or `entry` (B holds an entry for A, so its daemon
@@ -1236,6 +1238,11 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
             .ok()
             .map_or(0, |s| s.parse().expect("milliseconds")),
     );
+    let hold = Duration::from_secs(
+        std::env::var("J174_HOLD_S")
+            .ok()
+            .map_or(0, |s| s.parse().expect("seconds")),
+    );
     let drain_every = Duration::from_millis(
         std::env::var("J174_DRAIN_MS")
             .ok()
@@ -1253,6 +1260,9 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
     let mut from_a = a.client().await;
     let mut at_b = b.client().await;
     lands(&mut from_a, &mut at_b, (&a, &b), 1, "before the restart").await;
+    // How long the connection holds before B's stop: past 30 s, its loss
+    // starts the loss ladder (ADR-0011 A 2026-11-17).
+    tokio::time::sleep(hold).await;
     let before = a.log().len();
 
     // B's drain: A's client sends, pausing `drain_every` after each
@@ -1328,6 +1338,20 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
         .collect::<Vec<_>>();
     let lost_before = accepted_before.iter().filter(|id| !read(id)).count();
     let drain_read = drain_accepted.iter().filter(|id| read(id)).count();
+    // What B's client library already held at B's exit and the loop above
+    // had not yet asked for: read until its session reports the end.
+    // Counted apart, so `lost_before` stays the figure the record of
+    // 2026-11-17 measured.
+    let after_exit = tokio::time::Instant::now() + Duration::from_secs(1);
+    while tokio::time::Instant::now() < after_exit && at_b.connected() {
+        let _ = at_b.pump(Duration::from_millis(1)).await;
+    }
+    let read = |id: &MessageId| at_b.received.inbound.iter().any(|m| m.message_id == *id);
+    let lost_at_exit = accepted_before
+        .iter()
+        .chain(&drain_accepted)
+        .filter(|id| !read(id))
+        .count();
     drop(at_b);
 
     // B's client re-opens at once: it retries from B's exit, as a client
@@ -1462,10 +1486,11 @@ async fn a_restart_of_the_far_daemon_measured_from_its_return() {
     let daemons = std::env::var(interweave_test_support::e2e::PACKAGE_BIN)
         .unwrap_or_else(|_| "the workspace's build".to_owned());
     let text = format!(
-        "daemons: {daemons}\nvariant {variant}, outage {outage:?} past B's exit\n\
+        "daemons: {daemons}\nvariant {variant}, outage {outage:?} past B's exit, the connection held {hold:?} before the stop\n\
          B's drain: SIGTERM to exit {} ms; A's sends, pausing {drain_every:?} after each answer, from {lead:?} before it, ms from SIGTERM:\n{}\n\
          accepted before the SIGTERM: {}, of them not read by B's client: {lost_before}\n\
          accepted from the SIGTERM on: {}, read by B's client before the exit: {drain_read}\n\
+         accepted and never read, counting what B's client held at the exit: {lost_at_exit}\n\
          A's sends through the outage, ms from B's exit:\n{}\n\
          B serving {} ms after its exit; B's client leased {} ms after B served{}\n\
          A's sends after B's return, ms from B serving:\n{}\n\
