@@ -105,11 +105,14 @@ for f in "${files[@]}"; do
     if (( st != 0 )); then
         # The last line minisign said, else its status: a minisign killed by a
         # signal says nothing, and a refusal with no reason cannot be acted on.
+        # A status above 128 is a signal's only if bash knows that signal, and
+        # even then a program may have exited with it, so it is said as "if".
         why="$(grep -v '^[[:space:]]*$' "$scratch/err" | tail -n 1)" || true
-        if [[ -z "$why" ]] && (( st > 128 )); then
-            why="minisign was killed by signal $((st - 128)) ($(kill -l "$((st - 128))" 2>/dev/null || echo '?')), with nothing on stderr"
-        elif [[ -z "$why" ]]; then
+        if [[ -z "$why" ]]; then
             why="minisign exited $st with nothing on stderr"
+            if (( st > 128 )) && sig="$(kill -l "$((st - 128))" 2>/dev/null)"; then
+                why+=" (signal $((st - 128)), $sig, if it was killed)"
+            fi
         fi
         die "minisign could not sign $f with the environment's key: $why"
     fi

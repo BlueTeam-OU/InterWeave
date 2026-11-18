@@ -47,7 +47,10 @@ printf 'other\nother\n' | "$MS" -G -p "$SANDBOX/b.pub" -s "$SANDBOX/b.key" >/dev
 # Stand-ins for a minisign that fails saying nothing: one exits 3, one is killed.
 printf '#!/usr/bin/env bash\nexit 3\n' > "$SANDBOX/ms-silent"
 printf '#!/usr/bin/env bash\nkill -KILL $$\n' > "$SANDBOX/ms-killed"
-chmod +x "$SANDBOX/ms-silent" "$SANDBOX/ms-killed"
+# One exits 200, which no signal bash knows maps to; one says why, then a blank line.
+printf '#!/usr/bin/env bash\nexit 200\n' > "$SANDBOX/ms-200"
+printf '#!/usr/bin/env bash\necho "a reason" >&2\necho >&2\nexit 1\n' > "$SANDBOX/ms-trailing"
+chmod +x "$SANDBOX/ms-silent" "$SANDBOX/ms-killed" "$SANDBOX/ms-200" "$SANDBOX/ms-trailing"
 pub() { sed -n 2p "$SANDBOX/$1.pub"; }
 pin() { printf '[archive]\nminisign_public_key = "%s"\n' "$1" > "$SANDBOX/keys.toml"; }
 
@@ -70,6 +73,8 @@ expect() {  # expect <label> <status> [<output fragment>]
 none_left() {
     [[ ! -e "$F1.minisig" && ! -e "$F2.minisig" ]] && pass "  and no .minisig is left" \
         || fail "  a refusal left a .minisig"
+    [[ "$out" != *"$PASS"* ]] && pass "  and the password is not printed" \
+        || fail "  a refusal printed the password" "$out"
 }
 
 echo "release_sign_archive.sh:"
@@ -116,7 +121,13 @@ RUN_MS="$SANDBOX/ms-silent" run a "$PASS" "$F1"
 expect "a minisign that fails silently is refused with its status" 1 "minisign exited 3 with nothing on stderr"
 none_left
 RUN_MS="$SANDBOX/ms-killed" run a "$PASS" "$F1"
-expect "a minisign killed by a signal is refused naming it" 1 "killed by signal 9 (KILL)"
+expect "a minisign killed by a signal is refused naming it" 1 "exited 137 with nothing on stderr (signal 9, KILL, if it was killed)"
+none_left
+RUN_MS="$SANDBOX/ms-200" run a "$PASS" "$F1"
+expect "a status no signal maps to is given as a status" 1 "minisign exited 200 with nothing on stderr"
+[[ "$out" != *"signal"* ]] && pass "  and names no signal" || fail "  a plain exit was given a signal" "$out"
+RUN_MS="$SANDBOX/ms-trailing" run a "$PASS" "$F1"
+expect "a blank last line gives way to the line before it" 1 "with the environment's key: a reason"
 none_left
 run b other "$F1" "$F2"
 expect "an environment key that is not the pinned one is refused" 1 "does not verify with the pinned archive key"
