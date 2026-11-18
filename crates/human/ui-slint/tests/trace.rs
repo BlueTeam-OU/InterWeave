@@ -1300,6 +1300,73 @@ fn the_arrows_reach_r3s_question_and_copy() {
     assert_eq!(page.last(), "ui-trace focus=r3-question");
 }
 
+/// The focus lines the arrows give on R3 after a failed restore, at
+/// `width`: from the banner, where the failure puts focus, Down three
+/// times, then Up three times.
+fn r3_notice_arrows(width: f32) -> Vec<String> {
+    use interweave_human_ui_model::{ScreenId, StepFailed};
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2_but_24(None);
+    page.view
+        .window()
+        .window()
+        .set_size(slint::LogicalSize::new(width, 640.0));
+    page.key("v");
+    page.backtab();
+    page.enter();
+    page.take();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "control: checked");
+    page.flow.checked(Some(peer()));
+    page.settle();
+    assert_eq!(page.flow.screen(), ScreenId::R3, "control: R3");
+    page.flow.primary();
+    page.flow.restored(Err(StepFailed::Storage));
+    page.settle();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner", "control");
+    let mut lines = Vec::new();
+    for key in [Key::DownArrow, Key::DownArrow, Key::DownArrow] {
+        page.key(key);
+        lines.push(page.last());
+    }
+    for key in [Key::UpArrow, Key::UpArrow, Key::UpArrow] {
+        page.key(key);
+        lines.push(page.last());
+    }
+    lines
+}
+
+/// The arrows on R3 with a failed restore's notice (section 8's R3
+/// order, banner, Try again, question, Copy): on a phone's width Down
+/// from the banner reaches Try again under its text, then the question
+/// and Copy, and Up walks back the same way. At 900 (measured, not
+/// pinned) Down from the banner goes to the question and Up from Try
+/// again to the back arrow: the full-width question's and banner's
+/// centres outweigh Try again's at the start, as Android's weighted
+/// distance would. Mutation: `question-idx` not counting the notice's
+/// action fails here.
+#[test]
+fn the_arrows_reach_r3s_try_again_under_its_notice() {
+    let walk = |lines: &[&str]| {
+        lines
+            .iter()
+            .map(|l| format!("ui-trace focus={l}"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        r3_notice_arrows(360.0),
+        walk(&[
+            "identity-notice-action",
+            "r3-question",
+            "identity-copy",
+            "r3-question",
+            "identity-notice-action",
+            "identity-banner",
+        ])
+    );
+}
+
 /// Copy `PeerId` on R3 and on R4 (design section 5): Enter on it, and a
 /// screen reader's activate, put the `PeerId`'s canonical string on the
 /// clipboard -- no group spaces -- and focus stays on it; nothing reaches
