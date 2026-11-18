@@ -170,8 +170,11 @@ pub(crate) async fn run<B>(
         sequence: 0,
     };
     let until = stop.clone();
+    // Read when the writer is aborted: what its event lane still held.
+    let events_lane = connection.lanes.events.clone();
     let mut end = connection.serve(&mut reader, stop).await;
-    if matches!(end, End::Stop) {
+    let stopping = matches!(end, End::Stop);
+    if stopping {
         // The deadline the server sent with the stop: the stop's grace
         // from the moment it began, the same for every connection.
         let until = (*until.borrow()).unwrap_or_else(tokio::time::Instant::now);
@@ -180,15 +183,27 @@ pub(crate) async fn run<B>(
             .await
             .unwrap_or(End::Close(TransportError::ShuttingDown));
     }
+    let counters = Arc::clone(&connection.shared.counters);
     connection.end(end).await;
     // The writer may be blocked on a client that no longer reads: it gets
     // CLOSE_GRACE to flush the close, and is aborted after, so the slot is
-    // always released (#151 review, F1).
-    if tokio::time::timeout(CLOSE_GRACE, &mut writer)
-        .await
-        .is_err()
-    {
-        writer.abort();
+    // always released (#151 review, F1). What it never wrote is a stop's
+    // dropped events: its own count when it ended, the lane's when it was
+    // aborted -- less the frame it was part-way through, which nothing
+    // counts (`LOCAL-IPC.md`'s shutdown order).
+    let unwritten = match tokio::time::timeout(CLOSE_GRACE, &mut writer).await {
+        Ok(Ok(unwritten)) => unwritten,
+        Ok(Err(_)) => 0,
+        Err(_) => {
+            writer.abort();
+            events_lane
+                .max_capacity()
+                .saturating_sub(events_lane.capacity())
+        }
+    };
+    drop(events_lane);
+    if stopping {
+        counters.dropped_at_stop(u64::try_from(unwritten).unwrap_or(u64::MAX));
     }
     drop(slot);
 }
@@ -533,8 +548,9 @@ where
     /// connection then closes `ShuttingDown`. Pinned between real daemons
     /// by `tests/automated-client`'s
     /// `a_message_admitted_before_the_stop_is_read_before_the_close`, and
-    /// here by `a_stop_writes_what_the_session_held_before_the_close` and
-    /// `a_stop_counts_what_a_client_that_does_not_read_left`.
+    /// here by `a_stop_writes_what_the_session_held_before_the_close`,
+    /// `a_stop_counts_what_a_client_that_does_not_read_left` and
+    /// `a_stop_counts_what_a_writer_that_gave_up_left`.
     async fn hand_over(&mut self, until: tokio::time::Instant) -> Option<End> {
         let handing = match &self.port {
             Port::Data(session) => session.session().holds(DataCapability::Events),
@@ -572,25 +588,17 @@ where
                 Err(_) => break false,
             }
         };
-        self.count_left(gone).await;
+        self.count_held().await;
         gone.then_some(End::Gone)
     }
 
-    /// What a stopped client did not take: the events still in its lane,
-    /// which the `close` overtakes, and what its session still holds,
-    /// taken out here to be counted -- the session's close would drop
-    /// them uncounted.
-    async fn count_left(&self, lanes_gone: bool) {
+    /// What a stopped client's session still holds, taken out here to be
+    /// counted -- the session's close would drop it uncounted. What its
+    /// lane still holds is the writer's to count, since the `close`
+    /// overtakes it there or the writer drops it giving up (`run`).
+    async fn count_held(&self) {
         let Port::Data(session) = &self.port else {
             return;
-        };
-        let in_lane = if lanes_gone {
-            0
-        } else {
-            self.lanes
-                .events
-                .max_capacity()
-                .saturating_sub(self.lanes.events.capacity())
         };
         let held = session
             .events(usize::MAX)
@@ -598,7 +606,7 @@ where
             .map_or(0, |events| events.len());
         self.shared
             .counters
-            .dropped_at_stop(u64::try_from(in_lane.saturating_add(held)).unwrap_or(u64::MAX));
+            .dropped_at_stop(u64::try_from(held).unwrap_or(u64::MAX));
     }
 
     /// Drain the session into the event lane; `Some` ends the connection.

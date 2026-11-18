@@ -991,6 +991,41 @@ mod tests {
         );
     }
 
+    /// A writer that gives up on a client that does not read inside the
+    /// stop's grace (`write_stall` shorter than the grace) drops what its
+    /// lane held, and the stop counts it: what the socket delivered and
+    /// what was counted are the queue whole, the event the writer failed
+    /// on included. As the gap was found, the lane's events went uncounted
+    /// whenever the writer gave up before the grace ended (#709 review F1).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_counts_what_a_writer_that_gave_up_left() {
+        const QUEUED: usize = 1000;
+        let fake = Fake::default();
+        let mut stalling = config();
+        // The stall past the time `stuff` takes to see the pump stop (two
+        // 200 ms looks), so the writer gives up inside the stop's grace,
+        // not before the stop.
+        stalling.shutdown_grace = Duration::from_secs(5);
+        stalling.write_stall = Duration::from_millis(1_500);
+        let harness = Harness::start(&fake, stalling);
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let _ = stuff(&fake, QUEUED).await;
+        let counters = harness.stop().await;
+        let dropped = usize::try_from(counters.events_dropped_at_stop()).expect("fits");
+        let mut read = 0;
+        while let Some(frame) = client.next().await {
+            if matches!(frame, Frame::Event(_)) {
+                read += 1;
+            }
+        }
+        assert_eq!(
+            read + dropped,
+            QUEUED,
+            "read {read} + counted {dropped} is the queue of {QUEUED}"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn stopping_closes_every_connection_with_shutting_down() {
         let fake = Fake::default();
