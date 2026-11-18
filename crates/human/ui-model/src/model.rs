@@ -1487,7 +1487,7 @@ impl UiModel {
 
     /// A conversation's messages, in LOCAL time order (A3). Replies are
     /// resolved here, within the conversation (and, for a client that
-    /// names replies by id, among its `<peer>` sends: [`Self::reply_keys`]),
+    /// names replies by id, among its `<peer>` sends: `reply_keys`),
     /// so a target that was evicted or is ambiguous reads `Unavailable`
     /// (review F5).
     #[must_use]
