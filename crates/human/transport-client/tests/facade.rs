@@ -1611,6 +1611,29 @@ async fn a_close_whose_take_meets_a_full_store_degrades_rather_than_reconnects()
     );
 }
 
+/// A close takes what its session's queue still holds and commits it
+/// unread before it releases the queue (`DIRECT.md` §Graceful shutdown,
+/// A 2026-11-17): a stop is no place to drop an admitted message. As the
+/// gap was found a close released the queue unread. Mutation: the close
+/// not taking the rest.
+#[tokio::test]
+async fn a_close_commits_what_the_session_still_held_unread() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut receiver = client(&b, human(), memory());
+    ready(&mut receiver, 0).await;
+    let from = raw(&a, Some(agent())).await;
+    deliver(&from, b.peer(), 1, "first").await;
+    deliver(&from, b.peer(), 2, "second").await;
+    receiver.close().await;
+    assert_eq!(receiver.session_state(), &SessionState::Closed);
+    let unread = receiver.store_mut().unread_inbound().expect("unread");
+    assert_eq!(
+        unread.len(),
+        2,
+        "both held messages kept unread: {unread:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_fabricated_row_id_is_refused_by_retry_and_cancel() {
     let (a, _b) = FakeNetwork::pair(node_config(), node_config());
