@@ -1355,11 +1355,10 @@ fn the_arrows_reach_r3s_try_again_under_its_notice() {
     );
 }
 
-/// The same R3 on a wide window, 900 px: the arrows still reach every
-/// stop, by another walk. The full-width banner's and question's centres
-/// outweigh Try again's at the start, so Down from the banner goes to the
-/// question, and Try again is reached by Up from Copy, as Android's
-/// weighted distance would; Up from it goes to the back arrow.
+/// The same R3 on a wide window, 900 px: the arrows still reach Try
+/// again and the question, by another walk. Down from the banner goes to
+/// the question, Copy and Yes; Up from Copy reaches Try again, and Up from
+/// it the back arrow.
 #[test]
 fn the_arrows_reach_r3s_try_again_on_a_wide_window() {
     use slint::platform::Key::{DownArrow as Down, UpArrow as Up};
