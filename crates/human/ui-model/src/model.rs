@@ -2268,8 +2268,9 @@ impl UiModel {
 
     /// Forget `keys` entirely: shown nowhere, offered nothing, no reply
     /// resolved to them; a reply to one asks the store about it (§5.2),
-    /// but for a reply naming a `<peer>` send by id, which is not asked
-    /// again ([`Self::reply_keys`]).
+    /// but for a reply in one of the peer's endpoint conversations naming
+    /// a `<peer>` send under [`Self::name_replies_to_default_sends`], which
+    /// is not asked again ([`Self::reply_keys`]).
     /// An item's stored rows, if it holds any, stay in the store: the
     /// ceiling and a closed window let go of such items, to load again.
     fn drop_items(&mut self, keys: &[ItemKey]) {
