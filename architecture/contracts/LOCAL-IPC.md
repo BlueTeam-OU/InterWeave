@@ -702,7 +702,16 @@ daemons, `tests/automated-client`'s
 `an_inbound_direct_after_the_stop_began_is_refused_shutting_down` and
 `a_message_admitted_before_the_stop_is_read_before_the_close`). Not
 counted: an event the connection's writer was part-way through writing
-when a client that does not read was aborted.
+when a client that does not read was aborted. Counted though
+delivered: an event the writer finished writing between the stop's
+reading of what the connection's lane still held and the abort taking
+effect. The lane is read first, since an aborted writer empties it and
+a later reading would count none of it; so for a client that reads
+slowly, not one that has stopped reading, the stop's count can pass
+what that client lost by those frames -- none or one as a rule, with
+no cap at one. The count of a stop is therefore near the loss and not
+equal to it, short or over by a few frames, and no test holds the order
+of the reading and the abort (#709's review, F7; `ipc-server`'s `connection.rs`).
 
 ## Platform scope of the v1 build
 
