@@ -1317,9 +1317,13 @@ async fn idle_seat_arm(ip: std::net::Ipv4Addr, arm: IdleSeat) -> IdleSeatArm {
 /// A 2026-11-13) every profile HOLDS one direct data-plane connection
 /// per peer past the idle timeout (`SubstrateConfig::hold_data_plane`,
 /// on in `composition::translate`), and a routing seat is held to
-/// data-plane trust (`kademlia_driver::may_hold_a_seat`), so its
-/// occupant stays connected and libp2p-kad refuses the newcomer
-/// outright.
+/// data-plane trust (`kademlia_driver::may_hold_a_seat`), so an
+/// occupant holding a DIRECT connection stays connected and libp2p-kad
+/// refuses the newcomer outright. Direct only: a relayed connection is
+/// not held (ADR-0068), and the driver can seat a peer by an operator's
+/// circuit route (`the_operators_circuit_reaches_the_routing_stash_for_its_own_peer_only`),
+/// so an occupant reached only over a relay is as takeable as an
+/// unheld one; this test does not exercise that case.
 ///
 /// Three arms at once, so the run waits the pending timeout once:
 /// - HELD, as a profile runs, the honest routers undiallable once idle:
@@ -1336,8 +1340,9 @@ async fn idle_seat_arm(ip: std::net::Ipv4Addr, arm: IdleSeat) -> IdleSeatArm {
 ///   even unheld, the take needs an occupant the subject cannot dial
 ///   back, which is the peer the hold exists for.
 ///
-/// The other tests here run unheld with a ten-minute idle timeout, so
-/// none models a profile's idle seat.
+/// The other tests here run unheld and none waits idle past the pending
+/// timeout (the full-bucket test keeps its connections open with a
+/// ten-minute idle timeout), so none models a profile's idle seat.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_idle_honest_seat_is_held_so_a_connected_newcomer_cannot_take_it() {
     let ip = interweave_test_support::net::require_private_interface_v4();
