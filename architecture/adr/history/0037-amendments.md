@@ -61,3 +61,13 @@ the human-client-desktop diagram follow it.
 IPC 2.0 shipped with no trust method: `LOCAL-IPC.md` said trust and discovery administration (ADR-0032) "have no method in v2.0; they are Stage 15's". Stage 15's desktop client needs the human settings surface to read and change peer trust, and ADR-0032 already requires that to happen through the platform admin binding. The question this record answers is only which authority domain the new methods belong to, and the answer is the one it has always given: the administrative socket, under a capability of its own.
 
 The closed capability set gains `admin.trust`, granting `admin.trust.list` (the allowlist as `PeerTrustPolicy` holds it; deny-by-default is the policy's shape and is not reported as a setting) and `admin.trust.set {peer, allowed}` (IPC 2.1; `TrustDecision` and `DenyReason` stay local diagnostics and never cross the wire). It is refused on the data socket under any `client.kind`, like every `admin.*`. A set that revokes closes the peer's connections, and the data plane learns of it only through `peer.disconnected` with `reason_class: policy` — a data-plane session cannot tell an administrative revocation from one made by configuration, which is the point. The methods are the same runtime overlay as `admin.endpoints.*` until the owner decides persistence (ADR-0028). The schemas and the enums' minor bumps land `approved` with the implementing batch and its Rust mirror (plan §18, Stage 15's R2), as every 2.0 shape did.
+
+### Amendment 2026-11-19 — From the Stage 22 release a revoking set closes only a peer that leaves the admission set
+
+The Decision said "A revoking set closes the peer's connections",
+written on 2026-10-03 for a node with one allowlist. ADR-0067
+decision 6 derives the admission set from the operator's list and
+every endpoint's overlay set, so from the release that builds it a
+revoke may leave the peer admitted by another set. The sentence now
+names that rule and where it is decided (ADR-0067 A 2026-11-19); it
+stays true as written until that release.
