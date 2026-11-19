@@ -752,6 +752,153 @@ async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
     );
 }
 
+/// A's private address, the one B learns from A's Identify.
+const LEARNED_A: Ipv4Addr = Ipv4Addr::new(10, 99, 0, 1);
+
+/// What B's network does with A's learned address once the pair is
+/// apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LearnedPath {
+    /// Routed to A over [`netns::second_link`], and every packet B sends
+    /// there dropped by B's own filter, with no answer and no error
+    /// ([`netns::drop_outbound`]).
+    Dropped,
+}
+
+/// What [`over_a_learned_path`] saw.
+#[derive(Debug)]
+struct OverALearnedPath {
+    /// B's `dial failed` lines in the watch after the close, before the
+    /// path existed and before the send.
+    dials_before: usize,
+    /// What B's send to A answered.
+    answer: Result<EndpointId, TransportError>,
+    /// How long the answer took, from the moment before the send.
+    took: Duration,
+    /// Packets B's filter dropped on their way to A's learned address,
+    /// for [`LearnedPath::Dropped`]: read after the answer.
+    drops: Option<u64>,
+    /// Whether the message reached A's client.
+    landed: bool,
+    /// B's log, for a failing assertion.
+    log: String,
+}
+
+/// [`after_a_close`]'s shape with a send, except that A's learned
+/// address is given a PATH from B once the pair is apart: the overlay's
+/// link lost, both ends closed, B's watch read (B dials nothing, as the
+/// cases above show), then [`netns::second_link`] made with B's route
+/// to A's `10.99.0.0/24`, and -- for [`LearnedPath::Dropped`] -- B's
+/// filter dropping all it sends to [`LEARNED_A`], put in before the link
+/// so no packet gets through first. B's book for A holds [`LEARNED_A`]
+/// alone: the overlay's address is never learned, and the second link's
+/// addresses did not exist while A's Identify ran. A cannot reach B over
+/// it either: A's book holds its entry, on the lost overlay, and B's
+/// own private address, which nothing routes. So whatever reconnects
+/// the pair is B's send dialling the learned address.
+async fn over_a_learned_path(path: LearnedPath) -> OverALearnedPath {
+    netns::add_unrouted_address(Net::A, "10.99.0.1/24");
+    netns::add_unrouted_address(Net::B, "10.88.0.2/24");
+    let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
+    until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
+    let mut at_a = a.client().await;
+    let from_b = b.client().await;
+    // Identify runs at establishment at both ends; a second is margin.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let dials = |b: &Host| b.log().matches("dial failed").count();
+    let connected = dials(&b);
+
+    netns::overlay_down();
+    until_both(&a, &b, false, CLOSE, "both closed on the link's loss").await;
+    tokio::time::sleep(WATCH).await;
+    let dials_before = dials(&b) - connected;
+
+    if path == LearnedPath::Dropped {
+        netns::drop_outbound(Net::B, LEARNED_A);
+    }
+    netns::second_link("10.99.0.0/24");
+    let started = tokio::time::Instant::now();
+    let answer = from_b
+        .send_once(&a.peer, id(1), "over the learned path")
+        .await;
+    let took = started.elapsed();
+    let drops = (path == LearnedPath::Dropped).then(|| netns::outbound_drops(Net::B));
+    let landed = answer.is_ok()
+        && at_a
+            .pump_until(PATIENCE, |r| {
+                r.inbound
+                    .iter()
+                    .any(|m| !m.broadcast && m.message_id == id(1))
+            })
+            .await;
+    let log = b.log();
+
+    drop((at_a, from_b));
+    a.stop().await;
+    b.stop().await;
+    OverALearnedPath {
+        dials_before,
+        answer,
+        took,
+        drops,
+        landed,
+        log,
+    }
+}
+
+/// The send's dial horizon and the IPC request's default deadline, which
+/// are the same 10 s (`TRANSPORT.md`'s command deadline;
+/// `held_sends::SEND_DIAL_HORIZON_MS`, the IPC server's profile default)
+/// -- and so is the handshake timeout the Swarm's dial runs under: no
+/// answer to a send whose dial gets no reply can come sooner.
+const SEND_HORIZON: Duration = Duration::from_secs(10);
+
+const LEARNED_DROPPED: &str =
+    "a_send_to_a_learned_address_the_network_drops_is_answered_at_the_send_horizon";
+
+/// B learned A's private address, and after the close the network
+/// carries B's packets toward it and drops them silently: B's send
+/// dials it once, the dial gets no answer, and the send is answered at
+/// the 10 s horizon -- `Timeout` when the request's deadline passes
+/// first, `PeerUnreachable` when the held send's horizon or the dial's
+/// handshake timeout does; all three are 10 s, so either answer is the
+/// rule and neither comes sooner. The drop counter is the reading that
+/// B dialled the learned address at all (an unrouted address would be
+/// refused by B's own routing before the filter, and count nothing).
+/// The control is the next case: the same path without the drop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_send_to_a_learned_address_the_network_drops_is_answered_at_the_send_horizon() {
+    if !netns::in_overlay(LEARNED_DROPPED) {
+        return;
+    }
+    let seen = over_a_learned_path(LearnedPath::Dropped).await;
+    record(
+        "learned_dropped.txt",
+        &format!(
+            "answer {:?} after {:.3?}; drops {:?}; landed {}\n",
+            seen.answer, seen.took, seen.drops, seen.landed
+        ),
+    );
+    assert_eq!(seen.dials_before, 0, "{}", seen.log);
+    assert!(
+        matches!(
+            seen.answer,
+            Err(TransportError::Timeout | TransportError::PeerUnreachable)
+        ),
+        "{seen:?}"
+    );
+    assert!(
+        seen.took >= SEND_HORIZON && seen.took < SEND_HORIZON + AT_ONCE,
+        "answered after {:?}, not at the {SEND_HORIZON:?} horizon\n{seen:?}",
+        seen.took
+    );
+    assert!(
+        seen.drops.is_some_and(|n| n > 0),
+        "B's dial never reached the drop\n{seen:?}"
+    );
+    assert!(!seen.landed, "{seen:?}");
+}
+
 const LONG_OUTAGE: &str =
     "after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_the_return";
 
@@ -766,13 +913,13 @@ const OUTAGE: Duration = Duration::from_secs(480);
 /// word of 2026-11-14 (ADR-0011 A 2026-11-14; `RETRY_CEILING_MS`).
 const BOUND: Duration = Duration::from_secs(30);
 
-/// What A's log shows of the outage, and how long the pair took to
-/// reconnect once B was back: written beside the test binary, since the
-/// inner run's output is not shown on a pass.
-fn record(text: &str) {
+/// A hand-run case's figures, as `name` beside the test binary, since
+/// the inner run's output is not shown on a pass: what A's log shows of
+/// the outage, or what B's watches and probe saw.
+fn record(name: &str, text: &str) {
     let path = std::env::current_exe()
         .expect("the test binary's path")
-        .with_file_name("long_outage.txt");
+        .with_file_name(name);
     std::fs::write(&path, text).expect("the record is written");
 }
 
@@ -854,27 +1001,30 @@ async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_t
                 .and_then(|n| n.parse().ok())
         })
         .collect();
-    record(&format!(
-        "outage {OUTAGE:?}, reconnected {took:?} after B's return\n\
+    record(
+        "long_outage.txt",
+        &format!(
+            "outage {OUTAGE:?}, reconnected {took:?} after B's return\n\
          retry delays during the outage (ms): {delays:?}\n\
          reconnect refusals during the outage: {}\n\
          -- A's dial lines during the outage --\n{}\n\
          -- A's dial and connect lines after B's return --\n{}\n",
-        lines(&during, "reconnect refused").len(),
-        lines(&during, "dial failed")
-            .iter()
-            .chain(lines(&during, "retry scheduled").iter())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n"),
-        after
-            .lines()
-            .filter(|l| l.contains("dial failed")
-                || l.contains("retry scheduled")
-                || l.contains("peer connected"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    ));
+            lines(&during, "reconnect refused").len(),
+            lines(&during, "dial failed")
+                .iter()
+                .chain(lines(&during, "retry scheduled").iter())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n"),
+            after
+                .lines()
+                .filter(|l| l.contains("dial failed")
+                    || l.contains("retry scheduled")
+                    || l.contains("peer connected"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+    );
 
     // A WENT ON REDIALLING through the outage every 30 s, however many
     // had failed: sixteen dials in 480 s, where the ladder this replaced
