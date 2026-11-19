@@ -276,8 +276,11 @@ read-back owed on R2 after K1 now lasts as long as the words do,
 through a rotation, a return and a recreation (§6). §6 now says what
 a read-back that keeps failing leads to: Back and a new restore on R3
 and on R2 after K1, which custody's restore makes safe. On C4 no way
-on can be reached in the app, since only the end of the process makes
-a new launch; §11d records it as Q15, open with architect-cto, and §12
+on could be reached in the app, since only the end of the process made
+a new launch; at architect-cto's ruling on Q15 (§11d), C4 now offers a
+service start beside Try again after a failed read-back, which leads to
+K1 when the record does not open (`IdStartUnchecked`,
+`IdStorageUnknownRestore`, new in §9; acceptance 12). §12
 leaves out what R3 shows for a restore of other words after a refused
 one. Before, the read-back row said that a second restore
 could tell the person no more than a read-back. That was wrong for a
@@ -1026,19 +1029,59 @@ words of another PeerId than the refused restore's are refused as
 `RecordNamesOther` and write nothing, since the record that restore
 wrote names its PeerId; what R3 shows then is not designed here
 (§12). C4 has no Back (§3.2), and the identity flows are excluded
-from Recents (§2), so on C4 a read-back that keeps failing leaves
-`IdStorageUnknown` shown with no way on that the person can reach in
-the app: Home and a return show C4 again as it was (§7), which is not
-a new launch (How long, below). Only the end of the process, by a
-force stop in the system's settings or a restart of the phone, makes
-one, and the next launch's unlock then reads the record: one that
-opens starts the app as any launch does, and one that does not open
-shows K1 (§3.4), where the words the person has just written down
-restore it. A way on from C4 inside the app is Q15 (§11d), open. No
+from Recents (§2). Home and a return show C4 again as it was (§7),
+which is not a new launch (How long, below). So on C4 the way on is a
+service start, offered beside Try again once a read-back has failed
+(A start from C4 after a failed read-back, below; §11d, Q15). No
 words tell the person that Back and a new restore is the way on on R3
 and on R2 after K1 (§12). Whether a person finds it is a hypothesis,
 untested, falsified if a person in a test with a read-back that keeps
 failing on R3 or on R2 after K1 does not press Back.
+
+**A start from C4 after a failed read-back** (architect-cto's ruling
+on Q15, REPLY 01a1f34b, §11d). Once a read-back on C4 has answered as
+failing, so that `IdStorageUnknown` shows after it, C4 shows a second
+control under its primary: `IdStartUnchecked` (new, §9), a text
+button, with Try again staying the primary in Continue's place. The
+read-back stays the first way on (Material: one filled primary, a
+text button for the less likely path). It is not offered when the
+notice shows after a cancelled or denied read-back prompt, since no
+read-back has answered then; once one has failed, it stays offered
+while the notice shows, including while a later Try again runs, when
+it shows disabled with the rest of C4. Under it, a line
+(`IdStorageUnknownRestore`, new, §9) says that if the PeerId cannot be
+opened, the words just written down restore it. Neither text says
+that a PeerId was created.
+- **What it does.** The creation flow ends and lets go of its profile
+  lock, as before any start after C4; then the service starts, held to
+  the PeerId C4 shows as the expected one. Nothing is sealed or
+  written, and the flow cannot be entered again from here to seal.
+  C4 is held from the press as after Continue (Seal running), and the
+  1 s before `ConnectStarting` and the 10 s bound count from the press
+  (`design/2026-10-22-add-a-peer.md` §5.1).
+- **Its results**, as at a launch. The record opens to that PeerId:
+  the service runs, and the next screen is the one after Continue on
+  C4 (§3.2, add-a-peer §5.1). It does not open (`RecoveryRequired`):
+  K1 (§3.4), with its reason by cause and the PeerId C4 showed as the
+  expected one; K1's own focus rule applies. It opens to another
+  PeerId (`WrongIdentity`): K1 too, which fails closed, since nothing
+  runs as that identity and K1 restores only words that derive the
+  PeerId the record names. A platform error (`Unavailable`) is "try
+  again", never K1: C4 shows `IdStorageUnknown` again with both controls, and
+  focus on the notice. A held lock shows `IdStartBusy` (the
+  profile-in-use row), whose Try again replaces both controls. On a
+  `user-presence` profile outside its window the start raises the
+  prompt (Authentication needed), and a cancel or denial ends as a
+  cancelled start after C4's Continue does: on Chats, offline and
+  locked, since the flow has ended.
+- **Focus.** The control sits after the primary in C4's order (§8).
+  When it first shows, focus goes to the notice, as for any
+  `IdStorageUnknown` (the error-banner rule, §8). Its press moves no
+  focus while C4 is held, as Continue's does.
+- **Not verified.** That the creation flow can end and start without
+  a seal from this state in the build (rust-ui-dev-01's to say when
+  building it), and what `Storage(Unsynced)` leaves on disk on a real
+  device.
 
 **Back from a notice.** Where a row's way out is Back, Back does what
 it does on that screen at any other time. On R2 after K1 it returns
@@ -1237,7 +1280,9 @@ access.
     `IdAlreadyCreated` shows), the notice while one shows
     (§6: below the title), `CopyPeerId` (§5; not while `IdAlreadyCreated`
     shows), then the primary: Continue (`IdContinue`), or Try again in
-    its place (§6). C4 has no Back (§3.2), so its app bar has no back
+    its place (§6), then, under `IdStorageUnknown` after a failed
+    read-back, `IdStartUnchecked` (§6, A start from C4 after a failed
+    read-back). C4 has no Back (§3.2), so its app bar has no back
     arrow. The PeerId, its label and `IdCreatedBody` are text and take
     no focus. When C4 opens, by any input, focus goes to its title,
     which is made focusable for this, as R4's is (below): Continue
@@ -1632,6 +1677,8 @@ names are suggestions; rust-ui-dev names them.
 | `Authenticate` (the app's, #313, not yet on main) | Unlock | The locked notice's action; it raises the prompt (§6) |
 | `UnlockPromptTitle` (the app's, #313, not yet on main) | Unlock InterWeave | The system prompt's title for a key operation or a launch; S1's prompt keeps its own |
 | `CopyPeerId`, `PeerIdCopied` (the app's, #313, not yet on main) | Copy PeerId · PeerId copied | The button under a PeerId and its confirmation below Android 13 (§5) |
+| `IdStartUnchecked` (new) | Go online with this PeerId | C4's text button under Try again while `IdStorageUnknown` shows after a failed read-back (§6, A start from C4 after a failed read-back). It must say that the app starts with the PeerId shown, and never that a PeerId was created or saved. A proposal |
+| `IdStorageUnknownRestore` (new) | If this PeerId cannot be opened, the recovery phrase you just wrote down restores it. | C4's line under `IdStartUnchecked` (§6). It must say what the person does if the start leads to K1. A proposal |
 | `IdStorageUnknown` (new) | The app could not tell whether your PeerId was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back and writes nothing |
 | `IdRestoreOther` (new) | Your PeerId was not restored. This phone already has another PeerId saved, shown below. | §6's another-identity-on-record row, at a restore (a record that names a PeerId other than the one restored), two lines, the PeerId in full below it. "Another PeerId saved, shown below" ties the shown PeerId to the phone's record, so it is not read as the person's own |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
@@ -1873,7 +1920,22 @@ landscape:
     then `IdR3Yes`: R3 shows no notice before the press, and the
     custody records one restore. The custody double's record, in a
     second run of each, has a key answered as invalidated, and the
-    restore seals over it, so R4 opens.
+    restore seals over it, so R4 opens. On C4, in host tests (§6, A
+    start from C4 after a failed read-back): with `IdStorageUnknown`
+    shown after a read-back answered as failing, `IdStartUnchecked`
+    and `IdStorageUnknownRestore` show under Try again, and Tab from
+    Try again reaches `IdStartUnchecked`; after a cancelled read-back
+    prompt instead, neither shows. Its press: the custody records no
+    seal and no restore, the flow's lock is let go before the start,
+    and the start is held to C4's PeerId. Answered as opening: the
+    next screen after Continue. Answered `RecoveryRequired`, and in a
+    second run with `WrongIdentity`: K1, with C4's PeerId as the
+    expected one. Answered `Unavailable`: `IdStorageUnknown` again with
+    both controls and focus on the notice. Answered `LockHeld`:
+    `IdStartBusy` with Try again only. On a `user-presence` profile,
+    the start's prompt cancelled: Chats, offline, with the locked
+    notice focused. While a Try again under the notice runs,
+    `IdStartUnchecked` shows disabled.
     Back goes where §6 (Back from a notice) says: on R2 after K1, to
     K1, through the discard dialog, with the words dropped only by
     `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
@@ -2682,7 +2744,7 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   other refusal of these screens there. Which string the client shows
   today for this refusal is rust-ui-dev's to say when it builds it.
 
-## 11d. After #720 (Q12 answered, Q13 to Q15 open)
+## 11d. After #720 (Q12 and Q15 answered, Q13 and Q14 open)
 
 - **Q12. A start refused with the profile in use after the bound.**
   Answered by ux-designer-01, 2026-11-18, in §6 (A start refused with
@@ -2729,15 +2791,24 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   one, the removal waits until the next change of the window's
   focus, and acceptance 18 gains a device run.
 
-- **Q15. A way on from C4 when the read-back keeps failing.** Open,
-  architect-cto's. On C4 the seal's write may have committed the
+- **Q15. A way on from C4 when the read-back keeps failing.**
+  Answered by architect-cto, REPLY 01a1f34b-95bb: a service start from
+  C4 under `IdStorageUnknown` is allowed, and a recovery-required
+  answer from it is what a launch does. The conditions are rules: it
+  is offered only after a read-back has failed, beside Try again; the
+  flow ends and lets go of its lock first and nothing seals after; the
+  start is held to the PeerId C4 shows, and leads to K1 when the record
+  does not open, and fails closed when it opens to another PeerId; a
+  platform error is "try again" and a held lock `IdStartBusy`; the words
+  never say a PeerId was created, and say that the phrase restores it.
+  §6 designs it (A start from C4 after a failed read-back). The
+  question, as asked: On C4 the seal's write may have committed the
   identity, Try again only reads back, and C4 has no Back and is not
   in Recents (§6, A read-back that keeps failing). Only the end of the
   process leads on. Does a service start from C4 under
   `IdStorageUnknown`, whose unlock would answer whether the record
   opens and, if it does not, lead to K1 (§3.4) as a launch does, fit
-  the custody rules? Until it is answered, the note designs no such
-  way, and §6 states the gap.
+  the custody rules?
 
 ## 12. Deliberately left out
 
@@ -2784,8 +2855,8 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   to a later revision.
 - **Words for a read-back that keeps failing** (§6). `IdStorageUnknown`
   offers Try again only; the way on is Back and a new restore on R3
-  and on R2 after K1, and no words say so. On C4 there is no way on in
-  the app yet (Q15). The case follows only the
+  and on R2 after K1, and no words say so. On C4 the start is the way
+  on, and its words say it (§6, Q15). The case follows only the
   two refusals that can come after the write, and no device has shown
   it yet; words for it are language-culture's, if a test shows people
   stuck there.
