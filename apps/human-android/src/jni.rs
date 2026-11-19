@@ -622,6 +622,31 @@ extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextIdentity<'call
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
+/// `DebugHooks.answerNextSealAlreadyProvisioned()`, the debug build's hook
+/// for the Pixel 9a check of identity note section 10 item 18, armed from
+/// the launch's extras (`DebugHooks.fromLaunch`): C4's next seal is
+/// answered `AlreadyProvisioned`, nothing sealed, once. Debug only, as
+/// [`Java_org_interweave_human_DebugHooks_refuseNextStoreOpen`].
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_answerNextSealAlreadyProvisioned<
+    'caller,
+>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::seal_hook::arm();
+        log("seal hook: C4's next seal answers AlreadyProvisioned");
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `DebugHooks.holdNextStart(ms)`, the debug build's hook for add-a-peer
 /// §8 item 12's start that has not answered within the bound, armed from
 /// the launch's extras (`DebugHooks.fromLaunch`): the next service start
@@ -1216,6 +1241,68 @@ extern "system" fn Java_org_interweave_human_Native_cameraClosed<'caller>(
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::activity::camera_closed();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.peerIdClip(mark)`: the `PeerId` an identity screen's Copy asked
+/// to put on the clipboard under `mark` (`ask::CLIP_COPY`), taken once;
+/// empty when a later copy replaced it.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_peerIdClip<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    mark: jlong,
+) -> JString<'caller> {
+    env.with_env(|env| -> Result<JString<'caller>, jni::errors::Error> {
+        let text =
+            u64::try_from(mark).map_or_else(|_| String::new(), |m| crate::activity::CLIP.take(m));
+        JString::from_str(env, text)
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `Native.peerIdRemovalDeferred(mark)`: the removal of the copy marked
+/// `mark` (`ask::CLIP_REMOVE`) found the window unfocused or the device
+/// locked, and waits again.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_peerIdRemovalDeferred<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    mark: jlong,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        if let Ok(mark) = u64::try_from(mark) {
+            crate::activity::peer_id_removal_deferred(mark);
+        }
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.deviceLocked(locked)`: `KeyguardManager.isDeviceLocked`, read
+/// again by the Activity.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_deviceLocked<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    locked: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::device_locked(locked);
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

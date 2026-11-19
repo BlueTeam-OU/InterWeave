@@ -16,8 +16,8 @@ use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboard
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::{
-    ActivityEvent, AndroidApp, PhotoPick, PhotoRequest, ShowOpen, TouchSettings, View, after,
-    defer, init_android, invoke_on_window,
+    ActivityEvent, AndroidApp, ClipMark, PeerIdClipboard, PhotoPick, PhotoRequest, ShowOpen,
+    TouchSettings, View, after, defer, init_android, invoke_on_window,
 };
 
 use crate::jni::{PROFILE, log};
@@ -266,6 +266,49 @@ static PHOTO_IMPORTS: std::sync::LazyLock<crate::photo_import::Imports> =
 /// `Native.cameraClosed`: the camera stopped under the scan.
 pub(crate) fn camera_closed() {
     with_view(|view| view.camera_closed());
+}
+
+/// The identity screens' copy on its way to the Kotlin side
+/// (`Native.peerIdClip`).
+pub(crate) static CLIP: crate::clip_slot::ClipSlot = crate::clip_slot::ClipSlot::new();
+
+/// The app's own copy of an identity screen's `PeerId` (identity note
+/// sections 5 and 6): the Activity's Kotlin side puts it on the clipboard
+/// with its mark in the clip's label, and clears it later only if the
+/// primary clip's description still carries that label, reading no
+/// content -- so the platform shows no notice that the app read the
+/// clipboard. Android-only wiring with no automated test of its own: the
+/// view's half is ui-slint's `tests/peer_id_copied.rs`, the marks
+/// `clip_slot.rs`'s, and the platform's the Pixel 9a check of acceptance
+/// 18, through the debug build's `sealAlreadyProvisioned` launch extra.
+struct AndroidClipboard;
+
+impl PeerIdClipboard for AndroidClipboard {
+    fn copy(&self, peer_id: &str) -> ClipMark {
+        use crate::onboard::{ASKS, ask};
+        let mark = CLIP.put(peer_id);
+        ASKS.push_with(ask::CLIP_COPY, mark);
+        ClipMark(mark)
+    }
+
+    fn remove_if_marked(&self, mark: ClipMark) {
+        use crate::onboard::{ASKS, ask};
+        ASKS.push_with(ask::CLIP_REMOVE, mark.0);
+    }
+}
+
+/// `Native.deviceLocked`: the Activity read `KeyguardManager.isDeviceLocked`
+/// again -- at a resume, a change of the window's focus, and the unlock's
+/// `ACTION_USER_PRESENT`: a removal of the app's copy waits while it is
+/// locked (identity note section 6).
+pub(crate) fn device_locked(locked: bool) {
+    with_view(move |view| view.set_device_locked(locked));
+}
+
+/// `Native.peerIdRemovalDeferred`: the Kotlin side found the window
+/// unfocused or the device locked when the removal reached it.
+pub(crate) fn peer_id_removal_deferred(mark: u64) {
+    with_view(move |view| view.peer_id_removal_deferred(ClipMark(mark)));
 }
 
 /// A credential prompt was answered: the trace says where focus stands
@@ -708,6 +751,9 @@ fn turn() {
 /// so do the notices (a focused window reads what arrives).
 fn focus(focused: bool) {
     ServiceHost::global().hub().set_focused(focused);
+    // The window's own, chats attached or not: a removal of the app's copy
+    // waits for it (identity note section 6).
+    with_view(move |view| view.set_clipboard_focus(focused));
     let applied = ROOT.with(|root| {
         let Ok(root) = root.try_borrow() else {
             return false;
@@ -760,6 +806,9 @@ fn android_main(app: AndroidApp) {
     if AndroidApp::sdk_version() >= 33 {
         view.set_copy_feedback(interweave_human_ui_slint::CopyFeedback::Platform);
     }
+    // Copy PeerId makes the app's own copy, marked, which IdAlreadyCreated
+    // takes off the clipboard again (identity note section 6).
+    view.set_peer_id_clipboard(Rc::new(AndroidClipboard));
     // The debug build's trace, for the screen-driving tests: kinds only,
     // never text, an address or a PeerId (ui-slint's trace.rs).
     #[cfg(feature = "ui-trace")]

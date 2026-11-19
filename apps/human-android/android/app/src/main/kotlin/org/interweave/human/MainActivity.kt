@@ -4,6 +4,7 @@ package org.interweave.human
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
 import android.app.NativeActivity
 import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
@@ -11,9 +12,13 @@ import android.os.CancellationSignal
 import android.view.WindowManager
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -72,6 +77,19 @@ class MainActivity : NativeActivity() {
     /** The provider's open of the photo chosen, while it waits on it. */
     private var photoOpening: CancellationSignal? = null
 
+    /**
+     * The device's lock, read again at each screen off and unlock for the
+     * removal of a copied PeerId (identity note section 6), registered for
+     * the instance's whole life so an unlock is heard while it is stopped.
+     */
+    private val lockReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) = reportLock()
+        }
+
+    // Below API 33 registerReceiver takes no exported flag; the lock's
+    // receiver hears system broadcasts alone, which reach it either way.
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onCreate(savedInstanceState: Bundle?) {
         // A recreation the system made in this process (a language change,
         // a backgrounded instance rebuilt) is not a launch by the person:
@@ -91,6 +109,33 @@ class MainActivity : NativeActivity() {
         // Scan a code is offered only on a phone with a camera; the app
         // installs without one (add-a-peer 5.5, the camera not required).
         Native.cameraAvailable(packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY))
+        // Both are system broadcasts, which reach a receiver that is not
+        // exported.
+        val lock = IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_SCREEN_OFF) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(lockReceiver, lock, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(lockReceiver, lock)
+        }
+        reportLock()
+    }
+
+    /**
+     * Whether the device is locked, as the platform's clipboard asks it
+     * (`ClipboardService.clipboardAccessAllowed` reads `isDeviceLocked`):
+     * while it is, no app is given a clip's description, so the removal of
+     * a copied PeerId waits (identity note section 6). Read at each change
+     * of the window's focus, each resume, and the screen off and the
+     * unlock's `ACTION_USER_PRESENT`, which comes with the window focused
+     * or not.
+     */
+    private fun reportLock() {
+        Native.deviceLocked(getSystemService(KeyguardManager::class.java)?.isDeviceLocked ?: false)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        reportLock()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -203,6 +248,7 @@ class MainActivity : NativeActivity() {
 
     override fun onResume() {
         super.onResume()
+        reportLock()
         // The animation scale or a screen reader's timeout may have been
         // changed in the settings meanwhile.
         touch()
@@ -221,6 +267,7 @@ class MainActivity : NativeActivity() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(lockReceiver)
         // The editor goes with the window: its photo's open is not wanted.
         cancelPhotoOpen()
         photoRequest = -1L
@@ -670,7 +717,42 @@ class MainActivity : NativeActivity() {
                 secure(true)
                 Native.showSecured()
             }
+            Ask.CLIP_COPY -> copyPeerId(arg)
+            Ask.CLIP_REMOVE -> removePeerIdCopy(arg)
         }
+    }
+
+    /**
+     * Copy PeerId (identity note section 5): the app's own copy, its label
+     * carrying [mark], which tells it apart from any later copy without
+     * reading the clipboard. From Android 13 the platform confirms it.
+     */
+    private fun copyPeerId(mark: Long) {
+        val text = Native.peerIdClip(mark)
+        if (text.isEmpty()) return
+        getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(clipLabel(mark), text))
+    }
+
+    /**
+     * `IdAlreadyCreated` after a copy of its PeerId (identity note section
+     * 6): the clip cleared if its description still carries [mark]'s
+     * label, else left -- the person copied something since. Only the
+     * description is asked, never the content, so the platform shows no
+     * notice that the app read the clipboard. The platform gives it only
+     * to the focused window of an unlocked device, so the native side asks
+     * only then; a change it has not heard of yet puts the removal off
+     * again. With the clipboard read app op denied the description never
+     * comes, and the copy stays (section 12).
+     */
+    private fun removePeerIdCopy(mark: Long) {
+        val locked = getSystemService(KeyguardManager::class.java)?.isDeviceLocked ?: false
+        if (!hasWindowFocus() || locked) {
+            Native.peerIdRemovalDeferred(mark)
+            return
+        }
+        val clipboard = getSystemService(ClipboardManager::class.java) ?: return
+        val label = clipboard.primaryClipDescription?.label?.toString() ?: return
+        if (label == clipLabel(mark)) clipboard.clearPrimaryClip()
     }
 
     /**
@@ -799,6 +881,9 @@ class MainActivity : NativeActivity() {
         private const val MAX_PHOTO_OPENS = 2
         private val photoOpens = java.util.concurrent.atomic.AtomicInteger()
         private const val ASK_MASK = (1L shl Ask.BITS) - 1
+
+        /** A copied PeerId's clip label: the app's, with the copy's mark. */
+        private fun clipLabel(mark: Long) = "InterWeave PeerId $mark"
         /** The last CAMERA answer was a refusal: the next refusal the system will not ask again is "for good". */
         private const val CAMERA_REFUSED = "camera-refused"
         private const val NOTIFICATIONS_REQUEST = 1

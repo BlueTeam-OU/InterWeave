@@ -111,6 +111,15 @@ pub(crate) mod ask {
     /// The editor that asked for a photo closed: an open still waiting on
     /// the provider is cancelled.
     pub(crate) const PHOTO_CANCEL: jint = 15;
+    /// An identity screen's Copy `PeerId` (identity note section 5): the
+    /// text the ask's mark names (`Native.peerIdClip`) on the clipboard,
+    /// the mark in the clip's label (activity.rs, `AndroidClipboard`).
+    pub(crate) const CLIP_COPY: jint = 17;
+    /// `IdAlreadyCreated` showed after that copy (section 6): the clip
+    /// cleared if its description's label still carries the ask's mark,
+    /// its content never read; put off by `Native.peerIdRemovalDeferred`
+    /// while the window lacks the focus or the device is locked.
+    pub(crate) const CLIP_REMOVE: jint = 18;
 }
 
 pub(crate) static ASKS: Asks = Asks::new();
@@ -1037,6 +1046,12 @@ fn one(effect: Effect) -> Vec<Effect> {
             }
             Effect::Seal => {
                 let outcome = match o.creation.as_ref() {
+                    // The debug build's hook: answered as a phone holding
+                    // another identity, nothing sealed (seal_hook.rs).
+                    Some(_) if crate::seal_hook::take() => {
+                        log("seal hook: answered AlreadyProvisioned, nothing sealed");
+                        Err(StepFailed::AlreadyProvisioned)
+                    }
                     Some(creation) => onboarding::seal(
                         &o.app_data_dir,
                         PROFILE,
