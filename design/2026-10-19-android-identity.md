@@ -2012,7 +2012,10 @@ scale would also be a finding of the Android review
       store also holds, before the start, 30 contacts, each with a
       conversation of one read inbound message, so Chats' list is
       longer than the screen at the test's window size; the
-      conversation opened is the one in the list's first row. By a
+      conversation opened is the one in the list's first row. The
+      seeding is the human store's only: in the Connect runs below,
+      the hook answers both of Connect's reads (add-a-peer §5.6), so
+      the seeded contacts change neither answer. By a
       test hook, the service start after R4's Continue, and in a
       second run after C4's Continue with the seal succeeding, is
       left unanswered, and Chats opens at the 10 s bound with focus
