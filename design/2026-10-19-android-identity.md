@@ -1843,10 +1843,15 @@ landscape:
     `IdStorageUnknown` shown and focus on its Try again (moved there
     by Tab), a tap on an enabled key removes the notice and puts
     focus on the keypad's first enabled key, in typing mode. On R2 after K1 with
-    `IdStorageUnknown` shown, a rotation, then a recreation of the
-    window as a change of the system language makes it, then
-    `IdCheckWords`: the custody records one more read-back and no
-    restore (blocked on the same count). A read-back that keeps
+    `IdStorageUnknown` shown, a rotation, then an edit of one word
+    (the notice goes) and its edit back, then `IdCheckWords`: the
+    custody records one more read-back and no restore. In a second
+    run, a recreation of the window as a change of the system
+    language makes it takes the rotation's place, and in a third
+    run, the app sent to the background and back. Each is blocked on
+    the same count. Removing the notice first is what makes each run
+    check the read-back owed and not the notice: with the notice
+    shown, `IdCheckWords` reads back by the notice's rule alone. A read-back that keeps
     failing, in host tests: on R2 after K1, Back, `IdDiscard`, K1's
     action to R2 again, the same 24 words and `IdCheckWords`: the
     custody records one restore; on R3, Back, `IdCheckWords` on R2,
