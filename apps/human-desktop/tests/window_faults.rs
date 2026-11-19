@@ -162,9 +162,11 @@ fn view(app: &Desktop) -> &View {
 /// the list reports what is in view only once laid out; without the
 /// query the three paging tests here time out -- then one turn of the
 /// app. The query stops at the first element: a walk of the whole tree
-/// took 4.4 s on the turn that lets go of 200 held rows (j215); that
-/// turn's own layout still takes seconds in a debug build, which is why
-/// [`until`]'s bound is [`common::WAIT_BOUND`] (j296).
+/// took 4.4 s on the turn that lets go of 200 held rows (j215). The turn
+/// after a page lands above the held rows lays every held row out again
+/// (seconds in a debug build at about 190), and the next wait pays it,
+/// whatever it waits for: why [`until`]'s bound is
+/// [`common::WAIT_BOUND`] (j296, measured j299).
 fn turn(app: &mut Desktop) {
     for _ in 0..2 {
         slint::platform::update_timers_and_animations();
