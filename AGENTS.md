@@ -120,9 +120,7 @@ The words are a trigger, not the whole set — an invariant phrased without them
 
 The rule exists because the failure is not carelessness in the reasoning. It is that the reasoning is correct in the file you are looking at, and its counterpart lives somewhere you are not looking. One change, one edit, one file — and the pair goes stale silently, because nothing compiles prose.
 
-The instances, so the shape is recognisable rather than abstract: a schema's `x-contract.status` flipped without its manifest entry; a stage's `Met.` block claiming evidence its tests did not have; a required-test bullet pointing at an amendment that had been withdrawn two commits earlier; a `README` status paragraph left behind by the very commit that changed the plan it summarises; an ADR amendment written in the present tense about a defect the next commit fixed; a comment opening "A WAITER IS ANSWERED, not dropped" directly above a branch that had just been made to drop deliberately.
-
-Every one was caught in review. None was caught by re-reading the diff, because the diff does not contain the file that was not edited.
+The pairs it has been, each caught in review and none by re-reading the diff, which does not contain the file that was not edited: a schema's `x-contract.status` and its manifest entry; a `Met.` block and the tests behind it; a `README` status paragraph and the plan it summarises; an ADR amendment in the present tense and the commit that fixed the defect; a comment and the branch beneath it.
 
 What to actually do, in order:
 
