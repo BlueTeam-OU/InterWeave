@@ -48,8 +48,9 @@ pub fn english() -> &'static [&'static str] {
 }
 
 /// Why a write the screens asked for did not happen. In each but
-/// [`WriteRefused::ReadBackFailed`], nothing the person relies on was
-/// changed.
+/// [`WriteRefused::ReadBackFailed`] and
+/// [`WriteRefused::ReadBackNeedsAuthentication`], which both follow the
+/// publish, nothing the person relies on was changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteRefused {
     /// The profile is held by a running host or another flow.
@@ -65,8 +66,9 @@ pub enum WriteRefused {
     /// (`OldKeyRemains`, an unsynced directory), or a read-back asked on
     /// its own ([`read_back`]), and the record did not open to the
     /// `PeerId` shown or confirmed: whether the identity was saved is
-    /// unknown (`IdStorageUnknown`, design section 6). Unlike the other
-    /// variants, something may have changed.
+    /// unknown (`IdStorageUnknown`, design section 6). As after
+    /// [`WriteRefused::ReadBackNeedsAuthentication`], something may have
+    /// changed.
     ReadBackFailed(String),
     /// As [`WriteRefused::ReadBackFailed`], but the read-back was refused
     /// because the key needs the person to authenticate: the screen raises
