@@ -54,8 +54,9 @@ terms that rode in with copied material.
 17b. fabric-pr post-review <n> <<'EOF' … EOF   # post it at the head; fabric-pr review-status counts it
 17c. fabric-pr review-status <n>            # blind reviews against the CURRENT head; unresolved threads
 18.  fabric-pr arm <n> --basis "<why>"   # ONLY when done; never `gh pr merge --auto` by hand —
-                                #   fabric-pr arm applies the gates of AGENTS.md §9 (review, threads,
-                                #   or architect-cto's --waiver for those two — and, under eight, the owner's word) before it arms.
+                                #   fabric-pr arm applies the gates of AGENTS.md §9 before it arms: the review of the
+                                #   head and no open thread or finding on every PR (architect-cto's --waiver lifts only the
+                                #   boundary gate), and under eight the owner's word or architect-cto's.
 19.  fabric-pr wait-merged <n> &      # background; its exit is the callback
 ```
 
