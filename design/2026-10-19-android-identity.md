@@ -283,7 +283,11 @@ that the check's result depends only on the words: after K1 it also
 depends on the record, and on whether a read-back is owed.
 Acceptance 15's runs of a start refused after the bound now say what
 the test's store holds when a run opens a conversation or scrolls the
-list.
+list. Its recreation variant now says what the recreated window shows
+and what each answer does, and its foreground-only variant records
+whether Home ended the start, with what each finding requires. Before,
+that variant took the end of the start from add-a-peer §5.1 and did
+not observe it.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -2043,11 +2047,21 @@ scale would also be a finding of the Android review
         one start and none at the return, and when it is answered as
         started, the notice goes. Its recreation variant, in either
         mode, recreates the window while that start runs: the hook
-        records that one start and none at the recreation. Its
-        foreground-only variant: the Home ends Try again's start, and
-        the hook records a second start at the return, with the notice
-        shown and Try again disabled until that start answers, as in
-        the first run.
+        records that one start and none at the recreation, and the
+        recreated window shows the notice with Try again disabled
+        until it answers. Answered as started, the notice goes;
+        answered `LockHeld`, the notice shows with Try again enabled.
+        Where focus is after the recreation is not checked (§12).
+        Its foreground-only variant: the hook records whether Try
+        again's start was ended at the Home (the binding let go in
+        `onStop`, `MainActivity.kt`), and the run records what it
+        found. Ended: the hook records a second start at the return,
+        with the notice shown and Try again disabled until that start
+        answers, as in the first run. Not ended: the hook records no
+        start at the return, as with Stay reachable on, and the
+        finding goes to the note's §6, whose foreground-only sentence
+        then no longer holds. In either case one start at most is in
+        flight.
       - Connect: with no address recorded, after R4's Continue (so
         Connect is owed and was deferred at the bound), Try again's
         start is answered as started and both reads answer empty
@@ -2680,4 +2694,8 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   two refusals that can come after the write, and no device has shown
   it yet; words for it are language-culture's, if a test shows people
   stuck there.
+- **Where focus goes after a recreation of the window** while
+  `IdStartBusy` shows on Chats or in a conversation (§6). The notice
+  and its Try again are kept; focus after the system makes the window
+  again is the build's today, and no run checks it.
 - **What the Settings screen shows besides the new item.**
