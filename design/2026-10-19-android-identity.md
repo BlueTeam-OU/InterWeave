@@ -933,9 +933,8 @@ reseal that the start retries (§5). So, on a slow Keystore,
 `LockHeld` can come after add-a-peer §5.1's 10 s bound. By then
 Chats has opened and the screen whose button made the start is gone.
 The person may be on Chats, in a conversation opened since, or on a
-page opened from Chats (Peers, Settings, a card page). Where the
-build can show what follows is asked of rust-ui-dev-01 (QUESTION
-01a1f00b-9926), and this paragraph is provisional until the answer.
+page opened from Chats (Peers, Settings, a card page). rust-ui-dev-01
+read the build and said that what follows can be built (§11d, Q12).
 
 - **What shows.** `IdStartBusy`, as a session notice, in the place
   and at the priority where Chats and a conversation show the notice
@@ -2459,9 +2458,23 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   on a slow Keystore, `LockHeld` can come after add-a-peer §5.1's
   10 s bound, when Chats or a conversation already shows. Then
   `IdStartBusy` shows there as a session notice, with Try again, and
-  takes no focus. Where the build can show it was asked of
-  rust-ui-dev-01 (QUESTION 01a1f00b-9926); until the answer, §6's
-  paragraph is provisional.
+  takes no focus. rust-ui-dev-01 answered where the build can show it
+  (REPLY 01a1f275-b775, to QUESTIONs 01a1f00b-9926 and 01a1f029-c24c,
+  read on main at 24b088224). Today the build does not name this
+  refusal. Every refused runtime start other than network denied
+  reaches the view as one answer, and Chats or a conversation then
+  shows the notice that no service runs (`NoDaemon`), which has no
+  action and says the app will connect by itself. That is untrue
+  here, since nothing retries. The notice of §6 can be built as a
+  session notice of its own, with an action that makes one service
+  start by the path a granted Unlock uses. It needs `LockHeld` told
+  apart from the other refused runtime starts. The notice card is
+  already a polite live region that takes no focus unless asked. A
+  held Try again and the focus ask after a `LockHeld` again are
+  small additions. The notice's state is kept by the process, not by
+  the runtime that ends, so it survives a foreground-only Home and
+  shows at the return, with Try again disabled while the return's
+  start runs, as §6 says.
 - **Q13. Can the person deny the clipboard read app op on a target
   phone?** Open, ux-designer's to check on the devices. §6 and §12
   read the app op (`OP_READ_CLIPBOARD`) in the platform source.
