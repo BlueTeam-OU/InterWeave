@@ -272,6 +272,14 @@ enum Screen {
         started: bool,
         /// As C4's.
         starting: bool,
+        /// A restore from here was answered `IdStorageUnknown`: whether
+        /// the record now opens to the `PeerId` the restore confirmed is
+        /// unknown, and stays so after an edit takes the notice, until a
+        /// read-back answers or R2 closes. A check whose words derive that
+        /// `PeerId` reads back rather than restoring again (design section
+        /// 6, the read-back row;
+        /// `an_edit_after_storage_unknown_keeps_the_read_back`).
+        unknown: bool,
     },
     R3 {
         origin: Origin,
@@ -1221,6 +1229,7 @@ impl IdentityFlow {
             entry,
             notice,
             checking,
+            unknown,
             ..
         } = &mut self.screen
         else {
@@ -1255,6 +1264,10 @@ impl IdentityFlow {
                 *notice = Some(Notice::OtherIdentity { derived, expected });
                 self.notices_raised += 1;
                 Vec::new()
+            }
+            Some(expected) if *unknown => {
+                *checking = true;
+                vec![Effect::ReadBack(expected)]
             }
             Some(_) => match entry.phrase() {
                 Some(phrase) => {
@@ -1311,12 +1324,17 @@ impl IdentityFlow {
             }
             (
                 Screen::R2 {
-                    notice, checking, ..
+                    notice,
+                    checking,
+                    unknown,
+                    ..
                 },
                 Err(failed),
             ) => {
                 *checking = false;
-                *notice = Some(failed.into());
+                let failed = Notice::from(failed);
+                *unknown |= failed == Notice::StorageUnknown;
+                *notice = Some(failed);
                 self.notices_raised += 1;
                 Vec::new()
             }
@@ -1383,9 +1401,13 @@ impl IdentityFlow {
                         notice
                     }
                     Screen::R2 {
-                        notice, checking, ..
+                        notice,
+                        checking,
+                        unknown,
+                        ..
                     } => {
                         *checking = false;
+                        *unknown = true;
                         notice
                     }
                     Screen::R3 {
@@ -1544,6 +1566,7 @@ impl IdentityFlow {
             reviewing: false,
             started: false,
             starting: false,
+            unknown: false,
         }
     }
 
@@ -1599,6 +1622,7 @@ impl IdentityFlow {
             reviewing: false,
             started: false,
             starting: false,
+            unknown: false,
         };
     }
 
@@ -2955,6 +2979,48 @@ mod tests {
         assert_eq!(r3.primary(), [], "one read-back at a time");
         r3.restored(Ok(()));
         assert_eq!(r3.screen(), ScreenId::R4, "found: R4");
+    }
+
+    /// On R2 after K1, an edit that takes `IdStorageUnknown` away does not
+    /// end the read-back: until a read-back answers or R2 closes, a check
+    /// whose words derive the `PeerId` the refused restore confirmed reads
+    /// back instead of restoring, while words of another `PeerId` are
+    /// checked as any words (design section 6, the read-back row;
+    /// acceptance 12). A new R2, after Back to K1, restores again.
+    /// Mutations: the `unknown` arm of `checked` removed (a second
+    /// restore), and `unknown` not set where `restored` raises the notice,
+    /// each fail here.
+    #[test]
+    fn an_edit_after_storage_unknown_keeps_the_read_back() {
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::StorageUnknown));
+        r2.edit(0);
+        assert_eq!(r2.notice(), None, "the edit takes the notice");
+        assert!(matches!(r2.primary().as_slice(), [Effect::Check(_)]));
+        assert_eq!(r2.checked(Some(mine())), [Effect::ReadBack(mine())]);
+        assert!(r2.waiting(), "held while it reads back");
+        assert_eq!(r2.restored(Err(StepFailed::StorageUnknown)), []);
+        assert_eq!(r2.notice(), Some(&Notice::StorageUnknown));
+
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::StorageUnknown));
+        r2.edit(0);
+        r2.primary();
+        assert_eq!(r2.checked(Some(other())), []);
+        assert!(
+            matches!(r2.notice(), Some(Notice::OtherIdentity { .. })),
+            "another PeerId's words are checked as any words"
+        );
+
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::Storage));
+        r2.edit(0);
+        r2.primary();
+        assert_eq!(
+            r2.checked(Some(mine())),
+            [Effect::RestoreRecorded(words().join(" "))],
+            "control: after a refusal that wrote nothing, a restore"
+        );
     }
 
     /// A read-back refused because authentication is needed -- the one
