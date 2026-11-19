@@ -104,9 +104,11 @@ impl PeerClip {
         self.ask();
     }
 
-    /// The platform found the window unfocused or the device locked when
-    /// the removal was asked, whatever was last reported: it is owed
-    /// again, and asked at the next report that both hold.
+    /// The platform found the window unfocused, the device locked, or gave
+    /// no clip description when the removal was asked, whatever was last
+    /// reported: it is owed again, and asked at the next report that both
+    /// hold -- never at once, since a denied clipboard app op never gives
+    /// a description and an immediate ask would loop.
     pub(crate) fn removal_deferred(&self, mark: ClipMark) {
         if self.owed.get().is_none() {
             self.owed.set(Some(mark));

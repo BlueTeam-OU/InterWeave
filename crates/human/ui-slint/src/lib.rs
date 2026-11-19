@@ -2006,9 +2006,10 @@ impl View {
         self.peer_clip.device_locked(locked);
     }
 
-    /// The platform found the window unfocused or the device locked when
-    /// the removal of the copy marked `mark` was asked: it waits again,
-    /// for the next report that both hold.
+    /// The platform found the window unfocused, the device locked, or gave
+    /// no clip description when the removal of the copy marked `mark` was
+    /// asked: it waits again, for the next report that both hold, never
+    /// asked again at once (a denied clipboard app op never gives one).
     pub fn peer_id_removal_deferred(&self, mark: ClipMark) {
         self.peer_clip.removal_deferred(mark);
     }
