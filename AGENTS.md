@@ -1,4 +1,4 @@
-# CLAUDE.md — InterWeave repository operating contract
+# AGENTS.md — InterWeave repository operating contract
 
 This file is the working contract for Claude Code and other coding agents operating in the InterWeave repository. Read it before making changes.
 
