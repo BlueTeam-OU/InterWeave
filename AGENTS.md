@@ -274,17 +274,14 @@ duplicate of the dependency check.
 
 **A second gap is structural rather than a database's omission.** A crate
 vendored into `third_party/` and selected by `[patch.crates-io]` has no
-`source` and no `checksum` in `Cargo.lock`, and `cargo-deny` SKIPS it —
-measured, not assumed, with `atty 0.2.14`: as an ordinary dependency the
-advisories check fails on it, path-patched to a copy of the same source it
-prints `advisories ok`. Dependabot cannot see it either, so
+`source` and no `checksum` in `Cargo.lock`, and `cargo-deny` SKIPS it for
+advisories (measured; ADR-0051 and `check_vendored_advisories.sh --help`
+have the measurement). Dependabot cannot see it either, so
 `tools/checks/check_vendored_advisories.sh` is the only warning a vendored
-tree will ever get, and ADR-0051 records the decision that created the
-need. The licence check is unaffected and still covers such a crate, and
-that is **measured too**: setting the vendored copy's `license` to a
-term the allow-list does not carry makes `cargo deny check licenses`
-fail and name the crate. Measured rather than reasoned because the
-intuitive answer was wrong for advisories in the same breath.
+tree will ever get. The licence check is unaffected and still covers
+such a crate, and that is measured too: setting the vendored copy's
+`license` to a term the allow-list does not carry makes `cargo deny
+check licenses` fail and name the crate.
 
 THE RUSTSEC/GHSA GAP is live: **`yamux`** has no RustSec advisory, and
 every `Config` tuning setter silently moves the muxer onto a version
