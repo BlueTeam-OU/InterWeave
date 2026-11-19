@@ -102,21 +102,20 @@ pub(crate) const CONTROL_LANE: usize = crate::MAX_IN_FLIGHT + crate::MAX_PENDING
 /// reads: a newer one replaces it (plan §16 (5)).
 ///
 /// A frame not written within `stall` ends the writer: the client
-/// has stopped reading, and dropping the lanes' receivers is how the
-/// connection loop learns it (#151 review, F1).
+/// has stopped reading, and the lanes closing is how the connection loop
+/// learns it (#151 review, F1).
 ///
-/// The task answers how many events it never wrote whole: one that failed
-/// to write, and those still in the event lane when it ended -- the
-/// count a stop's hand-over adds to its dropped events (`LOCAL-IPC.md`'s
-/// shutdown order), whether the writer ended on the `close` or gave up
-/// on a client that stopped reading
+/// The task answers the events it never wrote whole ([`Unwritten`]) --
+/// the count a stop's hand-over adds to its dropped events
+/// (`LOCAL-IPC.md`'s shutdown order), whether the writer ended on the
+/// `close` or gave up on a client that stopped reading
 /// (`a_stop_counts_what_a_writer_that_gave_up_left`).
 pub(crate) fn spawn_writer<W>(
     inner: W,
     event_lane: usize,
     state: Option<watch::Receiver<Option<ServerState>>>,
     stall: std::time::Duration,
-) -> (Lanes, tokio::task::JoinHandle<usize>)
+) -> (Lanes, tokio::task::JoinHandle<Unwritten>)
 where
     W: AsyncWrite + Unpin + Send + 'static,
 {
@@ -124,6 +123,31 @@ where
     let (events, events_rx) = mpsc::channel(event_lane.max(1));
     let task = tokio::spawn(write_loop(inner, control_rx, events_rx, state, stall));
     (Lanes { control, events }, task)
+}
+
+/// The events an ended writer never wrote whole: the one it failed on,
+/// and its event lane -- CLOSED, not dropped, so a pump that reserved
+/// room before the writer ended still sends into it, and is counted with
+/// the rest, instead of into a lane whose drop already emptied it
+/// (`a_writer_that_gave_up_keeps_what_is_sent_after_it`). Closing refuses
+/// every new reservation all the same, which is how the connection learns
+/// the writer is gone.
+pub(crate) struct Unwritten {
+    failed: usize,
+    lane: mpsc::Receiver<Frame>,
+}
+
+impl Unwritten {
+    fn closing(failed: usize, mut lane: mpsc::Receiver<Frame>) -> Self {
+        lane.close();
+        Self { failed, lane }
+    }
+
+    /// Exact once the lane's every sender is gone: a permit can still
+    /// send into a closed lane until then.
+    pub(crate) fn count(&self) -> usize {
+        self.failed + self.lane.len()
+    }
 }
 
 /// The next view to write: `Some` when it changed, `None` once the
@@ -141,7 +165,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(
     mut events: mpsc::Receiver<Frame>,
     mut state: Option<watch::Receiver<Option<ServerState>>>,
     stall: std::time::Duration,
-) -> usize {
+) -> Unwritten {
     // On connect: the current view, if one is known.
     let current = state.as_mut().and_then(|s| s.borrow_and_update().clone());
     if let Some(view) = current
@@ -152,7 +176,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(
         )
     {
         let _ = inner.shutdown().await;
-        return events.len();
+        return Unwritten::closing(0, events);
     }
     let mut unwritten = 0;
     loop {
@@ -191,7 +215,7 @@ async fn write_loop<W: AsyncWrite + Unpin>(
         }
     }
     let _ = inner.shutdown().await;
-    unwritten + events.len()
+    Unwritten::closing(unwritten, events)
 }
 
 #[cfg(test)]
@@ -298,5 +322,46 @@ mod tests {
                 "and nothing after the close"
             );
         }
+    }
+
+    /// A pump holds room it reserved when the writer gives up on a client
+    /// that does not read, and sends into it after: that event is counted
+    /// with the one the writer failed on and the one still queued. As the
+    /// gap was found, the writer dropped its lane on giving up, and a send
+    /// after that went uncounted (j183, from #724's review). The lane
+    /// still refuses a new reservation, which is how the connection learns
+    /// the writer is gone.
+    #[tokio::test]
+    async fn a_writer_that_gave_up_keeps_what_is_sent_after_it() {
+        // A socket too small for one frame, never read: the first write
+        // stalls and the writer gives up on it.
+        let (_client, server) = tokio::io::duplex(8);
+        let stall = std::time::Duration::from_millis(50);
+        let (lanes, task) = spawn_writer(server, 4, None, stall);
+        let held = lanes.events.clone().reserve_owned().await.expect("room");
+        let event = || {
+            Frame::parse(
+                r#"{"type":"event","sequence":0,"event_type":"endpoint.lease_changed","data":{"endpoint":"human","revoked_epoch":"AAAAAAAAAAAAAAAAAAAAAQ"}}"#,
+            )
+            .expect("an event")
+        };
+        lanes.events.send(event()).await.expect("queued");
+        lanes.events.send(event()).await.expect("queued");
+        // The writer ends with its lane still open to the held permit.
+        while !task.is_finished() {
+            tokio::time::sleep(stall).await;
+        }
+        assert!(
+            lanes.events.try_reserve().is_err(),
+            "a closed lane refuses new room"
+        );
+        held.send(event());
+        drop(lanes);
+        let unwritten = task.await.expect("the writer ended");
+        assert_eq!(
+            unwritten.count(),
+            3,
+            "the event it failed on, the one queued, and the one sent after"
+        );
     }
 }
