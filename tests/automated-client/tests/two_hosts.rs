@@ -727,9 +727,10 @@ const LEARNED_SEND: &str = "the_side_that_learned_an_address_dials_it_on_a_send_
 /// schedules a retry like any dial's (30 s, ADR-0011 A 2026-11-14),
 /// so from the send on B redials A from its book: here the link's return
 /// lifts the backoff and the scheduler dials at once. An unrouted
-/// address fails in milliseconds; one the network drops silently holds
-/// the send until the dial fails or the send's dial horizon (10 s)
-/// passes, which this case does not measure.
+/// address fails in milliseconds; one the network drops silently is
+/// [`a_send_to_a_learned_address_the_network_drops_is_answered_at_the_send_horizon`]'s,
+/// and one that is routed
+/// [`a_send_to_a_learned_address_that_is_routed_reconnects_the_pair`]'s.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
     if !netns::in_overlay(LEARNED_SEND) {
@@ -763,6 +764,8 @@ enum LearnedPath {
     /// there dropped by B's own filter, with no answer and no error
     /// ([`netns::drop_outbound`]).
     Dropped,
+    /// Routed to A over [`netns::second_link`], and delivered.
+    Routed,
 }
 
 /// What [`over_a_learned_path`] saw.
@@ -897,6 +900,40 @@ async fn a_send_to_a_learned_address_the_network_drops_is_answered_at_the_send_h
         "B's dial never reached the drop\n{seen:?}"
     );
     assert!(!seen.landed, "{seen:?}");
+}
+
+const LEARNED_ROUTED: &str = "a_send_to_a_learned_address_that_is_routed_reconnects_the_pair";
+
+/// The same, the learned address routed and delivered: B's send dials
+/// it, the dial connects, and the send is accepted by A's endpoint and
+/// lands at A's client, from B -- the pair reconnected by B's send over
+/// the one route B's book held, with no static entry for A and nothing
+/// else able to dial (the harness above). The control for the case
+/// above, whose drop is the only difference.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_send_to_a_learned_address_that_is_routed_reconnects_the_pair() {
+    if !netns::in_overlay(LEARNED_ROUTED) {
+        return;
+    }
+    let seen = over_a_learned_path(LearnedPath::Routed).await;
+    record(
+        "learned_routed.txt",
+        &format!(
+            "answer {:?} after {:.3?}; drops {:?}; landed {}\n",
+            seen.answer, seen.took, seen.drops, seen.landed
+        ),
+    );
+    assert_eq!(seen.dials_before, 0, "{}", seen.log);
+    assert!(seen.answer.is_ok(), "{seen:?}");
+    assert!(
+        seen.took < SEND_HORIZON,
+        "answered after {:?}\n{seen:?}",
+        seen.took
+    );
+    assert!(
+        seen.landed,
+        "the message never reached A's client\n{seen:?}"
+    );
 }
 
 const LONG_OUTAGE: &str =
