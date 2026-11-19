@@ -191,27 +191,44 @@ pub(crate) async fn run<B>(
     // dropped events: its own count when it ended, the lane's when it was
     // aborted -- less the frame it was part-way through, which nothing
     // counts (`LOCAL-IPC.md`'s shutdown order).
-    let unwritten = match tokio::time::timeout(CLOSE_GRACE, &mut writer).await {
-        Ok(Ok(unwritten)) => unwritten,
-        Ok(Err(_)) => 0,
-        Err(_) => {
-            // Read BEFORE the abort: an aborted writer dropped on another
-            // worker drops its receiver, which empties the lane, and a
-            // read after that would count none of it. Read first, a frame
-            // written in between is counted as well, an over-count by
-            // that frame.
-            let in_lane = events_lane
-                .max_capacity()
-                .saturating_sub(events_lane.capacity());
-            writer.abort();
-            in_lane
-        }
+    let (ended, in_lane) = if let Ok(ended) = tokio::time::timeout(CLOSE_GRACE, &mut writer).await {
+        (ended, 0)
+    } else {
+        // Read BEFORE the abort, since a cancelled writer drops its
+        // lane and that empties it. Nothing leaves the lane between
+        // the reading and the abort: `end` took every other sender
+        // with the connection, so the control lane the writer reads
+        // first answers it a frame or its end, and it takes no event
+        // after that.
+        let in_lane = events_lane
+            .max_capacity()
+            .saturating_sub(events_lane.capacity());
+        writer.abort();
+        // A writer that ended before the abort is not cancelled by
+        // it, and its own count is the exact one.
+        ((&mut writer).await, in_lane)
     };
     drop(events_lane);
+    let unwritten = left_unwritten(ended, in_lane);
     if stopping {
         counters.dropped_at_stop(u64::try_from(unwritten).unwrap_or(u64::MAX));
     }
     drop(slot);
+}
+
+/// The events a stop counts for its connection's writer, once every
+/// sender of its event lane is gone: the writer's own count if it ended,
+/// or `in_lane`, the lane read before the abort, if the abort cancelled
+/// it. A writer that panicked took its lane with it, uncounted.
+fn left_unwritten(
+    ended: Result<crate::frames::Unwritten, tokio::task::JoinError>,
+    in_lane: usize,
+) -> usize {
+    match ended {
+        Ok(unwritten) => unwritten.count(),
+        Err(cancelled) if cancelled.is_cancelled() => in_lane,
+        Err(_) => 0,
+    }
 }
 
 struct Connection<S, A> {
@@ -602,7 +619,7 @@ where
     /// What a stopped client's session still holds, taken out here to be
     /// counted -- the session's close would drop it uncounted. What its
     /// lane still holds is the writer's to count, since the `close`
-    /// overtakes it there or the writer drops it giving up (`run`).
+    /// overtakes it there or the writer closes it giving up (`run`).
     async fn count_held(&self) {
         let Port::Data(session) = &self.port else {
             return;
@@ -878,5 +895,47 @@ mod tests {
         .await
         .expect("the end waits for no slot");
         assert_eq!(drained(rx), ["f0", "f1"]);
+    }
+
+    /// A stop counts a writer that ended by its own count, even one the
+    /// stop aborted after it had ended, and the reading taken before the
+    /// abort only for one the abort cancelled. As the gap was found, a
+    /// writer that ended on another worker between the grace and the
+    /// reading had dropped its lane, and the reading counted none of it
+    /// (j183, from #724's review).
+    #[tokio::test]
+    async fn a_stop_takes_the_writers_own_count_unless_the_abort_cancelled_it() {
+        let event = || {
+            Frame::parse(
+                r#"{"type":"event","sequence":0,"event_type":"endpoint.lease_changed","data":{"endpoint":"human","revoked_epoch":"AAAAAAAAAAAAAAAAAAAAAQ"}}"#,
+            )
+            .expect("an event")
+        };
+        // A socket too small for one frame, never read: the writer gives
+        // up on the first event, the second still queued.
+        let (_client, server) = tokio::io::duplex(8);
+        let stall = Duration::from_millis(20);
+        let (lanes, mut writer) = spawn_writer(server, 4, None, stall);
+        lanes.events.send(event()).await.expect("queued");
+        lanes.events.send(event()).await.expect("queued");
+        while !writer.is_finished() {
+            tokio::time::sleep(stall).await;
+        }
+        writer.abort();
+        drop(lanes);
+        assert_eq!(
+            left_unwritten((&mut writer).await, 0),
+            2,
+            "an ended writer's own count, not the reading"
+        );
+        let cancelled = tokio::spawn(std::future::pending::<crate::frames::Unwritten>());
+        cancelled.abort();
+        assert_eq!(left_unwritten(cancelled.await, 7), 7, "the reading");
+        let panicked = tokio::spawn(async {
+            panic!("the writer");
+            #[allow(unreachable_code)]
+            std::future::pending::<crate::frames::Unwritten>().await
+        });
+        assert_eq!(left_unwritten(panicked.await, 7), 0, "nothing to count");
     }
 }
