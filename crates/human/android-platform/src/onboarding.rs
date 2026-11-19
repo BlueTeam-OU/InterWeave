@@ -321,9 +321,12 @@ pub fn restore(
             opens_to(&paths, cipher, &peer, &why)
         }
         // A confirmed restore over a record that names the confirmed
-        // PeerId: this flow's own earlier write, published before a
-        // refusal (`IdStorageUnknown`, then `IdR3Yes` again). Read back,
-        // never written over: done if it opens to that PeerId.
+        // PeerId, written before this restore was asked: reached after a
+        // refusal by `IdR3No`, R2's check and `IdR3Yes` on the new R3, which
+        // shows no notice (under `IdStorageUnknown` R3's Yes reads back and
+        // never reaches here). Read back, never written over: done if it
+        // opens to that PeerId; without this arm it would answer
+        // `NoRestore`, shown as nothing changed while a record exists.
         Err(RestoreRefused::RecordExists) => match expected {
             Expected::Confirmed(peer) => read_back(app_data_dir, profile, cipher, peer),
             Expected::Recorded => Err(WriteRefused::NoRestore),
