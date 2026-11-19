@@ -17,7 +17,9 @@ Names are conceptual; final packaging may namespace them to avoid collisions.
 
 ## Bridge endpoint
 
-Every direct-capable Claude bridge is configured with one local EndpointId and claims it during the IPC handshake. Common values such as `claude` are conventions only.
+Every direct-capable Claude bridge is configured with one local endpoint, named in `--endpoint` by its alias or by its EndpointId, and claims the id during the IPC handshake. An alias such as `claude` is a local name of the profile's configuration and never reaches the daemon or the wire (ADR-0067; `contracts/ENDPOINTS.md` §Configured endpoint set).
+
+From the Stage 22 release (ruled 2026-11-19 for the bridge's builder): the bridge resolves an alias before it connects, through `profile-config`'s readers and so over `config.yaml` and the endpoint overlay's added entries alike. An alias that resolves to no entry, or an alias given against a configuration that does not load, is a start that cannot work, `refused` with class `endpoint_alias`; given an id, a configuration that does not load is tolerated as it was, since the id needs no lookup. The bridge holds no endpoint key and reads nothing under `endpoint-keys/`: a lease proves no possession of a key, nothing the bridge sends is signed under one in Stage 22, and whether an endpoint's key is missing is not reported to a data session (it returns with ADR-0064). The bridge's log file is named by the `--endpoint` argument as given, which exists before any configuration is read, so an endpoint started once by alias and once by id has two log files.
 
 The bridge never accepts a `source_endpoint` tool argument. Its active IPC endpoint lease is the source of every direct send/reply.
 
@@ -82,7 +84,8 @@ Claude can choose explicit `send(peer, endpoint?, ...)` if it wants a private re
 
 ```text
 local_peer_id
-local_endpoint
+local_endpoint                     # the EndpointId, never the alias (Stage 22)
+local_endpoint_alias               # the entry's alias, present when it has one and the configuration loaded (Stage 22)
 endpoint_lease_state
 endpoint_lease_epoch
 joined_channels

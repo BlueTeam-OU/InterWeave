@@ -56,7 +56,7 @@ The bridge does not declare remote permission relay in the initial design.
 
 ## IPC endpoint claim
 
-Bridge configuration supplies one EndpointId, for example `claude`. The IPC hello requests that endpoint. The daemon grants the claim only if it is configured, enabled, allowed for the client kind, and not already leased.
+Bridge configuration supplies one endpoint, by its alias (for example `claude`) or its EndpointId; the bridge resolves an alias itself, and the IPC hello requests the endpoint by id. The daemon grants the claim only if it is configured, enabled, allowed for the client kind, and not already leased.
 
 No random fallback EndpointId is generated on conflict. A second same-profile Claude bridge must use another configured endpoint (`claude.secondary`, etc.) if both need independent direct addressing.
 
