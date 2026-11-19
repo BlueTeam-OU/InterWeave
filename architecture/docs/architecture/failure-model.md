@@ -76,7 +76,7 @@
 | DCUtR succeeds | direct path established | path-change diagnostic | hold relay until direct stability interval then retire redundant path |
 | network interface/address changes | prior evidence/routes may be stale | connectivity state transitions | invalidate affected evidence, rebuild reservations/advertisement |
 | connectivity-infrastructure peer attempts application protocol | deny that protocol; connection class unchanged | protocol-denied diagnostic | configuration change only if operator intentionally grants data-plane trust |
-| trust revoked while connected | close data-plane connection and remove endpoint directory/query access | trust + disconnect events | explicit re-allow |
+| trust revoked while connected | close data-plane connection and remove endpoint directory/query access (from the Stage 22 release: the close when the peer leaves the admission set, ADR-0067 decision 6) | trust + disconnect events | explicit re-allow |
 | daemon event queue saturated | bounded drop/reject | overload | load reduction/tuning |
 
 ## Fatal vs recoverable
