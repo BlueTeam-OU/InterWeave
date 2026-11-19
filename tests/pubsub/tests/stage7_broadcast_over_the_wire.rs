@@ -1385,7 +1385,7 @@ async fn a_signed_but_malformed_envelope_is_reject_and_does_not_wedge_later_vali
 /// all, would dial here.
 ///
 /// This pins the claim in `behaviour.rs` and `Cargo.toml` to a test, per
-/// CLAUDE.md §4: an invariant stated in a comment owes one.
+/// AGENTS.md §4: an invariant stated in a comment owes one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gossipsub_never_originates_a_dial() {
     let (a_id, a_peer) = who();

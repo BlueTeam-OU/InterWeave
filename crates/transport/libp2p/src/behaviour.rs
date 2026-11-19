@@ -7,9 +7,9 @@
 //! protocol that starts doing things on its own — Kademlia dials to fill
 //! buckets, the AutoNAT SERVER dials back, Relay renews reservations —
 //! and each of those is an outbound dial that must already be passing
-//! the root admission gate before it exists (CLAUDE.md §3). (The AutoNAT
+//! the root admission gate before it exists (AGENTS.md §3). (The AutoNAT
 //! CLIENT is not on that list: a probe is a request over a connection
-//! already open, and it emits no dial — CLAUDE.md §1, pinned against the
+//! already open, and it emits no dial — the libp2p-connectivity skill, pinned against the
 //! vendored source by `tests/autonat_client_retest.rs`.) Kademlia is here NOW
 //! because Stage 10 satisfied that order: the outbound gate admits
 //! behaviour-originated dials by root policy, and it landed — tested —
@@ -189,7 +189,7 @@ pub struct SubstrateBehaviour {
     /// The gate every outbound dial passes, including a behaviour's.
     ///
     /// Present before any behaviour that dials exists, which is the
-    /// order CLAUDE.md §3 requires: the funnel is green first, and
+    /// order AGENTS.md §3 requires: the funnel is green first, and
     /// Kademlia is added to a Swarm that already refuses an
     /// unadmitted dial.
     ///
@@ -213,7 +213,7 @@ pub struct SubstrateBehaviour {
     /// dials when a caller sends to a peer it is not connected to, so it
     /// is added to a Swarm where `outbound` already refuses an unadmitted
     /// dial and `preauth` already answers before Noise — the ordering
-    /// CLAUDE.md §3 requires, and the reason Stage 5 had to be green
+    /// AGENTS.md §3 requires, and the reason Stage 5 had to be green
     /// before this field could exist at all.
     pub direct: ClassGated<request_response::Behaviour<DirectCodec>>,
     /// Signed broadcast, GossipSub over hashed topics.
@@ -263,7 +263,7 @@ pub struct SubstrateBehaviour {
     ///
     /// NOT `Attributing`, because it never dials: every `ToSwarm` it
     /// emits is a confirmation, an event or a handler notification, and
-    /// the dial in AutoNAT is the server's dial-back (CLAUDE.md §1;
+    /// the dial in AutoNAT is the server's dial-back (the libp2p-connectivity skill;
     /// pinned against the vendored source by
     /// `tests/autonat_client_retest.rs`). Wrapping it would announce an
     /// origin for a dial that never happens.
@@ -286,7 +286,7 @@ pub struct SubstrateBehaviour {
     /// `Attributing`, unlike the client, because the server DIALS: the
     /// dial-back at `v2/server/behaviour.rs:124` is the one dial in
     /// AutoNAT v2, and it reaches the outbound gate announced as
-    /// `AutonatProbe` -- CLAUDE.md §1's route 1, reached here for the
+    /// `AutonatProbe` -- the libp2p-connectivity skill's route 1, reached here for the
     /// first time -- so the root policy admits or refuses it like any
     /// other behaviour dial (SPIKE-004 R4.4/R4.8). Beneath that,
     /// `ProbeServer` carries §7's dial-back target rule and budgets,
@@ -311,7 +311,7 @@ pub struct SubstrateBehaviour {
     /// `Attributing`, because the client DIALS: the control connection
     /// to a relay it holds none to (`priv_client.rs`, the `ListenReq`
     /// arm) reaches the outbound gate announced as `RelayReservation`
-    /// -- CLAUDE.md §1's route 1 -- and the root policy admits or
+    /// -- the libp2p-connectivity skill's route 1 -- and the root policy admits or
     /// refuses it like any other behaviour dial. Beneath that,
     /// `ReservationScope` swallows the crate's own
     /// `ExternalAddrConfirmed`, so what the Swarm advertises is the

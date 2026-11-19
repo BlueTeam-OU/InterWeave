@@ -729,7 +729,7 @@ async fn sending_to_the_local_peer_is_invalid_argument() {
 /// A source endpoint this node holds no lease for is refused locally.
 ///
 /// The source `EndpointId` is derived from the local lease, never taken
-/// from caller input (CLAUDE.md §5). Before this was enforced, any
+/// from caller input (AGENTS.md §5). Before this was enforced, any
 /// holder of a runtime handle could name any endpoint at all, and the
 /// receiver would key its dedup entry on that label and surface it on
 /// the delivered event as though it meant something.

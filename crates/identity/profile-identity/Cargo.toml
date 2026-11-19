@@ -5,7 +5,7 @@
 # and the ADR-0033 recovery phrase.
 #
 # This is the LOWEST crate allowed to know about libp2p, and it is not an
-# `api/` crate for exactly that reason (CLAUDE.md §4). Its own boundary
+# `api/` crate for exactly that reason (AGENTS.md §4). Its own boundary
 # speaks `TransportIdentity`, the neutral type, so the libp2p PeerId stops
 # here rather than travelling upward with it.
 #

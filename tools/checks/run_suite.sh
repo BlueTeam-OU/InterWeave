@@ -41,7 +41,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fabric="$(interweave_fabric_root "$here")"
 target="$fabric/tools/fabric/github/run_suite.py"
 [[ -f "$target" ]] || {
-    echo "run_suite: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/run_suite.py); set AGENT_FABRIC_ROOT or update it. See CLAUDE.md §9, agent-fabric beside the checkout." >&2
+    echo "run_suite: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/run_suite.py); set AGENT_FABRIC_ROOT or update it. See AGENTS.md §9, agent-fabric beside the checkout." >&2
     exit 2
 }
 py="$(interweave_fabric_python run_suite)" || exit 127

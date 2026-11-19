@@ -6,7 +6,7 @@
 
 The nine contracts under `architecture/contracts/` are prose. Prose is the right medium for behaviour — routing order, what an acceptance proves, which failure stays coarse on the wire — and it will remain normative for all of that. It is the wrong medium for **shape**. A prose field list cannot be validated against an instance, cannot be diffed for compatibility when a version changes, and cannot generate the conformance vectors that independent implementations agree on.
 
-Two consequences are already visible. `fixtures/` contains nine README files and **zero vectors**, so `CLAUDE.md` §9's requirement that "frozen fixture checks still pass where applicable" currently checks nothing — the goldens ADR-0047 re-froze live only in ADR prose, where nothing recomputes them. And ADR-0046 places `foundation/fixtures` and `neutral contracts/config` at the very bottom of the construction order, which means these are the next artifacts due, not a later concern.
+Two consequences are already visible. `fixtures/` contains nine README files and **zero vectors**, so `AGENTS.md` §9's requirement that "frozen fixture checks still pass where applicable" currently checks nothing — the goldens ADR-0047 re-froze live only in ADR prose, where nothing recomputes them. And ADR-0046 places `foundation/fixtures` and `neutral contracts/config` at the very bottom of the construction order, which means these are the next artifacts due, not a later concern.
 
 There is a second problem specific to this repository's state. Nothing is implemented. Every contract here describes what an implementation must do, not what any running code does. Prose cannot express that distinction, so a reader has no way to tell a specification of current behaviour from a specification of intended behaviour — and in a repository where *none* of it is current, that ambiguity is total.
 
@@ -96,7 +96,7 @@ The schemas describe shapes only. No key material, no capability grant, and no t
 
 ## Operational implications
 
-`tools/checks/validate_contracts.py` and `tools/checks/verify_fixture_vectors.py` run before pushing and are listed in `CLAUDE.md` §9. Both take `--root` so they can be run against an extracted archive, which is how a handoff recipient confirms the vectors they received.
+`tools/checks/validate_contracts.py` and `tools/checks/verify_fixture_vectors.py` run before pushing and are listed in `AGENTS.md` §9. Both take `--root` so they can be run against an extracted archive, which is how a handoff recipient confirms the vectors they received.
 
 ## Implementation implications
 

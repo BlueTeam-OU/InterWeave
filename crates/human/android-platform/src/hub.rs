@@ -30,7 +30,7 @@ use crate::notice::Notices;
 /// far behind is detached rather than waited for: the facade then keeps
 /// draining, so notices keep coming, and the view lists the store again
 /// when it re-attaches ([`ViewLink::lost`]). Bounded memory, as the
-/// desktop's window queue is (CLAUDE.md section 6).
+/// desktop's window queue is (AGENTS.md section 6).
 pub const TO_VIEW: usize = 256;
 
 /// What a view is sent.

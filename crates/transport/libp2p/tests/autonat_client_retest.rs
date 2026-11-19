@@ -100,11 +100,11 @@ fn retesting_one_candidate_leaves_the_others_where_they_were() {
 
 /// The client NEVER dials, and the tree can now stop that being true.
 ///
-/// CLAUDE.md §1 cites a measurement: every `ToSwarm` the v2 client
+/// The libp2p-connectivity skill cites a measurement: every `ToSwarm` the v2 client
 /// emits is `ExternalAddrConfirmed`, `GenerateEvent` or `NotifyHandler`,
 /// because a probe is a request over a connection already open, and the
-/// dial in AutoNAT is the server's dial-back. Route 2 and route 3 of §1
-/// rest on it, and so does every comment in this crate that says the
+/// dial in AutoNAT is the server's dial-back. Route 2 and route 3 of that
+/// skill rest on it, and so does every comment in this crate that says the
 /// client originates no dial. A measurement of a registry crate was a
 /// fact; the crate is vendored under `third_party/` and editable here,
 /// so it is now a claim someone can falsify with one line and no test
@@ -124,7 +124,7 @@ fn the_vendored_client_emits_no_dial_and_the_server_does() {
     for needle in ["ToSwarm::Dial", "DialOpts"] {
         assert!(
             !CLIENT.contains(needle),
-            "the vendored AutoNAT v2 client now emits a dial (`{needle}`): CLAUDE.md §1's \
+            "the vendored AutoNAT v2 client now emits a dial (`{needle}`): the libp2p-connectivity skill's \
              route 2/3 reasoning and this crate's comments assume it never does"
         );
         assert!(

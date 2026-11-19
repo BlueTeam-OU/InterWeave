@@ -17,7 +17,7 @@
 //! # The client never dials, and this driver does (route 2)
 //!
 //! A probe is a request over a connection this profile already opened
-//! (CLAUDE.md §1: every `ToSwarm` the client emits is a confirmation, an
+//! (the libp2p-connectivity skill: every `ToSwarm` the client emits is a confirmation, an
 //! event or a handler notification). Reaching a static server this
 //! profile is not connected to is therefore an ordinary `attempt_dial`
 //! under `DialOrigin::AutonatProbe`, admitted by the root gate like any

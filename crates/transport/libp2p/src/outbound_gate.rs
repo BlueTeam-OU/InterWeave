@@ -12,7 +12,7 @@
 //! never pass through the wrapper at all. (The AutoNAT CLIENT never
 //! dials — pinned against the vendored source by
 //! `tests/autonat_client_retest.rs`; the profile dials its servers on
-//! the command path, under `AutonatProbe` — CLAUDE.md §1.)
+//! the command path, under `AutonatProbe` — the libp2p-connectivity skill.)
 //!
 //! libp2p routes every dial, whatever asked for it, through
 //! `NetworkBehaviour::handle_pending_outbound_connection`, and it does
@@ -325,7 +325,7 @@ impl InFlightTickets {
 /// production path can hand the policy a suffixed form any more —
 /// `attempt_dial` and `learn_route` both canonicalize and the established
 /// hook uses `canonical_for_peer` — so a reader who stopped here took it for a
-/// description of today's code. CLAUDE.md §7 names exactly this: "X is
+/// description of today's code. AGENTS.md §4 names exactly this: "X is
 /// answered Y" is false as soon as it is fixed, often in the same commit
 /// series. Review finding on PR #86.
 ///

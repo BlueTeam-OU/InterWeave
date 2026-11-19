@@ -44,8 +44,8 @@ contract() {
     local root="$1"; shift
     local bolded=""
     for c in "$@"; do bolded="$bolded **\`$c\`**,"; done
-    printf '# CLAUDE.md\n\nIt reports %d contexts, which are the job `name:` values verbatim:%s and nothing else.\n' \
-        "$#" "${bolded%,}" > "$root/CLAUDE.md"
+    printf '# AGENTS.md\n\nIt reports %d contexts, which are the job `name:` values verbatim:%s and nothing else.\n' \
+        "$#" "${bolded%,}" > "$root/AGENTS.md"
 }
 
 run_code() { bash "$GUARD" --root "$1" >/dev/null 2>&1; printf '%s' "$?"; }
@@ -93,9 +93,23 @@ echo "check_required_contexts: a document that stopped saying anything fails"
 # Deleting the sentence must not read as agreement.
 R="$TMP/silent"; mkdir -p "$R"
 workflow "$R" "rust" "tree checks"
-printf '# CLAUDE.md\n\nNothing about CI here.\n' > "$R/CLAUDE.md"
+printf '# AGENTS.md\n\nNothing about CI here.\n' > "$R/AGENTS.md"
 [ "$(run_code "$R")" = "1" ] && ok "a missing statement is a failure, not a pass" \
     || bad "should exit 1: $(run "$R")"
+
+echo "check_required_contexts: AGENTS.md is the file read, not the CLAUDE.md stub"
+# CLAUDE.md became a one-line import of AGENTS.md on 2026-11-19. A
+# statement left in CLAUDE.md alone is not the instruction file's.
+R="$TMP/stub-only"; mkdir -p "$R"
+workflow "$R" "rust"
+contract "$R" "rust"
+mv "$R/AGENTS.md" "$R/CLAUDE.md"
+printf '# AGENTS.md\n\nNothing about CI here.\n' > "$R/AGENTS.md"
+[ "$(run_code "$R")" = "1" ] && ok "a statement only in CLAUDE.md does not count" \
+    || bad "should exit 1: $(run "$R")"
+rm "$R/AGENTS.md"
+[ "$(run_code "$R")" = "2" ] && ok "a tree with no AGENTS.md exits 2" \
+    || bad "missing AGENTS.md should exit 2: $(run "$R")"
 
 echo "check_required_contexts: invocation errors are distinct from findings"
 [ "$(bash "$GUARD" --nonsense >/dev/null 2>&1; printf '%s' "$?")" = "2" ] \
@@ -107,7 +121,7 @@ R="$TMP/empty"; mkdir -p "$R"
 echo "check_required_contexts: --help works and says nothing about the tree"
 
 echo "check_required_contexts: an advisory context is a job too, listed apart"
-advisory() { printf '\nCI also reports one advisory context the ruleset does not require: **`%s`**.\n' "$2" >> "$1/CLAUDE.md"; }
+advisory() { printf '\nCI also reports one advisory context the ruleset does not require: **`%s`**.\n' "$2" >> "$1/AGENTS.md"; }
 R="$TMP/advisory"; mkdir -p "$R"
 workflow "$R" "rust" "tree checks" "android check (aarch64-linux-android)"
 contract "$R" "rust" "tree checks"

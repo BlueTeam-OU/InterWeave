@@ -11,7 +11,7 @@
 //! This is the lowest crate permitted to know about libp2p, and its own
 //! surface speaks [`TransportIdentity`] — the neutral type — so a
 //! `libp2p_identity::PeerId` never travels upward. `crates/api/*` must
-//! not depend on libp2p at all (CLAUDE.md §4), and the way to keep that
+//! not depend on libp2p at all (AGENTS.md §4), and the way to keep that
 //! true is for the translation to happen once, here.
 //!
 //! # What SPIKE-006 constrains

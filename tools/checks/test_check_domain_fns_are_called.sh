@@ -605,7 +605,7 @@ assert_rc   "an unreadable open stage is exit 2" 2
 # --- a spike is not a caller ------------------------------------------
 #
 # The SPIKE-003 harness depends on the production crates by path, which
-# CLAUDE.md §4 permits. It then called a domain function and this guard
+# AGENTS.md §4 permits. It then called a domain function and this guard
 # reported it as called — a spike vouching for a rule nothing in
 # production applies is the same false green a unit test would give.
 run_against "$UNCALLED" "$BACKEND_IDLE" "" "" \
@@ -635,7 +635,7 @@ assert_rc   "CONTROL: a real production caller in the same shape passes" 0
 # clause already drops.
 #
 # The guard's own copy of this claim was corrected twice and this one was
-# left behind both times -- CLAUDE.md section 7's named shape, where the
+# left behind both times -- AGENTS.md section 7's named shape, where the
 # reasoning is right in the file you are editing and its counterpart lives
 # in the file you are not. Read `check_domain_fns_are_called.sh`'s
 # paragraph with this one; they are a pair. Review findings on PR #85.

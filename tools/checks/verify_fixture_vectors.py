@@ -15,7 +15,7 @@
 # domain prefix edited, a length field widened, a canonicalization
 # "clarified" — is a protocol break that no test would otherwise catch.
 # The check exists so that changing a vector requires deciding to change
-# it (CLAUDE.md §9, ADR-0049).
+# it (AGENTS.md §9, ADR-0049).
 #
 # A fixture file declares `algorithm.id`; this script implements that id
 # independently, from the specification rather than from the fixture. An

@@ -12,7 +12,7 @@
 #
 # This repository IS its documentation — the architecture under
 # architecture/ is the normative source, and a link that stopped
-# resolving is a reader sent to nothing. CLAUDE.md §9 has required both
+# resolving is a reader sent to nothing. AGENTS.md §9 has required both
 # of these for repository-wide changes since before there was any code;
 # they were run as an ad-hoc snippet, by hand, which is the same
 # silently-unwired state check_guards_are_wired.sh exists to prevent for

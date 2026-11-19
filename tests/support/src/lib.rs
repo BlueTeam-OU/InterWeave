@@ -3,7 +3,7 @@
 
 //! Shared harness utilities for the InterWeave test suites.
 //!
-//! **Test-only.** No production crate may depend on this package (CLAUDE.md
+//! **Test-only.** No production crate may depend on this package (AGENTS.md
 //! §4). Everything here exists to make a test say what it means; none of it is
 //! safe to have inside a shipped daemon.
 //!

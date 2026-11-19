@@ -35,7 +35,7 @@ Nothing is configured. A `cargo update` that would move `wasm-bindgen-futures` p
 
 ## Implementation implications
 
-`third_party/wasm-bindgen-futures/` beside the two existing trees; the `[patch.crates-io]` entry with a comment naming this record; `license_exempt.txt` rows (MIT OR Apache-2.0, the wasm-bindgen authors, 0.4.58, the checksum above); the `third_party/README.md` row; `CLAUDE.md` §1's third_party sentence names the third ADR; the `futures-timer` note in the root `Cargo.toml` gains one line pointing here.
+`third_party/wasm-bindgen-futures/` beside the two existing trees; the `[patch.crates-io]` entry with a comment naming this record; `license_exempt.txt` rows (MIT OR Apache-2.0, the wasm-bindgen authors, 0.4.58, the checksum above); the `third_party/README.md` row; `AGENTS.md` §1's third_party sentence names the third ADR; the `futures-timer` note in the root `Cargo.toml` gains one line pointing here.
 
 ## Revisit conditions
 

@@ -27,7 +27,7 @@
 //! for the ordinary settlement path, and its address judged at the
 //! established hook where one first exists. The gate existed and
 //! refused everything BEFORE any behaviour that dials, which is the
-//! order CLAUDE.md §3 requires; Stage 10 taught it to answer with
+//! order AGENTS.md §3 requires; Stage 10 taught it to answer with
 //! policy rather than with a flat no.
 //!
 //! # The feature list withholds no behaviour any more
@@ -36,7 +36,7 @@
 //! Circuit Relay and DCUtR as absent from the `libp2p` feature list this
 //! crate compiles against — not merely unused, so none could be switched
 //! on by a `use` statement or a stray builder call, because the code was
-//! not there. That was the cheapest way to keep CLAUDE.md §3's promise
+//! not there. That was the cheapest way to keep AGENTS.md §3's promise
 //! that admission policy is never retrofitted, and each stage spent its
 //! entry from that list exactly once.
 //!
@@ -80,7 +80,7 @@
 //! The boundary speaks [`interweave_transport_api::TransportIdentity`]
 //! and this crate's own [`SwarmCommand`] and [`SwarmEvent`]. That keeps
 //! the backend replaceable and keeps `crates/api/*` free of libp2p
-//! (CLAUDE.md §4) — the translation happens once, here.
+//! (AGENTS.md §4) — the translation happens once, here.
 //!
 //! # Dials are admitted, from the first line of substrate code
 //!
@@ -93,7 +93,7 @@
 //! The behaviour path is gated the same way: every dial a behaviour
 //! originates is decided by the root policy inside
 //! `NetworkBehaviour::handle_pending_outbound_connection`, before a
-//! socket is opened — which is what CLAUDE.md §3 required to be green
+//! socket is opened — which is what AGENTS.md §3 required to be green
 //! before Kademlia could be activated, and it is green first: the
 //! `kad` feature arrives only in the commit after this gate's tests.
 

@@ -19,9 +19,10 @@ fails=0
 ok()   { printf '  \342\234\223 %s\n' "$1"; }
 bad()  { printf '  \342\234\227 %s\n' "$1"; fails=$((fails + 1)); }
 
-# Build a tree with a given status and three prose files.
+# Build a tree with a given status and three prose files, plus the
+# CLAUDE.md import stub the real tree carries.
 make_tree() {
-  local dir="$1" status="$2" readme="$3" impl="$4" claude="$5" comment="${6:-}" \
+  local dir="$1" status="$2" readme="$3" impl="$4" agents="$5" comment="${6:-}" \
         members="${7:-\"xtask\"}"
   mkdir -p "$dir"
   {
@@ -32,7 +33,8 @@ make_tree() {
   } > "$dir/Cargo.toml"
   printf '%s\n' "$readme" > "$dir/README.md"
   printf '%s\n' "$impl"   > "$dir/IMPLEMENTATION.md"
-  printf '%s\n' "$claude" > "$dir/CLAUDE.md"
+  printf '%s\n' "$agents" > "$dir/AGENTS.md"
+  printf '@AGENTS.md\n' > "$dir/CLAUDE.md"
 }
 
 expect() {
@@ -128,10 +130,57 @@ printf '# Implementation workspace skeleton only.\n%s' \
 mv "$TMP/manifest-claim/Cargo.toml.new" "$TMP/manifest-claim/Cargo.toml"
 expect "the manifest may not deny its own members" "$TMP/manifest-claim" 1
 
+echo "check_stage_status: AGENTS.md is the file read, not CLAUDE.md"
+# The instruction file was renamed on 2026-11-19 and CLAUDE.md became an
+# import of it; a guard still opening CLAUDE.md read the stub and failed.
+make_tree "$TMP/agents-stale" "stage-3-persistence" \
+  "Stage 3 is open." "Stage 3 is open." "Stage 1 is open."
+# Each case asserts the REPORT names AGENTS.md, not only the exit: a
+# guard reading CLAUDE.md also exits 1 on these trees (the stub states
+# no stage), so the exit alone passed under that mutation (#727 F9).
+expect_names_agents() {
+  local name="$1" dir="$2" out
+  out="$(bash "$GUARD" --root "$dir" 2>&1)"
+  local got=$?
+  if [ "$got" -eq 1 ] && printf '%s\n' "$out" | grep -q '^AGENTS\.md: '; then ok "$name"
+  else bad "$name (exit $got, wanted 1 with a line reporting AGENTS.md)"; fi
+}
+expect_names_agents "a stale AGENTS.md fails, and is the file named" "$TMP/agents-stale"
+make_tree "$TMP/agents-missing" "stage-3-persistence" \
+  "Stage 3 is open." "Stage 3 is open." "Stage 3 is open."
+rm "$TMP/agents-missing/AGENTS.md"
+expect_names_agents "a missing AGENTS.md fails, and is the file named" "$TMP/agents-missing"
+
+echo "check_stage_status: CLAUDE.md is the import or nothing"
+make_tree "$TMP/no-stub" "stage-3-persistence" \
+  "Stage 3 is open." "Stage 3 is open." "Stage 3 is open."
+rm "$TMP/no-stub/CLAUDE.md"
+expect "an absent CLAUDE.md passes" "$TMP/no-stub" 0
+make_tree "$TMP/stub-blank" "stage-3-persistence" \
+  "Stage 3 is open." "Stage 3 is open." "Stage 3 is open."
+printf '\n@AGENTS.md  \n\n' > "$TMP/stub-blank/CLAUDE.md"
+expect "blank lines and trailing spaces around the import pass" "$TMP/stub-blank" 0
+make_tree "$TMP/stub-prose" "stage-3-persistence" \
+  "Stage 3 is open." "Stage 3 is open." "Stage 3 is open."
+printf '@AGENTS.md\n\nStage 1 is open.\n' > "$TMP/stub-prose/CLAUDE.md"
+expect "a CLAUDE.md with prose beside the import fails" "$TMP/stub-prose" 1
+make_tree "$TMP/stub-other" "stage-3-persistence" \
+  "Stage 3 is open." "Stage 3 is open." "Stage 3 is open."
+printf '@README.md\n' > "$TMP/stub-other/CLAUDE.md"
+expect "a CLAUDE.md importing another file fails" "$TMP/stub-other" 1
+make_tree "$TMP/stub-empty" "stage-3-persistence" \
+  "Stage 3 is open." "Stage 3 is open." "Stage 3 is open."
+: > "$TMP/stub-empty/CLAUDE.md"
+expect "an empty CLAUDE.md fails" "$TMP/stub-empty" 1
+make_tree "$TMP/stub-twice" "stage-3-persistence" \
+  "Stage 3 is open." "Stage 3 is open." "Stage 3 is open."
+printf '@AGENTS.md\n@AGENTS.md\n' > "$TMP/stub-twice/CLAUDE.md"
+expect "a doubled import fails" "$TMP/stub-twice" 1
+
 echo "check_stage_status: a malformed status is an invocation error"
 mkdir -p "$TMP/bad"
 printf '[workspace.metadata.interweave]\nstatus = "whatever"\n' > "$TMP/bad/Cargo.toml"
-: > "$TMP/bad/README.md"; : > "$TMP/bad/IMPLEMENTATION.md"; : > "$TMP/bad/CLAUDE.md"
+: > "$TMP/bad/README.md"; : > "$TMP/bad/IMPLEMENTATION.md"; : > "$TMP/bad/AGENTS.md"
 expect "status is not stage-N-slug" "$TMP/bad" 2
 
 echo "check_stage_status: a missing tree is an invocation error"

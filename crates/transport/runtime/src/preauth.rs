@@ -16,7 +16,7 @@
 //! Between accepting a TCP connection and completing Noise, the remote
 //! side has proved nothing. It has no `PeerId`, so no trust decision can
 //! apply to it, and every byte of state allocated on its behalf is state
-//! an anonymous party chose to make this process hold. CLAUDE.md §5
+//! an anonymous party chose to make this process hold. AGENTS.md §5
 //! requires that window to be bounded; this is where the bound lives.
 //!
 //! # Why the source is not an identity
@@ -133,7 +133,7 @@ pub const DEFAULT_MAX_GLOBAL_ATTEMPTS_PER_WINDOW: u32 = 600;
 ///
 /// It does NOT parse a multiaddr: that grammar is libp2p's, and putting
 /// it here would push a backend concept into a crate that has none
-/// (CLAUDE.md §4). A backend holding `/ip4/198.51.100.7/tcp/4001` has
+/// (AGENTS.md §4). A backend holding `/ip4/198.51.100.7/tcp/4001` has
 /// the socket address already and passes that.
 ///
 /// Anything else — a relay's `PeerId`, a unix socket, a test label — is

@@ -211,7 +211,7 @@ impl std::error::Error for ReachabilityError {}
 /// unchanged", so an adapter that mis-populated the server set -- or
 /// raced a crate event ahead of `add_server` -- had every report
 /// dropped and sat `Unknown` forever with nothing to say so. That is
-/// the shape SPIKE-004 measured for the dial gate and CLAUDE.md §1
+/// the shape SPIKE-004 measured for the dial gate and the libp2p-connectivity skill
 /// records as binding: a refusal nobody can see is a subsystem that
 /// dies silently. Counting them is the adapter's, under `AUTONAT.md`
 /// §9's `autonat_probes_total{outcome}` with the two `refused_*`
@@ -250,7 +250,7 @@ impl std::error::Error for RefusedReport {}
 /// state`] is the one place the two are mapped. An earlier version of
 /// this module declared its own `DirectInboundState` with a hand-written
 /// `summary_word` returning string literals, which is a second copy of a
-/// normative vocabulary with nothing comparing them -- CLAUDE.md §7's
+/// normative vocabulary with nothing comparing them -- AGENTS.md §7's
 /// "avoid duplicating normative constants … unless there is a drift
 /// check". Review finding on PR #84.
 ///

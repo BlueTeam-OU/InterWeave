@@ -12,8 +12,8 @@
 //!   dial-back -- the one dial AutoNAT v2 makes, and the SERVER's
 //!   (`v2/server/behaviour.rs:124`) -- reaches the outbound gate under
 //!   the origin `AUTONAT.md` §7 names, and is admitted or refused by
-//!   the root policy like every other behaviour dial. This is CLAUDE.md
-//!   §1's ROUTE 1, reached for the first time by this step;
+//!   the root policy like every other behaviour dial. This is the
+//!   libp2p-connectivity skill's ROUTE 1, reached for the first time by this step;
 //! - [`ClassGated`] for the CONNECTIVITY-INFRASTRUCTURE service, so the
 //!   dial-request protocol is offered to `DataPlaneTrusted` and
 //!   `ConnectivityInfrastructureOnly` peers and to nobody else (§7:
@@ -32,7 +32,7 @@
 //! read it), and turns the wrapper's events into the runtime's --
 //! [`SwarmEvent::AutonatProbeServed`] and
 //! [`SwarmEvent::AutonatProbeRefused`] -- so that a refusal is never a
-//! counter nobody reads (CLAUDE.md §1 on invisible refusals; the
+//! counter nobody reads (the libp2p-connectivity skill on invisible refusals; the
 //! client driver's `ReachabilityReportRefused` is the model).
 //!
 //! # What retains a client's inbound

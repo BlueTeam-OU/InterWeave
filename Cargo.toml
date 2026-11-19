@@ -1,7 +1,7 @@
 # Implementation workspace, populated one canonical stage at a time.
 # No production crate is a workspace member until its implementation stage begins.
 #
-# `members` grows one stage at a time (CLAUDE.md §3): a package is added here in
+# `members` grows one stage at a time (AGENTS.md §3): a package is added here in
 # the same change that creates its manifest and the tests proving its stage
 # gate. `planned_members` below is an inventory, not a queue to drain.
 [workspace]
@@ -155,7 +155,7 @@ repository = "https://github.com/BlueTeam-OU/InterWeave"
 #     and its rewrite, `assert_eq!(x, [] as [T; 0])`, needs PartialEq and
 #     Debug on T and reads worse: no site where it fires would be improved.
 #
-# The bounded-resource invariant (CLAUDE.md §6) is enforced at runtime by
+# The bounded-resource invariant (AGENTS.md §6) is enforced at runtime by
 # `overflow-checks` in [profile.release] below rather than by a lint:
 # clippy::arithmetic_side_effects fires on every integer `+` in the tree, which
 # buys a wall of allow-attributes and no additional guarantee.
@@ -339,7 +339,7 @@ yeslogic-fontconfig-sys = { version = "=6.0.1", default-features = false, featur
 # Noise, Yamux and Identify; Stage 6 added request-response for direct v2;
 # Stage 7 added GossipSub; Stage 10 added Kademlia — the first autonomous
 # behaviour, and it landed only AFTER the root gate learned to admit
-# behaviour-originated dials by policy, the order CLAUDE.md §3 requires.
+# behaviour-originated dials by policy, the order AGENTS.md §3 requires.
 # Stage 11 adds `autonat`, `relay` and `dcutr`, and it is the same order
 # again rather than an exception to it: dial attribution landed first
 # (step 1), then SPIKE-004's D1, D2 and D3 were fixed (step 2), and only
@@ -354,7 +354,7 @@ yeslogic-fontconfig-sys = { version = "=6.0.1", default-features = false, featur
 #
 # IT GUARDED ONE OF THE THREE ROUTES TO A RETAINED SUCH CONNECTION, and
 # this comment has now said both more and less than that. The routes are
-# enumerated in CLAUDE.md §1, and read them there rather than from a
+# enumerated in the libp2p-connectivity skill, and read them there rather than from a
 # paraphrase — paraphrasing that list is what went wrong in four
 # successive review rounds. In short: a wrapped behaviour whose
 # classifier announces a reachability origin, which the feature list
@@ -492,7 +492,7 @@ libp2p = { version = "0.57", default-features = false, features = [
     "kad",
     # Stage 6. The direct v2 request-response primitive. Absent until
     # this stage opened, so a behaviour that dials could not exist
-    # before the admission funnel it must pass through (CLAUDE.md §3).
+    # before the admission funnel it must pass through (AGENTS.md §3).
     #
     # NOT `cbor`. It was enabled here on the assumption that direct v2
     # responses would ride on it; `DirectCodec` encodes and decodes the
@@ -515,7 +515,7 @@ libp2p = { version = "0.57", default-features = false, features = [
     # hole punch, and an AutoNAT dial-BACK, which belongs to the SERVER:
     # the v2 client emits no dial at all, because a probe is a request
     # over an already-open connection (measured 2026-09-09; see
-    # CLAUDE.md §1 on step 3 reaching routes 2 and 3). So they arrive
+    # the libp2p-connectivity skill on step 3 reaching routes 2 and 3). So they arrive
     # only now that the outbound gate attributes a dial to the behaviour
     # that started it rather than assuming Kademlia, and now that the
     # three ADR-0036 violations SPIKE-004 found in the admission path
@@ -537,7 +537,7 @@ libp2p = { version = "0.57", default-features = false, features = [
     # are proved at all -- so "reachable only from a composition root"
     # would be false.) So the guarantee is no longer the
     # compiler's: it is the outbound gate, the trust classification and
-    # their tests, exactly as CLAUDE.md §1 says. Review, PR #108.
+    # their tests, exactly as the libp2p-connectivity skill says. Review, PR #108.
     "autonat",
     "relay",
     "dcutr",
@@ -690,14 +690,14 @@ codegen-units = 1
 # daemon, without the size of full debug info.
 debug = 1
 # ON IN RELEASE, on purpose. The default is off, which makes every bound in
-# section 6 of CLAUDE.md hold in debug and wrap in production — the one build
+# section 6 of AGENTS.md hold in debug and wrap in production — the one build
 # where a wrapped length or counter is unobservable.
 overflow-checks = true
 
 [workspace.metadata.interweave]
 # The open stage of the canonical plan, and the ONE machine-readable place
 # it is recorded. Every human-facing status sentence — README.md,
-# IMPLEMENTATION.md, CLAUDE.md §1 — is checked against this value by
+# IMPLEMENTATION.md, AGENTS.md §1 — is checked against this value by
 # tools/checks/check_stage_status.sh, because three prose copies of one
 # fact drifted apart twice before the check existed.
 #

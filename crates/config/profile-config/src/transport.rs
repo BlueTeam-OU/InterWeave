@@ -184,7 +184,7 @@ impl Default for InboundRateLimitConfig {
 /// `transport.direct.protocol`: `literal[/interweave/direct/2.0.0]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum DirectProtocol {
-    /// The one directed protocol (CLAUDE.md §5).
+    /// The one directed protocol (AGENTS.md §5).
     #[default]
     #[serde(rename = "/interweave/direct/2.0.0")]
     DirectV2,
@@ -222,7 +222,7 @@ impl Default for DirectConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PubsubBackend {
-    /// Signed GossipSub (CLAUDE.md §5).
+    /// Signed GossipSub (AGENTS.md §5).
     #[default]
     Gossipsub,
 }
