@@ -65,7 +65,8 @@ answer Ok(EndpointId("automation")) after 29.530ms; drops None; landed true
 ```
 
 Earlier runs of the drop and route cases, on c24e65adf (the same cases
-but for the counter's read below) and on 8f15e5e3d, printed `answer
+but for `netns::outbound_drops` reading only a rule ending in `drop`)
+and on 8f15e5e3d, printed `answer
 Err(PeerUnreachable) after 10.004s; drops Some(7)` and `answer
 Err(Timeout) after 10.002s; drops Some(7)` for the first, `Ok` after
 172.904 ms and 59.329 ms for the second. The long case ran on both
@@ -114,8 +115,9 @@ one the reconnect's Identify learned again.
 
 ## Mutations
 
-Each new case fails under its named mutation; the case's three
-existing neighbours, the controls, pass unchanged on this commit.
+Each new case fails under its named mutation, run on 8f15e5e3d; the
+three existing cases beside them, the controls, pass unchanged on
+f4560a4cf, run with the cases above.
 
 - **The drop turned into an accept** (`netns::drop_outbound`'s rule
   `counter drop` to `counter accept`): the drop case failed at its

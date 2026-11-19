@@ -162,8 +162,14 @@ observability: {{ log_level: debug }}
             .find(|v| &v.peer == peer)
     }
 
-    /// Whether this host's own addresses (`admin.peers.own_addresses`,
-    /// the listen addresses its Identify advertises) name `ip`.
+    /// Whether this host's own addresses (`admin.peers.own_addresses`)
+    /// name `ip`. Their listen rows and the listen set Identify advertises
+    /// are not the same list -- the own addresses add confirmed and
+    /// circuit rows and floor special-use ones such as loopback -- but
+    /// both withhold by one predicate, the network set's `offers` /
+    /// `not_offered` (`runtime/mod.rs`, `withhold_not_offered`), so for a
+    /// private, non-special-use address such as [`LEARNED_A`] absence
+    /// from one is absence from the other.
     async fn lists_own(&self, ip: Ipv4Addr) -> bool {
         let admin = self
             .home
