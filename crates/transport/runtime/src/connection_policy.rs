@@ -777,6 +777,47 @@ impl ConnectionPolicy {
         }
     }
 
+    /// `peer`'s MOST RECENTLY PROVEN book entry: the one with the greatest
+    /// last success, ties to the lowest address. One selection for its
+    /// two readers -- the book's eviction, which never takes it (#137),
+    /// and [`Self::clear_newest_proven_failures`] -- so the entry a
+    /// network addition clears is the one eviction protects (ADR-0011
+    /// A 2026-11-19). `None` for a peer whose book holds no success.
+    #[must_use]
+    pub(crate) fn newest_proven(&self, peer: &TransportIdentity) -> Option<String> {
+        let last_success = |a: &String| self.address(peer, a).and_then(|s| s.last_success_ms);
+        self.book
+            .get(peer)?
+            .iter()
+            .filter(|a| last_success(a).is_some())
+            .max_by_key(|a| (last_success(a), std::cmp::Reverse((*a).clone())))
+            .cloned()
+    }
+
+    /// Set the consecutive-failure count of `peer`'s most recently proven
+    /// book entry ([`Self::newest_proven`]) to zero, keeping its last
+    /// success, so it is recently good again and ranks first: a network
+    /// addition's reading that the host's earlier failures are stale
+    /// (ADR-0011 A 2026-11-19; [`crate::ConnectionManager::network_added`]
+    /// calls it for the peers it lifts). That entry ALONE -- every other
+    /// keeps its count, since clearing a never-proven one makes it
+    /// unevictable and clearing an older proof would rank it by spelling
+    /// beside the newer. A quarantine is not touched: a quarantined entry
+    /// holds no proof (`record_identity_mismatch` erases it), and the
+    /// field is not this method's. Returns whether a count was cleared.
+    pub(crate) fn clear_newest_proven_failures(&mut self, peer: &TransportIdentity) -> bool {
+        let Some(address) = self.newest_proven(peer) else {
+            return false;
+        };
+        match self.addresses.get_mut(&(peer.clone(), address)) {
+            Some(state) if state.consecutive_failures > 0 => {
+                state.consecutive_failures = 0;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The peers holding a peer-scoped backoff entry.
     pub(crate) fn backed_off_peers(&self) -> impl Iterator<Item = &TransportIdentity> {
         self.peers.keys()
