@@ -135,12 +135,21 @@ echo "check_stage_status: AGENTS.md is the file read, not CLAUDE.md"
 # import of it; a guard still opening CLAUDE.md read the stub and failed.
 make_tree "$TMP/agents-stale" "stage-3-persistence" \
   "Stage 3 is open." "Stage 3 is open." "Stage 1 is open."
-expect "a stale AGENTS.md fails" "$TMP/agents-stale" 1
+# Each case asserts the REPORT names AGENTS.md, not only the exit: a
+# guard reading CLAUDE.md also exits 1 on these trees (the stub states
+# no stage), so the exit alone passed under that mutation (#727 F9).
+expect_names_agents() {
+  local name="$1" dir="$2" out
+  out="$(bash "$GUARD" --root "$dir" 2>&1)"
+  local got=$?
+  if [ "$got" -eq 1 ] && printf '%s\n' "$out" | grep -q '^AGENTS\.md: '; then ok "$name"
+  else bad "$name (exit $got, wanted 1 with a line reporting AGENTS.md)"; fi
+}
+expect_names_agents "a stale AGENTS.md fails, and is the file named" "$TMP/agents-stale"
 make_tree "$TMP/agents-missing" "stage-3-persistence" \
   "Stage 3 is open." "Stage 3 is open." "Stage 3 is open."
 rm "$TMP/agents-missing/AGENTS.md"
-printf 'Stage 3 is open.\n' > "$TMP/agents-missing/CLAUDE.md"
-expect "a missing AGENTS.md fails, whatever CLAUDE.md says" "$TMP/agents-missing" 1
+expect_names_agents "a missing AGENTS.md fails, and is the file named" "$TMP/agents-missing"
 
 echo "check_stage_status: CLAUDE.md is the import or nothing"
 make_tree "$TMP/no-stub" "stage-3-persistence" \
