@@ -289,7 +289,10 @@ whether Home ended the start, with what each finding requires. Before,
 that variant took the end of the start from add-a-peer §5.1 and did
 not observe it. §6 now says when Connect's count of openings begins
 for a start retried at a return or a recreation: at that return or
-recreation. Before, it said so only for Try again's start.
+recreation. Before, it said so only for Try again's start. Add-a-peer
+§5.1, where it calls a foreground-only return a launch of its own,
+now says that this holds for Connect, and points to §6's How long,
+which counts only the Activity created anew.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
