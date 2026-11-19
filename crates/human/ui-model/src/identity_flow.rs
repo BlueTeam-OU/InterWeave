@@ -275,7 +275,7 @@ enum Screen {
         /// A restore from here was answered `IdStorageUnknown`: whether
         /// the record now opens to the `PeerId` the restore confirmed is
         /// unknown, and stays so after an edit takes the notice, until a
-        /// read-back answers or R2 closes. A check whose words derive that
+        /// read-back opens the record to that `PeerId` or R2 closes. A check whose words derive that
         /// `PeerId` reads back rather than restoring again (design section
         /// 6, the read-back row;
         /// `an_edit_after_storage_unknown_keeps_the_read_back`).
@@ -2982,8 +2982,9 @@ mod tests {
     }
 
     /// On R2 after K1, an edit that takes `IdStorageUnknown` away does not
-    /// end the read-back: until a read-back answers or R2 closes, a check
-    /// whose words derive the `PeerId` the refused restore confirmed reads
+    /// end the read-back: until a read-back opens the record to that
+    /// `PeerId` or R2 closes, a check whose words derive the `PeerId` the
+    /// refused restore confirmed reads
     /// back instead of restoring, while words of another `PeerId` are
     /// checked as any words (design section 6, the read-back row;
     /// acceptance 12). A new R2, after Back to K1, restores again.
