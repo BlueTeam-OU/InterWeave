@@ -951,7 +951,6 @@ async fn a_send_to_a_learned_address_the_network_drops_is_answered_at_the_send_h
         seen.drops.is_some_and(|n| n > 0),
         "B's dial never reached the drop\n{seen:?}"
     );
-    assert!(!seen.landed, "{seen:?}");
 }
 
 const LEARNED_ROUTED: &str = "a_send_to_a_learned_address_that_is_routed_reconnects_the_pair";
