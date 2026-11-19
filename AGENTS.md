@@ -411,7 +411,7 @@ read `.claude/settings.json`.
 
 `main` is protected by the `main protection` ruleset: pull request required, direct pushes and force-pushes blocked, branch deletion blocked, **merge commits only** (squash and rebase disabled), and a **merge queue** (`ALLGREEN`, merge method `MERGE`). Required approving reviews are 0 and unresolved review threads do not block — so **the merge is not evidence that anything was reviewed**.
 
->  **CI exists and gates `main`** — `.github/workflows/ci.yml` runs fmt, clippy, the workspace tests, every tree check, and every self-test on `pull_request`, `merge_group`, and pushes to `main`. It reports five required contexts, which are the job `name:` values verbatim: **`rust`**, **`tree checks`**, **`tool self-tests`**, **`android check (aarch64-linux-android)`** (`cargo check` of the phone's crates for their target with the NDK the host pins, `tools/ci/check_android_target.sh`; Stage 17 §20 step 1 cites it as its build record), and **`android apk (assembleDebug)`** (the APK with the native library cargo-ndk builds into it, with `lintDebug` and `testDebugUnitTest` after it (#311), then the release APK and the instrumentation's, the release one held to none of the instrumentation's classes, `tools/ci/check_apk_classes.py`). All five are in the ruleset's `required_status_checks`, so the queue gates correctness and not merely ordering. `tools/checks/check_required_contexts.sh` keeps this paragraph and the workflow in agreement; the ruleset itself needs admin API access and is checked by hand. The policy is **non-strict**: a branch need not be up to date with `main` to merge, which is why folding `origin/main` in and re-testing locally (Phase 3) is still on you rather than on the platform.
+>  **CI exists and gates `main`** — `.github/workflows/ci.yml` runs fmt, clippy, the workspace tests, every tree check, and every self-test on `pull_request`, `merge_group`, and pushes to `main`. It reports five required contexts, which are the job `name:` values verbatim: **`rust`**, **`tree checks`**, **`tool self-tests`**, **`android check (aarch64-linux-android)`** (`cargo check` of the phone's crates for their target with the NDK the host pins, `tools/ci/check_android_target.sh`; Stage 17 §20 step 1 cites it as its build record), and **`android apk (assembleDebug)`** (the APK with the native library cargo-ndk builds into it, with `lintDebug` and `testDebugUnitTest` after it (#311), then the release APK and the instrumentation's, the release one held to none of the instrumentation's classes, `tools/ci/check_apk_classes.py`). All five are in the ruleset's `required_status_checks`, so the queue gates correctness and not merely ordering. `tools/checks/check_required_contexts.sh` keeps this paragraph and the workflow in agreement; the ruleset itself needs admin API access and is checked by hand. The policy is **non-strict**: a branch need not be up to date with `main` to merge, which is why folding `origin/main` in and re-testing locally (the `pr-lifecycle` skill's integration phase) is still on you rather than on the platform.
 >
 > A job can instead be an **advisory context the ruleset does not require**, named in a sentence of that wording here, while its subject is not yet on `main`; `check_required_contexts.sh` holds every job to exactly one of the two lists. None is today. The last, the APK job, was advisory from #311 until the owner's word of 2026-11-08 moved it to the required list here and into the ruleset by hand in one change, devex-tooling's; a job leaves this list the same way, never by the prose alone.
 >
@@ -423,8 +423,8 @@ read `.claude/settings.json`.
 
 #### The rest of the lifecycle is a skill
 
-Phases 2–6 — working, integration, opening, landing, and the follow-up
-that nothing reminds you to do — plus the `tools/gh/` tooling, the rules
+Working, integration, opening, landing and the follow-up that nothing
+reminds you to do — plus the `fabric-pr` tooling, the rules
 for opening a second PR alongside an open one, concurrent-session
 isolation and subagent dispatch, all live in the **`pr-lifecycle` skill**
 (§10). Load it when you are about to commit, push, open a PR, arm a merge,
@@ -565,7 +565,7 @@ puts the sibling there.
 ### Always
 
 - `git fetch` before any push or integrate — your `origin/main` goes stale.
-- Orient before EVERY `fetch` / `checkout` / `pull`, not just at task start. The Phase 1 questions cost one command each and are what stop a reflexive `checkout` from moving you off work you had not committed.
+- Orient before EVERY `fetch` / `checkout` / `pull`, not just at task start. The five orientation steps above cost one command each and are what stop a reflexive `checkout` from moving you off work you had not committed.
 - **Never move the tree while async work is in flight.** Background agents and watchers outlive the turn that started them; a `checkout` / `pull` / `reset` underneath them is an unguarded race.
 - **Never force-push** unless the user explicitly asks; no history rewrites of published commits.
 - Read `git log` before assuming a commit is yours.
