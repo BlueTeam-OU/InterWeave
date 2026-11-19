@@ -184,7 +184,7 @@ What to actually do, in order:
 - Desktop data and admin authority use separate IPC boundaries.
 - A data connection cannot obtain `admin.*` authority by claiming a client kind.
 - Admin connections do not obtain application endpoint leases.
-- IPC v2 JSON body ceiling remains 128 KiB and must accommodate every legal 48 KiB direct application payload plus envelope/endpoint overhead.
+- The IPC's JSON body ceiling remains 128 KiB and must accommodate every legal 48 KiB direct application payload plus envelope/endpoint overhead.
 - Android does not fake desktop IPC: it uses the neutral `LocalDataSession` boundary in-process.
 
 ### Human client retention

@@ -62,7 +62,7 @@ No key is named `source` (A 2026-10-03, on SPIKE-001 fact 11): the host sets the
 
 ## Bridge endpoint identity
 
-Each Claude bridge that needs direct messaging connects to IPC v2 under one configured EndpointId, commonly `claude` or another operator-selected route.
+Each Claude bridge that needs direct messaging connects to the IPC under one configured EndpointId, commonly `claude` or another operator-selected route.
 
 The bridge does not choose a source endpoint per message. Its IPC lease defines the source route for all direct sends/replies during that connection.
 

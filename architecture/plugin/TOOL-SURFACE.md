@@ -17,7 +17,7 @@ Names are conceptual; final packaging may namespace them to avoid collisions.
 
 ## Bridge endpoint
 
-Every direct-capable Claude bridge is configured with one local EndpointId and claims it during IPC v2 handshake. Common values such as `claude` are conventions only.
+Every direct-capable Claude bridge is configured with one local EndpointId and claims it during the IPC handshake. Common values such as `claude` are conventions only.
 
 The bridge never accepts a `source_endpoint` tool argument. Its active IPC endpoint lease is the source of every direct send/reply.
 
