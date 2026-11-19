@@ -744,7 +744,9 @@ overflow-checks = true
 # tests/security and tests/security-local and whose exit gate is
 # tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE IT by the plan's section
 # 22 record (activated 2026-10-20 on the owner's word): packaging,
-# migration and release. STAGE 21 CLOSED on 2026-10-25 (the plan's section
+# migration and release. STAGE 22 RUNS BESIDE BOTH by the plan's section
+# 30 opening record (2026-11-19, on the owner's word): several user
+# identities in one client, no new crate. STAGE 21 CLOSED on 2026-10-25 (the plan's section
 # 29 closing record, on the owner's word): contacts, cards and the
 # encrypted store, in the human crates, with what it did not prove
 # carried by name. This value names the lowest open

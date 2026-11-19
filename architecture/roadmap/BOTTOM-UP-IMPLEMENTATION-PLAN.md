@@ -7959,10 +7959,36 @@ Recorded 2026-10-21 on the owner's direction of that day ("a user should
 have multiple network identities"; "An EndpointId should match a user
 identity. One user of the app can have many user identities on the same
 phone. So for any EndpointId he can add a display_name and a photo"); the
-decision is ADR-0061. **This section opens nothing by itself**: the stage
-opens on the owner's word, after §29 or beside it, and the status value
-stays the lowest open stage. It is numbered after §29 so that no citation
-of §23–§29 moves.
+decision is ADR-0061. As recorded, this section opened nothing by itself:
+the stage was to open on the owner's word, after §29 or beside it, the
+status value staying the lowest open stage. It is numbered after §29 so
+that no citation of §23–§29 moves.
+
+**Opened 2026-11-19, on the owner's word of that day** (in session, to
+architect-cto, who was handing the Rust lanes their next work: "if you
+have no item for interweave open stage 22"; read from `main` at
+3f9af2fd7, the plan's carried items had left p2p-network-dev one test
+job, rust-services-dev none, and rust-ui-dev the identity notes' unbuilt
+notices alone, so the condition was taken as met for the lanes with
+nothing). **The stage runs beside Stage 18 and Stage 19 from the landing
+of this paragraph**, as §29's Stage 21 ran beside Stage 17 and §22's
+Stage 19 runs beside Stage 18. The status value stays the lowest open
+stage, `stage-18-adversarial-security-gate`, and this record is the
+authorisation for the stage's work (`AGENTS.md` §3): no new crate, as
+Activate says. The precedent's two constraints hold: no
+`Proof::Stage(22)` deferral and no `stage-22` deadline is written while
+the stage runs beside the open one, since the guards expire a deferral
+only once the status passes it. The order is Activate's and is not
+loosened by the opening: p2p-network-dev's ADR-0067 batch first, as its
+own PR, then the administrative add, remove and set_advertise methods,
+then steps 1–3, none of which is built against a label; what
+rust-ui-dev and rust-services-dev do before that batch is on `main` is
+the work that names no EndpointId's form (step 4's acceptance criteria
+as a proposal, the §Logical tables review as a text, the bridge's
+inventory of what carries a label). The release that carries the batch
+is the next MINOR, the fleet re-rendered with keys at that update (the
+owner's word of 2026-10-28; fabric-coordinator's renderer change waits
+on `transportctl endpoint init` reaching `main`).
 
 **Where the clients stand (2026-10-28, the owner's observation).** On
 `main` the Android app and the desktop hold one user identity, the
@@ -7975,8 +8001,8 @@ an added one and set its advertising are in no contract yet
 either platform until they land). Several identities in one app, each
 with one own card different from the others, is this stage's work and
 no earlier item's: the methods under Activate first, then steps 1–3.
-The owner's word of 2026-10-28 keeps it in the roadmap and opens it
-not yet; the stage still opens on that word alone.
+The owner's word of 2026-10-28 kept it in the roadmap and opened it
+not yet; it opened on the word of 2026-11-19, above.
 
 ### Objective
 
