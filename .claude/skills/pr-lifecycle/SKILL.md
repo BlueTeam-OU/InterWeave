@@ -331,3 +331,54 @@ What the hook does not cover either:
   `.claude/worktrees/` is gitignored because it sits inside the repository
   and each entry holds a `.git` file — without the ignore, `git add -A`
   stages it as an embedded repository and commits a broken gitlink.
+
+## Why the review rules are what they are (the record)
+
+This stood in the instruction file's §9 until 2026-11-19. The rules are
+there; the incidents that produced them are here.
+
+- **The gap between a merge and its review is measured in seconds.** PR
+  #28 merged at 06:56:03 UTC and the review that found a P1 in it
+  arrived at 06:56:15, twelve seconds later, against a branch that no
+  longer existed. The finding then cost a fresh branch, a second PR and
+  a reply on a merged thread, all to land a two-line fix that would have
+  been one more commit had anyone waited.
+- **Why the review is the session's to dispatch.** The automated
+  reviewer this repository once asked for by comment left heads
+  uncovered in three ways and said so in only one. It refused on usage
+  limits: #58 and #59 merged with their final heads unreviewed on the
+  strength of a refusal that read like an answer (#59 four hours after
+  the refusal, carrying a 265-line rewrite of the conformance suite). It
+  reviewed an earlier commit, since a push never re-triggered it. And it
+  went silent (#72, forty minutes with neither review nor refusal). It
+  was retired on 2026-09-25 (agent-fabric ADR-020: the review class is
+  the review), with `--automated-only`, the comment ask and the decline
+  paths. Its installation may still answer a comment: post none.
+- **Why a finding is judged by a second dispatch.** Two findings were
+  once dismissed by hand in a row, and both dismissals were wrong.
+- **Why the review dispatch is named exactly.** The guard once matched
+  `review` anywhere in the description, which let `Address review
+  feedback` through: a WRITING dispatch that would have run unisolated
+  in the session clone.
+- **Why a review needs no worktree.** Isolation keeps an agent's WRITES
+  out of the clone and a review writes nothing; `worktree.baseRef` is
+  `head`, so a worktree would hide uncommitted work from the one agent
+  that must see it.
+- **Why the `blind reviews` line is bound to the poster** (agent-fabric
+  26d6f98, 2026-09-26). The marker is published in every tree and this
+  repository is public, so anyone can post it; a marked review from an
+  account that is neither the PR author's nor in
+  `AGENT_FABRIC_REVIEW_POSTERS` is reported as `marked, other login`.
+- **The words the count rule rests on.** The owner's standing word of
+  2026-09-27 ("over 8 commits a PR can be armed without my
+  authorization, just complete the job") and of 2026-10-05 ("over 16
+  commits don't require my authorization"), ruled on 2026-10-05 to cover
+  a boundary PR; under eight the tool asks the phrase on every PR since
+  agent-fabric #99 (2026-10-06), before which it asked it on every
+  boundary PR. The waiver is architect-cto's and never taken alone by
+  the owner's ruling of 2026-10-04 (agent-fabric #92); `fabric-pr arm`
+  compares its line with the repository `GH_REPO` or, unset, `origin`
+  names.
+- **Why batches fold.** On 2026-09-19 two PRs of one and four commits,
+  both touching the plan, were folded into one: a review costs the same
+  for one commit as for ten.

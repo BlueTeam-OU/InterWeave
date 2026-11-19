@@ -350,7 +350,7 @@ Commit messages are project files for the purposes of §7 — do not cite unrela
 
 ### One branch per batch of work
 
-- One short-lived branch off fresh `origin/main` per BATCH of work, not per task and not per session. A PR is a review unit, and a review costs the same for one commit as for ten, so small pieces of work that are ready together — a step's code and its prose, a follow-up note in the plan, the previous review's carried P3s — go into one branch and one PR rather than several small ones (2026-09-19: two PRs of one and four commits, both touching the plan, were folded into one). The floor is **eight work commits** before arming without a fresh ask; a PR under it is armed only on the owner's word given in the session, and a batch past about sixteen is landed and the rest starts a new batch. Review-fix commits do not count toward the floor. What stays separate is work that cannot share a review: a change whose landing another task depends on, a refactor of a file another branch touches, or another session's lane. Commit boundaries are unchanged — the multi-fix / multi-package unit below is what a COMMIT is, not what a PR is.
+- One short-lived branch off fresh `origin/main` per BATCH of work, not per task and not per session. A PR is a review unit, and a review costs the same for one commit as for ten, so small pieces of work that are ready together — a step's code and its prose, a follow-up note in the plan, the previous review's carried P3s — go into one branch and one PR rather than several small ones. The floor is **eight work commits** before arming without a fresh ask; a PR under it is armed only on the owner's word given in the session, and a batch past about sixteen is landed and the rest starts a new batch. Review-fix commits do not count toward the floor. What stays separate is work that cannot share a review: a change whose landing another task depends on, a refactor of a file another branch touches, or another session's lane. Commit boundaries are unchanged — the multi-fix / multi-package unit below is what a COMMIT is, not what a PR is.
 - Branch name `<hostname -s>/<login>/<type>/<short-desc>`, the login being the agent (`fabric-whoami`), e.g. `develop-qzapp/architect-cto-01/docs/dial-admission-gate`, so every branch traces to its session by host and agent. Older branches carry the clone directory in that segment (`develop-qzapp/InterWeave/…`); `fabric-pr` reads both.
 - **Check where you are BEFORE the first commit of a new task**, not after a push is rejected. The default state at the start of a task is standing on the *previous* task's branch, which by then is pushed, queued, or merged — and every one of those failure modes is silent.
 - Scan for the work before doing the work: `git fetch` and read `origin/main` for the same change already landed or in flight. Adopt or coordinate instead of racing.
@@ -461,190 +461,71 @@ never ran, so after a push to an armed PR read both `autoMergeRequest` and
 
 **Do not arm `--auto` on a change to a security boundary until the
 review class's review is posted on the current head with no open P1 or
-P2.** With eight or more work commits that is the whole gate — the
-owner's standing word covers a boundary PR too (the standing word of
-2026-09-27, "over 8 commits a PR can be armed without my authorization,
-just complete the job", and of 2026-10-05, "over 16 commits don't
-require my authorization", ruled to cover a boundary on 2026-10-05); under eight the owner's word is asked in the basis, as
-the count rule says; sixteen is batch-size advice, not an arming
-condition. Green checks are not a review:
-§9 already says the merge is not evidence that anything was reviewed,
-and the queue lands a PR the moment the last check passes.
+P2.** Green checks are not a review: the merge is not evidence that
+anything was reviewed, and the queue lands a PR the moment the last check
+passes. A **security boundary** here means identity and key handling,
+trust policy, wire or configuration parsing, persistence, admission and
+resource accounting, and anything cryptographic. Documentation and
+mechanical changes are not on that list and should not wait.
 
-The gap is not theoretical and it is measured in seconds. PR #28 merged at
-06:56:03 UTC and the review that found a P1 in it arrived at 06:56:15 —
-twelve seconds later, against a branch that no longer existed. The finding
-then cost a fresh branch, a second PR, and a reply on a merged thread, all
-to land a two-line fix that would have been one more commit had anyone
-waited.
-
-A **security boundary** here means identity and key handling, trust policy,
-wire or configuration parsing, persistence, admission and resource
-accounting, and anything cryptographic. Documentation and mechanical
-changes are not on that list and should not wait.
+With eight or more work commits (`fabric-pr gate` counts them; a
+review-fix commit does not count) the review is the whole gate, boundary
+or not, on the owner's standing word. Under eight the PR arms only on the
+owner's word, asked in the session: the phrase `owner's word` in the
+basis. Sixteen is batch-size advice, not an arming condition.
 
 **The review is yours to dispatch — nothing fires on its own.** When the
-head is finished, dispatch the review class on it (the standing
-authorisation below): the repository path and the exact `base..head`,
-briefed with `fabric-review brief` — facts, no session context — as
-`subagent_type: "code-review"`, `model: "fable"`, a description beginning
-`review`, no `isolation`. Post each finding to the PR, fix, reply and
-resolve there; post the review itself with `fabric-pr post-review <n>`
-(a clean review is posted too — it is the coverage). A review covers only
-the head it targets, so a fix range is re-reviewed (`re-review`, the
-previous report as its findings file) before the arm. Then
+head is finished, dispatch the review class on it: `subagent_type:
+"code-review"`, `model: "fable"`, a description beginning `review` (or
+`re-review`), no `isolation` — the dispatch guard denies any other shape.
+Brief it with `fabric-review brief`: the repository path, the exact
+`base..head`, what must be true and what is out of scope — facts, never
+the author's conclusions, because an agent told what the author expects
+confirms it. It reads the session tree, which is read-only for it; it may
+read widely and report only what the diff causes, anything pre-existing
+in a section of its own. Post the review with `fabric-pr post-review
+<n>`, a clean one too: the posted object at the head is the coverage,
+and a review that lives only in a transcript is one nobody can audit. A
+review covers only the head it targets, so a fix range is re-reviewed
+before the arm. `fabric-pr review-status <n>` reports it on the `blind
+reviews` line against the current head; a marked review counts only from
+the PR author's account or a login in `AGENT_FABRIC_REVIEW_POSTERS`, and
+one from any other account is listed apart and is not coverage.
 
-```
-fabric-pr review-status <n>
-```
-
-reports it on the `blind reviews` line against the current head; arm when
-it does and no thread is unresolved (under eight work commits, once the
-owner has spoken). **That line
-is bound to the poster** (agent-fabric 26d6f98, 2026-09-26): a marked
-review counts as blind only when it was posted by the PR author — the
-account every session pushes as — or by a login named in
-`AGENT_FABRIC_REVIEW_POSTERS`, and each row prints its login. A marked
-review from any other account is reported on its own line, `marked,
-other login`, and is NOT coverage: the marker is published in every
-tree and this repository is public, so anyone can post it. What is
-still yours to read: the row's commit is this branch's head
-(`git rev-parse --short HEAD`) — a review of an earlier head covers
-nothing pushed since.
-
-**Arm with `fabric-pr arm <n> --basis "<one line>"`, never by hand.**
-It applies the gates above before `gh pr merge --auto`: the PR is open,
-not a draft and this session's; no `AWAITING-SUPPLY` lacks its range
-line; a security-boundary change has the review class's review of the current
-head and no unresolved thread; and under eight work commits
-(`fabric-pr gate` counts them) — boundary or not — only on the
-owner's word, the phrase `owner's word` in the basis (agent-fabric #99,
-2026-10-06; before it the tool asked the phrase on every boundary PR).
-It posts the basis as a comment and prints
-the watcher line. Which changed files are a security boundary is
-agent-fabric's `projects/interweave/integration/gh/arm.json` — the list
-above in path form, matched case-insensitively, the normative vectors
-under `fixtures/` and the crate redirections in `Cargo.toml` and
-`.cargo/config` included. Paths approximate the list: where a change
-touches its subject in a file the paths miss, pass `--boundary`, and
-propose the path to fabric-coordinator.
-`--no-boundary "<why>"` is the opposite: it skips this whole gate —
-review and threads — and is taken only with `--waiver
-<message-id|seq>`, never alone (the owner's ruling of 2026-10-04,
-agent-fabric #92). The waiver is architect-cto's — the holder of
-`arm.json`'s `waiver_role` — a DECISION or REPLY addressed to this
-session and carrying the line `WAIVES: BlueTeam-OU/InterWeave#<n>@<head
-sha>` (`fabric-pr arm` compares it with the repository GH_REPO or, unset, `origin` names, so a clone re-pointed as above waives only with BlueTeam-OU) for this PR's CURRENT head; `fabric-pr arm` reads it from the relay and
-checks the sender, the role it holds, the PR and the head, and records
-who waived it and why in the arming comment. Ask architect-cto with the
-PR, the head and the reason — for a path that matched by a word alone
-and is not on the list — and never waive on your own reading or on the
-owner's word alone. `fabric-pr arm --help` has every refusal.
-
-**There is no automated reviewer to summon.** The one this repository once
-asked for by comment is retired (agent-fabric ADR-020, the review class
-is the review; applied here 2026-09-25 with the tools that read the
-gate). Its installation may still
-answer a comment: post none, and treat anything it posts as a finding to
-judge, never as coverage. `--automated-only`, the comment ask and the
-decline paths went with it; what they were for is in the section below.
-
-Zero unresolved P1 or P2 findings is also a precondition for declaring a
-stage complete. Nothing enforces that; it is the same class of obligation
-as the follow-up phase, which no red check announces either.
-
-#### The review is the review class's, dispatched by the session
-
-**Every pull request gets the review class's blind review of its finished
-head, dispatched by the session that opened it, on every PR.** Not asked
-for by anyone, not conditional on any other reviewer: it is THE review the
-gate counts, and two reports on one head are not the design any more —
-one blind review, and a second dispatch to judge a finding before it is
-answered.
-
-Why it is the session's to dispatch, kept as the record: the automated
-reviewer this repository once ran left heads uncovered in three ways and
-said so in only one. It refused on usage limits — two PRs merged with
-their final heads unreviewed on the strength of a refusal that read like an
-answer (#58 and #59; #59 merged four hours after the refusal, carrying a
-265-line rewrite of the conformance suite). It reviewed an earlier commit,
-since a push never re-triggered it. And it went silent (#72, forty minutes
-with neither review nor refusal). Running the class's review beside it
-removed the trigger; retiring the reviewer removed the fallback framing.
-The class's review is not a substitute for anything.
-
-The rules that normally govern dispatch are relaxed for it, deliberately,
-and only here:
-
-- **Reviewing is an exception to the opt-in rule.** §9 and the
-  `pr-lifecycle` skill say fan-out happens only when the user asks. A
-  review does not need asking — the alternative is landing unreviewed code.
-- **The class decides the tier**, per the standing rule below — no
-  per-dispatch authorisation needed.
-- **One agent per PR, with NO context from the session.** `fabric-review
-  brief` renders the facts — mode, repository, range, what must be true,
-  what is out of scope, which lenses — and refuses a verdict-shaped
-  sentence. An agent told what the author expects confirms it; the whole
-  value is that it does not know.
-- **Scope the brief to the DIFF, not to the repository.** Name the exact
-  `base..head` range, and state the test a finding must pass: *if this PR
-  were reverted, would the problem go away?* Require every finding to quote
-  the hunk that causes it, and put anything pre-existing in a separate
-  labelled section so it can be triaged apart from the PR. It still needs
-  to READ widely — stale prose and enum exhaustiveness cannot be checked
-  from a diff alone — so the limit is on what may be REPORTED, not on what
-  may be read.
-- **No worktree — a review reads the session tree directly.** Isolation
-  exists to keep an agent's WRITES out of the clone, and a review writes
-  nothing; `worktree.baseRef` is `head`, so a worktree would hide
-  uncommitted work from the one agent that must see it. Omit `isolation`,
-  give the agent the repository path, and tell it the tree is read-only.
-- **Name it, or it gets neither exemption.** The dispatch guard admits a
-  review only as `subagent_type: "code-review"` with a `description` that
-  BEGINS with `review` or `re-review`, `model: "fable"` and no
-  `isolation` — all four, or it denies. Matching `review` anywhere once
-  let `Address review feedback` through — a WRITING dispatch that would
-  then have run unisolated in the session clone.
-- **The review goes ON THE PR, not into the transcript.** Post it with
-  `fabric-pr post-review <n>`, body on stdin — a review object at the
-  head, marked so `fabric-pr review-status` counts it. The agent's report is
-  not the deliverable — post the findings to the pull request, fix them,
-  and answer there. A finding that lives only in a session is a finding
-  nobody can audit.
-- **A CLEAN review is posted too.** Say what was read and that nothing
-  was found. With nothing on the PR the record shows a review that never
-  landed, and under the arming rule above the posted review is what
-  licenses the merge.
+One blind review per head is the design, and there is no other reviewer
+to wait for or to summon: anything a bot posts is a finding to judge,
+never coverage.
 
 **A finding is judged before it is answered.** Dispatch the class again
 with the claim verbatim, the PR number and the repository path; require a
-verdict with evidence; reply or fix only after it. Two findings were once
-dismissed by hand in a row, and both dismissals were wrong. The findings
-are input rather than verdicts, a disagreement is stated with its reasoning
-rather than silently skipped, and a thread is resolved only when the work
-it names is done.
+verdict with evidence; reply or fix only after it. A disagreement is
+stated with its reasoning, never silently skipped, and a thread is
+resolved only when the work it names is done.
 
-#### A review runs on the review class, and does not ask
+**Every review dispatch is standing-authorised on the review class**: the
+one on a finished head, the judgement of a finding, a re-review, an audit
+of merged code. Do not ask, and do not fall back to a cheaper tier
+because a review looks small: a review's failure mode is not a retry, it
+is a green PR that merges.
 
-**Every code review is a `code-review` dispatch on `model: "fable"`** — the
-alias the review class rides on this harness; the class decides the alias,
-and the dispatch guard refuses a review on any other. This is a STANDING
-authorisation, not a per-dispatch one — it satisfies the premium-tier
-rule's "unless the user's prompt explicitly asks for that tier" clause
-once, here, for the whole class. Do not ask again, and do not fall back to
-a cheaper tier because a particular review looks small.
+**Arm with `fabric-pr arm <n> --basis "<one line>"`, never by hand.** It
+applies every gate above before it arms, posts the basis as a comment and
+prints the watcher line; `--dry-run` says what it would refuse and
+`--help` has each gate. Which changed files are a security boundary is
+agent-fabric's `projects/interweave/integration/gh/arm.json`; where a
+change touches the subject in a file the paths miss, pass `--boundary`
+and propose the path to fabric-coordinator. `--no-boundary "<why>"` lifts
+the boundary gate only with `--waiver <message-id>`: architect-cto's
+DECISION or REPLY to the arming session carrying `WAIVES:
+BlueTeam-OU/InterWeave#<n>@<head sha>` for the current head, asked with
+the PR, the head and the reason, never taken on your own reading or on
+the owner's word alone.
 
-It applies to every review dispatch: the one on every finished head, the
-one that judges a finding, a re-review of a fix range, an audit of merged
-code. If the job is *reviewing*, the tier is settled.
+Zero unresolved P1 or P2 findings is also a precondition for declaring a
+stage complete. Nothing enforces that.
 
-The reasoning is the asymmetry. Everywhere else, the cheapest tier that
-can do the job is right because a weaker answer costs a retry. A review
-is the last thing between a defect and `main`, and its failure mode is
-not a retry — it is a green PR that merges. The defects this repository
-has actually shipped were found by review, and the ones review missed
-became P1s discovered rounds later. Tokens are the cheaper side of that
-trade by a wide margin.
+Why each of these rules exists — the merges that taught them — is in the
+`pr-lifecycle` skill.
 
 #### agent-fabric beside the checkout
 
