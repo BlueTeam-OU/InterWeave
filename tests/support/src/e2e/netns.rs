@@ -64,8 +64,9 @@
 //! it passed, and returns `false`; the inner copy gets `true` and runs the
 //! body. Where user namespaces, `iproute2`, util-linux's `unshare` (with
 //! `--kill-child`) and `setpriv` (with `--pdeathsig`), or -- for the NATs'
-//! topology -- `nft` are unavailable the test FAILS, never skips (decided
-//! (7), ADR-0053 rule 9): a skip is a green check that asserted nothing.
+//! topology and [`drop_outbound`] -- `nft` are unavailable the test FAILS,
+//! never skips (decided (7), ADR-0053 rule 9): a skip is a green check
+//! that asserted nothing.
 
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
@@ -504,7 +505,8 @@ fn inside(network: &str, pivoted: &str, test: &str, deadline: Duration) -> bool 
             panic!(
                 "cannot run `setpriv --pdeathsig KILL unshare -rnm` ({e}): this test needs \
                  util-linux's setpriv and unshare, an unprivileged user namespace, iproute2 \
-                 and, for the NATs' topology, nft (plan section 21, decided (7)); it fails \
+                 and, for the NATs' topology and drop_outbound, nft (plan section 21, \
+                 decided (7)); it fails \
                  rather than skips where they are unavailable"
             )
         });
