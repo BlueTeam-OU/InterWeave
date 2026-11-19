@@ -381,7 +381,7 @@ on disk would exceed `MAX_ALLOWED_PEERS` at the next start (audited
 `refused`, nothing written); `false` removes it, closes every connection
 the peer holds at once, drops its cached directory
 (`DirectoryCache::forget`, §16's carry), and every connection with
-`events` sees `peer.disconnected` with `reason_class: policy` (below).
+`events` sees `peer.disconnected` with `reason_class: policy` (below). Until the Stage 22 release every revoke does this, the node holding one list; from that release the close, the dropped directory and the event come when the write removes the peer from the admission set, and a revoke that leaves it in another set does none of them (ADR-0067 decision 6, A 2026-11-19).
 Endpoint narrowing (`EndpointTrustPolicy`) is not reachable through these
 methods and is carried. Each set that reaches the runtime is recorded
 under the audit log target (`interweave::audit`: peer, `allowed`, its

@@ -33,7 +33,17 @@ set, by whichever write removed it from its last set, with the same
 peer in another set closes nothing and is the route's refusal for
 that endpoint. The parenthesis "a peer trusted by any endpoint may
 connect" became "a peer in the admission set may connect", since the
-operator's list admits a peer no endpoint may hold. Propagation: this
-note, the log row, the digest entry, `TRANSPORT.md` §`TrustPolicyChanged`,
-ADR-0037's Decision sentence with its own note, and
-`failure-model.md`'s row.
+operator's list admits a peer no endpoint may hold. The same day's
+review of this amendment (#730, F1 and its judgement) found that the
+revoke's two other effects had no rule: `LOCAL-IPC.md` and the
+`trust-set-params` schema said a revoke "drops its cached directory",
+and `failure-model.md` that it removes directory access. Both follow
+the close: the cache and the directory are the node's, so they go when
+the peer leaves the admission set. Propagation: this note, the log
+row, the digest entry, `TRANSPORT.md` §`TrustPolicyChanged`,
+`LOCAL-IPC.md`'s `admin.trust.set` paragraph, the `trust-set-params` schema's description, `LOCAL-CLIENT.md`
+§7 item 11, `ENDPOINTS.md`'s trust paragraph, `human-client-ui.md`'s
+revoke sentence, ADR-0037's Decision sentence with its own note, and
+`failure-model.md`'s row. The record's Status and its Implementation
+sentence said Stage 22 "opens on the owner's word"; it opened that
+day, and both say so.
