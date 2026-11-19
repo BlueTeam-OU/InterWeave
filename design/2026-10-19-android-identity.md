@@ -262,6 +262,12 @@ a read-back opens the record to the confirmed PeerId or R2 closes, a
 check of words that derive that PeerId reads back, and words of
 another PeerId are checked as any words are.
 
+Revised later on 2026-11-19, for what #723's review rounds carried
+(PR comments 6989066023 to 7004460557). §6's lists of the notices
+that show on R2 and R3 now name `IdStartBusy`, in `IdRestoreOther`'s
+place. Before, the profile-in-use row placed it there, but the lists
+did not name it.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -870,15 +876,21 @@ is in `error` on the screen's surface. A banner uses
 `surface-container` with an `error` icon, as the look spec's notices
 do. On R2 every banner and notice of this table shows in one place,
 above the grid: the checksum banner, `IdOtherIdentity`, `IdBusy`,
-`IdStorageFailed`, `IdStorageUnknown` and `IdRestoreOther`. They are
-outcomes of one check, so at most one shows. `IdBusy`,
-`IdStorageFailed` and `IdStorageUnknown` carry `TryAgain` under their
+`IdStorageFailed`, `IdStorageUnknown` and `IdRestoreOther`, and,
+after K1, `IdStartBusy`. They are
+outcomes of one check, or, for `IdStartBusy`, of the service start
+that `IdRestoreOther`'s Continue made, which shows in
+`IdRestoreOther`'s place (the profile-in-use row), so at most one
+shows. `IdBusy`, `IdStorageFailed`, `IdStorageUnknown` and
+`IdStartBusy` carry `TryAgain` under their
 text and `IdRestoreOther` carries Continue; the checksum banner and
 `IdOtherIdentity` have no action of their own (the table's way out is
 an edit of the words). On R3 a notice of this table shows in one
 place too: under the app bar, above the question. These are `IdBusy`,
 `IdStorageFailed`, `IdStorageUnknown` and `IdRestoreOther`, each the
-outcome of one restore, so at most one shows, with its action under
+outcome of one restore, and `IdStartBusy`, the outcome of the service
+start after `IdRestoreOther`'s Continue, in `IdRestoreOther`'s place,
+so at most one shows, with its action under
 its text as on R2. R3 has no title, so the notice is read right
 after the app bar, before the question. On C4 a notice of this table
 shows in one place as well: below the title, before the rest of C4.
