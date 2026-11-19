@@ -804,14 +804,12 @@ impl ConnectionPolicy {
     /// addition's reading that the host's earlier failures are stale
     /// (ADR-0011 A 2026-11-19; [`crate::ConnectionManager::network_added`]
     /// calls it for the peers it lifts). That entry ALONE -- every other
-    /// keeps its count (`an_addition_clears_the_newest_proof_and_no_older_one`),
-    /// since a cleared never-proven one would read as untried, and the
-    /// eviction never takes an entry with no failure
-    /// (`a_full_book_never_gives_up_the_peers_last_proven_route`, whose
-    /// seven untried entries are never-proven), and
-    /// clearing an older proof would rank it by spelling beside the newer. A quarantine is not touched: a quarantined entry
-    /// holds no proof (`record_identity_mismatch` erases it), and the
-    /// field is not this method's. Returns whether a count was cleared.
+    /// keeps its count, an older proof and a never-proven entry alike
+    /// (`an_addition_clears_the_newest_proof_and_no_older_one`); why one
+    /// entry and no other is ADR-0011 A 2026-11-19's account. A
+    /// quarantine is not touched: a quarantined entry holds no proof
+    /// (`record_identity_mismatch` erases it), and the field is not this
+    /// method's. Returns whether a count was cleared.
     pub(crate) fn clear_newest_proven_failures(&mut self, peer: &TransportIdentity) -> bool {
         let Some(address) = self.newest_proven(peer) else {
             return false;
