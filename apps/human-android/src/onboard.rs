@@ -929,12 +929,15 @@ fn not_run(o: &mut Onboarding, effect: &Effect) -> Vec<Effect> {
         // A restore not run gives R2's check back, or R3's Yes and No; a
         // seal leaves C4 as it was, Continue enabled again (§5.1).
         // Nothing was committed, and nothing runs again until the
-        // primary action is used again (design section 6).
+        // primary action is used again (design section 6). A read-back
+        // not run shows `IdStorageUnknown` instead, focused: the write
+        // before it may have committed the identity (section 6,
+        // Authentication needed). The flow tells them apart.
         Effect::RestoreRecorded(_)
         | Effect::RestoreConfirmed(..)
         | Effect::Seal
         | Effect::ReadBack(_) => {
-            o.flow.cancelled_step();
+            o.flow.step_not_run(effect);
             Vec::new()
         }
         // A service start not run ends the flow with nothing started: the
@@ -967,6 +970,9 @@ fn failed(refused: &WriteRefused) -> StepFailed {
         // After the publish, and not read back: `IdStorageUnknown`, never
         // "nothing was changed" (design section 6).
         WriteRefused::ReadBackFailed(_) => StepFailed::StorageUnknown,
+        // After the publish too, and the read-back waits on the person:
+        // the screen's prompt, then the read-back again.
+        WriteRefused::ReadBackNeedsAuthentication => StepFailed::ReadBackNeedsAuthentication,
         WriteRefused::RecordNamesOther(recorded) => StepFailed::RestoreOther(recorded.clone()),
         _ => StepFailed::Storage,
     }
@@ -1052,15 +1058,22 @@ fn one(effect: Effect) -> Vec<Effect> {
                 }
                 o.flow.sealed(outcome)
             }
-            // `IdStorageUnknown`'s Try again: the read-back alone, answered
-            // as the step it reads back for. Whatever stops it, the app
-            // still cannot tell, so every refusal is the notice again.
+            // `IdStorageUnknown`'s Try again, or a granted prompt's
+            // read-back: the read-back alone, answered as the step it reads
+            // back for. A refusal for the person asks the prompt again;
+            // whatever else stops it, the app still cannot tell, so it is
+            // the notice again.
             Effect::ReadBack(peer) => {
                 let outcome =
                     onboarding::read_back(&o.app_data_dir, PROFILE, o.cipher.as_ref(), &peer)
                         .map_err(|why| {
                             log(&format!("an identity read-back did not find it: {why:?}"));
-                            StepFailed::StorageUnknown
+                            match why {
+                                WriteRefused::ReadBackNeedsAuthentication => {
+                                    StepFailed::ReadBackNeedsAuthentication
+                                }
+                                _ => StepFailed::StorageUnknown,
+                            }
                         });
                 if o.flow.screen() == ScreenId::C4 {
                     if outcome.is_ok() {
@@ -1130,7 +1143,11 @@ fn one(effect: Effect) -> Vec<Effect> {
                 ask_service(o);
                 Vec::new()
             }
-            Effect::OpenChats | Effect::OpenSettings => Vec::new(),
+            // The gate holds every one for the prompt (`PresenceGate::admit`)
+            // and resumes it as `Effect::ReadBack`: never carried out here.
+            Effect::AuthenticateReadBack(_) | Effect::OpenChats | Effect::OpenSettings => {
+                Vec::new()
+            }
         }
     })
 }
