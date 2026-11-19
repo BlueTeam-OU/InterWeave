@@ -740,9 +740,9 @@ class MainActivity : NativeActivity() {
      * description is asked, never the content, so the platform shows no
      * notice that the app read the clipboard. The platform gives it only
      * to the focused window of an unlocked device, so the native side asks
-     * only then; a change it has not heard of yet puts the removal off
-     * again. With the clipboard read app op denied the description never
-     * comes, and the copy stays (section 12).
+     * only then; a change it has not heard of yet, or no description,
+     * puts the removal off again. With the clipboard read app op denied
+     * the description never comes, and the copy stays (section 12).
      */
     private fun removePeerIdCopy(mark: Long) {
         val locked = getSystemService(KeyguardManager::class.java)?.isDeviceLocked ?: false
@@ -751,7 +751,17 @@ class MainActivity : NativeActivity() {
             return
         }
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return
-        val label = clipboard.primaryClipDescription?.label?.toString() ?: return
+        // No description: the clipboard is empty, the app op is denied, or
+        // the platform's own focus check already disagrees with
+        // hasWindowFocus (the shade pulled at this moment). Put off rather
+        // than lost; the native side asks again only at the next focus or
+        // lock change, and only its own mark is ever cleared (#733 review
+        // 5975852030, risk 2).
+        val label = clipboard.primaryClipDescription?.label?.toString()
+        if (label == null) {
+            Native.peerIdRemovalDeferred(mark)
+            return
+        }
         if (label == clipLabel(mark)) clipboard.clearPrimaryClip()
     }
 
