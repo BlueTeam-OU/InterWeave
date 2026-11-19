@@ -909,8 +909,9 @@ fn the_removal_waits_for_the_focus_and_the_unlock() {
     }
 }
 
-/// A removal the platform put off (the window found unfocused or the
-/// device locked when it was asked, whatever was last reported) is asked
+/// A removal the platform put off (the window found unfocused, the device
+/// locked, or no clip description given when it was asked, whatever was
+/// last reported) is asked
 /// again at the next report that both hold, and not before. Mutation:
 /// `removal_deferred` doing nothing leaves the `PeerId` and fails here.
 #[test]
