@@ -162,6 +162,25 @@ observability: {{ log_level: debug }}
             .find(|v| &v.peer == peer)
     }
 
+    /// Whether this host's own addresses (`admin.peers.own_addresses`,
+    /// the listen addresses its Identify advertises) name `ip`.
+    async fn lists_own(&self, ip: Ipv4Addr) -> bool {
+        let admin = self
+            .home
+            .binding()
+            .admin([AdminCapability::Peers].into())
+            .await
+            .expect("an admin port");
+        let needle = format!("/ip4/{ip}/");
+        admin
+            .own_addresses()
+            .await
+            .expect("admin.peers.own_addresses")
+            .addresses
+            .iter()
+            .any(|a| a.address.contains(&needle))
+    }
+
     /// Whether the dial gate holds a connection to `peer` open.
     async fn connected_to(&self, peer: &TransportIdentity) -> bool {
         self.gate(peer).await.is_some_and(|v| v.connected)
@@ -549,7 +568,9 @@ struct AfterAClose {
     /// after the link returned.
     scheduler_dialled: bool,
     /// From A's connection being made to the probe's answer: how long B's
-    /// book was seen to keep what it learned, at least.
+    /// book was seen to keep what it learned on that connection, at least
+    /// -- when A's address was withdrawn before the link returned; without
+    /// that, the reconnect's Identify may have learned it again.
     probe_after: Duration,
     /// B's log, for a failing assertion.
     log: String,
@@ -565,8 +586,17 @@ struct AfterAClose {
 /// address is to a host at another site. The overlay's own address is
 /// never learned: Identify withholds `100.64.0.0/10` and rule 2 refuses
 /// it from a peer, so without `learnable` B's book for A stays empty.
-/// `watch` is how long each of the two watches lasts.
-async fn after_a_close(learnable: bool, send: bool, watch: Duration) -> AfterAClose {
+/// `watch` is how long each of the two watches lasts. When `withdraw`,
+/// A's private address leaves A before the link returns -- waited for
+/// until A's own addresses no longer list it, having listed it before --
+/// so the reconnect's Identify cannot advertise it again, and what the
+/// probe reads is what B learned on the FIRST connection.
+async fn after_a_close(
+    learnable: bool,
+    send: bool,
+    watch: Duration,
+    withdraw: bool,
+) -> AfterAClose {
     if learnable {
         netns::add_unrouted_address(Net::A, "10.99.0.1/24");
         netns::add_unrouted_address(Net::B, "10.88.0.2/24");
@@ -607,6 +637,21 @@ async fn after_a_close(learnable: bool, send: bool, watch: Duration) -> AfterACl
     }
     let before_up = dials(&b);
     let retry_scheduled = b.log().contains("retry scheduled");
+
+    if withdraw {
+        assert!(learnable, "only a learned address is withdrawn");
+        assert!(a.lists_own(LEARNED_A).await, "A never listed {LEARNED_A}");
+        netns::remove_unrouted_address(Net::A, "10.99.0.1/24");
+        let deadline = tokio::time::Instant::now() + PATIENCE;
+        while a.lists_own(LEARNED_A).await {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "A still lists {LEARNED_A}\nA:\n{}",
+                a.log()
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
 
     // A redials by its entry once the link returns; B's dials in the
     // watch after that are what the link's return started at B.
@@ -681,7 +726,7 @@ async fn the_side_with_no_address_never_dials_and_its_send_is_answered_peer_unkn
     if !netns::in_overlay(NO_ADDRESS_AFTER_A_CLOSE) {
         return;
     }
-    let seen = after_a_close(false, true, WATCH).await;
+    let seen = after_a_close(false, true, WATCH, false).await;
     let (answer, took) = seen.sent.as_ref().expect("sent");
     assert!(
         matches!(answer, Err(TransportError::PeerUnknown)) && *took < AT_ONCE,
@@ -716,7 +761,7 @@ async fn the_side_that_learned_an_address_dials_nothing_until_it_sends() {
     if !netns::in_overlay(LEARNED_NO_SEND) {
         return;
     }
-    let seen = after_a_close(true, false, WATCH).await;
+    let seen = after_a_close(true, false, WATCH, false).await;
     assert_eq!(seen.dials, [0, 0], "{}", seen.log);
     assert!(!seen.retry_scheduled, "{}", seen.log);
     assert!(
@@ -743,7 +788,7 @@ async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
     if !netns::in_overlay(LEARNED_SEND) {
         return;
     }
-    let seen = after_a_close(true, true, WATCH).await;
+    let seen = after_a_close(true, true, WATCH, false).await;
     let (answer, _) = seen.sent.as_ref().expect("sent");
     assert!(
         matches!(answer, Err(TransportError::PeerUnreachable)),
@@ -955,9 +1000,11 @@ const LONG_WATCH: Duration = Duration::from_secs(360);
 /// [`the_side_that_learned_an_address_dials_nothing_until_it_sends`]
 /// with each watch [`LONG_WATCH`] instead of 5 s: B dials nothing in six
 /// minutes after the close nor in six after the link returns, and the
-/// probe, sent after both, is still answered `PeerUnreachable` -- B's
-/// book still held A's learned address more than twelve minutes after
-/// it learned it. The book has no age at which an entry leaves
+/// probe, sent after both, is still answered `PeerUnreachable`. A's
+/// address left A before the link returned (`withdraw`), so the
+/// reconnect's Identify could not advertise it again: the entry the probe
+/// reads is the one B learned on the first connection, more than twelve
+/// minutes earlier. The book has no age at which an entry leaves
 /// (`connection_manager.rs`: an entry leaves by an operator's removal,
 /// a permanent dial failure, eviction at the per-peer bound, its
 /// peer's retirement from trust, or a restart, the book being held in
@@ -970,7 +1017,7 @@ async fn the_side_that_learned_an_address_dials_nothing_through_a_long_watch_and
     if !netns::in_overlay_within(LEARNED_LONG_WATCH, Duration::from_mins(20)) {
         return;
     }
-    let seen = after_a_close(true, false, LONG_WATCH).await;
+    let seen = after_a_close(true, false, LONG_WATCH, true).await;
     record(
         "learned_long_watch.txt",
         &format!(

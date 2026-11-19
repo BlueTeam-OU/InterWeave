@@ -325,6 +325,21 @@ pub fn add_unrouted_address(net: Net, cidr: &str) {
     );
 }
 
+/// Remove an address [`add_unrouted_address`] added: the namespace no
+/// longer holds it, so its wildcard listener stops reporting it.
+///
+/// # Panics
+/// When `net` does not hold `cidr` on its loopback, or `ip` refuses.
+pub fn remove_unrouted_address(net: Net, cidr: &str) {
+    shell(
+        "removing an unrouted address",
+        &format!(
+            "nsenter --net={} ip addr del {cidr} dev lo",
+            net.path().display()
+        ),
+    );
+}
+
 /// A's end of [`second_link`].
 pub const SECOND_LINK_A: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 1);
 /// B's end of [`second_link`].
