@@ -281,6 +281,9 @@ record whose key opens nothing, which a restore seals over. §8's
 reason why an early press of `IdCheckWords` is safe no longer says
 that the check's result depends only on the words: after K1 it also
 depends on the record, and on whether a read-back is owed.
+Acceptance 15's runs of a start refused after the bound now say what
+the test's store holds when a run opens a conversation or scrolls the
+list.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1965,7 +1968,12 @@ scale would also be a finding of the Android review
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
       the start, so add-a-peer §5.6's condition does not hold and
-      Connect cannot open, except where a run says otherwise. By a
+      Connect cannot open, except where a run says otherwise. Where
+      a run opens a conversation or scrolls the list, the test's
+      store also holds, before the start, 30 contacts, each with a
+      conversation of one read inbound message, so Chats' list is
+      longer than the screen at the test's window size; the
+      conversation opened is the one in the list's first row. By a
       test hook, the service start after R4's Continue, and in a
       second run after C4's Continue with the seal succeeding, is
       left unanswered, and Chats opens at the 10 s bound with focus
