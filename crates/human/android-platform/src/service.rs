@@ -196,11 +196,21 @@ pub struct ServiceHost {
     /// whose key the Keystore invalidated; the last armed wins.
     #[cfg(feature = "dev-stand-ins")]
     refuse_store: Mutex<Option<StartRefused>>,
-    /// Told when a stop's drain has returned, before the facade's close:
-    /// a test orders a send inside the close's wait by it, not by a sleep
-    /// ([`Self::drained_for_test`]).
+    /// Told as a stop passes its drain and then its facade's close: a
+    /// test orders a send inside the close's wait by them, not by a sleep
+    /// ([`Self::stop_stages_for_test`]).
     #[cfg(feature = "test-hooks")]
-    drained: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    stop_stages: Mutex<Option<std::sync::mpsc::Sender<StopStage>>>,
+}
+
+/// Where a stop has got to, as a test hears it. TEST BUILDS ONLY.
+#[cfg(feature = "test-hooks")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopStage {
+    /// The drain returned; the facade's close begins next.
+    Drained,
+    /// The facade's close returned; the runtime's stop comes next.
+    Closed,
 }
 
 impl Default for ServiceHost {
@@ -231,7 +241,7 @@ impl ServiceHost {
             #[cfg(feature = "dev-stand-ins")]
             refuse_store: Mutex::new(None),
             #[cfg(feature = "test-hooks")]
-            drained: Mutex::new(None),
+            stop_stages: Mutex::new(None),
         }
     }
 
@@ -873,13 +883,28 @@ impl ServiceHost {
         }
     }
 
-    /// Told each time a stop's drain has returned, before the facade's
-    /// close begins. TEST BUILDS ONLY.
+    /// Told each stage a stop with a runtime passes ([`StopStage`]), in
+    /// order; a stop with no runtime reports none. TEST BUILDS ONLY.
     #[cfg(feature = "test-hooks")]
-    pub fn drained_for_test(&self) -> std::sync::mpsc::Receiver<()> {
-        let (tell, drained) = std::sync::mpsc::channel();
-        *self.drained.lock().unwrap_or_else(PoisonError::into_inner) = Some(tell);
-        drained
+    pub fn stop_stages_for_test(&self) -> std::sync::mpsc::Receiver<StopStage> {
+        let (tell, stages) = std::sync::mpsc::channel();
+        *self
+            .stop_stages
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(tell);
+        stages
+    }
+
+    #[cfg(feature = "test-hooks")]
+    fn tell_stop_stage(&self, stage: StopStage) {
+        if let Some(tell) = self
+            .stop_stages
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+        {
+            let _ = tell.send(stage);
+        }
     }
 
     /// Wait until the client is asked to stop. Returns
@@ -963,15 +988,10 @@ impl ServiceHost {
         // more can arrive.
         let _ = host.drain();
         #[cfg(feature = "test-hooks")]
-        if let Some(tell) = self
-            .drained
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-        {
-            let _ = tell.send(());
-        }
+        self.tell_stop_stage(StopStage::Drained);
         let session_closed = facade.is_none_or(|f| f.close(FACADE_CLOSE));
+        #[cfg(feature = "test-hooks")]
+        self.tell_stop_stage(StopStage::Closed);
         let deadline = Instant::now() + FACADE_CLOSE;
         let mut host = host;
         let runtime = loop {

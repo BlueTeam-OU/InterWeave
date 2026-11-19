@@ -309,9 +309,18 @@ fn host_of(serial: &str) -> Option<String> {
 }
 
 /// The host adb discovered an mDNS `serial` at, from `adb mdns
-/// services`: one line per service, its instance name first, its type
-/// next and its `ip:port` last. adb names an mDNS device
-/// `<instance>.<type>`, or the instance alone.
+/// services`, read as one line per service with its instance name
+/// first, its type next and its `ip:port` last; adb names an mDNS
+/// device `<instance>.<type>`, or the instance alone.
+///
+/// THAT LINE FORMAT IS UNMEASURED: the unit tests below feed lines
+/// written to it, not lines a phone produced, and on 2026-11-18 this
+/// host's own adb server listed no service to compare against.
+/// Measuring it takes a phone with wireless debugging on, seen over
+/// mDNS from a host on its LAN; a mismatch shows as this function
+/// answering `None`, which `follow_host` reports as an error naming
+/// the serial, never as a USB link
+/// (`a_network_link_with_no_host_to_follow_is_an_error`).
 fn mdns_host(services: &str, serial: &str) -> Option<String> {
     services.lines().find_map(|l| {
         let f: Vec<&str> = l.split_whitespace().collect();

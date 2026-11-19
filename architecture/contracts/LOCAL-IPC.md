@@ -702,7 +702,22 @@ daemons, `tests/automated-client`'s
 `an_inbound_direct_after_the_stop_began_is_refused_shutting_down` and
 `a_message_admitted_before_the_stop_is_read_before_the_close`). Not
 counted: an event the connection's writer was part-way through writing
-when a client that does not read was aborted.
+when its writer was aborted. The count is a
+floor on what a stop dropped: no delivered event is in it, and it can
+fall short. The floor is held for a client that does not read, by
+`a_stop_counts_what_a_client_that_does_not_read_left` (what was read
+and what was counted do not pass the queue) and, where the writer gave
+up, by `a_stop_counts_what_a_writer_that_gave_up_left`; for a client
+that reads slowly, and for the shortfall below, it is read from the
+code and held by no test. Once the connection has queued its `close`,
+or closed its lanes without one, the writer takes no further event from the
+connection's lane, so what the lane held when the stop read it was lost
+whole, and the event the writer was part-way through had left the lane
+before the reading; and a writer that ends on its own between the
+grace running out and that reading empties the lane first, so the
+count can then miss what the lane held, not one event alone. #709's
+review (F7) read an over-count in the reading coming before the abort;
+#724's review and its judgement found no path to one.
 
 ## Platform scope of the v1 build
 

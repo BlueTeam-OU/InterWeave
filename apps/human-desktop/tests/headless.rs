@@ -336,12 +336,16 @@ fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
         REPORTS.lock().expect("reports").push(line.to_owned());
     });
     opener.open(&link);
-    let wait = common::Wait::on("the handler to run");
-    while !record.exists() {
-        wait.check();
+    // The shell creates the record before `printf` writes it: wait until
+    // the record holds the two whole lines the handler writes (`$#`, then
+    // `$1`), whatever the arguments were, so a split link fails the
+    // assertion below at once, showing what was written.
+    let wait = common::Wait::on("the handler to write its record");
+    let whole = |got: &str| got.ends_with('\n') && got.lines().count() == 2;
+    while !std::fs::read_to_string(&record).is_ok_and(|got| whole(&got)) {
+        wait.check_showing(|| format!("the record so far: {:?}", std::fs::read_to_string(&record)));
         std::thread::sleep(Duration::from_millis(20));
     }
-    std::thread::sleep(Duration::from_millis(100));
     let got = std::fs::read_to_string(&record).expect("record");
     assert_eq!(
         got,

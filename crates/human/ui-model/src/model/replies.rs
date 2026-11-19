@@ -53,6 +53,10 @@ pub(super) struct Replies {
     due: HashSet<Pair>,
     /// The last ask's [`ReplyAsk::seq`].
     asked: u64,
+    /// Whether a reply in a peer's endpoint conversation also names what
+    /// was sent to that peer with no endpoint
+    /// ([`UiModel::name_replies_to_default_sends`]).
+    pub(super) to_default_sends: bool,
 }
 
 impl Replies {
@@ -134,7 +138,7 @@ impl UiModel {
         let due: Vec<Pair> = self.replies.due.drain().collect();
         let mut asks = Vec::new();
         for pair in due {
-            if self.by_app.get(&pair).is_some_and(|keys| !keys.is_empty()) {
+            if !self.reply_keys(&pair.0, &pair.1).is_empty() {
                 continue;
             }
             let Some(record) = self.replies.targets.get_mut(&pair) else {
