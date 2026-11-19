@@ -57,17 +57,25 @@ pub enum Start {
 
 /// A failure the platform reports for a step that stops the service or
 /// writes (§6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StepFailed {
     /// The profile stayed held past the wait (`IdBusy`).
     Busy,
     /// Storage or the cipher failed; nothing was changed
     /// (`IdStorageFailed`).
     Storage,
+    /// A refusal that may follow the write, whose read-back did not find
+    /// the record opening to the `PeerId` shown or confirmed: the app
+    /// cannot tell whether the identity was saved (`IdStorageUnknown`,
+    /// design section 6).
+    StorageUnknown,
     /// C4's seal found the profile already provisioned: another first run
-    /// sealed first, so the words shown were never used (`IdVoidPaper`,
-    /// #303 review F5).
+    /// sealed first, so the words shown were never used
+    /// (`IdAlreadyCreated`, #303 review F5).
     AlreadyProvisioned,
+    /// A restore found a record that names another `PeerId`, the one
+    /// carried here (`IdRestoreOther`, design section 6).
+    RestoreOther(TransportIdentity),
 }
 
 /// What the root must do.
@@ -96,6 +104,12 @@ pub enum Effect {
     /// Restore `phrase` to the `PeerId` the person confirmed
     /// (`Expected::Confirmed`); answer [`IdentityFlow::restored`].
     RestoreConfirmed(String, TransportIdentity),
+    /// Read the record back, writing nothing: does it open, under the
+    /// cipher, to this `PeerId`? `IdStorageUnknown`'s Try again (design
+    /// section 6). Answered as the step it reads back for:
+    /// [`IdentityFlow::sealed`] on C4, [`IdentityFlow::restored`] on R2
+    /// and R3, with [`StepFailed::StorageUnknown`] when it does not.
+    ReadBack(TransportIdentity),
     /// Raise the device-credential or strong-biometric prompt; answer
     /// [`IdentityFlow::prompted`].
     Prompt,
@@ -126,9 +140,30 @@ pub enum Notice {
     Busy,
     /// `IdStorageFailed`.
     StorageFailed,
-    /// `IdVoidPaper` on C4: the phone holds another identity, and
+    /// `IdStorageUnknown`: Try again reads the record back.
+    StorageUnknown,
+    /// `IdAlreadyCreated` on C4: the phone holds another identity, and
     /// Continue opens it.
-    VoidPaper,
+    AlreadyCreated,
+    /// `IdRestoreOther` on R3 or R2: the phone's record names
+    /// `recorded`, shown under the notice for the eye alone, and the
+    /// notice's Continue opens it.
+    RestoreOther {
+        /// The `PeerId` the record names.
+        recorded: TransportIdentity,
+    },
+}
+
+impl Notice {
+    /// The notices whose action is Try again, which retries the step that
+    /// raised them (design section 6).
+    #[must_use]
+    pub const fn retries(&self) -> bool {
+        matches!(
+            self,
+            Self::Busy | Self::StorageFailed | Self::StorageUnknown
+        )
+    }
 }
 
 impl From<StepFailed> for Notice {
@@ -136,7 +171,9 @@ impl From<StepFailed> for Notice {
         match failed {
             StepFailed::Busy => Self::Busy,
             StepFailed::Storage => Self::StorageFailed,
-            StepFailed::AlreadyProvisioned => Self::VoidPaper,
+            StepFailed::StorageUnknown => Self::StorageUnknown,
+            StepFailed::AlreadyProvisioned => Self::AlreadyCreated,
+            StepFailed::RestoreOther(recorded) => Self::RestoreOther { recorded },
         }
     }
 }
@@ -212,6 +249,12 @@ enum Screen {
         /// 4.4, over 130 % font): flow state, so a rotation or a return
         /// from Home finds it open.
         reviewing: bool,
+        /// `IdRestoreOther`'s Continue was pressed: the service starts
+        /// with the identity on record, and R2 holds, `checking` set,
+        /// until the root says the start decided (section 8).
+        started: bool,
+        /// As C4's.
+        starting: bool,
     },
     R3 {
         origin: Origin,
@@ -225,6 +268,10 @@ enum Screen {
         /// check my words" -- and the notice it showed stays (design
         /// section 8, While R3's restore runs).
         restoring: bool,
+        /// As R2's: `IdRestoreOther`'s Continue, `restoring` set.
+        started: bool,
+        /// As C4's.
+        starting: bool,
     },
     R4 {
         peer: Option<TransportIdentity>,
@@ -581,6 +628,7 @@ impl IdentityFlow {
             return vec![Effect::Hold];
         }
         self.start_notice = None;
+        let shown_peer = self.peer.clone();
         match &mut self.screen {
             Screen::Welcome { .. } => {
                 self.screen = Screen::C1;
@@ -608,7 +656,7 @@ impl IdentityFlow {
             // Held: a second press does nothing (§5.1).
             Screen::C4 { held: true, .. } | Screen::R4 { held: true, .. } => Vec::new(),
             Screen::C4 {
-                notice: Some(Notice::VoidPaper),
+                notice: Some(Notice::AlreadyCreated),
                 held,
                 starting,
             } => {
@@ -617,6 +665,23 @@ impl IdentityFlow {
                 self.drop_created();
                 vec![Effect::VoidPaper(false), Effect::StartService]
             }
+            // Try again in Continue's place under `IdStorageUnknown` reads
+            // the record back and writes nothing: both refusals that raise
+            // it came after the publish, so a second seal would find the
+            // record and be refused as another identity on record
+            // (section 6; `storage_unknown_try_again_reads_back_and_never_seals`).
+            Screen::C4 {
+                notice: Some(Notice::StorageUnknown),
+                held,
+                starting,
+            } => match shown_peer {
+                Some(peer) => {
+                    *held = true;
+                    *starting = false;
+                    vec![Effect::ReadBack(peer)]
+                }
+                None => Vec::new(),
+            },
             Screen::C4 { held, starting, .. } => {
                 *held = true;
                 *starting = false;
@@ -800,6 +865,83 @@ impl IdentityFlow {
             }
         ) {
             self.back_to_r2();
+        }
+    }
+
+    /// The action under the text of R2's or R3's notice (section 6):
+    /// `IdBusy`'s and `IdStorageFailed`'s Try again runs the step again
+    /// -- R2's check, R3's restore --, `IdStorageUnknown`'s reads the
+    /// record back, writing nothing, and `IdRestoreOther`'s Continue
+    /// starts the service with the identity on record, holding the screen
+    /// until the start decides ([`Self::decided`]), as C4's Continue does
+    /// under `IdAlreadyCreated`. While the check, the restore or that
+    /// start runs, and behind the discard dialog, it does nothing.
+    /// `notice_actions_retry_read_back_or_open_the_record` holds it.
+    pub fn notice_action(&mut self) -> Vec<Effect> {
+        if self.discard_asked() {
+            return Vec::new();
+        }
+        match &mut self.screen {
+            Screen::R2 {
+                origin,
+                entry,
+                notice: Some(notice),
+                checking: checking @ false,
+                started,
+                starting,
+                ..
+            } => match notice {
+                Notice::Busy | Notice::StorageFailed => match entry.phrase() {
+                    Some(phrase) => {
+                        *checking = true;
+                        vec![Effect::Check(phrase)]
+                    }
+                    None => Vec::new(),
+                },
+                Notice::StorageUnknown => match origin {
+                    Origin::Recovery { expected, .. } => {
+                        *checking = true;
+                        vec![Effect::ReadBack(expected.clone())]
+                    }
+                    Origin::Fresh => Vec::new(),
+                },
+                Notice::RestoreOther { .. } => {
+                    *checking = true;
+                    *started = true;
+                    *starting = false;
+                    vec![Effect::VoidPaper(false), Effect::StartService]
+                }
+                _ => Vec::new(),
+            },
+            Screen::R3 {
+                entry,
+                derived,
+                notice: Some(notice),
+                restoring: restoring @ false,
+                started,
+                starting,
+                ..
+            } => match notice {
+                Notice::Busy | Notice::StorageFailed => match entry.phrase() {
+                    Some(phrase) => {
+                        *restoring = true;
+                        vec![Effect::RestoreConfirmed(phrase, derived.clone())]
+                    }
+                    None => Vec::new(),
+                },
+                Notice::StorageUnknown => {
+                    *restoring = true;
+                    vec![Effect::ReadBack(derived.clone())]
+                }
+                Notice::RestoreOther { .. } => {
+                    *restoring = true;
+                    *started = true;
+                    *starting = false;
+                    vec![Effect::VoidPaper(false), Effect::StartService]
+                }
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
         }
     }
 
@@ -1057,6 +1199,8 @@ impl IdentityFlow {
                     derived,
                     notice: None,
                     restoring: false,
+                    started: false,
+                    starting: false,
                 };
                 Vec::new()
             }
@@ -1148,12 +1292,16 @@ impl IdentityFlow {
     }
 
     /// C4 or R4 holds after Continue, Continue disabled, until the start
-    /// decides (add-a-peer §5.1).
+    /// decides (add-a-peer §5.1); and R2 or R3 after `IdRestoreOther`'s
+    /// Continue (section 8).
     #[must_use]
     pub const fn start_held(&self) -> bool {
         matches!(
             self.screen,
-            Screen::C4 { held: true, .. } | Screen::R4 { held: true, .. }
+            Screen::C4 { held: true, .. }
+                | Screen::R4 { held: true, .. }
+                | Screen::R2 { started: true, .. }
+                | Screen::R3 { started: true, .. }
         )
     }
 
@@ -1168,6 +1316,16 @@ impl IdentityFlow {
         }
         | Screen::R4 {
             held: true,
+            starting,
+            ..
+        }
+        | Screen::R2 {
+            started: true,
+            starting,
+            ..
+        }
+        | Screen::R3 {
+            started: true,
             starting,
             ..
         } = &mut self.screen
@@ -1191,13 +1349,22 @@ impl IdentityFlow {
                 held: true,
                 starting: true,
                 ..
+            } | Screen::R2 {
+                started: true,
+                starting: true,
+                ..
+            } | Screen::R3 {
+                started: true,
+                starting: true,
+                ..
             }
         )
     }
 
-    /// The start under a held C4 or R4 decided which screen opens --
-    /// Connect or Chats, which the root shows: the flow is over. Nothing
-    /// on a screen that is not held.
+    /// The start under a held C4 or R4, or under R2 or R3 after
+    /// `IdRestoreOther`'s Continue, decided which screen opens -- Connect
+    /// or Chats, which the root shows: the flow is over. Nothing on a
+    /// screen that is not held.
     pub fn decided(&mut self) -> Vec<Effect> {
         if !self.start_held() {
             return Vec::new();
@@ -1263,6 +1430,8 @@ impl IdentityFlow {
             checking: false,
             discard_asked: false,
             reviewing: false,
+            started: false,
+            starting: false,
         }
     }
 
@@ -1316,6 +1485,8 @@ impl IdentityFlow {
             checking: false,
             discard_asked: false,
             reviewing: false,
+            started: false,
+            starting: false,
         };
     }
 
@@ -1982,14 +2153,14 @@ mod tests {
     }
 
     #[test]
-    fn a_seal_that_finds_another_identity_warns_of_a_void_paper_and_opens_it() {
+    fn a_seal_that_finds_another_identity_shows_already_created_and_opens_it() {
         let mut flow = created_at_c2();
         flow.primary();
         enter(&mut flow, "galaxy");
         enter(&mut flow, "saddle");
         flow.primary();
         flow.sealed(Err(StepFailed::AlreadyProvisioned));
-        assert_eq!(flow.notice(), Some(&Notice::VoidPaper));
+        assert_eq!(flow.notice(), Some(&Notice::AlreadyCreated));
         assert_eq!(
             flow.primary(),
             [Effect::VoidPaper(false), Effect::StartService],
@@ -2555,6 +2726,168 @@ mod tests {
         assert_eq!(flow.peer(), Some(&mine()));
         assert_eq!(flow.back(), [Effect::StartService, Effect::OpenSettings]);
         assert_eq!(flow.words(), None);
+    }
+
+    /// C4 after its seal, R2 after K1 after its check, and R3: each at
+    /// the point where the step's result arrives.
+    fn c4_sealing() -> IdentityFlow {
+        let mut flow = created_at_c2();
+        flow.primary();
+        enter(&mut flow, "galaxy");
+        enter(&mut flow, "saddle");
+        assert_eq!(flow.primary(), [Effect::Seal], "control: the seal");
+        flow
+    }
+
+    fn r2_after_k1_restoring() -> IdentityFlow {
+        let mut flow = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+        flow.primary();
+        fill(&mut flow);
+        flow.primary();
+        assert_eq!(
+            flow.checked(Some(mine())),
+            [Effect::RestoreRecorded(words().join(" "))],
+            "control: the restore"
+        );
+        flow
+    }
+
+    /// `IdStorageUnknown` (design section 6): on C4 its Try again, the
+    /// primary, reads the record back for the `PeerId` C4 shows and seals
+    /// nothing; on R2 after K1 and on R3 the notice's action reads it
+    /// back for the record's `PeerId` or the one confirmed. Each holds its
+    /// screen while it runs, and a read-back that finds the record goes
+    /// on as the step's success would; one that does not shows the notice
+    /// again. Mutation: the C4 `StorageUnknown` arm of `primary` removed
+    /// (the seal again), or `notice_action`'s `ReadBack` replaced by the
+    /// step's retry, fails here.
+    #[test]
+    fn storage_unknown_try_again_reads_back_and_never_seals() {
+        let mut c4 = c4_sealing();
+        c4.sealed(Err(StepFailed::StorageUnknown));
+        assert_eq!(c4.notice(), Some(&Notice::StorageUnknown));
+        assert!(!c4.start_held(), "control: C4 given back");
+        assert_eq!(c4.primary(), [Effect::ReadBack(mine())]);
+        assert!(c4.start_held(), "held while it reads back");
+        assert_eq!(c4.primary(), [], "one read-back at a time");
+        assert_eq!(c4.sealed(Err(StepFailed::StorageUnknown)), []);
+        assert_eq!(c4.notices_raised(), 2, "raised again, focus again");
+        assert_eq!(c4.primary(), [Effect::ReadBack(mine())]);
+        assert_eq!(
+            c4.sealed(Ok(())),
+            [Effect::VoidPaper(false), Effect::StartService],
+            "found: C4 goes on as after a seal"
+        );
+
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::StorageUnknown));
+        assert_eq!(r2.notice(), Some(&Notice::StorageUnknown));
+        assert_eq!(r2.primary(), [Effect::Check(words().join(" "))], "control");
+        r2.checked(None);
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::StorageUnknown));
+        assert_eq!(r2.notice_action(), [Effect::ReadBack(mine())]);
+        assert!(r2.waiting(), "R2 held while it reads back");
+        assert_eq!(r2.notice_action(), [], "one at a time");
+        assert_eq!(r2.back(), [], "Back waits");
+        assert_eq!(r2.screen(), ScreenId::R2);
+        r2.restored(Ok(()));
+        assert_eq!(r2.screen(), ScreenId::R4);
+
+        let mut r3 = at_r3();
+        r3.primary();
+        r3.restored(Err(StepFailed::StorageUnknown));
+        assert_eq!(r3.notice_action(), [Effect::ReadBack(mine())]);
+        assert!(r3.waiting(), "R3 held while it reads back");
+        r3.restored(Err(StepFailed::StorageUnknown));
+        assert!(!r3.waiting());
+        assert_eq!(r3.notice(), Some(&Notice::StorageUnknown), "shown again");
+    }
+
+    /// The action under R2's and R3's notices (section 6): Try again
+    /// under `IdBusy` and `IdStorageFailed` runs the step again -- R2's
+    /// check, R3's restore --; under `IdRestoreOther`, Continue starts the
+    /// service with the record's identity, writes nothing, and holds the
+    /// screen as a held start (`start_held`) until it decides: no second
+    /// start, no word changed, Back does nothing. The checksum banner and
+    /// `IdOtherIdentity` have no action. Mutation: `notice_action`'s
+    /// `RestoreOther` arm setting no `started`, or not `checking` /
+    /// `restoring`, fails here.
+    #[test]
+    fn notice_actions_retry_read_back_or_open_the_record() {
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::Storage));
+        assert_eq!(r2.notice_action(), [Effect::Check(words().join(" "))]);
+
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::RestoreOther(other())));
+        assert_eq!(
+            r2.notice(),
+            Some(&Notice::RestoreOther { recorded: other() })
+        );
+        assert!(!r2.start_held(), "control: nothing held yet");
+        assert_eq!(
+            r2.notice_action(),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        assert!(r2.start_held() && r2.waiting(), "held until it decides");
+        assert_eq!(r2.notice_action(), [], "no second start");
+        assert_eq!(r2.primary(), [], "no check either");
+        assert_eq!(r2.back(), [], "Back does nothing");
+        assert!(!r2.press('a'), "no letter reaches the words");
+        r2.edit(3);
+        assert_eq!(r2.positions_chosen(), 0, "no position opens");
+        r2.set_starting(true);
+        assert!(r2.starting(), "ConnectStarting under that Continue");
+        assert_eq!(r2.decided(), [Effect::OpenChats]);
+        assert_eq!(r2.screen(), ScreenId::Done);
+
+        let mut r3 = at_r3();
+        r3.primary();
+        r3.restored(Err(StepFailed::Busy));
+        assert!(matches!(
+            r3.notice_action().as_slice(),
+            [Effect::RestoreConfirmed(..)]
+        ));
+        r3.restored(Err(StepFailed::RestoreOther(other())));
+        assert_eq!(
+            r3.notice_action(),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        assert!(r3.start_held() && r3.waiting());
+        assert_eq!(r3.primary(), [], "Yes held");
+        r3.recheck();
+        assert_eq!(r3.back(), [], "Back does nothing");
+        assert_eq!(r3.screen(), ScreenId::R3, "No and Back held");
+        assert_eq!(r3.decided(), [Effect::OpenChats]);
+
+        // Back from the notice, before Continue: as at any other time
+        // (section 6, Back from a notice).
+        let mut r3 = at_r3();
+        r3.primary();
+        r3.restored(Err(StepFailed::RestoreOther(other())));
+        assert_eq!(r3.back(), []);
+        assert_eq!(r3.screen(), ScreenId::R2, "R3's Back: R2, words kept");
+        assert!(r3.entry().is_some_and(PhraseEntry::complete));
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::RestoreOther(other())));
+        r2.back();
+        assert!(r2.discard_asked(), "R2's Back: the dialog first");
+        assert_eq!(r2.notice_action(), [], "nothing behind the dialog");
+
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::Busy));
+        r2.primary();
+        r2.checked(None);
+        assert_eq!(r2.notice(), Some(&Notice::ChecksumFailed));
+        assert_eq!(r2.notice_action(), [], "the checksum banner has none");
     }
 
     #[test]
