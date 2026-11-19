@@ -5,10 +5,13 @@ Status: proposal, 2026-11-19, my job j148. Read against `origin/main`
 this design to ux-designer: the store migration of the Stage 22 release
 counts what it discarded into one content-free `settings` row, "which
 the client shows once at the first open and then deletes; the words are
-ux-designer's" (STATE.md §Migrations, schema v14). Two product
-questions are open with architect-cto (§11). Until they are answered,
-§4 and §5 are written for the reading proposed there, and each place
-that depends on an answer names its question.
+ux-designer's" (STATE.md §Migrations, schema v14). This note's two
+product questions (§11) were ruled by architect-cto as proposed (REPLY
+01a1f3c6, 2026-11-19): the row holds eight counts, and it is deleted
+on the person's acknowledgement and on nothing else. STATE.md's text
+follows as architect-cto's for/ branch onto this PR; until it lands, the
+merged sentence still reads "shows once at the first open and then
+deletes", and this note follows the ruling.
 
 Owner of the design: ux-designer. The words are language-culture's: §7
 names each string and what it must say. No new colour: the banner is
@@ -29,8 +32,15 @@ the desktop and on Android; the command-line client's form is left out
   contact when it holds no other route, and the second copy of a message
   where two copies meet; (e) every pending row and every unread contact
   card proposal. What (c), (d) and (e) discarded is counted into one
-  content-free `settings` row: conversations, unread, kept, pending
-  never attempted, pending that may have reached, contacts.
+  content-free `settings` row. As merged it names six counts; ruled
+  2026-11-19 (§11) it holds eight, each one thing a person would call
+  gone or changed: conversations, unread messages, kept messages,
+  pending never attempted, pending that may have reached, contacts
+  ((c)'s: deleted with their last route), contacts combined ((d)'s: a
+  route moved to another contact of the same identity, its own name and
+  notes gone), card proposals ((e)'s unread proposals). A second copy
+  under (d) is counted nowhere: the message is still held, or was read
+  and not kept.
 - The pending rows are counted in two parts, "as Remove of an identity
   names them" (ADR-0061 decision 7): those never attempted were not
   sent; those with an attempt behind them "may have reached their
@@ -84,7 +94,7 @@ someone for whom nothing was lost.
   tested with a person.)
 - **When.** At every open that finds the `settings` row with at least
   one count above zero, until the person presses **OK** in the dialog
-  (Q2 in §11). A row whose counts are all zero shows nothing, and the
+  (Q2 in §11, ruled). A row whose counts are all zero shows nothing, and the
   client deletes it at that open.
 - **Under what.** A session notice (authentication needed, storage
   degraded, the device offline) goes first, as for the discard's
@@ -108,12 +118,15 @@ Pressing **Details** opens a basic dialog:
   number in the locale's digits and its noun in the locale's plural form:
   1. `MigratedNotSent` — pending never attempted;
   2. `MigratedMayHaveReached` — pending that may have reached;
-  3. `MigratedUnread` — unread messages (and contact cards: Q1);
-  4. `MigratedKept` — kept messages;
-  5. `MigratedConversations` — conversations;
-  6. `MigratedContacts` — contacts (which ones: Q1).
-  The two lines about the person's own sends come first: they are the
-  ones a person may act on (§2).
+  3. `MigratedCards` — card proposals not answered;
+  4. `MigratedUnread` — unread messages;
+  5. `MigratedKept` — kept messages;
+  6. `MigratedConversations` — conversations;
+  7. `MigratedContacts` — contacts deleted;
+  8. `MigratedCombined` — contacts combined.
+  The two lines about the person's own sends come first, then the card
+  proposals: those are the ones a person may act on (§2), by writing
+  again or by asking for a card again.
 - `MigratedWhy`: why it happened, and that the app cannot show which
   items;
 - `MigratedKeptWhat`: what stayed;
@@ -172,10 +185,12 @@ its number, never a number put before a fixed word.
 | `MigratedTitle` | the dialog's subject | "What this update removed" |
 | `MigratedNotSent` {n} | n of the person's sends were never sent and will not be | "{n} messages you were sending were not sent" |
 | `MigratedMayHaveReached` {n} | n of the person's sends may have been received before the update; the app will not send them again; never "not sent" | "{n} messages you were sending may have been received before the update. They will not be sent again." |
-| `MigratedUnread` {n} | n unread items went, before they were read | "{n} unread messages" (Q1: "… and contact cards") |
+| `MigratedCards` {n} | n contact cards the person had not answered went; the sender can share theirs again | "{n} contact cards you had not answered" |
+| `MigratedUnread` {n} | n unread messages went, before they were read; never a card | "{n} unread messages" |
 | `MigratedKept` {n} | n messages the person had kept went | "{n} kept messages" |
 | `MigratedConversations` {n} | n conversations went, all of them with someone who never shared a contact card | "{n} conversations with no contact card" |
-| `MigratedContacts` {n} | n contacts went (Q1 decides whether merged ones are among them) | "{n} contacts with no contact card" |
+| `MigratedContacts` {n} | n contacts went, each with no contact card | "{n} contacts with no contact card" |
+| `MigratedCombined` {n} | n contacts were joined to another contact of the same person; that person's contact stays, the joined contact's own name and notes did not | "{n} contacts were combined with another contact of the same person. Their own names and notes were not kept." |
 | `MigratedWhy` | each contact is now reached by the key on their card; what had no card could not move; the app cannot show which items went | "Each contact is now reached by the key on their contact card, so what had no card could not be kept. The app cannot show which items were removed." |
 | `MigratedKeptWhat` | contacts with a card, and their conversations, are still there | "Your contacts with a contact card and their conversations are still here." |
 | `MigratedOk` | acknowledges, and the notice will not return; distinct from Close, which elsewhere dismisses with no effect | "OK" (new: no OK string exists) |
@@ -221,6 +236,11 @@ cases named (the store's own migration tests build such stores).
 4. A store with only attempted pending shows `MigratedMayHaveReached`
    and no `MigratedNotSent`: an attempted send is never said as not
    sent.
+4a. A store where two routes of one PeerId derive one id, with one
+   message stored under both, shows `MigratedCombined` 1 and no
+   `MigratedUnread` or `MigratedKept` line for that message; a store
+   whose only discard is an unread card proposal shows `MigratedCards`
+   and no `MigratedUnread`.
 5. Escape (desktop) or Back (Android) closes the dialog, the banner
    stays, focus is on Details, and the row is still there.
 6. OK closes the dialog, removes the banner, puts focus on the Chats
@@ -259,7 +279,9 @@ cases named (the store's own migration tests build such stores).
 
 ## 11. Questions
 
-To architect-cto, each the product's and not a layout's:
+To architect-cto, each the product's and not a layout's. Both ruled
+as proposed (REPLY 01a1f3c6, 2026-11-19), with (ii) as a separate
+count; the text below is the question as asked.
 
 - **Q1. What each count holds.** STATE.md lists six counts and puts
   three different things under "discarded". (i) A second copy of a
