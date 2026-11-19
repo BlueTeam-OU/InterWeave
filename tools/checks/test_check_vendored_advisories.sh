@@ -626,7 +626,7 @@ else
 fi
 
 # A CRATE BEHIND AN OPTIONAL FEATURE is resolved, because `--all-features`
-# is what `deny.toml` itself uses, and CLAUDE.md §1 records that the
+# is what `deny.toml` itself uses, and AGENTS.md §1 records that the
 # connectivity behaviours ship gated off -- one manifest edit from this.
 build_vendored optional atty 0.2.14 inline '[dependencies]
 atty = { version = "=0.2.14", optional = true }'

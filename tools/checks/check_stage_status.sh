@@ -13,10 +13,10 @@
 # `workspace.metadata.interweave.status` in the root Cargo.toml is the
 # single source of truth, in the form `stage-<N>-<slug>`. Three prose
 # copies of that fact live in README.md, IMPLEMENTATION.md, and
-# AGENTS.md (CLAUDE.md before 2026-11-19), and all three drifted: after Stage 2 merged, every one of
-# them still said "Stage 0 complete, Stage 1 open", and the Cargo.toml
-# comment sitting directly above the status field contradicted the field
-# it annotated.
+# AGENTS.md (CLAUDE.md before 2026-11-19), and all three drifted: after
+# Stage 2 merged, every one of them still said "Stage 0 complete, Stage
+# 1 open", and the Cargo.toml comment sitting directly above the status
+# field contradicted the field it annotated.
 #
 # That matters more here than in most repositories, because AGENTS.md
 # section 3 makes the open stage an authorization boundary: an agent or a

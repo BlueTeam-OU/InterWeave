@@ -67,7 +67,7 @@ fabric="$(interweave_fabric_root "$here")"
 target="$fabric/tools/fabric/github/guards_wired.py"
 rules="$fabric/projects/interweave/integration/gh/guards.json"
 [[ -f "$target" && -f "$rules" ]] || {
-    echo "check_guards_are_wired: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/guards_wired.py and InterWeave's guards.json); set AGENT_FABRIC_ROOT or update it. See CLAUDE.md §9, agent-fabric beside the checkout." >&2
+    echo "check_guards_are_wired: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/guards_wired.py and InterWeave's guards.json); set AGENT_FABRIC_ROOT or update it. See AGENTS.md §9, agent-fabric beside the checkout." >&2
     exit 2
 }
 # The rules are named rather than found from the working copy's remote: a

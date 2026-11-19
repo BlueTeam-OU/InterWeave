@@ -30,7 +30,7 @@
 #
 # WHY A GUARD AND NOT A TEST. The fact lives in the ROOT manifest's
 # libp2p feature array; `profile-config` is a neutral contract crate and
-# CLAUDE.md §4 forbids it a libp2p dependency, so it cannot read that
+# AGENTS.md §4 forbids it a libp2p dependency, so it cannot read that
 # array and no test in it can fail when the array changes:
 #
 #   `dns` OFF and `dns4` dialable -> the validator accepts an address
