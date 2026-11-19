@@ -625,7 +625,42 @@ the proven entry, failing with the reset removed; two proven entries,
 the older with failures, the next retry after the addition dialling
 the newer; and the moved-peer control of #137, a stale proven address
 costing one failed attempt after the reset and then falling behind the
-untried one. A limit recorded in the body, read and not measured:
+untried one. A limit was recorded in the body as read and not measured:
 additions repeating at about the floor's period, each arriving before
 the retry the last failure set, keep a stale proven route first while
 they repeat.
+
+**Built since (2026-11-19, 8dbcbc1ea on #734).** p2p-network-dev-02
+built it as ruled (REQUEST GZCoord
+`01a1f407-783b-71af-afed-212c266d1350`): `ConnectionPolicy::newest_proven`
+picks the entry (greatest last success, ties to the lowest address) for
+the eviction's guard in `learn_address` and for the new
+`clear_newest_proven_failures`, which `network_added` calls inside the
+branch that records a lift, so a peer that is not lifted has nothing
+cleared. Five tests in `crates/transport/runtime/src/connection_manager.rs`:
+`an_addition_dials_the_route_that_last_worked_before_an_untried_one`
+(the acceptance), `after_the_reset_a_moved_peers_stale_route_costs_one_attempt`
+(the #137 control), `an_addition_clears_the_newest_proof_and_no_older_one`,
+`an_addition_that_lifts_nothing_clears_no_count` (inside the floor, and
+a peer with nothing held off) and
+`an_addition_between_the_floor_and_the_due_retry_clears_the_count_again`.
+Their mutations, as they reported them: with the reset removed all five
+failed; with every proven entry cleared, the newest-proof test alone
+failed.
+
+The limit was measured by the fifth test, in the state machine and not
+between real peers, and the body's sentence was rewritten from "read
+and not measured" to what was measured. The retry that the lifted
+dial's failure sets is due at lift + d + 30 s, d being how long that
+dial took to settle (at most its timeout); the floor ends at
+lift + 30 s; an addition in that window of width d lifts the peer again
+and clears the count again, and one arriving once the retry is due
+lifts nothing. Ruled (GZCoord `01a1f408-5b74-71fe-8f64-b9fb9bc5f9a8`):
+recorded as measured, no bound built. The bound p2p-network-dev-02
+named, clearing only where the entry's last failure predates the peer's
+previous lift, needs a last-failure time per entry, which the book
+paragraph refuses ("there is no separate last-failure stamp"); the
+window needs an addition landing in it round after round, a newly
+learned address is still dialled when it is learned, and the case had
+not been seen between real peers. A field run that shows it reopens the
+question.
