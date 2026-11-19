@@ -548,6 +548,9 @@ struct AfterAClose {
     /// Whether a dial B's reconnect scheduler made failed in the watch
     /// after the link returned.
     scheduler_dialled: bool,
+    /// From A's connection being made to the probe's answer: how long B's
+    /// book was seen to keep what it learned, at least.
+    probe_after: Duration,
     /// B's log, for a failing assertion.
     log: String,
 }
@@ -562,13 +565,15 @@ struct AfterAClose {
 /// address is to a host at another site. The overlay's own address is
 /// never learned: Identify withholds `100.64.0.0/10` and rule 2 refuses
 /// it from a peer, so without `learnable` B's book for A stays empty.
-async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
+/// `watch` is how long each of the two watches lasts.
+async fn after_a_close(learnable: bool, send: bool, watch: Duration) -> AfterAClose {
     if learnable {
         netns::add_unrouted_address(Net::A, "10.99.0.1/24");
         netns::add_unrouted_address(Net::B, "10.88.0.2/24");
     }
     let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
     until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
+    let learned = tokio::time::Instant::now();
     let from_b = b.client().await;
     // Identify runs at establishment at both ends; a second is margin.
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -577,7 +582,7 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
 
     netns::overlay_down();
     until_both(&a, &b, false, CLOSE, "both closed on the link's loss").await;
-    tokio::time::sleep(WATCH).await;
+    tokio::time::sleep(watch).await;
     let closed = dials(&b);
 
     let answered = if send {
@@ -610,7 +615,7 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     // The watch, ended early by the line a scheduler dial's failure
     // writes (a failed dial's own `origin` is the one that dialled),
     // which by the order above follows that dial's `dial failed`.
-    let deadline = tokio::time::Instant::now() + WATCH;
+    let deadline = tokio::time::Instant::now() + watch;
     while tokio::time::Instant::now() < deadline && !b.log().contains(SCHEDULER_DIAL) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -622,6 +627,7 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     let probe = from_b
         .send_once(&a.peer, id(2), "after the second close")
         .await;
+    let probe_after = learned.elapsed();
     netns::overlay_up();
     let log = b.log();
 
@@ -634,6 +640,7 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
         retry_scheduled,
         probe,
         scheduler_dialled,
+        probe_after,
         log,
     }
 }
@@ -674,7 +681,7 @@ async fn the_side_with_no_address_never_dials_and_its_send_is_answered_peer_unkn
     if !netns::in_overlay(NO_ADDRESS_AFTER_A_CLOSE) {
         return;
     }
-    let seen = after_a_close(false, true).await;
+    let seen = after_a_close(false, true, WATCH).await;
     let (answer, took) = seen.sent.as_ref().expect("sent");
     assert!(
         matches!(answer, Err(TransportError::PeerUnknown)) && *took < AT_ONCE,
@@ -709,7 +716,7 @@ async fn the_side_that_learned_an_address_dials_nothing_until_it_sends() {
     if !netns::in_overlay(LEARNED_NO_SEND) {
         return;
     }
-    let seen = after_a_close(true, false).await;
+    let seen = after_a_close(true, false, WATCH).await;
     assert_eq!(seen.dials, [0, 0], "{}", seen.log);
     assert!(!seen.retry_scheduled, "{}", seen.log);
     assert!(
@@ -736,7 +743,7 @@ async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
     if !netns::in_overlay(LEARNED_SEND) {
         return;
     }
-    let seen = after_a_close(true, true).await;
+    let seen = after_a_close(true, true, WATCH).await;
     let (answer, _) = seen.sent.as_ref().expect("sent");
     assert!(
         matches!(answer, Err(TransportError::PeerUnreachable)),
@@ -933,6 +940,50 @@ async fn a_send_to_a_learned_address_that_is_routed_reconnects_the_pair() {
     assert!(
         seen.landed,
         "the message never reached A's client\n{seen:?}"
+    );
+}
+
+const LEARNED_LONG_WATCH: &str =
+    "the_side_that_learned_an_address_dials_nothing_through_a_long_watch_and_keeps_it";
+
+/// How long each watch of the hand-run case lasts: past the retry
+/// ceiling (30 s, `RETRY_CEILING_MS`), the Swarm's idle timeout (60 s)
+/// and Identify's interval (5 min, the crate's default), each a timer
+/// that could start a dial or end what B learned if one were tied to it.
+const LONG_WATCH: Duration = Duration::from_secs(360);
+
+/// [`the_side_that_learned_an_address_dials_nothing_until_it_sends`]
+/// with each watch [`LONG_WATCH`] instead of 5 s: B dials nothing in six
+/// minutes after the close nor in six after the link returns, and the
+/// probe, sent after both, is still answered `PeerUnreachable` -- B's
+/// book still held A's learned address more than twelve minutes after
+/// it learned it. The book has no age at which an entry leaves
+/// (`connection_manager.rs`: an entry leaves by an operator's removal,
+/// a permanent dial failure, eviction at the per-peer bound, its
+/// peer's retirement from trust, or a restart, the book being held in
+/// memory alone), so this is a figure for the record and not a bound.
+/// Run by hand: twelve minutes and more. Each run is recorded under
+/// `tests/automated-client/runs/`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "two watches of six minutes, run by hand and recorded under tests/automated-client/runs/"]
+async fn the_side_that_learned_an_address_dials_nothing_through_a_long_watch_and_keeps_it() {
+    if !netns::in_overlay_within(LEARNED_LONG_WATCH, Duration::from_mins(20)) {
+        return;
+    }
+    let seen = after_a_close(true, false, LONG_WATCH).await;
+    record(
+        "learned_long_watch.txt",
+        &format!(
+            "watch {LONG_WATCH:?} each; dials {:?}; retry scheduled {}; probe {:?} \
+             {:.2?} after the first connection\n",
+            seen.dials, seen.retry_scheduled, seen.probe, seen.probe_after
+        ),
+    );
+    assert_eq!(seen.dials, [0, 0], "{}", seen.log);
+    assert!(!seen.retry_scheduled, "{}", seen.log);
+    assert!(
+        matches!(seen.probe, Err(TransportError::PeerUnreachable)),
+        "B no longer held A's address\n{seen:?}"
     );
 }
 
