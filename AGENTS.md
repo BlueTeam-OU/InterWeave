@@ -394,8 +394,7 @@ and whether or not a review ever arrived. Nothing asks first, nothing
 blocks it, and no red check appears afterwards to say it was premature.
 
 What that leaves load-bearing is stated in full below: arm only when the
-branch is finished, wait for a security-boundary change's review on the
-current head, and carry zero unresolved P1/P2 findings into a stage
+branch is finished, wait for the review of the current head, and carry zero unresolved P1/P2 findings into a stage
 closure.
 
 `git push` never landed anything even when it did prompt: `main` is
@@ -457,16 +456,18 @@ new range, then `fabric-pr arm` again. A lost push webhook means the job
 never ran, so after a push to an armed PR read both `autoMergeRequest` and
 `mergeQueueEntry` yourself: GitHub clears the first once the PR is queued.
 
-#### A security-boundary change waits for its review
+#### Every PR waits for its review
 
-**Do not arm `--auto` on a change to a security boundary until the
-review class's review is posted on the current head with no open P1 or
-P2.** Green checks are not a review: the merge is not evidence that
-anything was reviewed, and the queue lands a PR the moment the last check
-passes. A **security boundary** here means identity and key handling,
-trust policy, wire or configuration parsing, persistence, admission and
-resource accounting, and anything cryptographic. Documentation and
-mechanical changes are not on that list and should not wait.
+**Do not arm until the review class's blind review is posted on the
+current head, with no unresolved thread and no finding left open in any
+review chain.** That holds for every PR, documentation included:
+`fabric-pr arm` asks it of each one. Green checks are not a review: the
+merge is not evidence that anything was reviewed, and the queue lands a
+PR the moment the last check passes. A **security boundary** — identity
+and key handling, trust policy, wire or configuration parsing,
+persistence, admission and resource accounting, and anything
+cryptographic — is where the gate is also a named one: it is lifted only
+by architect-cto's waiver, below.
 
 With eight or more work commits (`fabric-pr gate` counts them; a
 review-fix commit does not count) the review is the whole gate, boundary
@@ -492,9 +493,11 @@ reviews` line against the current head; a marked review counts only from
 the PR author's account or a login in `AGENT_FABRIC_REVIEW_POSTERS`, and
 one from any other account is listed apart and is not coverage.
 
-One blind review per head is the design, and there is no other reviewer
-to wait for or to summon: anything a bot posts is a finding to judge,
-never coverage.
+One blind review per head is what the gate requires, and there is no
+other reviewer to wait for or to summon. A second engine's review of the
+head is counted when one is posted and is never required: `codex absent`
+in the arm's output is a statement, not a refusal. Anything a bot posts
+on its own is a finding to judge, never coverage.
 
 **A finding is judged before it is answered.** Dispatch the class again
 with the claim verbatim, the PR number and the repository path; require a
@@ -627,7 +630,7 @@ Task-scoped context loads on demand. Do not paste it back into this file.
 - **Reading or navigating ADRs** → the `adr-lookup` skill. Digest first: `architecture/adr/ADR-DIGEST.md` keyword table, then the matching entries, then the full ADR only when your change touches its substance.
 - **Writing a new ADR, amending one, or propagating an ADR change** → the `adr-authoring` skill, with `architecture/adr/ADR-TEMPLATE.md` as the structure and ADR-0048 as the model.
 - **Why an ADR changed** → `architecture/adr/history/`. Research only; the body already says what the decision is today.
-- **Committing, pushing, opening a PR, arming a merge, answering findings, or dispatching a subagent** → the `pr-lifecycle` skill. §9 keeps only what you need before that skill applies: where a branch comes from, that nothing prompts before code lands, and the security-boundary review gate.
+- **Committing, pushing, opening a PR, arming a merge, answering findings, or dispatching a subagent** → the `pr-lifecycle` skill. §9 keeps only what you need before that skill applies: where a branch comes from, that nothing prompts before code lands, and the review gate.
 - **What a PR tool does, its flags and exit codes** → `fabric-pr <verb> --help`; a remaining `tools/gh/` script, `tools/gh/<script>.sh --help`. Each ships its own, and a table written elsewhere goes stale while the script does not.
 - **Changing `crates/transport/libp2p` or `tests/connectivity`, or reading a comment that cites a "route 1/2/3"** → the `libp2p-connectivity` skill: what Stage 11 found and what still binds the code built on it.
 - **The construction order and what may be built next** → `architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md` and ADR-0046 (§1, §3).
