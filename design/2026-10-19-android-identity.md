@@ -1001,21 +1001,29 @@ restores. On R2 after K1, Back returns to K1 (through the discard
 dialog when words are entered), and the R2 that K1 opens next owes no
 read-back, so its check restores. A new restore of the same words is
 safe: custody's restore first tries the record it finds. A record
-that opens to the PeerId is kept, and nothing is sealed; a record
-whose key is invalidated, missing or another is sealed over, which is
-the recovery K1 exists for (`restore_locked` in
-`crates/transport/embedded/src/custody.rs`). Words of another PeerId
-write nothing: after K1 they show `IdOtherIdentity`, and on R3 the
-record names another PeerId, so `IdRestoreOther` shows. C4 has no
-Back (§3.2), so on C4 a read-back that keeps failing leaves
-`IdStorageUnknown` shown until the app ends. The next launch's
-unlock then reads the record: one that opens starts the app as any
-launch does, and one that does not open shows K1 (§3.4), where the
-words the person has just written down restore it. No words tell the
-person that Back and a new restore, or a new launch, is the way on
-(§12). Whether a person finds it is a hypothesis, untested,
-falsified if a person in a test with a read-back that keeps failing
-neither presses Back nor leaves the app.
+sealed under the profile's policy that opens to the PeerId is kept,
+and nothing is sealed; any other record of that PeerId (its key
+invalidated, missing or another, or sealed under the other policy) is
+sealed over, which is the recovery K1 exists for (`restore_locked` in
+`crates/transport/embedded/src/custody.rs`). After K1, words of
+another PeerId write nothing and show `IdOtherIdentity`. On R3,
+words of another PeerId than the refused restore's are refused as
+`RecordNamesOther` and write nothing, since the record that restore
+wrote names its PeerId; what R3 shows then is not designed here
+(§12). C4 has no Back (§3.2), and the identity flows are excluded
+from Recents (§2), so on C4 a read-back that keeps failing leaves
+`IdStorageUnknown` shown with no way on that the person can reach in
+the app: Home and a return show C4 again as it was (§7), which is not
+a new launch (How long, below). Only the end of the process, by a
+force stop in the system's settings or a restart of the phone, makes
+one, and the next launch's unlock then reads the record: one that
+opens starts the app as any launch does, and one that does not open
+shows K1 (§3.4), where the words the person has just written down
+restore it. A way on from C4 inside the app is Q15 (§11d), open. No
+words tell the person that Back and a new restore is the way on on R3
+and on R2 after K1 (§12). Whether a person finds it is a hypothesis,
+untested, falsified if a person in a test with a read-back that keeps
+failing on R3 or on R2 after K1 does not press Back.
 
 **Back from a notice.** Where a row's way out is Back, Back does what
 it does on that screen at any other time. On R2 after K1 it returns
@@ -2632,7 +2640,7 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   other refusal of these screens there. Which string the client shows
   today for this refusal is rust-ui-dev's to say when it builds it.
 
-## 11d. After #720 (Q12 answered, Q13 and Q14 open)
+## 11d. After #720 (Q12 answered, Q13 to Q15 open)
 
 - **Q12. A start refused with the profile in use after the bound.**
   Answered by ux-designer-01, 2026-11-18, in §6 (A start refused with
@@ -2679,6 +2687,16 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   one, the removal waits until the next change of the window's
   focus, and acceptance 18 gains a device run.
 
+- **Q15. A way on from C4 when the read-back keeps failing.** Open,
+  architect-cto's. On C4 the seal's write may have committed the
+  identity, Try again only reads back, and C4 has no Back and is not
+  in Recents (§6, A read-back that keeps failing). Only the end of the
+  process leads on. Does a service start from C4 under
+  `IdStorageUnknown`, whose unlock would answer whether the record
+  opens and, if it does not, lead to K1 (§3.4) as a launch does, fit
+  the custody rules? Until it is answered, the note designs no such
+  way, and §6 states the gap.
+
 ## 12. Deliberately left out
 
 - **A creation flow that defers the backup ("remind me later").** The
@@ -2715,9 +2733,17 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
 - **Words saying that the copy was removed** (§6). `IdAlreadyCreated`
   already says that the words just seen were not used, and the
   removal takes only the app's own copy.
+- **What R3 shows when a restore of other words follows a refused
+  restore** (§6, A read-back that keeps failing). Custody refuses it
+  as `RecordNamesOther`; the another-identity row's `IdRestoreOther`
+  assumes a record that was there before the flow's write, and its
+  Continue would open a record whose read-back kept failing. The case
+  needs Back from `IdStorageUnknown` and a new phrase, so it is left
+  to a later revision.
 - **Words for a read-back that keeps failing** (§6). `IdStorageUnknown`
-  offers Try again only; the way on is Back and a new restore, or, on
-  C4, a new launch, and no words say so. The case follows only the
+  offers Try again only; the way on is Back and a new restore on R3
+  and on R2 after K1, and no words say so. On C4 there is no way on in
+  the app yet (Q15). The case follows only the
   two refusals that can come after the write, and no device has shown
   it yet; words for it are language-culture's, if a test shows people
   stuck there.
