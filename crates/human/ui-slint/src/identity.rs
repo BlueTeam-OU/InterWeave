@@ -469,6 +469,11 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         page.peer_groups = grouped(peer).into();
         shown = Some(peer);
     }
+    // What it hides, for the view to take its own copy of it off the
+    // clipboard (section 6).
+    if let (true, Some(peer)) = (already_created, flow.peer()) {
+        page.void_peer = peer.as_str().into();
+    }
     if let Some((_, Some(expected))) = flow.recovery() {
         page.peer_label = text(UiText::IdExpectedPeerId).into();
         page.peer_groups = grouped(expected).into();
@@ -1200,8 +1205,11 @@ mod tests {
     /// C4 carries Copy `PeerId` under its `PeerId`, with the canonical
     /// string (section 5), and not while `IdAlreadyCreated` says the words were
     /// not used (section 6); C2 shows words beside its `PeerId` and
-    /// carries none. Mutation: leaving `ScreenId::C4` out of `page`'s Copy
-    /// match, or dropping the void-paper condition, fails here.
+    /// carries none. The `PeerId` it hides then is the page's void one,
+    /// for the view to take its copy off the clipboard (section 6), and no
+    /// other page names one. Mutation: leaving `ScreenId::C4` out of
+    /// `page`'s Copy match, or dropping the void-paper condition, fails
+    /// here; so does `void_peer` set without `already_created`.
     #[test]
     fn c4_copies_its_peer_id_unless_the_words_were_not_used() {
         let flow = at_c4();
@@ -1209,6 +1217,7 @@ mod tests {
         assert_eq!(shown.copy_label, en(UiText::CopyPeerId));
         assert_eq!(shown.peer_id.as_str(), mine().as_str());
         assert!(shown.peer_groups.contains(' '), "control: grouped");
+        assert_eq!(shown.void_peer, "", "C4's PeerId is the person's");
 
         for failed in [StepFailed::Busy, StepFailed::Storage] {
             let mut flow = at_c4();
@@ -1219,6 +1228,7 @@ mod tests {
                 en(UiText::CopyPeerId),
                 "{failed:?}: kept"
             );
+            assert_eq!(page(&flow).void_peer, "", "{failed:?}: none void");
         }
         let mut flow = at_c4();
         flow.primary();
@@ -1229,6 +1239,7 @@ mod tests {
             "",
             "not while the words were unused"
         );
+        assert_eq!(page(&flow).void_peer.as_str(), mine().as_str(), "void");
 
         let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
         apply(&mut flow, IdentityInput::Primary);

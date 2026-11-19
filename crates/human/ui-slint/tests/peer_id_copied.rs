@@ -6,7 +6,10 @@
 //! on C4, R3 and R4 -- its time, its one announcement, what closes it,
 //! where it sits -- and nothing at all where the platform confirms the
 //! copy itself. C2's and S2's `PeerId` pages are not built: those screens
-//! show their words beside the `PeerId`, so they carry no Copy.
+//! show their words beside the `PeerId`, so they carry no Copy. And, through
+//! a test clipboard that records every ask, the app's own copy taken off
+//! the clipboard under `IdAlreadyCreated` (section 6; acceptance 18's
+//! clipboard runs).
 
 #![allow(clippy::expect_used, clippy::panic)]
 
@@ -22,7 +25,8 @@ use interweave_human_ui_model::{
     IdentityFlow, RuntimeHost, ScreenId, Start, StepFailed, UiModel, UiText, placeholder_en,
 };
 use interweave_human_ui_slint::{
-    CopyFeedback, IdentityInput, TouchSettings, View, apply_identity, identity_page, snackbar_ms,
+    ClipMark, CopyFeedback, IdentityInput, PeerIdClipboard, TouchSettings, View, apply_identity,
+    identity_page, snackbar_ms,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::ComponentHandle as _;
@@ -687,4 +691,265 @@ fn r3s_restore_other_continue_follows_the_notice_and_holds_r3() {
     assert_eq!(page.take(), [], "a second Enter presses nothing");
     let held = identity_page(&page.flow);
     assert!(held.notice_action_held && held.secondary_held && !held.primary_enabled);
+}
+
+/// What the app asked of the test's clipboard: the seam has no read of
+/// the content, so this record is the whole of what the app asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Asked {
+    Copy(String),
+    /// A request for the primary clip's description.
+    Describe,
+    Clear,
+}
+
+/// The test's system clipboard: what it holds, with the mark in its
+/// description when the app made the copy, and every ask of the app.
+#[derive(Default)]
+struct Board {
+    asked: RefCell<Vec<Asked>>,
+    clip: RefCell<Option<(String, Option<u64>)>>,
+    marks: std::cell::Cell<u64>,
+}
+
+impl Board {
+    /// Another app, or the platform's own copy, puts `text` there: no
+    /// mark of the app's.
+    fn other_copy(&self, text: &str) {
+        *self.clip.borrow_mut() = Some((text.to_owned(), None));
+    }
+
+    /// What it holds, read by the test, never by the app.
+    fn holds(&self) -> Option<String> {
+        self.clip.borrow().as_ref().map(|(text, _)| text.clone())
+    }
+
+    fn asked(&self) -> Vec<Asked> {
+        self.asked.borrow().clone()
+    }
+
+    fn describes(&self) -> usize {
+        self.asked
+            .borrow()
+            .iter()
+            .filter(|a| **a == Asked::Describe)
+            .count()
+    }
+}
+
+impl PeerIdClipboard for Board {
+    fn copy(&self, peer_id: &str) -> ClipMark {
+        self.asked
+            .borrow_mut()
+            .push(Asked::Copy(peer_id.to_owned()));
+        let mark = self.marks.get() + 1;
+        self.marks.set(mark);
+        *self.clip.borrow_mut() = Some((peer_id.to_owned(), Some(mark)));
+        ClipMark(mark)
+    }
+
+    fn remove_if_marked(&self, mark: ClipMark) {
+        self.asked.borrow_mut().push(Asked::Describe);
+        let ours = self
+            .clip
+            .borrow()
+            .as_ref()
+            .is_some_and(|(_, m)| *m == Some(mark.0));
+        if ours {
+            self.asked.borrow_mut().push(Asked::Clear);
+            self.clip.borrow_mut().take();
+        }
+    }
+}
+
+/// C4 with the test's clipboard installed, below Android 13 or at 13 and
+/// later (who confirms the copy).
+fn c4_with_board(feedback: CopyFeedback) -> (Page, Rc<Board>) {
+    let board = Rc::new(Board::default());
+    let mut page = Page::new(at_c4());
+    page.view.set_copy_feedback(feedback);
+    page.view.set_peer_id_clipboard(Rc::clone(&board) as Rc<_>);
+    (page, board)
+}
+
+/// Continue on C4, and the seal answered `AlreadyProvisioned`.
+fn already_created(page: &mut Page) {
+    page.tab_to("identity-primary");
+    page.enter();
+    assert!(page.flow.start_held(), "control: the seal runs");
+    page.flow.sealed(Err(StepFailed::AlreadyProvisioned));
+    page.settle();
+    assert_eq!(
+        identity_page(&page.flow).notice,
+        text(UiText::IdAlreadyCreated),
+        "control: IdAlreadyCreated shows"
+    );
+}
+
+const FEEDBACKS: [CopyFeedback; 2] = [CopyFeedback::Snackbar, CopyFeedback::Platform];
+
+/// Acceptance 18's first clipboard run, below 13 and at 13 or later: a
+/// copy on C4 goes through the app's clipboard, and when the seal is
+/// answered `AlreadyProvisioned` the clipboard no longer holds the
+/// `PeerId`; the app asked for the description, never the content, and
+/// the confirmation is as without the app's clipboard. Shown again, the
+/// page owes nothing more. Mutation: `show_identity` not telling
+/// `PeerClip` of the void `PeerId`, or `void_shown` comparing against
+/// another string, leaves the `PeerId` there and fails here; the
+/// app.slint branch left calling the window's field puts no copy on the
+/// test's clipboard and fails at "copied".
+#[test]
+fn already_created_takes_the_copy_off_the_clipboard() {
+    for feedback in FEEDBACKS {
+        let (mut page, board) = c4_with_board(feedback);
+        page.copy();
+        assert_eq!(
+            board.holds().as_deref(),
+            Some(mine().as_str()),
+            "{feedback:?}: copied"
+        );
+        assert_eq!(
+            page.shown(),
+            feedback == CopyFeedback::Snackbar,
+            "{feedback:?}: confirmed as before"
+        );
+        assert_eq!(page.focus(), "identity-copy", "{feedback:?}: focus stays");
+        already_created(&mut page);
+        assert_eq!(board.holds(), None, "{feedback:?}: taken off");
+        assert_eq!(
+            board.asked(),
+            [
+                Asked::Copy(mine().as_str().to_owned()),
+                Asked::Describe,
+                Asked::Clear
+            ],
+            "{feedback:?}: the description asked, no content read"
+        );
+        page.show();
+        page.settle();
+        assert_eq!(board.describes(), 1, "{feedback:?}: owed once");
+    }
+}
+
+/// Acceptance 18's second clipboard run, as far as it can be built: C2's
+/// `PeerId` page is not built, so its copy is stood in for by the press's
+/// callback while C4 shows, with nothing copied by C4's own Copy -- the
+/// removal counts a copy of that `PeerId` whichever screen made it. Run 2
+/// as written waits on C2's page. Mutation: `void_shown` ignoring a copy
+/// its Copy press did not make would fail here.
+#[test]
+fn a_copy_of_that_peer_id_from_another_screen_counts() {
+    for feedback in FEEDBACKS {
+        let (mut page, board) = c4_with_board(feedback);
+        page.view
+            .window()
+            .invoke_identity_peer_copy(mine().as_str().into());
+        assert_eq!(board.holds().as_deref(), Some(mine().as_str()), "control");
+        already_created(&mut page);
+        assert_eq!(board.holds(), None, "{feedback:?}: taken off");
+    }
+}
+
+/// Acceptance 18's third clipboard run: another text copied after the
+/// app's copy and before the answer stays; the app asked the description
+/// and cleared nothing. The fake clears only on its own mark, so the
+/// view's half is asking with its last copy's mark (the first run fails if
+/// it asks with any other) and never clearing unasked.
+#[test]
+fn what_was_copied_since_stays() {
+    for feedback in FEEDBACKS {
+        let (mut page, board) = c4_with_board(feedback);
+        page.copy();
+        board.other_copy("something else");
+        already_created(&mut page);
+        assert_eq!(
+            board.holds().as_deref(),
+            Some("something else"),
+            "{feedback:?}: stays"
+        );
+        assert_eq!(
+            board.asked(),
+            [Asked::Copy(mine().as_str().to_owned()), Asked::Describe],
+            "{feedback:?}: nothing cleared, no content read"
+        );
+    }
+}
+
+/// Acceptance 18's fourth and fifth clipboard runs: with C4's window
+/// unfocused in the foreground, the answer asks nothing and the `PeerId`
+/// stays until the window has the focus again; and with the device
+/// reported locked when the focus comes back, it waits for the unlock.
+/// No description is asked while either holds. Mutation: `PeerClip::ask`
+/// not checking `unfocused`, or not checking `locked`, asks at once and
+/// fails the matching run.
+#[test]
+fn the_removal_waits_for_the_focus_and_the_unlock() {
+    for feedback in FEEDBACKS {
+        let (mut page, board) = c4_with_board(feedback);
+        page.copy();
+        page.view.set_clipboard_focus(false);
+        already_created(&mut page);
+        assert_eq!(board.holds().as_deref(), Some(mine().as_str()), "waits");
+        assert_eq!(board.describes(), 0, "{feedback:?}: nothing asked");
+        page.view.set_clipboard_focus(true);
+        assert_eq!(board.holds(), None, "{feedback:?}: focused, taken off");
+
+        let (mut page, board) = c4_with_board(feedback);
+        page.copy();
+        page.view.set_clipboard_focus(false);
+        already_created(&mut page);
+        page.view.set_device_locked(true);
+        page.view.set_clipboard_focus(true);
+        assert_eq!(board.holds().as_deref(), Some(mine().as_str()), "locked");
+        assert_eq!(board.describes(), 0, "{feedback:?}: nothing asked");
+        page.view.set_device_locked(false);
+        assert_eq!(board.holds(), None, "{feedback:?}: unlocked, taken off");
+        assert_eq!(board.describes(), 1, "{feedback:?}: asked once");
+    }
+}
+
+/// A removal the platform put off (the window found unfocused or the
+/// device locked when it was asked, whatever was last reported) is asked
+/// again at the next report that both hold, and not before. Mutation:
+/// `removal_deferred` doing nothing leaves the `PeerId` and fails here.
+#[test]
+fn a_removal_the_platform_put_off_is_asked_again() {
+    let (mut page, board) = c4_with_board(CopyFeedback::Snackbar);
+    page.copy();
+    page.view.set_clipboard_focus(false);
+    already_created(&mut page);
+    page.view.peer_id_removal_deferred(ClipMark(1));
+    assert_eq!(board.describes(), 0, "control: nothing asked yet");
+    page.view.set_clipboard_focus(true);
+    assert_eq!(board.describes(), 1, "control: asked");
+    // The platform answered that it could not: put the clip back as it
+    // was, as an unanswered ask leaves it.
+    *board.clip.borrow_mut() = Some((mine().as_str().to_owned(), Some(1)));
+    page.view.peer_id_removal_deferred(ClipMark(1));
+    assert_eq!(board.describes(), 1, "not again before a report");
+    page.view.set_clipboard_focus(true);
+    assert_eq!(board.describes(), 2, "asked again");
+    assert_eq!(board.holds(), None, "taken off");
+}
+
+/// Nothing outlives the view (section 12): a removal still waiting when
+/// the process ends is dropped, so a new view that shows the same page
+/// asks nothing. Mutation: `PeerClip` keeping its last copy or what it
+/// owes in a static survives the first view and fails here.
+#[test]
+fn a_removal_waiting_at_the_end_is_dropped() {
+    let (mut page, board) = c4_with_board(CopyFeedback::Snackbar);
+    page.copy();
+    page.view.set_clipboard_focus(false);
+    already_created(&mut page);
+    let flow = page.flow;
+    drop(page.view);
+
+    let mut next = Page::new(flow);
+    next.view.set_peer_id_clipboard(Rc::clone(&board) as Rc<_>);
+    next.show();
+    next.view.set_clipboard_focus(true);
+    next.settle();
+    assert_eq!(board.holds().as_deref(), Some(mine().as_str()), "stays");
+    assert_eq!(board.describes(), 0, "nothing asked");
 }
