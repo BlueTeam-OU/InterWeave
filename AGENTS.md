@@ -648,46 +648,26 @@ trade by a wide margin.
 
 #### agent-fabric beside the checkout
 
-The review and PR tools are `fabric-pr <verb>` — `review-status`,
-`post-review`, `reply`, `sessions`, `gate`, `arm`, `wait-merged` — from
-the account's PATH, a link into its `agent-fabric/bin` (the
-`tools/gh/<name>.sh` forwarders that once stood for them are gone; a
-worktree needs nothing of its own for them). The dispatch hook, the
-status line and the remaining forwarders are agent-fabric's, reached as
-a SIBLING checkout of the clone (from a git worktree too:
-`tools/gh/fabric-root.sh` finds it beside the clone the worktree shares
-its `.git` with):
-the `PreToolUse` Agent hook in `.claude/settings.json` runs
-`../agent-fabric/runtime/claude-code/hooks/agent-dispatch-guard.sh`
-(`AGENT_FABRIC_ROOT` overrides the sibling path for the forwarders only
-— the fabric's session-start hook puts it in the session shell; the
-`.claude/settings.json` hooks take the sibling path literally and have
-no override); the `statusLine` entry runs
-`../agent-fabric/runtime/claude-code/hooks/statusline.sh` the same way,
-with no override. Without that checkout the remaining forwarders exit 2 naming the
-path they looked in and the three guard hooks (dispatch, clone, model
-switch) ASK on every call instead of deciding — loud, by design — while
-the status line renders nothing and the `[ -f … ] && …; true` hooks
-(session start, the inbox drain, the tab title, plan-hold, the fallback
-note) run nothing, quietly — the inbox entry still prints its "start the
-watch" line, for a watch that has no script to run. A session in such a
-clone has no fabric context and no inbox; the empty status line and that
-orphaned instruction are the two visible signs. `actions-health.sh` (a
-forwarder) and `fabric-root.sh` (the locator it sources) stay in
-`tools/gh`, and five tools/checks scripts forward: `run_suite.sh`, `scan_semantic_collisions.sh`,
-`check_guards_are_wired.sh` and `check_workflows_lint.sh` to their
-`tools/fabric/github` modules with InterWeave's root and configuration,
-and `check_actions_pinned_by_sha.sh` to the fabric's
-`policies/check_actions_pinned_by_sha.py`. All run on the fleet's pinned
-Python, `/usr/local/bin/fabric-python` (`AGENT_FABRIC_PYTHON` overrides
-it), so `cargo xtask checks` needs both. A host without that Python gets
-the install message and exit 127 from the four module forwarders, and
-`check_actions_pinned_by_sha.sh`'s own message and exit 2. Their logic
-and pins live in the fabric now: a fix or a pin bump goes there, never into the
-forwarder. In CI the tree-checks and tool-suites jobs check agent-fabric
-out at `.agent-fabric/fabric-ref`. A clone with no
-sibling is not a working development setup; the fabric's `bootstrap.sh`
-is what puts one there.
+The review and PR tools are `fabric-pr <verb>` from the account's PATH.
+The dispatch hook, the status line and the forwarders are agent-fabric's,
+reached as a SIBLING checkout of the clone (`../agent-fabric`; from a git
+worktree `tools/gh/fabric-root.sh` finds it beside the clone the worktree
+shares its `.git` with; `AGENT_FABRIC_ROOT` overrides the path for the
+forwarders, never for the `.claude/settings.json` hooks). Forwarders are
+`tools/gh/actions-health.sh` and, under `tools/checks`, `run_suite.sh`,
+`scan_semantic_collisions.sh`, `check_guards_are_wired.sh`,
+`check_workflows_lint.sh` and `check_actions_pinned_by_sha.sh`; they run
+on the fleet's pinned Python (`/usr/local/bin/fabric-python`,
+`AGENT_FABRIC_PYTHON` overrides it), so `cargo xtask checks` needs both.
+Their logic and pins live in the fabric: a fix or a pin bump goes there,
+never into the forwarder. In CI the tree-checks and tool-suites jobs
+check agent-fabric out at `.agent-fabric/fabric-ref`.
+
+A clone with no sibling is not a working development setup: the
+forwarders exit naming the path they looked in, the guard hooks ask on
+every call, and the session has no fabric context and no inbox, with an
+empty status line as the visible sign. The fabric's `bootstrap.sh` is what
+puts the sibling there.
 
 ### Always
 
