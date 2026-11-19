@@ -2992,15 +2992,35 @@ mod tests {
     /// each fail here.
     #[test]
     fn an_edit_after_storage_unknown_keeps_the_read_back() {
-        let mut r2 = r2_after_k1_restoring();
-        r2.restored(Err(StepFailed::StorageUnknown));
-        r2.edit(0);
-        assert_eq!(r2.notice(), None, "the edit takes the notice");
-        assert!(matches!(r2.primary().as_slice(), [Effect::Check(_)]));
-        assert_eq!(r2.checked(Some(mine())), [Effect::ReadBack(mine())]);
-        assert!(r2.waiting(), "held while it reads back");
-        assert_eq!(r2.restored(Err(StepFailed::StorageUnknown)), []);
-        assert_eq!(r2.notice(), Some(&Notice::StorageUnknown));
+        // As acceptance 12 runs it: Try again first, its read-back
+        // failing, then the edit; the read-back after the edit answered
+        // failing (the notice again, raised so it takes focus) and, in a
+        // second run, opening (R4).
+        for opens in [false, true] {
+            let mut r2 = r2_after_k1_restoring();
+            r2.restored(Err(StepFailed::StorageUnknown));
+            assert_eq!(r2.notice_action(), [Effect::ReadBack(mine())]);
+            assert_eq!(r2.restored(Err(StepFailed::StorageUnknown)), []);
+            assert_eq!(r2.notice(), Some(&Notice::StorageUnknown));
+            r2.edit(0);
+            assert_eq!(r2.notice(), None, "the edit takes the notice");
+            assert!(matches!(r2.primary().as_slice(), [Effect::Check(_)]));
+            assert_eq!(
+                r2.checked(Some(mine())),
+                [Effect::ReadBack(mine())],
+                "one more read-back, no restore"
+            );
+            assert!(r2.waiting(), "held while it reads back");
+            let raised = r2.notices_raised();
+            if opens {
+                assert_eq!(r2.restored(Ok(())), []);
+                assert_eq!(r2.screen(), ScreenId::R4, "opening: R4");
+            } else {
+                assert_eq!(r2.restored(Err(StepFailed::StorageUnknown)), []);
+                assert_eq!(r2.notice(), Some(&Notice::StorageUnknown));
+                assert_eq!(r2.notices_raised(), raised + 1, "raised: focus");
+            }
+        }
 
         let mut r2 = r2_after_k1_restoring();
         r2.restored(Err(StepFailed::StorageUnknown));
