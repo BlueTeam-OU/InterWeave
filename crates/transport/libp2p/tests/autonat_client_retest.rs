@@ -103,8 +103,8 @@ fn retesting_one_candidate_leaves_the_others_where_they_were() {
 /// The libp2p-connectivity skill cites a measurement: every `ToSwarm` the v2 client
 /// emits is `ExternalAddrConfirmed`, `GenerateEvent` or `NotifyHandler`,
 /// because a probe is a request over a connection already open, and the
-/// dial in AutoNAT is the server's dial-back. Route 2 and route 3 of §1
-/// rest on it, and so does every comment in this crate that says the
+/// dial in AutoNAT is the server's dial-back. Route 2 and route 3 of that
+/// skill rest on it, and so does every comment in this crate that says the
 /// client originates no dial. A measurement of a registry crate was a
 /// fact; the crate is vendored under `third_party/` and editable here,
 /// so it is now a claim someone can falsify with one line and no test
