@@ -60,7 +60,7 @@ Standard v1 does not rely on Android system backup for identity, configuration o
 - set `android:allowBackup="false"` explicitly rather than inheriting the platform default;
 - provide Android 12+ `android:dataExtractionRules` that exclude the wrapped identity envelope, expected PeerId/wrapping metadata, transport/trust configuration, recovery temporary state and human-store database from **both** `<cloud-backup>` and `<device-transfer>`; `allowBackup=false` is not relied on as the only device-transfer control;
 - provide the corresponding Android 11-and-lower `android:fullBackupContent` exclusion rules for supported older devices;
-- declare the dedicated recovery Activity non-exported and `android:excludeFromRecents="true"`; set `FLAG_SECURE` before rendering recovery material;
+- run recovery in the app's own Activity, started by no intent, extra or deep link from outside the app (a dedicated non-exported Activity with `android:excludeFromRecents="true"` was the first wording and stays allowed; `android-key-custody.md` §Recovery UI hardening, amended 2026-10-19); set `FLAG_SECURE` before rendering recovery material and keep it until a frame without phrase material has drawn, with `setRecentsScreenshotEnabled(false)` on API 33+ for the same span;
 - treat the no-backup/cache directories as implementation aids, not the sole policy control;
 - never interpret a system/device-transfer restore without a valid local Keystore key as an identity restore.
 
