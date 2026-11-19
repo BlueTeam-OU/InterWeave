@@ -2,15 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
 #
-# The workflow's job names and CLAUDE.md's contexts must be the same set:
-# each job is in exactly one of CLAUDE.md's REQUIRED list (what the ruleset
+# The workflow's job names and AGENTS.md's contexts must be the same set:
+# each job is in exactly one of AGENTS.md's REQUIRED list (what the ruleset
 # gates main on) or its ADVISORY sentence (reported, not required) — never
 # both, never neither, and no name a job does not report.
 #
 # WHY THIS EXISTS
 #
-# A job's `name:` IS its required-check context. CLAUDE.md says so, and
-# then said the workflow reports two contexts when it reports three —
+# A job's `name:` IS its required-check context. The instruction file
+# says so, and then said the workflow reports two contexts when it
+# reports three —
 # `rust` runs fmt, clippy, and the whole workspace test suite, and the
 # document that tells a reader what gates `main` did not mention it.
 #
@@ -22,6 +23,11 @@
 # un-gates `main` reports nothing at all, because the ruleset goes on
 # requiring a context nothing produces and the queue waits forever.
 #
+# AGENTS.md is the instruction file of record since 2026-11-19 (it was
+# CLAUDE.md, which is now a one-line import of it). That the stub stays
+# only the import is check_stage_status.sh's STUB check, so this guard
+# reads AGENTS.md alone.
+#
 # WHAT THIS CANNOT CHECK
 #
 # The ruleset itself. Reading `required_status_checks` needs admin API
@@ -32,7 +38,7 @@
 # papered over: agreement here does not prove `main` is gated.
 #
 # Exit codes:
-#   0  every job is in exactly one of CLAUDE.md's required or advisory lists
+#   0  every job is in exactly one of AGENTS.md's required or advisory lists
 #   1  a job in neither, a name in both, or a listed name no job reports
 #   2  invocation error
 
@@ -40,7 +46,7 @@ set -uo pipefail
 
 usage() {
     cat <<'USAGE'
-check_required_contexts.sh — each CI job name is in exactly one of CLAUDE.md's required or advisory lists
+check_required_contexts.sh — each CI job name is in exactly one of AGENTS.md's required or advisory lists
 
 Usage:
   bash tools/checks/check_required_contexts.sh [--root DIR]
@@ -67,7 +73,7 @@ fi
 [ -d "$ROOT" ] || { echo "check_required_contexts: not a directory: $ROOT" >&2; exit 2; }
 
 WORKFLOW="$ROOT/.github/workflows/ci.yml"
-CONTRACT="$ROOT/CLAUDE.md"
+CONTRACT="$ROOT/AGENTS.md"
 [ -f "$WORKFLOW" ] || { echo "check_required_contexts: missing $WORKFLOW" >&2; exit 2; }
 [ -f "$CONTRACT" ] || { echo "check_required_contexts: missing $CONTRACT" >&2; exit 2; }
 
@@ -81,18 +87,18 @@ jobs="$(sed -n 's/^    name: *\(.*\)$/\1/p' "$WORKFLOW" | sed 's/^"\(.*\)"$/\1/'
 # reader actually consults is the thing that has to be true.
 line="$(grep -n 'It reports .* contexts, which are the job' "$CONTRACT" | head -1)"
 if [ -z "$line" ]; then
-    echo "check_required_contexts: CLAUDE.md no longer states which contexts CI reports" >&2
+    echo "check_required_contexts: AGENTS.md no longer states which contexts CI reports" >&2
     exit 1
 fi
 claimed="$(printf '%s' "$line" | grep -o '\*\*`[^`]*`\*\*' | tr -d '*`' | sort -u)"
 
 if [ -z "$claimed" ]; then
-    echo "check_required_contexts: CLAUDE.md names no contexts in that sentence" >&2
+    echo "check_required_contexts: AGENTS.md names no contexts in that sentence" >&2
     exit 1
 fi
 
 # ADVISORY contexts: jobs CI runs that the ruleset does not require (a
-# check whose subject is not on main yet, say). CLAUDE.md names them in a
+# check whose subject is not on main yet, say). AGENTS.md names them in a
 # sentence of their own, so the required list stays exactly what gates
 # main; a job must be in one list or the other, never neither.
 # Every line in that wording counts, not only the first: an advisory job
@@ -102,18 +108,18 @@ adv_lines="$(grep 'advisory contexts* the ruleset does not require' "$CONTRACT" 
 advisory="$(printf '%s' "$adv_lines" | grep -o '\*\*`[^`]*`\*\*' | tr -d '*`' | sort -u)"
 both="$(printf '%s\n' "$claimed" "$advisory" | sed '/^$/d' | sort | uniq -d)"
 if [ -n "$both" ]; then
-    echo "check_required_contexts: CLAUDE.md names $(printf '%s' "$both" | tr '\n' ' ')as both required and advisory" >&2
+    echo "check_required_contexts: AGENTS.md names $(printf '%s' "$both" | tr '\n' ' ')as both required and advisory" >&2
     exit 1
 fi
 claimed="$(printf '%s\n' "$claimed" "$advisory" | sed '/^$/d' | sort -u)"
 
 if [ "$jobs" != "$claimed" ]; then
     {
-        echo "check_required_contexts: the workflow and CLAUDE.md disagree."
+        echo "check_required_contexts: the workflow and AGENTS.md disagree."
         echo
         echo "  ci.yml job names:"
         printf '%s\n' "$jobs" | sed 's/^/    /'
-        echo "  CLAUDE.md says CI reports (required and advisory):"
+        echo "  AGENTS.md says CI reports (required and advisory):"
         printf '%s\n' "$claimed" | sed 's/^/    /'
         echo
         echo "A job's name IS its required-check context. Renaming a job without"
@@ -124,4 +130,4 @@ if [ "$jobs" != "$claimed" ]; then
 fi
 
 count="$(printf '%s\n' "$jobs" | wc -l | tr -d ' ')"
-printf 'check_required_contexts: OK — %d job name(s) match CLAUDE.md; the ruleset itself is a manual check.\n' "$count"
+printf 'check_required_contexts: OK — %d job name(s) match AGENTS.md; the ruleset itself is a manual check.\n' "$count"
