@@ -16,27 +16,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
-use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{self, RecordName, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
 use interweave_human_android_platform::{
-    Expected, IdentityRefused, ServiceHost, StoreGeneration, locked_status, opening_needs_presence,
-    reseal_needs_presence,
+    Expected, IdentityRefused, ServiceHost, StoreGeneration, locked_status, reseal_needs_presence,
 };
 use interweave_human_ui_model::{
-    Admit, Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
-    StartHold, StepFailed,
+    Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start, StartHold,
+    StepFailed,
 };
 use interweave_human_ui_slint::{
     IdentityInput, View, Wake, apply_identity, defer, identity_page, invoke_on_window,
 };
-use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 
 use crate::asks::Asks;
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
 use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end, secure_may_clear};
-use crate::unlock_route::{Route, UnlockRoute};
+use crate::unlock_route::{Route, UnlockRoute, flow_prompts};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, TracedStart, prompt_line, start_line};
 
@@ -79,8 +77,8 @@ pub(crate) mod ask {
     pub(crate) const OFFLINE: jint = 6;
     /// Show my phrase is over: start the service again.
     pub(crate) const ONLINE: jint = 7;
-    /// The same prompt as [`PROMPT`], for a key operation or a launch the
-    /// presence window holds back: its title says it unlocks the app, not
+    /// The same prompt as [`PROMPT`], for a key operation or a start the
+    /// Keystore refused until the person authenticates: its title says it unlocks the app, not
     /// that it shows the phrase. Answered by `Native.prompted`.
     pub(crate) const UNLOCK: jint = 8;
     /// The store's screens: start the network service again -- R's Try
@@ -132,11 +130,6 @@ struct Platform {
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
     start: Option<Start>,
-    /// The profile's configured key needs the person: a first run's and a
-    /// restore's seal wait on the presence window (design section 6,
-    /// acceptance 10). Show my phrase opens the record instead, and asks
-    /// its own policy ([`opening_needs_presence`]).
-    user_presence: bool,
     /// `start` is a K1 [`recovery_refused`] kept in a process that found
     /// the identity ready: whichever window opens it opens it as over a
     /// running window ([`Over::Running`]), its end restarting the service
@@ -239,12 +232,10 @@ pub(crate) fn identity_state(
     if code != state::AUTHENTICATION_NEEDED {
         clear_authentication();
     }
-    let user_presence = needs_presence(&app_data_dir);
     *PLATFORM.lock().unwrap_or_else(PoisonError::into_inner) = Some(Platform {
         app_data_dir,
         cipher: Arc::new(cipher),
         start,
-        user_presence,
         kept: false,
     });
     code
@@ -439,16 +430,71 @@ pub(crate) fn person_asked() {
 /// the service again, and the prompt, the focused notice or nothing as
 /// [`UnlockRoute::refused`] says. The Service never prompts: the Activity
 /// raises it, and only while its window shows.
+///
+/// A start a held C4 or R4 asked ([`FLOW_START`]) is answered by the
+/// flow's prompt over that screen when the route prompts: the screen stays
+/// held, a grant starts the service again under it, and a cancel ends on
+/// Chats locked ([`not_run`]; design section 6, Authentication needed and
+/// Seal running).
 pub(crate) fn refused_locked() {
+    let flow = FLOW_START.swap(false, Ordering::SeqCst);
     await_authentication(ask::RESTART);
     let decided = route_state().refused();
+    if flow_prompts(flow, decided) {
+        invoke_on_window(flow_start_refused);
+        return;
+    }
     route(decided);
+    if flow {
+        // The held screen waited on this answer: decided now.
+        invoke_on_window(crate::activity::turn_soon);
+    }
+}
+
+/// A held C4's or R4's start was asked and has not answered yet: its
+/// refusal for the person, if it comes, is the flow's to prompt for. Set
+/// on the window's thread at the ask, taken by the start's answer on the
+/// Service's ([`refused_locked`], [`start_answered`]).
+static FLOW_START: AtomicBool = AtomicBool::new(false);
+
+/// [`refused_locked`] on the window's thread: the held screen's gate
+/// holds the start for the prompt. A screen no longer held -- its bound
+/// passed meanwhile -- leaves the prompt to the route, over Chats.
+fn flow_start_refused() {
+    let held = ONBOARDING.with(|slot| {
+        slot.borrow_mut().as_mut().is_some_and(|o| {
+            let ours = o.flow.start_held() && o.service_asked && !o.gate.holding();
+            if ours {
+                prompt_for(o, Effect::StartService);
+            }
+            ours
+        })
+    });
+    if !held {
+        ask_unlock();
+    }
+    render();
+}
+
+/// Whether a held C4's or R4's start is the flow's to answer still: asked
+/// and unanswered, or held by the gate for its prompt. The screen is not
+/// decided meanwhile, or a refusal for the person would hand over to
+/// Chats before the prompt over the screen answers it.
+pub(crate) fn flow_answers_refusal() -> bool {
+    FLOW_START.load(Ordering::SeqCst)
+        || ONBOARDING.with(|slot| {
+            slot.try_borrow()
+                .is_ok_and(|o| o.as_ref().is_some_and(|o| o.gate.holding_start()))
+        })
 }
 
 /// A start the Service made answered anything but a refusal for the
 /// person, `ran` when it runs: the locked state ends, as at the
 /// Activity's check (#313 review 1).
 pub(crate) fn start_answered(ran: bool) {
+    if FLOW_START.swap(false, Ordering::SeqCst) {
+        invoke_on_window(crate::activity::turn_soon);
+    }
     route_state().answered(ran);
     clear_authentication();
     // A K1 kept for a window is no longer owed once a start ran: the
@@ -491,21 +537,7 @@ pub(crate) fn answered() {
     PLATFORM_SET.notify_all();
 }
 
-/// Whether the profile's configured unlock policy needs the person. A
-/// profile not yet readable counts as not: its first run has no key to
-/// open yet, and a seal under user-presence that the Keystore refuses
-/// still answers `UserNotAuthenticated`.
-fn needs_presence(app_data_dir: &Path) -> bool {
-    TrustBoundary::new(app_data_dir)
-        .and_then(|boundary| ProfilePaths::resolve_embedded(PROFILE, boundary))
-        .ok()
-        .and_then(|paths| ProfileConfig::load(&paths).ok())
-        .is_some_and(|config| {
-            config.runtime.android.key_unlock_policy == KeyUnlockPolicy::UserPresence
-        })
-}
-
-/// Monotonic milliseconds for the presence window.
+/// Monotonic milliseconds for a held screen's clock (add-a-peer §5.1).
 fn now_ms() -> u64 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     u64::try_from(
@@ -534,7 +566,7 @@ struct Onboarding {
     creation: Option<Creation>,
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
-    /// The presence window, and the key operation waiting on its prompt.
+    /// The key operation refused for the person, waiting on its prompt.
     gate: PresenceGate,
     /// Where the flow was opened, which says how its end starts the
     /// service.
@@ -584,7 +616,6 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         app_data_dir,
         cipher,
         start: Some(start),
-        user_presence,
         kept,
     }) = platform.as_ref()
     else {
@@ -617,7 +648,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        gate: PresenceGate::new(*user_presence),
+        gate: PresenceGate::default(),
         over,
         lock,
         offline_asked: false,
@@ -653,7 +684,6 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         app_data_dir,
         cipher,
         start: Some(start @ Start::Recovery { .. }),
-        user_presence,
         ..
     }) = platform.as_ref()
     else {
@@ -673,7 +703,7 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        gate: PresenceGate::new(*user_presence),
+        gate: PresenceGate::default(),
         over: Over::Running,
         lock,
         offline_asked: false,
@@ -705,16 +735,13 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         log("Show my phrase: no identity state was read");
         return;
     };
-    // The phrase is read by opening the record, under the record's policy:
-    // while a change is pending that is not the configured one.
-    let user_presence = opening_needs_presence(app_data_dir, PROFILE);
     let onboarding = Onboarding {
         view: Rc::clone(view),
         flow: IdentityFlow::new(english(), Start::ShowPhrase),
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        gate: PresenceGate::new(user_presence),
+        gate: PresenceGate::default(),
         over: Over::Settings,
         // Taken once the service has stopped (`offline`).
         lock: None,
@@ -768,7 +795,7 @@ fn input_later(input: IdentityInput) {
 }
 
 /// What a granted prompt starts once no flow is on screen: the service a
-/// launch outside the presence window held back (BIND), the one a
+/// launch refused for the person held back (BIND), the one a
 /// cancelled restart after Show my phrase left stopped (ONLINE), or a
 /// start refused for the screen lock, or found locked at the Activity's
 /// check in a running process (RESTART), which the grant runs again
@@ -876,7 +903,7 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
                     if granted && let Some(hold) = o.hold.as_mut() {
                         hold.prompt_granted(now_ms());
                     }
-                    match o.gate.prompted(granted, now_ms()) {
+                    match o.gate.prompted(granted) {
                         // The prompt a key operation waited on.
                         Prompted::Resume(effect) => vec![effect],
                         Prompted::Dropped(effect) => not_run(o, &effect),
@@ -1008,23 +1035,10 @@ fn one(effect: Effect) -> Vec<Effect> {
         let Some(o) = slot.as_mut() else {
             return Vec::new();
         };
-        // A key operation outside the presence window waits for the
-        // prompt, raised here, by the screen, never by the service.
-        let effect = match o.gate.admit(effect, now_ms()) {
-            Admit::Run(effect) => effect,
-            Admit::Prompt => {
-                // The person's time, not the app's: a held screen's clock
-                // stops while the prompt is up (§5.1).
-                if let Some(hold) = o.hold.as_mut() {
-                    hold.prompt_shown(now_ms());
-                }
-                // The prompt shows over the screen: a copy's confirmation
-                // there closes (identity note section 5).
-                o.view.borrow().close_peer_id_copied();
-                gate_ask(o);
-                return Vec::new();
-            }
-        };
+        // Every key operation runs at once: the app keeps no clock of the
+        // Keystore's window, and a refusal for the person is its only
+        // reading of it, answered by the prompt and a retry (design
+        // section 6, Authentication needed; ADR-0042, A 2026-10-20).
         match effect {
             Effect::Finish => {
                 o.lock = None;
@@ -1061,14 +1075,19 @@ fn one(effect: Effect) -> Vec<Effect> {
                         log("seal hook: answered AlreadyProvisioned, nothing sealed");
                         Err(StepFailed::AlreadyProvisioned)
                     }
-                    Some(creation) => onboarding::seal(
+                    Some(creation) => match onboarding::seal(
                         &o.app_data_dir,
                         PROFILE,
                         o.cipher.as_ref(),
                         creation,
                         o.lock.as_ref(),
-                    )
-                    .map_err(|why| failed(&why)),
+                    ) {
+                        Err(WriteRefused::UserNotAuthenticated) => {
+                            prompt_for(o, Effect::Seal);
+                            return Vec::new();
+                        }
+                        sealed => sealed.map_err(|why| failed(&why)),
+                    },
                     None => Err(StepFailed::Storage),
                 };
                 if outcome.is_ok() {
@@ -1107,30 +1126,44 @@ fn one(effect: Effect) -> Vec<Effect> {
             }
             Effect::Check(text) => o.flow.checked(onboarding::check(text)),
             Effect::RestoreRecorded(text) => {
-                let outcome = onboarding::restore(
+                // Kept for the retry a refusal for the person asks: the
+                // words stay on the screen meanwhile anyway (section 6).
+                let retry = Effect::RestoreRecorded(text.clone());
+                let outcome = match onboarding::restore(
                     &o.app_data_dir,
                     PROFILE,
                     o.cipher.as_ref(),
                     text,
                     Expected::Recorded,
                     o.lock.as_ref(),
-                )
-                .map_err(|why| failed(&why));
+                ) {
+                    Err(WriteRefused::UserNotAuthenticated) => {
+                        prompt_for(o, retry);
+                        return Vec::new();
+                    }
+                    restored => restored.map_err(|why| failed(&why)),
+                };
                 if outcome.is_ok() {
                     connect_owed(o);
                 }
                 o.flow.restored(outcome)
             }
             Effect::RestoreConfirmed(text, peer) => {
-                let outcome = onboarding::restore(
+                let retry = Effect::RestoreConfirmed(text.clone(), peer.clone());
+                let outcome = match onboarding::restore(
                     &o.app_data_dir,
                     PROFILE,
                     o.cipher.as_ref(),
                     text,
                     Expected::Confirmed(&peer),
                     o.lock.as_ref(),
-                )
-                .map_err(|why| failed(&why));
+                ) {
+                    Err(WriteRefused::UserNotAuthenticated) => {
+                        prompt_for(o, retry);
+                        return Vec::new();
+                    }
+                    restored => restored.map_err(|why| failed(&why)),
+                };
                 if outcome.is_ok() {
                     connect_owed(o);
                 }
@@ -1161,13 +1194,30 @@ fn one(effect: Effect) -> Vec<Effect> {
                 ask_service(o);
                 Vec::new()
             }
-            // The gate holds every one for the prompt (`PresenceGate::admit`)
-            // and resumes it as `Effect::ReadBack`: never carried out here.
-            Effect::AuthenticateReadBack(_) | Effect::OpenChats | Effect::OpenSettings => {
+            // A read-back refused for the person: the prompt, and the
+            // read-back again once it is granted.
+            effect @ Effect::AuthenticateReadBack(_) => {
+                prompt_for(o, effect);
                 Vec::new()
             }
+            Effect::OpenChats | Effect::OpenSettings => Vec::new(),
         }
     })
+}
+
+/// `effect` was refused until the person authenticates: the gate holds it
+/// and the screen raises the prompt over itself, never the service.
+fn prompt_for(o: &mut Onboarding, effect: Effect) {
+    o.gate.refused(effect);
+    // The person's time, not the app's: a held screen's clock stops while
+    // the prompt is up (§5.1).
+    if let Some(hold) = o.hold.as_mut() {
+        hold.prompt_shown(now_ms());
+    }
+    // The prompt shows over the screen: a copy's confirmation there
+    // closes (identity note section 5).
+    o.view.borrow().close_peer_id_copied();
+    gate_ask(o);
 }
 
 /// C4's identity is committed, by its seal or by the read-back of
@@ -1410,5 +1460,6 @@ fn ask_service(o: &mut Onboarding) {
     o.asked_at = ServiceHost::global().hub().store_generation();
     clear_authentication();
     person_asked();
+    FLOW_START.store(o.flow.start_held(), Ordering::SeqCst);
     ASKS.push(o.over.start_ask());
 }

@@ -173,7 +173,7 @@ pub enum Prompt {
     /// Show my phrase's prompt, before the words.
     Phrase,
     /// The prompt that unlocks the app: the notice's Unlock, or a key
-    /// operation the presence window held back.
+    /// operation or start refused until the person authenticates.
     Unlock,
     /// The person authenticated.
     Granted,
