@@ -249,8 +249,8 @@ back and never writes again, on C4, R3 and R2 after K1. While it
 shows, `IdR3Yes` and `IdCheckWords` do the same. Before, the row said
 "reads back again before writing again", and §8 said that R3's Try
 again under it started the restore again: after the two refusals the
-record is always there, so a second write could only be refused or
-write over it. A cancelled or denied prompt for a read-back now shows
+record is always there, so only a read-back answers whether it opens:
+a second seal would be refused, and a second restore tells no more. A cancelled or denied prompt for a read-back now shows
 `IdStorageUnknown`, on C4, R3 and R2 after K1. Before, §6 and §8 left the screen as it was
 before the prompt, with a primary that would write again, though the
 write may already have committed the identity. A restore answered
