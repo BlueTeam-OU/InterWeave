@@ -4,8 +4,9 @@ Status: proposal for plan §29 steps 2–4, 2026-10-21, at architect-cto's
 request (REQUEST 01a15d2a); revised the same day for plan §30 (Stage 22)
 at their request (REQUEST 01a15efd), when the owner made a user identity
 an EndpointId of the node with its own card (ADR-0061, ADR-0059 A
-2026-10-21 (ii)). rust-ui-dev builds the card flows when the owner opens
-Stage 21 and the identity flows (§5.7) when the owner opens Stage 22.
+2026-10-21 (ii)). rust-ui-dev built the card flows in Stage 21 and
+builds the identity flows (§5.7) in Stage 22, which the owner opened on
+2026-11-19 (plan §30's opening record).
 The rules it answers to: ADR-0059, ADR-0060 decision 6, ADR-0061,
 HUMAN-CHAT.md §Contact card, STATE.md (`own_cards` keyed by EndpointId,
 `conversation_index.local_endpoint_id` and `card_shared_at`,
