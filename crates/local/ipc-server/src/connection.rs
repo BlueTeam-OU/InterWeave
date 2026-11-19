@@ -268,7 +268,7 @@ where
     /// are not read -- backpressure, as a socket applies it -- so a client
     /// that pipelines is slowed, never closed. One that has stopped
     /// reading stalls the writer, which gives up after `write_stall` and
-    /// takes the lanes with it; keepalive and `stop` are polled
+    /// closes the lanes; keepalive and `stop` are polled
     /// throughout.
     ///
     /// No arm is guarded by a lane's room: a guard is read only when the
