@@ -223,7 +223,8 @@ internal object Native {
 
     /**
      * The removal of the copy marked [mark] ([Ask.CLIP_REMOVE]) found the
-     * window unfocused or the device locked: it waits again. Never waits.
+     * window unfocused, the device locked, or no clip description from
+     * the platform: it waits again. Never waits.
      */
     @JvmStatic external fun peerIdRemovalDeferred(mark: Long)
 

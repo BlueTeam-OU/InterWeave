@@ -118,7 +118,8 @@ pub(crate) mod ask {
     /// `IdAlreadyCreated` showed after that copy (section 6): the clip
     /// cleared if its description's label still carries the ask's mark,
     /// its content never read; put off by `Native.peerIdRemovalDeferred`
-    /// while the window lacks the focus or the device is locked.
+    /// while the window lacks the focus, the device is locked, or the
+    /// platform gives no clip description.
     pub(crate) const CLIP_REMOVE: jint = 18;
 }
 

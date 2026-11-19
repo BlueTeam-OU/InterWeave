@@ -306,7 +306,8 @@ pub(crate) fn device_locked(locked: bool) {
 }
 
 /// `Native.peerIdRemovalDeferred`: the Kotlin side found the window
-/// unfocused or the device locked when the removal reached it.
+/// unfocused, the device locked, or no clip description from the platform
+/// when the removal reached it.
 pub(crate) fn peer_id_removal_deferred(mark: u64) {
     with_view(move |view| view.peer_id_removal_deferred(ClipMark(mark)));
 }

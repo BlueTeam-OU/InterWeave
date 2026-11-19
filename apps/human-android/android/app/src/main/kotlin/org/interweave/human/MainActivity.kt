@@ -755,14 +755,15 @@ class MainActivity : NativeActivity() {
         // the platform's own focus check already disagrees with
         // hasWindowFocus (the shade pulled at this moment). Put off rather
         // than lost; the native side asks again only at the next focus or
-        // lock change, and only its own mark is ever cleared (#733 review
-        // 5975852030, risk 2).
-        val label = clipboard.primaryClipDescription?.label?.toString()
-        if (label == null) {
+        // lock change (#733 review 5975852030, risk 2). A description
+        // without the mark in its label, none at all included, is another
+        // copy made since, left alone.
+        val description = clipboard.primaryClipDescription
+        if (description == null) {
             Native.peerIdRemovalDeferred(mark)
             return
         }
-        if (label == clipLabel(mark)) clipboard.clearPrimaryClip()
+        if (description.label?.toString() == clipLabel(mark)) clipboard.clearPrimaryClip()
     }
 
     /**

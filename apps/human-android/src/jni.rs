@@ -1268,8 +1268,8 @@ extern "system" fn Java_org_interweave_human_Native_peerIdClip<'caller>(
 }
 
 /// `Native.peerIdRemovalDeferred(mark)`: the removal of the copy marked
-/// `mark` (`ask::CLIP_REMOVE`) found the window unfocused or the device
-/// locked, and waits again.
+/// `mark` (`ask::CLIP_REMOVE`) found the window unfocused, the device
+/// locked, or no clip description from the platform, and waits again.
 #[allow(
     unsafe_code,
     reason = "the JVM finds a native method by its unmangled name"
