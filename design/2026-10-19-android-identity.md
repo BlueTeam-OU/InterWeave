@@ -275,8 +275,11 @@ removes the banner or notice that held it. The
 read-back owed on R2 after K1 now lasts as long as the words do,
 through a rotation, a return and a recreation (§6). §6 now says what
 a read-back that keeps failing leads to: Back and a new restore on R3
-and on R2 after K1, which custody's restore makes safe, and a new
-launch on C4. Before, the read-back row said that a second restore
+and on R2 after K1, which custody's restore makes safe. On C4 no way
+on can be reached in the app, since only the end of the process makes
+a new launch; §11d records it as Q15, open with architect-cto, and §12
+leaves out what R3 shows for a restore of other words after a refused
+one. Before, the read-back row said that a second restore
 could tell the person no more than a read-back. That was wrong for a
 record whose key opens nothing, which a restore seals over. §8's
 reason why an early press of `IdCheckWords` is safe no longer says
@@ -285,15 +288,27 @@ depends on the record, and on whether a read-back is owed.
 Acceptance 15's runs of a start refused after the bound now say what
 the test's store holds when a run opens a conversation or scrolls the
 list. Its recreation variant now says what the recreated window shows
-and what each answer does, and its foreground-only variant records
-whether Home ended the start, with what each finding requires. Before,
-that variant took the end of the start from add-a-peer §5.1 and did
-not observe it. §6 now says when Connect's count of openings begins
-for a start retried at a return or a recreation: at that return or
-recreation. Before, it said so only for Try again's start. Add-a-peer
-§5.1, where it calls a foreground-only return a launch of its own,
-now says that this holds for Connect, and points to §6's How long,
-which counts only the Activity created anew.
+and what each answer does. Whether Home ends a start in
+foreground-only mode is now a device run, blocked until a debug-build
+hook can hold a start unanswered, with what each finding requires.
+Before, that variant took the end of the start from add-a-peer §5.1
+and did not observe it. §6 now says when Connect's count of openings
+begins for a start retried at a return or a recreation: at that return
+or recreation. Before, it said so only for Try again's start. For any
+later start, a conversation on screen when it is asked for now counts
+as an opening (add-a-peer §5.1). Before, Connect could open over, and
+close, a conversation that the person returned into or pressed Try
+again in. Acceptance 15 gains runs for both. Acceptance 12 gains runs
+for an edit with each banner and notice, for focus when an edit
+removes the notice that held it, for the read-back owed through a
+rotation, a recreation and a return (each with the notice removed
+first, so the run checks the read-back owed and not the notice), and
+for a read-back that keeps failing on R3 and on R2 after K1.
+Add-a-peer §5.1, where it calls a foreground-only return a launch of
+its own, now says that this holds for Connect, and points to §6's How
+long, which counts only the Activity created anew; its paragraph on a
+launch with Connect still owed names the retry at a return or a
+recreation, and a conversation on screen, as above.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
