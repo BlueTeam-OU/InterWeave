@@ -2,7 +2,7 @@
 // Copyright 2026 Andrea Benetton
 //! The loss ladder: after the loss of an established connection the
 //! first retries are short (ADR-0011 A 2026-11-17, the owner's word;
-//! `transport/libp2p/CONNECTIVITY.md` §11).
+//! `transport/libp2p/CONNECTIVITY.md` §12).
 //!
 //! When the last connection to a data-plane peer closes after holding
 //! [`LOSS_LADDER_FLOOR_MS`] or more, the delays between the settlement

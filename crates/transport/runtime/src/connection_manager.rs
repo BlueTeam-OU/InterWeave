@@ -2518,7 +2518,7 @@ impl ConnectionManager {
     /// The delay before this peer is retried, given what it has already
     /// cost.
     ///
-    /// The cadence `CONNECTIVITY.md` §11 states: the loss ladder's step
+    /// The cadence `CONNECTIVITY.md` §12 states: the loss ladder's step
     /// for a peer on it (ADR-0011 A 2026-11-17: 1, 2, 4, 8, 16 s after
     /// the loss of a connection that held), else 30 seconds whatever the
     /// attempt count (ADR-0011 A 2026-11-14). THE ONE READER of the
@@ -2682,7 +2682,7 @@ pub struct PeerGateState {
 }
 
 /// The gate's retry delay for a data-plane peer that would not connect
-/// and is not on the loss ladder: 30 seconds (`CONNECTIVITY.md` §11). A
+/// and is not on the loss ladder: 30 seconds (`CONNECTIVITY.md` §12). A
 /// peer this runtime has not been connected to keeps it from the first
 /// failure; the short steps after the loss of a connection that held are
 /// [`crate::LOSS_LADDER_MS`] (ADR-0011 A 2026-11-17).
@@ -4774,7 +4774,7 @@ mod tests {
 
     #[test]
     fn the_retry_cadence_is_the_one_connectivity_md_states() {
-        // `architecture/transport/libp2p/CONNECTIVITY.md` §11 under
+        // `architecture/transport/libp2p/CONNECTIVITY.md` §12 under
         // ADR-0011 A 2026-11-14: 30 s after every failure, however many
         // came before. Restated as numbers in this module, so this test
         // is what turns a drift into a failure.

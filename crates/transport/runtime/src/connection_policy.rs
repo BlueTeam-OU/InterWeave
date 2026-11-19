@@ -805,8 +805,10 @@ impl ConnectionPolicy {
     /// (ADR-0011 A 2026-11-19; [`crate::ConnectionManager::network_added`]
     /// calls it for the peers it lifts). That entry ALONE -- every other
     /// keeps its count (`an_addition_clears_the_newest_proof_and_no_older_one`),
-    /// since clearing a never-proven one makes it unevictable
-    /// (`a_full_book_of_recently_good_routes_refuses_the_newcomer`) and
+    /// since a cleared never-proven one would read as untried, and the
+    /// eviction never takes an entry with no failure
+    /// (`a_full_book_never_gives_up_the_peers_last_proven_route`, whose
+    /// seven untried entries are never-proven), and
     /// clearing an older proof would rank it by spelling beside the newer. A quarantine is not touched: a quarantined entry
     /// holds no proof (`record_identity_mismatch` erases it), and the
     /// field is not this method's. Returns whether a count was cleared.
