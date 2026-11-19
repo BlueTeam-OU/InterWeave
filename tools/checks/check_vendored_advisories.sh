@@ -246,7 +246,7 @@ command -v python3 >/dev/null 2>&1 || die "python3 is not installed" 2
 # `all-features = true`: a dependency that appears only under a
 # non-default feature is still governed. Without it, vendoring a crate
 # behind an optional or gated feature left it out of the graph entirely
-# and this guard announced that nothing was vendored -- and CLAUDE.md §1
+# and this guard announced that nothing was vendored -- and AGENTS.md §1
 # records that the connectivity behaviours ship GATED OFF, so that is one
 # manifest edit away. Review finding on PR #85.
 #
@@ -386,7 +386,7 @@ members = set(meta.get("workspace_members", []))
 # noisy rather than silent, which is the direction to be wrong in.
 #
 # The zones are the ones ADR-0045 enumerates, plus `tools/`, which
-# CLAUDE.md calls first-party repository tooling. Stated in full rather
+# AGENTS.md calls first-party repository tooling. Stated in full rather
 # than by the subset that happens to hold packages today: an incomplete
 # list spuriously probes a first-party crate and reds a required context.
 FIRST_PARTY = (
@@ -561,7 +561,7 @@ for entry in "${patched[@]}"; do
     # required check red and name the wrong crate. Those belong to
     # `check_dependencies.sh`, which reads the committed lockfile.
     #
-    # WHAT HOLDS THAT ONLY, AND WHAT DOES NOT -- because CLAUDE.md section 4
+    # WHAT HOLDS THAT ONLY, AND WHAT DOES NOT -- because AGENTS.md section 4
     # asks for the test or the deletion of the word, and the honest answer
     # here is one of each. The `clean` fixture pins the loop's success path:
     # cargo-deny runs, this filter keeps nothing, `checked` rises and the

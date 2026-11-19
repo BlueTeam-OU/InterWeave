@@ -294,7 +294,7 @@ fi
 #
 # `spikes/` is excluded for the SAME reason, and it is not hypothetical:
 # the SPIKE-003 harness depends on the production crates by path — which
-# CLAUDE.md §4 permits, spike -> product — and the moment it called
+# AGENTS.md §4 permits, spike -> product — and the moment it called
 # `SnapshotHandle::admit` this guard reported that function as called
 # and demanded its exemption be dropped. It has no production caller. A
 # spike is evidence, never a consumer; a harness vouching for a domain

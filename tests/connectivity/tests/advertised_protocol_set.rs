@@ -400,7 +400,7 @@ async fn an_infrastructure_only_peer_gets_a_connection_established_before_it_is_
     // being refused at or before the handshake. The §14 exposure proper
     // is about a connection that is KEPT, and is now CLOSED by
     // `ClassGated<B>`: such a connection is offered no data-plane
-    // protocol at all, so there is nothing left to expose. CLAUDE.md §1
+    // protocol at all, so there is nothing left to expose. The libp2p-connectivity skill
     // carries the routes by which a retained infrastructure-only
     // connection could come to exist, and is the place to read them --
     // paraphrasing that list is what went wrong repeatedly here.
@@ -422,7 +422,7 @@ async fn an_infrastructure_only_peer_gets_a_connection_established_before_it_is_
     // (`dialing.rs`), which asks under `DialOrigin::Manual`.
     //
     // **There is an unresolved tension here and it is named rather than
-    // decided** (CLAUDE.md §2). `transport/libp2p/CONNECTIVITY.md`'s
+    // decided** (AGENTS.md §2). `transport/libp2p/CONNECTIVITY.md`'s
     // protocol matrix gives Identify and bounded ping a `yes` in the
     // infrastructure-only column, and ADR-0036 opens a clause with "on
     // an established infrastructure-only connection:". Both describe a

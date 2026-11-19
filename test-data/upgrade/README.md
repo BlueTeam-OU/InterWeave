@@ -43,7 +43,7 @@ entropy of `fixtures/identity/ed25519-bip39-entropy-v1.json` — the
 public BIP-39 vector, PeerId `12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN`
 — and has no secrecy whatsoever. The other PeerIds in a tree are random
 public identities whose keys were never kept. A real key never enters
-this directory (`CLAUDE.md` §6).
+this directory (`AGENTS.md` §6).
 
 ## Making one
 

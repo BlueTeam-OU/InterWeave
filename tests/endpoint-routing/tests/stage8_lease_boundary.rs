@@ -12,7 +12,7 @@
 //! its 128-bit epoch is verified against the live lease — so a caller
 //! cannot send as an endpoint it did not claim, because it does not hold
 //! the matching epoch. `contracts/ENDPOINTS.md` ("callers cannot spoof
-//! another local endpoint") and CLAUDE.md §5 are the governing text.
+//! another local endpoint") and AGENTS.md §5 are the governing text.
 //!
 //! Over real sockets, because the claim is about what the REMOTE sees as
 //! the sender: the remote's delivered event is the assertion.

@@ -10,7 +10,7 @@ The accepted decisions live in `architecture/adr/`, one file each. Filenames sor
 ## The procedure
 
 1. **Open [`architecture/adr/ADR-DIGEST.md`](../../../architecture/adr/ADR-DIGEST.md) and use the keyword → ADR table.** It maps how people actually phrase the question ("what does AcceptedV2 prove", "can a bootstrap peer be trusted", "where does this file go") onto the ADRs that answer it, including the secondary ADRs worth reading alongside.
-2. **Read the matching digest entries.** Each is the current state of that decision: the binding rules, compressed. For most tasks the digest plus the repository-root `CLAUDE.md` is enough to work correctly.
+2. **Read the matching digest entries.** Each is the current state of that decision: the binding rules, compressed. For most tasks the digest plus the repository-root `AGENTS.md` is enough to work correctly.
 3. **Open the full ADR only when** your change touches that decision's substance, the entry flags nuance you need, or you are about to write something that contradicts it.
 4. **Never take a normative constant from the digest.** Limits, wire formats, and hash vectors come from `architecture/contracts/`, `architecture/transport/`, and `fixtures/`. The digest is explicitly non-normative and is allowed to be stale; the ADR and the contracts are not.
 

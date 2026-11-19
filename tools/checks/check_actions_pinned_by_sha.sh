@@ -24,7 +24,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fabric="$(interweave_fabric_root "$here")"
 target="$fabric/policies/check_actions_pinned_by_sha.py"
 [[ -f "$target" ]] || {
-    echo "check_actions_pinned_by_sha: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying policies/check_actions_pinned_by_sha.py); set AGENT_FABRIC_ROOT or update it. See CLAUDE.md §9, agent-fabric beside the checkout." >&2
+    echo "check_actions_pinned_by_sha: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying policies/check_actions_pinned_by_sha.py); set AGENT_FABRIC_ROOT or update it. See AGENTS.md §9, agent-fabric beside the checkout." >&2
     exit 2
 }
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"

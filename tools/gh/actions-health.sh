@@ -35,7 +35,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fabric="$(interweave_fabric_root "$here")"
 target="$fabric/tools/fabric/github/actions_health.py"
 [[ -f "$target" ]] || {
-    echo "actions-health: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/actions_health.py); set AGENT_FABRIC_ROOT or update it. See CLAUDE.md §9, agent-fabric beside the checkout." >&2
+    echo "actions-health: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/actions_health.py); set AGENT_FABRIC_ROOT or update it. See AGENTS.md §9, agent-fabric beside the checkout." >&2
     exit 2
 }
 py="$(interweave_fabric_python actions-health)" || exit 2

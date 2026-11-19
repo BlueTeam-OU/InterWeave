@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! The AutoNAT v2 SERVER role through the production runtime, over
-//! real sockets (`AUTONAT.md` §7; CLAUDE.md §1 route 1).
+//! real sockets (`AUTONAT.md` §7; the libp2p-connectivity skill route 1).
 //!
 //! # What runs
 //!

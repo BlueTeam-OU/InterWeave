@@ -598,7 +598,7 @@ fn listener_id2() -> ProfileIdentity {
 }
 
 /// One mDNS batch never names more peers than the mDNS provider holds at
-/// once (CLAUDE.md §7).
+/// once (AGENTS.md §7).
 ///
 /// The two constants measure different things -- the DRIVER's bounds one
 /// event, the PROVIDER's its whole state across events -- so the relation

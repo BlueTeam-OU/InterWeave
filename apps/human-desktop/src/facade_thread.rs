@@ -28,7 +28,7 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 /// memory, not one per message sent to it -- and, stalled past the
 /// keepalive miss threshold under sustained traffic, its lease, as any
 /// session that leaves its events undrained (LOCAL-IPC.md); it then
-/// reconnects. Bounded memory is the side of that trade CLAUDE.md
+/// reconnects. Bounded memory is the side of that trade AGENTS.md
 /// section 6 takes.
 pub const TO_WINDOW: usize = 256;
 

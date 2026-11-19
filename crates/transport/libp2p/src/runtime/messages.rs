@@ -1237,7 +1237,7 @@ pub enum SwarmEvent {
     ///
     /// `AUTONAT.md` §9's `refused_*` outcomes, as an event rather than
     /// only a counter: a refusal nobody can see is the SPIKE-004 shape
-    /// CLAUDE.md §1 records as binding. Informational; dropped when the
+    /// the libp2p-connectivity skill records as binding. Informational; dropped when the
     /// outbox has no base room, like every other diagnostic.
     ReachabilityReportRefused {
         /// The server the crate says reported.
@@ -1342,7 +1342,7 @@ pub enum SwarmEvent {
     /// The relay client reported something the reservation manager
     /// refused, by name -- `RELAY.md` §11's `refused_*` outcomes, as an
     /// event for the same reason the AutoNAT client's refusals are: a
-    /// refusal nobody can see is the SPIKE-004 shape CLAUDE.md §1
+    /// refusal nobody can see is the SPIKE-004 shape the libp2p-connectivity skill
     /// records as binding. Informational.
     RelayReportRefused {
         /// The relay the crate's event named.

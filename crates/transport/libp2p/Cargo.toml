@@ -43,7 +43,7 @@
 # Every stage before this
 # one could say a behaviour was absent from the workspace features rather
 # than merely unused, so a stray `use` could not switch it on and
-# CLAUDE.md §3's promise was kept by the compiler. From Stage 11 it is
+# AGENTS.md §3's promise was kept by the compiler. From Stage 11 it is
 # kept by the outbound gate, the trust classification and their tests —
 # which is why attribution (step 1) and SPIKE-004's D1/D2/D3 (step 2) both
 # landed before the manifest changed.
@@ -60,7 +60,7 @@
 # This crate owns the Swarm. Nothing above it sees a `libp2p::` type:
 # the boundary speaks `TransportIdentity` and this crate's own command
 # and event enums, so the backend stays replaceable and the neutral
-# contracts stay free of libp2p (CLAUDE.md §4).
+# contracts stay free of libp2p (AGENTS.md §4).
 [package]
 name = "interweave-transport-libp2p"
 version.workspace = true
@@ -116,7 +116,7 @@ socket2 = { version = "0.6.5", features = ["all"] }
 # crate's own dependency, so it adds no crate and no licence term.
 # Test-only.
 if-watch = { version = "3.2.2", default-features = false }
-# TEST-ONLY, and a DEV-dependency only: CLAUDE.md §4 bars it from ever
+# TEST-ONLY, and a DEV-dependency only: AGENTS.md §4 bars it from ever
 # being a production dependency. The wire tests take the host's private
 # address from it, because ADR-0052 refuses loopback from a peer and a
 # test that cannot run must fail rather than pass.

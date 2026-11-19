@@ -217,7 +217,7 @@ Useful focused documents:
 
 ## Development policy
 
-Implementation proceeds one canonical bottom-up stage at a time; `[workspace].members` in [`Cargo.toml`](./Cargo.toml) is the authoritative roster and `workspace.metadata.interweave.status` records the open stage. Contributors and coding agents follow [`CLAUDE.md`](./CLAUDE.md) and [`IMPLEMENTATION.md`](./IMPLEMENTATION.md).
+Implementation proceeds one canonical bottom-up stage at a time; `[workspace].members` in [`Cargo.toml`](./Cargo.toml) is the authoritative roster and `workspace.metadata.interweave.status` records the open stage. Contributors and coding agents follow [`AGENTS.md`](./AGENTS.md) and [`IMPLEMENTATION.md`](./IMPLEMENTATION.md).
 
 In every stage:
 

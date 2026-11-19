@@ -247,7 +247,7 @@ impl DirectState {
     /// The endpoint a lease-holder may send AS — the lease's endpoint, or
     /// nothing when the lease is not live.
     ///
-    /// The whole of source-endpoint derivation (ADR-0030, CLAUDE.md §5):
+    /// The whole of source-endpoint derivation (ADR-0030, AGENTS.md §5):
     /// the LEASE is the input, verified by its epoch, and a frame's own
     /// `source_endpoint` is never consulted. A caller cannot send as an
     /// endpoint it did not claim, because it does not hold the matching

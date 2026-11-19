@@ -47,7 +47,7 @@ was. Stage 4's behaviour set was TCP, Noise, Yamux and Identify, none of
 which dials, so there was nothing to gate; the hook is
 `NetworkBehaviour::handle_pending_outbound_connection` and it had to
 require the same ticket before Kademlia, AutoNAT, Relay or DCUtR was
-enabled (CLAUDE.md §3).
+enabled (AGENTS.md §3).
 
 **That precondition has since been met, which is why those features are
 now enabled.** Stage 10 taught the hook to admit a behaviour-originated

@@ -13,7 +13,7 @@
 //!
 //! # Both channels are BOUNDED
 //!
-//! CLAUDE.md §6 requires it, and the reason is visible here. An
+//! AGENTS.md §6 requires it, and the reason is visible here. An
 //! unbounded event channel would let a slow consumer turn a burst of
 //! remote activity into unbounded local memory — a remote peer choosing
 //! how much memory this process uses. Bounded means the Swarm task
@@ -1227,7 +1227,7 @@ impl SwarmRuntime {
         // inside the behaviour admits behaviour-originated dials through
         // the manager's snapshot handle, so the manager — and the clock
         // and in-flight set it shares with the runtime loop — must be
-        // constructed first. The ordering CLAUDE.md §3 demands, made
+        // constructed first. The ordering AGENTS.md §3 demands, made
         // structural: a behaviour cannot be built without the admission
         // it consults.
         let mut policy = ConnectionPolicy::new(config.max_pending_dials, config.max_connections);
