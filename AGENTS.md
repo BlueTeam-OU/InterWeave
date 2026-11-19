@@ -350,7 +350,7 @@ Commit messages are project files for the purposes of §7 — do not cite unrela
 
 ### One branch per batch of work
 
-- One short-lived branch off fresh `origin/main` per BATCH of work, not per task and not per session. A PR is a review unit, and a review costs the same for one commit as for ten, so small pieces of work that are ready together — a step's code and its prose, a follow-up note in the plan, the previous review's carried P3s — go into one branch and one PR rather than several small ones. The floor is **eight work commits** before arming without a fresh ask; a PR under it is armed only on the owner's word given in the session, and a batch past about sixteen is landed and the rest starts a new batch. Review-fix commits do not count toward the floor. What stays separate is work that cannot share a review: a change whose landing another task depends on, a refactor of a file another branch touches, or another session's lane. Commit boundaries are unchanged — the multi-fix / multi-package unit below is what a COMMIT is, not what a PR is.
+- One short-lived branch off fresh `origin/main` per BATCH of work, not per task and not per session. A PR is a review unit, and a review costs the same for one commit as for ten, so small pieces of work that are ready together — a step's code and its prose, a follow-up note in the plan, the previous review's carried P3s — go into one branch and one PR rather than several small ones. The floor is **eight work commits** before arming without a fresh ask; a PR under it is armed only on the owner's word or architect-cto's (the review section below), and a batch past about sixteen is landed and the rest starts a new batch. Review-fix commits do not count toward the floor. What stays separate is work that cannot share a review: a change whose landing another task depends on, a refactor of a file another branch touches, or another session's lane. Commit boundaries are unchanged — the multi-fix / multi-package unit below is what a COMMIT is, not what a PR is.
 - Branch name `<hostname -s>/<login>/<type>/<short-desc>`, the login being the agent (`fabric-whoami`), e.g. `develop-qzapp/architect-cto-01/docs/dial-admission-gate`, so every branch traces to its session by host and agent. Older branches carry the clone directory in that segment (`develop-qzapp/InterWeave/…`); `fabric-pr` reads both.
 - **Check where you are BEFORE the first commit of a new task**, not after a push is rejected. The default state at the start of a task is standing on the *previous* task's branch, which by then is pushed, queued, or merged — and every one of those failure modes is silent.
 - Scan for the work before doing the work: `git fetch` and read `origin/main` for the same change already landed or in flight. Adopt or coordinate instead of racing.
@@ -471,9 +471,17 @@ by architect-cto's waiver, below.
 
 With eight or more work commits (`fabric-pr gate` counts them; a
 review-fix commit does not count) the review is the whole gate, boundary
-or not, on the owner's standing word. Under eight the PR arms only on the
-owner's word, asked in the session: the phrase `owner's word` in the
-basis. Sixteen is batch-size advice, not an arming condition.
+or not, on the owner's standing word. Under eight the PR arms only on a
+word given for that head: the owner's (the phrase `owner's word` in the
+basis), or architect-cto's, whom this repository's arming policy names as
+the authority for a PR under the minimum and for a boundary change under
+it. architect-cto gives it after reading the head and its posted review,
+as a DECISION or REPLY to the arming session whose metadata carries
+`AUTHORIZES: BlueTeam-OU/InterWeave#<n>@<head sha>` (passed to the arm
+as `--authorization`), or by arming the PR from its own session with
+`--any-owner`. The word covers the head it names and no later push, and
+never stands in for the review. architect-cto's own PRs arm on the
+owner's word only. Sixteen is batch-size advice, not an arming condition.
 
 **The review is yours to dispatch — nothing fires on its own.** When the
 head is finished, dispatch the review class on it: `subagent_type:
