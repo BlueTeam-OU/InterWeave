@@ -563,3 +563,69 @@ when a peer's open set empties, with the closing connection's age by
 the runtime's clock from its establishment; held by
 `connection_manager.rs`'s `the_loss_of_a_connection_that_held_starts_the_ladder_at_1_s`, `a_connection_that_held_under_30_s_does_not_restart_the_ladder`, `a_peer_never_connected_keeps_30_s_from_the_first_failure`, `a_connection_that_holds_then_is_lost_restarts_the_ladder_at_1_s` and `a_revoked_peer_leaves_the_loss_ladder`, and over real sockets `crates/transport/libp2p/tests/reconnect.rs`'s `a_peer_lost_after_a_held_connection_is_redialled_on_the_short_steps` with its control `a_peer_lost_after_a_short_connection_keeps_the_30_s_step`. Not measured: its cost on a
 phone, five dials per loss beyond what the 30 s step made.
+
+### Amendment 2026-11-19 — A network addition clears the failure count of the lifted peer's most recently proven route
+
+**Trigger.** A `two_hosts` case failed once under load at a9652379b
+(rust-ui-dev-01's run; the failure itself was the test's link script,
+fixed on #734). Diagnosing it, p2p-network-dev-02 saw what the retry had
+dialled (QUESTION GZCoord `01a1f3ea-d224-798f-9285-2768dff43225`): host
+A held two book entries for B, the overlay address, which had
+authenticated, and a private address B's Identify advertised, never
+reachable from A. While A's own overlay address was absent, A's dials
+to the proven entry failed for want of a route on A's side and raised
+its consecutive-failure count. The ranking is recently good, then
+fewest consecutive failures, then address, and the scheduler's retry
+dials the first admitted candidate, so at +30 s the retry dialled the
+never-reachable address and A reconnected only on a later round. As
+this was found the text read, of the addition's lift, "attempt counts
+are kept ... and address quarantines are untouched", and the lift
+touched no address state: A 2026-10-09 applied its premise ("the
+host's earlier dial failures are stale") to the peer backoff and not
+to the ranking. After an outage of N failed attempts the untried entry
+outranked the proven one for up to N further 30 s rounds, which the
+owner's word of 2026-11-14 (a data-plane peer is redialled within
+30 s) did not mean to allow.
+
+**Decision.** For each peer a network addition lifts, under the same
+lift floor, the consecutive-failure count of that peer's most recently
+proven book entry (the greatest last success, the entry and tie-break
+the full-book eviction already protects) is set to zero. Its last
+success is kept, so it is recently good again and ranks first. Every
+other entry keeps its count; a peer with no proven entry has nothing
+cleared; quarantines, permanent-failure removals, the peer's attempt
+count and its place on the cadence are untouched; a peer inside its
+floor gets nothing.
+
+**Alternatives rejected.** *Scoring a no-local-route failure apart.*
+It needs the dial error classified as "no local route" on each
+platform; the host's address set is the detector already built
+(CONNECTIVITY.md §14). *Clearing every entry of the lifted peer*, the
+first ruling (GZCoord `01a1f3ec-5e2a-7ea5-a9fb-c62dc3237fa7`),
+withdrawn on p2p-network-dev-02's case, read in `learn_address` and
+not run (GZCoord `01a1f3ed-85a2-771a-9d18-e17a9f0b0de7`): the eviction
+on a full book takes only an entry that has failed, so a peer whose
+Identify advertised a full book of addresses this host cannot reach
+would, after every addition, have the address it moved to refused
+until a retry failed an entry again, one entry per round, the refused
+offer gone unless its provider repeats it. *Clearing every proven
+entry*, p2p-network-dev-02's proposal: recently-good entries are
+ordered among themselves by address, not by the age of the proof, so
+for a peer that moved from one proven address to another the older
+would be dialled first by its spelling. One entry does what the aim
+needs, the route that last worked tried first, and changes nothing in
+the eviction, since that entry was never a victim.
+
+**Consequences.** Code: p2p-network-dev-02's, in
+`ConnectionManager::network_added`, on #734 with this note; not built
+when the note was written. The tests ruled with it: a peer holding a
+proven entry and an untried one, the proven one failing while this
+host's address is gone, the address returning, the next retry dialling
+the proven entry, failing with the reset removed; two proven entries,
+the older with failures, the next retry after the addition dialling
+the newer; and the moved-peer control of #137, a stale proven address
+costing one failed attempt after the reset and then falling behind the
+untried one. A limit recorded in the body, read and not measured:
+additions repeating at about the floor's period, each arriving before
+the retry the last failure set, keep a stale proven route first while
+they repeat.
