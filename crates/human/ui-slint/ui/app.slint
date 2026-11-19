@@ -469,6 +469,10 @@ export struct IdentityPage {
     // canonical string, with none of the groups' spaces.
     copy-label: string,
     peer-id: string,
+    // C4's PeerId while `IdAlreadyCreated` hides it: no phone will hold
+    // it, so the view takes its own copy of it off the clipboard
+    // (section 6, `peer_clip.rs`); empty on every other page.
+    void-peer: string,
     second-peer-label: string,
     second-peer-groups: string,
     // C2's and S2's numbered words.
@@ -3140,6 +3144,10 @@ component IdentityScreen inherits FocusScope {
                                     self.absolute-position, self.width, self.height);
                             }
                             focus-wanted: root.want-seg == 0 && root.want-idx == root.copy-idx();
+                            // Under the progress state nothing under it presses,
+                            // Copy included, and it never looks enabled then
+                            // (section 5); it keeps its stop.
+                            enabled-action: root.page.waiting == "";
                             pressed => { root.typing = false; root.copy(root.page.peer-id); }
                             focused(k) => { root.took(k, 0, root.copy-idx()); }
                             // The snackbar shrinks the area above it: Copy
@@ -4571,6 +4579,11 @@ export component AppWindow inherits Window {
     // Copy PeerId on an identity page copied: the view confirms it below
     // Android 13 (section 5).
     callback identity-peer-copied();
+    // Where the app makes its own copy (Android, `peer_clip.rs`): Copy
+    // PeerId hands the string to the view, which copies and confirms it,
+    // in place of the window's field and `identity-peer-copied`.
+    in property <bool> identity-own-clipboard;
+    callback identity-peer-copy(string);
     callback identity-primary();
     callback identity-secondary();
     callback identity-tertiary();
@@ -10958,9 +10971,14 @@ export component AppWindow inherits Window {
             slot(i) => { root.identity-slot(i); }
             dialog(delete) => { root.identity-dialog(delete); }
             review(open) => { root.identity-review(open); }
-            // Through the field Copy message source uses, outside this
-            // page, which holds no TextInput.
+            // The app's own copy where it makes one (Android); else through
+            // the field Copy message source uses, outside this page, which
+            // holds no TextInput.
             copy(peer) => {
+                if (root.identity-own-clipboard) {
+                    root.identity-peer-copy(peer);
+                    return;
+                }
                 root.copy-text = peer;
                 peers-copy.select-all();
                 peers-copy.copy();

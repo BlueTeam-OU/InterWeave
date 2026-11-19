@@ -215,6 +215,22 @@ internal object Native {
     @JvmStatic external fun settingsReturned()
 
     /**
+     * The PeerId an identity screen's Copy asked to put on the clipboard
+     * under [mark] ([Ask.CLIP_COPY]), taken once; empty when a later copy
+     * replaced it. Never waits.
+     */
+    @JvmStatic external fun peerIdClip(mark: Long): String
+
+    /**
+     * The removal of the copy marked [mark] ([Ask.CLIP_REMOVE]) found the
+     * window unfocused or the device locked: it waits again. Never waits.
+     */
+    @JvmStatic external fun peerIdRemovalDeferred(mark: Long)
+
+    /** `KeyguardManager.isDeviceLocked`, read again. Never waits. */
+    @JvmStatic external fun deviceLocked(locked: Boolean)
+
+    /**
      * The photo picker's answer to [Ask.PICK_PHOTO]'s request: empty when
      * what was chosen could not be opened, null when nothing was chosen.
      */
@@ -277,6 +293,13 @@ internal object Ask {
     // K1 raised over a running window: FLAG_SECURE on before R2 can draw
     // a word, off by SECURE_OFF as at a launch.
     const val SECURE_ON = 16
+    // Copy PeerId on an identity screen: Native.peerIdClip(arg) on the
+    // clipboard, the mark arg in the clip's label (identity note 5, 6).
+    const val CLIP_COPY = 17
+    // IdAlreadyCreated after that copy: the clip cleared if its
+    // description's label still carries the mark arg, its content never
+    // read (identity note 6).
+    const val CLIP_REMOVE = 18
 
     // The bits of a waited ask that name it: src/ask_word.rs's ASK_BITS,
     // which its test holds to this line.
