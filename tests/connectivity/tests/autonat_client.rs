@@ -3,7 +3,7 @@
 //! Stage 11 step 3: the AutoNAT v2 client's two routes to an
 //! infrastructure-only connection, over real sockets.
 //!
-//! CLAUDE.md §1 names three routes to a DIALLED or RETAINED
+//! The libp2p-connectivity skill names three routes to a DIALLED or RETAINED
 //! infrastructure-only connection and says step 3 reaches routes 2
 //! and 3. This is the test that they are reached by their own
 //! mechanism and by nothing else:

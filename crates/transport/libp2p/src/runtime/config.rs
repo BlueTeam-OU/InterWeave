@@ -152,7 +152,7 @@ pub struct SubstrateConfig {
     /// authorized peer: an infrastructure-only peer's inbound is
     /// RETAINED so it can ask (`AUTONAT.md` §7; the inbound arm in
     /// `dialing.rs`), and the server's dial-back is a behaviour dial
-    /// under `AutonatProbe` -- CLAUDE.md §1's route 1, reached here.
+    /// under `AutonatProbe` -- the libp2p-connectivity skill's route 1, reached here.
     pub autonat_server: Option<super::autonat_server_driver::AutonatServerSettings>,
     /// Circuit Relay v2 CLIENT configuration, or `None` for a profile
     /// that reserves on no relay -- in which case neither the client
@@ -164,7 +164,7 @@ pub struct SubstrateConfig {
     /// gated off unless the composition root turns a profile's
     /// `relay.client` block into a `Some`. With a `Some`,
     /// the reservation's control dial is a behaviour dial under
-    /// `RelayReservation` -- CLAUDE.md §1's route 1 -- admitted or
+    /// `RelayReservation` -- the libp2p-connectivity skill's route 1 -- admitted or
     /// refused by the root policy, and the relay-derived addresses the
     /// Swarm advertises are `ReservationManager`'s (`RELAY.md` §5).
     pub relay_client: Option<super::relay_driver::RelayClientSettings>,

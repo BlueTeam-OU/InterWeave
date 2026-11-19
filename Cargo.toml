@@ -354,7 +354,7 @@ yeslogic-fontconfig-sys = { version = "=6.0.1", default-features = false, featur
 #
 # IT GUARDED ONE OF THE THREE ROUTES TO A RETAINED SUCH CONNECTION, and
 # this comment has now said both more and less than that. The routes are
-# enumerated in CLAUDE.md §1, and read them there rather than from a
+# enumerated in the libp2p-connectivity skill, and read them there rather than from a
 # paraphrase — paraphrasing that list is what went wrong in four
 # successive review rounds. In short: a wrapped behaviour whose
 # classifier announces a reachability origin, which the feature list
@@ -515,7 +515,7 @@ libp2p = { version = "0.57", default-features = false, features = [
     # hole punch, and an AutoNAT dial-BACK, which belongs to the SERVER:
     # the v2 client emits no dial at all, because a probe is a request
     # over an already-open connection (measured 2026-09-09; see
-    # CLAUDE.md §1 on step 3 reaching routes 2 and 3). So they arrive
+    # the libp2p-connectivity skill on step 3 reaching routes 2 and 3). So they arrive
     # only now that the outbound gate attributes a dial to the behaviour
     # that started it rather than assuming Kademlia, and now that the
     # three ADR-0036 violations SPIKE-004 found in the admission path
@@ -537,7 +537,7 @@ libp2p = { version = "0.57", default-features = false, features = [
     # are proved at all -- so "reachable only from a composition root"
     # would be false.) So the guarantee is no longer the
     # compiler's: it is the outbound gate, the trust classification and
-    # their tests, exactly as CLAUDE.md §1 says. Review, PR #108.
+    # their tests, exactly as the libp2p-connectivity skill says. Review, PR #108.
     "autonat",
     "relay",
     "dcutr",

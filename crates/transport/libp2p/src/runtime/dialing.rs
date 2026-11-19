@@ -1214,7 +1214,7 @@ pub(super) fn settle_outcome(
                 // keep should not spend a slot to find that out.
                 None => {
                     let class = manager.classify(&peer);
-                    // ROUTE 3 (CLAUDE.md §1), NARROWLY. An AutoNAT server
+                    // ROUTE 3 (the libp2p-connectivity skill), NARROWLY. An AutoNAT server
                     // answers a probe by dialling us back, and that is an
                     // inbound from a peer that may be infrastructure-only
                     // -- a class the origin-less `authorizes` refuses

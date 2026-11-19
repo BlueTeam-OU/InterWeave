@@ -32,7 +32,7 @@
 //! read it), and turns the wrapper's events into the runtime's --
 //! [`SwarmEvent::AutonatProbeServed`] and
 //! [`SwarmEvent::AutonatProbeRefused`] -- so that a refusal is never a
-//! counter nobody reads (CLAUDE.md §1 on invisible refusals; the
+//! counter nobody reads (the libp2p-connectivity skill on invisible refusals; the
 //! client driver's `ReachabilityReportRefused` is the model).
 //!
 //! # What retains a client's inbound

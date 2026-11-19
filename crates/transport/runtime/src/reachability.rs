@@ -211,7 +211,7 @@ impl std::error::Error for ReachabilityError {}
 /// unchanged", so an adapter that mis-populated the server set -- or
 /// raced a crate event ahead of `add_server` -- had every report
 /// dropped and sat `Unknown` forever with nothing to say so. That is
-/// the shape SPIKE-004 measured for the dial gate and CLAUDE.md §1
+/// the shape SPIKE-004 measured for the dial gate and the libp2p-connectivity skill
 /// records as binding: a refusal nobody can see is a subsystem that
 /// dies silently. Counting them is the adapter's, under `AUTONAT.md`
 /// §9's `autonat_probes_total{outcome}` with the two `refused_*`

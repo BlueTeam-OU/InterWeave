@@ -12,7 +12,7 @@
 //! never pass through the wrapper at all. (The AutoNAT CLIENT never
 //! dials — pinned against the vendored source by
 //! `tests/autonat_client_retest.rs`; the profile dials its servers on
-//! the command path, under `AutonatProbe` — CLAUDE.md §1.)
+//! the command path, under `AutonatProbe` — the libp2p-connectivity skill.)
 //!
 //! libp2p routes every dial, whatever asked for it, through
 //! `NetworkBehaviour::handle_pending_outbound_connection`, and it does
