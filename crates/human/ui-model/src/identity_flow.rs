@@ -76,6 +76,11 @@ pub enum StepFailed {
     /// A restore found a record that names another `PeerId`, the one
     /// carried here (`IdRestoreOther`, design section 6).
     RestoreOther(TransportIdentity),
+    /// The read-back after a refused write, or `IdStorageUnknown`'s Try
+    /// again of it, was refused because authentication is needed: the
+    /// flow asks for the prompt ([`Effect::AuthenticateReadBack`]) rather
+    /// than show a notice (design section 6, Authentication needed).
+    ReadBackNeedsAuthentication,
 }
 
 /// What the root must do.
@@ -110,6 +115,13 @@ pub enum Effect {
     /// [`IdentityFlow::sealed`] on C4, [`IdentityFlow::restored`] on R2
     /// and R3, with [`StepFailed::StorageUnknown`] when it does not.
     ReadBack(TransportIdentity),
+    /// A read-back was refused because authentication is needed (design
+    /// section 6, Authentication needed): raise the prompt whatever the
+    /// presence window's clock says -- the refusal is the app's only
+    /// reading of it -- and, granted, carry out [`Effect::ReadBack`] of
+    /// this `PeerId`. Cancelled, denied or dropped, answer
+    /// [`IdentityFlow::step_not_run`] with that read-back.
+    AuthenticateReadBack(TransportIdentity),
     /// Raise the device-credential or strong-biometric prompt; answer
     /// [`IdentityFlow::prompted`].
     Prompt,
@@ -171,7 +183,12 @@ impl From<StepFailed> for Notice {
         match failed {
             StepFailed::Busy => Self::Busy,
             StepFailed::Storage => Self::StorageFailed,
-            StepFailed::StorageUnknown => Self::StorageUnknown,
+            // A read-back the flow could not ask the prompt for (no
+            // `PeerId` to read back for) is still one whose answer is
+            // unknown.
+            StepFailed::StorageUnknown | StepFailed::ReadBackNeedsAuthentication => {
+                Self::StorageUnknown
+            }
             StepFailed::AlreadyProvisioned => Self::AlreadyCreated,
             StepFailed::RestoreOther(recorded) => Self::RestoreOther { recorded },
         }
@@ -628,6 +645,24 @@ impl IdentityFlow {
             return vec![Effect::Hold];
         }
         self.start_notice = None;
+        // While `IdStorageUnknown` shows, R2's `IdCheckWords` and R3's
+        // `IdR3Yes` do what its Try again does: read back, and never check
+        // or restore again, since the record is there and a second restore
+        // would write over what may be the person's identity (design
+        // section 6, the read-back row;
+        // `storage_unknowns_primary_on_r2_and_r3_reads_back_and_writes_nothing`).
+        if matches!(
+            self.screen,
+            Screen::R2 {
+                notice: Some(Notice::StorageUnknown),
+                ..
+            } | Screen::R3 {
+                notice: Some(Notice::StorageUnknown),
+                ..
+            }
+        ) {
+            return self.notice_action();
+        }
         let shown_peer = self.peer.clone();
         match &mut self.screen {
             Screen::Welcome { .. } => {
@@ -1136,8 +1171,11 @@ impl IdentityFlow {
         }
     }
 
-    /// The seal of C4: done, or why not (nothing was changed).
+    /// The seal of C4, or the read-back after it: done, or why not. A
+    /// read-back refused because authentication is needed keeps C4 held
+    /// and asks for the prompt ([`Effect::AuthenticateReadBack`]).
     pub fn sealed(&mut self, outcome: Result<(), StepFailed>) -> Vec<Effect> {
+        let shown_peer = self.peer.clone();
         let Screen::C4 {
             notice,
             held,
@@ -1145,6 +1183,15 @@ impl IdentityFlow {
         } = &mut self.screen
         else {
             return Vec::new();
+        };
+        let outcome = match (outcome, shown_peer) {
+            // Held: the prompt shows over C4, and the notice already
+            // showing, if any, stays until the result (design section 6,
+            // Seal running).
+            (Err(StepFailed::ReadBackNeedsAuthentication), Some(peer)) => {
+                return vec![Effect::AuthenticateReadBack(peer)];
+            }
+            (outcome, _) => outcome,
         };
         match outcome {
             // Still held: the start goes on under it, and the root ends
@@ -1219,8 +1266,27 @@ impl IdentityFlow {
         }
     }
 
-    /// A restore's outcome, from R2 (against the record) or R3.
+    /// A restore's outcome, from R2 (against the record) or R3, or the
+    /// read-back's after it. A read-back refused because authentication is
+    /// needed keeps the screen held and asks for the prompt
+    /// ([`Effect::AuthenticateReadBack`]) for the `PeerId` the restore was
+    /// to give back.
     pub fn restored(&mut self, outcome: Result<(), StepFailed>) -> Vec<Effect> {
+        if outcome == Err(StepFailed::ReadBackNeedsAuthentication) {
+            match &self.screen {
+                Screen::R2 {
+                    origin: Origin::Recovery { expected, .. },
+                    checking: true,
+                    ..
+                } => return vec![Effect::AuthenticateReadBack(expected.clone())],
+                Screen::R3 {
+                    derived,
+                    restoring: true,
+                    ..
+                } => return vec![Effect::AuthenticateReadBack(derived.clone())],
+                _ => {}
+            }
+        }
         match (&mut self.screen, outcome) {
             (Screen::R2 { origin, .. }, Ok(())) => {
                 let peer = match origin {
@@ -1286,6 +1352,52 @@ impl IdentityFlow {
             Screen::C4 { held, starting, .. } => {
                 *held = false;
                 *starting = false;
+            }
+            _ => {}
+        }
+    }
+
+    /// A key operation the presence gate held, `effect`, did not run: its
+    /// prompt was cancelled or denied, or dropped before anything raised
+    /// it. A seal or a restore is [`Self::cancelled_step`]: the screen as
+    /// it was. A read-back is not (design section 6, Authentication
+    /// needed): the write before it may have committed the identity, so
+    /// `IdStorageUnknown` shows, raised so it takes focus, and the
+    /// screen's primary reads back rather than writing again
+    /// (`a_read_backs_prompt_not_answered_shows_storage_unknown`). Any
+    /// other effect does nothing here.
+    pub fn step_not_run(&mut self, effect: &Effect) {
+        match effect {
+            Effect::Seal | Effect::RestoreRecorded(_) | Effect::RestoreConfirmed(..) => {
+                self.cancelled_step();
+            }
+            Effect::ReadBack(_) => {
+                let notice = match &mut self.screen {
+                    Screen::C4 {
+                        notice,
+                        held,
+                        starting,
+                    } => {
+                        *held = false;
+                        *starting = false;
+                        notice
+                    }
+                    Screen::R2 {
+                        notice, checking, ..
+                    } => {
+                        *checking = false;
+                        notice
+                    }
+                    Screen::R3 {
+                        notice, restoring, ..
+                    } => {
+                        *restoring = false;
+                        notice
+                    }
+                    _ => return,
+                };
+                *notice = Some(Notice::StorageUnknown);
+                self.notices_raised += 1;
             }
             _ => {}
         }
@@ -2789,10 +2901,6 @@ mod tests {
         let mut r2 = r2_after_k1_restoring();
         r2.restored(Err(StepFailed::StorageUnknown));
         assert_eq!(r2.notice(), Some(&Notice::StorageUnknown));
-        assert_eq!(r2.primary(), [Effect::Check(words().join(" "))], "control");
-        r2.checked(None);
-        let mut r2 = r2_after_k1_restoring();
-        r2.restored(Err(StepFailed::StorageUnknown));
         assert_eq!(r2.notice_action(), [Effect::ReadBack(mine())]);
         assert!(r2.waiting(), "R2 held while it reads back");
         assert_eq!(r2.notice_action(), [], "one at a time");
@@ -2809,6 +2917,142 @@ mod tests {
         r3.restored(Err(StepFailed::StorageUnknown));
         assert!(!r3.waiting());
         assert_eq!(r3.notice(), Some(&Notice::StorageUnknown), "shown again");
+    }
+
+    /// While `IdStorageUnknown` shows, R2's `IdCheckWords` and R3's
+    /// `IdR3Yes` -- the primary -- do what its Try again does: read back,
+    /// with no check and no restore, the screen held while it runs; found,
+    /// R4 opens (design section 6, the read-back row; acceptance 12). Once
+    /// a word is edited the notice is gone and the primary checks again.
+    /// Mutation: the `StorageUnknown` delegation at the top of `primary`
+    /// removed (R2 checks, R3 restores again) fails here.
+    #[test]
+    fn storage_unknowns_primary_on_r2_and_r3_reads_back_and_writes_nothing() {
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::StorageUnknown));
+        assert_eq!(r2.primary(), [Effect::ReadBack(mine())]);
+        assert!(r2.waiting(), "held while it reads back");
+        assert_eq!(r2.primary(), [], "one read-back at a time");
+        assert_eq!(r2.restored(Err(StepFailed::StorageUnknown)), []);
+        assert_eq!(r2.notice(), Some(&Notice::StorageUnknown), "shown again");
+        assert_eq!(r2.primary(), [Effect::ReadBack(mine())], "and again");
+        r2.restored(Ok(()));
+        assert_eq!(r2.screen(), ScreenId::R4, "found: R4");
+
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::StorageUnknown));
+        r2.edit(0);
+        assert_eq!(r2.notice(), None, "control: an edit takes the notice");
+
+        let mut r3 = at_r3();
+        assert!(matches!(
+            r3.primary().as_slice(),
+            [Effect::RestoreConfirmed(..)]
+        ));
+        r3.restored(Err(StepFailed::StorageUnknown));
+        assert_eq!(r3.primary(), [Effect::ReadBack(mine())]);
+        assert!(r3.waiting(), "held while it reads back");
+        assert_eq!(r3.primary(), [], "one read-back at a time");
+        r3.restored(Ok(()));
+        assert_eq!(r3.screen(), ScreenId::R4, "found: R4");
+    }
+
+    /// A read-back refused because authentication is needed -- the one
+    /// after a refused write, or `IdStorageUnknown`'s Try again of it --
+    /// asks for the prompt and keeps the screen held, its notice as it was
+    /// (design section 6, Authentication needed). Granted, the root reads
+    /// back (`Effect::ReadBack`, the gate's resume) and the answer is the
+    /// step's: found, the screen goes on. Cancelled, denied or dropped,
+    /// `IdStorageUnknown` shows, raised so it takes focus, and C4's
+    /// primary is Try again -- a read-back, never a second seal -- while a
+    /// seal's own prompt cancelled leaves C4 as it was. On C4, R2 after K1
+    /// and R3 alike (acceptance 12). Mutations: `sealed`'s or `restored`'s
+    /// `ReadBackNeedsAuthentication` arm removed (the notice shows at once,
+    /// nothing prompts), `step_not_run`'s `ReadBack` arm calling
+    /// `cancelled_step` (C4 back to Continue, which seals), or not counting
+    /// the notice raised, fail here.
+    #[test]
+    fn a_read_backs_prompt_not_answered_shows_storage_unknown() {
+        // C4: the seal refused after the publish, its read-back refused
+        // for the person.
+        let mut c4 = c4_sealing();
+        assert_eq!(
+            c4.sealed(Err(StepFailed::ReadBackNeedsAuthentication)),
+            [Effect::AuthenticateReadBack(mine())]
+        );
+        assert!(c4.start_held(), "held under the prompt");
+        assert_eq!(c4.notice(), None, "no notice while it asks");
+        let raised = c4.notices_raised();
+        c4.step_not_run(&Effect::ReadBack(mine()));
+        assert_eq!(c4.notice(), Some(&Notice::StorageUnknown));
+        assert_eq!(c4.notices_raised(), raised + 1, "raised: focus on it");
+        assert!(!c4.start_held(), "C4 given back");
+        assert_eq!(
+            c4.primary(),
+            [Effect::ReadBack(mine())],
+            "Try again reads back, not Continue's seal"
+        );
+        // The Try again's read-back refused for the person: asked again,
+        // granted, found.
+        assert_eq!(
+            c4.sealed(Err(StepFailed::ReadBackNeedsAuthentication)),
+            [Effect::AuthenticateReadBack(mine())]
+        );
+        assert!(c4.start_held());
+        assert_eq!(
+            c4.sealed(Ok(())),
+            [Effect::VoidPaper(false), Effect::StartService],
+            "granted and found: C4 goes on"
+        );
+
+        // Control: the seal's own prompt cancelled leaves C4 as it was.
+        let mut c4 = c4_sealing();
+        c4.step_not_run(&Effect::Seal);
+        assert_eq!(c4.notice(), None);
+        assert_eq!(c4.primary(), [Effect::Seal], "Continue seals");
+
+        // R2 after K1.
+        let mut r2 = r2_after_k1_restoring();
+        assert_eq!(
+            r2.restored(Err(StepFailed::ReadBackNeedsAuthentication)),
+            [Effect::AuthenticateReadBack(mine())]
+        );
+        assert!(r2.waiting(), "held under the prompt");
+        assert_eq!(r2.notice(), None);
+        let raised = r2.notices_raised();
+        r2.step_not_run(&Effect::ReadBack(mine()));
+        assert_eq!(r2.notice(), Some(&Notice::StorageUnknown));
+        assert_eq!(r2.notices_raised(), raised + 1);
+        assert!(!r2.waiting());
+        assert_eq!(r2.primary(), [Effect::ReadBack(mine())]);
+        assert_eq!(
+            r2.restored(Err(StepFailed::ReadBackNeedsAuthentication)),
+            [Effect::AuthenticateReadBack(mine())]
+        );
+        r2.restored(Ok(()));
+        assert_eq!(r2.screen(), ScreenId::R4, "granted and found");
+
+        // R3.
+        let mut r3 = at_r3();
+        r3.primary();
+        assert_eq!(
+            r3.restored(Err(StepFailed::ReadBackNeedsAuthentication)),
+            [Effect::AuthenticateReadBack(mine())]
+        );
+        assert!(r3.waiting(), "held under the prompt");
+        let raised = r3.notices_raised();
+        r3.step_not_run(&Effect::ReadBack(mine()));
+        assert_eq!(r3.notice(), Some(&Notice::StorageUnknown));
+        assert_eq!(r3.notices_raised(), raised + 1);
+        assert!(!r3.waiting());
+        assert_eq!(r3.notice_action(), [Effect::ReadBack(mine())]);
+        r3.step_not_run(&Effect::ReadBack(mine()));
+        assert_eq!(
+            r3.notice(),
+            Some(&Notice::StorageUnknown),
+            "a Try again's prompt cancelled: the notice again"
+        );
+        assert_eq!(r3.notices_raised(), raised + 2);
     }
 
     /// The action under R2's and R3's notices (section 6): Try again
