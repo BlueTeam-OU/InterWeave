@@ -650,7 +650,8 @@ failed.
 
 The limit was measured by the fifth test, in the state machine and not
 between real peers, and the body's sentence was rewritten from "read
-and not measured" to what was measured. The retry that the lifted
+and not measured" to what was measured. For a peer off the loss
+ladder, the test's peer, the retry that the lifted
 dial's failure sets is due at lift + d + 30 s, d being how long that
 dial took to settle (at most its timeout); the floor ends at
 lift + 30 s; an addition in that window of width d lifts the peer again
@@ -664,3 +665,28 @@ window needs an addition landing in it round after round, a newly
 learned address is still dialled when it is learned, and the case had
 not been seen between real peers. A field run that shows it reopens the
 question.
+
+**Corrected in review (2026-11-19, #734, finding F6 of the review of
+f1245a4bf).** As first written, the body and this note gave the retry
+after the lifted dial's failure as 30 s for every peer ("one 30 s
+retry at a time", "lift + d + 30 s"). `record_failure` takes the one
+delay `ConnectionManager::retry_delay_ms` returns, and that is the loss
+ladder's step (1, 2, 4, 8, 16 s; the amendment of 2026-11-17) while the
+peer is on the ladder and 30 s off it. The body now says so: the
+measured window of width d is the off-ladder peer's, and on the ladder
+the window opens only where d and the step together pass 30 s, which
+is read from the code and not run. p2p-network-dev-02 checked the
+finding in `connection_manager.rs` and named the test's peer as off the
+ladder (REQUEST GZCoord `01a1f450-9f54-73b5-8683-bc77973f4a13`).
+
+The same review raised a risk it did not number, and the body's "was
+never an eviction victim" was narrowed to the moment of the reset for
+it. If another entry of the peer is proven before the cleared one is
+dialled again (one sequence p2p-network-dev-02 read and did not build
+a test of: the backoff standing, a claimed retry dialling an untried
+second address, an addition lifting the peer and clearing the first,
+the second then succeeding), the cleared entry is no longer the most
+recent proof, carries no failure, ranks with the newer proof by
+address and is not taken by the eviction until it fails. Where it is
+stale and sorts first that is one failed attempt at the next reconnect.
+Ruled: recorded as read, nothing built.
