@@ -7959,10 +7959,36 @@ Recorded 2026-10-21 on the owner's direction of that day ("a user should
 have multiple network identities"; "An EndpointId should match a user
 identity. One user of the app can have many user identities on the same
 phone. So for any EndpointId he can add a display_name and a photo"); the
-decision is ADR-0061. **This section opens nothing by itself**: the stage
-opens on the owner's word, after §29 or beside it, and the status value
-stays the lowest open stage. It is numbered after §29 so that no citation
-of §23–§29 moves.
+decision is ADR-0061. As recorded, this section opened nothing by itself:
+the stage was to open on the owner's word, after §29 or beside it, the
+status value staying the lowest open stage. It is numbered after §29 so
+that no citation of §23–§29 moves.
+
+**Opened 2026-11-19, on the owner's word of that day** (in session, to
+architect-cto, who was handing the Rust lanes their next work: "if you
+have no item for interweave open stage 22"; read from `main` at
+3f9af2fd7, the plan's carried items had left p2p-network-dev one test
+job, rust-services-dev none, and rust-ui-dev the identity notes' unbuilt
+notices alone, so the condition was taken as met for the lanes with
+nothing). **The stage runs beside Stage 18 and Stage 19 from the landing
+of this paragraph**, as §29's Stage 21 ran beside Stage 17 and §22's
+Stage 19 runs beside Stage 18. The status value stays the lowest open
+stage, `stage-18-adversarial-security-gate`, and this record is the
+authorisation for the stage's work (`AGENTS.md` §3): no new crate, as
+Activate says. The precedent's two constraints hold: no
+`Proof::Stage(22)` deferral and no `stage-22` deadline is written while
+the stage runs beside the open one, since the guards expire a deferral
+only once the status passes it. The order is Activate's and is not
+loosened by the opening: p2p-network-dev's ADR-0067 batch first, as its
+own PR, then the administrative add, remove and set_advertise methods,
+then steps 1–3, none of which is built against a label; what
+rust-ui-dev and rust-services-dev do before that batch is on `main` is
+the work that names no EndpointId's form (step 4's acceptance criteria
+as a proposal, the §Logical tables review as a text, the bridge's
+inventory of what carries a label). The release that carries the batch
+is the next MINOR, the fleet re-rendered with keys at that update (the
+owner's word of 2026-10-28; fabric-coordinator's renderer change waits
+on `transportctl endpoint init` reaching `main`).
 
 **Where the clients stand (2026-10-28, the owner's observation).** On
 `main` the Android app and the desktop hold one user identity, the
@@ -7975,8 +8001,8 @@ an added one and set its advertising are in no contract yet
 either platform until they land). Several identities in one app, each
 with one own card different from the others, is this stage's work and
 no earlier item's: the methods under Activate first, then steps 1–3.
-The owner's word of 2026-10-28 keeps it in the roadmap and opens it
-not yet; the stage still opens on that word alone.
+The owner's word of 2026-10-28 kept it in the roadmap and opened it
+not yet; it opened on the word of 2026-11-19, above.
 
 ### Objective
 
@@ -8005,7 +8031,10 @@ First, and in p2p-network-dev's lane as its own PR, ADR-0067 (A 2026-10-28): the
 (the §Logical tables review: `conversation_index.local_endpoint_id`,
 `contacts.local_endpoint_id` and `contact_routes.local_endpoint_id` with
 existing rows backfilled with the first identity's EndpointId, the derived one since ADR-0067, `own_cards` keyed by EndpointId,
-one contact per local identity and route), the two
+one contact per local identity and route; ruled 2026-11-19 as STATE.md's
+schema v14, which puts `local_endpoint_id` on the three retention tables
+and `read_pairs` too, and whose migration rebinds a stored remote label
+by its recorded key or discards it, ADR-0067 decision 7 A 2026-11-19), the two
 graphical clients and the command-line client under `apps/`,
 `profile-config` (the Android profile's authored endpoints as a list,
 the one `runtime.android.endpoint` field becoming its first entry, a
@@ -8049,7 +8078,7 @@ sentence gaining the administrative path in the same change.
    that share it; the client operating as one identity at a time, named from the second
    identity on on every acting
    surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
-   chooser; `human-client-ui.md` §3 and §4 as amended. Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)). Carried from §29 (ruled 2026-10-31, DECISION 01a19125-9eb5): the conversation's record that a card of the identity may have left this device (ADR-0063 decision 1, A 2026-10-27, `Cancelled { may_have_reached: true }`), read by a replacement identity's share-again list over the old EndpointId's conversations, and the old-key own-card row across a restart (#467 R5), the old identity's by its conversation's `local_endpoint_id`; neither needs a key epoch per row.
+   chooser; `human-client-ui.md` §3 and §4 as amended. The 64 remote endpoints per PeerId are counted per identity from this step (HUMAN-CHAT.md, A 2026-11-19), so the texts that count them over every identity change with it: `design/2026-10-27-start-window.md` §3, its §9 `NotSentEndpointLimit` row and its acceptance item 11b (ux-designer's), and the string in `crates/human/ui-model/src/labels.rs` ("the limit for all its identities and contacts together"). Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)). Carried from §29 (ruled 2026-10-31, DECISION 01a19125-9eb5): the conversation's record that a card of the identity may have left this device (ADR-0063 decision 1, A 2026-10-27, `Cancelled { may_have_reached: true }`), read by a replacement identity's share-again list over the old EndpointId's conversations, and the old-key own-card row across a restart (#467 R5), the old identity's by its conversation's `local_endpoint_id`; neither needs a key epoch per row.
 3. **Android** (rust-ui-dev): one in-process session and lease per
    identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
    identity switch in the app, identities created through the embedded

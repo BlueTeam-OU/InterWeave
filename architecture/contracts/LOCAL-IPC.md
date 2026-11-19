@@ -381,7 +381,7 @@ on disk would exceed `MAX_ALLOWED_PEERS` at the next start (audited
 `refused`, nothing written); `false` removes it, closes every connection
 the peer holds at once, drops its cached directory
 (`DirectoryCache::forget`, §16's carry), and every connection with
-`events` sees `peer.disconnected` with `reason_class: policy` (below).
+`events` sees `peer.disconnected` with `reason_class: policy` (below). Until the Stage 22 release every revoke does this, the node holding one list; from that release the close, the dropped directory and the event come when the write removes the peer from the admission set, and a revoke that leaves it in another set does none of them (ADR-0067 decision 6, A 2026-11-19).
 Endpoint narrowing (`EndpointTrustPolicy`) is not reachable through these
 methods and is carried. Each set that reaches the runtime is recorded
 under the audit log target (`interweave::audit`: peer, `allowed`, its
@@ -713,9 +713,19 @@ code and held by no test. Once the connection has queued its `close`,
 or closed its lanes without one, the writer takes no further event from the
 connection's lane, so what the lane held when the stop read it was lost
 whole, and the event the writer was part-way through had left the lane
-before the reading; and a writer that ends on its own between the
-grace running out and that reading empties the lane first, so the
-count can then miss what the lane held, not one event alone. #709's
+before the reading. A writer that ended on its own -- on the `close`,
+or giving up on a client that stopped reading, the stop's abort
+reaching it too late to cancel it -- is counted by its own count and
+not by the reading: the event it failed on and what its lane holds
+once every sender is gone, the lane closed and not dropped, so an
+event sent into room reserved before the writer ended is counted with
+the rest (`a_stop_takes_the_writers_own_count_unless_the_abort_cancelled_it`,
+`a_writer_that_gave_up_keeps_what_is_sent_after_it`; as this gap was
+found, such a writer dropped its lane, and the count missed what the
+lane held and what was sent after). The reading before the abort is
+used only for a writer the abort cancelled. What the count can still
+miss is the event a cancelled writer was part-way through, and the
+whole lane of a writer that panicked, counted as nothing. #709's
 review (F7) read an over-count in the reading coming before the abort;
 #724's review and its judgement found no path to one.
 
