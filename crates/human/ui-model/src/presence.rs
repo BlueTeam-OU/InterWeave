@@ -93,6 +93,21 @@ impl PresenceGate {
         Admit::Prompt
     }
 
+    /// `effect`, a key operation, was refused because the key needs the
+    /// person (`UserNotAuthenticated`): it waits for the prompt the screen
+    /// raises now, and a grant runs it again ([`Self::prompted`]). The
+    /// refusal is the app's only reading of the Keystore's window (design
+    /// section 6, Authentication needed; ADR-0042, A 2026-10-20).
+    /// [`Effect::AuthenticateReadBack`], the flow's own word for a refused
+    /// read-back, is held as the [`Effect::ReadBack`] it asks again.
+    pub fn refused(&mut self, effect: Effect) {
+        self.held = Some(match effect {
+            Effect::AuthenticateReadBack(peer) => Effect::ReadBack(peer),
+            effect => effect,
+        });
+        self.ask = 0;
+    }
+
     /// The prompt [`Self::admit`] asked for went to the platform as ask
     /// number `ask`, counted up from 1 by the root, so a dropped ask names
     /// the hold it was for ([`Self::unasked`]).
@@ -136,6 +151,14 @@ impl PresenceGate {
     #[must_use]
     pub const fn holding(&self) -> bool {
         self.held.is_some()
+    }
+
+    /// Whether the effect waiting on the prompt is the service start: a
+    /// held screen whose start was refused is not decided until the
+    /// prompt answers.
+    #[must_use]
+    pub const fn holding_start(&self) -> bool {
+        matches!(self.held, Some(Effect::StartService))
     }
 
     fn fresh(&self, now: u64) -> bool {
@@ -325,6 +348,37 @@ mod tests {
         );
         assert_eq!(
             open.prompted(true, 1),
+            Prompted::Resume(Effect::ReadBack(peer))
+        );
+    }
+
+    /// A refused key operation waits for its prompt; a grant runs it
+    /// again, a cancel drops it unrun, and a refused read-back is held as
+    /// the read-back it asks again. Mutations: `refused` holding nothing,
+    /// or holding `AuthenticateReadBack` itself, fail here.
+    #[test]
+    fn a_refused_key_operation_waits_for_the_prompt() {
+        let peer = interweave_transport_api::TransportIdentity::parse(
+            "12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e",
+        )
+        .expect("a PeerId");
+        let mut gate = PresenceGate::default();
+        gate.refused(Effect::Seal);
+        assert!(gate.holding());
+        assert_eq!(gate.prompted(true, 0), Prompted::Resume(Effect::Seal));
+        assert!(!gate.holding(), "resumed once, then nothing waits");
+
+        assert!(!gate.holding_start(), "control: nothing held");
+        gate.refused(Effect::StartService);
+        assert!(gate.holding_start());
+        assert_eq!(
+            gate.prompted(false, 0),
+            Prompted::Dropped(Effect::StartService)
+        );
+
+        gate.refused(Effect::AuthenticateReadBack(peer.clone()));
+        assert_eq!(
+            gate.prompted(true, 0),
             Prompted::Resume(Effect::ReadBack(peer))
         );
     }
