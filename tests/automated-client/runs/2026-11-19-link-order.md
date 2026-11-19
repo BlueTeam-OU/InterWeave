@@ -35,7 +35,7 @@ and a dial over a link that is not up has no route and fails at once.
 | main 7b15b2cdc | `sleep 1` between A's `ip addr add 100.64.0.1/30 dev w0` and `ip link set w0 up` | 3 | 3 failed at "A redialled once the link returned within 30s", 37.5 s each; A's log as the field run's: two instant failures as the link returned, `reconnect refused … PeerBackoff`, the retry failing 30 s later |
 | 1d7088d8b | `sleep 1` between B's address and A's (the far end ready a second before A's address arrives) | 3 | 3 passed, 10.7–11.1 s |
 | 1d7088d8b | nothing | 3 | 3 passed, 7.8–8.0 s |
-| 1d7088d8b | nothing; the whole `two_hosts` test file | 1 | 13 passed, 4 ignored (the long-outage and long-watch cases) |
+| 1d7088d8b | nothing; the whole `two_hosts` test file | 1 | 13 passed, 4 ignored: the four run by hand (three-minute idle, long watch, long outage, the far daemon's restart measured) |
 
 The order at 1d7088d8b: both ends up, then B's address, then A's —
 the side holding the entry, whose address arriving is the redial
