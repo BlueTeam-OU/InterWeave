@@ -22,7 +22,7 @@ Adopt Model B as transport contract v2:
 - endpoint leases are runtime-only and disappear on IPC disconnect;
 - endpoint identifiers are routing selectors, not an authorization principal; endpoint ACLs remain PeerId-based — above transport, the human client presents one **user identity** per EndpointId it holds, with a display name and a photo (ADR-0061, A 2026-10-21); since ADR-0067 (A 2026-10-28) an EndpointId is no label but the endpoint's own key derived into the PeerId's form, so it names the key a card is signed with, while what the transport authenticates stays the PeerId alone and a remote `source_endpoint` stays peer-asserted until a signature under its key arrives;
 - no daemon-side buffering exists for an unavailable endpoint;
-- implementation target becomes `/interweave/direct/2.0.0` and IPC major version 2.
+- implementation target becomes `/interweave/direct/2.0.0` and IPC major version 2 — `/interweave/direct/3.0.0` and IPC major version 3 from the Stage 22 release, which moved both with the derived EndpointId and changed nothing else this record decided (ADR-0067 decision 7, A 2026-11-19).
 
 ADR-0016 is superseded for current direct-routing semantics; its profile identity and explicit-sharing decisions remain historical rationale.
 
@@ -62,3 +62,4 @@ Revisit if endpoint leases must be shared by multiple local processes, if crypto
 |---|---|---|
 | 2026-10-21 | An EndpointId is the human client's user identity above transport | Decision: ADR-0061 presents one user identity per EndpointId — a display name and a photo, several on one node — as a use of the label above transport; the transport authenticates the PeerId alone, a remote source endpoint stays peer-asserted, endpoint policy still narrows and never widens, and nothing on the wire changes. |
 | 2026-10-28 | An EndpointId is derived from the endpoint's key, and endpoint policy is the endpoint's own trust set | Decision (ADR-0067): the identifier is the PeerId-style name of the endpoint's Ed25519 public key, never a configured label; operators configure keys with local aliases; each endpoint's `inbound`/`outbound` subset is its own trusted set and the profile's policy their union; nothing else of Model B changes. |
+| 2026-11-19 | The wire majors are direct `3.0.0` and IPC `3` from the Stage 22 release | Decision: the implementation target this record set, `/interweave/direct/2.0.0` and IPC major 2, is `/interweave/direct/3.0.0` and IPC major 3 from the release that builds ADR-0067 (its decision 7); routing, leases and the narrowing rule are unchanged. |

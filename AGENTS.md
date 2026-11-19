@@ -149,7 +149,7 @@ What to actually do, in order:
 
 ### Directed messaging
 
-- Directed traffic uses `/interweave/direct/2.0.0`.
+- Directed traffic uses `/interweave/direct/3.0.0`.
 - Never route directed traffic over GossipSub.
 - Direct v2 resolves to exactly one destination endpoint.
 - Omitted destination means configured remote default endpoint, never fan-out.

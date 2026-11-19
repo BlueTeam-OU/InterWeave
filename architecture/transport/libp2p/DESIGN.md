@@ -12,7 +12,7 @@ TCP
  -> DCUtR (mandatory)
  -> optional configured AutoNAT v2 server / Circuit Relay v2 server roles
  -> GossipSub (broadcast)
- -> request-response /direct/2.0.0 (endpoint-addressed direct)
+ -> request-response /direct/3.0.0 (endpoint-addressed direct)
  -> request-response /endpoints/1.0.0 (optional trusted route directory)
  -> Kademlia behaviour when configured (peer-routing only; default enabled, explicit opt-out)
 ```

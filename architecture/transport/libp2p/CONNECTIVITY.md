@@ -23,7 +23,7 @@ It must preserve these existing invariants:
 - relay/probe infrastructure does not automatically become data-plane trust;
 - ConnectionManager/root dial admission still owns connection policy;
 - no durable message queue appears merely because a path is temporarily unavailable;
-- broadcast remains GossipSub and direct remains `/direct/2.0.0`.
+- broadcast remains GossipSub and direct remains `/direct/3.0.0`.
 
 It does **not** promise universal direct connectivity. Relay fallback is the standard availability path when direct reachability/hole punching fail.
 
@@ -563,7 +563,7 @@ Reachability works entirely below endpoint routing:
 ConnectionManager selects direct or relay path to PeerId B
        |
        v
-/direct/2.0.0 carries EndpointId human
+/direct/3.0.0 carries the EndpointId of the endpoint whose alias is human
 ```
 
 A relay does not see or authorize local EndpointRegistry leases as a transport policy principal. Endpoint-specific authorization still evaluates the authenticated remote data-plane PeerId after connection establishment.

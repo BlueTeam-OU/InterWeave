@@ -10,11 +10,13 @@ The earlier architecture draft used direct-protocol major version 1 before local
 
 ## Decision
 
-Use rust-libp2p `request_response` with the endpoint-aware implementation target:
+Use rust-libp2p `request_response` with the endpoint-aware protocol:
 
 ```text
-/interweave/direct/2.0.0
+/interweave/direct/3.0.0
 ```
+
+The id was `/interweave/direct/2.0.0` until the Stage 22 release, which moved it with the derived EndpointId (ADR-0067 decision 7, A 2026-11-19): the frames and everything below are unchanged, and no `2.x` id is spoken beside it.
 
 Each message is a bounded request carrying source EndpointId and optional destination EndpointId, and receives `AcceptedV2` with the resolved endpoint or a coarse `RejectedV2`. Underlying connections are reused; logical exchanges use independent substreams. No automatic retry.
 
@@ -43,3 +45,11 @@ Custom codec rejects oversized/invalid endpoint lengths before allocation. Recei
 ## Revisit conditions
 
 Revisit if request-response overhead is excessive, a standard direct-stream abstraction offers better semantics, or endpoint-addressed compatibility with an actually deployed legacy version becomes necessary.
+
+## Amendments
+
+Full notes: [`history/0005-amendments.md`](./history/0005-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-11-19 | The direct protocol id is `/interweave/direct/3.0.0` from the Stage 22 release | Decision: the protocol id is `/interweave/direct/3.0.0` (ADR-0067 decision 7); `2.0.0` is retired with that release and not advertised beside it; the frames, `AcceptedV2`/`RejectedV2` and every rule here are unchanged. |

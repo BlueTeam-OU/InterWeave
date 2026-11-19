@@ -304,7 +304,7 @@ Existing per-session event-queue and direct-send concurrency limits continue to 
 
 Endpoint addressing is a **transport contract major-version change** from v1 to v2 and a local IPC major-version change from v1 to v2.
 
-The direct wire protocol is `/interweave/direct/2.0.0`. Because this repository still has no production v1 implementation or deployed compatibility obligation, the first production implementation should target v2 directly. Implementing `/direct/1.0.0` compatibility is optional and must not be used as an implicit fan-out escape hatch.
+The direct wire protocol is `/interweave/direct/3.0.0`, the protocol of the derived EndpointId (ADR-0067 decision 7; `transport/libp2p/DIRECT.md` §Selected primitive). `/interweave/direct/2.0.0`, which carried the label grammar, is retired with the Stage 22 release and is not spoken beside it: a node on either side of that release fails the other at protocol negotiation, by name. No release implemented `/direct/1.0.0`, and no compatibility with an older direct protocol may be used as an implicit fan-out escape hatch.
 
 Endpoint-directory protocol versioning is independent from direct protocol versioning.
 
