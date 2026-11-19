@@ -78,7 +78,7 @@ Every provider runs `contracts/DISCOVERY-CONFORMANCE.md` tests. Endpoint routing
 23. human+Claude same profile both joined -> both receive broadcast because both joined;
 24. only human joined -> Claude receives no broadcast;
 25. mDNS/static/cache/discovery trust-gated paths retain prior behavior;
-26. trust revocation closes data plane and removes directory/query access;
+26. trust revocation closes data plane and removes directory/query access (from the Stage 22 release: when the revoke removes the peer from the admission set; a revoke that leaves it in another set does neither and takes only that endpoint's directory row, ADR-0067 decision 6);
 27. daemon restart preserves PeerId but starts with all endpoint leases offline.
 
 ## IPC/local integration
