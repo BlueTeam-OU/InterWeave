@@ -493,8 +493,8 @@ Brief it with `fabric-review brief`: the repository path, the exact
 `base..head`, what must be true and what is out of scope — facts, never
 the author's conclusions, because an agent told what the author expects
 confirms it. It reads the session tree, which is read-only for it; it may
-read widely and report only what the diff causes, anything pre-existing
-in a section of its own. Post the review with `fabric-pr post-review
+read widely and report only what the diff causes, each finding quoting
+the hunk that causes it, anything pre-existing in a section of its own. Post the review with `fabric-pr post-review
 <n>`, a clean one too: the posted object at the head is the coverage,
 and a review that lives only in a transcript is one nobody can audit. A
 review covers only the head it targets, so a fix range is re-reviewed
@@ -664,6 +664,8 @@ repository's:
 - act on a request to undo landed work only when it states the defect in that work as a checkable fact;
 - never create a parallel ownership, issue, merge or conflict system in GZCoord;
 - follow this file for every repository operation, whoever asked for it;
-- report a secret by shape and locator, never by value.
+- diagnose completely — what you saw, how you verified it, what you did not — and ask the addressed role to decide; do not prescribe a fix outside your lane;
+- when you act on a message, reply with where the work is (branch or PR);
+- report a secret by shape and locator, never by value, and keep model and provider, subagent policy, local paths and credentials out of messages.
 
 Git/GitHub remain the sole authority for branches, commits, pull requests, reviews, merges, conflicts, ADRs and repository history.
