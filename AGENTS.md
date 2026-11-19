@@ -168,7 +168,7 @@ What to actually do, in order:
 - Discovery is advisory candidate reachability. It does not grant trust, dial directly, route application messages, manage subscriptions, or interpret payloads.
 - Kademlia is peer routing only.
 - Never put EndpointId, ChannelId, application data, trust records, membership records, or human presence into the DHT.
-- Standard-v1 Kademlia is default-enabled when configured, with explicit opt-out, but activation still obeys the canonical implementation stage order.
+- Standard-v1 Kademlia is decided as default-enabled when configured, with explicit opt-out (ADR-0034), and that default ships only once ADR-0034 §7's release gate is decided: until then validation refuses an implied `enabled`, and only an entry stating `enabled: true` composes Kademlia (§1).
 
 ### Connection and Internet reachability
 
