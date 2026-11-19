@@ -73,7 +73,7 @@ pub use peers::{
     ShowState, TYPED_LINES, TrustLine, is_address_list, lines_of,
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
-pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
+pub use presence::{PresenceGate, Prompted};
 pub use start_hold::{BOUND_MS, STARTING_AFTER_MS, StartHold};
 pub use store_recovery::{
     DiscardConfirmation, DiscardKind, Effect as StoreEffect, Phase as StorePhase, StoreRecovery,

@@ -903,7 +903,7 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
                     if granted && let Some(hold) = o.hold.as_mut() {
                         hold.prompt_granted(now_ms());
                     }
-                    match o.gate.prompted(granted, now_ms()) {
+                    match o.gate.prompted(granted) {
                         // The prompt a key operation waited on.
                         Prompted::Resume(effect) => vec![effect],
                         Prompted::Dropped(effect) => not_run(o, &effect),

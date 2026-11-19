@@ -152,16 +152,16 @@ mod tests {
     /// "the later hold stays", 0 at the control.
     #[test]
     fn a_hold_asked_after_a_drop_survives_it() {
-        use interweave_human_ui_model::{Admit, Effect, PresenceGate};
+        use interweave_human_ui_model::{Effect, PresenceGate};
 
         let asks = Asks::new();
-        let mut gate = PresenceGate::new(true);
-        assert_eq!(gate.admit(Effect::Seal, 0), Admit::Prompt);
+        let mut gate = PresenceGate::default();
+        gate.refused(Effect::Seal);
         gate.asked(asks.push_numbered(UNLOCK));
         let through = asks.drop_all(UNLOCK).expect("one dropped");
         assert_eq!(gate.unasked(through), Some(Effect::Seal), "control");
 
-        assert_eq!(gate.admit(Effect::StartService, 1), Admit::Prompt);
+        gate.refused(Effect::StartService);
         gate.asked(asks.push_numbered(UNLOCK));
         assert_eq!(gate.unasked(through), None, "the later hold stays");
         assert!(gate.holding());

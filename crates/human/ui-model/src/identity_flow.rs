@@ -116,9 +116,8 @@ pub enum Effect {
     /// and R3, with [`StepFailed::StorageUnknown`] when it does not.
     ReadBack(TransportIdentity),
     /// A read-back was refused because authentication is needed (design
-    /// section 6, Authentication needed): raise the prompt whatever the
-    /// presence window's clock says -- the refusal is the app's only
-    /// reading of it -- and, granted, carry out [`Effect::ReadBack`] of
+    /// section 6, Authentication needed): raise the prompt -- the refusal
+    /// is the app's only reading of the Keystore's window -- and, granted, carry out [`Effect::ReadBack`] of
     /// this `PeerId`. Cancelled, denied or dropped, answer
     /// [`IdentityFlow::step_not_run`] with that read-back.
     AuthenticateReadBack(TransportIdentity),
@@ -1354,8 +1353,8 @@ impl IdentityFlow {
     }
 
     /// A key operation this flow asked for did not run: its prompt was
-    /// cancelled or denied (the presence window, `PresenceGate`), or
-    /// dropped before anything raised it (`PresenceGate::unasked`), where
+    /// cancelled or denied after a refusal for the person (`PresenceGate`),
+    /// or dropped before anything raised it (`PresenceGate::unasked`), where
     /// the person decided nothing. Nothing was committed and the screen
     /// stays, with its words, and no notice; nothing here records a
     /// decline. R2's check gives the primary action back,
