@@ -39,7 +39,12 @@ Accept snackbar's span (contact-cards §5.4.2). And for its QUESTION
 Revised again for the cluster bound (HUMAN-CHAT.md Clusters,
 `design/2026-11-04-long-message.md` §6): a first character past 32
 code points previews as one replacement mark, no longer as the
-ellipsis alone (§3, §10 item 11a).
+ellipsis alone (§3, §10 item 11a). Revised again for architect-cto's
+OBSERVATION 01a1f387 (the ruling of 2026-11-19 for the Stage 22
+store): from the Stage 22 release the 64 endpoints of one peer are
+counted for each identity, not over all of them; §3, the §9
+`NotSentEndpointLimit` row and §10 item 11b say what changes then,
+and what holds until then.
 
 Owner of the design: ux-designer. The words are language-culture's:
 §9 names each string, where it shows and what it must say. Built by
@@ -193,22 +198,34 @@ Evidence and hypotheses behind the choices below:
   a malformed envelope: nothing stored, nothing shown, counted
   (REPLY 01a17be2, Q3; the rule is theirs to write into `HUMAN-CHAT.md`
   and `RETENTION.md` with j68's record). So the summaries held are
-  bounded by the trust list times 64. Nothing is designed for an
-  inbound at the bound.
+  bounded by the trust list times 64, and from the Stage 22 release,
+  where the 64 are counted for each identity (below), by that times
+  the identities held. Nothing is designed for an inbound at the
+  bound.
 - **The person's own send at the bound has words of its own**
   (rust-ui-dev-02's QUESTION 01a17e74). architect-cto ruled (A2) that
   the person's own direct send counts toward the same 64: a send that
   would open a 65th endpoint of one peer is refused before its pending
   row is written, and shown as any refused send is (Not sent, with
   the reason). The 64 are what the store holds for that peer
-  (`HUMAN-CHAT.md`, `STATE.md`): the endpoints of its conversations,
-  of every local identity, together with the routes kept under
-  contacts, an endpoint forgotten only when both are gone. So the
-  identity in front may have fewer than 64 conversations with that
-  peer, or none, and the reason must not send the person to
-  conversations that are not there, or that belong to another
-  identity (ADR-0061: the client never leads a person to act as one
-  identity while believing they act as another). The reason is not
+  (`HUMAN-CHAT.md`, `STATE.md`): the endpoints of its conversations
+  together with the routes kept under contacts, an endpoint forgotten
+  only when both are gone. Until the Stage 22 release they are counted
+  over every local identity. From that release they are counted for
+  each identity alone, over its own conversations and the routes under
+  its own contacts (`HUMAN-CHAT.md` §Consumers and `human-client-ui.md`
+  §13, A 2026-11-19, ADR-0061 decisions 4 and 9): the send is refused
+  only when the identity it speaks as holds the 64, and one identity is
+  never refused for what only another holds, since the reason would be
+  one its screens may not show. Under either count the identity in
+  front may have fewer than 64 conversations with that peer, or none
+  (some of the 64 may be routes kept only under contacts, and before
+  the release some may be another identity's), so the reason must not
+  send the person to conversations that are not there, or that belong
+  to another identity, and from the release it counts, names and
+  points at nothing of another identity (ADR-0061: the client never
+  leads a person to act as one identity while believing they act as
+  another). The reason is not
   `NotConfigured`'s "This route or channel is not configured here",
   which points at a setting, and no setting changes the bound
   (*help users recognize, diagnose and recover from errors*, Nielsen
@@ -690,7 +707,7 @@ The words are language-culture's; these say what each must do.
 | `EarlierLoadFailed` | Could not load more messages. | the failure row (§5), at the top edge or in a gap (§5.1), and its announcement | that the rows could not be read; must not suggest they are lost |
 | `CardContactsUnread` | InterWeave could not read your contacts to compare this card with them, so you cannot accept it yet. To read your contacts again, choose App options on the Conversations screen, then Contacts, then Try again. | a proposal's case line while the contacts are unread (§11) | that the comparison with the person's contacts could not be made and why Accept is missing, and where to try again, by the controls' own names: the Chats screen's menu (`AppOptions`), then Contacts (`ContactsTitle`), then `TryAgain` (contact-cards §4, §11), never the conversation's own menu; must not suggest the card is unsafe or the contacts lost |
 | `NamingContactsUnread` | InterWeave could not read your contacts, so you cannot add this person as a contact yet. | Details, in place of naming by hand, while the contacts are unread (§11) | that the contacts could not be read and that adding a contact waits for that; names no card; must not suggest the contacts are lost |
-| `NotSentEndpointLimit` | This device already keeps 64 routes of this peer, the limit for all its identities and contacts together, so it cannot open a new route; check that this is the route you want, or send in a conversation with this peer if you have one. | the reason of a refused send that would open a peer's 65th endpoint (§3), after the "Not sent" that every refused send shows, which it does not repeat | that this device keeps at most 64 routes of one peer, over all its identities and contacts, and already has them, so it cannot open another; that an existing conversation with that peer still works, without claiming one exists for the identity in front; may suggest checking the route; must not blame the person, suggest that a setting can change it, or say anything about the peer's intent |
+| `NotSentEndpointLimit` | From the Stage 22 release: You already keep 64 routes of this peer in your conversations and contacts, so you cannot open a new route; check that this is the route you want, or send in a conversation with this peer if you have one. (Until that release, the words built today: This device already keeps 64 routes of this peer, the limit for all its identities and contacts together, so it cannot open a new route; check that this is the route you want, or send in a conversation with this peer if you have one.) | the reason of a refused send that would open a peer's 65th endpoint (§3), after the "Not sent" that every refused send shows, which it does not repeat; the words change with the count, in the release that counts per identity, never before it | from the Stage 22 release: that the identity the send speaks as keeps at most 64 routes of one peer, over its own conversations and contacts, and already has them, so it cannot open another; that an existing conversation with that peer still works, without claiming one exists; must not mention, count or point to another identity, and with one identity held must not use the word identity (`human-client-ui.md` §4: the identity shows only where asked for until the second exists), the "you" being the identity in front, which the send control names from the second identity on; until that release, as built: this device keeps at most 64 routes of one peer, over all its identities and contacts; under either: may suggest checking the route; must not blame the person, suggest that a setting can change it, or say anything about the peer's intent |
 | `ContactsLoading` | Loading your contacts | the accessible name of the Contacts list's progress row during Try again (§11); never visible text | that the contacts are being read |
 | `ContactsLoadFailed` | Could not load your contacts. | the Contacts list's failure row, when the read of every contact fails (§11), and its announcement | that the contacts could not be read just now; must not suggest they are lost or that there are none |
 
@@ -821,7 +838,8 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     Hebrew first line previews its first 160 characters with the
     ellipsis on the left, and one whose cut falls in a Latin word at
     the end of a Hebrew line keeps the ellipsis on the left too.
-11b. **A send at the endpoint bound** (§3): with a test store
+11b. **A send at the endpoint bound** (§3). Until the Stage 22
+    release (a build whose store counts over every identity): with a test store
     holding 64 endpoints of one peer, a send to a 65th endpoint of that
     peer is refused with `NotSentEndpointLimit`, nothing is pending and
     nothing is sent; a send in one of the 64 conversations goes as
@@ -833,9 +851,28 @@ its desktop counterpart, through Slint's accessibility tree, runs now.
     64 being 60 conversations of another identity and 4 routes kept
     only under contacts: the same refusal, and its text directs the
     person to no conversation as one they have; it offers the
-    conversation only as a condition ("if you have one"). (Where no
-    surface in the apps addresses a new endpoint yet, a test hook makes
-    the send.)
+    conversation only as a condition ("if you have one").
+    From the Stage 22 release (a build whose store counts for each
+    identity; this paragraph replaces the one above there, and the two
+    are never checked on one build): with identity A holding 64
+    endpoints of one peer, 60 in conversations and 4 as routes kept
+    only under A's contacts, A's send to a 65th endpoint of that peer
+    is refused with `NotSentEndpointLimit` in its release words,
+    nothing is pending and nothing is sent, and the text names, counts
+    and points to no other identity; A's send in one of its 60
+    conversations goes as usual. Again with A's 64 all routes kept
+    only under its contacts, and no conversation of A with that peer:
+    the same refusal, and its text directs the person to no
+    conversation as one they have; it offers the conversation only as
+    a condition ("if you have one").
+    Switched to identity B, which holds no conversation and no contact
+    with that peer, B's send to that same 65th endpoint is not
+    refused: its pending row is written and it is sent as any send
+    is, and nothing B shows counts or names A's 64. Again on a client
+    holding A alone, at the same 64: the same refusal, and its text
+    contains no word for identity.
+    (Where no surface in the apps addresses a new endpoint yet, a test
+    hook makes the send.)
 12. **The bound while open**: with a test bound small enough to reach
     (the builder's hook), read B's unread row, then open A and page up.
     With room left for fewer session-only rows than a page holds, the
@@ -1167,7 +1204,8 @@ line. Two of five failing is enough to reopen §6.
   and makes paging past the bound the person's informed choice.
 - **Q3, architect-cto**: answered (REPLY 01a17be2). At most 64 direct
   conversations per peer; a 65th source endpoint is malformed,
-  counted, and shows nothing (§3).
+  counted, and shows nothing (§3). From the Stage 22 release the 64
+  are per identity (A 2026-11-19, OBSERVATION 01a1f387; §3).
 - **Q4, architect-cto**: answered (REPLY 01a17be2). (a) is every
   decodable unread row; the hidden count is the rest, reachable at
   zero (§6.1).
