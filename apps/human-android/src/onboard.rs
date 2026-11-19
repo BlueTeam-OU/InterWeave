@@ -111,6 +111,16 @@ pub(crate) mod ask {
     /// The editor that asked for a photo closed: an open still waiting on
     /// the provider is cancelled.
     pub(crate) const PHOTO_CANCEL: jint = 15;
+    /// An identity screen's Copy `PeerId` (identity note section 5): the
+    /// text the ask's mark names (`Native.peerIdClip`) on the clipboard,
+    /// the mark in the clip's label (activity.rs, `AndroidClipboard`).
+    pub(crate) const CLIP_COPY: jint = 17;
+    /// `IdAlreadyCreated` showed after that copy (section 6): the clip
+    /// cleared if its description's label still carries the ask's mark,
+    /// its content never read; put off by `Native.peerIdRemovalDeferred`
+    /// while the window lacks the focus, the device is locked, or the
+    /// platform gives no clip description.
+    pub(crate) const CLIP_REMOVE: jint = 18;
 }
 
 pub(crate) static ASKS: Asks = Asks::new();
@@ -166,10 +176,12 @@ pub(crate) fn identity_state(
         return ready_state(&app_data_dir, &cipher);
     }
     // Called by onStart before its relay thread starts: whatever an
-    // earlier instance left in the queue is no longer anyone's. An Unlock
-    // a refused start asked since `window_shown` is dropped with it, so
-    // the check below asks its own.
-    if let Some(through) = ASKS.clear(ask::UNLOCK) {
+    // earlier instance left in the queue is no longer anyone's, but the
+    // clipboard's copy and removal, which are the system clipboard's and
+    // carry their own mark (Asks::clear). An Unlock a refused start asked
+    // since `window_shown` is dropped with the rest, so the check below
+    // asks its own.
+    if let Some(through) = ASKS.clear(ask::UNLOCK, &[ask::CLIP_COPY, ask::CLIP_REMOVE]) {
         unlock_unasked(through);
     }
     let found = interweave_human_android_platform::start_identity(
@@ -738,7 +750,11 @@ fn input_later(input: IdentityInput) {
                 // The bound counts from it unless a seal must commit the
                 // identity first (§5.1, the bound).
                 if o.flow.start_held() && !was_held {
-                    let committed = !effects.contains(&Effect::Seal);
+                    // C4's Try again under `IdStorageUnknown` commits as
+                    // its seal would, once the read-back finds the record.
+                    let committed = !effects
+                        .iter()
+                        .any(|e| matches!(e, Effect::Seal | Effect::ReadBack(_)));
                     o.hold = Some(StartHold::pressed(now_ms(), committed));
                     #[cfg(feature = "ui-trace")]
                     log(&start_line(TracedStart::Pressed));
@@ -925,9 +941,15 @@ fn not_run(o: &mut Onboarding, effect: &Effect) -> Vec<Effect> {
         // A restore not run gives R2's check back, or R3's Yes and No; a
         // seal leaves C4 as it was, Continue enabled again (§5.1).
         // Nothing was committed, and nothing runs again until the
-        // primary action is used again (design section 6).
-        Effect::RestoreRecorded(_) | Effect::RestoreConfirmed(..) | Effect::Seal => {
-            o.flow.cancelled_step();
+        // primary action is used again (design section 6). A read-back
+        // not run shows `IdStorageUnknown` instead, focused: the write
+        // before it may have committed the identity (section 6,
+        // Authentication needed). The flow tells them apart.
+        Effect::RestoreRecorded(_)
+        | Effect::RestoreConfirmed(..)
+        | Effect::Seal
+        | Effect::ReadBack(_) => {
+            o.flow.step_not_run(effect);
             Vec::new()
         }
         // A service start not run ends the flow with nothing started: the
@@ -957,6 +979,13 @@ fn failed(refused: &WriteRefused) -> StepFailed {
     match refused {
         WriteRefused::Busy => StepFailed::Busy,
         WriteRefused::AlreadyProvisioned => StepFailed::AlreadyProvisioned,
+        // After the publish, and not read back: `IdStorageUnknown`, never
+        // "nothing was changed" (design section 6).
+        WriteRefused::ReadBackFailed(_) => StepFailed::StorageUnknown,
+        // After the publish too, and the read-back waits on the person:
+        // the screen's prompt, then the read-back again.
+        WriteRefused::ReadBackNeedsAuthentication => StepFailed::ReadBackNeedsAuthentication,
+        WriteRefused::RecordNamesOther(recorded) => StepFailed::RestoreOther(recorded.clone()),
         _ => StepFailed::Storage,
     }
 }
@@ -989,6 +1018,9 @@ fn one(effect: Effect) -> Vec<Effect> {
                 if let Some(hold) = o.hold.as_mut() {
                     hold.prompt_shown(now_ms());
                 }
+                // The prompt shows over the screen: a copy's confirmation
+                // there closes (identity note section 5).
+                o.view.borrow().close_peer_id_copied();
                 gate_ask(o);
                 return Vec::new();
             }
@@ -1023,6 +1055,12 @@ fn one(effect: Effect) -> Vec<Effect> {
             }
             Effect::Seal => {
                 let outcome = match o.creation.as_ref() {
+                    // The debug build's hook: answered as a phone holding
+                    // another identity, nothing sealed (seal_hook.rs).
+                    Some(_) if crate::seal_hook::take() => {
+                        log("seal hook: answered AlreadyProvisioned, nothing sealed");
+                        Err(StepFailed::AlreadyProvisioned)
+                    }
                     Some(creation) => onboarding::seal(
                         &o.app_data_dir,
                         PROFILE,
@@ -1034,16 +1072,38 @@ fn one(effect: Effect) -> Vec<Effect> {
                     None => Err(StepFailed::Storage),
                 };
                 if outcome.is_ok() {
-                    o.creation = None;
-                    connect_owed(o);
-                    // C4's commit: the bound counts from here (§5.1).
-                    if let Some(hold) = o.hold.as_mut() {
-                        hold.committed(now_ms());
-                    }
-                    #[cfg(feature = "ui-trace")]
-                    log(&start_line(TracedStart::Sealed));
+                    sealed_now(o);
                 }
                 o.flow.sealed(outcome)
+            }
+            // `IdStorageUnknown`'s Try again, or a granted prompt's
+            // read-back: the read-back alone, answered as the step it reads
+            // back for. A refusal for the person asks the prompt again;
+            // whatever else stops it, the app still cannot tell, so it is
+            // the notice again.
+            Effect::ReadBack(peer) => {
+                let outcome =
+                    onboarding::read_back(&o.app_data_dir, PROFILE, o.cipher.as_ref(), &peer)
+                        .map_err(|why| {
+                            log(&format!("an identity read-back did not find it: {why:?}"));
+                            match why {
+                                WriteRefused::ReadBackNeedsAuthentication => {
+                                    StepFailed::ReadBackNeedsAuthentication
+                                }
+                                _ => StepFailed::StorageUnknown,
+                            }
+                        });
+                if o.flow.screen() == ScreenId::C4 {
+                    if outcome.is_ok() {
+                        sealed_now(o);
+                    }
+                    o.flow.sealed(outcome)
+                } else {
+                    if outcome.is_ok() {
+                        connect_owed(o);
+                    }
+                    o.flow.restored(outcome)
+                }
             }
             Effect::Check(text) => o.flow.checked(onboarding::check(text)),
             Effect::RestoreRecorded(text) => {
@@ -1101,9 +1161,26 @@ fn one(effect: Effect) -> Vec<Effect> {
                 ask_service(o);
                 Vec::new()
             }
-            Effect::OpenChats | Effect::OpenSettings => Vec::new(),
+            // The gate holds every one for the prompt (`PresenceGate::admit`)
+            // and resumes it as `Effect::ReadBack`: never carried out here.
+            Effect::AuthenticateReadBack(_) | Effect::OpenChats | Effect::OpenSettings => {
+                Vec::new()
+            }
         }
     })
+}
+
+/// C4's identity is committed, by its seal or by the read-back of
+/// `IdStorageUnknown`'s Try again: the creation dropped, Connect owed, and
+/// the bound counting from here (§5.1).
+fn sealed_now(o: &mut Onboarding) {
+    o.creation = None;
+    connect_owed(o);
+    if let Some(hold) = o.hold.as_mut() {
+        hold.committed(now_ms());
+    }
+    #[cfg(feature = "ui-trace")]
+    log(&start_line(TracedStart::Sealed));
 }
 
 /// A new or restored identity owes onboarding's Connect on the first

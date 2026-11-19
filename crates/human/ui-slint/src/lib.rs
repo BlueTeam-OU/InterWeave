@@ -42,8 +42,10 @@ mod clipboard;
 mod clock;
 pub mod code;
 mod connect;
+mod copied;
 mod gesture;
 mod identity;
+mod peer_clip;
 mod peers;
 mod reader;
 mod refusal;
@@ -63,6 +65,7 @@ pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
 pub use identity::{
     IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
 };
+pub use peer_clip::{ClipMark, PeerIdClipboard};
 pub use peers::ShowOpen;
 pub use refusal::{RefusalPage, RefusalView};
 pub use store_screen::{StoreOutcome, apply_store, store_page};
@@ -1029,8 +1032,9 @@ pub struct View {
     opened_from_chats: u64,
     /// Which of the two announcement slots the next announcement goes in:
     /// a cell, so the identity page, shown through a shared view, says
-    /// its held start's line in the same region.
-    next_slot_b: Cell<bool>,
+    /// its held start's line, and its copy's confirmation, in the same
+    /// region; shared with the confirmation's callback.
+    next_slot_b: Rc<Cell<bool>>,
     /// A take changed the conversation shown and has not rendered it yet.
     selection_unrendered: bool,
     shown: Option<ConversationKey>,
@@ -1136,8 +1140,15 @@ pub struct View {
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
-    /// Who confirms a copy from Details.
-    copy_feedback: CopyFeedback,
+    /// Who confirms a copy from Details, or from an identity screen's
+    /// Copy `PeerId`; shared with the latter's callback.
+    copy_feedback: Rc<Cell<CopyFeedback>>,
+    /// The identity screens' `PeerIdCopied` snackbar (design
+    /// 2026-10-19-android-identity.md section 5).
+    copied: Rc<copied::Copied>,
+    /// The app's own copies of an identity screen's `PeerId`, and the
+    /// removal `IdAlreadyCreated` owes (section 6).
+    peer_clip: Rc<peer_clip::PeerClip>,
     /// The one wake when a shown waiting message's age next reads
     /// otherwise, and when it is due.
     age_timer: slint::Timer,
@@ -1196,6 +1207,96 @@ type FrameTasks = Rc<RefCell<Vec<Box<dyn FnOnce()>>>>;
 fn after_frame(tasks: &FrameTasks, window: &AppWindow, task: impl FnOnce() + 'static) {
     tasks.borrow_mut().push(Box::new(task));
     slint::ComponentHandle::window(window).request_redraw();
+}
+
+/// Say `said` in `window`'s one polite live region, in the slot `next_b`
+/// names, and turn it ([`View::announce`]).
+fn announce_in(window: &AppWindow, next_b: &Cell<bool>, said: String) {
+    let (said, cleared) = (SharedString::from(said), SharedString::new());
+    if next_b.get() {
+        window.set_announcement_a(cleared);
+        window.set_announcement_b(said);
+    } else {
+        window.set_announcement_b(cleared);
+        window.set_announcement_a(said);
+    }
+    next_b.set(!next_b.get());
+}
+
+/// The open conversation's header Hide, the pane moved, and the
+/// conversation left: out of [`View::new`], which the copy's wiring took
+/// past its length.
+fn wire_conversation_pane(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let s = Rc::clone(shared);
+    window.on_hide_conversation(move || {
+        let selected = s.borrow().selected.clone();
+        if let Some(key) = selected {
+            s.borrow_mut().hidden_from_header = Some(key.clone());
+            enqueue(&s, Input::HideConversation(key));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_pane_changed(move || flag(&s, |shared| shared.pane_moved = true));
+    let s = Rc::clone(shared);
+    window.on_left_conversation(move || enqueue(&s, Input::Left));
+}
+
+/// What [`wire_peer_id_copied`] shares with the view: who confirms a copy,
+/// the live region's next slot, the confirmation, and the app's copies.
+type PeerIdCopyParts = (
+    Rc<Cell<CopyFeedback>>,
+    Rc<Cell<bool>>,
+    Rc<copied::Copied>,
+    Rc<peer_clip::PeerClip>,
+);
+
+/// An identity screen's Copy `PeerId` copied (design
+/// 2026-10-19-android-identity.md section 5): below Android 13 the
+/// `PeerIdCopied` snackbar opens, or its time starts again, and its text
+/// is said once more, politely; where the platform confirms the copy
+/// itself, nothing shows and nothing is said. Focus is not touched: it
+/// stays on Copy. Returns what the callbacks share with the view
+/// ([`PeerIdCopyParts`]).
+///
+/// Where the root installed the app's own clipboard
+/// ([`View::set_peer_id_clipboard`]), the press hands the string here and
+/// the copy is made through it before it is confirmed; else the window's
+/// field made it.
+fn wire_peer_id_copied(window: &AppWindow, shared: &Rc<RefCell<Shared>>) -> PeerIdCopyParts {
+    let made = (
+        Rc::new(Cell::new(CopyFeedback::Snackbar)),
+        Rc::new(Cell::new(false)),
+        Rc::new(copied::Copied::default()),
+        Rc::new(peer_clip::PeerClip::default()),
+    );
+    let weak = slint::ComponentHandle::as_weak(window);
+    let (shared, feedback, next_b, copied) = (
+        Rc::clone(shared),
+        Rc::clone(&made.0),
+        Rc::clone(&made.1),
+        Rc::clone(&made.2),
+    );
+    let confirm = Rc::new(move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        if feedback.get() != CopyFeedback::Snackbar || !window.get_identity_active() {
+            return;
+        }
+        let said = placeholder_en::text(UiText::PeerIdCopied);
+        let ms = shared.borrow().touch.snackbar_ms;
+        copied.copied(&window, said, ms);
+        announce_in(&window, &next_b, said.to_owned());
+    });
+    let confirmed = Rc::clone(&confirm);
+    window.on_identity_peer_copied(move || confirmed());
+    let clip = Rc::clone(&made.3);
+    window.on_identity_peer_copy(move |peer| {
+        if clip.copy(&peer) {
+            confirm();
+        }
+    });
+    made
 }
 
 /// How long the trace waits after End for a frame that shows the
@@ -1366,22 +1467,11 @@ impl View {
         window.on_close_trust(move || enqueue(&s, Input::TrustPage(false)));
         let s = Rc::clone(&shared);
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
+        let (copy_feedback, next_slot_b, copied, peer_clip) = wire_peer_id_copied(&window, &shared);
         wire_screens(&window, &shared);
         wire_measure(&window, &shared);
-
         wire_swipe(&window, &shared);
-        let s = Rc::clone(&shared);
-        window.on_hide_conversation(move || {
-            let selected = s.borrow().selected.clone();
-            if let Some(key) = selected {
-                s.borrow_mut().hidden_from_header = Some(key.clone());
-                enqueue(&s, Input::HideConversation(key));
-            }
-        });
-        let s = Rc::clone(&shared);
-        window.on_pane_changed(move || flag(&s, |shared| shared.pane_moved = true));
-        let s = Rc::clone(&shared);
-        window.on_left_conversation(move || enqueue(&s, Input::Left));
+        wire_conversation_pane(&window, &shared);
 
         Ok(Self {
             window,
@@ -1402,7 +1492,9 @@ impl View {
             message_times: Vec::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
-            copy_feedback: CopyFeedback::Snackbar,
+            copy_feedback,
+            copied,
+            peer_clip,
             age_timer: slint::Timer::default(),
             age_due: None,
             reader: None,
@@ -1414,7 +1506,7 @@ impl View {
             },
             frame_tasks: None,
             seen: Seen::default(),
-            next_slot_b: Cell::new(false),
+            next_slot_b,
             selection_unrendered: false,
             opened_from_chats: 0,
             shown: None,
@@ -1751,7 +1843,7 @@ impl View {
     /// Who confirms a copy from Details: the platform, or this view's
     /// snackbar (the default).
     pub fn set_copy_feedback(&mut self, feedback: CopyFeedback) {
-        self.copy_feedback = feedback;
+        self.copy_feedback.set(feedback);
     }
 
     /// Run `task` once a frame rendered after this call has been handed to
@@ -1816,6 +1908,14 @@ impl View {
             let starting = page.starting.clone();
             let said_before = self.window.get_identity_active()
                 && self.window.get_identity().starting == starting;
+            // What confirmed a copy closes once the page leaves the screen
+            // or shows anything else on it (section 5).
+            self.copied.page_shown(&self.window, Some(&page));
+            // A PeerId no phone will hold: the app's copy of it comes off
+            // the clipboard (section 6).
+            if !page.void_peer.is_empty() {
+                self.peer_clip.void_shown(&page.void_peer);
+            }
             self.window.set_identity(page);
             self.window.set_identity_active(true);
             if !starting.is_empty() && !said_before {
@@ -1825,6 +1925,8 @@ impl View {
             let focused_on_it =
                 self.window.get_identity_active() && on_identity_page(&self.window.get_focus_id());
             self.window.set_identity_active(false);
+            // The next screen shows no copy's confirmation (section 5).
+            self.copied.page_shown(&self.window, None);
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
             // The focused control went with the screen, and Slint moves
@@ -1864,6 +1966,52 @@ impl View {
     /// it, so the root does not ask then, and focus stays where it was.
     pub fn raise_identity_heading(&self) {
         self.window.set_identity_heading_wanted(true);
+    }
+
+    /// The system prompt rose over the identity screen, or the app went
+    /// to the background (Home, Recents, the screen turned off): the
+    /// `PeerIdCopied` snackbar below Android 13 closes, and shows again
+    /// only on another copy, never on the app's return (design
+    /// 2026-10-19-android-identity.md sections 5 and 7). Neither shows
+    /// in a page, so the root says them.
+    pub fn close_peer_id_copied(&self) {
+        self.copied.close(&self.window);
+    }
+
+    /// The identity screens' Copy `PeerId` copies through `board`, the
+    /// app's own clipboard, which marks each copy in its description, in
+    /// place of the window's field: Android's, so that the copy a
+    /// `PeerId` no phone will hold left on the clipboard can be taken off
+    /// it by its mark alone (design 2026-10-19-android-identity.md
+    /// section 6). The desktop installs none and keeps the field.
+    pub fn set_peer_id_clipboard(&mut self, board: Rc<dyn PeerIdClipboard>) {
+        self.peer_clip.install(board);
+        self.window.set_identity_own_clipboard(true);
+    }
+
+    /// The window gained or lost the focus, as the platform reports it to
+    /// the app: a removal of the app's copy waits while it lacks it, since
+    /// the platform gives a clip's description only to the focused window
+    /// (section 6). Apart from [`set_window_focused`](Self::set_window_focused),
+    /// which the chats' model reads and which only an attached root feeds:
+    /// the identity screens show before any.
+    pub fn set_clipboard_focus(&self, focused: bool) {
+        self.peer_clip.window_focused(focused);
+    }
+
+    /// The device locked or unlocked: a removal of the app's copy waits
+    /// while it is locked, since the platform then gives no app a clip's
+    /// description (section 6).
+    pub fn set_device_locked(&self, locked: bool) {
+        self.peer_clip.device_locked(locked);
+    }
+
+    /// The platform found the window unfocused, the device locked, or gave
+    /// no clip description when the removal of the copy marked `mark` was
+    /// asked: it waits again, for the next report that both hold, never
+    /// asked again at once (a denied clipboard app op never gives one).
+    pub fn peer_id_removal_deferred(&self, mark: ClipMark) {
+        self.peer_clip.removal_deferred(mark);
     }
 
     /// Focus the locked notice's Unlock once it shows on Chats or in a
@@ -2262,7 +2410,7 @@ impl View {
                 // Said only where the platform confirms nothing itself:
                 // from Android 13 on, it shows its own (#304 F11).
                 Input::IdentifierCopied => {
-                    if self.copy_feedback == CopyFeedback::Snackbar
+                    if self.copy_feedback.get() == CopyFeedback::Snackbar
                         && let Some(key) = self.shown.clone()
                     {
                         out.push(ViewEvent::IdentifierCopied(key));
@@ -2556,7 +2704,7 @@ impl View {
     fn long_message_input(&mut self, input: &Input) -> Option<ViewEvent> {
         match input {
             // Said only where the platform confirms nothing itself (5.3).
-            Input::MessageCopied => (self.copy_feedback == CopyFeedback::Snackbar)
+            Input::MessageCopied => (self.copy_feedback.get() == CopyFeedback::Snackbar)
                 .then(|| self.shown.clone().map(ViewEvent::MessageCopied))
                 .flatten(),
             Input::OpenWhole(key, as_source) => {
@@ -3505,15 +3653,7 @@ impl View {
     /// would speak fifty times. Two slots take turns, so an announcement
     /// equal to the last one is still a change a screen reader hears.
     fn announce(&self, said: String) {
-        let (said, cleared) = (SharedString::from(said), SharedString::new());
-        if self.next_slot_b.get() {
-            self.window.set_announcement_a(cleared);
-            self.window.set_announcement_b(said);
-        } else {
-            self.window.set_announcement_b(cleared);
-            self.window.set_announcement_a(said);
-        }
-        self.next_slot_b.set(!self.next_slot_b.get());
+        announce_in(&self.window, &self.next_slot_b, said);
     }
 
     /// The trust settings (`human-client-ui.md` §8): the allowlist with

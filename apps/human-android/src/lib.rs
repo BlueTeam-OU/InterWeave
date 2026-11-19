@@ -94,10 +94,27 @@ mod identity_hook;
     not(target_os = "android"),
     allow(
         dead_code,
+        reason = "the host only tests it; onboard.rs takes it on Android"
+    )
+)]
+mod seal_hook;
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
         reason = "the host only tests it; jni.rs takes it on Android"
     )
 )]
 mod start_hook;
+// On every target, so the host tests a copy's marks and its slot.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; activity.rs and jni.rs use it on Android"
+    )
+)]
+mod clip_slot;
 // On every target, so the host tests what a check answers for a kept K1.
 #[cfg_attr(
     not(target_os = "android"),
