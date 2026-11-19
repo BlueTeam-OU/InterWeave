@@ -175,10 +175,12 @@ pub(crate) fn identity_state(
         return ready_state(&app_data_dir, &cipher);
     }
     // Called by onStart before its relay thread starts: whatever an
-    // earlier instance left in the queue is no longer anyone's. An Unlock
-    // a refused start asked since `window_shown` is dropped with it, so
-    // the check below asks its own.
-    if let Some(through) = ASKS.clear(ask::UNLOCK) {
+    // earlier instance left in the queue is no longer anyone's, but the
+    // clipboard's copy and removal, which are the system clipboard's and
+    // carry their own mark (Asks::clear). An Unlock a refused start asked
+    // since `window_shown` is dropped with the rest, so the check below
+    // asks its own.
+    if let Some(through) = ASKS.clear(ask::UNLOCK, &[ask::CLIP_COPY, ask::CLIP_REMOVE]) {
         unlock_unasked(through);
     }
     let found = interweave_human_android_platform::start_identity(
