@@ -206,15 +206,19 @@ for n in A B; do ip netns add $n; ip -n $n link set lo up; done
 /// IN THE ORDER A LINK THAT RETURNS WHOLE WOULD BE SEEN: both ends up,
 /// then B's address, then A's. A daemon reads an address arriving as the
 /// network returning and redials at once (`network_added` lifts its
-/// backoff), so an address added before its link is up, or before the
-/// far end can answer, is a redial into a path that is not there yet: it
-/// fails at once and holds the peer off 30 s (ADR-0011). That was a
-/// load-only failure of the cases that wait for A's redial (j120: A's
-/// address went in, then `ip link set w0 up` a process later), and a
-/// `sleep 1` planted between those two steps failed it 3 of 3 runs. A
-/// redial racing a far end that is not up yet is the backoff's design,
-/// not what these cases ask, so A -- the side holding the entry --
-/// gets its address last.
+/// backoff). An address added before its own link is up is a redial
+/// with no route: it fails at once and holds the peer off 30 s
+/// (ADR-0011). That was a load-only failure of the cases that wait for
+/// A's redial, while A's address went in a process before
+/// `ip link set w0 up`; the run record
+/// `tests/automated-client/runs/2026-11-19-link-order.md` has it, and
+/// the `sleep 1` mutation to rerun against a change here, since no test
+/// pins this order. A redial racing a far end that is not up yet is the
+/// backoff's design, not what these cases ask, so A -- the side holding
+/// the entry -- gets its address last. B's address before it is a redial
+/// too where B holds an entry: over a link that is up, so it waits on
+/// ARP, which A's address answers or which gives up seconds later, and
+/// no case waits on it.
 const OVERLAY_UP: &str = r"
 ip link add w0 type veth peer name w1
 ip link set w0 netns A; ip link set w1 netns B
