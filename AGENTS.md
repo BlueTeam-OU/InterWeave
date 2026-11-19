@@ -481,7 +481,7 @@ it. architect-cto gives it after reading the head and its posted review,
 as a DECISION or REPLY to the arming session whose metadata carries
 `AUTHORIZES: BlueTeam-OU/InterWeave#<n>@<head sha>` (passed to the arm
 as `--authorization`), or by arming the PR from its own session with
-`--any-owner`. The word covers the head it names and no later push, and
+`--any-owner` and the phrase `architect-cto's word` in the basis. The word covers the head it names and no later push, and
 never stands in for the review. architect-cto's own PRs arm on the
 owner's word only. Sixteen is batch-size advice, not an arming condition.
 
