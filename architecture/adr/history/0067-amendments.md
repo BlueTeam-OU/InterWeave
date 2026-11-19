@@ -34,16 +34,22 @@ peer in another set closes nothing and is the route's refusal for
 that endpoint. The parenthesis "a peer trusted by any endpoint may
 connect" became "a peer in the admission set may connect", since the
 operator's list admits a peer no endpoint may hold. The same day's
-review of this amendment (#730, F1 and its judgement) found that the
-revoke's two other effects had no rule: `LOCAL-IPC.md` and the
+review of this amendment (#730: the first round's risk on directory
+access, and the judgement of its F1) found that the revoke's two
+other effects had no rule: `LOCAL-IPC.md` and the
 `trust-set-params` schema said a revoke "drops its cached directory",
 and `failure-model.md` that it removes directory access. Both follow
-the close: the cache and the directory are the node's, so they go when
-the peer leaves the admission set. Propagation: this note, the log
+the close: the cache is the node's and so is the admission of a
+directory query, so they go when the peer leaves the admission set.
+The clause first gave as its reason that "no endpoint holds a part of
+either", which the directory protocol contradicts: within an admitted
+query each endpoint's row is filtered by that endpoint's own set
+(`transport/libp2p/ENDPOINTS.md` §Endpoint directory protocol; #730's
+second round, F4), and the clause now says so. Propagation: this note, the log
 row, the digest entry, `TRANSPORT.md` §`TrustPolicyChanged`,
 `LOCAL-IPC.md`'s `admin.trust.set` paragraph, the `trust-set-params` schema's description, `LOCAL-CLIENT.md`
 §7 item 11, `ENDPOINTS.md`'s trust paragraph, `human-client-ui.md`'s
-revoke sentence, ADR-0037's Decision sentence with its own note, and
-`failure-model.md`'s row. The record's Status and its Implementation
+revoke sentence, ADR-0037's Decision sentence with its own note,
+`failure-model.md`'s row and `testing.md`'s item 26. The record's Status and its Implementation
 sentence said Stage 22 "opens on the owner's word"; it opened that
 day, and both say so.
