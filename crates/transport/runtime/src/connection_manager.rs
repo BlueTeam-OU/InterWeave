@@ -2189,7 +2189,7 @@ impl ConnectionManager {
                 // good" from the route that last worked; clearing that
                 // entry's count ranks it first for the dial just made due
                 // (ADR-0011 A 2026-11-19). The lifted peer only, under the
-                // same floor.
+                // same floor (`an_addition_that_lifts_nothing_clears_no_count`).
                 self.policy.clear_newest_proven_failures(peer);
             }
         }
@@ -6422,8 +6422,13 @@ mod tests {
         // Before the addition the older ranks first by its fewer
         // failures; after it the newer does, and the older keeps its
         // count -- clearing both would rank the older first by spelling
-        // (A1 < A2).
+        // (A1 < A2). A3, which never succeeded and failed once, keeps its
+        // count too: it is never the proven entry the reset clears.
+        let a3 = "/ip4/192.0.2.3/tcp/4001";
         let mut m = manager(8);
+        assert!(m.learn_address(&peer(P1), a3, 0));
+        let failed = m.handle().admit(&request(P1, a3), 0).expect("admitted");
+        m.record_failure(failed, 0);
         assert!(m.learn_address(&peer(P1), A1, 0));
         let now = prove_then_fail(&mut m, A1, 0, 1);
         assert!(m.learn_address(&peer(P1), A2, now));
@@ -6445,6 +6450,7 @@ mod tests {
             "the newer proof ranks first after it"
         );
         assert_eq!(failures_of(&m, A1), 1, "the older proof keeps its count");
+        assert_eq!(failures_of(&m, a3), 1, "and the never-proven entry its own");
     }
 
     #[test]
@@ -6459,29 +6465,38 @@ mod tests {
         m.record_failure(failed, 6_000);
         assert_eq!(m.network_added(7_000), 0, "inside the floor");
         assert_eq!(failures_of(&m, A1), 1, "and nothing is cleared");
-        // A peer with nothing held off is not lifted either: P2 holds a
-        // proven route that failed and then reconnected inbound.
+        // A peer the addition VISITS and does not lift keeps its count:
+        // P2's proven A1 failed at 2 s, so at 40 s its retry (due 32 s)
+        // is already due and its backoff has run out -- it is in the
+        // call's input and nothing of it is held off. P1, past its floor
+        // by then with its own retry due at 36 s, is the same.
         assert!(m.learn_address(&peer(P2), A1, 0));
         let worked = m.handle().admit(&request(P2, A1), 0).expect("admitted");
         drop(m.record_success(worked, 0));
-        let failed = m.handle().admit(&request(P2, A1), 1_000).expect("admitted");
-        m.record_failure(failed, 1_000);
-        assert!(m.record_inbound_retained(&peer(P2), 2_000));
-        let _ = m.network_added(8_000);
+        let failed = m.handle().admit(&request(P2, A1), 2_000).expect("admitted");
+        m.record_failure(failed, 2_000);
+        assert!(
+            m.retries.contains_key(&peer(P2)) && m.policy.peer(&peer(P2)).is_some(),
+            "the control: the addition's loop visits P2"
+        );
+        assert_eq!(m.network_added(40_000), 0, "and lifts nobody");
         assert_eq!(
             m.policy
                 .address(&peer(P2), A1)
                 .map_or(0, |s| s.consecutive_failures),
             1,
-            "a peer the addition does not lift keeps its count"
+            "a visited peer the addition does not lift keeps its count"
         );
+        assert_eq!(failures_of(&m, A1), 1, "as does P1");
     }
 
     #[test]
     fn an_addition_between_the_floor_and_the_due_retry_clears_the_count_again() {
         // The limit ADR-0011 A 2026-11-19 records, measured: the lift's
-        // dial settles d after the lift (10 s here), so its retry is due
-        // at lift + d + 30 s while the floor ends at lift + 30 s; an
+        // dial settles d after the lift (10 s here), so for a peer off the
+        // loss ladder, as P1 is, its retry is due at lift + d + 30 s while
+        // the floor ends at lift + 30 s (on the ladder the step is shorter
+        // and the retry falls inside the floor); an
         // addition in that window of d lifts the peer again and clears
         // the stale proof's count again, and the untried A2 is not the
         // next dial. Past the due retry nothing is held off and an

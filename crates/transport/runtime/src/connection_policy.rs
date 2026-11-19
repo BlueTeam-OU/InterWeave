@@ -391,9 +391,12 @@ impl AddressState {
     /// hint, and the address book's eviction, which gives a failing
     /// entry up before a working one — while a failure that suppresses is one that also set
     /// `quarantined_until_ms`. Treating the counter as punitive made every
-    /// ordinary transient failure a permanent entry: `record_success` is
-    /// the only thing that clears it, so an address that never succeeds is
-    /// never pruned and never evictable, and enough of them fill the table
+    /// ordinary transient failure a permanent entry: only `record_success`
+    /// and, for the peer's most recently proven entry alone, a network
+    /// addition ([`ConnectionPolicy::clear_newest_proven_failures`]) clear
+    /// it -- neither ever for an address that never succeeded
+    /// (`an_addition_clears_the_newest_proof_and_no_older_one`) -- so an
+    /// address that never succeeds is never pruned and never evictable, and enough of them fill the table
     /// until `make_room_for_address` refuses and every new dial is denied.
     /// That is the exhaustion the bound exists to prevent, reached through
     /// failures no attacker has to work for. Losing the hint of an address
@@ -779,7 +782,8 @@ impl ConnectionPolicy {
 
     /// `peer`'s MOST RECENTLY PROVEN book entry: the one with the greatest
     /// last success, ties to the lowest address. One selection for its
-    /// two readers -- the book's eviction, which never takes it (#137),
+    /// two readers -- the book's eviction, which never takes it (#137;
+    /// `a_full_book_never_gives_up_the_peers_last_proven_route`),
     /// and [`Self::clear_newest_proven_failures`] -- so the entry a
     /// network addition clears is the one eviction protects (ADR-0011
     /// A 2026-11-19). `None` for a peer whose book holds no success.
@@ -800,9 +804,10 @@ impl ConnectionPolicy {
     /// addition's reading that the host's earlier failures are stale
     /// (ADR-0011 A 2026-11-19; [`crate::ConnectionManager::network_added`]
     /// calls it for the peers it lifts). That entry ALONE -- every other
-    /// keeps its count, since clearing a never-proven one makes it
-    /// unevictable and clearing an older proof would rank it by spelling
-    /// beside the newer. A quarantine is not touched: a quarantined entry
+    /// keeps its count (`an_addition_clears_the_newest_proof_and_no_older_one`),
+    /// since clearing a never-proven one makes it unevictable
+    /// (`a_full_book_of_recently_good_routes_refuses_the_newcomer`) and
+    /// clearing an older proof would rank it by spelling beside the newer. A quarantine is not touched: a quarantined entry
     /// holds no proof (`record_identity_mismatch` erases it), and the
     /// field is not this method's. Returns whether a count was cleared.
     pub(crate) fn clear_newest_proven_failures(&mut self, peer: &TransportIdentity) -> bool {
