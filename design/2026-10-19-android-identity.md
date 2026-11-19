@@ -1081,9 +1081,10 @@ Q12).
   shows this start as it shows any other. For Connect, this start is
   a later start that the person asked for
   (`design/2026-10-22-add-a-peer.md` §5.1, A launch with Connect
-  still owed): its count of openings begins at the press, and the
-  10 s within which the reads must answer for Connect to open counts
-  from that start's success, as for a launch.
+  still owed): its count of openings begins at the press, a
+  conversation on screen at the press counts as an opening (that
+  §5.1), and the 10 s within which the reads must answer for Connect
+  to open counts from that start's success, as for a launch.
 - **Its results.** A start that succeeds removes the notice. If
   focus was on the notice or on Try again, it goes as unlock note F14
   says: on Chats to the list heading, in a conversation to its
@@ -1133,7 +1134,8 @@ Q12).
   connect-owed marker. A start retried at a return or a recreation
   (above) is a later start too, as Try again's is: for an owed
   Connect, its count of openings begins at the return or the
-  recreation that made it, and the 10 s from that start's success
+  recreation that made it, a conversation on screen then counts as
+  an opening, and the 10 s count from that start's success
   (`design/2026-10-22-add-a-peer.md` §5.1, A launch with Connect
   still owed). Why: the person is on Chats or a conversation again,
   and what they opened before leaving was opened before this start
@@ -2109,7 +2111,16 @@ scale would also be a finding of the Android review
         10 s of that success, with nothing opened since the return:
         Connect opens over Chats. In a third run, the test opens a
         conversation after the return and before the reads answer:
-        Connect does not open, and stays owed.
+        Connect does not open, and stays owed. In a fourth run, the
+        test leaves a conversation open, with "ab" typed in its
+        composer, sends the app to the background and back, and the
+        retried start and the reads answer as in the second run:
+        Connect does not open, the conversation stays with "ab" in
+        its composer, and Connect stays owed. In a fifth run,
+        `IdStartBusy` shows in a conversation and Try again is
+        pressed there, with the start and the reads answered as in
+        the first run: Connect does not open, and the conversation
+        stays.
       These runs are host tests, except the foreground-only device run
       of the return runs.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
