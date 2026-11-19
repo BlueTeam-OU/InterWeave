@@ -934,7 +934,8 @@ reseal that the start retries (§5). So, on a slow Keystore,
 Chats has opened and the screen whose button made the start is gone.
 The person may be on Chats, in a conversation opened since, or on a
 page opened from Chats (Peers, Settings, a card page). rust-ui-dev-01
-read the build and said that what follows can be built (§11d, Q12).
+read the build and said that the parts §11d lists can be built (§11d,
+Q12).
 
 - **What shows.** `IdStartBusy`, as a session notice, in the place
   and at the priority where Chats and a conversation show the notice
@@ -2465,7 +2466,8 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   reaches the view as one answer, and Chats or a conversation then
   shows the notice that no service runs (`NoDaemon`), which has no
   action and says the app will connect by itself. That is untrue
-  here, since nothing retries. The notice of §6 can be built as a
+  here: nothing retries the start while the person stays in the app,
+  and only a return or a recreation does (§6). The notice of §6 can be built as a
   session notice of its own, with an action that makes one service
   start by the path a granted Unlock uses. It needs `LockHeld` told
   apart from the other refused runtime starts. The notice card is
