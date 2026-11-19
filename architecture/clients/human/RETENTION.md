@@ -138,6 +138,8 @@ Evaporates:
 
 Restart reconstructs the visible conversation only from the surviving sets plus new live events. It does not ask the daemon/network for historical replay.
 
+One migration is outside this section (A 2026-11-19, ADR-0067 decision 7): the store migration of the Stage 22 release discards the pending, unread and kept rows of a direct conversation whose remote endpoint recorded no key, counted and said once to the person (STATE.md §Migrations, schema v14). No other migration discards a row this contract holds.
+
 ## 8. Security/privacy invariants
 
 - A remote sender cannot request or force `Keep`.

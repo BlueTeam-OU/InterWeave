@@ -53,3 +53,26 @@ revoke sentence, ADR-0037's Decision sentence with its own note,
 `failure-model.md`'s row and `testing.md`'s item 26. The record's Status and its Implementation
 sentence said Stage 22 "opens on the owner's word"; it opened that
 day, and both say so.
+
+### Amendment 2026-11-19 — The break reaches the human store: a stored label is rebound by its key or discarded
+
+Decision 7 said what the clean break does to profiles, fixtures, schemas
+and protocol versions, and nothing of the human store, whose every
+stored remote endpoint was a label: `contact_routes.endpoint_id`,
+`conversation_index.endpoint_id`, a pending row's destination, the
+inbound tables' and `read_pairs`' source endpoint. rust-ui-dev-02's
+review of `schema.rs` at v13 (their j125, 2026-11-19) asked what the
+Stage 22 migration makes of them, offering a drop of the routes and
+conversations, a legacy marker column, a rebind by the recorded
+identity key, or a discard of the store. Ruled: the rebind where a key
+was recorded, the discard of what has none, no marker column (it would
+keep the label grammar in the store's readers) and no discard of the
+whole store (decision 6 seeds the first identity's trusted set so that
+a person keeps the counterparties they had). The discard deletes
+unread and kept content of key-less conversations, which ADR-0044
+holds durable; it is recorded as this record's exception, under the
+owner's word of 2026-10-28 that no installed base exists and the ids
+are recreated, and RETENTION.md §7 names it as the only one. The
+first identity's key is the identity key it already held, ruled the
+same day from decision 3. STATE.md's schema v14 and §Migrations carry
+the rule; `human-client-ui.md` §13 its criterion.

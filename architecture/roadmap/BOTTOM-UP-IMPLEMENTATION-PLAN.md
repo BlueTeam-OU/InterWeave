@@ -8031,7 +8031,10 @@ First, and in p2p-network-dev's lane as its own PR, ADR-0067 (A 2026-10-28): the
 (the §Logical tables review: `conversation_index.local_endpoint_id`,
 `contacts.local_endpoint_id` and `contact_routes.local_endpoint_id` with
 existing rows backfilled with the first identity's EndpointId, the derived one since ADR-0067, `own_cards` keyed by EndpointId,
-one contact per local identity and route), the two
+one contact per local identity and route; ruled 2026-11-19 as STATE.md's
+schema v14, which puts `local_endpoint_id` on the three retention tables
+and `read_pairs` too, and whose migration rebinds a stored remote label
+by its recorded key or discards it, ADR-0067 decision 7 A 2026-11-19), the two
 graphical clients and the command-line client under `apps/`,
 `profile-config` (the Android profile's authored endpoints as a list,
 the one `runtime.android.endpoint` field becoming its first entry, a
