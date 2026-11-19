@@ -62,9 +62,9 @@ terms that rode in with copied material.
 
 **17a is the review, and 17b is what makes it count** — a review that is
 not posted at the head is coverage of nothing, and `fabric-pr review-status`
-reads the posted object, not the transcript; AGENTS.md §9 says why the
-session dispatches it (the automated reviewer this repository once asked
-for by comment is retired; the section there keeps the record). **18 sits
+reads the posted object, not the transcript; AGENTS.md §9 has the rule,
+and why the session dispatches it is this skill's last section (the
+automated reviewer this repository once asked for by comment is retired). **18 sits
 below them deliberately**: arming is standing consent, so it belongs after
 the gate rather than above it.
 
@@ -226,9 +226,9 @@ said dispatch was opt-in; what remains of that is cost: a wave of agents
 on a premium tier is still asked for, not assumed.
 
 **Code review is dispatched without being asked.** Every finished head dispatches the review
-class WITHOUT being asked, one per PR — read §9's "The review is the
-review class's, dispatched by the session" for why there is no other
-reviewer to wait for and for the rest of the contract: no session context passed, the brief scoped to the PR's
+class WITHOUT being asked, one per PR — read AGENTS.md §9's "Every PR waits for its review" for the contract,
+and this skill's last section for why there is no other
+reviewer to wait for: no session context passed, the brief scoped to the PR's
 `base..head` range, and the findings posted to the PR and answered
 there rather than reported into the transcript — including when there
 are none, since a clean review that leaves no comment is
