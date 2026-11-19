@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use ed25519_dalek::{Signature, Verifier as _, VerifyingKey};
 use interweave_human_chat_protocol::{
     CardFault, CardRoute, Classified, EnvelopeError, HumanChatV2, canonical_card_bytes, classify,
-    read_own_card_unverified,
+    is_card, read_own_card_unverified,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -669,4 +669,86 @@ fn only_the_pending_listing_calls_the_own_reader() {
         vec![root.join("crates/human/app-core/src/listing.rs")],
         "the own reader's users"
     );
+}
+
+#[test]
+fn is_card_is_exactly_what_classify_calls_a_card() {
+    // `is_card` takes no route, so the bridge can drop a broadcast card
+    // without building an EndpointId; it must still answer `false` for
+    // exactly the texts `classify` calls NotCard. Every frozen card, every
+    // frozen envelope, and the malformed shapes this file pins elsewhere.
+    let doc = fixture();
+    let valid = wire(vector(&doc, "valid-minimal"));
+    let body = valid.strip_prefix('{').expect("an object");
+    let bs = '\\';
+    let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
+    let mut texts: Vec<String> = doc["vectors"]
+        .as_array()
+        .expect("vectors")
+        .iter()
+        .map(wire)
+        .collect();
+    let envelopes = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("crates/human/<crate> is three levels below the root")
+        .join("fixtures/human-chat-v2/human-chat-v2-envelope.json");
+    let envelopes: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&envelopes).expect("envelope fixture"))
+            .expect("JSON");
+    texts.extend(
+        envelopes["vectors"]
+            .as_array()
+            .expect("vectors")
+            .iter()
+            .map(|v| serde_json::to_string(&v["envelope"]).expect("re-serialises")),
+    );
+    for kinds in [
+        r#""kind":"text","kind":"contact_card""#,
+        r#""kind":"contact_card","kind":"text""#,
+        r#""kind":"text","kind":"text""#,
+    ] {
+        texts.push(format!(
+            r#"{{"v":2,{kinds},"app_message_id":"{ID}","text":"hi"}}"#
+        ));
+    }
+    for prefix in [
+        r#""kind":1e400,"#.to_owned(),
+        r#""kind":"\ud800","#.to_owned(),
+        format!(r#""kind":{deep},"#),
+        r#""\ud800":0,"#.to_owned(),
+        r#""x":1e400,"#.to_owned(),
+        "\"a\tb\":0,".to_owned(),
+        "\"x\":\"a\tb\",".to_owned(),
+        format!(r#""a{bs}u0009b":0,"#),
+    ] {
+        texts.push(format!("{{{prefix}{body}"));
+    }
+    texts.push(valid.replacen(
+        r#""kind":"contact_card""#,
+        &format!(r#""{bs}u006bind":"contact{bs}u005fcard""#),
+        1,
+    ));
+    texts.push(format!(
+        r#"{{"v":2,"kind":"text","app_message_id":"{ID}","text":"contact_card"}}"#
+    ));
+    texts.push(format!(
+        r#"{{"v":2,"kind":"text","app_message_id":"{ID}","text":"hi","x":{{"kind":"contact_card"}}}}"#
+    ));
+    for not_object in ["", "[]", r#""contact_card""#, "{", "null"] {
+        texts.push(not_object.to_owned());
+    }
+
+    let (mut cards, mut not_cards) = (0, 0);
+    for text in &texts {
+        let not_card = classify_on_fixture_route(text) == Classified::NotCard;
+        assert_eq!(is_card(text), !not_card, "{text}");
+        if not_card {
+            not_cards += 1;
+        } else {
+            cards += 1;
+        }
+    }
+    // A one-sided corpus would pass an `is_card` that answers a constant.
+    assert!(cards > 0 && not_cards > 0, "{cards} cards, {not_cards} not");
 }
