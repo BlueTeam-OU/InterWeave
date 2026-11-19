@@ -428,9 +428,10 @@ that nothing reminds you to do — plus the `tools/gh/` tooling, the rules
 for opening a second PR alongside an open one, concurrent-session
 isolation and subagent dispatch, all live in the **`pr-lifecycle` skill**
 (§10). Load it when you are about to commit, push, open a PR, arm a merge,
-answer findings, **or dispatch a subagent** — dispatch is a trigger because
-`worktree.baseRef` is `head`, so an agent reads your last COMMIT and never
-your working tree, and the rule that follows from that is in the skill.
+answer findings, **or dispatch a subagent**. Delegation is the default
+for every role (agent-fabric ADR-005 rule 11); dispatch is a trigger for
+the skill because `worktree.baseRef` is `head`, so an agent reads your
+last COMMIT and never your working tree: commit before you fan out.
 
 What stays here is what a session needs *before* it knows that skill
 applies: where a branch comes from (above), that nothing prompts before

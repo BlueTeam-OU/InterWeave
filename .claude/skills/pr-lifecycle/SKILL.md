@@ -214,11 +214,17 @@ different hosts. **Isolation is required**, and the model is **one full
 
 ## Subagent dispatch
 
-**Dispatching agents is OPT-IN: fan out only when the user asks for it.** A
-task that merely looks parallelisable is not an invitation. The isolation
-contract governs **how** to dispatch, never **whether**.
+**Delegation is the default for every role** (agent-fabric ADR-005 rule
+11, 2026-11-12): work over a few lines with a contract goes to a
+worktree-isolated class agent in the background and a wide search to
+`Explore`, while the session keeps decisions, messages, reviews, short
+edits, a chain of dependent steps and the commit of what lands. The
+fleet's `subagent-dispatch` skill has that procedure; what follows is
+what a dispatch from THIS repository needs. Until that date this skill
+said dispatch was opt-in; what remains of that is cost: a wave of agents
+on a premium tier is still asked for, not assumed.
 
-**ONE EXCEPTION: code review.** Every finished head dispatches the review
+**Code review is dispatched without being asked.** Every finished head dispatches the review
 class WITHOUT being asked, one per PR — read §9's "The review is the
 review class's, dispatched by the session" for why there is no other
 reviewer to wait for and for the rest of the contract: no session context passed, the brief scoped to the PR's
