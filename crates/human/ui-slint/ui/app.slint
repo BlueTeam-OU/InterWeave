@@ -452,9 +452,13 @@ export struct IdentityPage {
     paragraphs: [string],
     // An inline banner (section 6), above the content; empty for none.
     notice: string,
-    // The action under the banner's text, a stop right after it: R3's
-    // Try again (section 6); empty for none. Held while R3's restore
-    // runs: it keeps its stop, shown disabled, and presses nothing.
+    // A PeerId under the banner's text, grouped, for the eye alone: the
+    // one `IdRestoreOther` says the phone holds (section 6); no stop.
+    notice-peer: string,
+    // The action under the banner's text, a stop right after it: R2's
+    // and R3's Try again, or `IdRestoreOther`'s Continue (section 6);
+    // empty for none. Held while R2's check or R3's restore runs: it
+    // keeps its stop, shown disabled, and presses nothing.
     notice-action: string,
     notice-action-held: bool,
     peer-label: string,
@@ -516,6 +520,9 @@ export struct IdentityPage {
     // R2's check is running: every word is held until its result, and an
     // input that does nothing leaves the mode as it was (section 8).
     checking: bool,
+    // R2 after `IdRestoreOther`'s Continue: every held control shows
+    // disabled, keeping its stop, until the next screen opens (section 8).
+    held: bool,
     // The store's key-lost screen: the primary deletes stored data, in
     // `error` (design 2026-10-21 section 7.1).
     primary-danger: bool,
@@ -2576,7 +2583,8 @@ component IdentityScreen inherits FocusScope {
         if (root.page.picker) {
             root.typing = true;
             root.keypad();
-        } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4) {
+        } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4
+            || root.page.screen == IdScreen.c4) {
             root.read-first();
         }
     }
@@ -2632,7 +2640,10 @@ component IdentityScreen inherits FocusScope {
                 // focus on the primary that opened the screen just left
                 // (section 7). R3 and C4 are forward, not Back.
                 root.go(6, 0);
-            } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4) {
+            } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4
+                || root.page.screen == IdScreen.c4) {
+                // C4 too, by any input: Continue seals, so it is reached
+                // by Tab, not by a second Enter (section 8).
                 root.read-first();
             } else if (notice-new) {
                 root.go(0, root.banner-idx());
@@ -2965,6 +2976,18 @@ component IdentityScreen inherits FocusScope {
                             focus-wanted: root.want-seg == 0 && root.want-idx == root.banner-idx();
                             focused(k) => { root.took(k, 0, root.banner-idx()); }
                         }
+                        // The PeerId the notice names, in full, text only:
+                        // no stop and no Copy (section 5).
+                        if root.page.notice-peer != "": Text {
+                            text: root.page.notice-peer;
+                            font-family: root.code-font;
+                            font-size: Type.body-large;
+                            color: Palette.on-surface;
+                            wrap: word-wrap;
+                            min-height: self.preferred-height;
+                            accessible-role: text;
+                            accessible-label: Drawn.spoken(self.text);
+                        }
                         // Its action, under its text (section 6): held,
                         // it keeps its stop and presses nothing.
                         if root.page.notice-action != "": HorizontalLayout {
@@ -2988,6 +3011,26 @@ component IdentityScreen inherits FocusScope {
                                 focus-wanted: root.want-seg == 0 && root.want-idx == root.notice-action-idx();
                                 pressed => { root.typing = false; root.notice-action(); }
                                 focused(k) => { root.took(k, 0, root.notice-action-idx()); }
+                            }
+                        }
+                        // `ConnectStarting` under `IdRestoreOther`'s held
+                        // Continue, inside its notice (add-a-peer 5.1).
+                        if root.page.notice-action != "" && root.page.starting != "": HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            VerticalLayout {
+                                alignment: center;
+                                WaitMark { still: Touch.reduced-motion; }
+                            }
+                            Text {
+                                text: root.page.starting;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface-variant;
+                                wrap: word-wrap;
+                                min-height: self.preferred-height;
+                                vertical-alignment: center;
+                                accessible-role: text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                         }
                     }
@@ -3134,6 +3177,7 @@ component IdentityScreen inherits FocusScope {
                 if root.page.grid.length > 0 && root.large-text: ActionButton {
                     text: root.page.review-label;
                     target: 48px;
+                    enabled-action: !root.page.held;
                     focus-key: "identity-review";
                     focus-seq: root.focus-seq;
                     property <int> arrow: root.arrow-seq;
@@ -3154,6 +3198,7 @@ component IdentityScreen inherits FocusScope {
                         row: floor(i / 4);
                         col: mod(i, 4);
                         min-height: 48px;
+                        enabled-action: !root.page.held;
                         label: slot.number + (slot.word != "" ? " " + slot.word : "");
                         focus-seq: root.focus-seq;
                         property <int> arrow: root.arrow-seq;
@@ -3168,10 +3213,13 @@ component IdentityScreen inherits FocusScope {
                         // the page that shows it moves focus to the keypad.
                         pressed => { root.mode(true); root.slot(i); }
                         focus-taken => { root.took("identity-slot:" + i, 1, i); }
+                        // Held, the position and its word dim together, as
+                        // a disabled key's; the ring does not (section 8).
                         Rectangle {
                             border-width: slot.current ? 2px : 1px;
                             border-color: slot.current ? Palette.primary : Palette.outline;
                             border-radius: 4px;
+                            opacity: root.page.held ? 0.38 : 1.0;
                         }
                         HorizontalLayout {
                             padding-left: 6px;
@@ -3182,6 +3230,7 @@ component IdentityScreen inherits FocusScope {
                                 font-size: Type.body-small;
                                 color: Palette.on-surface-variant;
                                 vertical-alignment: center;
+                                opacity: root.page.held ? 0.38 : 1.0;
                                 accessible-role: none;
                             }
                             Text {
@@ -3189,6 +3238,7 @@ component IdentityScreen inherits FocusScope {
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface;
                                 vertical-alignment: center;
+                                opacity: root.page.held ? 0.38 : 1.0;
                                 accessible-role: none;
                             }
                         }
@@ -3228,6 +3278,7 @@ component IdentityScreen inherits FocusScope {
                     min-height: 48px;
                     min-width: chip-text.preferred-width + 24px;
                     radius: 8px;
+                    enabled-action: !root.page.held;
                     label: word;
                     focus-seq: root.focus-seq;
                     property <int> arrow: root.arrow-seq;
@@ -3243,14 +3294,17 @@ component IdentityScreen inherits FocusScope {
                         root.chip-word = word;
                         root.took("identity-chip", 2, i);
                     }
+                    // Held, the chip dims as a disabled key does.
                     Rectangle {
                         border-radius: 8px;
                         border-width: 1px;
                         border-color: Palette.outline;
                         background: Palette.surface-container;
+                        opacity: root.page.held ? 0.38 : 1.0;
                     }
                     chip-text := Text {
                         text: word;
+                        opacity: root.page.held ? 0.38 : 1.0;
                         font-size: Type.body-large;
                         color: Palette.on-surface;
                         horizontal-alignment: center;
@@ -3318,6 +3372,7 @@ component IdentityScreen inherits FocusScope {
                 ActionButton {
                     text: root.page.key-delete-label;
                     target: 48px;
+                    enabled-action: !root.page.held;
                     focus-key: "identity-delete";
                     focus-seq: root.focus-seq;
                     property <int> arrow: root.arrow-seq;
@@ -3334,6 +3389,7 @@ component IdentityScreen inherits FocusScope {
                 ActionButton {
                     text: root.page.key-clear-label;
                     target: 48px;
+                    enabled-action: !root.page.held;
                     focus-key: "identity-clear";
                     focus-seq: root.focus-seq;
                     property <int> arrow: root.arrow-seq;
@@ -3395,7 +3451,7 @@ component IdentityScreen inherits FocusScope {
         // its place and its focus while the start is held (section 5.1).
         // Said once, politely, by the root's live region; the mark stands
         // still under reduced motion, and the text alone says it.
-        if root.page.starting != "": HorizontalLayout {
+        if root.page.starting != "" && root.page.notice-action == "": HorizontalLayout {
             alignment: center;
             spacing: 8px;
             VerticalLayout {

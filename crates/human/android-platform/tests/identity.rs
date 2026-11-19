@@ -1164,6 +1164,91 @@ mod onboarding {
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
     }
 
+    /// A seal refused after its publish whose read-back cannot open the
+    /// record is `ReadBackFailed` (`IdStorageUnknown`), never `Storage`,
+    /// which says nothing was written (design section 6); the read-back
+    /// asked on its own then finds it once it opens, and never for another
+    /// `PeerId`. Mutation: the seal's read-back branch answering `Storage`
+    /// again, or `read_back` not comparing the `PeerId`, fails here.
+    #[test]
+    fn a_seal_whose_read_back_fails_is_unknown_and_reading_back_again_finds_it() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        *keystore.retire_fails.lock().unwrap() = true;
+        *keystore.fail.lock().unwrap() = Some(CipherFailure::Unavailable("busy".to_owned()));
+        let (creation, _, peer, _) = Creation::new().expect("a creation");
+        assert!(
+            matches!(
+                onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+                Err(WriteRefused::ReadBackFailed(_))
+            ),
+            "the record was written and could not be read back"
+        );
+        assert!(
+            keystore.fail.lock().unwrap().is_none(),
+            "control: the read-back is what met the failure"
+        );
+        assert_eq!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &peer),
+            Ok(())
+        );
+        let (_, _, other, _) = Creation::new().expect("another");
+        assert!(matches!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &other),
+            Err(WriteRefused::ReadBackFailed(_))
+        ));
+        *keystore.fail.lock().unwrap() = Some(CipherFailure::UserNotAuthenticated);
+        assert_eq!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &peer),
+            Err(WriteRefused::UserNotAuthenticated)
+        );
+    }
+
+    /// A restore over a record that names another `PeerId` reports that
+    /// `PeerId` (`IdRestoreOther`, design section 6), never `NoRestore`,
+    /// and writes nothing; a confirmed restore over the record of the
+    /// confirmed `PeerId` reads it back and writes nothing. Mutation:
+    /// `restore_identity`'s `RecordNamesOther` arm removed (it falls to
+    /// `RecordExists`), fails here.
+    #[test]
+    fn a_restore_over_another_record_names_it_and_over_its_own_reads_back() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        let on_record =
+            start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("provisioned");
+        let recorded = on_record.transport_identity().expect("a PeerId");
+        let before = record(&app);
+        let (_, words, peer, _) = Creation::new().expect("another identity");
+        assert_eq!(
+            onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                words.join(" "),
+                Expected::Confirmed(&peer),
+                None,
+            ),
+            Err(WriteRefused::RecordNamesOther(recorded.clone()))
+        );
+        assert_eq!(record(&app), before, "nothing written");
+
+        let own = onboarding::words_of(&on_record.recovery_phrase().expect("a phrase"))
+            .expect("its words");
+        assert_eq!(
+            onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                own.join(" "),
+                Expected::Confirmed(&recorded),
+                None,
+            ),
+            Ok(()),
+            "its own record, read back"
+        );
+        assert_eq!(record(&app), before, "and not written over");
+    }
+
     /// A second Continue over the record just sealed is not read back: it
     /// is a provisioned profile, whatever the record names.
     #[test]

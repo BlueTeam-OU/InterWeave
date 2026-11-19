@@ -491,9 +491,15 @@ pub enum RestoreRefused {
     /// [`Expected::Recorded`], and no record names a `PeerId`: a fresh
     /// install, which restores only a confirmed one.
     NoRecord,
-    /// [`Expected::Confirmed`] over a profile that has a record: an
-    /// established identity is restored only as its record names it.
+    /// [`Expected::Confirmed`] over a profile whose record names the
+    /// confirmed `PeerId`: an established identity is restored only as
+    /// its record names it.
     RecordExists,
+    /// The profile's record names another `PeerId` than the restore was
+    /// to give back, the one carried here: over a confirmed `PeerId`, or a
+    /// record that changed under the restore (design
+    /// 2026-10-19-android-identity.md section 6, `IdRestoreOther`).
+    RecordNamesOther(TransportIdentity),
     /// The record is there but names no `PeerId`, or could not be read:
     /// an established profile's, never sealed over.
     RecordUnreadable(String),
@@ -572,6 +578,9 @@ pub fn restore_identity(
         (Expected::Recorded, Some(peer)) => peer,
         (Expected::Recorded, None) => return Err(RestoreRefused::NoRecord),
         (Expected::Confirmed(peer), None) => peer.clone(),
+        (Expected::Confirmed(peer), Some(recorded)) if recorded != *peer => {
+            return Err(RestoreRefused::RecordNamesOther(recorded));
+        }
         (Expected::Confirmed(_), Some(_)) => return Err(RestoreRefused::RecordExists),
     };
     let policy = interweave_profile_config::ProfileConfig::load(&paths)
@@ -591,8 +600,20 @@ pub fn restore_identity(
         // The identity is the phrase's, which `restore` verified.
         Err(CustodyRefused::OldKeyRemains(_)) => ProfileIdentity::from_phrase(phrase)
             .map_err(|e| RestoreRefused::Unavailable(e.to_string())),
-        Err(CustodyRefused::OtherIdentity | CustodyRefused::RecordNamesOther) => {
-            Err(RestoreRefused::OtherIdentity)
+        Err(CustodyRefused::OtherIdentity) => Err(RestoreRefused::OtherIdentity),
+        // The record changed between the read above and the restore's own
+        // (none can while the flow holds the lock, section 6): whose it is
+        // now, read again, as at a confirmed restore over another's.
+        Err(refused @ (CustodyRefused::RecordNamesOther | CustodyRefused::AlreadyProvisioned)) => {
+            match custody::named_identity(&paths) {
+                Ok(RecordName::Names(recorded)) if recorded != expected => {
+                    Err(RestoreRefused::RecordNamesOther(recorded))
+                }
+                _ if matches!(refused, CustodyRefused::RecordNamesOther) => {
+                    Err(RestoreRefused::OtherIdentity)
+                }
+                _ => Err(RestoreRefused::Unavailable(format!("{refused:?}"))),
+            }
         }
         Err(CustodyRefused::ProfileLocked) => Err(RestoreRefused::Busy),
         Err(CustodyRefused::Cipher(custody::CipherFailure::UserNotAuthenticated)) => {

@@ -15,8 +15,9 @@
 //!
 //! It stands between [`crate::IdentityFlow`]'s effects and the platform
 //! that carries them out, so every key operation passes it whichever
-//! screen asked: C4's seal, the restores, and the service start after S2's
-//! Done and after C4's or R4's continue.
+//! screen asked: C4's seal, the restores, the read-back of
+//! `IdStorageUnknown`'s Try again, and the service start after S2's Done
+//! and after C4's or R4's continue.
 
 use crate::identity_flow::Effect;
 
@@ -138,6 +139,7 @@ fn needs_the_key(effect: &Effect) -> bool {
         Effect::Seal
             | Effect::RestoreRecorded(_)
             | Effect::RestoreConfirmed(..)
+            | Effect::ReadBack(_)
             | Effect::StartService
     )
 }
@@ -238,6 +240,25 @@ mod tests {
             Prompted::Dropped(Effect::RestoreRecorded("w".into()))
         );
         assert_eq!(gate.unasked(5), None, "answered: nothing left to release");
+    }
+
+    /// The read-back of `IdStorageUnknown`'s Try again opens the record
+    /// with the key, so it waits for the prompt as a write does (design
+    /// section 6, Authentication needed: "the read-back after a refused
+    /// write and each Try again of it"). Mutation: `ReadBack` out of
+    /// `needs_the_key` fails here.
+    #[test]
+    fn a_read_back_outside_the_window_waits_for_the_prompt() {
+        let peer = interweave_transport_api::TransportIdentity::parse(
+            "12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e",
+        )
+        .expect("a PeerId");
+        let mut gate = PresenceGate::new(true);
+        assert_eq!(gate.admit(Effect::ReadBack(peer.clone()), 0), Admit::Prompt);
+        assert_eq!(
+            gate.prompted(true, 1),
+            Prompted::Resume(Effect::ReadBack(peer))
+        );
     }
 
     #[test]
