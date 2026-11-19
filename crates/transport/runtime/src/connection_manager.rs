@@ -6495,8 +6495,8 @@ mod tests {
         // The limit ADR-0011 A 2026-11-19 records, measured: the lift's
         // dial settles d after the lift (10 s here), so for a peer off the
         // loss ladder, as P1 is, its retry is due at lift + d + 30 s while
-        // the floor ends at lift + 30 s (on the ladder the step is shorter
-        // and the retry falls inside the floor); an
+        // the floor ends at lift + 30 s (on the ladder it is due at lift +
+        // d + step, inside the floor unless d + step passes 30 s); an
         // addition in that window of d lifts the peer again and clears
         // the stale proof's count again, and the untried A2 is not the
         // next dial. Past the due retry nothing is held off and an
