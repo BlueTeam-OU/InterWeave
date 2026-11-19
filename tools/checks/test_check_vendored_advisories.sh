@@ -67,6 +67,21 @@ skip_or_fail() {
     exit 0
 }
 
+# --HELP PRINTS THE HELP BLOCK AND STOPS THERE. The block's closing marker
+# once sat at the end of a prose line (`... clean crate. <<< help`), the
+# printer's sed range never closed, and `--help` printed the whole script
+# from 2026-09-10 to 2026-11-19 with every check green. Asserted before
+# any skip, because it needs neither cargo-deny nor the registry: the last
+# prose line must be the last line printed, and no code may follow it.
+help_out="$(bash "$GUARD" --help 2>&1)"; help_rc=$?
+help_last="$(printf '%s\n' "$help_out" | tail -n 1)"
+if [ "$help_rc" -eq 0 ] && [ "$help_last" = "move the fixture to another clean crate." ] \
+    && [[ "$help_out" != *'set -uo pipefail'* ]]; then
+    ok "--help prints the help block and ends at its closing marker"
+else
+    bad "--help should end at the help block (rc=$help_rc, last line: $help_last)"
+fi
+
 if ! cargo deny --version >/dev/null 2>&1; then
     skip_or_fail "cargo-deny is absent"
 fi
