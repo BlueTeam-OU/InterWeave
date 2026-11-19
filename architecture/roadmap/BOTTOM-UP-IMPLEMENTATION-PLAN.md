@@ -7071,7 +7071,10 @@ Proposed to Accepted in the series that lands this record, by the
 merge named above.
 
 **Measured, and carried as limits.** Every case ran on one host's
-loopback under one uid. Carried by name, from `AUTOMATED-CLIENT.md` §5
+loopback, and under one uid until 2026-11-18: since then one case, the
+cross-account port refusal below, has a second account in it when CI
+runs it, the port's holder; the test and the daemon stay the
+runner's, and every other case runs under one uid as before. Carried by name, from `AUTOMATED-CLIENT.md` §5
 and decision 2: the cross-account port refusal rests on the kernel's
 documented `SO_REUSEPORT` rule and was measured on the host, not in
 the suite — between two accounts: the rule itself in one direction on
@@ -7083,7 +7086,8 @@ decision 5 said then, so the CI case was owed
 until CI had a second account. Since 2026-11-18 the refusal is a case
 CI runs (ADR-0055 A 2026-11-18): `a_port_another_account_holds_refuses_the_start`
 in `tests/automated-client`, ignored in a plain run and run by the
-`rust` job's foreign-uid step as `nobody` (§21's decided (4)), whose
+`rust` job's foreign-uid step (§21's decided (4)), the port's holder as
+`nobody` and the daemon as the runner; the
 holder is a `python3` with two `SO_REUSEPORT` sockets and so shows the
 rule, with the same holder under the daemon's own account (the port
 shared) and the released port (the same profile listens) as controls;

@@ -257,7 +257,8 @@ had a second account since plan §21's decided (4), and
 p2p-network-dev-02 wrote the case on architect-cto's REQUEST 01a1e9a8
 (their j112, #716): `a_port_another_account_holds_refuses_the_start` in
 `tests/automated-client/tests/automated_client.rs`, ignored in a plain
-run and run by the `rust` job's foreign-uid step as `nobody`
+run and run by the `rust` job's foreign-uid step, the port's
+holder as `nobody` and the daemon as the runner
 (devex-tooling supplied the step's line). The other account's holder
 is a `python3` with two `SO_REUSEPORT` sockets on the profile's port,
 the second bind showing the option was set; the daemon exits 1 on
