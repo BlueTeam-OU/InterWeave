@@ -422,7 +422,7 @@ fn a_notice_the_result_shows_closes_it() {
         page.tab_to("identity-primary");
         page.enter();
         assert!(page.shown(), "{failed:?}: control");
-        page.flow.sealed(Err(failed));
+        page.flow.sealed(Err(failed.clone()));
         page.settle();
         assert!(!page.shown(), "{failed:?}: the notice closes it");
         let copy = identity_page(&page.flow).copy_label;
@@ -612,19 +612,79 @@ fn it_sits_above_the_actions_and_keeps_copy_in_view() {
     );
 }
 
-/// C4's stops with Copy (section 8): Copy, then Continue, and with a
-/// notice raised the notice before Copy. Mutation: `page` setting no
-/// Copy on C4 fails here.
+/// C4's stops (section 8): its title, which has focus when C4 opens and
+/// on which Enter presses nothing, then Copy, then the primary, and with
+/// a notice raised the notice after the title; under `IdAlreadyCreated`
+/// the title, the notice, then Continue, with no Copy. The order changed
+/// with the title's stop (it was Copy, then Continue). Mutation: `page`
+/// setting no Copy on C4, or no `heading_key`, fails here.
 #[test]
 fn c4s_focus_order_carries_copy_before_its_primary() {
     let mut page = Page::new(at_c4());
-    page.tab_to("identity-copy");
-    assert_eq!(page.tabs(2), ["identity-primary", "identity-copy"]);
+    assert_eq!(page.focus(), "c4-heading", "C4 opens on its title");
+    page.enter();
+    assert_eq!(page.take(), [], "Enter on the title presses nothing");
+    assert_eq!(
+        page.tabs(3),
+        ["identity-copy", "identity-primary", "c4-heading"]
+    );
 
     let mut flow = at_c4();
     apply_identity(&mut flow, IdentityInput::Primary);
     flow.sealed(Err(StepFailed::Storage));
     let mut page = Page::new(flow);
-    page.tab_to("identity-banner");
-    assert_eq!(page.tabs(2), ["identity-copy", "identity-primary"]);
+    page.tab_to("c4-heading");
+    assert_eq!(
+        page.tabs(3),
+        ["identity-banner", "identity-copy", "identity-primary"]
+    );
+
+    let mut flow = at_c4();
+    apply_identity(&mut flow, IdentityInput::Primary);
+    flow.sealed(Err(StepFailed::AlreadyProvisioned));
+    let mut page = Page::new(flow);
+    page.tab_to("c4-heading");
+    assert_eq!(
+        page.tabs(3),
+        ["identity-banner", "identity-primary", "c4-heading"]
+    );
+}
+
+/// R3 with `IdRestoreOther` (sections 6 and 8): the notice under the app
+/// bar and its Continue right after it, before the question, Copy, Yes and
+/// No; the record's `PeerId` takes no stop. Continue pressed by Enter holds
+/// R3: focus stays on it, a second Enter starts nothing, and Yes, No and
+/// that Continue show disabled. Mutation: R3's notice action set to none
+/// for `IdRestoreOther`, or the action left enabled while held, fails
+/// here.
+#[test]
+fn r3s_restore_other_continue_follows_the_notice_and_holds_r3() {
+    let recorded = TransportIdentity::parse("12D3KooW9xCm2jWjNVrwh51SWCQBMYdMyeU3NpT85QhLVkF6PcNM")
+        .expect("a PeerId");
+    let mut flow = at_r3();
+    apply_identity(&mut flow, IdentityInput::Primary);
+    flow.restored(Err(StepFailed::RestoreOther(recorded)));
+    let mut page = Page::new(flow);
+    page.tab_to("identity-back");
+    assert_eq!(
+        page.tabs(7),
+        [
+            "identity-banner",
+            "identity-notice-action",
+            "r3-question",
+            "identity-copy",
+            "identity-primary",
+            "identity-secondary",
+            "identity-back",
+        ]
+    );
+    page.tab_to("identity-notice-action");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::NoticeAction]);
+    assert!(page.flow.start_held(), "control: the start is held");
+    assert_eq!(page.focus(), "identity-notice-action", "no focus moved");
+    page.enter();
+    assert_eq!(page.take(), [], "a second Enter presses nothing");
+    let held = identity_page(&page.flow);
+    assert!(held.notice_action_held && held.secondary_held && !held.primary_enabled);
 }
