@@ -300,6 +300,7 @@ the schema-agreement test binds the two.
 | `admin.shutdown` | admin | `admin.shutdown` | `shutdown-params` | `empty-result` | 2.0 |
 | `admin.trust.list` | admin | `admin.trust` | `trust-list-params` | `trust-list` | 2.1 |
 | `admin.trust.set` | admin | `admin.trust` | `trust-set-params` | `trust-set-result` | 2.1 |
+| `admin.trust.seed` | admin | `admin.trust` | `trust-seed-params` | `trust-seed-result` | 3.0 |
 | `admin.peers.list` | admin | `admin.status` | `peer-list-params` | `peer-list` | 2.2 |
 | `admin.peers.add_address` | admin | `admin.peers` | `peers-address-params` | `peers-address-result` | 2.7 |
 | `admin.peers.remove_address` | admin | `admin.peers` | `peers-address-params` | `peers-address-result` | 2.7 |
@@ -382,8 +383,8 @@ on disk would exceed `MAX_ALLOWED_PEERS` at the next start (audited
 the peer holds at once, drops its cached directory
 (`DirectoryCache::forget`, §16's carry), and every connection with
 `events` sees `peer.disconnected` with `reason_class: policy` (below). Until the Stage 22 release every revoke does this, the node holding one list; from that release the close, the dropped directory and the event come when the write removes the peer from the admission set, and a revoke that leaves it in another set does none of them (ADR-0067 decision 6, A 2026-11-19).
-Endpoint narrowing (`EndpointTrustPolicy`) is not reachable through these
-methods and is carried. Each set that reaches the runtime is recorded
+Endpoint narrowing (`EndpointTrustPolicy`) was not reachable through these
+methods until the Stage 22 release; from it the endpoint dimension below reaches it. Each set that reaches the runtime is recorded
 under the audit log target (`interweave::audit`: peer, `allowed`, its
 outcome, time) so trust changes can be audited (ADR-0012's consequence);
 the record is the composition's and binds every host (LOCAL-CLIENT.md
@@ -448,6 +449,17 @@ no round trip — as `admin.peers.list` is refused below 2.2 — because the
 gives. Their schemas, `trust-list-params`, `trust-list` and `trust-set-params`, were `approved`, and the method and capability enums carry their minor bumps (`ipc/method`
 1.1.0, `ipc/capability` 1.2.0, `ipc/request` 1.1.0), as every 2.0 shape
 did (plan §16 (3)); they flipped `active` with Stage 15's close (2026-10-06, with `ipc/path-changed`). Discovery and bootstrap administration still have no method; Stage 15's close carried them to the owner (plan §18's record, with ADR-0032's revisit).
+
+**The endpoint dimension** (IPC 3.0, ADR-0067 decision 6; built by Stage 22's trust batch). Without an `endpoint` member the two methods read and write the operator's list, as above and as before. With one they read and write that endpoint's own set, which lives in the endpoint overlay (`<state>/endpoint-overlay.json`, its per-endpoint `inbound` and `outbound` members, ADR-0028) and never in the operator's list:
+
+- `endpoint` is the EndpointId of a configured endpoint, authored or added, enabled or not — the set is configuration, as the lease is. A value outside the grammar is `InvalidArgument`; an id no entry holds is `EndpointUnknown`. The alias is not accepted: a client resolves it (`ENDPOINTS.md` §Configured endpoint set).
+- `admin.trust.set {endpoint, peer, allowed}` writes the peer into, or out of, BOTH members of that endpoint's overlay set: a trust act is the endpoint's in both directions, and the method has no way to write one alone. The refusals are the operator form's — the local peer, and a write after which the admission set would hold more than `MAX_ALLOWED_PEERS` peers, each `InvalidArgument`, audited `refused`, nothing written — and so are the no-op answers, the superseded refusal (keyed by the peer and the endpoint together, so a set for one endpoint never supersedes a set for another or for the operator's list), the write-before-publish order and its failure answers, which hold of the endpoint overlay as they hold of the trust overlay. The audit line carries the endpoint.
+- **The first write creates the set from what the endpoint admitted.** When the overlay carries no set for the endpoint, a set first copies the endpoint's effective set at that moment — per direction: an authored `static_subset` as it narrows the operator's list, else the operator's list — into the overlay's two members and then applies the change, in one overlay write. From that write the endpoint holds its own set: the operator's list no longer reaches it, and an endpoint-less call no longer changes what it admits. So giving an inheriting endpoint its first own entry never drops what it admitted the moment before.
+- `admin.trust.seed {endpoint}` does that copy alone, with no change after it, and answers `{outcome: seeded}`, or `{outcome: present}` with nothing written when the overlay already carries a set for the endpoint — an empty one included, which is what an added identity is given at its add. It is the human client's call at its first run on the Stage 22 release, for the authored first identity (ADR-0067 decision 6), and it is safe to repeat. Capability `admin.trust`; audited as a set is.
+- **What a write closes is decided by the admission set, not by the write** (ADR-0067 decision 6, A 2026-11-19): a peer's connections close, `peer.disconnected` with `reason_class: policy`, its cached directory dropped, when the write removes it from the last set that held it, the operator's or any endpoint's; a revoke for one endpoint that leaves the peer in another set closes nothing and takes effect at that endpoint's route, `no_route` to the peer from the write on. An allow for an endpoint admits the peer at the connection whether or not the operator's list holds it.
+- `admin.trust.list {endpoint, direction, after?}` answers one direction of the endpoint's effective set, `direction` being `inbound` or `outbound`, required with `endpoint` and refused `InvalidArgument` without it. The page, the order, the cursor and the row are the operator form's. An endpoint with an overlay set answers that member's peers, every row `administered` and `persisted: true`, the seeded ones included: after the seed the configuration no longer decides the set, and the row carries no origin of it. An endpoint with none answers what it admits as derived — an authored `static_subset`'s rows `configured`, an inheriting endpoint's the operator's rows with their own sources — so an operator reads what the endpoint admits before giving it a set. The answer's `set` member says which of the three it is, `own`, `authored` or `inherited`, and is present only on an endpoint answer; `local_peer` is absent from it.
+- Where the two members of an own set differ — an overlay seeded from an entry whose authored subsets differed, or written by hand — each direction applies as written, and the person's view (`human-client-ui.md`) is the peers both hold: a client shows a peer in one member alone as not trusted, and the trust act on it writes both.
+- `transportctl trust list|allow|revoke` take `--endpoint <alias or id>` for the same dimension, and `trust list --endpoint` prints both directions.
 
 ## Event catalogue
 
