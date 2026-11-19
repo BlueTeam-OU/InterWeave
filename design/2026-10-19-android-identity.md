@@ -2080,16 +2080,23 @@ scale would also be a finding of the Android review
         until it answers. Answered as started, the notice goes;
         answered `LockHeld`, the notice shows with Try again enabled.
         Where focus is after the recreation is not checked (§12).
-        Its foreground-only variant: the hook records whether Try
-        again's start was ended at the Home (the binding let go in
-        `onStop`, `MainActivity.kt`), and the run records what it
-        found. Ended: the hook records a second start at the return,
-        with the notice shown and Try again disabled until that start
-        answers, as in the first run. Not ended: the hook records no
+        Its foreground-only variant, as a host test: the test feeds
+        the end of Try again's start at the Home, as the host suite
+        feeds any start's end, and the hook records a second start at
+        the return, with the notice shown and Try again disabled
+        until that start answers, as in the first run. Whether Home
+        ends the start on a phone (the binding let go in `onStop`,
+        `MainActivity.kt`, which a host test does not run) is a device
+        run on the Pixel 9a, in foreground-only mode: Try again's
+        start is held unanswered by a debug-build hook, then Home and
+        a return; the run records whether the start was ended at the
+        Home, and that the hook records one start at most in flight.
+        Ended: a second start at the return, as above. Not ended: no
         start at the return, as with Stay reachable on, and the
         finding goes to the note's §6, whose foreground-only sentence
-        then no longer holds. In either case one start at most is in
-        flight.
+        then no longer holds. No debug-build hook can hold a start
+        unanswered on the device today, so this run is blocked, not
+        passed, until rust-ui-dev adds one.
       - Connect: with no address recorded, after R4's Continue (so
         Connect is owed and was deferred at the bound), Try again's
         start is answered as started and both reads answer empty
@@ -2103,7 +2110,8 @@ scale would also be a finding of the Android review
         Connect opens over Chats. In a third run, the test opens a
         conversation after the return and before the reads answer:
         Connect does not open, and stays owed.
-      These runs are host tests.
+      These runs are host tests, except the foreground-only device run
+      of the return runs.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
       key, and Enter does nothing. After typing "ab",
       Enter does nothing and Space does nothing, and after each the
