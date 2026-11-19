@@ -1007,3 +1007,283 @@ fn dispatch(page: &Page, text: slint::SharedString) {
     window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
     window.dispatch_event(WindowEvent::KeyReleased { text });
 }
+
+/// The page with `IdRestoreOther` raised on R3, the record naming another
+/// `PeerId`.
+fn at_r3_restore_other() -> IdentityFlow {
+    let recorded = TransportIdentity::parse("12D3KooW9xCm2jWjNVrwh51SWCQBMYdMyeU3NpT85QhLVkF6PcNM")
+        .expect("a PeerId");
+    let mut flow = at_r3();
+    apply_identity(&mut flow, IdentityInput::Primary);
+    flow.restored(Err(StepFailed::RestoreOther(recorded)));
+    flow
+}
+
+/// C4 with `IdStorageFailed` raised by its seal.
+fn at_c4_storage_failed() -> IdentityFlow {
+    let mut flow = at_c4();
+    apply_identity(&mut flow, IdentityInput::Primary);
+    flow.sealed(Err(StepFailed::Storage));
+    flow
+}
+
+/// Let time pass from `*now` to `at`, both counted from the snackbar's
+/// opening, and move `*now` there.
+fn until(now: &mut u64, at: u64) {
+    assert!(at >= *now, "time runs forward: {at} from {}", *now);
+    elapse(at - *now);
+    *now = at;
+}
+
+impl Page {
+    /// Enter on the focused control at `*now`, its settle counted.
+    fn enter_at(&mut self, now: &mut u64) {
+        self.enter();
+        *now += 20;
+    }
+
+    /// The root's held-start line (add-a-peer section 5.1), which the root
+    /// shows once the screen has been held 1 s: the test stands in for its
+    /// timer.
+    fn starting_shows(&mut self, now: &mut u64) {
+        self.flow.set_starting(true);
+        self.settle();
+        *now += 20;
+        assert!(
+            !identity_page(&self.flow).starting.is_empty(),
+            "control: ConnectStarting shows"
+        );
+    }
+}
+
+/// Acceptance 18 on R3: Enter on `IdR3Yes` 3 s after the snackbar opened,
+/// the restore unanswered, leaves it, and its time goes on: shown 2 s
+/// after the Enter, gone 4 s after it. Mutation: `ShownOn::still`
+/// comparing the primary's being enabled closes it at the Enter and fails
+/// here.
+#[test]
+fn r3s_yes_leaves_it_and_its_time_goes_on() {
+    let mut page = Page::new(at_r3());
+    page.copy();
+    let mut now = 20;
+    page.tab_to("identity-primary");
+    now += 20;
+    until(&mut now, 3_000);
+    page.enter_at(&mut now);
+    assert!(page.flow.waiting(), "control: the restore runs, unanswered");
+    until(&mut now, 5_000);
+    assert!(page.shown(), "2 s after the Enter");
+    until(&mut now, 7_000);
+    assert!(!page.shown(), "4 s after the Enter");
+}
+
+/// A screen's name, how to reach it, and the control that holds it.
+type HeldScreen = (&'static str, fn() -> IdentityFlow, &'static str);
+
+/// The screens whose primary holds the screen for a start, and the control
+/// pressed: C4's Continue (its seal unanswered), R4's Continue (its start
+/// unanswered), and R3's `IdRestoreOther` Continue inside the notice.
+fn held_screens() -> [HeldScreen; 3] {
+    [
+        ("C4", at_c4, "identity-primary"),
+        ("R4", at_r4, "identity-primary"),
+        (
+            "R3 IdRestoreOther",
+            at_r3_restore_other,
+            "identity-notice-action",
+        ),
+    ]
+}
+
+/// Acceptance 18's three runs beside `ConnectStarting`, on C4, on R4 and,
+/// the second and third, on R3 after `IdRestoreOther`'s Continue (the
+/// first applies to C4 and R4 only). First: Continue 5.5 s after the
+/// snackbar opened -- shown 0.2 s after, gone 0.7 s after, closed by its
+/// time before `ConnectStarting`. Second: Continue at 2 s -- it closes
+/// when `ConnectStarting` shows 1 s later, and the one announcement then
+/// is `ConnectStarting`'s. Third: nothing copied before Continue, a copy
+/// 1.5 s after it, while `ConnectStarting` shows -- the snackbar shows,
+/// `ConnectStarting` stays, and the one announcement is the snackbar's.
+/// Mutation: `ShownOn::still` ignoring `starting` keeps it past the line
+/// and fails the second run; counting any line shown as one that came,
+/// rather than one that was not there at the copy, closes a copy made
+/// under it and fails the third; `still` comparing the primary's being
+/// enabled closes it at the press and fails the first.
+#[test]
+fn beside_connect_starting() {
+    let said = text(UiText::PeerIdCopied);
+    let starting = text(UiText::ConnectStarting);
+    for (name, flow, pressed) in held_screens() {
+        if !name.starts_with("R3") {
+            let mut page = Page::new(flow());
+            page.copy();
+            let mut now = 20;
+            page.tab_to(pressed);
+            now += 20;
+            until(&mut now, 5_500);
+            page.enter_at(&mut now);
+            assert!(page.flow.start_held(), "{name}: control, held");
+            until(&mut now, 5_700);
+            assert!(page.shown(), "{name} 1: 0.2 s after Continue");
+            until(&mut now, 6_200);
+            assert!(!page.shown(), "{name} 1: 0.7 s after Continue");
+            until(&mut now, 6_500);
+            page.starting_shows(&mut now);
+            assert!(!page.shown(), "{name} 1: not back with the line");
+        }
+
+        let mut page = Page::new(flow());
+        page.copy();
+        let mut now = 20;
+        page.tab_to(pressed);
+        now += 20;
+        until(&mut now, 2_000);
+        page.enter_at(&mut now);
+        assert!(page.flow.start_held(), "{name}: control, held");
+        assert!(page.shown(), "{name} 2: the press leaves it");
+        until(&mut now, 3_000);
+        page.starting_shows(&mut now);
+        assert!(!page.shown(), "{name} 2: closed by the line");
+        assert_eq!(
+            page.slots().iter().filter(|s| *s == starting).count(),
+            1,
+            "{name} 2: the line said"
+        );
+        assert!(
+            !page.slots().iter().any(|s| s == said),
+            "{name} 2: the snackbar not said again"
+        );
+
+        let mut page = Page::new(flow());
+        page.tab_to(pressed);
+        let mut now = 0;
+        page.enter_at(&mut now);
+        assert!(page.flow.start_held(), "{name}: control, held");
+        until(&mut now, 1_000);
+        page.starting_shows(&mut now);
+        until(&mut now, 1_500);
+        page.copy();
+        assert!(page.shown(), "{name} 3: shown under the line");
+        assert!(
+            !identity_page(&page.flow).starting.is_empty(),
+            "{name} 3: the line stays"
+        );
+        assert_eq!(
+            page.slots().iter().filter(|s| *s == said).count(),
+            1,
+            "{name} 3: the snackbar said"
+        );
+        assert!(
+            !page.slots().iter().any(|s| s == starting),
+            "{name} 3: the line not said again"
+        );
+    }
+}
+
+/// Acceptance 18 on C4 with `IdStorageFailed`: a copy shows the snackbar
+/// and the notice stays; Try again 5.5 s after, the seal unanswered, leaves
+/// it -- shown 0.2 s after, gone 0.7 s after. In a second run, Try again 1 s
+/// after the copy, answered `IdStorageFailed` again 1 s later: the same
+/// notice is the result, so it closes the snackbar when it shows, and focus
+/// goes to the notice (sections 5 and 8). Mutation: `ShownOn::still`
+/// ignoring `notices_raised` keeps it past the second result and fails
+/// here.
+#[test]
+fn beside_a_notice_and_its_try_again() {
+    let mut page = Page::new(at_c4_storage_failed());
+    page.copy();
+    let mut now = 20;
+    assert!(page.shown(), "shown over the notice");
+    assert_eq!(
+        identity_page(&page.flow).notice,
+        text(UiText::IdStorageFailed),
+        "the notice stays"
+    );
+    page.tab_to("identity-primary");
+    now += 20;
+    until(&mut now, 5_500);
+    page.enter_at(&mut now);
+    assert!(page.flow.start_held(), "control: the seal runs again");
+    until(&mut now, 5_700);
+    assert!(page.shown(), "0.2 s after Try again");
+    until(&mut now, 6_200);
+    assert!(!page.shown(), "0.7 s after Try again");
+
+    let mut page = Page::new(at_c4_storage_failed());
+    page.copy();
+    let mut now = 20;
+    page.tab_to("identity-primary");
+    now += 20;
+    until(&mut now, 1_000);
+    page.enter_at(&mut now);
+    until(&mut now, 2_000);
+    assert!(page.shown(), "control: up until the result");
+    page.flow.sealed(Err(StepFailed::Storage));
+    page.settle();
+    assert!(!page.shown(), "the same notice, a result, closes it");
+    assert_eq!(page.focus(), "identity-banner", "focus to the notice");
+}
+
+/// A rotation 3 s after it opened (the window's size swapped) keeps it
+/// shown, 12 px above the actions, with no second announcement, and it
+/// closes 6 s after it opened (section 5). Mutation: `Copied::page_shown`
+/// closing it at every page shown, as the resize's settle shows one, fails
+/// here.
+#[test]
+fn a_rotation_keeps_it_and_its_time() {
+    let mut page = Page::sized(at_c4(), 360.0, 640.0);
+    page.copy();
+    let mut now = 20;
+    let said = page.slots();
+    until(&mut now, 3_000);
+    page.view
+        .window()
+        .window()
+        .set_size(slint::LogicalSize::new(640.0, 360.0));
+    page.settle();
+    now += 20;
+    assert!(page.shown(), "kept");
+    assert_eq!(page.slots(), said, "not said again");
+    let snack = Edges::of(&page.element("IdentityScreen::copied-snack"));
+    let primary = Edges::of(&page.button(text(UiText::IdContinue)));
+    assert!(
+        (primary.top - snack.bottom - 12.0).abs() < 0.5,
+        "12 above the actions: {} and {}",
+        snack.bottom,
+        primary.top
+    );
+    until(&mut now, 5_900);
+    assert!(page.shown(), "up until its time");
+    until(&mut now, 6_100);
+    assert!(!page.shown(), "closed 6 s after it opened");
+}
+
+/// On C4 and R4 as on R3: before a copy the scrolling area ends where it
+/// ends; while the snackbar shows, 12 px above it; once it closes, where
+/// it ended before (section 5): the R3 test's rule, on the other two
+/// screens.
+#[test]
+fn the_area_ends_above_it_and_where_it_was_after() {
+    for (name, flow) in [("C4", at_c4()), ("R4", at_r4())] {
+        let mut page = Page::sized(flow, 360.0, 640.0);
+        let flick = "IdentityScreen::page-flick";
+        let before = Edges::of(&page.element(flick));
+        page.copy();
+        assert!(page.shown(), "{name}: control");
+        let snack = Edges::of(&page.element("IdentityScreen::copied-snack"));
+        let area = Edges::of(&page.element(flick));
+        assert!(
+            (snack.top - area.bottom - 12.0).abs() < 0.5,
+            "{name}: the area ends 12 above it: {} and {}",
+            area.bottom,
+            snack.top
+        );
+        page.view.close_peer_id_copied();
+        page.settle();
+        let after = Edges::of(&page.element(flick));
+        assert!(
+            (after.bottom - before.bottom).abs() < 0.5,
+            "{name}: closed, the area ends where it did"
+        );
+    }
+}
