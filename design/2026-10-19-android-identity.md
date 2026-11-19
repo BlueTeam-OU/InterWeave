@@ -277,7 +277,10 @@ a read-back that keeps failing leads to: Back and a new restore on R3
 and on R2 after K1, which custody's restore makes safe, and a new
 launch on C4. Before, the read-back row said that a second restore
 could tell the person no more than a read-back. That was wrong for a
-record whose key opens nothing, which a restore seals over.
+record whose key opens nothing, which a restore seals over. §8's
+reason why an early press of `IdCheckWords` is safe no longer says
+that the check's result depends only on the words: after K1 it also
+depends on the record, and on whether a read-back is owed.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1308,11 +1311,13 @@ access.
   holds when a chip replaces a word while no position is empty, after
   an edit or after letters were typed with every position filled (§4
   item 2). There is no next position to type into, and checking is
-  the person's next step. Why an early press is safe: the check's result
-  depends only on the words. A failed check keeps every word (§6). A
+  the person's next step. Why an early press is safe: the check acts
+  only on the words entered and on the record already there, never
+  on when it was pressed. A failed check keeps every word (§6). A
   valid phrase goes to R3, which asks whether the PeerId is the one
   the person wrote down. After K1, a valid phrase restores only the
-  PeerId the record names (§3.4). So a second Enter pressed before
+  PeerId the record names (§3.4), and while a read-back is owed (§6,
+  the read-back row) it only reads back. So a second Enter pressed before
   the person meant to check loses nothing they would get by waiting. This is a
   hypothesis for the device run, falsified if a person who presses
   Enter twice does not expect the check.
