@@ -70,7 +70,12 @@ keep the label grammar in the store's readers) and no discard of the
 whole store (decision 6 seeds the first identity's trusted set so that
 a person keeps the counterparties they had). The discard deletes
 unread and kept content of key-less conversations, which ADR-0044
-holds durable; it is recorded as this record's exception, under the
+holds durable, and with it every pending row and unread card proposal
+(the review of this amendment's first text, #730 round 4, F1: a
+pending text carries its sender's label as `from_endpoint` and a card
+is signed over it, so the first text's "payload byte-identical" would
+have sent what a receiver drops) and the later of two rows that meet
+when two routes derive one id; it is recorded as this record's exception, under the
 owner's word of 2026-10-28 that no installed base exists and the ids
 are recreated, and RETENTION.md §7 names it as the only one. The
 first identity's key is the identity key it already held, ruled the
