@@ -287,7 +287,9 @@ list. Its recreation variant now says what the recreated window shows
 and what each answer does, and its foreground-only variant records
 whether Home ended the start, with what each finding requires. Before,
 that variant took the end of the start from add-a-peer §5.1 and did
-not observe it.
+not observe it. §6 now says when Connect's count of openings begins
+for a start retried at a return or a recreation: at that return or
+recreation. Before, it said so only for Try again's start.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1116,7 +1118,14 @@ Q12).
   (`design/2026-10-22-add-a-peer.md` §5.1, the bound). So Connect
   stays owed when it was owed, and stays not owed after
   `IdAlreadyCreated`'s or `IdRestoreOther`'s Continue, which write no
-  connect-owed marker.
+  connect-owed marker. A start retried at a return or a recreation
+  (above) is a later start too, as Try again's is: for an owed
+  Connect, its count of openings begins at the return or the
+  recreation that made it, and the 10 s from that start's success
+  (`design/2026-10-22-add-a-peer.md` §5.1, A launch with Connect
+  still owed). Why: the person is on Chats or a conversation again,
+  and what they opened before leaving was opened before this start
+  was made.
 
 ## 7. Leaving, Back and interruptions
 
@@ -2067,7 +2076,14 @@ scale would also be a finding of the Android review
         start is answered as started and both reads answer empty
         within 10 s of that success, with nothing opened from Chats
         since the press: Connect opens over Chats, with focus on its
-        heading.
+        heading. In a second run, with Stay reachable on, the test
+        opens a conversation, goes back to Chats, then sends the app
+        to the background and back; the start retried at the return
+        is answered as started and both reads answer empty within
+        10 s of that success, with nothing opened since the return:
+        Connect opens over Chats. In a third run, the test opens a
+        conversation after the return and before the reads answer:
+        Connect does not open, and stays owed.
       These runs are host tests.
     - A newly opened R2 or C3 has focus on the keypad's first enabled
       key, and Enter does nothing. After typing "ab",
