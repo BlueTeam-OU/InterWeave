@@ -128,7 +128,7 @@ What to actually do, in order:
 - **Grep for the old behaviour's distinctive words**, not for the filename you edited. `grep -rn 'is answered \`overloaded\`' architecture/ crates/` found two stale claims a review had not named.
 - **Include comments, ADR history notes, `README`/`IMPLEMENTATION` status prose, contract text and plan sections.** A comment is prose that ships; an ADR history note written in the present tense becomes false the moment the behaviour it describes is fixed, and it is the one document a future reader trusts to say what was true *then*.
 - **Prefer past tense for a defect an amendment responds to.** "As this gap was found, X was answered Y" stays true forever; "X is answered Y" is false as soon as it is fixed — often in the same commit series.
-- **A pair is not always two files.** The waiter comment and the code it described were forty lines apart in one file.
+- **A pair is not always two files.** A comment and the branch it described were forty lines apart in one file.
 
 ### Fixtures vs test data
 
