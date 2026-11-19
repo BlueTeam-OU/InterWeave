@@ -414,8 +414,7 @@ fn c4s_continue_leaves_it_and_its_time_goes_on() {
 }
 
 /// What the seal's or the restore's result shows closes it (section 5):
-/// on C4 `IdVoidPaper` (`IdAlreadyCreated` in the design), which hides Copy
-/// too, and `IdBusy`; on R3 `IdStorageFailed`. A notice raised again with
+/// on C4 `IdAlreadyCreated`, which hides Copy too, and `IdBusy`; on R3 `IdStorageFailed`. A notice raised again with
 /// the text it showed closes it as well. Mutation: `ShownOn::still`
 /// ignoring the notice fails every case.
 #[test]
@@ -834,9 +833,11 @@ fn already_created_takes_the_copy_off_the_clipboard() {
 /// Acceptance 18's second clipboard run, as far as it can be built: C2's
 /// `PeerId` page is not built, so its copy is stood in for by the press's
 /// callback while C4 shows, with nothing copied by C4's own Copy -- the
-/// removal counts a copy of that `PeerId` whichever screen made it. Run 2
-/// as written waits on C2's page. Mutation: `void_shown` ignoring a copy
-/// its Copy press did not make would fail here.
+/// removal counts a copy of that `PeerId` whichever screen made it. That
+/// callback is the one C4's Copy reaches too, so until C2's page exists
+/// this run proves nothing beyond the first run's
+/// (`already_created_takes_the_copy_off_the_clipboard`); run 2 as written
+/// waits on C2's page.
 #[test]
 fn a_copy_of_that_peer_id_from_another_screen_counts() {
     for feedback in FEEDBACKS {
