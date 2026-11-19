@@ -138,7 +138,7 @@ Evaporates:
 
 Restart reconstructs the visible conversation only from the surviving sets plus new live events. It does not ask the daemon/network for historical replay.
 
-One migration is outside this section (A 2026-11-19, ADR-0067 decision 7): the store migration of the Stage 22 release discards the unread and kept rows of a direct conversation whose remote endpoint recorded no key, the later of two inbound rows that meet when two routes prove to be one identity, every unread contact-card proposal, and every pending outbound row — a payload encoded under the label grammar would be accepted by the transport and dropped by a receiver on that release, so it is not resent — all counted and said once to the person (STATE.md §Migrations, schema v14 (c) to (e)). No other migration discards a row this contract holds.
+One migration is outside this section (A 2026-11-19, ADR-0067 decision 7): the store migration of the Stage 22 release discards the unread and kept rows of a direct conversation whose remote endpoint recorded no key, the second copy of a message where two copies meet because two routes prove to be one identity (which copy stays is STATE.md's schema v14 (d)), every unread contact-card proposal, and every pending outbound row — a payload encoded under the label grammar would be accepted by the transport and dropped by a receiver on that release, so it is not resent — all counted and said once to the person (STATE.md §Migrations, schema v14 (c) to (e)). No other migration discards a row this contract holds.
 
 ## 8. Security/privacy invariants
 
