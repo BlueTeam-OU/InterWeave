@@ -711,7 +711,7 @@ async fn a_source_past_its_pre_auth_rate_is_refused_before_noise() {
     // gate was consulted from `handle_pending_inbound_connection`, the
     // whole `preauth` module was a state machine nothing called -- the
     // exact shape this repository has shipped before and the reason
-    // CLAUDE.md says a claim owes a test.
+    // AGENTS.md says a claim owes a test.
     //
     // Two starts per window from one bucket, then a third from the same
     // bucket. Every peer here is on 127.0.0.1, which is one bucket by

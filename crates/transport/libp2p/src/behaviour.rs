@@ -7,7 +7,7 @@
 //! protocol that starts doing things on its own — Kademlia dials to fill
 //! buckets, the AutoNAT SERVER dials back, Relay renews reservations —
 //! and each of those is an outbound dial that must already be passing
-//! the root admission gate before it exists (CLAUDE.md §3). (The AutoNAT
+//! the root admission gate before it exists (AGENTS.md §3). (The AutoNAT
 //! CLIENT is not on that list: a probe is a request over a connection
 //! already open, and it emits no dial — the libp2p-connectivity skill, pinned against the
 //! vendored source by `tests/autonat_client_retest.rs`.) Kademlia is here NOW
@@ -189,7 +189,7 @@ pub struct SubstrateBehaviour {
     /// The gate every outbound dial passes, including a behaviour's.
     ///
     /// Present before any behaviour that dials exists, which is the
-    /// order CLAUDE.md §3 requires: the funnel is green first, and
+    /// order AGENTS.md §3 requires: the funnel is green first, and
     /// Kademlia is added to a Swarm that already refuses an
     /// unadmitted dial.
     ///
@@ -213,7 +213,7 @@ pub struct SubstrateBehaviour {
     /// dials when a caller sends to a peer it is not connected to, so it
     /// is added to a Swarm where `outbound` already refuses an unadmitted
     /// dial and `preauth` already answers before Noise — the ordering
-    /// CLAUDE.md §3 requires, and the reason Stage 5 had to be green
+    /// AGENTS.md §3 requires, and the reason Stage 5 had to be green
     /// before this field could exist at all.
     pub direct: ClassGated<request_response::Behaviour<DirectCodec>>,
     /// Signed broadcast, GossipSub over hashed topics.

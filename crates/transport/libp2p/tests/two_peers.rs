@@ -203,7 +203,7 @@ async fn shutdown_is_awaited_and_the_task_really_ends() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_dial_the_policy_refuses_never_opens_a_socket() {
     // The gate is wired from the first line of substrate code, not
-    // retrofitted (CLAUDE.md §3). A refusal here costs no connection
+    // retrofitted (AGENTS.md §3). A refusal here costs no connection
     // attempt at all, which is the reason to check before dialling
     // rather than after failing.
     //

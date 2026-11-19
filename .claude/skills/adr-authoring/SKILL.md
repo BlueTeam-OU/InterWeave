@@ -26,7 +26,7 @@ The model is ADR-0048; the section structure is [`architecture/adr/ADR-TEMPLATE.
 
 **No invented facts.** If a constraint or trade-off was not supplied, do not guess it. State it as an explicit assumption inside the ADR and surface it in your reply so it can be confirmed or corrected.
 
-**No external-project citations.** Do not name an unrelated external project, in the ADR or in the commit message (`CLAUDE.md` §7). InterWeave ADRs stand on their own.
+**No external-project citations.** Do not name an unrelated external project, in the ADR or in the commit message (`AGENTS.md` §7). InterWeave ADRs stand on their own.
 
 **Write the security section honestly.** "None directly" is a legitimate answer — say it and say why. An empty section is not.
 
@@ -83,4 +83,4 @@ The first compares against the merge-base with `origin/main`, so fetch it first;
 
 ## When a spike or implementation disproves an ADR
 
-Do not code around it and do not leave the ADR standing. Update the ADR or contract in the **same change** that acts on the new behaviour (`CLAUDE.md` §2) — an accepted document that the code contradicts is worse than no document, because the next reader trusts it.
+Do not code around it and do not leave the ADR standing. Update the ADR or contract in the **same change** that acts on the new behaviour (`AGENTS.md` §2) — an accepted document that the code contradicts is worse than no document, because the next reader trusts it.

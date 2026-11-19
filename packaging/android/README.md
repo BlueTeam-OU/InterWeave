@@ -102,7 +102,7 @@ a further job starts each program in a clean image of it
 ## The signing key
 
 The owner's, never in the repository, a CI log or an artifact
-(`CLAUDE.md` §6, `RELEASE.md` "Signing"). It lives in the `release`
+(`AGENTS.md` §6, `RELEASE.md` "Signing"). It lives in the `release`
 environment of `.github/workflows/release.yml`, whose `sign` job alone
 reads it and builds nothing. The script reads it as environment
 variables and hands the passwords to `apksigner` as `env:` references,

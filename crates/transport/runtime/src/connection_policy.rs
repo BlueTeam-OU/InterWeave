@@ -41,7 +41,7 @@ pub const IDENTITY_MISMATCH_QUARANTINE_MS: u64 = 30 * 60 * 1000;
 ///
 /// Generous, because the cost of an entry is small and the cost of
 /// forgetting a quarantine is not. The bound exists so the map cannot
-/// grow with the number of addresses an adversary can name — CLAUDE.md
+/// grow with the number of addresses an adversary can name — AGENTS.md
 /// section 6 requires every map here to be bounded, and this one was not.
 pub const DEFAULT_MAX_ADDRESS_ENTRIES: usize = 8_192;
 

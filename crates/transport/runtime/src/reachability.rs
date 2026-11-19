@@ -250,7 +250,7 @@ impl std::error::Error for RefusedReport {}
 /// state`] is the one place the two are mapped. An earlier version of
 /// this module declared its own `DirectInboundState` with a hand-written
 /// `summary_word` returning string literals, which is a second copy of a
-/// normative vocabulary with nothing comparing them -- CLAUDE.md §7's
+/// normative vocabulary with nothing comparing them -- AGENTS.md §7's
 /// "avoid duplicating normative constants … unless there is a drift
 /// check". Review finding on PR #84.
 ///

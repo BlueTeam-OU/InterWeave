@@ -1957,7 +1957,7 @@ mod tests {
         assert_eq!(bytes.len(), 38);
         // LITERALS, not the module's own constant: a test that compares
         // against ED25519_ENVELOPE agrees with any mutation of it for
-        // free — the self-referential trap CLAUDE.md's testing rule
+        // free — the self-referential trap AGENTS.md's testing rule
         // names. These six bytes are the identity-multihash envelope as
         // the spec fixes it, written out independently.
         assert_eq!(bytes[..6], [0x00, 0x24, 0x08, 0x01, 0x12, 0x20]);

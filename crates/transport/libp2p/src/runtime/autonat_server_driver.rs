@@ -12,7 +12,7 @@
 //!   dial-back -- the one dial AutoNAT v2 makes, and the SERVER's
 //!   (`v2/server/behaviour.rs:124`) -- reaches the outbound gate under
 //!   the origin `AUTONAT.md` §7 names, and is admitted or refused by
-//!   the root policy like every other behaviour dial. This is CLAUDE.md
+//!   the root policy like every other behaviour dial. This is AGENTS.md
 //!   §1's ROUTE 1, reached for the first time by this step;
 //! - [`ClassGated`] for the CONNECTIVITY-INFRASTRUCTURE service, so the
 //!   dial-request protocol is offered to `DataPlaneTrusted` and

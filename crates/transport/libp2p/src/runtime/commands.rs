@@ -212,7 +212,7 @@ pub(super) fn handle_command(
                             // that refuses a topic, the installed filter
                             // never refuses, and this comment said so
                             // instead of pointing at a test -- which is the
-                            // shape CLAUDE.md section 4 exists to stop. As a
+                            // shape AGENTS.md section 4 exists to stop. As a
                             // method it is reachable, and
                             // `only_an_unheld_channel_loses_its_mapping_on_refusal`
                             // fails if the condition goes. THAT TEST DOES
@@ -776,7 +776,7 @@ pub(super) fn handle_command(
             reply,
         } => {
             // THE SOURCE ENDPOINT IS THE LEASE'S, and the frame's own field
-            // is REPLACED rather than checked. CLAUDE.md §5: source
+            // is REPLACED rather than checked. AGENTS.md §5: source
             // EndpointId is derived from the local lease, never trusted
             // from the caller — and a comparison would still make the field
             // caller-meaningful, since the caller would learn which values

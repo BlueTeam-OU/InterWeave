@@ -422,7 +422,7 @@ async fn an_infrastructure_only_peer_gets_a_connection_established_before_it_is_
     // (`dialing.rs`), which asks under `DialOrigin::Manual`.
     //
     // **There is an unresolved tension here and it is named rather than
-    // decided** (CLAUDE.md §2). `transport/libp2p/CONNECTIVITY.md`'s
+    // decided** (AGENTS.md §2). `transport/libp2p/CONNECTIVITY.md`'s
     // protocol matrix gives Identify and bounded ping a `yes` in the
     // infrastructure-only column, and ADR-0036 opens a clause with "on
     // an established infrastructure-only connection:". Both describe a

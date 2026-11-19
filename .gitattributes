@@ -55,7 +55,7 @@ fixtures/** -text
 *.keystore binary
 
 # Key-container formats. Production material never lands here (see
-# CLAUDE.md §6); labelled test-only vectors under fixtures/ do.
+# AGENTS.md §6); labelled test-only vectors under fixtures/ do.
 *.p12 binary
 *.pfx binary
 

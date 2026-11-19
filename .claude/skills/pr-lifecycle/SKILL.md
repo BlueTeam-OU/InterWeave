@@ -1,18 +1,18 @@
 ---
 name: pr-lifecycle
-description: Taking a change from a fresh branch to a merged PR in the InterWeave repository — the working, integration, opening, landing and follow-up phases, plus concurrent-session and subagent-dispatch rules. Use whenever you are about to commit, push, open a PR, arm a merge, or answer review findings. For where a branch comes from and when a security-boundary change must wait for review, CLAUDE.md §9 keeps those; they are needed before you know this skill applies.
+description: Taking a change from a fresh branch to a merged PR in the InterWeave repository — the working, integration, opening, landing and follow-up phases, plus concurrent-session and subagent-dispatch rules. Use whenever you are about to commit, push, open a PR, arm a merge, or answer review findings. For where a branch comes from and the review every PR waits for before it is armed, AGENTS.md §9 keeps those; they are needed before you know this skill applies.
 ---
 
 # Landing a change
 
-`CLAUDE.md` §9 carries what a session needs *before* it knows this skill
+`AGENTS.md` §9 carries what a session needs *before* it knows this skill
 applies: the branch-per-batch rule and its five orientation steps, the fact
-that nothing prompts before code lands, and the requirement that a
-security-boundary change wait for review. This skill is the rest.
+that nothing prompts before code lands, and the requirement that every PR
+wait for its review. This skill is the rest.
 
 ## The phases
 
-Phase 1 — starting a task — is in `CLAUDE.md` §9, because you need it
+Phase 1 — starting a task — is in `AGENTS.md` §9, because you need it
 before you are anywhere near a PR.
 
 **Phase 2 — working**
@@ -54,14 +54,14 @@ terms that rode in with copied material.
 17b. fabric-pr post-review <n> <<'EOF' … EOF   # post it at the head; fabric-pr review-status counts it
 17c. fabric-pr review-status <n>            # blind reviews against the CURRENT head; unresolved threads
 18.  fabric-pr arm <n> --basis "<why>"   # ONLY when done; never `gh pr merge --auto` by hand —
-                                #   fabric-pr arm applies the gates of CLAUDE.md §9 (review, threads,
+                                #   fabric-pr arm applies the gates of AGENTS.md §9 (review, threads,
                                 #   or architect-cto's --waiver for those two — and, under eight, the owner's word) before it arms.
 19.  fabric-pr wait-merged <n> &      # background; its exit is the callback
 ```
 
 **17a is the review, and 17b is what makes it count** — a review that is
 not posted at the head is coverage of nothing, and `fabric-pr review-status`
-reads the posted object, not the transcript; CLAUDE.md §9 says why the
+reads the posted object, not the transcript; AGENTS.md §9 says why the
 session dispatches it (the automated reviewer this repository once asked
 for by comment is retired; the section there keeps the record). **18 sits
 below them deliberately**: arming is standing consent, so it belongs after
@@ -157,14 +157,14 @@ What makes that safe is that each batch is a separate branch off fresh
 `origin/main`, so concurrent batches share nothing but the base. The two
 rules that keep it that way — partition by FILE SET rather than intent, and
 a task depending on another waits for it to be MERGED — are start-of-task
-decisions, so they live in `CLAUDE.md` §9 where they are loaded before you
+decisions, so they live in `AGENTS.md` §9 where they are loaded before you
 choose the work.
 
 Within one branch, the old rule stands: if the work belongs to the batch
 the branch is for, it is another commit on it, not a second PR. "Different
 concerns", "different packages" and "different root causes" are commit
 boundaries, satisfied by committing separately. So is "a different small
-task": a PR is a review unit, and `CLAUDE.md` §9 sets the floor at eight
+task": a PR is a review unit, and `AGENTS.md` §9 sets the floor at eight
 work commits before arming without a fresh ask — two small pieces of work
 ready at the same time are one PR, not two (the owner, 2026-09-19). A
 batch past about sixteen is landed and the rest starts a new batch, not
@@ -189,7 +189,7 @@ dequeue. Confirm `mergeQueueEntry` reads null afterwards, push the fix,
 have the new range reviewed, then `fabric-pr arm` again. Pushing to an armed
 or queued PR does both for you: `disarm-on-push.yml` takes off an arming
 older than the push and any queue entry older than the push or made by
-such an arming, then everything present while it runs, and comments on the PR (CLAUDE.md
+such an arming, then everything present while it runs, and comments on the PR (AGENTS.md
 §9, "Never race your own CI"). Arm again only once the pushed range is
 reviewed.
 
@@ -201,7 +201,7 @@ different hosts. **Isolation is required**, and the model is **one full
 
 - **Your starting directory is yours exclusively**, and the rule for what
   to do when it is not — stop and report, never reset — lives in
-  `CLAUDE.md` §9 beside the `reset --hard` it guards, because that step
+  `AGENTS.md` §9 beside the `reset --hard` it guards, because that step
   runs at task start and this skill loads later.
 - **Never push to, rebase, or delete a branch another session created.**
   The `<host>/<login>/…` prefix tells you whose it is (older branches carry the clone directory there; the forwarded tools read both). Same for their PRs:
@@ -250,7 +250,7 @@ class table does not pin. It states why at the moment of the call, so
 those rules are not restated here. **The review class is exempt from
 both the isolation requirement and the premium-model prompt** — a
 review writes nothing, so it reads the session tree with no worktree,
-and `fable` is standing for it (`CLAUDE.md` §9). That exemption is
+and `fable` is standing for it (`AGENTS.md` §9). That exemption is
 narrow on purpose, and a review must be NAMED to get it, all four at
 once: `subagent_type: "code-review"`, a description that BEGINS with
 `review` or `re-review`, `model: "fable"`, and no `isolation`. Each
@@ -275,7 +275,7 @@ answered by the user, not by the rule. So:
   needs no per-dispatch authorisation: every review is a `code-review`
   dispatch on `fable`, the alias the class rides — the one on every
   finished head, one that judges a finding, a re-review, or an audit of
-  merged code. `CLAUDE.md` §9 carries
+  merged code. `AGENTS.md` §9 carries
   the rule and why — a review's failure mode is not a retry, it is a
   green PR that merges.
 - **Choose the cheapest tier that can do the job**: `haiku` for mechanical,
