@@ -616,7 +616,7 @@ impl Root {
             carried.remember(&self.side);
             drop(carried);
             crate::onboard::start_decided();
-        } else if self.side.start_decided(asked_at) {
+        } else if self.side.start_decided(asked_at) && !crate::onboard::flow_answers_refusal() {
             crate::onboard::start_decided();
         }
     }

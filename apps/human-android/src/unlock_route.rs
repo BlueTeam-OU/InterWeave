@@ -141,6 +141,17 @@ impl UnlockRoute {
     }
 }
 
+/// Who raises the prompt for a start refused for the person, once the
+/// route decided `route`: a held C4's or R4's start the flow asked
+/// (`flow_asked`) is the flow's to prompt for over that screen, which
+/// stays held until the prompt answers (design section 6, Seal running);
+/// any other route -- the notice, nothing, a prompt already asked --
+/// is carried out as for any refused start, and the held screen is then
+/// decided by it.
+pub(crate) const fn flow_prompts(flow_asked: bool, route: Route) -> bool {
+    flow_asked && matches!(route, Route::Prompt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,5 +295,19 @@ mod tests {
         route.asked();
         route.shown(false);
         assert_eq!(route.refused(), Route::Nothing);
+    }
+
+    /// Only a held screen's own start, refused where the route would
+    /// prompt, prompts over that screen: a refusal the route answers with
+    /// the notice, nothing or a prompt already asked is the route's, so a
+    /// second prompt is never raised beside the first (#578 review 5).
+    /// Mutations: dropping either operand of the conjunction fails here.
+    #[test]
+    fn a_held_screens_refused_start_prompts_over_it_only_when_the_route_would() {
+        assert!(flow_prompts(true, Route::Prompt));
+        assert!(!flow_prompts(false, Route::Prompt), "not the flow's start");
+        for route in [Route::Notice, Route::Nothing, Route::Asked] {
+            assert!(!flow_prompts(true, route), "{route:?} is the route's");
+        }
     }
 }
