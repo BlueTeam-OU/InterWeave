@@ -953,3 +953,57 @@ fn a_removal_waiting_at_the_end_is_dropped() {
     assert_eq!(board.holds().as_deref(), Some(mine().as_str()), "stays");
     assert_eq!(board.describes(), 0, "nothing asked");
 }
+
+/// While the progress state shows, `CopyPeerId` copies nothing by Enter,
+/// Space, a screen reader's activate or a tap, shows no snackbar, and is
+/// drawn disabled, keeping its stop (section 5). C4's own progress state
+/// is not built, so the view's rule is held on a page given one.
+/// Mutation: Copy's `enabled-action` left true copies at the first press
+/// and fails here.
+#[test]
+fn copy_copies_nothing_under_the_progress_state() {
+    let board = Rc::new(Board::default());
+    let mut page = Page::new(at_c4());
+    page.view.set_peer_id_clipboard(Rc::clone(&board) as Rc<_>);
+    page.tab_to("identity-copy");
+    let mut busy = identity_page(&page.flow);
+    busy.waiting = text(UiText::IdGoingOffline).into();
+    page.view.show_identity(Some(busy.clone()));
+    let _ = ElementHandle::find_by_accessible_label(page.view.window(), "q").count();
+    assert_eq!(
+        page.focus(),
+        "identity-copy",
+        "control: Copy keeps its stop"
+    );
+    let copy = page.button(text(UiText::CopyPeerId));
+    assert_eq!(copy.accessible_enabled(), Some(false), "drawn disabled");
+    for press in ["enter", "space", "activate", "tap"] {
+        match press {
+            "enter" => dispatch(&page, slint::platform::Key::Return.into()),
+            "space" => dispatch(&page, " ".into()),
+            "activate" => copy.invoke_accessible_default_action(),
+            _ => copy.mock_single_click(slint::platform::PointerEventButton::Left),
+        }
+        page.view.show_identity(Some(busy.clone()));
+        elapse(20);
+        assert_eq!(board.asked(), [], "{press}: nothing copied");
+        assert!(!page.shown(), "{press}: no snackbar");
+        assert_eq!(page.slots(), ["", ""], "{press}: nothing said");
+    }
+    page.view.show_identity(Some(identity_page(&page.flow)));
+    let _ = ElementHandle::find_by_accessible_label(page.view.window(), "q").count();
+    assert_eq!(
+        page.button(text(UiText::CopyPeerId)).accessible_enabled(),
+        Some(true),
+        "control: enabled without it"
+    );
+}
+
+/// A key pressed and released on the window, with no settle: the page is
+/// shown by the test as it wants it.
+fn dispatch(page: &Page, text: slint::SharedString) {
+    use slint::platform::WindowEvent;
+    let window = page.view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text });
+}

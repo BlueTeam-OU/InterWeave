@@ -3144,6 +3144,10 @@ component IdentityScreen inherits FocusScope {
                                     self.absolute-position, self.width, self.height);
                             }
                             focus-wanted: root.want-seg == 0 && root.want-idx == root.copy-idx();
+                            // Under the progress state nothing under it presses,
+                            // Copy included, and it never looks enabled then
+                            // (section 5); it keeps its stop.
+                            enabled-action: root.page.waiting == "";
                             pressed => { root.typing = false; root.copy(root.page.peer-id); }
                             focused(k) => { root.took(k, 0, root.copy-idx()); }
                             // The snackbar shrinks the area above it: Copy
