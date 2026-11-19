@@ -13,18 +13,18 @@
 # `workspace.metadata.interweave.status` in the root Cargo.toml is the
 # single source of truth, in the form `stage-<N>-<slug>`. Three prose
 # copies of that fact live in README.md, IMPLEMENTATION.md, and
-# CLAUDE.md, and all three drifted: after Stage 2 merged, every one of
+# AGENTS.md (CLAUDE.md before 2026-11-19), and all three drifted: after Stage 2 merged, every one of
 # them still said "Stage 0 complete, Stage 1 open", and the Cargo.toml
 # comment sitting directly above the status field contradicted the field
 # it annotated.
 #
-# That matters more here than in most repositories, because CLAUDE.md
+# That matters more here than in most repositories, because AGENTS.md
 # section 3 makes the open stage an authorization boundary: an agent or a
 # contributor reads the status, concludes which packages may be created,
 # and builds the wrong thing. A stale status is not a documentation nit,
 # it is a wrong instruction.
 #
-# Two checks:
+# Three checks:
 #
 #   OPEN     — each file states the CURRENT stage as open. A file that
 #              names a different stage as open fails, whichever direction
@@ -33,6 +33,10 @@
 #              manifest is the roster; a sentence enumerating it goes
 #              stale the moment a stage opens, which is exactly how the
 #              last drift happened.
+#   STUB     — CLAUDE.md, while it exists, is the one-line `@AGENTS.md`
+#              import and nothing else. It is the file Claude Code loads,
+#              so a CLAUDE.md that grows text of its own is a second
+#              instruction file this guard would not read.
 #
 # Options:
 #   --root <dir>   check this repository instead of the one containing
@@ -82,7 +86,7 @@ problems=0
 report() { printf '%s\n' "$*"; problems=$((problems + 1)); }
 
 # Files that state the open stage in prose.
-FILES="README.md IMPLEMENTATION.md CLAUDE.md"
+FILES="README.md IMPLEMENTATION.md AGENTS.md"
 
 for rel in $FILES; do
   f="$ROOT/$rel"
@@ -145,7 +149,7 @@ members="$(awk '
 if [ -n "$members" ]; then
   count="$(printf '%s\n' "$members" | wc -l | tr -d ' ')"
   EMPTY_CLAIM='no production Rust (crates|implementation)|workspace skeleton only|remains an architecture/skeleton repository'
-  for rel in README.md IMPLEMENTATION.md CLAUDE.md Cargo.toml; do
+  for rel in README.md IMPLEMENTATION.md AGENTS.md Cargo.toml; do
     f="$ROOT/$rel"
     [ -f "$f" ] || continue
     hit="$(grep -Eoi "$EMPTY_CLAIM" "$f" | head -1 || true)"
@@ -153,6 +157,20 @@ if [ -n "$members" ]; then
       report "$rel: says \"$hit\" while [workspace].members holds $count production package(s)"
     fi
   done
+fi
+
+# STUB — CLAUDE.md stays an import of AGENTS.md until every login loads
+# AGENTS.md itself (the owner's word of 2026-11-19); then it is removed,
+# and an absent CLAUDE.md passes. Blank lines and trailing spaces aside,
+# its whole content must be the import line: any other line is prose the
+# checks above never read.
+STUB="$ROOT/CLAUDE.md"
+if [ -f "$STUB" ]; then
+  extra="$(sed 's/[[:space:]]*$//' "$STUB" | grep -v '^$' | grep -vx '@AGENTS\.md' || true)"
+  imports="$(sed 's/[[:space:]]*$//' "$STUB" | grep -cx '@AGENTS\.md' || true)"
+  if [ -n "$extra" ] || [ "$imports" != 1 ]; then
+    report "CLAUDE.md: must be the one line @AGENTS.md while it exists; AGENTS.md is the instruction file"
+  fi
 fi
 
 # The comment above the status field must not contradict it either. This
