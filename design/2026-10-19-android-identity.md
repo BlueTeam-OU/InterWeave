@@ -272,7 +272,11 @@ the read-back owed outlives the notice. Before, the read-back row
 spoke of "an edit that removes the notice" while no rule said whether
 an edit removed one. §6 now names the two inputs that make an edit, a
 grid position chosen and a chip taken, and says that each names in §8
-where focus goes, so focus never stays on a removed notice. The
+where focus goes, so focus never stays on a removed notice. §2 now
+says that the flows run in the app's own Activity, as the custody and
+human-client-ui texts have said since 2026-10-19 (rust-ui-dev-01's
+REPLY 01a1f355). Before, it kept the first wording, a separate Activity
+excluded from Recents. The
 read-back owed on R2 after K1 now lasts as long as the words do,
 through a rotation, a return and a recreation (§6). §6 now says what
 a read-back that keeps failing leads to: Back and a new restore on R3
@@ -354,7 +358,14 @@ and 01a1674b). Where
   is the PeerId in that sense.
 
 - `FLAG_SECURE` for as long as words are shown or entered. The flows
-  run in their own non-exported Activity, excluded from Recents.
+  run in the app's own Activity, whose window sets `FLAG_SECURE` before
+  the first word, and from Android 13 turns off its Recents screenshot
+  (`android-key-custody.md` and `human-client-ui.md`, amended
+  2026-10-19: a separate Activity excluded from Recents was the first
+  wording and stays allowed). So the flow's task is listed in Recents,
+  with no content. A swipe there ends the task and, with no service
+  running, likely the process, so the words are lost as at process
+  death (§7); that is not checked on a device.
 - No clipboard path for words, in either direction. Long-press on a
   word does nothing. The PeerId is public and stays copyable
   (`human-client-ui.md` §11).
