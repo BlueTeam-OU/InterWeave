@@ -7,8 +7,8 @@
 # Detect SEMANTIC collisions between parallel contributions that a
 # textually-clean git merge cannot flag.
 #
-# Sessions coordinate only through `origin` (CLAUDE.md §Concurrent
-# sessions) and allocate sequence numbers independently, so two branches
+# Sessions coordinate only through `origin` (the pr-lifecycle skill's concurrent-
+# session rules) and allocate sequence numbers independently, so two branches
 # can each mint the same ADR number in DIFFERENT files, or write the
 # byte-identical heading into the same file, and merge with zero
 # conflicts — the merged tree is broken while git reports success.
@@ -62,7 +62,7 @@ fabric="$(interweave_fabric_root "$here")"
 target="$fabric/tools/fabric/github/semantic_collisions.py"
 rules="$fabric/projects/interweave/integration/gh/collisions.json"
 [[ -f "$target" && -f "$rules" ]] || {
-    echo "scan_semantic_collisions: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/semantic_collisions.py and InterWeave's collisions.json); set AGENT_FABRIC_ROOT or update it. See CLAUDE.md §9, agent-fabric beside the checkout." >&2
+    echo "scan_semantic_collisions: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/semantic_collisions.py and InterWeave's collisions.json); set AGENT_FABRIC_ROOT or update it. See AGENTS.md §9, agent-fabric beside the checkout." >&2
     exit 2
 }
 # The rules are named rather than found from the working copy's remote: a

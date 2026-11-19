@@ -74,7 +74,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fabric="$(interweave_fabric_root "$here")"
 target="$fabric/tools/fabric/github/workflows_lint.py"
 [[ -f "$target" ]] || {
-    echo "check_workflows_lint: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/workflows_lint.py); set AGENT_FABRIC_ROOT or update it. See CLAUDE.md §9, agent-fabric beside the checkout." >&2
+    echo "check_workflows_lint: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/workflows_lint.py); set AGENT_FABRIC_ROOT or update it. See AGENTS.md §9, agent-fabric beside the checkout." >&2
     exit 2
 }
 # InterWeave's name for the cache (CI's step sets it) under the fabric's;
