@@ -1721,12 +1721,14 @@ landscape:
     runs again; cancelled, `IdStorageUnknown` shows with focus on it,
     and C4's primary is Try again, not Continue. A restore answered
     `OldKeyRemains` on R3 and on R2 after K1 reads back before R4
-    opens, and, on R2 after K1 with `IdStorageUnknown` shown, an edit
-    of one word and its edit back, then `IdCheckWords`, reads back and
-    records no restore, as a seal answered `OldKeyRemains` does on C4 (the test's
+    opens, as a seal answered `OldKeyRemains` does on C4 (the test's
     custody counts its `unlock` calls and records one; rust-ui-dev adds
     that count if the custody double lacks it, and until then this step
-    is blocked, not passed).
+    is blocked, not passed). On R2 after K1 with `IdStorageUnknown`
+    shown, an edit of one word and its edit back, then `IdCheckWords`,
+    reads back and records no restore; an edit to words of another
+    PeerId, then `IdCheckWords`, shows `IdOtherIdentity` and records no
+    restore.
     Back goes where §6 (Back from a notice) says: on R2 after K1, to
     K1, through the discard dialog, with the words dropped only by
     `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
