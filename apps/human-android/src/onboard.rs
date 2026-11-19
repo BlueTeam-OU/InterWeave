@@ -738,7 +738,11 @@ fn input_later(input: IdentityInput) {
                 // The bound counts from it unless a seal must commit the
                 // identity first (§5.1, the bound).
                 if o.flow.start_held() && !was_held {
-                    let committed = !effects.contains(&Effect::Seal);
+                    // C4's Try again under `IdStorageUnknown` commits as
+                    // its seal would, once the read-back finds the record.
+                    let committed = !effects
+                        .iter()
+                        .any(|e| matches!(e, Effect::Seal | Effect::ReadBack(_)));
                     o.hold = Some(StartHold::pressed(now_ms(), committed));
                     #[cfg(feature = "ui-trace")]
                     log(&start_line(TracedStart::Pressed));
@@ -926,7 +930,10 @@ fn not_run(o: &mut Onboarding, effect: &Effect) -> Vec<Effect> {
         // seal leaves C4 as it was, Continue enabled again (§5.1).
         // Nothing was committed, and nothing runs again until the
         // primary action is used again (design section 6).
-        Effect::RestoreRecorded(_) | Effect::RestoreConfirmed(..) | Effect::Seal => {
+        Effect::RestoreRecorded(_)
+        | Effect::RestoreConfirmed(..)
+        | Effect::Seal
+        | Effect::ReadBack(_) => {
             o.flow.cancelled_step();
             Vec::new()
         }
@@ -957,6 +964,10 @@ fn failed(refused: &WriteRefused) -> StepFailed {
     match refused {
         WriteRefused::Busy => StepFailed::Busy,
         WriteRefused::AlreadyProvisioned => StepFailed::AlreadyProvisioned,
+        // After the publish, and not read back: `IdStorageUnknown`, never
+        // "nothing was changed" (design section 6).
+        WriteRefused::ReadBackFailed(_) => StepFailed::StorageUnknown,
+        WriteRefused::RecordNamesOther(recorded) => StepFailed::RestoreOther(recorded.clone()),
         _ => StepFailed::Storage,
     }
 }
@@ -1037,16 +1048,31 @@ fn one(effect: Effect) -> Vec<Effect> {
                     None => Err(StepFailed::Storage),
                 };
                 if outcome.is_ok() {
-                    o.creation = None;
-                    connect_owed(o);
-                    // C4's commit: the bound counts from here (§5.1).
-                    if let Some(hold) = o.hold.as_mut() {
-                        hold.committed(now_ms());
-                    }
-                    #[cfg(feature = "ui-trace")]
-                    log(&start_line(TracedStart::Sealed));
+                    sealed_now(o);
                 }
                 o.flow.sealed(outcome)
+            }
+            // `IdStorageUnknown`'s Try again: the read-back alone, answered
+            // as the step it reads back for. Whatever stops it, the app
+            // still cannot tell, so every refusal is the notice again.
+            Effect::ReadBack(peer) => {
+                let outcome =
+                    onboarding::read_back(&o.app_data_dir, PROFILE, o.cipher.as_ref(), &peer)
+                        .map_err(|why| {
+                            log(&format!("an identity read-back did not find it: {why:?}"));
+                            StepFailed::StorageUnknown
+                        });
+                if o.flow.screen() == ScreenId::C4 {
+                    if outcome.is_ok() {
+                        sealed_now(o);
+                    }
+                    o.flow.sealed(outcome)
+                } else {
+                    if outcome.is_ok() {
+                        connect_owed(o);
+                    }
+                    o.flow.restored(outcome)
+                }
             }
             Effect::Check(text) => o.flow.checked(onboarding::check(text)),
             Effect::RestoreRecorded(text) => {
@@ -1107,6 +1133,19 @@ fn one(effect: Effect) -> Vec<Effect> {
             Effect::OpenChats | Effect::OpenSettings => Vec::new(),
         }
     })
+}
+
+/// C4's identity is committed, by its seal or by the read-back of
+/// `IdStorageUnknown`'s Try again: the creation dropped, Connect owed, and
+/// the bound counting from here (§5.1).
+fn sealed_now(o: &mut Onboarding) {
+    o.creation = None;
+    connect_owed(o);
+    if let Some(hold) = o.hold.as_mut() {
+        hold.committed(now_ms());
+    }
+    #[cfg(feature = "ui-trace")]
+    log(&start_line(TracedStart::Sealed));
 }
 
 /// A new or restored identity owes onboarding's Connect on the first
