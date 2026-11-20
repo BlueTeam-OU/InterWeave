@@ -2,7 +2,7 @@
 role: "language-culture"
 class: workflow
 topic: "leaves-them-reads-two-ways"
-description: "X leaves them\" reads as \"goes away from them\" or \"keeps them in place\"; write \"does not remove them"
+description: "\"X leaves them\" reads as \"goes away from them\" or \"keeps them in place\"; write \"does not remove them\""
 tier: 1
 knowledge_scope: full
 distilled_at: "2026-11-17"
@@ -15,7 +15,7 @@ derived_from:
   - d186dc2b7288f8e2
 ---
 
-## X leaves them" reads as "goes away from them" or "keeps them in place"; write "does not remove them
+## "X leaves them" reads as "goes away from them" or "keeps them in place"; write "does not remove them"
 
 "typing leaves them" (C3's two actions, #646 2efa88aba) reads two ways. It can mean typing goes away from the actions, or that typing keeps them in place. It became "typing does not remove them" (706af9bdd, 2026-11-12). In the same pass, "after letters typed once every position was filled" had "once" (which can mean "one time") and no verb. It became "after letters were typed with every position filled". Those were my own suggested words, so check a wording I send in a question as strictly as the author's.
 

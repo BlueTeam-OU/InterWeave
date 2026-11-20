@@ -5552,7 +5552,7 @@
       "host": "develop-qzapp",
       "observed": "2026-10-25"
     },
-    ".agent-fabric/memory/language-culture/workflow/below-list-collides.md#the list below\" in the Android identity note collides with \"the full list\" screen; say \"the focus rules below": {
+    ".agent-fabric/memory/language-culture/workflow/below-list-collides.md#\"the list below\" in the Android identity note collides with \"the full list\" screen; say \"the focus rules below\"": {
       "agent": "language-culture-en",
       "host": "develop-qzapp",
       "observed": "2026-11-12"
@@ -5617,7 +5617,7 @@
       "host": "develop-qzapp",
       "observed": "2026-11-13"
     },
-    ".agent-fabric/memory/language-culture/workflow/held-and-waits-read-as-queued.md#Back waits\" and \"an input the check holds\" read as deferred or buffered; write \"does nothing until the result": {
+    ".agent-fabric/memory/language-culture/workflow/held-and-waits-read-as-queued.md#\"Back waits\" and \"an input the check holds\" read as deferred or buffered; write \"does nothing until the result\"": {
       "agent": "language-culture-en",
       "host": "develop-qzapp",
       "observed": "2026-11-16"
@@ -5652,7 +5652,7 @@
       "host": "develop-qzapp",
       "observed": "2026-11-12"
     },
-    ".agent-fabric/memory/language-culture/workflow/leaves-them-reads-two-ways.md#X leaves them\" reads as \"goes away from them\" or \"keeps them in place\"; write \"does not remove them": {
+    ".agent-fabric/memory/language-culture/workflow/leaves-them-reads-two-ways.md#\"X leaves them\" reads as \"goes away from them\" or \"keeps them in place\"; write \"does not remove them\"": {
       "agent": "language-culture-en",
       "host": "develop-qzapp",
       "observed": "2026-11-13"
@@ -6197,10 +6197,10 @@
       "host": "develop-qzapp",
       "observed": "2026-10-24"
     },
-    ".agent-fabric/memory/p2p-network-dev/threads/j69-cache-and-reboot-rows.md#j69 (owner's limits on row 1): cache-on row in 4 variants + reboot row built at 837663a2; device runs wait on rust-ui-dev-01's APK; Scan re-run later (2026-10-24)": {
+    ".agent-fabric/memory/p2p-network-dev/threads/j69-cache-and-reboot-rows.md#j69 DONE 2026-11-10: cache-on, control, reboot and Scan row 2 run files all on main; final REPLY 01a1c786": {
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
-      "observed": "2026-10-31"
+      "observed": "2026-11-10"
     },
     ".agent-fabric/memory/p2p-network-dev/threads/j77-facade-next-tick-attempt.md#transport-client's first send/retry/restore attempt moves to the next tick(); agreed with rust-ui-dev, nothing transport-side relies on inline": {
       "agent": "p2p-network-dev-01",
@@ -8157,7 +8157,7 @@
       "host": "develop-qzapp",
       "observed": "2026-10-27"
     },
-    ".agent-fabric/memory/rust-ui-dev/workflow/gzcoord-compose-sections.md#gzcoord-compose skeletons: a REQUEST has no CONTEXT section; in a quoted heredoc write , never \\n; tail the file before sending": {
+    ".agent-fabric/memory/rust-ui-dev/workflow/gzcoord-compose-sections.md#gzcoord-compose skeletons: a REQUEST has no CONTEXT section; in a quoted heredoc write a backslash-n escape, never a doubled backslash; tail the file before sending": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-11-03"
@@ -8462,11 +8462,6 @@
       "host": "develop-qzapp",
       "observed": "2026-11-13"
     },
-    ".agent-fabric/memory/ux-designer/threads/gzapp-no-remit.md#gzapp asks reach ux-designer-01, but the role has no gzapp remit or working copy; answer provisional and ask fabric-coordinator": {
-      "agent": "ux-designer-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-27"
-    },
     ".agent-fabric/memory/ux-designer/threads/gzapp-no-remit.md#ux-designer WAS placed in gzapp 2026-10-21 (remit .agent-fabric/roles/ux-designer.md on origin/main); specs go under gzapp design/, no longer provisional": {
       "agent": "ux-designer-01",
       "host": "develop-qzapp",
@@ -8682,20 +8677,15 @@
       "host": "develop-qzapp",
       "observed": "2026-11-06"
     },
-    ".agent-fabric/memory/ux-designer/threads/j97-message-not-copied.md#j97 long-message wording — PR #581 (MessageNotCopied final retry line, \"Open the whole message\"); arming under 8 commits needs the owner's word": {
-      "agent": "ux-designer-01",
-      "host": "develop-qzapp",
-      "observed": "2026-11-06"
-    },
     ".agent-fabric/memory/ux-designer/threads/j97-message-not-copied.md#j97 long-message wording — PR #581 merged 34bc3b7f 2026-11-09 (13 work, rounds 4-7); carried risks in PR comment 6754054475": {
       "agent": "ux-designer-01",
       "host": "develop-qzapp",
       "observed": "2026-11-09"
     },
-    ".agent-fabric/memory/ux-designer/threads/j98-unlock-s11-pixel-review.md#j98 Pixel review of unlock note §11 (A14-A20, F10-F14) — build 0e1d4d175 with rust-ui-dev's RESTART hook; owner's yes to replace v0.2.0": {
+    ".agent-fabric/memory/ux-designer/threads/j98-unlock-s11-pixel-review.md#j98 Pixel review of the unlock note §11 (A14-A20, F10-F14): closed by the j107 re-check 2026-11-10; one spec revision still owed (network grant kills the process on GrapheneOS)": {
       "agent": "ux-designer-01",
       "host": "develop-qzapp",
-      "observed": "2026-11-07"
+      "observed": "2026-11-13"
     },
     ".agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md#j26: plan §20 clause (j) — my on-device look-and-feel review of the Android app is a condition of Stage 17's close; status and what it waits on": {
       "agent": "ux-designer-01",

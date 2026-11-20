@@ -43,6 +43,13 @@ Lessons from these runs are in their own memories:
 - [[end-device-run-in-known-state]].
 Related: [[j96-locked-restart-in-process]], [[j93-unlock-policy-pending]].
 
+Run record 2026-11-07, kept from the earlier version of this thread (design and architecture notes cite it):
+- 2026-11-07 run (the phone's clock is UTC+4 vs the host's). Setup: the owner onboarded. I edited the config
+  (user-presence, then availability_mode: stay-reachable); the reseal was granted 16:31. The app logs `ui-trace focus=/notice=/prompt=` lines, which give focus without TalkBack.
+- A16 network: `pm revoke ... INTERNET` kills the process; Stay-reachable restarts with "no network access: one notice, then end". The grant must come through the app's own dialog (note §10 Q5), so the owner taps it. Launch prompt timed out ungranted at 01:31 phone time; INTERNET restored with pm grant (USER_SET). App is locked, offline, notice focused. Paused there.
+- A16 network grant FINDING (n4/n5 logs, 01:49:04 phone time): tapping Allow in GrantPermissionsActivity makes ActivityManager kill the app ("permission grant or revoke changed gids"), MainActivity force-removed "app died, no saved state"; person lands on the launcher, no restart, no prompt. The note's L1 network-grant row (§11 table, A16 bullet 2, F11) assumes a live Activity; on GrapheneOS it is unreachable. Next launch is L3. Spec revision is mine (owner/architect: the Q5 answer REPLY 01a1adae sorted it as L1).
+- A17 setup (02:05-02:15 phone time): A40 paired to my login (connect a private-network address:39716; harness a40.sh). Show my address is FLAG_SECURE: owner exchanged addresses and trusted both. Pixel config now availability_mode foreground-only (restore later). Chats empty on both; no visible way to start a conversation (Peers row menu: Copy address/Remove; Contacts empty; Your card has no Share). Neither log shows a connection. Blocked: ask rust-ui-dev-01 how a direct conversation is created on this build.
+
 *References: android-permission-grant-kills-process, android-run-as-config-edit, device-run-check-focus, end-device-run-in-known-state, j108-recovery-screen-focus, j126-network-grant-row, j93-unlock-policy-pending, j96-locked-restart-in-process*
 
 *Observed 2026-11-13 (ux-designer)*
