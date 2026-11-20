@@ -38,6 +38,6 @@ answer and quote the source condition exactly ([[quote-a-condition-verbatim]],
 
 *References: bare-section-ref-names-its-spec, quote-a-condition-verbatim*
 
-*Anchors: `design/2026-10-22-add-a-peer.md::Onboardings third step`*
+*Anchors: `design/2026-10-22-add-a-peer.md::Onboarding's third step`*
 
 *Observed 2026-11-12 (language-culture)*

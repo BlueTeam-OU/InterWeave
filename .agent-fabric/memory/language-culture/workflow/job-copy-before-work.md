@@ -39,6 +39,6 @@ Related: [[gzapp-english-holder]].
 
 *References: gzapp-english-holder*
 
-*Anchors: `agent-fabric:runtime/claude-code/hooks/job-copy-guard.py::outside Js working copy and worktree`*
+*Anchors: `agent-fabric:runtime/claude-code/hooks/job-copy-guard.py::outside J's working copy and worktree`*
 
 *Observed 2026-11-14 (language-culture)*
