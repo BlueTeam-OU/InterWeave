@@ -22,8 +22,8 @@ use interweave_human_android_platform::{
     Expected, IdentityRefused, ServiceHost, StoreGeneration, locked_status, reseal_needs_presence,
 };
 use interweave_human_ui_model::{
-    Effect, IdentityFlow, Notice, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
-    StartHold, StepFailed,
+    Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start, StartHold,
+    StepFailed,
 };
 use interweave_human_ui_slint::{
     IdentityInput, View, Wake, apply_identity, defer, identity_page, invoke_on_window,
@@ -1493,6 +1493,13 @@ pub(crate) fn secure_off() {
 /// goes first: the service takes it.
 fn ask_service(o: &mut Onboarding) {
     o.lock = None;
+    // An ask after an earlier one -- `IdStartBusy`'s Try again, or a held
+    // start resumed after a granted prompt -- finds the service bound and
+    // started: a bind would find the binding (MainActivity.connect) and
+    // Show my phrase's way back the service already back
+    // (NetworkService.online), and either would start nothing. A restart
+    // starts it again, and binds when the service is unbound since.
+    let again = o.service_asked;
     o.service_asked = true;
     let hub = ServiceHost::global().hub();
     // Before the ask: an answer counted past this is this start's.
@@ -1503,11 +1510,7 @@ fn ask_service(o: &mut Onboarding) {
     clear_authentication();
     person_asked();
     FLOW_START.store(o.flow.start_held(), Ordering::SeqCst);
-    // `IdStartBusy`'s Try again: the last ask was refused with the
-    // profile in use and the service is bound already, so it is restarted
-    // -- a bind would find the binding and start nothing.
-    let busy = matches!(o.flow.notice(), Some(Notice::StartBusy { .. }));
-    ASKS.push(if busy {
+    ASKS.push(if again {
         ask::RESTART
     } else {
         o.over.start_ask()
