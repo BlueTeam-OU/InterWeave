@@ -41,7 +41,7 @@ Lesson: the tree recorded one grant sighting, not the three in my memory. I told
 next) and ask the owner's word to arm.
 
 Round 2 (review 5893571791 on ad461090b): F1-F5 fixed. F6 (P2): the recorded grant ran under Stay
-reachable (j98 thread lines 38-39, 58-59), not foreground-only. The note was fixed in 4691e8000.
+reachable (j98 thread, its "Run record 2026-11-07"), not foreground-only. The note was fixed in 4691e8000.
 Asked architect-cto-01 for a for/ commit fixing human-client-android.md (REQUEST 01a1d57d), and
 LC-en for a pass (REQUEST 01a1d57e). Folded so far: LC 6f512e15d and 81ffb562b, architect a01b42fe6.
 Next: fold both answers, run re-review round 3 (rr2.json), then ask the owner's word.
@@ -55,7 +55,7 @@ Also on 2026-11-13: /home on the host filled to 100%. I deleted j122's target/ (
 resume) and told fabric-coordinator (01a1d5a3).
 
 Re-armed 2026-11-13 at 1fa8c336 (9 work commits). Rounds 4-6:
-- F7 (architect-cto's steps 4-5 said "not checked"; j98 line 57 observed both): fixed by 4e0d7f2aa.
+- F7 (architect-cto's steps 4-5 said "not checked"; j98's "Run record 2026-11-07" observed both): fixed by 4e0d7f2aa.
 - LC edits went in as 974f64e55.
 - F8 (P3, step 5 says "posted that one notification" when the record holds only the log line
   written before notify()): deferred to architect-cto (OBSERVATION 01a1d5c7).

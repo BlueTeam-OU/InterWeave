@@ -6682,11 +6682,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-18"
     },
-    ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-run-on-the-hosts-private-address.md#ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks": {
-      "agent": "p2p-network-dev-01",
-      "host": "develop-qzapp",
-      "observed": "2026-09-25"
-    },
     ".agent-fabric/memory/p2p-network-dev/workflow/run-file-figures-from-quoted-lines.md#an evidence run file's durations must be computed from lines it quotes; a script-clock zero beside journal lines cost three review rounds on #554": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -9157,11 +9152,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-26"
     },
-    "memory/domains/p2p-network-dev/domain/domain-address-class-is-not-reachability.md#A private-range address is not LAN-reachable — carrier rmnet /32s on Android are 10.x; only the network's transport type tells them apart": {
-      "agent": "p2p-network-dev-02",
-      "host": "develop-qzapp",
-      "observed": "2026-10-26"
-    },
     "memory/domains/p2p-network-dev/domain/domain-address-class-is-not-reachability.md#A private-range address is not LAN-reachable — carrier rmnet /32s on Android are 10.x; only the network's transport type tells them apart, and the OS binds addresses the platform's view never reports": {
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
@@ -9446,16 +9436,6 @@
       "agent": "rust-services-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-11-09"
-    },
-    "memory/domains/rust-services-dev/domain/claude-code-print-session-channel-facts.md#Claude Code 2.1.286 -p sessions with a channel: a mid-user-turn event waited (one run), mid-event-turn events joined (one burst), closed stdin still answers, which permission modes deny reply, host prompts need --permission-prompt-tool stdio, channelsEnabled by login kind": {
-      "agent": "rust-services-dev-01",
-      "host": "develop-qzapp",
-      "observed": "2026-11-04"
-    },
-    "memory/domains/rust-services-dev/domain/claude-code-print-session-channel-facts.md#Claude Code 2.1.286 -p sessions with a channel: mid-turn events queue, closed stdin still answers, manual mode denies MCP tools, plugin configure needs --values-stdin": {
-      "agent": "rust-services-dev-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-24"
     },
     "memory/domains/rust-services-dev/domain/claude-code-print-session-channel-facts.md#Claude Code 2.1.286 -p sessions with a channel: when events join a turn (settled by S31), closed stdin still answers, which permission modes deny reply, host prompts need --permission-prompt-tool stdio, channelsEnabled by login kind": {
       "agent": "rust-services-dev-01",

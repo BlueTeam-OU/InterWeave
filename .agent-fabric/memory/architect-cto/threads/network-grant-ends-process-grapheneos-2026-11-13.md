@@ -31,7 +31,7 @@ content, a surviving copy would be a fourth durable state against ADR-0044. (2) 
 `develop-qzapp/architect-cto-01/for/ux-designer-01/j669-network-grant-ends-process`, over #659's
 head e8549e1b0 (REPLY 01a1d578-e5cc). `human-client-android.md` step 2 split by whether the grant
 leaves the process running; `android-key-custody.md` line 78 qualified the same way. The tree
-records ONE sighting (the ux-designer j98 thread slice, line 58), so the text cites one recorded
+records ONE sighting (the ux-designer j98 thread slice, its "Run record 2026-11-07"), so the text cites one recorded
 run and no dates (ux-designer-01's correction 01a1d564); stock Android, a settings-page grant and
 stay reachable (a Service restart after the grant would be L4) are named as not checked. L1
 ruling unchanged. Closes when a01b42fe6 is on origin/main.
@@ -41,7 +41,7 @@ on every head; OBSERVATION 01a1d578-e7d4 to devex-tooling, no branch of mine.
 
 **OWED (j670), #659 review F6 (P2) on a01b42fe6, accepted (REPLY 01a1d57e-d5c0):** my step 2
 (`human-client-android.md` about lines 83-92) and the test-list line (about 200) have the modes
-reversed. The j98 thread slice (lines 38-39, 58, 59) shows the recorded grant ran under stay
+reversed. The j98 thread slice (its "Run record 2026-11-07") shows the recorded grant ran under stay
 reachable with "no restart, no prompt"; foreground-only was set only afterwards. One commit on
 #659's head (4691e8000 or later), architecture/ only: stay reachable = observed, no restart seen;
 foreground-only = expected, not yet checked (ux-designer's A16, run foreground-only, checks it).
