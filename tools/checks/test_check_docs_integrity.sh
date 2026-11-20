@@ -305,7 +305,7 @@ out="$(run "$R")"
 
 R="$(fresh helpspace)"
 printf '#!/bin/sh\n%s\n# usage\n%s \n' "$O" "$C" > "$R/s.sh"
-[ "$(run_code "$R")" = "1" ] && ok "a closer with a trailing space is no closer (the printers match \$)" \
+[ "$(run_code "$R")" = "1" ] && ok "a closer with a trailing space is no closer (the strictest printers match \$)" \
     || bad "trailing-space closer should exit 1: $(run "$R")"
 
 R="$(fresh helptwice)"

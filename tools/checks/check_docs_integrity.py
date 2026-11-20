@@ -37,12 +37,15 @@
 #             files that do not parse simply stop running.
 #   HELP    — a `# >>> help` line, in any file, whose block does not
 #             close on a `# <<< help` line of its own before the next
-#             opener or the end of the file. Every script prints its
-#             `--help` with a sed range or a regex between those two
-#             exact lines, so a closer that drifted onto the end of a
-#             prose line opens the range to the end of the file: from
-#             2026-09-10 to 2026-11-19 check_vendored_advisories.sh's
-#             `--help` printed the whole script, and nothing failed.
+#             opener or the end of the file. Scripts print their
+#             `--help` from between the two markers in three ways: a sed
+#             range or regex anchored on both lines, a `lines.index` of
+#             each whole line, or a substring `split`. A closer that
+#             drifted onto the end of a prose line opens a sed, regex or
+#             split printer to the end of the file (`lines.index` raises
+#             instead): from 2026-09-10 to 2026-11-19
+#             check_vendored_advisories.sh's `--help` printed the whole
+#             script, and nothing failed.
 #             The rule is the markers', not one printer's, so it is
 #             asked of the tree rather than of each self-test.
 #
@@ -73,8 +76,11 @@ import sys
 import urllib.parse
 
 HELP_RE = re.compile(r"^# >>> help$(.*?)^# <<< help$", re.M | re.S)
-# The two marker lines, exactly: the printers match `^# >>> help$` and
-# `^# <<< help$`, so a trailing space or a word on the line is no marker.
+# The two marker lines, exactly: the strictest printers (sed, regex,
+# `lines.index`) match `^# >>> help$` and `^# <<< help$`, so a trailing
+# space or a word on the line is no marker to them. A `split` printer
+# would accept a closer with a trailing space; the exact line is asked of
+# every file because it is the form every printer accepts.
 HELP_OPEN = b"# >>> help"
 HELP_CLOSE = b"# <<< help"
 
