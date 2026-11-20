@@ -41,9 +41,10 @@
 #             `--help` from between the two markers in three ways: a sed
 #             range or regex anchored on both lines, a `lines.index` of
 #             each whole line, or a substring `split`. A closer that
-#             drifted onto the end of a prose line opens a sed, regex or
-#             split printer to the end of the file (`lines.index` raises
-#             instead): from 2026-09-10 to 2026-11-19
+#             drifted onto the end of a prose line opens a sed or split
+#             printer to the end of the file; a regex printer finds no
+#             block (an empty help, or a crash), and `lines.index`
+#             raises. From 2026-09-10 to 2026-11-19
 #             check_vendored_advisories.sh's `--help` printed the whole
 #             script, and nothing failed.
 #             The rule is the markers', not one printer's, so it is
@@ -78,9 +79,10 @@ import urllib.parse
 HELP_RE = re.compile(r"^# >>> help$(.*?)^# <<< help$", re.M | re.S)
 # The two marker lines, exactly: the strictest printers (sed, regex,
 # `lines.index`) match `^# >>> help$` and `^# <<< help$`, so a trailing
-# space or a word on the line is no marker to them. A `split` printer
-# would accept a closer with a trailing space; the exact line is asked of
-# every file because it is the form every printer accepts.
+# space or a word on the line is no marker to them. Most `split`
+# printers would accept a closer with a trailing space (release_keys.py,
+# which splits on the closer and its newline, would not); the exact line
+# is asked of every file because it is the form every printer accepts.
 HELP_OPEN = b"# >>> help"
 HELP_CLOSE = b"# <<< help"
 
