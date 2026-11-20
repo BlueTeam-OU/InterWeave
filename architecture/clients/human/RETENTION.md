@@ -49,7 +49,7 @@ Pending outbound content is **not eligible for cross-device/system backup** in s
 
 ## 3. Inbound state machine
 
-A direct envelope from a trusted peer's 65th distinct source endpoint — distinct among the direct conversations the store indexes for that PeerId and the routes it keeps under contacts for it (STATE.md; the check in the client's commit path, built by the start window's second batch) — is malformed under HUMAN-CHAT.md (A 2026-10-27): the client stores nothing and presents nothing, counts it under one fixed reason, and no unread row is created for it; a store read the check needs that fails is a commit failure, the inbound discarded unstored and the failure reported as any commit failure is.
+A direct envelope from a trusted peer's 65th distinct source endpoint — distinct among the direct conversations the store indexes for that PeerId and the routes it keeps under contacts for it, from the Stage 22 release those of the identity the envelope reached and no other's (A 2026-11-19) (STATE.md; the check in the client's commit path, built by the start window's second batch) — is malformed under HUMAN-CHAT.md (A 2026-10-27): the client stores nothing and presents nothing, counts it under one fixed reason, and no unread row is created for it; a store read the check needs that fails is a commit failure, the inbound discarded unstored and the failure reported as any commit failure is.
 
 After the human client consumes a valid inbound application event, it commits the message as unread before normal UI presentation/notification:
 
@@ -137,6 +137,8 @@ Evaporates:
 - temporary notification/rendering copies.
 
 Restart reconstructs the visible conversation only from the surviving sets plus new live events. It does not ask the daemon/network for historical replay.
+
+One migration is outside this section (A 2026-11-19, ADR-0067 decision 7): the store migration of the Stage 22 release discards the unread and kept rows of a direct conversation whose remote endpoint recorded no key, the second copy of a message where two copies meet because two routes prove to be one identity (which copy stays is STATE.md's schema v14 (d)), every unread contact-card proposal, and every pending outbound row — a payload encoded under the label grammar would be accepted by the transport and dropped by a receiver on that release, so it is not resent — all counted and said once to the person (STATE.md §Migrations, schema v14 (c) to (e)). No other migration discards a row this contract holds.
 
 ## 8. Security/privacy invariants
 

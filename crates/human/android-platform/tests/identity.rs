@@ -38,7 +38,8 @@ const PROFILE: &str = "human";
 /// the seed and a keyed check over the associated data and ciphertext
 /// for the tag -- enough for custody to tell a right key and AAD from a
 /// wrong one. `fail` makes the next open fail as the platform would, and
-/// `seal_fails` the next seal.
+/// `seal_fails` the next seal; `opens` counts the opens asked, a failed
+/// one included, and `fail` waits until `fail_skip` opens have passed.
 #[derive(Default)]
 struct FakeKeystore {
     keys: Mutex<HashMap<String, [u8; 32]>>,
@@ -46,6 +47,8 @@ struct FakeKeystore {
     fail: Mutex<Option<CipherFailure>>,
     seal_fails: Mutex<Option<CipherFailure>>,
     retire_fails: Mutex<bool>,
+    opens: Mutex<u32>,
+    fail_skip: Mutex<u32>,
 }
 
 fn tag(key: &[u8; 32], aad: &[u8], ct: &[u8]) -> [u8; 16] {
@@ -97,7 +100,14 @@ impl SeedCipher for FakeKeystore {
         sealed: &[u8; SEALED_LEN],
         aad: &[u8],
     ) -> Result<Seed, CipherFailure> {
-        if let Some(failure) = self.fail.lock().unwrap().take() {
+        let opened = {
+            let mut opens = self.opens.lock().unwrap();
+            *opens += 1;
+            *opens
+        };
+        if opened > *self.fail_skip.lock().unwrap()
+            && let Some(failure) = self.fail.lock().unwrap().take()
+        {
             return Err(failure);
         }
         let k = *self
@@ -1162,6 +1172,225 @@ mod onboarding {
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
             .expect("the record unlocks");
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
+    }
+
+    /// A seal refused after its publish whose read-back cannot open the
+    /// record is `ReadBackFailed` (`IdStorageUnknown`), never `Storage`,
+    /// which says nothing was written (design section 6); the read-back
+    /// asked on its own then finds it once it opens, and never for another
+    /// `PeerId`. Mutation: the seal's read-back branch answering `Storage`
+    /// again, or `read_back` not comparing the `PeerId`, fails here.
+    #[test]
+    fn a_seal_whose_read_back_fails_is_unknown_and_reading_back_again_finds_it() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        *keystore.retire_fails.lock().unwrap() = true;
+        *keystore.fail.lock().unwrap() = Some(CipherFailure::Unavailable("busy".to_owned()));
+        let (creation, _, peer, _) = Creation::new().expect("a creation");
+        assert!(
+            matches!(
+                onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+                Err(WriteRefused::ReadBackFailed(_))
+            ),
+            "the record was written and could not be read back"
+        );
+        assert!(
+            keystore.fail.lock().unwrap().is_none(),
+            "control: the read-back is what met the failure"
+        );
+        assert_eq!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &peer),
+            Ok(())
+        );
+        let (_, _, other, _) = Creation::new().expect("another");
+        assert!(matches!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &other),
+            Err(WriteRefused::ReadBackFailed(_))
+        ));
+        *keystore.fail.lock().unwrap() = Some(CipherFailure::UserNotAuthenticated);
+        assert_eq!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &peer),
+            Err(WriteRefused::ReadBackNeedsAuthentication)
+        );
+    }
+
+    /// A read-back the key refuses until the person authenticates, after a
+    /// seal refused past its publish, is `ReadBackNeedsAuthentication`
+    /// (the screen's prompt, design section 6, Authentication needed),
+    /// never `UserNotAuthenticated`, which says the seal wrote nothing,
+    /// nor `ReadBackFailed`, which shows the notice without a prompt.
+    /// Mutation: `opens_to`'s `UserNotAuthenticated` arm removed (it falls
+    /// to `ReadBackFailed`) fails here.
+    #[test]
+    fn a_seal_whose_read_back_needs_the_person_says_so() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        *keystore.retire_fails.lock().unwrap() = true;
+        *keystore.fail.lock().unwrap() = Some(CipherFailure::UserNotAuthenticated);
+        let (creation, _, peer, _) = Creation::new().expect("a creation");
+        assert_eq!(
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            Err(WriteRefused::ReadBackNeedsAuthentication)
+        );
+        assert_eq!(*keystore.opens.lock().unwrap(), 1, "one read-back");
+        assert_eq!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &peer),
+            Ok(()),
+            "after a grant, the read-back finds it"
+        );
+    }
+
+    /// A restore that custody answers `OldKeyRemains` -- the record
+    /// written, the other policy's key not retired, and the record never
+    /// opened by custody -- reads back before it is done, on R3's
+    /// confirmed restore and after K1's recorded one alike, as a seal
+    /// answered `OldKeyRemains` does (design section 6; acceptance 12:
+    /// the custody records one read-back). Found, it is done; the read-
+    /// back failing is `ReadBackFailed` (`IdStorageUnknown`), and refused
+    /// for the person `ReadBackNeedsAuthentication`. Mutation:
+    /// `restore_identity` taking `OldKeyRemains` as success again (no
+    /// read-back: no open counted, and the failing cases answer `Ok`), or
+    /// `restore`'s read-back arm not taking `OldKeyRemains`, fails here.
+    #[test]
+    fn a_restore_answered_old_key_remains_reads_back_before_it_is_done() {
+        // R3: a fresh install's confirmed restore.
+        for (fails, outcome) in [
+            (None, Ok(())),
+            (
+                Some(CipherFailure::Unavailable("busy".to_owned())),
+                Err("unknown"),
+            ),
+            (Some(CipherFailure::UserNotAuthenticated), Err("person")),
+        ] {
+            let app = app();
+            let keystore = FakeKeystore::default();
+            *keystore.retire_fails.lock().unwrap() = true;
+            *keystore.fail.lock().unwrap() = fails;
+            let original = ProfileIdentity::generate();
+            let phrase = original.recovery_phrase().expect("a phrase");
+            let peer = original.transport_identity().expect("a PeerId");
+            let words = onboarding::words_of(&phrase).expect("its words");
+            let restored = onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                words.join(" "),
+                Expected::Confirmed(&peer),
+                None,
+            );
+            assert_restore(&restored, outcome);
+            assert_eq!(*keystore.opens.lock().unwrap(), 1, "R3: one read-back");
+            assert!(
+                !keystore.generated.lock().unwrap().is_empty(),
+                "control: the record was written"
+            );
+        }
+
+        // After K1: the keys gone, the record's own restore. Custody first
+        // tries the record there under the policy it has (ADR-0042), an
+        // open of the key that is gone; the read-back is the open after
+        // the write.
+        for (fails, outcome) in [
+            (None, Ok(())),
+            (
+                Some(CipherFailure::Unavailable("busy".to_owned())),
+                Err("unknown"),
+            ),
+            (Some(CipherFailure::UserNotAuthenticated), Err("person")),
+        ] {
+            let app = app();
+            let identity = start_identity(
+                &app.dir,
+                PROFILE,
+                &FakeKeystore::default(),
+                FirstRun::Create,
+            )
+            .expect("provisioned");
+            let words = onboarding::words_of(&identity.recovery_phrase().expect("a phrase"))
+                .expect("its words");
+            let keystore = FakeKeystore::default();
+            *keystore.retire_fails.lock().unwrap() = true;
+            *keystore.fail.lock().unwrap() = fails;
+            *keystore.fail_skip.lock().unwrap() = 1;
+            let restored = onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                words.join(" "),
+                Expected::Recorded,
+                None,
+            );
+            assert_restore(&restored, outcome);
+            assert_eq!(
+                *keystore.opens.lock().unwrap(),
+                2,
+                "K1: custody's try of the old record, then one read-back"
+            );
+            assert!(
+                keystore.fail.lock().unwrap().is_none(),
+                "control: the read-back met the failure"
+            );
+        }
+    }
+
+    fn assert_restore(restored: &Result<(), WriteRefused>, outcome: Result<(), &str>) {
+        match outcome {
+            Ok(()) => assert_eq!(restored, &Ok(()), "found: done"),
+            Err("unknown") => assert!(
+                matches!(restored, Err(WriteRefused::ReadBackFailed(_))),
+                "not found: unknown, {restored:?}"
+            ),
+            Err(_) => assert_eq!(
+                restored,
+                &Err(WriteRefused::ReadBackNeedsAuthentication),
+                "refused for the person"
+            ),
+        }
+    }
+
+    /// A restore over a record that names another `PeerId` reports that
+    /// `PeerId` (`IdRestoreOther`, design section 6), never `NoRestore`,
+    /// and writes nothing; a confirmed restore over the record of the
+    /// confirmed `PeerId` reads it back and writes nothing. Mutation:
+    /// `restore_identity`'s `RecordNamesOther` arm removed (it falls to
+    /// `RecordExists`), fails here.
+    #[test]
+    fn a_restore_over_another_record_names_it_and_over_its_own_reads_back() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        let on_record =
+            start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("provisioned");
+        let recorded = on_record.transport_identity().expect("a PeerId");
+        let before = record(&app);
+        let (_, words, peer, _) = Creation::new().expect("another identity");
+        assert_eq!(
+            onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                words.join(" "),
+                Expected::Confirmed(&peer),
+                None,
+            ),
+            Err(WriteRefused::RecordNamesOther(recorded.clone()))
+        );
+        assert_eq!(record(&app), before, "nothing written");
+
+        let own = onboarding::words_of(&on_record.recovery_phrase().expect("a phrase"))
+            .expect("its words");
+        assert_eq!(
+            onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                own.join(" "),
+                Expected::Confirmed(&recorded),
+                None,
+            ),
+            Ok(()),
+            "its own record, read back"
+        );
+        assert_eq!(record(&app), before, "and not written over");
     }
 
     /// A second Continue over the record just sealed is not read back: it
