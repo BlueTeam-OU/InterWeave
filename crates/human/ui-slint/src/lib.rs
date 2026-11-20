@@ -28,9 +28,9 @@ use interweave_human_client_api::{Connectivity, OutboundStatus, TrustOrigin};
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply, Retention,
-    RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome,
-    TrustSettings, UiModel, UiText, UnlockLineKind, announced_change, attention_class, fill,
-    next_age_change, placeholder_en, short_peer, waiting_text,
+    RowAction, RuntimeHost, SessionNotice, Snackbar, StartBusy, TrustChange, TrustInput,
+    TrustOutcome, TrustSettings, UiModel, UiText, UnlockLineKind, announced_change,
+    attention_class, fill, next_age_change, placeholder_en, short_peer, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -2422,11 +2422,7 @@ impl View {
                 Input::Link(destination) => {
                     out.extend(model.link_activated(&destination).map(ViewEvent::Intent));
                 }
-                Input::Notice(shown) => {
-                    if model.session_notice() == Some(shown) {
-                        out.extend(shown.resolution().map(ViewEvent::Intent));
-                    }
-                }
+                Input::Notice(shown) => out.extend(notice_press(model, shown)),
                 Input::Send(key) => {
                     out.extend(model.send_draft(&key).map(ViewEvent::Intent));
                 }
@@ -4151,6 +4147,11 @@ impl View {
     /// else to Chats' heading.
     fn follow_locked_notice(&self, was: Option<SessionNotice>, now: Option<SessionNotice>) {
         const LOCKED: Option<SessionNotice> = Some(SessionNotice::AuthenticationNeeded);
+        // `IdStartBusy` shows, Try again enabled or not: it never takes
+        // focus by itself, and a `LockHeld` again leaves focus where it
+        // is (identity note section 6, Focus does not move).
+        let busy =
+            |notice: Option<SessionNotice>| matches!(notice, Some(SessionNotice::StartBusy(_)));
         let on_chats = self.window.get_narrow() && self.window.get_list_shown();
         if now == LOCKED {
             if self.page != Page::Conversation {
@@ -4175,10 +4176,13 @@ impl View {
                     .to_owned(),
                 );
             }
-        } else if was == LOCKED {
+        } else if was == LOCKED || (busy(was) && !busy(now)) {
             self.locked_focus_wanted.set(false);
             let focus = self.window.get_focus_id();
-            // Either card's Unlock reports the one key, "notice".
+            // Either card's Unlock reports the one key, "notice", and so
+            // does `IdStartBusy`'s Try again: a start that succeeds takes
+            // it away as the Unlock's does (identity note section 6, Its
+            // results; unlock note F14). Focus anywhere else stays.
             if focus == "notice" {
                 let composer = self.shown.is_some() && !on_chats;
                 self.focus_key(if composer { "composer" } else { "heading" }.to_owned());
@@ -4408,6 +4412,13 @@ impl View {
             .or_else(|| once.map(|_| placeholder_en::text(UiText::Close)));
         window.set_has_notice_action(action.is_some());
         window.set_notice_action(action.unwrap_or_default().into());
+        // `IdStartBusy`'s Try again while its start runs: shown disabled,
+        // its stop and focus kept, pressing nothing (identity note
+        // section 6; tests/views.rs
+        // `the_busy_notices_try_again_is_inert_while_its_start_runs`).
+        window.set_notice_action_enabled(
+            notice != Some(SessionNotice::StartBusy(StartBusy::Starting)),
+        );
 
         match &self.shown {
             None => {
@@ -5497,6 +5508,20 @@ fn status_mark(item: &MessageItem) -> StatusMark {
 /// control, labelled with its destination, and the trust and address
 /// intents from the trust settings' and Peers' own controls, never an
 /// item's.
+/// A press of the session notice's action, `shown` the notice it was
+/// drawn for: its intent while that notice still shows and the model
+/// offers it -- `IdStartBusy`'s Try again while its start runs offers
+/// nothing, whichever way the press came (identity note section 6).
+fn notice_press(model: &UiModel, shown: SessionNotice) -> Option<ViewEvent> {
+    if model.session_notice() != Some(shown) {
+        return None;
+    }
+    shown
+        .resolution()
+        .filter(|intent| model.offers(intent))
+        .map(ViewEvent::Intent)
+}
+
 /// What leaving Peers closes: its add page, as Back does, or Show, which
 /// is never left open behind another page (add-a-peer §5.4; #409 F1).
 fn leaving_peers_closes(model: &UiModel) -> Option<ViewEvent> {
