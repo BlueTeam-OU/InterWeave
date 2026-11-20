@@ -15,8 +15,11 @@
 //!
 //! It stands between [`crate::IdentityFlow`]'s effects and the platform
 //! that carries them out, so every key operation passes it whichever
-//! screen asked: C4's seal, the restores, and the service start after S2's
-//! Done and after C4's or R4's continue.
+//! screen asked: C4's seal, the restores, the read-back of
+//! `IdStorageUnknown`'s Try again, and the service start after S2's Done
+//! and after C4's or R4's continue. A read-back the Keystore refused for
+//! the person ([`Effect::AuthenticateReadBack`]) prompts whatever the
+//! clock says.
 
 use crate::identity_flow::Effect;
 
@@ -71,7 +74,17 @@ impl PresenceGate {
 
     /// `effect` at monotonic time `now` (ms): run it, or hold it for the
     /// prompt when it needs the key and the window has passed.
+    /// [`Effect::AuthenticateReadBack`] always holds its read-back for the
+    /// prompt, whatever the policy and the clock say, and closes the
+    /// window: a refusal for the person is the app's only reading of it
+    /// (design section 6, Authentication needed; ADR-0042, A 2026-10-20).
     pub fn admit(&mut self, effect: Effect, now: u64) -> Admit {
+        if let Effect::AuthenticateReadBack(peer) = effect {
+            self.last_authenticated = None;
+            self.held = Some(Effect::ReadBack(peer));
+            self.ask = 0;
+            return Admit::Prompt;
+        }
         if !self.required || !needs_the_key(&effect) || self.fresh(now) {
             return Admit::Run(effect);
         }
@@ -138,6 +151,7 @@ fn needs_the_key(effect: &Effect) -> bool {
         Effect::Seal
             | Effect::RestoreRecorded(_)
             | Effect::RestoreConfirmed(..)
+            | Effect::ReadBack(_)
             | Effect::StartService
     )
 }
@@ -238,6 +252,81 @@ mod tests {
             Prompted::Dropped(Effect::RestoreRecorded("w".into()))
         );
         assert_eq!(gate.unasked(5), None, "answered: nothing left to release");
+    }
+
+    /// The read-back of `IdStorageUnknown`'s Try again opens the record
+    /// with the key, so it waits for the prompt as a write does (design
+    /// section 6, Authentication needed: "the read-back after a refused
+    /// write and each Try again of it"). Mutation: `ReadBack` out of
+    /// `needs_the_key` fails here.
+    #[test]
+    fn a_read_back_outside_the_window_waits_for_the_prompt() {
+        let peer = interweave_transport_api::TransportIdentity::parse(
+            "12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e",
+        )
+        .expect("a PeerId");
+        let mut gate = PresenceGate::new(true);
+        assert_eq!(gate.admit(Effect::ReadBack(peer.clone()), 0), Admit::Prompt);
+        assert_eq!(
+            gate.prompted(true, 1),
+            Prompted::Resume(Effect::ReadBack(peer))
+        );
+    }
+
+    /// A read-back the Keystore refused for the person raises the prompt
+    /// even inside the window by the clock and on a profile the gate
+    /// would let through: the refusal decides (design section 6,
+    /// Authentication needed). A grant runs the read-back; a cancel drops
+    /// it, and the window stays closed. Mutations: the
+    /// `AuthenticateReadBack` arm of `admit` removed (it falls to `Run`),
+    /// or holding the `AuthenticateReadBack` itself rather than its
+    /// `ReadBack`, or not clearing `last_authenticated`, fail here.
+    #[test]
+    fn a_read_back_refused_for_the_person_prompts_whatever_the_clock_says() {
+        let peer = interweave_transport_api::TransportIdentity::parse(
+            "12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e",
+        )
+        .expect("a PeerId");
+        let mut gate = PresenceGate::new(true);
+        assert_eq!(gate.prompted(true, 0), Prompted::NotHeld);
+        assert_eq!(
+            gate.admit(Effect::Seal, 10),
+            Admit::Run(Effect::Seal),
+            "control: inside the window"
+        );
+        assert_eq!(
+            gate.admit(Effect::AuthenticateReadBack(peer.clone()), 20),
+            Admit::Prompt
+        );
+        assert_eq!(
+            gate.prompted(true, 30),
+            Prompted::Resume(Effect::ReadBack(peer.clone()))
+        );
+        assert_eq!(
+            gate.admit(Effect::AuthenticateReadBack(peer.clone()), 40),
+            Admit::Prompt,
+            "a refusal again prompts again"
+        );
+        assert_eq!(
+            gate.prompted(false, 50),
+            Prompted::Dropped(Effect::ReadBack(peer.clone()))
+        );
+        assert_eq!(
+            gate.admit(Effect::Seal, 60),
+            Admit::Prompt,
+            "the refusal closed the window"
+        );
+
+        let mut open = PresenceGate::new(false);
+        assert_eq!(
+            open.admit(Effect::AuthenticateReadBack(peer.clone()), 0),
+            Admit::Prompt,
+            "whatever the policy"
+        );
+        assert_eq!(
+            open.prompted(true, 1),
+            Prompted::Resume(Effect::ReadBack(peer))
+        );
     }
 
     #[test]
