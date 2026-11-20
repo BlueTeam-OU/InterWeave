@@ -279,6 +279,42 @@ See [missing](./gone.md).
 code="$(run_code "$d")"
 [ "$code" = "0" ] && ok "a vendored crate's broken link is not this repository's problem"     || bad "a vendored document must not fail the check: exit $code — $(run "$d")"
 
+# ── help blocks: the markers are the contract every printer reads ────────
+# Written with printf, never a heredoc: an own-line marker in THIS file
+# would be judged as this file's own help block by the real-tree case.
+O='# >>> help'; C='# <<< help'
+
+R="$(fresh helpok)"
+printf '#!/bin/sh\n%s\n# usage\n%s\necho run\n' "$O" "$C" > "$R/ok.sh"
+# A printer quoting the markers mid-line is not an opener.
+printf "sed -n '/^%s\$/,/^%s\$/p' \"\$0\"\n" "$O" "$C" > "$R/printer.sh"
+# A file that is not UTF-8 is judged on its bytes, never reported unreadable.
+printf '\377\376\n%s\n%s\n' "$O" "$C" > "$R/blob.bin"
+code="$(run_code "$R")"; out="$(run "$R")"
+[ "$code" = "0" ] && [[ "$out" == *"2 help block(s) close"* ]] \
+    && ok "closed blocks pass and are counted; a printer's quoted markers and non-UTF-8 bytes are no problem" \
+    || bad "closed blocks should pass counting 2: exit $code — $out"
+
+# The defect that taught the rule: the closer at the end of a prose line.
+R="$(fresh helpprose)"
+printf '#!/bin/sh\n%s\n# usage\n# last line. <<< help\necho run\n' "$O" > "$R/s.sh"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"s.sh:2"*"never closed"* ]] \
+    && ok "a closer on the end of a prose line is no closer, and the opener's line is named" \
+    || bad "prose-line closer should exit 1 naming s.sh:2: $out"
+
+R="$(fresh helpspace)"
+printf '#!/bin/sh\n%s\n# usage\n%s \n' "$O" "$C" > "$R/s.sh"
+[ "$(run_code "$R")" = "1" ] && ok "a closer with a trailing space is no closer (the strictest printers match \$)" \
+    || bad "trailing-space closer should exit 1: $(run "$R")"
+
+R="$(fresh helptwice)"
+printf '#!/bin/sh\n%s\n# one\n%s\n# two\n%s\n' "$O" "$O" "$C" > "$R/s.sh"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"s.sh:2"*"next opener at line 4"* ]] \
+    && ok "an opener before the previous block closed is reported" \
+    || bad "second opener should exit 1 naming lines 2 and 4: $out"
+
 # ── and the real tree ────────────────────────────────────────────────────
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 [ "$(run_code "$REPO_ROOT")" = "0" ] && ok "the repository's own documentation is intact" \
