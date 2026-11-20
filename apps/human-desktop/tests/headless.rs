@@ -321,7 +321,6 @@ fn closing_a_facade_thread_that_already_ended_returns_at_once() {
 /// without the link.
 #[test]
 fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
 
     use interweave_human_desktop::app::DesktopOpener;
@@ -331,15 +330,13 @@ fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
     let record = dir.path().join("args");
     let marker = dir.path().join("pwned");
     let handler = dir.path().join("handler");
-    std::fs::write(
+    common::write_script(
         &handler,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" > '{}'\n",
             record.display()
         ),
-    )
-    .expect("handler");
-    std::fs::set_permissions(&handler, std::fs::Permissions::from_mode(0o700)).expect("mode");
+    );
 
     let link = format!(
         "https://example.org/a b;touch {} $(touch {})",
@@ -382,7 +379,6 @@ fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
 #[test]
 #[cfg(target_os = "linux")]
 fn an_opened_links_process_is_reaped() {
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use interweave_human_desktop::app::DesktopOpener;
@@ -390,8 +386,7 @@ fn an_opened_links_process_is_reaped() {
     static PID: AtomicU32 = AtomicU32::new(0);
     let dir = common::private_tempdir();
     let handler = dir.path().join("handler");
-    std::fs::write(&handler, "#!/bin/sh\nexit 0\n").expect("handler");
-    std::fs::set_permissions(&handler, std::fs::Permissions::from_mode(0o700)).expect("mode");
+    common::write_script(&handler, "#!/bin/sh\nexit 0\n");
     let mut opener =
         DesktopOpener::with(handler, |_| {}).on_spawn(|pid| PID.store(pid, Ordering::SeqCst));
     opener.open("https://example.org/");
