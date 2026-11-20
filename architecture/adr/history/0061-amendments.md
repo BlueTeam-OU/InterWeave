@@ -117,3 +117,23 @@ and `advertise`; add and remove are audited. Propagation: `LOCAL-IPC.md`
 §Method catalogue and its capability list, `ENDPOINTS.md` §Configured
 endpoint set, ADR-0067 decision 4, this note, the log row, the digest
 entries.
+
+### Amendment 2026-11-20 — An added identity's alias is renamed by its own method, and the first identity's alias is the configuration's
+
+Decision 7 says a rename changes "the display name on its card and its
+local alias", and plan §30 step 1 puts the rename on the admin
+connection, but the three administrative methods decision 2 names (add,
+remove, set_advertise) give an alias no door: an added entry's alias is
+in the endpoint overlay, which the daemon alone writes. Found by
+architect-cto while ruling p2p-network-dev-02's shapes of those three
+methods (their j119). Ruled: a fourth method of IPC 3.0,
+`admin.endpoints.set_alias`, rewrites an added entry's alias with the
+add's alias refusals. The first identity's alias is authored in
+`config.yaml`, which no program rewrites (ADR-0067 A 2026-11-19), and an
+alias delta in the overlay would leave the file's alias and the
+effective one disagreeing for every reader of the file, so the method
+refuses an authored entry and that identity's rename changes its card
+alone. Not yet confirmed by the builders: sent to p2p-network-dev-02 and
+rust-ui-dev with the ruling. Propagation: `LOCAL-IPC.md` §Method
+catalogue and its capability list, `ENDPOINTS.md`'s alias paragraph,
+this note, the log row, the digest entry.
