@@ -5,7 +5,7 @@ topic: "release-disk-after-tests"
 description: "Test-run disk rule (owner, 2026-10-05) — team.md's form: clean target/ when LARGE or after a dep-graph change, not after every run; measure du before/after and report"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 3b9c7c494a579d87
+  - fbc46c8180470578
 ---
 
 ## Test-run disk rule (owner, 2026-10-05) — team.md's form: clean target/ when LARGE or after a dep-graph change, not after every run; measure du before/after and report
@@ -27,6 +28,7 @@ The rule is agent-fabric `identities/prompt/team.md` ("A test run leaves behind 
 
 **How to apply:** check `du -sh target` at the end of a verification pass; clean if tens of GB or the dep graph changed. See [[desktop-e2e-stale-binary]] for the e2e rebuild caveat.
 Since 2026-10-18 (reflection; MESSAGE-IDs 01a150cc-5240, 01a15af5-0573, 01a15b83-577b): one InterWeave worktree's target/ is 60-130G, the Android Gradle build/ a further 2-3G, and each worktree builds its own, so "large" is every worktree's target. /home filled twice on 2026-10-20 with writes failing for others. Clean a worktree's target when its job ends or the suite run that needed it ends, stop Gradle and Kotlin daemons first, remove a worktree whose branch merged with its review heads, and measure with du (fabric-ctl disk is host-operator only).
+2026-11-13 (j272, REQUEST 01a1d5a7, /home 98%): my four worktree targets held 169G, two of them for jobs merged days earlier. `fabric-jobs tidy` removes only targets no open job holds (110.6 GB: j265, j266); a blocked or paused job's checkout is kept, so `cargo clean` there too when nothing builds (j251 28.8 GiB, j267 39.9 GiB). Result 98% -> 52%. Lesson: run tidy when a job is delivered, not when the disk is full.
 
 *References: desktop-e2e-stale-binary*
 

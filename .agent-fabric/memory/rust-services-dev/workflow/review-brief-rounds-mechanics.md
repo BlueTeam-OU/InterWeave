@@ -5,7 +5,7 @@ topic: "review-brief-rounds-mechanics"
 description: "fabric-review brief across rounds: re-review reads the last posted review, a base off main needs card_base, adjudication takes previous_findings, and a handback report is extracted from the task JSONL"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: InterWeave
 derived_from:
   - 09cb37f6413f4c39
+  - cadafb6d1cdc7d50
 ---
 
 ## fabric-review brief across rounds: re-review reads the last posted review, a base off main needs card_base, adjudication takes previous_findings, and a handback report is extracted from the task JSONL
@@ -24,6 +25,8 @@ Learned on InterWeave #531 (2026-11-03, six review rounds):
 - `mode: finding-adjudication` does take `previous_findings: <file>`; judge before answering, then fix.
 - More than 3 lenses (general counts) draws a dilution warning.
 - The code-review agent hands back via a SubagentHandback call: post its text by walking the task's JSONL for the string holding the dispatch block and the last `Finding:`/`Judgement:` line, then `fabric-pr post-review <n> < file` as the bare command (anything wrapped is refused).
+- For round 3 and later, render with `fabric-review next <the previous round's request json> --pr <n> --head <rev>` (the json `next` wrote, e.g. review-rr2.json). Started from the round-1 yaml it mislabels the round and its base, and with `--pr` it refuses that base (#626, 2026-11-11).
+- Paste the rendered brief verbatim as the prompt, the previous-findings block and diff included; pointing the reviewer at files instead is a deviation to report.
 - An architecture fold supplied by architect-cto onto the PR gets its own re-review; findings in its text go back to architect-cto as a REQUEST, never fixed in their files.
 
 **Why:** each of these cost a refused render or a wasted round.
@@ -31,4 +34,4 @@ Learned on InterWeave #531 (2026-11-03, six review rounds):
 
 *References: review-range-with-main-merge-is-partial*
 
-*Observed 2026-11-03 (rust-services-dev)*
+*Observed 2026-11-11 (rust-services-dev)*

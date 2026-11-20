@@ -2,31 +2,53 @@
 role: "p2p-network-dev"
 class: solution
 topic: "adr0028-private-group-predicate"
-description: "ADR-0028 A 2026-10-08 (third), architect-cto seq 24751: a group-writable ancestor passes only when its group is the owner's private group (NSS name equality + empty gr_mem), failing closed"
+description: "ADR-0028's private-group predicate as it landed (#228, #236, #239): name equality through NSS with the process's euid, no access ACL, reads bounded at 5 s with a waiting one-outstanding gate; ADR-0028 is the authority, this is where the…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 1c1c508f33ba3a28
   - f333d5c460a72dc3
 ---
 
-## ADR-0028 A 2026-10-08 (third), architect-cto seq 24751: a group-writable ancestor passes only when its group is the owner's private group (NSS name equality + empty gr_mem), failing closed
+## ADR-0028's private-group predicate as it landed (#228, #236, #239): name equality through NSS with the process's euid, no access ACL, reads bounded at 5 s with a waiting one-outstanding gate; ADR-0028 is the authority, this is where the code is
 
-Ruling 2026-10-08 (architect-cto REPLY seq 24751, to my observation seq 24742; amendment "A group of one is the owner's own" lands on #220):
-- A group-write bit on an ancestor (or a traversed link's directory) is accepted when getgrgid(dir gid).name == getpwuid(owner uid).name AND gr_mem is empty. Through NSS (getpwuid_r/getgrgid_r), never /etc/group by hand. gid == owner's primary gid is NOT enough (Debian gid 100 "users"); gid == uid is not required.
-- A read error or a miss REFUSES: detail "group-writable, and whether the group is the owner's private group could not be read". Other-write stays refused unless sticky. A failing group-writable refusal names the group.
-- Tests: private group accepted; shared-name group refused naming it; gid==uid with differing names refused; NSS miss refused; existing refusals unchanged. Suites set tempdir modes explicitly anyway (j37).
-- config.yaml's own group-write bit (load.rs open_guarded_as) takes the SAME predicate, other-write always refused (seq 24771); one predicate named once, applied by both. The private dir itself stays 0700.
-Implementation plan: nix 0.30.1 (already in graph via rtnetlink) with feature "user", target-gated linux/android, since profile-config forbids unsafe; pure verdict fn behind a NameService trait for tests. Related: [[pr228-judge-before-create]].
-- #231 review (architect-cto seq 25219, #231 at 5551559c): "the owner" is the DAEMON'S EFFECTIVE USER (getpwuid(euid)), never the directory's owner — a root-owned 0775 dir in group root must be refused (test owed). Unreadable detail: "group-writable; whether group <gid> is the owner's private group could not be read". Primary-group members and a lying name service are root's acts, accepted; NO getpwent scan.
-- #231 e700596e (seq 25252): group-write accepted only with NO extended access ACL — system.posix_acl_access present refuses, naming the ACL (group bits are the ACL mask then). Default ACL alone does not refuse. Plan: rustix 1.1.5 (in graph, "fs" on) lgetxattr for the walk (lazily, closure), fgetxattr on config.yaml's handle; ENODATA/ENOTSUP = absent; other errors refuse. Test with setfacl (host has it) granting another account write → refused; no ACL → accepted.
-- NSS deadline ruling (architect-cto seq 29312, to my seq 29274): option (b). The predicate's two name-service reads run on a helper thread under NSS_READ_DEADLINE = 5 s (a constant beside DAEMON_LOCK_WAIT, not a knob); on expiry it REFUSES naming the cause ("the name service did not answer within 5 s"); the thread may leak, at most one per start. The deadline wraps the trait calls inside owners_private_group (not HostNames), so a sleeping fake proves it. ADR amendment "The name-service read is bounded" on architect's next PR. Job j44 on #236.
+The rule's text is ADR-0028 (amendments "A group of one is the owner's own",
+#231, and "The name-service read is bounded", #239); read it there. This
+section corrects the earlier one, which recorded the 2026-10-08 draft:
+"the owner" as the directory's owner and a thread that "may leak, at most
+one per start". Both are wrong now.
 
-*References: pr228-judge-before-create*
+As landed in profile-config (persist.rs `owners_private_group`, #228 and
+#236):
+- A group-write bit on an ancestor, a traversed link's directory, or
+  config.yaml passes only when the group's name equals the user name of
+  THE OWNER, defined as the account the process runs as (euid), never the
+  directory's owner, and gr_mem is empty, and no
+  `system.posix_acl_access` xattr is present (with an access ACL, the
+  group bits are the mask). Other-write is always refused unless sticky.
+  A failed or missing read refuses.
+- The two NSS reads run on a helper thread under `NSS_READ_DEADLINE`
+  (5 s, a constant, not a knob). At most one read is outstanding per
+  process (`NSS_READ_OUTSTANDING`, a `ReadGate` behind
+  `NameService::outstanding()`). A caller that finds it taken waits, on one
+  budget counted from its own request, then refuses naming the earlier
+  read. The deadline bounds each READ, not the operation: a walk reads
+  once per group-writable component.
+- Known gaps the ADR states: primary-group members and a lying name
+  service are root's acts; NFSv4 ACLs are not inspected.
 
-*Observed 2026-10-09 (p2p-network-dev)*
+Not true on Android: bionic's gr_mem is never empty there, see
+[[domain-bionic-gr-mem-lists-own-name]]. The general lesson is
+[[a-blocking-lookup-in-a-fail-closed-check-is-fail-stuck]].
+
+*References: a-blocking-lookup-in-a-fail-closed-check-is-fail-stuck, domain-bionic-gr-mem-lists-own-name*
+
+*Anchors: `interweave:crates/config/profile-config/src/persist.rs::NSS_READ_OUTSTANDING`, `interweave:crates/config/profile-config/src/persist.rs::owners_private_group`*
+
+*Observed 2026-10-25 (p2p-network-dev)*

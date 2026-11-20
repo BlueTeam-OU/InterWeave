@@ -2,10 +2,10 @@
 role: "ux-designer"
 class: threads
 topic: "j98-unlock-s11-pixel-review"
-description: "j98 Pixel review of unlock note §11 (A14-A20, F10-F14) — build 0e1d4d175 with rust-ui-dev's RESTART hook; owner's yes to replace v0.2.0"
+description: j98 unlock s11 pixel review (threads)
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

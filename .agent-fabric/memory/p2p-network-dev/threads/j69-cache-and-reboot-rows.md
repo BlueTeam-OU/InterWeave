@@ -2,10 +2,10 @@
 role: "p2p-network-dev"
 class: threads
 topic: "j69-cache-and-reboot-rows"
-description: "j69 (owner's limits on row 1): cache-on row in 4 variants + reboot row built at 837663a2; device runs wait on rust-ui-dev-01's APK; Scan re-run later (2026-10-24)"
+description: j69 cache and reboot rows (threads)
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
