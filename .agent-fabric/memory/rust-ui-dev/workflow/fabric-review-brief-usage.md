@@ -42,6 +42,6 @@ round 1's again is refused: "a re-review of #N starts at its last review's head"
 rendered brief file rather than pasting it; never pass a `$(...)` placeholder in an Agent prompt (it is sent
 literally).
 
-*Anchors: `agent-fabric/tools/fabric/review_brief.py::card_base`*
+*Anchors: `agent-fabric:tools/fabric/review_brief.py::card_base`*
 
 *Observed 2026-10-19 (rust-ui-dev)*

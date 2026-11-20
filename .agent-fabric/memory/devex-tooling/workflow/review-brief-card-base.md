@@ -22,6 +22,6 @@ derived_from:
 **Why:** a later piece of work on an open PR is reviewed as its own range, and that base is never on main.
 **How to apply:** for any review of a range past the PR's first round, put `card_base: $(git rev-parse origin/main)` in the request up front.
 
-*Anchors: `agent-fabric/tools/fabric/review_brief.py::card_base`*
+*Anchors: `agent-fabric:tools/fabric/review_brief.py::card_base`*
 
 *Observed 2026-10-19 (devex-tooling)*

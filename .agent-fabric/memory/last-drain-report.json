@@ -1313,7 +1313,6 @@
     ".agent-fabric/memory/p2p-network-dev/threads/j63-wifi-device-run.md",
     ".agent-fabric/memory/p2p-network-dev/threads/j66-stage-21-device-rows.md",
     ".agent-fabric/memory/p2p-network-dev/threads/j69-cache-and-reboot-rows.md",
-    ".agent-fabric/memory/p2p-network-dev/threads/j69-cache-and-reboot-rows-2.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/agent-prompt-is-literal.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/clean-target-after-runs.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/commit-before-mutation.md",
@@ -1800,7 +1799,6 @@
     ".agent-fabric/memory/ux-designer/threads/j96-locked-restart-in-process.md",
     ".agent-fabric/memory/ux-designer/threads/j97-message-not-copied.md",
     ".agent-fabric/memory/ux-designer/threads/j98-unlock-s11-pixel-review.md",
-    ".agent-fabric/memory/ux-designer/threads/j98-unlock-s11-pixel-review-2.md",
     ".agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md",
     ".agent-fabric/memory/ux-designer/threads/stage21-design-backlog.md",
     ".agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md",
@@ -1825,7 +1823,7 @@
     ".agent-fabric/memory/ux-designer/workflow/spec-cites-only-recorded-methods.md",
     ".agent-fabric/memory/ux-designer/workflow/workflow-carried-2026-10-18.md"
   ],
-  "files_written": 1152,
+  "files_written": 1150,
   "harvest": {
     "host": "develop-qzapp",
     "in_scope": 99,
@@ -6199,11 +6197,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-24"
     },
-    ".agent-fabric/memory/p2p-network-dev/threads/j69-cache-and-reboot-rows-2.md#j69 DONE 2026-11-10: cache-on, control, reboot and Scan row 2 run files all on main; final REPLY 01a1c786": {
-      "agent": "p2p-network-dev-02",
-      "host": "develop-qzapp",
-      "observed": "2026-11-10"
-    },
     ".agent-fabric/memory/p2p-network-dev/threads/j69-cache-and-reboot-rows.md#j69 (owner's limits on row 1): cache-on row in 4 variants + reboot row built at 837663a2; device runs wait on rust-ui-dev-01's APK; Scan re-run later (2026-10-24)": {
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
@@ -8698,11 +8691,6 @@
       "agent": "ux-designer-01",
       "host": "develop-qzapp",
       "observed": "2026-11-09"
-    },
-    ".agent-fabric/memory/ux-designer/threads/j98-unlock-s11-pixel-review-2.md#j98 Pixel review of the unlock note §11 (A14-A20, F10-F14): closed by the j107 re-check 2026-11-10; one spec revision still owed (network grant kills the process on GrapheneOS)": {
-      "agent": "ux-designer-01",
-      "host": "develop-qzapp",
-      "observed": "2026-11-13"
     },
     ".agent-fabric/memory/ux-designer/threads/j98-unlock-s11-pixel-review.md#j98 Pixel review of unlock note §11 (A14-A20, F10-F14) — build 0e1d4d175 with rust-ui-dev's RESTART hook; owner's yes to replace v0.2.0": {
       "agent": "ux-designer-01",

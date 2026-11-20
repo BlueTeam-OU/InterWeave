@@ -42,7 +42,7 @@ tools/ci/apt-display.txt). Measured on the hosted runner 2026-10-26: the
 image already holds most display packages, so the cache is 7 .debs /
 1.09 MB (5 new, 2 upgraded); a custom Dir::Cache::Archives under
 $RUNNER_TEMP prints "W: Download is performed unsandboxed as root" (_apt
-cannot reach ~) and works. Rootless podman ubuntu:24.04:
+cannot reach the runner account's home) and works. Rootless podman ubuntu:24.04:
 cold 105 .debs 65 s, warm "Need to get 0 B". release.yml's linux job runs
 apt before checkout, so it writes `apt_install.sh conf`'s lines itself and
 the self-test compares them. For gzapp (j247) the same script shape fits.
