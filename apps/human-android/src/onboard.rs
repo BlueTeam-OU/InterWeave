@@ -22,8 +22,8 @@ use interweave_human_android_platform::{
     Expected, IdentityRefused, ServiceHost, StoreGeneration, locked_status, reseal_needs_presence,
 };
 use interweave_human_ui_model::{
-    Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start, StartHold,
-    StepFailed,
+    Effect, IdentityFlow, Notice, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
+    StartHold, StepFailed,
 };
 use interweave_human_ui_slint::{
     IdentityInput, View, Wake, apply_identity, defer, identity_page, invoke_on_window,
@@ -408,13 +408,37 @@ pub(crate) fn window_shown(shown: bool) {
     if shown && let Some(through) = ASKS.drop_all(ask::UNLOCK) {
         unlock_unasked(through);
     }
+    // The Activity starts the service at each showing (MainActivity's
+    // onStart; a recreation's binding restarts a start refused busy):
+    // `IdStartBusy`, if it shows, waits on that start with Try again
+    // disabled (identity note section 6, A return or a recreation). A
+    // launch took the notice away first ([`launched`]).
+    if shown {
+        ServiceHost::global().hub().start_asked(true);
+    }
     route_state().shown(shown);
 }
 
 /// `Native.launched`: the Activity was created anew, not recreated in
 /// this process -- a launch, which prompts as a cold launch does.
 pub(crate) fn launched() {
+    // A new launch shows what its own start answers, never `IdStartBusy`
+    // (identity note section 6, How long).
+    ServiceHost::global().hub().start_asked(false);
     route_state().launched();
+}
+
+/// `IdStartBusy`'s Try again on Chats or a conversation, after the bound
+/// (identity note section 6): one service start, by the path a granted
+/// Unlock uses ([`authenticated`]), as the person's, so a refusal for the
+/// screen lock prompts (L1) and Connect counts its openings from here
+/// (add-a-peer section 5.1). The hub shows the notice's start running
+/// until it answers, and the model offers no second press meanwhile
+/// (ui-model's `a_busy_start_is_retried_once_until_it_answers`).
+pub(crate) fn retry_start() {
+    ServiceHost::global().hub().start_asked(true);
+    person_asked();
+    ASKS.push(ask::RESTART);
 }
 
 /// The person's action asks for the next start: a store screen's Try
@@ -1407,6 +1431,20 @@ pub(crate) fn hold_bound_passed() -> bool {
     })
 }
 
+/// The start under a held screen was refused with the profile in use
+/// before its bound: the screen stays, with `IdStartBusy` and Try again,
+/// focused (identity note section 6). Its Try again asks the service
+/// again ([`ask_service`]), a restart of the bound one. Called by the root
+/// as [`start_decided`] is.
+pub(crate) fn start_busy() {
+    ONBOARDING.with(|slot| {
+        if let Some(o) = slot.borrow_mut().as_mut() {
+            o.flow.start_busy();
+        }
+    });
+    render();
+}
+
 /// The start under a held C4 or R4 decided -- Connect or Chats, which
 /// the root's model shows -- or the bound passed, or the start ended
 /// undecided: the screen goes, and the flow hands over. Called by the
@@ -1456,10 +1494,22 @@ pub(crate) fn secure_off() {
 fn ask_service(o: &mut Onboarding) {
     o.lock = None;
     o.service_asked = true;
+    let hub = ServiceHost::global().hub();
     // Before the ask: an answer counted past this is this start's.
-    o.asked_at = ServiceHost::global().hub().store_generation();
+    o.asked_at = hub.store_generation();
+    // A held screen shows its own start's answer: a notice an earlier
+    // start left on Chats is not this one's.
+    hub.start_asked(false);
     clear_authentication();
     person_asked();
     FLOW_START.store(o.flow.start_held(), Ordering::SeqCst);
-    ASKS.push(o.over.start_ask());
+    // `IdStartBusy`'s Try again: the last ask was refused with the
+    // profile in use and the service is bound already, so it is restarted
+    // -- a bind would find the binding and start nothing.
+    let busy = matches!(o.flow.notice(), Some(Notice::StartBusy { .. }));
+    ASKS.push(if busy {
+        ask::RESTART
+    } else {
+        o.over.start_ask()
+    });
 }

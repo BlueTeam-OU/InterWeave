@@ -514,6 +514,10 @@ impl Opener for AndroidOpener {
     fn unlock_line_seen(&mut self, start: u64) {
         ServiceHost::global().hub().unlock_line_seen(start);
     }
+
+    fn retry_start(&mut self) {
+        crate::onboard::retry_start();
+    }
 }
 
 /// The rules of a start with Connect owed (add-a-peer section 5.1;
@@ -617,7 +621,14 @@ impl Root {
             drop(carried);
             crate::onboard::start_decided();
         } else if self.side.start_decided(asked_at) && !crate::onboard::flow_answers_refusal() {
-            crate::onboard::start_decided();
+            // Refused with the profile in use before the bound: the
+            // screen stays, with `IdStartBusy` and Try again (identity
+            // note section 6; `ViewSide::start_busy`).
+            if self.side.start_busy(asked_at) {
+                crate::onboard::start_busy();
+            } else {
+                crate::onboard::start_decided();
+            }
         }
     }
 

@@ -200,9 +200,12 @@ class MainActivity : NativeActivity() {
         identityReady = true
         if (phraseShown) return
         // A binding kept across a recreation, whose service's last start
-        // was refused for the lock, starts again now the key opens.
+        // was refused for the lock, starts again now the key opens; one
+        // refused with the profile in use starts again too, as a return
+        // that binds anew does (identity note section 6).
         val service = local
-        if (service != null && service.locked()) service.restart() else connect()
+        val again = service != null && (service.locked() || service.busy())
+        if (again) service?.restart() else connect()
     }
 
     /**
