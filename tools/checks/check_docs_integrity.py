@@ -41,10 +41,10 @@
 #             `--help` from between the two markers in three ways: a sed
 #             range or regex anchored on both lines, a `lines.index` of
 #             each whole line, or a substring `split`. A closer that
-#             drifted onto the end of a prose line opens a sed or split
-#             printer to the end of the file; a regex printer finds no
-#             block (an empty help, or a crash), and `lines.index`
-#             raises. From 2026-09-10 to 2026-11-19
+#             drifted onto the end of a prose line runs a sed or split
+#             printer on past the block into the code; a regex printer
+#             finds no block (an empty help, or a crash), and
+#             `lines.index` raises. From 2026-09-10 to 2026-11-19
 #             check_vendored_advisories.sh's `--help` printed the whole
 #             script, and nothing failed.
 #             The rule is the markers', not one printer's, so it is
