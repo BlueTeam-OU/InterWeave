@@ -13,7 +13,7 @@ checked against it.
 | build-tools | 30.0.3, 36.0.0 (AGP 9.4's default) | `/opt/android-sdk/build-tools/` |
 | for gzapp's Flutter apps (AGP 8.11), host only | build-tools 35.0.0, platforms 34, 35 and 37 (`android-37.0`, also linked as `android-37`), CMake 3.22.1 | `/opt/android-sdk/` |
 | NDK | 28.2.13676358 (r28c, AGP 9.4's default) | `/opt/android-sdk/ndk/` |
-| platform-tools, cmdline-tools | 37.0.1, 23.0 | `/opt/android-sdk/` |
+| platform-tools (host only: adb for the device), cmdline-tools | 37.0.3, 23.0 | `/opt/android-sdk/` |
 | JDK | Temurin 17.0.20.1+1 (AGP 9.4 needs 17) | `/opt/android-sdk/jdk` |
 | Gradle | 9.6.0, through each project's wrapper | not installed; pin in `gradle-wrapper.properties` |
 | rustup, Rust | rustup 1.29.1; the channel `rust-toolchain.toml` pins, + `aarch64-linux-android` | `~/.rustup`, `~/.cargo` |
