@@ -163,6 +163,21 @@ pub enum Notice {
         /// The `PeerId` the record names.
         recorded: TransportIdentity,
     },
+    /// `IdStartBusy`: the service start a held Continue made was refused
+    /// with the profile in use (the runtime's `LockHeld`) before
+    /// add-a-peer §5.1's bound (design section 6). An identity is on
+    /// record, so Try again in the primary's place -- on R2 and R3 in
+    /// `IdRestoreOther`'s Continue's -- makes one service start and
+    /// nothing else ([`IdentityFlow::start_busy`]).
+    StartBusy {
+        /// On R2 and R3, the `PeerId` `IdRestoreOther` showed, kept under
+        /// this notice.
+        recorded: Option<TransportIdentity>,
+        /// On C4, the start was `IdAlreadyCreated`'s Continue's: the title
+        /// stays `IdAlreadyTitle` and the `PeerId` the unused words made
+        /// stays hidden.
+        already: bool,
+    },
 }
 
 impl Notice {
@@ -299,6 +314,9 @@ enum Screen {
     },
     R4 {
         peer: Option<TransportIdentity>,
+        /// `IdStartBusy`, in C4's notice place (R4 has C4's layout,
+        /// section 3.3); the only notice R4 shows.
+        notice: Option<Notice>,
         /// As C4's.
         held: bool,
         /// As C4's.
@@ -528,6 +546,7 @@ impl IdentityFlow {
             Screen::C4 { notice, .. }
             | Screen::R2 { notice, .. }
             | Screen::R3 { notice, .. }
+            | Screen::R4 { notice, .. }
             | Screen::S1 { notice, .. } => notice.as_ref(),
             Screen::Welcome { .. } | Screen::R1 | Screen::K1 { .. } => self.start_notice.as_ref(),
             _ => None,
@@ -697,6 +716,27 @@ impl IdentityFlow {
             }
             // Held: a second press does nothing (§5.1).
             Screen::C4 { held: true, .. } | Screen::R4 { held: true, .. } => Vec::new(),
+            // Try again in Continue's place under `IdStartBusy`: one
+            // service start, no seal -- the identity is on record, and a
+            // second seal would be refused as another identity on record
+            // (section 6; `start_busys_try_again_starts_the_service_and_nothing_else`).
+            // The notice stays until the start's result, as any notice
+            // does while C4's primary runs.
+            Screen::C4 {
+                notice: Some(Notice::StartBusy { .. }),
+                held,
+                starting,
+            }
+            | Screen::R4 {
+                notice: Some(Notice::StartBusy { .. }),
+                held,
+                starting,
+                ..
+            } => {
+                *held = true;
+                *starting = false;
+                vec![Effect::StartService]
+            }
             Screen::C4 {
                 notice: Some(Notice::AlreadyCreated),
                 held,
@@ -953,6 +993,14 @@ impl IdentityFlow {
                     *starting = false;
                     vec![Effect::VoidPaper(false), Effect::StartService]
                 }
+                // In that Continue's place: the start again, and nothing
+                // else (section 6).
+                Notice::StartBusy { .. } => {
+                    *checking = true;
+                    *started = true;
+                    *starting = false;
+                    vec![Effect::StartService]
+                }
                 _ => Vec::new(),
             },
             Screen::R3 {
@@ -980,6 +1028,12 @@ impl IdentityFlow {
                     *started = true;
                     *starting = false;
                     vec![Effect::VoidPaper(false), Effect::StartService]
+                }
+                Notice::StartBusy { .. } => {
+                    *restoring = true;
+                    *started = true;
+                    *starting = false;
+                    vec![Effect::StartService]
                 }
                 _ => Vec::new(),
             },
@@ -1204,9 +1258,13 @@ impl IdentityFlow {
             // Still held: the start goes on under it, and the root ends
             // the hold once the start decided ([`Self::decided`]). A
             // failure an earlier seal left is no longer true (#651 F3).
+            // The words go; the PeerId stays on C4, which shows it until
+            // the next screen opens, `IdStartBusy` included (section 6;
+            // `a_start_refused_busy_shows_start_busy_on_each_held_screen`).
             Ok(()) => {
                 *notice = None;
-                self.drop_created();
+                self.words = None;
+                self.shown = false;
                 vec![Effect::VoidPaper(false), Effect::StartService]
             }
             // C4 stays, Continue (Try again) enabled again (§5.1).
@@ -1307,6 +1365,7 @@ impl IdentityFlow {
                 };
                 self.screen = Screen::R4 {
                     peer,
+                    notice: None,
                     held: false,
                     starting: false,
                 };
@@ -1316,6 +1375,7 @@ impl IdentityFlow {
                 let peer = Some(derived.clone());
                 self.screen = Screen::R4 {
                     peer,
+                    notice: None,
                     held: false,
                     starting: false,
                 };
@@ -1504,6 +1564,88 @@ impl IdentityFlow {
         }
         self.screen = Screen::Done;
         vec![Effect::OpenChats]
+    }
+
+    /// The start under a held screen was refused with the profile in use
+    /// (the runtime's `LockHeld`) before add-a-peer §5.1's bound: the
+    /// hold ends and `IdStartBusy` shows in the screen's notice place,
+    /// raised so it takes focus (design section 6, section 8). On C4
+    /// under `IdAlreadyCreated`, and on R2 and R3 under `IdRestoreOther`,
+    /// the rest of the screen stays as that notice left it. Nothing on a
+    /// screen that is not held, and nothing is retried: only the person's
+    /// Try again starts again.
+    pub fn start_busy(&mut self) {
+        if !self.start_held() {
+            return;
+        }
+        let kept = |notice: &Option<Notice>| match notice {
+            Some(Notice::RestoreOther { recorded }) => Some(recorded.clone()),
+            Some(Notice::StartBusy { recorded, .. }) => recorded.clone(),
+            _ => None,
+        };
+        match &mut self.screen {
+            Screen::C4 {
+                notice,
+                held,
+                starting,
+            } => {
+                let already = matches!(
+                    notice,
+                    Some(Notice::AlreadyCreated | Notice::StartBusy { already: true, .. })
+                );
+                *notice = Some(Notice::StartBusy {
+                    recorded: None,
+                    already,
+                });
+                *held = false;
+                *starting = false;
+            }
+            Screen::R4 {
+                notice,
+                held,
+                starting,
+                ..
+            } => {
+                *notice = Some(Notice::StartBusy {
+                    recorded: None,
+                    already: false,
+                });
+                *held = false;
+                *starting = false;
+            }
+            Screen::R2 {
+                notice,
+                checking,
+                started,
+                starting,
+                ..
+            } => {
+                *notice = Some(Notice::StartBusy {
+                    recorded: kept(notice),
+                    already: false,
+                });
+                *checking = false;
+                *started = false;
+                *starting = false;
+            }
+            Screen::R3 {
+                notice,
+                restoring,
+                started,
+                starting,
+                ..
+            } => {
+                *notice = Some(Notice::StartBusy {
+                    recorded: kept(notice),
+                    already: false,
+                });
+                *restoring = false;
+                *started = false;
+                *starting = false;
+            }
+            _ => return,
+        }
+        self.notices_raised += 1;
     }
 
     /// S1's prompt: granted, or cancelled/denied (back on S1, nothing
@@ -3225,5 +3367,179 @@ mod tests {
         let flow = created_at_c2();
         let printed = format!("{flow:?}");
         assert!(LIST.iter().all(|word| !printed.contains(word)), "{printed}");
+    }
+
+    /// The five places of a held service start that `IdStartBusy`
+    /// answers (design section 6, the row for a service start refused
+    /// with the profile in use; acceptance 15): each held with its start
+    /// asked, by the press that asked it.
+    fn held_starts() -> Vec<(&'static str, IdentityFlow)> {
+        let mut sealed = c4_sealing();
+        assert_eq!(
+            sealed.sealed(Ok(())),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        let mut already = c4_sealing();
+        already.sealed(Err(StepFailed::AlreadyProvisioned));
+        assert_eq!(
+            already.primary(),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        let mut r4 = at_r3();
+        r4.primary();
+        r4.restored(Ok(()));
+        assert_eq!(r4.screen(), ScreenId::R4, "control: at R4");
+        assert_eq!(
+            r4.primary(),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        let mut r3 = at_r3();
+        r3.primary();
+        r3.restored(Err(StepFailed::RestoreOther(other())));
+        assert_eq!(
+            r3.notice_action(),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::RestoreOther(other())));
+        assert_eq!(
+            r2.notice_action(),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        let places = vec![
+            ("C4 after a seal", sealed),
+            ("C4 under IdAlreadyCreated", already),
+            ("R4", r4),
+            ("R3", r3),
+            ("R2 after K1", r2),
+        ];
+        for (place, flow) in &places {
+            assert!(flow.start_held(), "control: {place} held");
+        }
+        places
+    }
+
+    /// What `IdStartBusy` keeps on each place: the `PeerId`
+    /// `IdRestoreOther` showed on R2 and R3, and on C4 under
+    /// `IdAlreadyCreated` that notice's title and hidden `PeerId`.
+    fn busy_on(place: &str) -> Notice {
+        match place {
+            "R3" | "R2 after K1" => Notice::StartBusy {
+                recorded: Some(other()),
+                already: false,
+            },
+            "C4 under IdAlreadyCreated" => Notice::StartBusy {
+                recorded: None,
+                already: true,
+            },
+            _ => Notice::StartBusy {
+                recorded: None,
+                already: false,
+            },
+        }
+    }
+
+    /// Try again in the primary's place, as the view routes it: C4's and
+    /// R4's primary, R2's and R3's notice action.
+    fn try_again(place: &str, flow: &mut IdentityFlow) -> Vec<Effect> {
+        match place {
+            "R3" | "R2 after K1" => flow.notice_action(),
+            _ => flow.primary(),
+        }
+    }
+
+    /// A held start refused with the profile in use before the bound
+    /// (design section 6; acceptance 15, the first block): on each of the
+    /// five places the hold ends, `ConnectStarting` goes, and
+    /// `IdStartBusy` shows, raised so it takes focus, with no other
+    /// notice. C4 after a seal and R4 keep their `PeerId`; C4 under
+    /// `IdAlreadyCreated` keeps that notice's title and hidden `PeerId`;
+    /// R2 and R3 keep the `PeerId` `IdRestoreOther` showed. A screen that
+    /// is not held is left as it was, and the refused start's bound
+    /// decides nothing later: nothing retries on its own.
+    ///
+    /// Mutations: `start_busy` leaving the screen held, raising no notice
+    /// count, or dropping `recorded` or `already`, fails here; so does
+    /// `sealed(Ok)` dropping the `PeerId` again (`drop_created`).
+    #[test]
+    fn a_start_refused_busy_shows_start_busy_on_each_held_screen() {
+        for (place, mut flow) in held_starts() {
+            flow.set_starting(true);
+            assert!(flow.starting(), "control: {place} ConnectStarting");
+            let raised = flow.notices_raised();
+            flow.start_busy();
+            assert!(!flow.start_held(), "{place}: the hold ends");
+            assert!(!flow.starting(), "{place}: no progress under Try again");
+            assert!(!flow.waiting(), "{place}: Back as at any other time");
+            assert_eq!(flow.notice(), Some(&busy_on(place)), "{place}");
+            assert_eq!(flow.notices_raised(), raised + 1, "{place}: focus");
+            match place {
+                "C4 after a seal" | "R4" => {
+                    assert_eq!(flow.peer(), Some(&mine()), "{place}: PeerId");
+                }
+                "C4 under IdAlreadyCreated" => {
+                    assert_eq!(flow.peer(), None, "{place}: PeerId hidden");
+                }
+                _ => {}
+            }
+            // Not held: a second answer, or the bound, changes nothing.
+            flow.start_busy();
+            assert_eq!(flow.notices_raised(), raised + 1, "{place}: once");
+            assert_eq!(flow.decided(), [], "{place}: nothing opens Chats");
+            flow.set_starting(true);
+            assert!(!flow.starting(), "{place}: nothing under Try again");
+        }
+    }
+
+    /// `IdStartBusy`'s Try again (design section 6, section 8;
+    /// acceptance 15): one service start and nothing else -- no seal, no
+    /// restore, no read-back, no void-paper marker -- pressed as the
+    /// Continue it replaces: the screen holds from the press, a second
+    /// press starts nothing, Back does nothing, R2's words and R3's No
+    /// are held, and the notice stays until the result. Answered
+    /// `LockHeld` again, the notice shows again, focused; answered
+    /// otherwise, the start decides as any held start does.
+    ///
+    /// Mutations: the C4/R4 `StartBusy` arm of `primary` removed (C4
+    /// seals again, R4 marks the void paper again), or `notice_action`'s
+    /// `StartBusy` arms removed (R2 and R3 start nothing), or either
+    /// setting no hold, fails here.
+    #[test]
+    fn start_busys_try_again_starts_the_service_and_nothing_else() {
+        for (place, mut flow) in held_starts() {
+            flow.start_busy();
+            assert_eq!(
+                try_again(place, &mut flow),
+                [Effect::StartService],
+                "{place}: one start, nothing else"
+            );
+            assert!(flow.start_held(), "{place}: held from the press");
+            assert_eq!(try_again(place, &mut flow), [], "{place}: one start");
+            assert_eq!(flow.primary(), [], "{place}: no primary either");
+            assert_eq!(flow.back(), [], "{place}: Back does nothing");
+            assert_eq!(flow.notice(), Some(&busy_on(place)), "{place}: stays");
+            match place {
+                "R2 after K1" => {
+                    assert!(!flow.press('a'), "R2: no letter reaches the words");
+                    assert!(flow.waiting(), "R2: the back arrow inactive");
+                }
+                "R3" => {
+                    flow.recheck();
+                    assert_eq!(flow.screen(), ScreenId::R3, "R3: No held");
+                    assert!(flow.waiting(), "R3: held");
+                }
+                _ => {}
+            }
+            flow.set_starting(true);
+            assert!(flow.starting(), "{place}: ConnectStarting from the press");
+
+            // `LockHeld` again: the notice again, focused.
+            let raised = flow.notices_raised();
+            flow.start_busy();
+            assert_eq!(flow.notice(), Some(&busy_on(place)), "{place}: again");
+            assert_eq!(flow.notices_raised(), raised + 1, "{place}: focus");
+            assert_eq!(try_again(place, &mut flow), [Effect::StartService]);
+            assert_eq!(flow.decided(), [Effect::OpenChats], "{place}: decided");
+        }
     }
 }

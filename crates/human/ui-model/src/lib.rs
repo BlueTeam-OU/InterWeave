@@ -62,8 +62,8 @@ pub use model::{
     Announce, Composer, Confirmation, ContactChange, ConversationKey, ConversationSummary,
     DEDUP_CAP, Direction, FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey,
     ItemStatus, LastMessage, ListedInbound, ListedOutbound, MessageItem, Outcome, Released, Reply,
-    Retention, RouteLabel, RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table,
-    Trust, UiModel, UndoClosed, ViewEvent,
+    Retention, RouteLabel, RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, StartBusy,
+    SwipeOffer, Table, Trust, UiModel, UndoClosed, ViewEvent,
 };
 pub use order::{compare_names, contact_order};
 pub use peers::{

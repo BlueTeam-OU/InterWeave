@@ -303,6 +303,18 @@ fn notice(flow: &IdentityFlow, screen: ScreenId, page: &mut IdentityPage) -> boo
             page.notice_peer = grouped(recorded).into();
             page.notice_action = text(UiText::IdContinue).into();
         }
+        // In the notice place `IdRestoreOther` left on R2 and R3, its
+        // PeerId kept under it and Try again in its Continue's place; on
+        // C4 and R4 Try again is the primary, in Continue's (section 6).
+        Some(Notice::StartBusy { recorded, .. }) => {
+            page.notice = text(UiText::IdStartBusy).into();
+            if let Some(recorded) = recorded {
+                page.notice_peer = grouped(recorded).into();
+            }
+            if matches!(screen, ScreenId::R2 | ScreenId::R3) {
+                page.notice_action = text(UiText::TryAgain).into();
+            }
+        }
         Some(failed @ (Notice::Busy | Notice::StorageFailed | Notice::StorageUnknown)) => {
             page.notice = text(match failed {
                 Notice::Busy => UiText::IdBusy,

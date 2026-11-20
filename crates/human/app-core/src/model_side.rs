@@ -836,6 +836,9 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 self.opener.authenticate();
                 return None;
             }
+            // No platform carries it out yet: offered only while a notice
+            // no platform says yet shows.
+            Intent::RetryStart => return None,
             Intent::Send { key, draft } => Command::Send { key, draft },
             Intent::MarkRead(row) => Command::MarkRead(row),
             Intent::Keep { item, from } => {

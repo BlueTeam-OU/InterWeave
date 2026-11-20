@@ -5517,7 +5517,9 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         Intent::Unkeep(_) => UiText::Unkeep,
         Intent::Hide(_) => UiText::Dismiss,
         Intent::HideConversation(_) => UiText::HideConversation,
-        Intent::Reopen => UiText::TryAgain,
+        // One action, one name: `IdStartBusy`'s Try again is the one a
+        // refused session's is (identity note section 10).
+        Intent::Reopen | Intent::RetryStart => UiText::TryAgain,
         Intent::RecheckStorage => UiText::RecheckStorage,
         Intent::AllowNetwork => UiText::AllowNetwork,
         Intent::Authenticate => UiText::Authenticate,
@@ -5591,6 +5593,9 @@ fn notice_text(host: RuntimeHost, notice: SessionNotice) -> String {
         SessionNotice::AuthenticationNeeded => {
             placeholder_en::text(UiText::AuthenticationNeeded).to_owned()
         }
+        // The words C4 shows, which read right where no flow screen is in
+        // view (identity note §10).
+        SessionNotice::StartBusy(_) => placeholder_en::text(UiText::IdStartBusy).to_owned(),
         SessionNotice::Refused(class) => fill(
             placeholder_en::text(UiText::Refused),
             &[("reason", placeholder_en::error(host, class))],
