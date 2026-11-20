@@ -124,7 +124,8 @@ read_pins() {
 family() { local k; for k in $(printf '%s\n' "${!PIN[@]}" | grep -E "^$1_[0-9]+\$" | sed "s/^$1_//" | LC_ALL=C sort -n); do printf '%s\n' "${PIN[$1_$k]}"; done; }
 # Every SDK package a host installs, "<sdkmanager path>@<revision>": the
 # PKG_<n> CI installs too (tools/ci/android_ci_toolchain.sh), then the
-# HOST_PKG_<n> only the host's SDK carries, for other projects' builds.
+# HOST_PKG_<n> only the host's SDK carries: other projects' builds, and
+# platform-tools for whoever drives a device with the SDK's own adb.
 pkgs() { family PKG; family HOST_PKG; }
 # The LINK_<n> entries in order: "<dir>/<name>@<sibling>".
 links() { family LINK; }
