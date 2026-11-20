@@ -89,3 +89,18 @@ Three things the record left to the builder, found by p2p-network-dev-01 while c
 ### Amendment 2026-11-19 — The trust methods' endpoint dimension is part of IPC 3.0, not a minor
 
 Decision 6, the Consequences and the Implementation implications each said the trust methods gain the endpoint dimension "as an IPC minor", written on 2026-10-28 when the IPC was major 2 and the dimension would have been a minor of it. Decision 7 then moved the IPC to major 3 in the same release, and writing major 3's rules into `LOCAL-IPC.md` showed the two do not fit: the dimension is a new member of two closed params shapes, which ADR-0017 makes a major once a production build speaks the shape (A 2026-10-07), and major 3 has no production build until the Stage 22 release is tagged. Under ADR-0017's pre-release rule a schema takes an additive property into its `x.0` itself, so the dimension is part of IPC 3.0 and of the release's first build, with no minor to negotiate and no gate in a mirror. The cost is a constraint on the release: it is not tagged between the batch that opens major 3 and the batch that builds the dimension. Propagation: decision 6, the Consequences, the Implementation implications; this note; the log row; the digest entry; `LOCAL-IPC.md` §Version negotiation and phases; `ENDPOINTS.md` §Configured endpoint set; plan §30 Activate.
+
+### Amendment 2026-11-20 — The administrative add takes the key file's name
+
+Decision 4 left the add's input open: "the public key, or the reference
+of a key file the client sealed". p2p-network-dev-02, shaping the method
+(their j119), chose the file and gave the reason: the daemon seals no
+private key, so an add by public key would create an endpoint already in
+the key-missing state of decision 5. architect-cto ruled it as proposed
+on 2026-11-20. Decision 4 now names the one form: the add takes
+`<EndpointId>.key`, the entry's `key` value, for a file the client
+sealed under `endpoint-keys/` before the call; the file must be present
+and readable and its header must derive the name's stem, where a load
+tolerates an absent file. Propagation: `LOCAL-IPC.md` §Method catalogue,
+`ENDPOINTS.md` §Configured endpoint set, ADR-0061 decision 2, this note,
+the log row, the digest entry.

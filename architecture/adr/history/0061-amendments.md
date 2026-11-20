@@ -91,3 +91,29 @@ person cannot see, which the decision forbids. Ruled by architect-cto
 as the design proposed. Propagation: `human-client-ui.md` §10 and
 §13's notification and lock-screen bullets, the plan's §30 exit gate,
 this note, the log row, the digest entry.
+
+### Amendment 2026-11-20 — The add, remove and set_advertise methods are IPC 3.0, and a refusal is an answer
+
+Decision 2 said the three administrative methods were p2p-network-dev's
+to shape "under ADR-0017's minor rule", written when they were expected
+to follow a released major. Stage 22 opened IPC major 3, which has no
+production build before the stage's release, so ADR-0017's pre-release
+rule applies and what the stage adds is 3.0 (`LOCAL-IPC.md` §Version
+negotiation and phases, ruled 2026-11-19 for the trust dimension).
+p2p-network-dev-02 proposed the shapes on 2026-11-20 (their j119) and
+architect-cto ruled them the same day. Taken as proposed: the add takes
+the key file's name and no public key, writes `advertise: false` and two
+empty trust sets, needs the file present, and is safe to repeat; the
+remove takes added endpoints alone, refuses the default, drops every
+overlay member of the id, and leaves the key file to the client;
+`set_advertise` syncs the overlay and updates the directory's answer
+source before it answers. Changed from the proposal: an add's or a
+remove's refusal is a named outcome in the result, as
+`admin.peers.add_address`'s is, where the proposal asked for three new
+error codes, so the closed error vocabulary stays as it was; the add has
+no `enabled` member, so that a repeated add compares the alias and the
+client kinds alone; `admin.endpoints.list`'s row gains `alias`, `source`
+and `advertise`; add and remove are audited. Propagation: `LOCAL-IPC.md`
+§Method catalogue and its capability list, `ENDPOINTS.md` §Configured
+endpoint set, ADR-0067 decision 4, this note, the log row, the digest
+entries.
