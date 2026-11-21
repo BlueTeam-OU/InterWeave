@@ -2149,7 +2149,7 @@ fn card_vector(name: &str) -> Value {
         .clone()
 }
 
-/// A contact card at the photo bound, sent by B's `human` to the bridge,
+/// A contact card at the photo bound, sent by B's endpoint to the bridge,
 /// reaches the host as what it is (CHANNEL-EVENT.md §Content's one parsing
 /// exception, ADR-0059 decision 7): `content` empty, and `meta` carrying
 /// the kind, the authenticated source peer and its endpoint, the name and
@@ -2164,17 +2164,20 @@ async fn a_contact_card_at_the_photo_bound_reaches_the_host_as_meta_alone() {
     const MEDIA_TYPE: &str = "application/vnd.interweave-human-chat+json;v=2";
     let card = card_vector("valid-at-the-bounds");
     let over = card_vector("photo-over-the-bound");
-    // The vectors are signed for this peer's `human`, which B becomes.
+    // The vectors are signed for one peer's endpoint, a derived id, and
+    // their signatures bind it as the source (checked by `classify`): B
+    // becomes that peer and sends from that endpoint, or the card fails.
     let signer = card["received_on"]["peer_id"].as_str().expect("a peer");
+    let source = card["received_on"]["source_endpoint"]
+        .as_str()
+        .expect("an endpoint");
     assert_eq!(over["received_on"]["peer_id"], signer, "one route for both");
+    assert_eq!(over["received_on"]["source_endpoint"], source, "one route");
     let mut b = config();
     b.peer = TransportIdentity::parse(signer).expect("a peer id");
-    // Still a label, not a derived id: the vectors' signatures bind the
-    // source endpoint as `human` (checked by `classify`), and the frozen
-    // fixtures change only by protocol review.
-    let human = EndpointId::parse("human").expect("the vectors' label");
-    b.endpoints[0] = FakeEndpoint::open(human.clone(), false);
-    b.default_endpoint = Some(human);
+    let sender = EndpointId::parse(source).expect("the vectors' endpoint");
+    b.endpoints[0] = FakeEndpoint::open(sender.clone(), false);
+    b.default_endpoint = Some(sender);
     let mut w = World::start_with(interweave_claude_channel_core::Delivery::Push, b).await;
     let a_peer = w.a.peer().clone();
     let send = |v: &Value, id: u8| {
@@ -2204,7 +2207,7 @@ async fn a_contact_card_at_the_photo_bound_reaches_the_host_as_meta_alone() {
     let meta = &params["meta"];
     assert_eq!(meta["delivery_mode"], json!("direct"));
     assert_eq!(meta["source_peer"], json!(signer));
-    assert_eq!(meta["source_endpoint"], json!("human"));
+    assert_eq!(meta["source_endpoint"], json!(source));
     assert_eq!(meta["app_kind"], json!("contact_card"));
     assert!(
         meta["card_name"].is_string() && meta["card_surname"].is_string(),

@@ -53,9 +53,8 @@ fn peer(v: &Value) -> TransportIdentity {
     TransportIdentity::parse(v["received_on"]["peer_id"].as_str().expect("a peer")).expect("peer")
 }
 
-/// Still a label: the frozen vectors' signatures bind `source_endpoint`
-/// as the label `human`, so a derived id fails `SignatureFails` until the
-/// vectors are regenerated over derived ids (fixtures are protocol-reviewed).
+/// The frozen vectors' signatures bind `source_endpoint`, a derived id,
+/// so any other endpoint judges the same card `SignatureFails`.
 fn source_endpoint(v: &Value) -> EndpointId {
     EndpointId::parse(
         v["received_on"]["source_endpoint"]
@@ -302,6 +301,43 @@ fn every_malformed_vector_is_dropped_under_its_reason_and_mints_nothing() {
         seen += 1;
     }
     assert!(seen >= 15, "the malformed vectors were all fed ({seen})");
+}
+
+/// The signature binds the endpoint the card arrived from: every valid
+/// frozen vector, received from another endpoint of the same peer, is
+/// dropped under `Signature` and mints no reply token.
+#[test]
+fn a_valid_card_from_another_endpoint_of_its_peer_fails_its_signature() {
+    let other = endpoint_id("human");
+    let mut seen = 0;
+    for v in vectors() {
+        if v["valid"] != true {
+            continue;
+        }
+        assert_ne!(
+            source_endpoint(&v),
+            other,
+            "{}: another endpoint",
+            v["name"]
+        );
+        let SessionEvent::Direct(mut received) =
+            direct(&v, payload(MEDIA_TYPE_V2, wire(&v).into_bytes()))
+        else {
+            panic!("direct builds a direct event")
+        };
+        received.source_endpoint = other.clone();
+        let mut bridge = leased();
+        let got = bridge.notification(&SessionEvent::Direct(received), [7; 16], NOW);
+        assert_eq!(
+            got,
+            Err(ConvertError::Card(CardDrop::Signature)),
+            "{}",
+            v["name"]
+        );
+        assert_eq!(bridge.live_tokens(NOW), 0, "{}: no token", v["name"]);
+        seen += 1;
+    }
+    assert!(seen >= 3, "the valid vectors were all fed ({seen})");
 }
 
 /// Faults no frozen vector carries, built on a valid card's text: each is
