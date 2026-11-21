@@ -334,6 +334,15 @@ enum Screen {
     Done,
 }
 
+/// Who asked a held screen's service start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeldBy {
+    /// The person's press: Continue, or a notice's Try again or Continue.
+    Press,
+    /// A showing of the window that started the service again.
+    Showing,
+}
+
 /// Which screen shows, for the view (§3's names).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenId {
@@ -402,6 +411,11 @@ pub struct IdentityFlow {
     /// again with the text it already showed, such as a second failed
     /// checksum (design section 8, #697 review P-2).
     notices_raised: u32,
+    /// Who asked the held start: a showing's ([`Self::showing_started`])
+    /// answers no press, so the notice its `LockHeld` shows again is not
+    /// raised for focus. `Showing` only while the screen holds, and taken
+    /// back to `Press` by that answer; any other answer ends the flow.
+    held_by: HeldBy,
 }
 
 impl IdentityFlow {
@@ -438,6 +452,7 @@ impl IdentityFlow {
             chips_taken: 0,
             positions_chosen: 0,
             notices_raised: 0,
+            held_by: HeldBy::Press,
         }
     }
 
@@ -1573,11 +1588,15 @@ impl IdentityFlow {
     /// under `IdAlreadyCreated`, and on R2 and R3 under `IdRestoreOther`,
     /// the rest of the screen stays as that notice left it. Nothing on a
     /// screen that is not held, and nothing is retried: only the person's
-    /// Try again starts again.
+    /// Try again, or a showing's start ([`Self::showing_started`]), starts
+    /// again. A showing's answers no press: its notice shows again with
+    /// focus left where it is, not raised
+    /// (`a_showings_start_refused_busy_again_raises_nothing`).
     pub fn start_busy(&mut self) {
         if !self.start_held() {
             return;
         }
+        let pressed = std::mem::replace(&mut self.held_by, HeldBy::Press) == HeldBy::Press;
         let kept = |notice: &Option<Notice>| match notice {
             Some(Notice::RestoreOther { recorded }) => Some(recorded.clone()),
             Some(Notice::StartBusy { recorded, .. }) => recorded.clone(),
@@ -1645,7 +1664,71 @@ impl IdentityFlow {
             }
             _ => return,
         }
-        self.notices_raised += 1;
+        if pressed {
+            self.notices_raised += 1;
+        }
+    }
+
+    /// A showing of the window -- a return -- started the service again
+    /// while `IdStartBusy` shows on C4, R4, R3 or R2 (unlock note section
+    /// 11, L3; identity note section 6, A return or a recreation): the
+    /// screen holds as the Try again it replaces would hold it, with no
+    /// effect, since the Activity's own start is the one start. Its
+    /// answers are Try again's, by [`Self::decided`] and
+    /// [`Self::start_busy`], except that it answers no press. R2's discard
+    /// dialog closes as its Continue entering would, all words kept: a
+    /// held screen offers no way off it. True when the screen now holds;
+    /// on any other screen, or one already held, nothing changes.
+    /// `a_showings_start_holds_as_try_again_and_asks_nothing` holds it.
+    pub fn showing_started(&mut self) -> bool {
+        let held = match &mut self.screen {
+            Screen::C4 {
+                notice: Some(Notice::StartBusy { .. }),
+                held: held @ false,
+                starting,
+            }
+            | Screen::R4 {
+                notice: Some(Notice::StartBusy { .. }),
+                held: held @ false,
+                starting,
+                ..
+            } => {
+                *held = true;
+                *starting = false;
+                true
+            }
+            Screen::R2 {
+                notice: Some(Notice::StartBusy { .. }),
+                checking: checking @ false,
+                started,
+                starting,
+                discard_asked,
+                ..
+            } => {
+                *checking = true;
+                *started = true;
+                *starting = false;
+                *discard_asked = false;
+                true
+            }
+            Screen::R3 {
+                notice: Some(Notice::StartBusy { .. }),
+                restoring: restoring @ false,
+                started,
+                starting,
+                ..
+            } => {
+                *restoring = true;
+                *started = true;
+                *starting = false;
+                true
+            }
+            _ => false,
+        };
+        if held {
+            self.held_by = HeldBy::Showing;
+        }
+        held
     }
 
     /// S1's prompt: granted, or cancelled/denied (back on S1, nothing
@@ -3541,5 +3624,124 @@ mod tests {
             assert_eq!(try_again(place, &mut flow), [Effect::StartService]);
             assert_eq!(flow.decided(), [Effect::OpenChats], "{place}: decided");
         }
+    }
+
+    /// A showing of the window that starts the service again while
+    /// `IdStartBusy` shows (unlock note section 11, L3; identity note
+    /// section 6, A return or a recreation): on each of the five places
+    /// the screen holds as Try again's press would hold it -- Try again
+    /// inert, Back doing nothing, R2's words and R3's No held, the notice
+    /// staying, `ConnectStarting` from the showing -- and the flow asks
+    /// for nothing, since the Activity's own start is the one start: a
+    /// press meanwhile starts nothing. The hold raises no notice, a second
+    /// showing holds nothing again, and the start's success decides as
+    /// any held start's does. A screen showing no `IdStartBusy`, or one
+    /// already held, is left as it was.
+    ///
+    /// Mutations: `showing_started`'s C4/R4 arm setting no `held`, its R2
+    /// arm no `checking`, its R3 arm no `restoring`, or any arm dropping
+    /// its `@ false` guard, fails here.
+    #[test]
+    fn a_showings_start_holds_as_try_again_and_asks_nothing() {
+        for (place, mut flow) in held_starts() {
+            assert!(!flow.showing_started(), "{place}: held already");
+            flow.start_busy();
+            let raised = flow.notices_raised();
+            assert!(flow.showing_started(), "{place}: held by the showing");
+            assert!(flow.start_held(), "{place}: held");
+            assert!(!flow.showing_started(), "{place}: once");
+            assert_eq!(try_again(place, &mut flow), [], "{place}: no second start");
+            assert_eq!(flow.primary(), [], "{place}: no primary either");
+            assert_eq!(flow.back(), [], "{place}: Back does nothing");
+            assert_eq!(flow.notice(), Some(&busy_on(place)), "{place}: stays");
+            assert_eq!(flow.notices_raised(), raised, "{place}: nothing raised");
+            match place {
+                "R2 after K1" => {
+                    assert!(!flow.press('a'), "R2: no letter reaches the words");
+                    assert!(flow.waiting(), "R2: the back arrow inactive");
+                }
+                "R3" => {
+                    flow.recheck();
+                    assert_eq!(flow.screen(), ScreenId::R3, "R3: No held");
+                    assert!(flow.waiting(), "R3: held");
+                }
+                _ => {}
+            }
+            flow.set_starting(true);
+            assert!(flow.starting(), "{place}: ConnectStarting");
+            assert_eq!(flow.decided(), [Effect::OpenChats], "{place}: decided");
+            assert_eq!(flow.screen(), ScreenId::Done, "{place}: handed over");
+        }
+        // No `IdStartBusy`: a failed seal's Try again, R3 asked, R4 before
+        // its Continue.
+        let mut failed = c4_sealing();
+        failed.sealed(Err(StepFailed::Busy));
+        let mut r3 = at_r3();
+        let mut r4 = at_r3();
+        r4.primary();
+        r4.restored(Ok(()));
+        for (place, flow) in [("C4", &mut failed), ("R3", &mut r3), ("R4", &mut r4)] {
+            assert!(!flow.showing_started(), "{place}: nothing to hold");
+            assert!(!flow.start_held(), "{place}: not held");
+        }
+    }
+
+    /// The showing's start refused with the profile in use again: as
+    /// Try again's, the hold ends and `IdStartBusy` shows again with Try
+    /// again enabled -- but it answers no press, so the notice is not
+    /// raised and focus stays where it is. The next press's own refusal
+    /// raises it as before.
+    ///
+    /// Mutations: `showing_started` leaving `held_by` at `Press`, or
+    /// `start_busy` raising the count whatever `held_by` says, fails
+    /// here; so does `start_busy` reading `held_by` without putting it
+    /// back to `Press` (the press's refusal after it raises nothing).
+    #[test]
+    fn a_showings_start_refused_busy_again_raises_nothing() {
+        for (place, mut flow) in held_starts() {
+            flow.start_busy();
+            let raised = flow.notices_raised();
+            assert!(flow.showing_started(), "control: {place} held");
+            flow.start_busy();
+            assert!(!flow.start_held(), "{place}: the hold ends");
+            assert_eq!(flow.notice(), Some(&busy_on(place)), "{place}: again");
+            assert_eq!(flow.notices_raised(), raised, "{place}: not raised");
+            assert_eq!(
+                try_again(place, &mut flow),
+                [Effect::StartService],
+                "{place}: Try again enabled"
+            );
+            flow.start_busy();
+            assert_eq!(
+                flow.notices_raised(),
+                raised + 1,
+                "{place}: a press's raises"
+            );
+        }
+    }
+
+    /// R2's discard dialog open under `IdStartBusy` when a showing starts
+    /// the service: it closes as its Continue entering would, every word
+    /// kept, so nothing takes the person off the held screen while its
+    /// start runs.
+    ///
+    /// Mutation: `showing_started`'s R2 arm leaving `discard_asked` set
+    /// fails here.
+    #[test]
+    fn a_showings_start_closes_r2s_discard_dialog_keeping_the_words() {
+        let (_, mut flow) = held_starts()
+            .into_iter()
+            .find(|(place, _)| *place == "R2 after K1")
+            .expect("R2 is a place");
+        flow.start_busy();
+        assert_eq!(flow.back(), []);
+        assert!(flow.discard_asked(), "control: the dialog open");
+        let words = flow.entry().and_then(PhraseEntry::phrase);
+        assert!(words.is_some(), "control: words entered");
+        assert!(flow.showing_started());
+        assert!(!flow.discard_asked(), "the dialog closes");
+        flow.discard(true);
+        assert_eq!(flow.screen(), ScreenId::R2, "nothing leaves R2");
+        assert_eq!(flow.entry().and_then(PhraseEntry::phrase), words, "kept");
     }
 }
