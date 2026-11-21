@@ -281,7 +281,8 @@ pub(crate) enum Request {
     /// How many removals are held for the next round. Test builds only.
     #[cfg(feature = "test-hooks")]
     HeldForgets(oneshot::Sender<usize>),
-    /// Run one discovery round now, as the tick does. Test builds only.
+    /// Run the tick's discovery round now, without the state publish a
+    /// tick runs after it. Test builds only.
     #[cfg(feature = "test-hooks")]
     DiscoveryRound(oneshot::Sender<()>),
     /// End the driver as if its substrate had gone: how a test reaches
@@ -874,9 +875,9 @@ impl ComposedRuntime {
         self.ask(Request::HeldForgets).await
     }
 
-    /// Run one discovery round now, through the tick's own handling: how a
-    /// test under a long `discovery_interval` says when a round runs.
-    /// TEST BUILDS ONLY.
+    /// Run one discovery round now, the round a tick runs, but not the
+    /// `publish_state` a tick follows it with: how a test under a long
+    /// `discovery_interval` says when a round runs. TEST BUILDS ONLY.
     ///
     /// # Errors
     /// `BackendUnavailable` once the runtime has stopped.
