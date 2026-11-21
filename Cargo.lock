@@ -4263,7 +4263,10 @@ dependencies = [
 name = "interweave-transportctl"
 version = "0.4.0"
 dependencies = [
+ "base64 0.23.1",
+ "ed25519-dalek",
  "interweave-ipc-client",
+ "interweave-ipc-protocol",
  "interweave-local-client-api",
  "interweave-profile-config",
  "interweave-profile-identity",
