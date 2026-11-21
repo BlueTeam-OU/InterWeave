@@ -206,7 +206,7 @@ pub struct SubstrateBehaviour {
     /// told of this node's listen addresses less those ADR-0052 rule 10
     /// withholds (`listen_scope`).
     pub identify: ListenScope<identify::Behaviour>,
-    /// Directed messaging, `/interweave/direct/2.0.0`.
+    /// Directed messaging, `/interweave/direct/3.0.0`.
     ///
     /// LAST, and after both gates, because the derive calls each field's
     /// handlers in declaration order. This behaviour originates outbound
