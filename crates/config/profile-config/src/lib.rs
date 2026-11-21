@@ -2037,7 +2037,10 @@ struct WireEndpoint {
     id: Option<serde_json::Value>,
     #[serde(default)]
     key: Option<String>,
-    #[serde(default)]
+    // Absent or a string: an explicit `null` is refused, as the schema
+    // refuses it (`tests/endpoint_entries.rs`,
+    // `an_alias_is_absent_or_a_string_never_null`).
+    #[serde(default, deserialize_with = "present_alias")]
     alias: Option<String>,
     // REQUIRED, both of them, as the contract declares them. A default of
     // `true` for `enabled` meant an endpoint the operator never mentioned
@@ -2052,6 +2055,22 @@ struct WireEndpoint {
     inbound: EndpointTrustPolicy,
     #[serde(default)]
     outbound: EndpointTrustPolicy,
+}
+
+/// A present `alias` member, which must be a string. Read as a value
+/// first: asked for a string, the YAML reader answers a `null` scalar as
+/// the text "null", which would load as that alias.
+fn present_alias<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(text) => Ok(Some(text)),
+        other => Err(serde::de::Error::invalid_type(
+            serde::de::Unexpected::Other(match other {
+                serde_json::Value::Null => "null",
+                _ => "a non-string",
+            }),
+            &"an alias string",
+        )),
+    }
 }
 
 /// An endpoint entry as it is written back.
