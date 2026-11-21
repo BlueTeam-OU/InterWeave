@@ -12,6 +12,12 @@ on the person's acknowledgement and on nothing else. STATE.md's text
 follows as architect-cto's for/ branch onto this PR; until it lands, the
 merged sentence still reads "shows once at the first open and then
 deletes", and this note follows the ruling.
+Revised 2026-11-21, at #728's review (F29, F30): focus moved by the
+person before a late banner stays where it is, whichever notice showed
+first (§6), and §5 says what the dialog does when a session notice
+rises under it, which acceptance 9 now sets up. Before, two rows of §6
+both applied to a late banner, and acceptance 9 needed OK with a store
+degraded from the open, which hides the banner.
 
 Owner of the design: ux-designer. The words are language-culture's: §7
 names each string and what it must say. No new colour: the banner is
@@ -145,6 +151,12 @@ dialog; OK stays reachable.
   banner goes for this session, with no further message; the row stays,
   so the banner comes back at the next open. Nothing is lost by that,
   and the degraded store already has its own session notice.
+- **A session notice rises while the dialog is open** (the store
+  turns degraded, say): the dialog stays open and keeps focus, and
+  under it the notice takes the slot from the banner, as at any time
+  (§3). OK then meets the refused delete above, and focus goes to the
+  session notice: it rose behind the dialog, so the person has not
+  seen it yet. (Heuristic: visibility of system status.)
 - **The process ends before OK** (killed, a crash, a restart, the
   update of Android's own): the row is still there, so the next open
   shows the banner again. What the person was told matches what the
@@ -160,10 +172,11 @@ dialog; OK stays reachable.
 | Chats shows the banner at an open (no session notice, no screen over it) | the banner's Details | keyboard: open a store with the row; Tab order starts on Details; desktop screen reader reads the banner text then "Details, button" |
 | a session notice was shown first, and goes | Details, once the banner shows | keyboard: open with storage degraded, then healthy |
 | an identity screen or the reader was over Chats, and goes | Details, once the banner shows | keyboard, with K1 raised at the open |
-| the person moved focus before the banner showed (it showed late) | stays where it was | keyboard |
+| the person moved focus before the banner showed (it showed late) | stays where it was; this row wins over the two above, whatever showed first | keyboard: open with storage degraded, Tab into the list, then healthy |
 | Details pressed | the dialog's title (screen reader), OK (keyboard) | keyboard: Enter on Details, then Enter presses OK; desktop screen reader reads title, the lines in order, the explanation, then OK |
 | dialog closed without OK (Back, Escape, outside) | Details | keyboard: Escape returns to Details |
 | OK | the Chats list heading, as when the locked notice leaves (unlock note F14) | keyboard |
+| OK with a session notice raised while the dialog was open (the delete refused, §5) | that session notice | keyboard: acceptance 9 |
 | OK on a wide window with a conversation open | the Chats pane's heading | keyboard |
 | return from the background with the dialog open | OK | keyboard: Alt+Tab away and back (desktop) |
 
@@ -250,9 +263,15 @@ cases named (the store's own migration tests build such stores).
    opening again, shows the banner again with the same counts.
 8. Opened with a session notice raised (storage degraded), the banner is
    not drawn; when the notice goes, the banner shows with focus on
-   Details.
-9. With the store degraded, OK closes the dialog and the banner for the
-   session, the row stays, and the next healthy open shows the banner.
+   Details. In a second run, opened the same way, the tester moves
+   focus into the list before the notice goes: when the banner shows,
+   focus stays where the tester put it.
+9. With the dialog open, the store is made degraded (by a hook): the
+   dialog stays open with focus where it was, and storage degraded
+   takes the slot under it. OK then closes the dialog, the banner is
+   gone for the session, focus is on the storage-degraded notice, the
+   row stays (store query), and the next healthy open shows the
+   banner.
 10. With a second identity added and in front before OK, the banner
     still shows on Chats, and no string in the banner or the dialog
     names either identity (read the strings).
