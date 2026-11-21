@@ -1359,12 +1359,19 @@ jobs:
       # namespaces (`unshare -rm`) and FAIL under CI where those are
       # unavailable, never skip; the same AppArmor restriction as the rust
       # job's namespace-tests step, lifted the same way; probed for what its
-      # cases do, a user plus mount namespace and a mount.
+      # cases do: a user plus mount namespace and a mount, and the
+      # nested-owner case's chown to a subordinate uid under
+      # `unshare --map-root-user --map-auto` (test_android-toolchain.sh),
+      # which also fails under CI where the runner has no subuid range.
       - name: Allow unprivileged user namespaces (android-toolchain install cases)
         run: |
           f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
           if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
           unshare -rm sh -c 'mkdir -p /tmp/ns-probe && mount -t tmpfs none /tmp/ns-probe && umount /tmp/ns-probe'
+          d="$(mktemp -d)" && touch "$d/f"
+          unshare --map-root-user --map-auto chown 1000 "$d/f"
+          unshare --map-root-user --map-auto chown 0 "$d/f"
+          rm -r "$d"
 
       # The `gh` suites mock `gh` and `curl` on PATH, so no token is used.
       # They do need jq and coreutils `timeout`, both present on

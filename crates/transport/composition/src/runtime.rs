@@ -46,6 +46,7 @@ use tokio::task::JoinHandle;
 use crate::discovery::{Discovery, DiscoveryDiagnostics};
 use crate::gate::{LastOutcome, LastOutcomes, PeerGateRow, ReconnectRefusals, Who};
 use crate::notices::{PeerNoticeDiagnostics, SessionNotices};
+use crate::pending_forget::PendingForgets;
 use crate::session::InProcessBinding;
 use crate::translate::{
     CompositionError, StaticAuthoring, static_authoring, static_entry, translate,
@@ -617,7 +618,7 @@ impl ComposedRuntime {
             static_how,
             static_authored,
             operator_inputs,
-            pending_forget: Vec::new(),
+            pending_forget: PendingForgets::default(),
             trust_boundary: options.trust_boundary.clone(),
             #[cfg(feature = "test-hooks")]
             overlay_faults: std::collections::VecDeque::new(),
@@ -947,7 +948,7 @@ struct Driver {
     operator_inputs: Vec<String>,
     /// Removed addresses the book could not let go yet (a live quarantine
     /// the table had no room for), asked again each round.
-    pending_forget: Vec<(TransportIdentity, String)>,
+    pending_forget: PendingForgets,
     /// Each allowlisted peer's last dial outcome (`CONNECTIVITY.md` §19).
     outcomes: LastOutcomes,
     /// Each allowlisted peer's last reconnect refusal, logged on change.
@@ -1673,15 +1674,8 @@ impl Driver {
                 .zip(&added)
                 .filter_map(|(address, &new)| new.then_some(address))
         };
-        // A REMOVAL STILL PENDING FOR A NEW LINE IS WITHDRAWN, for every
-        // line before the door is told of any: retried, it would take the
-        // address off the door and out of the book after the overlay took
-        // it, and a door call that fails partway must not leave the later
-        // lines' removals standing.
-        for address in new_lines() {
-            self.pending_forget
-                .retain(|(_, pending)| pending != address);
-        }
+        // A removal still pending for a new line is dropped at its retry,
+        // which reads the overlay written above (`PendingForgets::due`).
         for address in new_lines() {
             let (_, peer) = interweave_profile_config::split_peer_multiaddr(address)
                 .map_err(|_| TransportError::Internal)?;
@@ -1743,7 +1737,7 @@ impl Driver {
         if let Ok((_, peer)) = interweave_profile_config::split_peer_multiaddr(&address)
             && !self.forget(&peer, &address).await
         {
-            self.pending_forget.push((peer, address));
+            self.pending_forget.hold(peer, address);
         }
         Ok(AddressChange::Removed)
     }
@@ -1757,17 +1751,22 @@ impl Driver {
         // Every operator input that remains, the overlay already without
         // this address: the door closes only if none of them names the
         // route (`OperatorSet::remove_unless_named`).
-        let still_named: Vec<String> = self
-            .operator_inputs
-            .iter()
-            .chain(&self.static_authored)
-            .chain(self.bootstrap.peers())
-            .cloned()
-            .collect();
+        let still_named = self.operator_named();
         self.swarm
             .forget_address(peer.clone(), parsed, &still_named)
             .await
             .unwrap_or(true)
+    }
+
+    /// Every operator input as it is now: the static relays' and AutoNAT
+    /// servers' addresses, the authored entries and the overlay's.
+    fn operator_named(&self) -> Vec<String> {
+        self.operator_inputs
+            .iter()
+            .chain(&self.static_authored)
+            .chain(self.bootstrap.peers())
+            .cloned()
+            .collect()
     }
 
     /// `moved` written, then given to the running provider; on a failed
@@ -2057,10 +2056,12 @@ impl Driver {
         let now = (self.clock)();
         // A REMOVED ADDRESS IS ASKED AGAIN until the book lets it go: a
         // live quarantine leaves only into room the table can give it
-        // (`ConnectionManager::forget_address`).
-        for (peer, address) in std::mem::take(&mut self.pending_forget) {
+        // (`ConnectionManager::forget_address`); one the operator named
+        // again since is dropped (`PendingForgets::due`).
+        let named = self.operator_named();
+        for (peer, address) in self.pending_forget.due(&named) {
             if !self.forget(&peer, &address).await {
-                self.pending_forget.push((peer, address));
+                self.pending_forget.hold(peer, address);
             }
         }
         for command in self.discovery.kademlia_commands(now) {
