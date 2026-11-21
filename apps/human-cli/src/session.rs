@@ -153,7 +153,10 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Sess
     }
 
     fn now(&self) -> u64 {
-        u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX)
+        let elapsed = u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        #[cfg(test)]
+        let elapsed = elapsed.saturating_add(test_clock::skew());
+        elapsed
     }
 
     /// The model.
@@ -195,6 +198,8 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Sess
     /// True when anything other than a counter changed.
     pub(crate) async fn step(&mut self) -> bool {
         self.updates.clear();
+        #[cfg(test)]
+        test_clock::on_step(!self.model.surface().batches.is_empty());
         let now = self.now();
         for update in self.facade.turn(now).await {
             self.apply(update);
@@ -265,5 +270,43 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Sess
     /// Close the session: the lease is released, the daemon keeps running.
     pub(crate) async fn close(mut self) {
         self.facade.close().await;
+    }
+}
+
+/// Test-only: moves the session's clock forward at a chosen scripted step,
+/// so a retry comes due between a verb's deadline check and its cancel,
+/// which real time cannot place (the wait loop steps every 20 ms). Kept
+/// per thread, as each test runs its session on a thread of its own.
+#[cfg(test)]
+pub(crate) mod test_clock {
+    use std::cell::Cell;
+
+    thread_local! {
+        static SKEW: Cell<u64> = const { Cell::new(0) };
+        static JUMP: Cell<Option<(u32, u64)>> = const { Cell::new(None) };
+    }
+
+    /// After `skip` steps that carry scripted input, the clock jumps by
+    /// `ms` at the next one.
+    pub(crate) fn jump_at_scripted_step(skip: u32, ms: u64) {
+        JUMP.with(|j| j.set(Some((skip, ms))));
+    }
+
+    pub(super) fn skew() -> u64 {
+        SKEW.with(Cell::get)
+    }
+
+    pub(super) fn on_step(scripted: bool) {
+        if !scripted {
+            return;
+        }
+        JUMP.with(|j| match j.get() {
+            Some((0, ms)) => {
+                SKEW.with(|s| s.set(s.get() + ms));
+                j.set(None);
+            }
+            Some((n, ms)) => j.set(Some((n - 1, ms))),
+            None => {}
+        });
     }
 }
