@@ -708,3 +708,280 @@ fn the_switchs_snackbar_closes_on_its_own_after_its_time() {
     );
     assert!(!view.window().get_id_snack_shown(), "closed after it");
 }
+
+// --- The Chats bar, one row or two ---------------------------------------
+//
+// design/2026-11-04-identities.md section 12, "The Chats bar when the
+// switch does not fit beside the title", and section 14's criterion 26.
+
+type Edges = (f32, f32, f32, f32);
+
+/// A control's box: its left, top, right and bottom edges.
+fn edges(element: &ElementHandle) -> Edges {
+    let (at, size) = (element.absolute_position(), element.size());
+    (at.x, at.y, at.x + size.width, at.y + size.height)
+}
+
+/// The title, the network line, the switch and the app's options.
+fn bar(view: &View) -> [Edges; 4] {
+    let state = view.window().get_state_short().to_string();
+    let options = view.window().get_app_options_label().to_string();
+    let switch = view.window().get_id_switch().accessible.to_string();
+    let title = view.window().get_conversations_heading().to_string();
+    [
+        edges(&one(view, &title)),
+        edges(&one(view, &state)),
+        edges(&one(view, &switch)),
+        edges(&one(view, &options)),
+    ]
+}
+
+/// Whether the switch and the app's options stand on a row of their own
+/// under the title and its network line, rather than beside the title.
+fn two_rows(view: &View) -> bool {
+    let [title, line, switch, options] = bar(view);
+    let under = |c: Edges| c.1 >= title.3.max(line.3) - 0.5;
+    let beside = |c: Edges| c.1 < title.3 && c.3 > title.1;
+    assert!(
+        under(switch) == under(options) && beside(switch) == beside(options),
+        "the switch and the app's options share a row: {switch:?} {options:?}"
+    );
+    assert!(
+        under(switch) != beside(switch),
+        "one or the other: {switch:?}"
+    );
+    under(switch)
+}
+
+/// The platform's default text size, 14 at 100 %.
+fn text_size(view: &View, base: f32) {
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(base)));
+}
+
+fn resize(view: &View, width: f32) {
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(width, 800.0));
+}
+
+/// Two held, named `first` (in front) and `second`.
+fn named(first: &str, second: &str) -> UiModel {
+    let mut identities = held(&["a", "b"]);
+    identities[0].card_name = Some(first.to_owned());
+    identities[1].card_name = Some(second.to_owned());
+    let (mut model, _) = model_with(&["a", "b"]);
+    hold(&mut model, identities);
+    model
+}
+
+/// Criterion 26: in the desktop's 280 px list pane the bar takes two
+/// rows, the title whole on the first with the network line under it,
+/// the switch at the start of the second and the app's options at its
+/// end. Mutation: the row decision answering one row.
+#[test]
+fn the_chats_bar_takes_two_rows_in_the_desktops_list_pane() {
+    let (mut model, _) = model_with(&["a", "b"]);
+    let mut view = view(1000.0);
+    turn(&mut view, &mut model);
+    assert!(two_rows(&view), "two rows at 280 px");
+    let [title, line, switch, options] = bar(&view);
+    let whole = view.window().get_chats_title_whole();
+    assert!(
+        title.2 - title.0 >= whole,
+        "the title whole on one line: {title:?}, {whole} wide"
+    );
+    assert!(
+        title.0 >= 16.0 - 0.5 && title.2 <= 280.0 - 16.0 + 0.5,
+        "{title:?}"
+    );
+    assert!(line.1 >= title.3 - 0.5, "the network line under the title");
+    assert!(
+        (switch.0 - 8.0).abs() < 0.5,
+        "at the row's start: {switch:?}"
+    );
+    assert!(
+        (options.2 - 276.0).abs() < 0.5,
+        "at the row's end: {options:?}"
+    );
+    assert!(
+        switch.2 <= options.0,
+        "the name ellipsises short of the options"
+    );
+    assert!(switch.3 - switch.1 >= 48.0);
+}
+
+/// Criterion 26: the row count is the width's, the text size's and the
+/// title's, never the name in front's. At every width from a phone's to
+/// past the one-row threshold, and in the desktop's pane, switching
+/// between a 40-grapheme name and a 3-grapheme one leaves the bar's
+/// height and the title's place as they were. Mutation: the switch's
+/// minimum taken from the name in front alone (identities.slint
+/// `least-any` from `least-measure`).
+#[test]
+fn the_chats_bar_never_reflows_on_a_switch() {
+    let long = "Wolfgang Amadeus Mozart of Salzburg town";
+    assert_eq!(long.chars().count(), 40, "the premise: 40 graphemes");
+    let mut model = named(long, "Ilo");
+    let mut view = view(1000.0);
+    turn(&mut view, &mut model);
+    let mut layouts = std::collections::BTreeSet::new();
+    let widths = (0..=110u16)
+        .map(|n| 280.0 + 2.0 * f32::from(n))
+        .chain([1000.0]);
+    for width in widths {
+        resize(&view, width);
+        let mut seen = Vec::new();
+        for front in ["a", "b", "a"] {
+            model
+                .identities_mut()
+                .act(IdentityIntent::OpenSwitcher, false);
+            model
+                .identities_mut()
+                .act(IdentityIntent::Choose(key(front)), false);
+            turn(&mut view, &mut model);
+            let name = if front == "a" { long } else { "Ilo" };
+            one(
+                &view,
+                &format!("Identity: {}. Switch identity", isolated(name)),
+            );
+            let title = bar(&view)[0];
+            seen.push((
+                view.window().get_chats_bar_height(),
+                title.0,
+                title.1,
+                two_rows(&view),
+            ));
+        }
+        assert!(
+            seen.iter().all(|s| *s == seen[0]),
+            "at {width} px the bar moved on a switch: {seen:?}"
+        );
+        layouts.insert(seen[0].3);
+    }
+    assert_eq!(
+        layouts.len(),
+        2,
+        "the premise: the widths cross the threshold"
+    );
+}
+
+/// Criterion 26: at 200 % text the title is whole or wrapped, cut only
+/// where a single word is wider than its row, and its accessible name is
+/// whole either way. A title of several words wraps at a word boundary
+/// on the first of two rows. Mutation: the title never wrapping.
+#[test]
+fn at_twice_the_text_the_title_is_whole_wrapped_or_a_word_too_wide() {
+    let (mut model, _) = model_with(&["a", "b"]);
+    let mut view = view(1000.0);
+    text_size(&view, 28.0);
+    for width in [1000.0, 360.0] {
+        resize(&view, width);
+        turn(&mut view, &mut model);
+        assert!(two_rows(&view), "{width}: two rows at 200 %");
+        let title = one(&view, "Conversations");
+        let row = title.size().width;
+        let (whole, word) = (
+            view.window().get_chats_title_whole(),
+            view.window().get_chats_title_word(),
+        );
+        assert!(
+            whole <= row || word > row,
+            "{width}: cut with every word fitting: {whole} {word} in {row}"
+        );
+    }
+    // A title of several words, each narrower than the row, the whole
+    // wider: it wraps, and the bar grows to hold it.
+    let one_line = one(&view, "Conversations").size().height;
+    let height = view.window().get_chats_bar_height();
+    let several = "Talks and threads with everyone";
+    view.window().set_conversations_heading(several.into());
+    slint::platform::update_timers_and_animations();
+    let title = one(&view, several);
+    let row = title.size().width;
+    let (whole, word) = (
+        view.window().get_chats_title_whole(),
+        view.window().get_chats_title_word(),
+    );
+    assert!(
+        whole > row && word <= row,
+        "the premise: {whole} {word} in {row}"
+    );
+    assert!(
+        title.size().height >= 2.0 * one_line - 1.0,
+        "wrapped onto two lines or more: {} against {one_line}",
+        title.size().height
+    );
+    assert!(
+        view.window().get_chats_bar_height() > height,
+        "the bar grew"
+    );
+    assert!(two_rows(&view));
+}
+
+/// Criterion 26: on a 360 dp phone at 100 % text the title, the switch
+/// at its minimum and the app's options fit, and the bar is one row, as
+/// high as with one identity.
+#[test]
+fn on_a_phone_at_the_default_text_the_chats_bar_is_one_row() {
+    let (mut model, _) = model_with(&["a", "b"]);
+    let mut view = view(360.0);
+    turn(&mut view, &mut model);
+    assert!(!two_rows(&view), "one row at 360 px");
+    assert!((view.window().get_chats_bar_height() - 64.0).abs() < 0.5);
+    let [title, _, switch, options] = bar(&view);
+    assert!(title.2 - title.0 >= view.window().get_chats_title_whole());
+    assert!(
+        title.2 <= switch.0 && switch.2 <= options.0,
+        "in reading order"
+    );
+}
+
+/// Criterion 26 and section 11: Tab from the title reaches the switch,
+/// then the app's options, in both layouts and in either direction, the
+/// places mirrored right to left. Mutation: the app's options declared
+/// before the switch.
+#[test]
+fn tab_from_the_title_reaches_the_switch_then_the_options_in_both_layouts() {
+    let (mut model, _) = model_with(&["a", "b"]);
+    let mut view = view(1000.0);
+    for rtl in [false, true] {
+        view.window().set_rtl(rtl);
+        for (width, rows) in [(1000.0, true), (360.0, false)] {
+            resize(&view, width);
+            turn(&mut view, &mut model);
+            assert_eq!(two_rows(&view), rows, "rtl={rtl} {width}");
+            tab_to(&view, "conversations-heading", 30);
+            press(&view, Key::Tab);
+            assert_eq!(focus_id(&view), "identity-switch", "rtl={rtl} {width}");
+            press(&view, Key::Tab);
+            assert_eq!(focus_id(&view), "app-options", "rtl={rtl} {width}");
+            let [_, _, switch, options] = bar(&view);
+            assert_eq!(
+                options.0 < switch.0,
+                rtl,
+                "rtl={rtl} {width}: {switch:?} {options:?}"
+            );
+        }
+    }
+}
+
+/// With one identity held there is no switch, and the bar is one row as
+/// it was, the app's options straight after the title. Mutation: the
+/// bar's row decision ignoring whether the switch is shown.
+#[test]
+fn with_one_identity_the_chats_bar_is_one_row_without_a_switch() {
+    let (mut model, _) = model_with(&["a"]);
+    let mut view = view(1000.0);
+    turn(&mut view, &mut model);
+    assert!((view.window().get_chats_bar_height() - 64.0).abs() < 0.5);
+    let options = view.window().get_app_options_label().to_string();
+    let title = edges(&one(&view, "Conversations"));
+    let button = edges(&one(&view, &options));
+    assert!(button.1 < title.3 && button.3 > title.1, "beside the title");
+    assert!(labels(&view).iter().all(|l| !l.contains("Switch identity")));
+    tab_to(&view, "conversations-heading", 30);
+    press(&view, Key::Tab);
+    assert_eq!(focus_id(&view), "app-options", "no switch between");
+}

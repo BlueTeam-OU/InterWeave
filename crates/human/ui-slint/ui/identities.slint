@@ -50,6 +50,12 @@ export struct IdSwitch {
     name: string,
     // The first three graphemes of the name, which its width keeps.
     least: string,
+    // Every held identity's `least`, one a line, the one in front among
+    // them: the switch's minimum the Chats bar decides its rows by is the
+    // widest of these, never the front's alone, so a switch never reflows
+    // the bar (tests/identities.rs the_chats_bar_never_reflows_on_a_switch).
+    // A string and not a model, which never compares equal.
+    leasts: string,
     // The whole accessible name, its sentences joined, spoken form.
     accessible: string,
     badge: bool,
@@ -290,12 +296,28 @@ export component IdentitySwitch inherits FocusScope {
     property <length> fixed: 8px + 24px + 8px + 8px + caret.preferred-width + 8px;
     min-height: 48px;
     min-width: root.fixed + least-measure.preferred-width;
+    // The switch's minimum whoever is in front: the widest held identity's
+    // three graphemes and the ellipsis (identities section 12, the Chats
+    // bar's one row or two).
+    out property <length> least-any: root.fixed + leasts-measure.preferred-width + ellipsis-measure.preferred-width;
     preferred-width: root.fixed + name-measure.preferred-width;
     horizontal-stretch: 0;
     // With the ellipsis an elided name ends in: without it, the three
     // graphemes elided to two (seen rendered in a 280 px list pane).
     least-measure := Text {
         text: root.view.least + "…";
+        font-size: root.look.body-large;
+        visible: false;
+        accessible-role: none;
+    }
+    leasts-measure := Text {
+        text: root.view.leasts;
+        font-size: root.look.body-large;
+        visible: false;
+        accessible-role: none;
+    }
+    ellipsis-measure := Text {
+        text: "…";
         font-size: root.look.body-large;
         visible: false;
         accessible-role: none;

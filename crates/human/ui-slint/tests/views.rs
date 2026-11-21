@@ -5525,10 +5525,11 @@ fn opening_something_from_chats_moves_its_count() {
     assert_ne!(view.opened_from_chats(), opened, "the settings");
 }
 
-/// A right-to-left window draws each menu's button in another place, an
-/// element of its own (app.slint `if root.rtl`): each moves the count as
-/// its left-to-right twin does (add-a-peer section 5.1). Mutation: either
-/// of those buttons setting its menu open itself fails here.
+/// A right-to-left window draws each menu's button in another place, a
+/// conversation's as an element of its own (app.slint `if root.rtl`), the
+/// Chats bar's as the same element mirrored: each moves the count as it
+/// does left to right (add-a-peer section 5.1). Mutation: either of those
+/// buttons setting its menu open itself fails here.
 #[test]
 fn a_right_to_left_menu_button_moves_the_count_too() {
     let mut view = view();

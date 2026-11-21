@@ -207,6 +207,7 @@ impl IdentityViews {
                 shown: true,
                 name: v.name.as_str().into(),
                 least: v.least.as_str().into(),
+                leasts: v.leasts.join("\n").into(),
                 accessible: spoken(&sentences(v.accessible.iter().map(Said::english))).into(),
                 badge: v.badge.is_some(),
                 count: v

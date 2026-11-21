@@ -4861,6 +4861,12 @@ export component AppWindow inherits Window {
         : !root.narrow ? 280px
         : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
         : 0px;
+    // The Chats bar's height and its title's widths on one line and of its
+    // longest word, for the tests of its one row or two
+    // (tests/identities.rs the_chats_bar_*): the bar itself names nothing.
+    out property <length> chats-bar-height: chats-bar.height;
+    out property <length> chats-title-whole: chats-bar.title-whole;
+    out property <length> chats-title-word: chats-bar.title-word;
     in-out property <bool> chats-menu-open;
     // Bumped when the menu closes or Trust is left: focus goes back to
     // the button.
@@ -5839,47 +5845,93 @@ export component AppWindow inherits Window {
                 // name. Trust is a settings action, apart from every
                 // conversation (human-client-ui.md section 8): nothing a
                 // message shows can reach it.
-                HorizontalLayout {
-                    min-height: 64px;
-                    padding-left: root.rtl ? 4px : 16px;
-                    padding-right: root.rtl ? 16px : 4px;
-                    spacing: 8px;
-                    if root.rtl: VerticalLayout {
-                        alignment: center;
-                        IconButton {
-                            glyph: Glyph.more;
-                            label: root.app-options-label;
-                            focus-key: "app-options";
-                            focus-seq: root.chats-menu-closed-seq;
-                            focus-wanted: true;
-                            pressed => { root.open-chats-menu(); }
-                            focused(k) => { root.focus-id = k; }
-                        }
+                //
+                // With two identities held the identity switch stands
+                // between them (cards section 5.7.1), on one row when the
+                // whole title, the switch at its minimum and the app's
+                // options fit, else on a second row under the title
+                // (design/2026-11-04-identities.md section 12, "The Chats
+                // bar when the switch does not fit beside the title"). The
+                // row count is a function of the bar's width, the text size
+                // (through the measures) and the title alone: the switch's
+                // minimum is the widest held identity's, never the front's,
+                // so a switch never reflows the bar
+                // (tests/identities.rs the_chats_bar_*).
+                //
+                // One element tree for both layouts, each control placed:
+                // an `if` on the row count would make the controls anew and
+                // drop the focus a person has on one. Declared in reading
+                // order, which is the Tab order (identities section 11: the
+                // title, the switch, the app's options), in either
+                // direction; a right-to-left window mirrors the places.
+                chats-bar := Rectangle {
+                    property <bool> has-switch: root.id-switch.shown;
+                    // The title on one line, and its longest word.
+                    out property <length> title-whole: title-measure.preferred-width;
+                    out property <length> title-word: title-measure.min-width;
+                    out property <bool> two-rows: self.has-switch
+                        && 16px + self.title-whole + 8px + chats-switch.least-any + 8px + 48px + 4px > self.width;
+                    // The switch: as wide as its name asks, within what the
+                    // row leaves it, never below its own minimum.
+                    property <length> switch-room: self.two-rows ? self.width - 8px - 8px - 48px - 4px
+                        : self.width - 16px - self.title-whole - 8px - 8px - 48px - 4px;
+                    property <length> switch-w: max(chats-switch.min-width, min(chats-switch.preferred-width, self.switch-room));
+                    property <length> switch-h: max(48px, chats-switch.preferred-height);
+                    // The title and the network line under it: the whole
+                    // width on the first of two rows, what the controls
+                    // leave on one.
+                    property <length> block-w: self.two-rows ? self.width - 32px
+                        : self.width - 16px - 8px - 48px - 4px - (self.has-switch ? self.switch-w + 8px : 0px);
+                    property <length> block-h: title-block.preferred-height;
+                    property <length> row1-h: self.two-rows ? max(64px, self.block-h + 16px)
+                        : max(64px, self.block-h, self.switch-h);
+                    property <length> row2-h: self.two-rows ? max(56px, self.switch-h + 8px) : 0px;
+                    // Each place as left to right; `place` mirrors it.
+                    property <length> switch-x: self.two-rows ? 8px
+                        : self.width - 4px - 48px - 8px - self.switch-w;
+                    property <length> controls-y: self.two-rows ? self.row1-h : 0px;
+                    property <length> controls-h: self.two-rows ? self.row2-h : self.row1-h;
+                    // Where the switcher and the app's options menu hang:
+                    // under the controls, whichever row they are on.
+                    out property <length> controls-bottom: self.controls-y + (self.controls-h + 48px) / 2;
+                    pure function place(x: length, w: length) -> length {
+                        root.rtl ? self.width - x - w : x
                     }
-                    // The identity switch, between the title and the
-                    // app's options (cards section 5.7.1).
-                    if root.rtl && root.id-switch.shown: VerticalLayout {
-                        alignment: center;
-                        IdentitySwitch {
-                            look: root.id-look;
-                            view: root.id-switch;
-                            rtl: true;
-                            focus-seq: root.focus-seq;
-                            focus-wanted: root.focus-target == "identity-switch";
-                            pressed => { root.id-switch-pressed(); }
-                            focused(k) => { root.focus-id = k; }
-                            keyboard-mode(on) => { FocusMode.keyboard = on; }
-                        }
+                    height: self.row1-h + self.row2-h;
+                    // The title's widths at its own size and weight, never
+                    // shown. Word-wrapped and clipped, so the toolkit
+                    // measures its longest word as the minimum and the one
+                    // line as the preferred width (i-slint-core 1.18.1
+                    // items/text.rs text_layout_info).
+                    title-measure := Text {
+                        text: root.conversations-heading;
+                        font-size: Type.title-large;
+                        font-weight: 400;
+                        wrap: word-wrap;
+                        overflow: clip;
+                        // Never drawn; held to by tests/compile.rs.
+                        min-height: self.preferred-height;
+                        visible: false;
+                        accessible-role: none;
                     }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        alignment: center;
+                    title-block := VerticalLayout {
+                        x: chats-bar.place(16px, self.width);
+                        y: (chats-bar.row1-h - self.height) / 2;
+                        width: chats-bar.block-w;
+                        height: self.preferred-height;
                         spacing: FocusMode.ring-reach;
                         FocusHeading {
                             text: root.conversations-heading;
                             font-size: Type.title-large;
                             font-weight: 400;
                             rtl: root.rtl;
+                            // On the first of two rows the title wraps at a
+                            // word boundary; a word wider than the row
+                            // ellipsises instead, since the toolkit's word
+                            // wrap would break inside it (parley
+                            // OverflowWrap::Anywhere). Its accessible name is
+                            // whole either way. On one row it fits whole.
+                            wraps: chats-bar.two-rows && chats-bar.title-word <= chats-bar.block-w;
                             focus-key: "conversations-heading";
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "heading";
@@ -5923,29 +5975,35 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                    if !root.rtl && root.id-switch.shown: VerticalLayout {
-                        alignment: center;
-                        IdentitySwitch {
-                            look: root.id-look;
-                            view: root.id-switch;
-                            focus-seq: root.focus-seq;
-                            focus-wanted: root.focus-target == "identity-switch";
-                            pressed => { root.id-switch-pressed(); }
-                            focused(k) => { root.focus-id = k; }
-                            keyboard-mode(on) => { FocusMode.keyboard = on; }
-                        }
+                    // The identity switch, between the title and the
+                    // app's options (cards section 5.7.1). Hidden with one
+                    // identity held, and then out of the Tab order.
+                    chats-switch := IdentitySwitch {
+                        visible: chats-bar.has-switch;
+                        enabled: chats-bar.has-switch;
+                        x: chats-bar.place(chats-bar.switch-x, self.width);
+                        y: chats-bar.controls-y + (chats-bar.controls-h - self.height) / 2;
+                        width: chats-bar.switch-w;
+                        height: chats-bar.switch-h;
+                        look: root.id-look;
+                        view: root.id-switch;
+                        rtl: root.rtl;
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "identity-switch";
+                        pressed => { root.id-switch-pressed(); }
+                        focused(k) => { root.focus-id = k; }
+                        keyboard-mode(on) => { FocusMode.keyboard = on; }
                     }
-                    if !root.rtl: VerticalLayout {
-                        alignment: center;
-                        IconButton {
-                            glyph: Glyph.more;
-                            label: root.app-options-label;
-                            focus-key: "app-options";
-                            focus-seq: root.chats-menu-closed-seq;
-                            focus-wanted: true;
-                            pressed => { root.open-chats-menu(); }
-                            focused(k) => { root.focus-id = k; }
-                        }
+                    IconButton {
+                        x: chats-bar.place(chats-bar.width - 4px - 48px, 48px);
+                        y: chats-bar.controls-y + (chats-bar.controls-h - 48px) / 2;
+                        glyph: Glyph.more;
+                        label: root.app-options-label;
+                        focus-key: "app-options";
+                        focus-seq: root.chats-menu-closed-seq;
+                        focus-wanted: true;
+                        pressed => { root.open-chats-menu(); }
+                        focused(k) => { root.focus-id = k; }
                     }
                 }
                 // The no-reach notice (section 5.6), in reading order after the
@@ -10019,7 +10077,7 @@ export component AppWindow inherits Window {
         if root.chats-menu-open: Rectangle {
             x: root.rtl ? root.safe-area-insets.left + 8px
                 : root.safe-area-insets.left + root.list-width - self.width - 8px;
-            y: root.safe-area-insets.top + 56px;
+            y: root.safe-area-insets.top + chats-bar.controls-bottom;
             width: max(200px, chats-menu-items.preferred-width);
             height: chats-menu-items.preferred-height;
             background: Palette.surface-container-high;
@@ -10092,7 +10150,7 @@ export component AppWindow inherits Window {
             narrow: root.narrow;
             rtl: root.rtl;
             anchor-x: root.safe-area-insets.left + 8px;
-            anchor-y: root.safe-area-insets.top + 56px;
+            anchor-y: root.safe-area-insets.top + chats-bar.controls-bottom;
             closed => { root.id-switcher-closed(); }
             chosen(i) => { root.id-row-chosen(i); }
             try-again(i) => { root.id-try-again(i); }
