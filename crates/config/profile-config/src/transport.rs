@@ -181,13 +181,13 @@ impl Default for InboundRateLimitConfig {
     }
 }
 
-/// `transport.direct.protocol`: `literal[/interweave/direct/2.0.0]`.
+/// `transport.direct.protocol`: `literal[/interweave/direct/3.0.0]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum DirectProtocol {
     /// The one directed protocol (AGENTS.md §5).
     #[default]
-    #[serde(rename = "/interweave/direct/2.0.0")]
-    DirectV2,
+    #[serde(rename = "/interweave/direct/3.0.0")]
+    DirectV3,
 }
 
 /// `transport.direct`.
@@ -209,7 +209,7 @@ pub struct DirectConfig {
 impl Default for DirectConfig {
     fn default() -> Self {
         Self {
-            protocol: DirectProtocol::DirectV2,
+            protocol: DirectProtocol::DirectV3,
             timeout_ms: 10_000,
             max_inflight_total: 128,
             max_inflight_per_peer: 8,
@@ -547,7 +547,7 @@ mod tests {
             t.connection_policy.identity_mismatch_quarantine_ms,
             1_800_000
         );
-        assert_eq!(t.direct.protocol, DirectProtocol::DirectV2);
+        assert_eq!(t.direct.protocol, DirectProtocol::DirectV3);
         assert_eq!(t.direct.inbound_rate_limit.per_peer_per_minute, 120);
         assert!(t.pubsub.signed_messages && t.pubsub.strict_validation);
         assert_eq!(
@@ -669,6 +669,7 @@ pubsub: {signed_messages: false, strict_validation: false, explicit_application_
         for refused in [
             "backend: quic",
             "direct: {protocol: /interweave/direct/1.0.0}",
+            "direct: {protocol: /interweave/direct/2.0.0}",
             "pubsub: {backend: floodsub}",
             "pubsub: {message_id_function: envelope-id}",
         ] {
@@ -676,7 +677,7 @@ pubsub: {signed_messages: false, strict_validation: false, explicit_application_
         }
         for accepted in [
             "backend: libp2p",
-            "direct: {protocol: /interweave/direct/2.0.0}",
+            "direct: {protocol: /interweave/direct/3.0.0}",
             "pubsub: {backend: gossipsub, message_id_function: source-peer-seqno-sha256-v1}",
         ] {
             assert!(parse(accepted).is_ok(), "{accepted} refused");
