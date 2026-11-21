@@ -6868,8 +6868,10 @@ Held with no date, a row of no stage's close:
   `/etc` never written, root's at deployment; the remotely served
   allowlist not asked for (rust-services-dev-02, REPLY 01a20022-daad).
 - **Client autostart of the daemon** (Stage 15, §18 (9)): an option the
-  owner may ask for, p2p-network-dev's to build if asked
-  (`packaging/linux/README.md`, the ruling of 2026-11-03).
+  owner may ask for (`packaging/linux/README.md`, the ruling of
+  2026-11-03); the service/autostart lifecycle row it was carried to
+  is p2p-network-dev's, and who builds a client-side launch is decided
+  when it is asked.
 - **`flock` on NFS homes** (Stage 13, p2p-network-dev's): a stated
   limit by reason in `packaging/linux/README.md`, owing no work.
 - **The Windows binding with the BSL-1.0 decision, the macOS
