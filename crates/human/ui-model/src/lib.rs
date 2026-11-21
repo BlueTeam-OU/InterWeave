@@ -37,9 +37,9 @@ mod waiting;
 pub use connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectLine, ConnectPhase};
 pub use identities::{
     Badge, ComposerLine, FrontOutcome, HeldChange, HeldIdentity, HeldProblem, IDENTITY_CAP,
-    Identities, IdentityKey, IdentityState, LockedEntry, NotificationOpened, Pane,
-    SWITCHING_HOLD_MS, Said, SendControl, SwitchSnackbar, SwitchView, Switched, Switcher,
-    SwitcherRow, Transition, TryAgainControl,
+    Identities, IdentityFocus, IdentityIntent, IdentityKey, IdentityState, LockedEntry,
+    NotificationOpened, Pane, SWITCHING_HOLD_MS, Said, SendControl, ShownSwitchSnackbar,
+    SwitchSnackbar, SwitchView, Switched, Switcher, SwitcherRow, Transition, TryAgainControl,
 };
 pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
