@@ -11,8 +11,11 @@
 //! ([`crate::profile_format`]), reads the profile's `config.yaml` under
 //! a size ceiling, parses it, refuses a document whose `profile.name` is
 //! not the profile it is being loaded as, refuses one that fails
-//! `validate()`, and refuses one whose `identity.key_file` resolves inside
-//! the human client's directory.
+//! `validate()`, refuses one whose `identity.key_file` resolves inside
+//! the human client's directory, and reads every endpoint entry's key
+//! header. [`ProfileConfig::load_document`] is the same load without that
+//! last step: for a client that resolves aliases and must read no file
+//! under `endpoint-keys/`.
 
 use std::io::Read as _;
 
@@ -350,13 +353,37 @@ impl ProfileConfig {
     /// Load `paths`' profile document: refuse it when a newer build
     /// wrote the profile, read it (at most
     /// [`MAX_PROFILE_BYTES`]), parse it, require `profile.name` to be the
-    /// profile `paths` resolves, and validate it.
+    /// profile `paths` resolves, validate it, and read each endpoint
+    /// entry's key header ([`Self::read_endpoint_keys`]).
     ///
     /// # Errors
     /// [`LoadError`], naming which step refused: the profile-format
-    /// marker, read, size, parse, name, validation, or a key file inside
-    /// the human client's directory.
+    /// marker, read, size, parse, name, validation (a key header that
+    /// derives another id among it), or a key file inside the human
+    /// client's directory.
     pub fn load(paths: &ProfilePaths) -> Result<Self, LoadError> {
+        Self::load_with(paths, Keys::Read)
+    }
+
+    /// [`Self::load`] WITHOUT the key headers: every guard `load` has --
+    /// the profile-format marker, the guarded directory and file, the
+    /// size bound, the parse, the profile name, `validate()` and the
+    /// retired-id remedies, and the key file's place -- and no file under
+    /// `endpoint-keys/` read, so every entry's
+    /// [`EndpointKeyState`] stays [`EndpointKeyState::NotRead`]
+    /// (`tests/endpoint_entries.rs`,
+    /// `load_document_reads_no_endpoint_key`). For a
+    /// client that resolves an alias to its id and holds no key.
+    ///
+    /// # Errors
+    /// As [`Self::load`], less the key headers' refusal.
+    pub fn load_document(paths: &ProfilePaths) -> Result<Self, LoadError> {
+        Self::load_with(paths, Keys::Unread)
+    }
+
+    /// The one load both entry points are: `keys` says whether the
+    /// endpoint key headers are read, and nothing else differs.
+    fn load_with(paths: &ProfilePaths, keys: Keys) -> Result<Self, LoadError> {
         // FIRST, so every loader refuses a profile a newer build wrote
         // before it takes the lock, rewrites an overlay or creates a
         // directory -- and a `transportctl identity init` whose
@@ -394,7 +421,9 @@ impl ProfileConfig {
             });
         }
         let mut errors = profile.validate();
-        errors.extend(profile.read_endpoint_keys(paths));
+        if keys == Keys::Read {
+            errors.extend(profile.read_endpoint_keys(paths));
+        }
         if !errors.is_empty() {
             return Err(LoadError::Invalid(errors));
         }
@@ -419,6 +448,15 @@ impl ProfileConfig {
         }
         Ok(profile)
     }
+}
+
+/// Whether a load reads the endpoint key headers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Keys {
+    /// [`ProfileConfig::load`].
+    Read,
+    /// [`ProfileConfig::load_document`].
+    Unread,
 }
 
 /// `errors` with each retired-`id` refusal given the command that applies

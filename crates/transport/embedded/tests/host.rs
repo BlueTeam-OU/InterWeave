@@ -282,8 +282,8 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
         other => panic!("refused as not private: {:?}", other.map(|_| ())),
     }
     // Disabling the endpoint the embedded profile must lease: config.yaml
-    // validates alone, the composed profile does not, and the refusal
-    // names the overlay.
+    // validates alone, and the composed set holds no enabled identity to
+    // start as -- the start's rule (`ENDPOINTS.md`, A 2026-11-21).
     std::fs::write(
         &overlay,
         r#"{"enabled":{"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr":false}}"#,
@@ -291,19 +291,26 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
     .expect("written");
     std::fs::set_permissions(&overlay, std::fs::Permissions::from_mode(0o600)).expect("chmod");
     match EmbeddedHost::start(launch(&app.dir)) {
-        Err(EmbeddedRefused::ProfileInvalid(detail)) => {
-            assert!(detail.contains("endpoint overlay"), "{detail}");
-        }
-        other => panic!("refused naming the overlay: {:?}", other.map(|_| ())),
+        Err(EmbeddedRefused::NoIdentity(
+            interweave_profile_config::ConfigError::AndroidNoIdentity,
+        )) => {}
+        other => panic!("refused AndroidNoIdentity: {:?}", other.map(|_| ())),
     }
 }
 
 /// A FRESH INSTALL: nothing has written `config.yaml`, so the start is
-/// refused naming the read -- the control -- until the Service provisions
-/// the profile once (`profile-config`'s `provision_embedded`, the seam
-/// agreed with rust-ui-dev); then the host starts and serves on it.
+/// refused naming the read, until the Service provisions the profile
+/// (`profile-config`'s `provision_embedded`, the seam agreed with
+/// rust-ui-dev). Form 1 has no identity: its start is refused
+/// `AndroidNoIdentity` by name, with nothing under the root written --
+/// the profile-format marker not raised, `config.yaml` as it was. Once
+/// onboarding has sealed the first identity (a key minted at filesystem
+/// custody here) and `provision_identity` wrote form 2 -- the positive
+/// control -- the same start serves.
 #[test]
-fn a_fresh_install_is_provisioned_once_then_starts() {
+fn a_start_on_form_1_is_refused_no_identity() {
+    use interweave_profile_config::ConfigError;
+    use interweave_profile_config::provision::{provision_embedded, provision_identity};
     let app = app();
     assert!(
         matches!(
@@ -315,7 +322,23 @@ fn a_fresh_install_is_provisioned_once_then_starts() {
     let paths =
         ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
             .expect("paths");
-    interweave_profile_config::provision::provision_embedded(&paths).expect("provisioned");
+    provision_embedded(&paths).expect("form 1");
+    let form_1 = std::fs::read(paths.config_file()).expect("form 1");
+    assert_eq!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::NoIdentity(ConfigError::AndroidNoIdentity)),
+        "form 1: no identity"
+    );
+    assert_eq!(
+        profile_format::read_within(&profile_format::path_for(&paths), paths.boundary())
+            .expect("reads"),
+        0,
+        "a refused start raised no marker"
+    );
+    assert_eq!(std::fs::read(paths.config_file()).expect("kept"), form_1);
+
+    let id = interweave_profile_config::endpoint_key::mint_filesystem(&paths).expect("a key");
+    provision_identity(&paths, &id).expect("form 2");
     let launched = launch(&app.dir);
     let peer = launched.identity.transport_identity().expect("peer");
     let host = EmbeddedHost::start(launched).expect("starts on the provisioned profile");
