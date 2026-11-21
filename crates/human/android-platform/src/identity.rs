@@ -481,8 +481,10 @@ fn create(
     }
 }
 
-/// Why a recovery restored nothing. In every case the record is left as
-/// it was.
+/// Why a recovery restored nothing. In every case but
+/// [`RestoreRefused::Unsynced`] and [`RestoreRefused::OldKeyRemains`],
+/// which come after the record is published, the record is left as it
+/// was.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RestoreRefused {
     /// The profile's paths could not be resolved under the app data
@@ -491,9 +493,15 @@ pub enum RestoreRefused {
     /// [`Expected::Recorded`], and no record names a `PeerId`: a fresh
     /// install, which restores only a confirmed one.
     NoRecord,
-    /// [`Expected::Confirmed`] over a profile that has a record: an
-    /// established identity is restored only as its record names it.
+    /// [`Expected::Confirmed`] over a profile whose record names the
+    /// confirmed `PeerId`: an established identity is restored only as
+    /// its record names it.
     RecordExists,
+    /// The profile's record names another `PeerId` than the restore was
+    /// to give back, the one carried here: over a confirmed `PeerId`, or a
+    /// record that changed under the restore (design
+    /// 2026-10-19-android-identity.md section 6, `IdRestoreOther`).
+    RecordNamesOther(TransportIdentity),
     /// The record is there but names no `PeerId`, or could not be read:
     /// an established profile's, never sealed over.
     RecordUnreadable(String),
@@ -511,6 +519,14 @@ pub enum RestoreRefused {
     /// failed: it may be on disk. Only this, of the storage failures, is
     /// read back (design #303 round 3).
     Unsynced(String),
+    /// The record was published and a key of the other policy could not be
+    /// retired after it. Custody answers it without opening the record,
+    /// so it says nothing of whether the record opens to the `PeerId`: the
+    /// caller reads back before it counts the restore as done, as a seal
+    /// answered `OldKeyRemains` is (design 2026-10-19-android-identity.md
+    /// section 6, the read-back rows). The next start's
+    /// [`reseal_identity`] retries the retire.
+    OldKeyRemains(String),
 }
 
 /// Which `PeerId` a restore must give back.
@@ -543,7 +559,9 @@ pub fn phrase_peer(phrase: &RecoveryPhrase) -> Result<TransportIdentity, Restore
 /// Recovery); with none the restore takes the profile's lock itself.
 ///
 /// # Errors
-/// [`RestoreRefused`]; nothing is written in any of them.
+/// [`RestoreRefused`]; nothing is written in any of them but
+/// [`RestoreRefused::Unsynced`] and [`RestoreRefused::OldKeyRemains`],
+/// which the caller reads back.
 pub fn restore_identity(
     app_data_dir: &Path,
     profile: &str,
@@ -572,6 +590,9 @@ pub fn restore_identity(
         (Expected::Recorded, Some(peer)) => peer,
         (Expected::Recorded, None) => return Err(RestoreRefused::NoRecord),
         (Expected::Confirmed(peer), None) => peer.clone(),
+        (Expected::Confirmed(peer), Some(recorded)) if recorded != *peer => {
+            return Err(RestoreRefused::RecordNamesOther(recorded));
+        }
         (Expected::Confirmed(_), Some(_)) => return Err(RestoreRefused::RecordExists),
     };
     let policy = interweave_profile_config::ProfileConfig::load(&paths)
@@ -585,14 +606,28 @@ pub fn restore_identity(
     };
     match restored {
         Ok(identity) => Ok(identity),
-        // As for a first run: the record is written and opens, and only a
-        // stale key of the other policy is left for the next start's
-        // `reseal_identity` to retire.
-        // The identity is the phrase's, which `restore` verified.
-        Err(CustodyRefused::OldKeyRemains(_)) => ProfileIdentity::from_phrase(phrase)
-            .map_err(|e| RestoreRefused::Unavailable(e.to_string())),
-        Err(CustodyRefused::OtherIdentity | CustodyRefused::RecordNamesOther) => {
-            Err(RestoreRefused::OtherIdentity)
+        // Written, and the other policy's key left for the next start's
+        // `reseal_identity` to retire -- but custody never opened the
+        // record it wrote, so whether it opens to `expected` is the
+        // caller's read-back to say, never assumed here
+        // (`a_restore_answered_old_key_remains_reads_back_before_it_is_done`).
+        Err(CustodyRefused::OldKeyRemains(why)) => {
+            Err(RestoreRefused::OldKeyRemains(format!("{why:?}")))
+        }
+        Err(CustodyRefused::OtherIdentity) => Err(RestoreRefused::OtherIdentity),
+        // The record changed between the read above and the restore's own
+        // (none can while the flow holds the lock, section 6): whose it is
+        // now, read again, as at a confirmed restore over another's.
+        Err(refused @ (CustodyRefused::RecordNamesOther | CustodyRefused::AlreadyProvisioned)) => {
+            match custody::named_identity(&paths) {
+                Ok(RecordName::Names(recorded)) if recorded != expected => {
+                    Err(RestoreRefused::RecordNamesOther(recorded))
+                }
+                _ if matches!(refused, CustodyRefused::RecordNamesOther) => {
+                    Err(RestoreRefused::OtherIdentity)
+                }
+                _ => Err(RestoreRefused::Unavailable(format!("{refused:?}"))),
+            }
         }
         Err(CustodyRefused::ProfileLocked) => Err(RestoreRefused::Busy),
         Err(CustodyRefused::Cipher(custody::CipherFailure::UserNotAuthenticated)) => {

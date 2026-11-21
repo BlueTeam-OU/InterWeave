@@ -5,13 +5,14 @@ topic: "qualifier-is-a-claim"
 description: "adding a qualifier to a noun (\"the size\" -> \"the size in bytes\") picks one meaning; check it against the text's facts before adding it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - c21bae4dfe7e217a
   - f5cac6159ab254f8
 ---
 
@@ -25,6 +26,8 @@ A qualifier added to remove an ambiguity chooses one of the readings. If it choo
 
 Applied the same day (j200): "before preparation" was added only after the text settled it (every prepared photo is 256 x 256), and "at 4:4:4" only after card_photo.rs said so (4df2fa26, line 13).
 
+Again on #668 (j317, 2026-11-14): "waits for the build to end" collided with "the build" (the app), and I renamed the event "until the first screen is built". The close waited until the opening had FINISHED building, after the first screen (0.87 to 0.96 s after the Back). ux-designer-01 fixed it in bb6646f17. When I rename a term to remove a collision, the new name is also a claim: find the event in the spec section and the run record (§5.4 "the opening stops"), or ask.
+
 *References: keep-else-whole, workflow-carried-2026-10-10*
 
-*Observed 2026-10-25 (language-culture)*
+*Observed 2026-11-14 (language-culture)*

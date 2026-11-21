@@ -5,7 +5,8 @@
 #
 # >>> help
 # Prove the documentation tree still holds together: every relative
-# Markdown link resolves, and every YAML document parses.
+# Markdown link resolves, every YAML document parses, and every script's
+# help block closes.
 #
 #   tools/checks/check_docs_integrity.py
 #   tools/checks/check_docs_integrity.py --root <dir>
@@ -18,7 +19,7 @@
 # silently-unwired state check_guards_are_wired.sh exists to prevent for
 # guards. A check nobody is obliged to run is a check that stops running.
 #
-# Three questions, all of them about drift a rename produces:
+# Four questions, the first three about drift a rename produces:
 #
 #   TARGET  — a relative link whose file or directory is not there. Moves
 #             and renames are how this happens, and the moved document is
@@ -34,6 +35,20 @@
 #             under architecture/config/examples/ are read as
 #             specification by anyone writing a profile, and CI workflow
 #             files that do not parse simply stop running.
+#   HELP    — a `# >>> help` line, in any file, whose block does not
+#             close on a `# <<< help` line of its own before the next
+#             opener or the end of the file. Scripts print their
+#             `--help` from between the two markers in three ways: a sed
+#             range or regex anchored on both lines, a `lines.index` of
+#             each whole line, or a substring `split`. A closer that
+#             drifted onto the end of a prose line runs a sed or split
+#             printer on past the block into the code; a regex printer
+#             finds no block (an empty help, or a crash), and
+#             `lines.index` raises. From 2026-09-10 to 2026-11-19
+#             check_vendored_advisories.sh's `--help` printed the whole
+#             script, and nothing failed.
+#             The rule is the markers', not one printer's, so it is
+#             asked of the tree rather than of each self-test.
 #
 # NOT checked: external http(s) links. Reachability of someone else's
 # server is not a property of this tree, and a network-dependent guard
@@ -49,8 +64,10 @@
 #   -h, --help     this text
 #
 # Exit codes:
-#   0  every link resolves and every YAML document parses
-#   1  a link is broken or a document does not parse
+#   0  every link resolves, every YAML document parses and every help
+#      block closes
+#   1  a link is broken, a document does not parse or a help block is
+#      left open
 #   2  invocation problem, or PyYAML is missing
 # <<< help
 
@@ -60,6 +77,14 @@ import sys
 import urllib.parse
 
 HELP_RE = re.compile(r"^# >>> help$(.*?)^# <<< help$", re.M | re.S)
+# The two marker lines, exactly: the strictest printers (sed, regex,
+# `lines.index`) match `^# >>> help$` and `^# <<< help$`, so a trailing
+# space or a word on the line is no marker to them. Most `split`
+# printers would accept a closer with a trailing space (release_keys.py,
+# which splits on the closer and its newline, would not); the exact line
+# is asked of every file because it is the form every printer accepts.
+HELP_OPEN = b"# >>> help"
+HELP_CLOSE = b"# <<< help"
 
 # Build output, vendored dependencies, agent worktrees. `.claude` holds
 # committed configuration but also `.claude/worktrees/`, which is a second
@@ -124,7 +149,8 @@ def unfragment(fragment: str) -> str:
     return urllib.parse.unquote(fragment)
 
 
-def walk(root: pathlib.Path, suffixes: set[str]) -> list[pathlib.Path]:
+def walk(root: pathlib.Path, suffixes: set[str] | None) -> list[pathlib.Path]:
+    """Every file under root outside the skipped trees; None is any suffix."""
     out = []
     for path in sorted(root.rglob("*")):
         if not path.is_file():
@@ -137,7 +163,7 @@ def walk(root: pathlib.Path, suffixes: set[str]) -> list[pathlib.Path]:
         # `third_party/libp2p-autonat/CHANGELOG.md` is three and is not.
         if len(parts) > 2 and parts[0] == SKIP_VENDORED_ROOT:
             continue
-        if path.suffix.lower() in suffixes:
+        if suffixes is None or path.suffix.lower() in suffixes:
             out.append(path)
     return out
 
@@ -267,6 +293,46 @@ def check_yaml(root: pathlib.Path, markdown: list[pathlib.Path]) -> int:
     return checked
 
 
+def check_help_blocks(root: pathlib.Path) -> int:
+    """Every own-line help opener is closed by an own-line closer.
+
+    Read as BYTES and split on newlines: every file in the tree is a
+    candidate (a help block lives in .sh, .py and whatever comes next),
+    and read() would report a binary as a problem. Only a file holding an
+    opener line is counted or judged; the printers' own regexes quote the
+    marker text mid-line and are not openers.
+    """
+    checked = 0
+    for path in walk(root, None):
+        try:
+            data = path.read_bytes()
+        except OSError as e:
+            report(f"{path.relative_to(root)}: cannot be read — {e}")
+            continue
+        if HELP_OPEN not in data:
+            continue
+        open_at = None
+        for number, line in enumerate(data.split(b"\n"), start=1):
+            if line == HELP_OPEN:
+                if open_at is not None:
+                    report(
+                        f"{path.relative_to(root)}:{open_at}: help block is not "
+                        f"closed by a '# <<< help' line before the next opener "
+                        f"at line {number}"
+                    )
+                open_at = number
+                checked += 1
+            elif line == HELP_CLOSE:
+                open_at = None
+        if open_at is not None:
+            report(
+                f"{path.relative_to(root)}:{open_at}: help block is never closed "
+                f"by a line that is exactly '# <<< help', so --help prints to "
+                f"the end of the file"
+            )
+    return checked
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent.parent
 
@@ -292,6 +358,7 @@ def main(argv: list[str]) -> int:
     markdown = walk(root, {".md"})
     links = check_links(root, markdown)
     documents = check_yaml(root, markdown)
+    helps = check_help_blocks(root)
 
     if problems:
         print(f"\ncheck_docs_integrity: {len(problems)} problem(s).", file=sys.stderr)
@@ -299,7 +366,8 @@ def main(argv: list[str]) -> int:
 
     print(
         f"check_docs_integrity: OK — {links} relative link(s) across "
-        f"{len(markdown)} document(s) resolve, {documents} YAML document(s) parse."
+        f"{len(markdown)} document(s) resolve, {documents} YAML document(s) parse, "
+        f"{helps} help block(s) close."
     )
     return 0
 

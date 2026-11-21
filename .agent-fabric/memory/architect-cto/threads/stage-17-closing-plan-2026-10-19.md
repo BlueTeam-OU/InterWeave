@@ -5,7 +5,7 @@ topic: "stage-17-closing-plan-2026-10-19"
 description: "Stage 17 close (plan §20) as it ran: the owner's 2026-10-19 direction, the ux-designer gate clause (Android app against the Telegram/WhatsApp standard), the per-clause gap read from main, the role sequence (j148) and the rulings up to the…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -92,7 +92,5 @@ unlock); p2p-02's relayed-paths run on a device.
 
 2026-10-31: owner gave the Pixel 9a at a private-network address:45649; rust-ui-dev-01 (their j183) ran both owed rows, record e63313a9 (apps/human-android/device-runs/2026-10-31-pixel-9a.md): arrival 3/3 under the person's grant, Wi-Fi drop in the app's log, loss callback still silent (instrumented case stays carried). My SPIKES.md + plan §20 measured clauses supplied at d82e22a1 on for/rust-ui-dev-01/pixel-10-31-measured-items; they fold, open the PR (2 work), I give the word. j157 closes when on main. Phone came back at a private-network address:35475.
 2026-10-31: #526 MERGED 4a7fd48f; j157 closed.
-
-*References: ...*
 
 *Observed 2026-10-31 (architect-cto)*

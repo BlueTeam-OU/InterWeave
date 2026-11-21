@@ -2,23 +2,45 @@
 role: "p2p-network-dev"
 class: workflow
 topic: "codeql-uid-alerts-dismiss-standing"
-description: "CodeQL rust/cleartext-logging on effective_uid in profile-config refusals or their tests — dismiss as false positive without asking (devex-tooling, 2026-10-08)"
+description: "CodeQL rust/cleartext-logging on a uid in InterWeave: the durable treatment is the model pack (.github/codeql/extensions/interweave-rust-models, #233); what is left are variables named uid, dismissed as false positive by the PR author…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 619f54f604bedddb
   - 91010d14ef71ad49
 ---
 
-## CodeQL rust/cleartext-logging on effective_uid in profile-config refusals or their tests — dismiss as false positive without asking (devex-tooling, 2026-10-08)
+## CodeQL rust/cleartext-logging on a uid in InterWeave: the durable treatment is the model pack (.github/codeql/extensions/interweave-rust-models, #233); what is left are variables named uid, dismissed as false positive by the PR author; new code names this process's uid euid
 
-devex-tooling's REPLY seq 24373 (2026-10-08), to my observation seq 24341: until they choose a durable treatment (a model or filter under default setup, or advanced setup with a scoped exclusion), any rust/cleartext-logging alert on effective_uid in profile-config's refusals or their tests is dismissed as "false positive" without asking, with alert 41's comment (the uid is required refusal text, ADR-0028 A 2026-10-08). Alert 42 on #228 was dismissed that way.
-**Why:** the uid in refusal text is required; the alerts recur on every PR in the area.
-**How to apply:** dismiss via gh api PATCH code-scanning/alerts/<n>, copying the comment from alert 41; watch for devex-tooling's decision, which supersedes this.
+This supersedes the interim rule "dismiss without asking until devex-tooling
+decides": devex-tooling has decided (REPLY 01a11c67, 2026-10-08).
 
-*Observed 2026-10-08 (p2p-network-dev)*
+- The durable treatment is a model pack under default setup:
+  `.github/codeql/extensions/interweave-rust-models/models/uid.model.yml`
+  (#233). Its barrierModel rows remove `effective_uid(...)` and
+  `Metadata::uid()` as sources. The file's header records why and what was
+  measured.
+- No model row can reach a VARIABLE or FIELD named like a uid: the query
+  takes it as a source by its name, and models name functions only. Such an
+  alert, on a value traced to a uid that refusal text is required to name
+  (ADR-0028), is dismissed as "false positive" by the PR's author, citing
+  the model file.
+- A uid identifier is not renamed just to dodge the heuristic. Where a
+  variable means this process's effective uid, new or touched code names it
+  `euid` (the heuristic does not match it), because that distinction is a
+  correctness point under ADR-0028's private-group predicate.
+
+**How to apply:** when a new rust/cleartext-logging alert lands on your PR,
+check whether its source is a function the pack covers (if so, the pack has
+regressed: tell devex-tooling) or a uid-named variable (dismiss, citing the
+model file).
+
+*Anchors: `interweave:.github/codeql/extensions/interweave-rust-models/models/uid.model.yml::barrierModel`*
+
+*Observed 2026-10-25 (p2p-network-dev)*

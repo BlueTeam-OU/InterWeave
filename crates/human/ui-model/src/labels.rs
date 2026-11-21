@@ -612,6 +612,28 @@ ui_texts! {
     IdCreatedBody => "When you continue, the app connects to the network with this identity.",
     /// ANDROID, identity screens: C4's and R4's primary.
     IdContinue => "Continue",
+    /// ANDROID, identity screens: C4's title while `IdAlreadyCreated`
+    /// shows (design section 6): no `PeerId` was created, so
+    /// `IdCreatedTitle` would be false. It takes C4's first focus.
+    // PLACEHOLDER (en)
+    IdAlreadyTitle => "This phone already has a PeerId",
+    /// ANDROID, identity screens: C4's notice when another first run
+    /// sealed first (`AlreadyProvisioned`, section 6), under
+    /// `IdAlreadyTitle`, so it does not say that again; Continue opens
+    /// the identity on record.
+    // PLACEHOLDER (en)
+    IdAlreadyCreated => "The words you just saw were not used. Do not use the paper where you wrote those words as your backup.",
+    /// ANDROID, identity screens: section 6's notice when the read-back
+    /// after a refusal that may follow the write fails, two lines, with
+    /// `TryAgain`, which reads back before it writes. Never says that
+    /// nothing changed.
+    // PLACEHOLDER (en)
+    IdStorageUnknown => "The app could not tell whether your PeerId was saved. Try again to check.",
+    /// ANDROID, identity screens: section 6's another-identity-on-record
+    /// notice at a restore, two lines, the record's `PeerId` in full
+    /// under it, then `IdContinue`.
+    // PLACEHOLDER (en)
+    IdRestoreOther => "Your PeerId was not restored. This phone already has another PeerId saved, shown below.",
     /// ANDROID, identity screens: R1's title.
     IdR1Title => "Restore your identity",
     /// ANDROID, identity screens: R1's body, three lines.

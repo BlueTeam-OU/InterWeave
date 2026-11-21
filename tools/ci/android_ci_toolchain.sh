@@ -20,8 +20,9 @@
 #             apart, default 15), its downloads cleared between. sdkmanager installs
 #             the newest revision of a package, so a revision Google
 #             replaced fails here, by name, rather than building with it.
-#             Never a HOST_PKG_<n>: those are for other projects' builds on
-#             a host's shared SDK, not this repository's CI
+#             Never a HOST_PKG_<n>: those are for a host's shared SDK
+#             only (other projects' builds, and platform-tools for a
+#             device), not this repository's CI
 #   rust      the rust-toolchain.toml toolchain and RUST_ANDROID_TARGET
 #   cargo-ndk cargo-ndk at CARGO_NDK_VERSION, --locked
 #

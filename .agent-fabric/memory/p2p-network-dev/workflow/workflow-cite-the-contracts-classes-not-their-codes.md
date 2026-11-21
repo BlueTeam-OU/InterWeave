@@ -2,34 +2,58 @@
 role: "p2p-network-dev"
 class: workflow
 topic: "workflow-cite-the-contracts-classes-not-their-codes"
-description: "a comment that restates a contract's enumerated list (error codes per class) gets a finding every review round; name the contract's classes and restate no codes"
+description: A comment or contract sentence that lists cases (error codes per class, the states in which a reply answers X) draws a new finding every review round; state the predicate or class the code decides on, cite the test that is its oracle, and…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
+  - agent: "p2p-network-dev-01"
+    host: "develop-qzapp"
+    project: interweave
+    working_copy: interweave
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
     project: interweave
     working_copy: InterWeave
 derived_from:
   - 2833e7f10d8427df
+  - 34902ed3e53f5374
 ---
 
-## a comment that restates a contract's enumerated list (error codes per class) gets a finding every review round; name the contract's classes and restate no codes
+## A comment or contract sentence that lists cases (error codes per class, the states in which a reply answers X) draws a new finding every review round; state the predicate or class the code decides on, cite the test that is its oracle, and restate no members
 
-A doc comment that sorts error codes by a contract's classes, with examples, drew a new P3 in three re-review rounds in a row on InterWeave #322 (2026-10-20, `close_exchange` in tests/android-e2e-cases):
-- first it overclaimed;
-- then an example sat in the wrong class (`Overloaded` is dispatched-and-refused, not pre-dispatch);
-- then both "complete-looking" lists missed codes (`ShuttingDown`, `VersionIncompatible`).
+The same failure has happened in two shapes, and each took three or more
+review rounds:
 
-The fix that ended it named only the three class headings of TRANSPORT.md's error model and restated no codes (bae27538).
+- **A code comment listing a contract's error codes by class** (InterWeave
+  #322, 2026-10-20, `close_exchange` in tests/android-e2e-cases). It
+  overclaimed, then put an example in the wrong class, then missed codes in
+  "complete" lists. It was ended by naming only TRANSPORT.md's three class
+  headings (bae27538).
+- **A contract sentence listing the states in which a disconnected reply
+  answers ChannelNotJoined** (CHANNEL-EVENT.md §Delivery, #221 then #222,
+  2026-10-07). Four rewrites ("never held", "re-join pending", "holds"…)
+  each missed a reachable state: a held channel the host left, then a
+  cancelled join, then the session's end. It was ended by keying the
+  sentence on the predicate the code actually tests, the bridge's current
+  membership (`reply_route`'s `is_joined`): held → BackendUnavailable, not
+  held for any reason → ChannelNotJoined. A four-state test,
+  `a_disconnected_reply_with_a_join_pending_answers_by_membership`, was
+  named in the text as its oracle (architect-cto, 93ddb4d9).
 
-**Why:** a restated list is a second copy of a normative constant. Every edit to it is checked against the contract, and every copy drifts.
+**Why:** a list is a second copy of a decision the code makes from one
+predicate or one normative table. Every rewrite is checked against the
+code, and every list misses a case.
 
-**How to apply:** when prose must say how to read a contract's enum, cite the section and its class names. Never list members, even "e.g.". On the second round of findings about the same sentence, replace the sentence with a reference; do not patch it again. Related: [[workflow-to-role-finding-goes-to-the-holder-in-the-crate]].
+**How to apply:** when prose must say how the code decides, state the
+predicate or cite the contract section and its class names. Never list
+members, even "e.g.". Point at the test that drives the cases. On the
+SECOND finding about the same sentence, stop patching and rewrite it this
+way, or send the owner the predicate if the text is another lane's.
+Related: [[workflow-to-role-finding-goes-to-the-holder-in-the-crate]].
 
 *References: workflow-to-role-finding-goes-to-the-holder-in-the-crate*
 
-*Anchors: `tests/android-e2e-cases/src/lib.rs::close_exchange`, `architecture/contracts/TRANSPORT.md::Outcome unknown`*
+*Anchors: `interweave:apps/claude-channel/tests/fake.rs::a_disconnected_reply_with_a_join_pending_answers_by_membership`, `interweave:tests/android-e2e-cases/src/lib.rs::close_exchange`*
 
-*Observed 2026-10-20 (p2p-network-dev)*
+*Observed 2026-10-25 (p2p-network-dev)*
