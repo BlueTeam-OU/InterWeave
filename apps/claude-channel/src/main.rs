@@ -55,11 +55,11 @@ mod unix {
     use interweave_claude_channel::serve::{CLIENT_KIND, Config, Env, serve};
     use interweave_claude_channel_core::Delivery;
     use interweave_ipc_client::{IpcBinding, SocketPaths};
-    use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+    use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
     use interweave_profile_config::profile_format::ProfileFormatError;
     use interweave_profile_config::{
-        EndpointAlias, EndpointSelector, LoadError, PersistError, ProfileConfig, ProfilePaths,
-        ResolveEndpointError, XdgRoots, resolve_endpoint,
+        EndpointAlias, EndpointSelector, EndpointsConfig, LoadError, PersistError, ProfileConfig,
+        ProfilePaths, ResolveEndpointError, XdgRoots, resolve_endpoint,
     };
     use interweave_transport_api::EndpointId;
     use tokio::io::BufReader;
@@ -191,9 +191,20 @@ mod unix {
                 .map_err(|e| refusal("the admin socket path", &e))?,
         };
         // ONE load serves both the desired channels and the endpoint, so
-        // the two cannot disagree about which configuration they read.
-        let loaded = ProfileConfig::load(&paths);
-        let (endpoint, endpoint_alias) = local_endpoint(endpoint, loaded.as_ref())?;
+        // the two cannot disagree about which configuration they read. It
+        // is the document alone: the bridge holds no endpoint key, so it
+        // reads nothing under `endpoint-keys/` (ENDPOINTS.md, the client
+        // that resolves an alias; architect-cto's ruling of 2026-11-21).
+        let loaded = ProfileConfig::load_document(&paths);
+        let overlay = |configured: &EndpointsConfig| {
+            EndpointOverlay::read_within(
+                &EndpointOverlay::path_for(&paths),
+                configured,
+                paths.boundary(),
+            )
+            .map(|(overlay, _normalised)| overlay)
+        };
+        let (endpoint, endpoint_alias) = local_endpoint(endpoint, loaded.as_ref(), overlay)?;
         let desired_channels = loaded
             .map(|config| config.channels.desired)
             .map_err(|e| load_error_class(&e).to_owned());
@@ -218,14 +229,18 @@ mod unix {
     /// is tolerated as before, and an id no entry holds starts and meets
     /// the daemon's lease refusal, which is the daemon's to give.
     ///
-    /// The overlay passed is the empty one: it composes `enabled` and the
-    /// default over `config.yaml`'s entries and adds none today
-    /// (`EndpointOverlay::apply`), so an alias resolves the same without
-    /// it, and loading it here would let the bridge rewrite the overlay
-    /// on normalising -- the bridge writes nothing in the profile.
+    /// `overlay` reads the endpoint overlay, and is called only for an
+    /// alias: the alias resolves in the set the daemon composes, so an
+    /// entry the overlay adds is found once overlays add entries. It is
+    /// read and normalised in memory and never written back
+    /// (`EndpointOverlay::read_within`) -- the bridge writes nothing in
+    /// the profile; what normalising changed is the daemon's to warn. An
+    /// overlay that cannot be read refuses an alias start as a failed
+    /// load does, and is never read for an id.
     fn local_endpoint(
         endpoint: EndpointSelector,
         loaded: Result<&ProfileConfig, &LoadError>,
+        overlay: impl FnOnce(&EndpointsConfig) -> Result<EndpointOverlay, EndpointOverlayError>,
     ) -> Result<(EndpointId, Option<EndpointAlias>), Refusal> {
         let refused = |reason: String| Refusal {
             class: "endpoint_alias",
@@ -241,11 +256,13 @@ mod unix {
                 load_error_class(e)
             ))),
             (EndpointSelector::Alias(alias), Ok(config)) => {
-                match resolve_endpoint(
-                    &config.endpoints,
-                    &EndpointOverlay::default(),
-                    alias.as_str(),
-                ) {
+                let overlay = overlay(&config.endpoints).map_err(|e| {
+                    refused(format!(
+                        "--endpoint: an alias needs the endpoint overlay, which did not load ({})",
+                        overlay_error_class(&e)
+                    ))
+                })?;
+                match resolve_endpoint(&config.endpoints, &overlay, alias.as_str()) {
                     Ok(id) => Ok((id, Some(alias))),
                     Err(ResolveEndpointError::UnknownAlias(_)) => Err(refused(
                         "--endpoint: no configured endpoint has that alias".to_owned(),
@@ -267,6 +284,21 @@ mod unix {
                 Ok((id, alias))
             }
             (EndpointSelector::Id(id), Err(_)) => Ok((id, None)),
+        }
+    }
+
+    /// A word for what was wrong with the overlay, never its `Display`:
+    /// a refusal's reason is a log line, and the class is all an
+    /// operator needs to look at the file.
+    fn overlay_error_class(e: &EndpointOverlayError) -> &'static str {
+        match e {
+            EndpointOverlayError::Read(_) => "unreadable",
+            EndpointOverlayError::NotPrivate { .. } => "not_private",
+            EndpointOverlayError::TooLarge => "too_large",
+            EndpointOverlayError::Parse(_) => "parse",
+            EndpointOverlayError::Unknown
+            | EndpointOverlayError::Disabled
+            | EndpointOverlayError::Write(_) => "invalid",
         }
     }
 
@@ -559,7 +591,8 @@ mod unix {
             let claude = endpoint_id("claude");
             let alias = |s: &str| EndpointSelector::Alias(EndpointAlias::parse(s).expect("alias"));
             let resolved = |s: EndpointSelector, l: Result<&ProfileConfig, &LoadError>| {
-                local_endpoint(s, l).map_err(|r| (r.class, r.reason))
+                local_endpoint(s, l, |_| Ok(EndpointOverlay::default()))
+                    .map_err(|r| (r.class, r.reason))
             };
             assert_eq!(
                 resolved(alias("claude"), Ok(&loaded)),
@@ -599,6 +632,40 @@ mod unix {
                     .map(|(_, a)| a.map(|a| a.as_str().to_owned())),
                 Ok(Some("claude".to_owned()))
             );
+        }
+
+        /// The overlay is read for an alias and only for one: an id
+        /// starts whatever the overlay holds, and an overlay that cannot
+        /// be read refuses an alias start with no identifier in the
+        /// reason.
+        #[test]
+        fn the_overlay_is_read_for_an_alias_alone() {
+            let loaded = profile(&endpoints());
+            let claude = endpoint_id("claude");
+            let alias = EndpointSelector::Alias(EndpointAlias::parse("claude").expect("alias"));
+            let unread = |_: &EndpointsConfig| -> Result<EndpointOverlay, EndpointOverlayError> {
+                panic!("the overlay was read for an id")
+            };
+            assert_eq!(
+                local_endpoint(EndpointSelector::Id(claude.clone()), Ok(&loaded), unread)
+                    .map(|(id, _)| id)
+                    .map_err(|r| r.reason),
+                Ok(claude.clone())
+            );
+            let mut read = 0;
+            let resolved = local_endpoint(alias.clone(), Ok(&loaded), |_| {
+                read += 1;
+                Ok(EndpointOverlay::default())
+            })
+            .map(|(id, _)| id)
+            .map_err(|r| r.reason);
+            assert_eq!((resolved, read), (Ok(claude), 1));
+            let refused =
+                local_endpoint(alias, Ok(&loaded), |_| Err(EndpointOverlayError::TooLarge))
+                    .expect_err("refused");
+            assert_eq!(refused.class, "endpoint_alias");
+            assert!(refused.reason.contains("too_large"), "{}", refused.reason);
+            assert!(!refused.reason.contains("claude"), "{}", refused.reason);
         }
     }
 }

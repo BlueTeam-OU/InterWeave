@@ -14,7 +14,7 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
-use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -650,7 +650,6 @@ fn an_unreadable_key_directory_does_not_stop_an_alias_start() {
 /// must not stop the start of this entry. A start resolves an alias from
 /// the configuration alone and has no use for a key header.
 #[test]
-#[ignore = "waits for profile-config's keyless reader (REQUEST 01a1fe71)"]
 fn another_entrys_mismatched_key_header_does_not_stop_an_alias_start() {
     let scratch = Scratch::new();
     scratch.config(
@@ -673,4 +672,54 @@ fn another_entrys_mismatched_key_header_does_not_stop_an_alias_start() {
     let status = bridge.status_when(|s| leased(s) || !s["refused"].is_null());
     assert!(status.get("refused").is_none(), "refused: {status}");
     assert_hello_names(&daemon, &claude_id(), Some("claude"));
+}
+
+/// Row 15: the bridge reads the endpoint overlay for an alias and never
+/// writes it. An overlay that normalising changes -- `load_within` would
+/// rewrite it -- is left byte for byte, with its inode and mtime, by a
+/// start that resolved through it. The control is the same file made
+/// other-readable: the start is refused, so the overlay was read.
+#[test]
+fn an_alias_start_reads_the_overlay_and_writes_nothing() {
+    let overlay_text = format!(r#"{{"enabled":{{"{}":true}}}}"#, claude_id());
+    let write_overlay = |scratch: &Scratch, mode: u32| -> PathBuf {
+        create_private_dir(scratch.paths.state_dir()).expect("state dir");
+        let path = scratch.paths.state_dir().join("endpoint-overlay.json");
+        std::fs::write(&path, &overlay_text).expect("write overlay");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).expect("chmod");
+        path
+    };
+
+    let scratch = Scratch::new();
+    scratch.config(&[("claude", Some("claude"))], 0o644);
+    let path = write_overlay(&scratch, 0o600);
+    let before = std::fs::metadata(&path).expect("stat");
+    let daemon = scratch.daemon(Answer::Lease);
+    let mut bridge = scratch.bridge("claude");
+    bridge.initialize();
+    let status = bridge.status_when(leased);
+    assert_hello_names(&daemon, &claude_id(), Some("claude"));
+    assert_eq!(status["local_endpoint_alias"], "claude", "{status}");
+    let after = std::fs::metadata(&path).expect("stat");
+    assert_eq!(std::fs::read_to_string(&path).expect("read"), overlay_text);
+    assert_eq!(
+        (
+            before.ino(),
+            before.mode(),
+            before.mtime(),
+            before.mtime_nsec()
+        ),
+        (after.ino(), after.mode(), after.mtime(), after.mtime_nsec())
+    );
+
+    let scratch = Scratch::new();
+    scratch.config(&[("claude", Some("claude"))], 0o644);
+    write_overlay(&scratch, 0o644);
+    let daemon = scratch.daemon(Answer::Lease);
+    let mut bridge = scratch.bridge("claude");
+    bridge.initialize();
+    let status = bridge.status();
+    assert_eq!(status["refused"]["class"], "endpoint_alias", "{status}");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(daemon.accepted(), 0, "no connection");
 }
