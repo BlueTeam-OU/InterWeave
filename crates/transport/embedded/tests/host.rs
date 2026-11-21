@@ -586,8 +586,9 @@ fn a_host_dropped_in_an_async_context_releases_the_profile() {
 /// leaves no cache file, at its return or after. A drop in its place ran
 /// the driver's shutdown, whose flush writes the file whatever the
 /// debounce says, on a worker the drop did not wait for: the file
-/// appeared after the drop returned in 3 kills of 40 on this host. The rounds are many because that race is: with the kill
-/// replaced by a drop this test failed (measured, j128).
+/// appeared after the drop returned in 3 kills of 40 on this host. The
+/// rounds are many because that race is: with the kill replaced by a
+/// drop this test failed (measured, j128).
 #[test]
 fn a_killed_host_writes_no_peer_cache_after_it_returns() {
     let cached = document("embedded-android", false).replace(
