@@ -79,6 +79,8 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::RecheckStorage
         | Intent::AllowNetwork
         | Intent::Authenticate
+        // One service start, the platform's to make: no trust, no route.
+        | Intent::RetryStart
         // A card changes no trust and no route policy (HUMAN-CHAT.md
         // §Contact card): Accept writes a contact, Decline nothing, Share
         // sends a message.

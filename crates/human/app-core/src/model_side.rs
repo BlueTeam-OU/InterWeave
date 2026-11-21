@@ -9,8 +9,8 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, Intent, TrustInput, UiModel, UnlockFacts, ViewEvent, WindowEvent,
-    WindowInput,
+    ConnectGate, ConversationKey, Intent, StartBusy, TrustInput, UiModel, UnlockFacts, ViewEvent,
+    WindowEvent, WindowInput,
 };
 
 use crate::facade::CANCELLED_CAP;
@@ -71,6 +71,15 @@ pub trait Opener {
     /// that start's facts ([`ModelSide::unlock_facts`]); a platform with
     /// no unlock policy never says any.
     fn unlock_line_seen(&mut self, _start: u64) {}
+
+    /// Make one service start for the notice of a start refused with the
+    /// profile in use (`SessionNotice::StartBusy`), by the path a granted
+    /// Unlock uses (design/2026-10-19-android-identity.md §11d, Q12).
+    /// Raised only while the model offers it -- the notice shows and no
+    /// start for it runs -- so at most once per answer; a platform that
+    /// never says the notice never raises it
+    /// (`a_busy_starts_try_again_reaches_the_platform_once`).
+    fn retry_start(&mut self) {}
 }
 
 /// An action still being carried out, so a second press of the same one
@@ -260,6 +269,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// root learns it from the platform.
     pub fn authentication_needed(&mut self, needed: bool) {
         self.model.authentication_needed(needed);
+    }
+
+    /// Whether the last start was refused with the profile in use after
+    /// the bound, and whether a start for its notice runs, as the root
+    /// learns it from the platform.
+    pub fn start_busy(&mut self, busy: Option<StartBusy>) {
+        self.model.start_busy(busy);
     }
 
     /// The unlock note's facts as the platform says them, the count of
@@ -834,6 +850,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
             Intent::Authenticate => {
                 self.opener.authenticate();
+                return None;
+            }
+            // Disabled from here until the platform says the start
+            // answered: the model offers no second one meanwhile.
+            Intent::RetryStart => {
+                self.model.retry_start_asked();
+                self.opener.retry_start();
                 return None;
             }
             Intent::Send { key, draft } => Command::Send { key, draft },

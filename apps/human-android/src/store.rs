@@ -58,7 +58,8 @@ const fn answer(said: StoreAnswer) -> Answer {
     match said {
         StoreAnswer::Opened => Answer::Opened,
         StoreAnswer::Refused(refused) => Answer::Refused(screen(refused)),
-        StoreAnswer::OtherRefusal => Answer::OtherRefusal,
+        // A refusal no store screen shows: Chats' notice says it.
+        StoreAnswer::OtherRefusal | StoreAnswer::ProfileBusy => Answer::OtherRefusal,
         StoreAnswer::Locked => Answer::Locked,
     }
 }

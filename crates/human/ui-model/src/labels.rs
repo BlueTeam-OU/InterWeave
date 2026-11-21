@@ -634,6 +634,15 @@ ui_texts! {
     /// under it, then `IdContinue`.
     // PLACEHOLDER (en)
     IdRestoreOther => "Your PeerId was not restored. This phone already has another PeerId saved, shown below.",
+    /// ANDROID, identity screens and Chats: section 6's notice when the
+    /// service start was refused with the profile in use (the runtime's
+    /// `LockHeld`), with `TryAgain`. On C4 and R4 in C4's notice place,
+    /// on R3 and R2 after K1 in `IdRestoreOther`'s; after add-a-peer
+    /// §5.1's bound, a session notice on Chats or a conversation, where
+    /// no flow screen is in view. Says that the start failed, never that
+    /// the identity was not created or not restored: one is on record.
+    // PLACEHOLDER (en)
+    IdStartBusy => "The app could not go online because this profile is in use. Wait a moment, then try again.",
     /// ANDROID, identity screens: R1's title.
     IdR1Title => "Restore your identity",
     /// ANDROID, identity screens: R1's body, three lines.
