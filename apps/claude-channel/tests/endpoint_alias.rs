@@ -22,7 +22,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-use interweave_ipc_protocol::{DecodedFrame, FrameError, decode_frame, encode_frame};
+use interweave_ipc_protocol::{
+    DecodedFrame, FrameError, IPC_MAJOR, IPC_MAX_MINOR, TRANSPORT_CONTRACT_VERSION, decode_frame,
+    encode_frame,
+};
 use interweave_profile_config::endpoint_key::{self, Custody};
 use interweave_profile_config::{ProfilePaths, XdgRoots, create_private_dir};
 use interweave_test_support::endpoint_keys::endpoint_id;
@@ -43,6 +46,9 @@ enum Answer {
     Lease,
     /// A `close` with this code (an unknown endpoint's).
     Close(&'static str),
+    /// What a daemon of major 2 answers a hello of a major it does not
+    /// speak: `close{VersionIncompatible}` listing 2.13 alone.
+    MajorTwo,
 }
 
 /// The daemon: the data socket's listener on a thread of its own,
@@ -81,6 +87,8 @@ impl Daemon {
                                 .set_read_timeout(Some(PATIENCE))
                                 .expect("read timeout");
                             if let Some(stream) = hello_and_answer(stream, answer, &hellos) {
+                                let reader = stream.try_clone().expect("a second handle");
+                                std::thread::spawn(move || answer_requests(reader));
                                 held.push(stream);
                             }
                         }
@@ -152,8 +160,8 @@ fn hello_and_answer(
     let reply = match answer {
         Answer::Lease => json!({
             "type": "hello_response",
-            "ipc_version": {"major": 2, "minor": 1},
-            "transport_contract_version": "2.0",
+            "ipc_version": {"major": IPC_MAJOR, "minor": IPC_MAX_MINOR},
+            "transport_contract_version": TRANSPORT_CONTRACT_VERSION,
             "peer": PEER,
             "endpoint": claimed.expect("a claim"),
             "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ",
@@ -161,11 +169,55 @@ fn hello_and_answer(
             "granted_capabilities": ["events", "commands"]
         }),
         Answer::Close(code) => json!({"type": "close", "code": code}),
+        Answer::MajorTwo => json!({
+            "type": "close",
+            "code": "VersionIncompatible",
+            "supported": [{"major": 2, "minor": 13}]
+        }),
     };
     stream
         .write_all(&encode_frame(&reply.to_string()).expect("a frame"))
         .ok()?;
     Some(stream)
+}
+
+/// Answers each request on a leased connection until it closes. On 3.0
+/// every `status` reads `session.losses`, and the client sets no
+/// deadline on a call, so a daemon that never answered would leave
+/// `status` waiting; nothing here counts losses, so the counts are
+/// zero. Any other method is an error: these rows send none.
+fn answer_requests(mut stream: UnixStream) {
+    let mut buf = Vec::new();
+    loop {
+        while let Ok(DecodedFrame { body, consumed }) = decode_frame(&buf) {
+            buf.drain(..consumed);
+            let frame: Value = serde_json::from_str(&body).expect("a frame is JSON");
+            if frame["type"] != "request" {
+                continue;
+            }
+            assert_eq!(frame["method"], "session.losses", "{frame}");
+            let reply = json!({"type": "response", "id": frame["id"], "ok": true,
+                               "result": {"queue_overflow": 0, "ingress_refused": 0}});
+            if stream
+                .write_all(&encode_frame(&reply.to_string()).expect("a frame"))
+                .is_err()
+            {
+                return;
+            }
+        }
+        let mut chunk = [0_u8; 4096];
+        match stream.read(&mut chunk) {
+            Ok(n) if n > 0 => buf.extend_from_slice(&chunk[..n]),
+            // The accept loop's read timeout is shared by this handle; a
+            // quiet bridge is not a closed one.
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Ok(_) | Err(_) => return,
+        }
+    }
 }
 
 /// The real binary under test, its stdio piped; killed and reaped however
@@ -722,4 +774,42 @@ fn an_alias_start_reads_the_overlay_and_writes_nothing() {
     assert_eq!(status["refused"]["class"], "endpoint_alias", "{status}");
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(daemon.accepted(), 0, "no connection");
+}
+
+/// Row 12: a daemon still on major 2. The hello offers major 3; the
+/// daemon answers `close{VersionIncompatible}` listing 2.13, as a 2.x
+/// server answers a major it does not speak. The bridge reports the
+/// daemon unavailable with `VersionIncompatible` as the last connect
+/// error, keeps its id and alias, and goes on reconnecting, so a daemon
+/// upgraded while it runs is met (packaging/claude-plugin/INSTALL.md,
+/// "Upgrading from a release before Stage 22's").
+#[test]
+fn a_daemon_on_major_two_is_reported_by_version_and_retried() {
+    let scratch = Scratch::new();
+    scratch.config(&[("claude", Some("claude"))], 0o644);
+    let daemon = scratch.daemon(Answer::MajorTwo);
+    let mut bridge = scratch.bridge("claude");
+    bridge.initialize();
+    let status = bridge.status_when(|s| !s["last_connect_error"].is_null());
+    assert_eq!(
+        status["last_connect_error"], "VersionIncompatible",
+        "{status}"
+    );
+    assert_eq!(
+        status["endpoint_lease_state"], "daemon unavailable",
+        "{status}"
+    );
+    assert_eq!(status["local_endpoint"], claude_id(), "{status}");
+    assert_eq!(status["local_endpoint_alias"], "claude", "{status}");
+    assert!(
+        status.get("refused").is_none(),
+        "not a refused start: {status}"
+    );
+    let hello = daemon.first_hello();
+    assert_eq!(hello["ipc_version"]["major"], IPC_MAJOR, "{hello}");
+    let deadline = Instant::now() + PATIENCE;
+    while daemon.accepted() < 2 {
+        assert!(Instant::now() < deadline, "the bridge never reconnected");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }

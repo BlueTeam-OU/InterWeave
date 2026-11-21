@@ -27,7 +27,8 @@ use interweave_claude_channel::host_input::MAX_HOST_LINE_BYTES;
 use interweave_claude_channel::serve::{Config, Env, serve};
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_ipc_protocol::{
-    DecodedFrame, DirectReceived, Frame, FrameError, decode_frame, encode_frame,
+    DecodedFrame, DirectReceived, Frame, FrameError, IPC_MAJOR, IPC_MAX_MINOR,
+    TRANSPORT_CONTRACT_VERSION, decode_frame, encode_frame,
 };
 use interweave_local_client_api::ReceivedDirect;
 use interweave_test_support::endpoint_keys::endpoint_id;
@@ -61,8 +62,8 @@ impl Daemon {
         daemon
             .write(&json!({
                 "type": "hello_response",
-                "ipc_version": {"major": 2, "minor": 1},
-                "transport_contract_version": "2.0",
+                "ipc_version": {"major": IPC_MAJOR, "minor": IPC_MAX_MINOR},
+                "transport_contract_version": TRANSPORT_CONTRACT_VERSION,
                 "peer": PEER,
                 "endpoint": endpoint_id("claude").as_str(),
                 "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ",

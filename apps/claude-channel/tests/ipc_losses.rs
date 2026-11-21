@@ -2,11 +2,12 @@
 // Copyright 2026 Andrea Benetton
 //! `status.broadcast_loss` over the real IPC binding, against a scripted
 //! daemon on a Unix socket that speaks the frames byte for byte
-//! (TOOL-SURFACE.md §status, A 2026-10-25). On a 2.11 connection the
+//! (TOOL-SURFACE.md §status, A 2026-10-25). On a 3.0 connection the
 //! bridge sends `session.losses` with no params and drains what the
 //! daemon pushes ahead of the answer, which waits behind them
-//! (LOCAL-IPC.md §Disconnect/reconnect and optional keepalive); on a
-//! connection below 2.11 nothing is sent and the status says why.
+//! (LOCAL-IPC.md §Disconnect/reconnect and optional keepalive). Major 2
+//! gated the method at 2.11, and this file's row for a connection below
+//! it went with major 2: 3.0 holds every method 2.13 reached.
 //!
 //! What this does not prove: a real daemon's counting, which is
 //! `tests/desktop-e2e`'s and the runtime's own tests'.
@@ -19,7 +20,8 @@ use std::time::Duration;
 use interweave_claude_channel::serve::{Config, Env, serve};
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_ipc_protocol::{
-    DecodedFrame, DirectReceived, Frame, FrameError, decode_frame, encode_frame,
+    DecodedFrame, DirectReceived, Frame, FrameError, IPC_MAJOR, IPC_MAX_MINOR,
+    TRANSPORT_CONTRACT_VERSION, decode_frame, encode_frame,
 };
 use interweave_local_client_api::ReceivedDirect;
 use interweave_test_support::endpoint_keys::endpoint_id;
@@ -120,8 +122,8 @@ impl Host {
 }
 
 /// The bridge on `claude`, connected to a daemon that answers its hello
-/// at `minor`.
-async fn bridge(root: &std::path::Path, minor: u64) -> (Daemon, Host) {
+/// at the version this build speaks.
+async fn bridge(root: &std::path::Path) -> (Daemon, Host) {
     let data = root.join("data.sock");
     let listener = UnixListener::bind(&data).expect("binds");
     let binding = IpcBinding::new(
@@ -172,8 +174,8 @@ async fn bridge(root: &std::path::Path, minor: u64) -> (Daemon, Host) {
     daemon
         .write(&json!({
             "type": "hello_response",
-            "ipc_version": {"major": 2, "minor": minor},
-            "transport_contract_version": "2.0",
+            "ipc_version": {"major": IPC_MAJOR, "minor": IPC_MAX_MINOR},
+            "transport_contract_version": TRANSPORT_CONTRACT_VERSION,
             "peer": PEER,
             "endpoint": endpoint_id("claude").as_str(),
             "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ",
@@ -188,28 +190,13 @@ async fn bridge(root: &std::path::Path, minor: u64) -> (Daemon, Host) {
     (daemon, host)
 }
 
-async fn wait_held(host: &mut Host, first_id: u64) -> u64 {
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut id = first_id;
-    loop {
-        host.call_status(id).await;
-        let (status, _) = host.status(id).await;
-        id += 1;
-        if status["endpoint_lease_state"] == json!("held") {
-            return id;
-        }
-        assert!(tokio::time::Instant::now() < deadline, "never held");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
-/// On 2.11 `status` sends `session.losses`, drains the events pushed
+/// On 3.0 `status` sends `session.losses`, drains the events pushed
 /// ahead of the answer -- ten behind a two-event queue -- and reports
 /// the answer's two counts under their own names with `since`.
 #[tokio::test]
 async fn status_reads_session_losses_on_the_wire_behind_a_burst() {
     let root = tempfile::tempdir().expect("tempdir");
-    let (mut daemon, mut host) = bridge(root.path(), 11).await;
+    let (mut daemon, mut host) = bridge(root.path()).await;
     // The first status asks for the counts: answer them so the bridge is
     // held, with nothing lost yet.
     let id = 1;
@@ -281,25 +268,5 @@ async fn status_reads_session_losses_on_the_wire_behind_a_burst() {
             "ingress_refused": 3,
             "since": interweave_claude_channel_core::rfc3339_utc(NOW_MS).expect("an instant"),
         })
-    );
-}
-
-/// Below 2.11 the client answers `ProtocolUnsupported` itself: the
-/// status says `protocol_unsupported`, never zeros, and no frame leaves
-/// the bridge for it.
-#[tokio::test]
-async fn below_2_11_status_sends_nothing_and_says_why() {
-    let root = tempfile::tempdir().expect("tempdir");
-    let (mut daemon, mut host) = bridge(root.path(), 10).await;
-    let id = wait_held(&mut host, 1).await;
-    host.call_status(id).await;
-    let (status, _) = host.status(id).await;
-    assert_eq!(
-        status["broadcast_loss"],
-        json!({"unavailable": "protocol_unsupported"})
-    );
-    assert!(
-        daemon.next(Duration::from_millis(300)).await.is_none(),
-        "no frame for a method the connection does not have"
     );
 }

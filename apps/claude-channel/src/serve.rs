@@ -543,7 +543,8 @@ enum LossUnread {
     /// Pull mode paused, or paused while the read was in flight.
     PullQueueFull,
     /// The session answered an error: `ProtocolUnsupported` from a
-    /// daemon below IPC 2.11, the session's end otherwise.
+    /// connection without `session.losses` (none on major 3, whose 3.0
+    /// has it; major 2 gated it at 2.11), the session's end otherwise.
     Error(TransportError),
 }
 
@@ -552,7 +553,8 @@ impl LossUnread {
         match self {
             Self::NoSession => "no_session".to_owned(),
             Self::PullQueueFull => "pull_queue_full".to_owned(),
-            // The IPC client's own answer below 2.11, named for the reader.
+            // The IPC client's own answer for a method its connection
+            // lacks, named for the reader.
             Self::Error(TransportError::ProtocolUnsupported) => "protocol_unsupported".to_owned(),
             // The class as `last_connect_error` and `rejoin_refused` print it.
             Self::Error(e) => format!("{e:?}"),
