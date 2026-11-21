@@ -5,7 +5,7 @@ topic: "j93-unlock-policy-pending"
 description: "j93 (rust-ui-dev j213) unlock-policy-not-in-force surface — note 40a98b009, waits on architect Q1/Q2 and rust-ui-dev Q3"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 25927d24a7dd5b99
+  - 73df21c217781569
 ---
 
 ## j93 (rust-ui-dev j213) unlock-policy-not-in-force surface — note 40a98b009, waits on architect Q1/Q2 and rust-ui-dev Q3
@@ -72,6 +73,13 @@ the person see?) is NOT yet answered; ask it again when the sha arrives.
 #577 MERGED 570fb5829 (16 work, 6 fix) without the fix. The fix is 340aaf088 + 2928ffa7a on rust-ui-dev's
 j216 branch (checked; not on main): their next human-crates PR. j95 now waits for that PR and the views.
 The cached-'ready' question was re-asked as QUESTION 01a1ada3-a70b.
+2026-11-10: the views are PR #610 (rust-ui-dev-01, head f79e87446, unarmed 5 work 0 fix; reply 01a1c43a).
+A1-A10, A12, A13 as view tests in crates/human/ui-slint/tests/views.rs. Their choices against the note,
+to judge in j95's run: narrow Details shows Trust in front; Back from Details-opened Trust -> list
+heading (F3), from menu Trust -> App options (A7); wide P-up notice in the pane slot below the offline
+line and session notices. Strings are LC's j263. A11's APK comes at #610's head after j245.
+2026-11-14 12:55Z: architect-cto asked whether my jobs need 0.3.0/data on either phone (p2p-network-dev-02 measurement, clean profile). Answered both FREE TO WIPE (REPLY 01a1da21): Pixel already 0.3.0 debug since 09:21 so v0.2.0 data gone; j95 A11 to be set up fresh.
+2026-11-14 13:25Z: architect-cto (01a1da3b): Pixel slot for j95 after p2p-network-dev-02's j110 (~8 h a phone, not started yet; waits on owner's uninstall word). Do NOT connect before their forwarded release message; lease reads free between steps. Told them j95 can use j110's install + pm clear if debug APK of main >= 61935c100 (REPLY sent).
 
 *References: j51-identity-key-unopenable*
 

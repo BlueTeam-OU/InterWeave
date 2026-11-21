@@ -5,7 +5,7 @@ topic: "android-shell-build"
 description: "how the j51 Android app shell builds (Gradle+cargo-ndk+Slint NativeActivity), the env it needs, and first on-device findings"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 8bac3363b37d6785
+  - e205806f8b5c5a32
 ---
 
 ## how the j51 Android app shell builds (Gradle+cargo-ndk+Slint NativeActivity), the env it needs, and first on-device findings
@@ -88,6 +89,8 @@ Waiting on others:
   - R1: set_availability has no JNI entry or switch yet.
   - R2: startClient queued in awaitEnd does not re-check `alive`, so a stop/start/stop could happen near onDestroy.
 
+2026-11-13 (j278): the build needs `JAVA_HOME=/opt/android-sdk/jdk` (pinned Temurin 17, apps/human-android/README.md) as well as `PATH=~/.cargo/bin:$PATH`. The host JDK is headless 25 with no javac, so without it Gradle fails at compileDebugJavaWithJavac ("does not provide the required capabilities: [JAVA_COMPILER]"). Stop the daemon afterwards (`JAVA_HOME=... ./gradlew --stop`).
+
 *References: android-spike-device, embedded-host-seam, labels-platform-values*
 
-*Observed 2026-10-10 (rust-ui-dev)*
+*Observed 2026-11-13 (rust-ui-dev)*

@@ -5,7 +5,7 @@ topic: "j167-fleetdeck-focus-baseline"
 description: "j167 FleetDeck focus-only (REQUEST 01a1797f from fabric-coordinator): code map, baseline numbers measured 2026-10-26 21:50, design direction"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -84,6 +84,6 @@ Part 2 design sent as QUESTION 01a17a4f to fabric-coordinator, 2026-10-26.
 
 **2026-10-30:** INFO 01a18e96 from python-dev-03 says the agent-fabric half of FleetDeck part 2 is agent-fabric#435 (unmerged). My acceptance can run once the owner installs the binary. They assumed some herdr CLI output shapes (status server --json, workspace/pane list, pane process-info, terminal attach). Check those against the fork's real output when j167 resumes, and tell them about any difference.
 
-*References: events, release-disk-after-tests*
+*References: release-disk-after-tests*
 
 *Observed 2026-10-30 (rust-ui-dev)*
