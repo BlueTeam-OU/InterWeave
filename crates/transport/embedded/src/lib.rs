@@ -292,7 +292,8 @@ pub struct EmbeddedHost {
     // DROPPED IN THIS ORDER (`Drop` below, `stop`): the runtime's tasks
     // first, then the executor, then the lock -- a lock released while
     // the runtime still writes its state would let a second host write
-    // beside it.
+    // beside it. `kill_for_test` takes the executor first, and waits for
+    // it, so the tasks never begin their own shutdown.
     composed: Option<ComposedRuntime>,
     executor: Option<tokio::runtime::Runtime>,
     handle: tokio::runtime::Handle,
@@ -575,6 +576,35 @@ impl EmbeddedHost {
         if let (Some(executor), Some(composed)) = (self.executor.as_ref(), self.composed.as_ref()) {
             let _ = executor.block_on(composed.end_driver());
         }
+    }
+
+    /// End the host as a process death does, for a host standing in for
+    /// a device's process: every task cancelled at its next await, with
+    /// no shutdown path run, and NOTHING of the runtime still running
+    /// when this returns. TEST BUILDS ONLY.
+    ///
+    /// Not [`Drop`]: dropping `composed` closes the driver's request
+    /// channel, so the driver begins its own shutdown -- which writes
+    /// the peer cache whatever its debounce says -- while
+    /// `shutdown_background` returns without waiting, and that write
+    /// could land after the caller removed the file (the android-e2e
+    /// neither-source row, CI run 44887404062, and 3 kills in 40 on
+    /// this host, j128). A killed process writes nothing after its
+    /// death. So the executor goes first, and is waited for; `composed`
+    /// is dropped after, onto a runtime that runs nothing.
+    /// `a_killed_host_writes_no_peer_cache_after_it_returns` holds it.
+    ///
+    /// BLOCKS; call it off any async context.
+    #[cfg(feature = "test-hooks")]
+    pub fn kill_for_test(mut self) {
+        // Bounded: a task cannot hold a worker longer than its current
+        // poll, and the blocking pool's threads are waited for this
+        // long at most.
+        if let Some(executor) = self.executor.take() {
+            executor.shutdown_timeout(Duration::from_secs(10));
+        }
+        drop(self.composed.take());
+        drop(self.lock.take());
     }
 
     /// Ask, as the runtime's owner, that it stop within `grace`: what an
