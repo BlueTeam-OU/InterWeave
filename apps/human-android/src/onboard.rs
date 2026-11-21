@@ -408,15 +408,62 @@ pub(crate) fn window_shown(shown: bool) {
     if shown && let Some(through) = ASKS.drop_all(ask::UNLOCK) {
         unlock_unasked(through);
     }
-    // The Activity starts the service at each showing (MainActivity's
-    // onStart; a recreation's binding restarts a start refused busy):
-    // `IdStartBusy`, if it shows, waits on that start with Try again
-    // disabled (identity note section 6, A return or a recreation). A
-    // launch took the notice away first ([`launched`]).
-    if shown {
-        ServiceHost::global().hub().start_asked(true);
-    }
     route_state().shown(shown);
+}
+
+/// `Native.showingStarts`: the showing `onStart` began starts the service
+/// again -- a return's bind, or a kept binding's restart of a start
+/// refused busy or locked. MainActivity.onStart decides it, in one place,
+/// and calls this just before the start, never for a showing that starts
+/// nothing (phrase shown, authentication needed, no identity ready, a
+/// binding whose service runs or is still being bound). What waits on
+/// that start then waits with Try again disabled, as after a press
+/// (unlock note section 11, L3; identity note section 6, A return or a
+/// recreation): `IdStartBusy` on Chats, by the hub, a launch having taken
+/// it away first ([`launched`]); and on C4, R4, R3 or R2 the screen
+/// showing it, by the flow ([`held_by_showing`]).
+pub(crate) fn showing_starts() {
+    let hub = ServiceHost::global().hub();
+    // Before the start: an answer counted past this is its own.
+    let asked_at = hub.store_generation();
+    hub.start_asked(true);
+    invoke_on_window(move || held_by_showing(asked_at));
+}
+
+/// [`showing_starts`] on the window's thread: a flow screen showing
+/// `IdStartBusy` holds for the showing's start as its Try again would
+/// (`IdentityFlow::showing_started`), with no ask of its own -- one start
+/// in flight. The start's answer is counted from `asked_at`, so the
+/// root's `held_rule` and `held_ended` decide it as a press's; its bound
+/// and `ConnectStarting` count from here; a refusal for the person is the
+/// flow's to prompt for ([`FLOW_START`]) unless an answer was counted
+/// already, before this hop. An answer landing between that count's read
+/// and the store leaves `FLOW_START` set for no start, which only keeps
+/// the screen held until its bound. BLOCKED on a device run: no host test drives
+/// the Activity (ui-slint's views.rs, the `IdStartBusy` after the bound
+/// block, lists it).
+fn held_by_showing(asked_at: StoreGeneration) {
+    let held = ONBOARDING.with(|slot| {
+        slot.borrow_mut().as_mut().is_some_and(|o| {
+            let held = o.service_asked && o.flow.showing_started();
+            if held {
+                o.asked_at = asked_at;
+                // The identity is on record: the bound counts from now.
+                o.hold = Some(StartHold::pressed(now_ms(), true));
+                let hub = ServiceHost::global().hub();
+                if hub.store_generation() == asked_at {
+                    FLOW_START.store(true, Ordering::SeqCst);
+                }
+            }
+            held
+        })
+    });
+    if held {
+        // As a press's start: Chats' openings count against an owed
+        // Connect from here (add-a-peer section 5.1).
+        crate::activity::start_asked();
+    }
+    render();
 }
 
 /// `Native.launched`: the Activity was created anew, not recreated in

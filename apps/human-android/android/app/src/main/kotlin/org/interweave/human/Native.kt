@@ -269,6 +269,9 @@ internal object Native {
     /** The Activity was created anew -- a launch -- not recreated in this process. */
     @JvmStatic external fun launched()
 
+    /** The showing onStart began starts the service again, right after this call (onStart decides it). */
+    @JvmStatic external fun showingStarts()
+
     /** The person's network grant restarts the service: a lock then prompts. */
     @JvmStatic external fun restartAsked()
 }

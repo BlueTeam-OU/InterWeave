@@ -1059,6 +1059,24 @@ extern "system" fn Java_org_interweave_human_Native_shown<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
+/// `Native.showingStarts()`: the showing `onStart` began starts the
+/// service again, just after this returns.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_showingStarts<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::showing_starts();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `Native.launched()`: the Activity was created anew, not recreated.
 #[allow(
     unsafe_code,

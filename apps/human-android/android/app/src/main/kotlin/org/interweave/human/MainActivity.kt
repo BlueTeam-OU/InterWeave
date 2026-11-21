@@ -202,10 +202,21 @@ class MainActivity : NativeActivity() {
         // A binding kept across a recreation, whose service's last start
         // was refused for the lock, starts again now the key opens; one
         // refused with the profile in use starts again too, as a return
-        // that binds anew does (identity note section 6).
+        // that binds anew does (identity note section 6). With no binding,
+        // connect binds, which creates the service and starts it: Home let
+        // go of the last one, a start refused busy or locked having ended
+        // its started state (NetworkService.startClient). A binding whose
+        // service runs, or one still being bound, starts nothing.
+        // Decided here alone, and told to the window just before the
+        // start, so what waits on a retried start -- IdStartBusy, on Chats
+        // or a held identity screen -- waits only when one runs
+        // (onboard.rs, showing_starts; BLOCKED on a device run, ui-slint's
+        // views.rs, the IdStartBusy after the bound block).
         val service = local
-        val again = service != null && (service.locked() || service.busy())
-        if (again) service?.restart() else connect()
+        val starts = if (service != null) service.locked() || service.busy() else !bound
+        if (!starts) return
+        Native.showingStarts()
+        if (service != null) service.restart() else connect()
     }
 
     /**
