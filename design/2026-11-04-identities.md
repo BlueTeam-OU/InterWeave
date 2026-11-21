@@ -1029,8 +1029,13 @@ pass before it lands.
     unchanged. At 200 % text the title is whole or wrapped, never cut
     unless a single word is wider than its row, and its accessible name
     is "Conversations" either way. On a 360 dp phone at 100 % text, the
-    bar is one row when the title, the switch at its minimum and the ⋮
-    fit. Tab from the title reaches the switch, then the ⋮, in both
+    test first measures, in the build, the width of the whole title, of
+    the switch at its minimum (the avatar, three graphemes and the ▾)
+    and of the ⋮, with the bar's paddings and gaps, and records which
+    layout the sum asks for: one row when it is at most the bar's
+    width, two rows otherwise. The bar then has that layout, and keeps
+    it with a 40-grapheme name and with a 3-grapheme name in front.
+    Tab from the title reaches the switch, then the ⋮, in both
     layouts. *(§12 "The Chats bar when the switch does not fit".)*
 
 ## 15. Deliberately left out
