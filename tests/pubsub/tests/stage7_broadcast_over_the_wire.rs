@@ -56,7 +56,7 @@ fn channel(name: &str) -> ChannelId {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(name)
 }
 
 /// Claim each named endpoint for a session of the same name.
@@ -82,6 +82,8 @@ async fn claim_all(runtime: &SwarmRuntime, names: &[&str]) -> Leases {
 fn entry(name: &str) -> EndpointConfig {
     EndpointConfig {
         id: endpoint(name),
+        alias: None,
+        key_state: interweave_profile_config::EndpointKeyState::NotRead,
         enabled: true,
         advertise: false,
         allowed_client_kinds: Vec::new(),

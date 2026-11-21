@@ -457,9 +457,10 @@ pub fn stranger() -> TransportIdentity {
         .expect("a peer id")
 }
 
-/// The `human` endpoint the shipped examples configure.
+/// The derived id of the endpoint the shipped examples configure with the
+/// alias `human` (a TEST-ONLY key, `endpoint_keys`).
 pub fn human() -> EndpointId {
-    EndpointId::parse("human").expect("endpoint")
+    crate::endpoint_keys::endpoint_id("human")
 }
 
 /// A human client's session on the `human` endpoint, with events and

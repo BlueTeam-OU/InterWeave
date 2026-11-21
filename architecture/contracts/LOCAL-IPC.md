@@ -1,12 +1,12 @@
 # Local IPC contract
 
-Applies because ADR-0015 selects a separate daemon. Model B endpoint addressing makes this **IPC major version 2**.
+Applies because ADR-0015 selects a separate daemon. Model B endpoint addressing made this IPC major version 2; the derived EndpointId makes it **IPC major version 3** from the Stage 22 release (ADR-0067 decision 7; §Version negotiation and phases states what the major holds).
 
 The prose here is normative for **behaviour**. The shapes it describes are also defined as JSON Schema under [`schemas/ipc/`](./schemas/ipc/) — normative for **shape**, carrying an `x-contract.status` that says what each is authoritative about (ADR-0049). Where the two describe the same field they must agree; a disagreement is a bug in whichever one drifted.
 
 ## Transport choice and authority domains
 
-IPC v2 uses **two distinct local endpoints**:
+The IPC uses **two distinct local endpoints**:
 
 - data-plane socket: Unix domain socket `<runtime>/<profile>.sock`; Windows named-pipe equivalent;
 - administrative socket: Unix domain socket `<runtime>/<profile>.admin.sock` — the `.` sits outside the profile-name alphabet (`[A-Za-z0-9_-]`), so no profile's data socket can share a path with another's admin socket (A 2026-10-01); Windows named-pipe equivalent.
@@ -76,9 +76,9 @@ Client first frame:
 ```json
 {
   "type": "hello",
-  "ipc_version": {"major": 2, "minor": 0},
+  "ipc_version": {"major": 3, "minor": 0},
   "client": {"kind": "human-client", "version": "..."},
-  "endpoint": {"id": "human"},
+  "endpoint": {"id": "12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA"},
   "requested_capabilities": ["events", "commands", "endpoints.query"],
   "features": ["keepalive"]
 }
@@ -88,7 +88,7 @@ On the data-plane socket `endpoint` may be omitted. A connection that omits it h
 
 Server validates endpoint claim before completing handshake. Phase 1 fixtures use these exact local error codes:
 
-1. EndpointId grammar invalid -> `InvalidArgument`;
+1. EndpointId grammar invalid -> `InvalidArgument` — a label of the grammar ADR-0067 retired and a local alias among them: the hello takes the derived id alone, and a client resolves an alias from the profile's configuration before it connects (`ENDPOINTS.md` §EndpointId);
 2. configured endpoint does not exist -> `EndpointUnknown`;
 3. configured endpoint exists but is disabled -> `EndpointDisabled`;
 4. optional `allowed_client_kinds` rejects the declared client kind -> `EndpointClientKindDenied`;
@@ -98,7 +98,7 @@ Server validates endpoint claim before completing handshake. Phase 1 fixtures us
 The list names the codes, not the order they are judged in. The order
 (A 2026-10-01, from proving the Stage 13 deferrals): a capability
 above the minor the hello negotiates — the lower of the hello's and the
-server's, for a major-2 hello — is `ProtocolViolation`, judged right
+server's, for a major-3 hello — is `ProtocolViolation`, judged right
 after the parse and before item 1 on either socket: a daemon that does
 not know the name refuses it in the parse itself, one that knows it
 refuses it in this step, so every daemon answers the same (A 2026-10-04,
@@ -119,7 +119,7 @@ endpoint that omits `keepalive` is `CapabilityDenied`, not
 length bounds is refused as `CapabilityDenied` before its grammar is
 read, since no lease is ever
 granted there (§Transport choice and authority domains). The claim's
-id travels as the client wrote it (`ipc/hello` 1.2.0): the schema and
+id travels as the client wrote it (`ipc/hello` 1.2.0, and `2.0.0` on major 3 with the same bounds): the schema and
 the Rust mirror bound its length alike (1 to 64 characters, a framing
 error outside them on both), and within the bounds the handshake judges
 its grammar, so a schema-driven server and the Rust mirror answer the
@@ -187,7 +187,7 @@ Local routing is normative:
 - **broadcast `MessageReceived`:** enqueue only to connected IPC clients with `events` that currently hold a join reference for that ChannelId; `channels.desired` does not create local interest;
 - **direct `MessageReceived`:** enqueue exactly one copy to the connected IPC client that owns the resolved `destination_endpoint` lease.
 
-There is no first-client, round-robin, or all-client direct fan-out in IPC v2.
+There is no first-client, round-robin, or all-client direct fan-out in this IPC.
 
 If the resolved endpoint is not leased, the daemon rejects the inbound direct request with coarse remote `no_route`. It does not acknowledge then drop, and it does not buffer for a future client.
 
@@ -251,7 +251,7 @@ Event order over IPC: within one server pump the grouped order of `events()` hol
 
 A client disconnect releases its EndpointId lease, ephemeral subscription references, and outstanding response waiters. Reconnect performs a fresh handshake and resubscription. There is no event replay. A late response to a disconnected client is discarded after internal cleanup.
 
-IPC v2 also supports an optional negotiated liveness feature for detecting half-open/wedged clients that still hold endpoint leases:
+The IPC also supports an optional negotiated liveness feature for detecting half-open/wedged clients that still hold endpoint leases:
 
 ```text
 server -> ping { nonce }
@@ -486,9 +486,9 @@ the implementing batch and its mirror, as above.
 
 `hello.ipc_version.major` accepts any positive integer, so an unsupported
 major is a well-formed hello: the server answers
-`close{code: VersionIncompatible, supported: [{major: 2, minor: IPC_MAX_MINOR}]}`
-— the server's highest minor, 13 since `admin.status`'s refusal total (`ipc/admin-status` 1.2.0, A 2026-11-10; 12 since the last-seen peer row, `ipc/peer-list` 1.2.0, A 2026-10-28; 11 since `session.losses`, ADR-0026 A 2026-10-24; 10 since the superseded refusal, §Cancellation mapping and request concurrency; 9 since `admin.peers.add_addresses`, ADR-0062 decision 4; 8 since `admin.peers.own_addresses`, ADR-0062 decision 4; 7 since the `admin.peers` address methods, ADR-0062; 6 since the route-hold peer row, A 2026-10-21; 5 since the endpoint overlay, A 2026-10-11; 4 since the route-begin notices, A 2026-10-09; 3 since the trust overlay, A 2026-10-07),
-never a literal older than the server — and closes. For major 2 the server selects `minor = min(client, server)` and
+`close{code: VersionIncompatible, supported: [{major: 3, minor: IPC_MAX_MINOR}]}`
+— the server's highest minor on major 3, 0 since the Stage 22 release opened the major (ADR-0067 decision 7); major 2, which every release before it spoke, ended at minor 13 — 13 since `admin.status`'s refusal total (`ipc/admin-status` 1.2.0, A 2026-11-10; 12 since the last-seen peer row, `ipc/peer-list` 1.2.0, A 2026-10-28; 11 since `session.losses`, ADR-0026 A 2026-10-24; 10 since the superseded refusal, §Cancellation mapping and request concurrency; 9 since `admin.peers.add_addresses`, ADR-0062 decision 4; 8 since `admin.peers.own_addresses`, ADR-0062 decision 4; 7 since the `admin.peers` address methods, ADR-0062; 6 since the route-hold peer row, A 2026-10-21; 5 since the endpoint overlay, A 2026-10-11; 4 since the route-begin notices, A 2026-10-09; 3 since the trust overlay, A 2026-10-07),
+never a literal older than the server — and closes. For major 3 the server selects `minor = min(client, server)` and
 returns it in `hello_response`. The client holds the server to that
 rule: a `hello_response` whose minor is above the minor the client
 offered, or above the highest minor the client speaks, could not have
@@ -506,7 +506,7 @@ simply not negotiated, while an unknown capability fails the closed
 a capability introduced at minor m is requested only in a hello sent
 after the client has learnt, from a `hello_response` to an earlier
 connection to the same daemon, that the server selects a minor ≥ m when
-offered it; a first hello names only 2.0 capabilities. A hello naming a
+offered it; a first hello names only the capabilities of its major's minor 0 — on major 2 the 2.0 capabilities, on major 3 every capability major 2 reached (the major's rules below). A hello naming a
 capability above the minor it negotiates is the client's protocol
 violation and is answered `close{ProtocolViolation}`, whatever minor the
 server speaks — a 2.0 daemon's closed `ipc/capability` parse refuses it
@@ -542,6 +542,17 @@ The first production build spoke 2.0; Stage 15's R1 batch, which
 brought `peer.path_changed`, spoke 2.1, and R2 added `admin.trust.*` to
 it; `admin.peers.list` brought 2.2 (A 2026-10-06); the persisted trust
 row brought 2.3 (A 2026-10-07, #215); the route-begin and reconnect `peer.path_changed` (`previous` absent, `reason_class` `route_established` or `reconnected`; `ipc/path-changed` 1.1.0) brought 2.4 (A 2026-10-09, Stage 17's relay pair) — below 2.4 nothing is sent when a route begins or a routed peer reconnects; the persisted endpoint row (`ipc/endpoint-list` 1.1.0, `persisted: true`) brought 2.5 (ADR-0028 A 2026-10-11, plan §20 (e)) — below 2.5 the 2.0 row is served; the peer row's route hold (`ipc/peer-list` 1.1.0) brought 2.6 (ADR-0011 A 2026-10-21); the `admin.peers` capability with its three address methods brought 2.7 (ADR-0062); its show side's read, `admin.peers.own_addresses`, brought 2.8 (ADR-0062 decision 4) — below 2.8 a client does not send it, and a 2.7 server answers it as an unknown method; its all-or-none add, `admin.peers.add_addresses`, brought 2.9 (ADR-0062 decision 4) — below 2.9 a client does not send it, and a 2.8 server answers it as an unknown method; the superseded refusal of an admin write (`trust-set-result`, `superseded` in the two address results) brought 2.10 — below 2.10 a superseded write is still refused, answered the error `Internal`; and the session's own broadcast losses, `session.losses` (`ipc/session-losses-result` 1.0.0), brought 2.11 (ADR-0026 A 2026-10-24) — below 2.11 a client does not send it and answers `ProtocolUnsupported` itself, a session that declined route notices among them, and a 2.10 server answers it as an unknown method. The last-seen peer row brought 2.12 (`ipc/peer-list` 1.2.0, `last_seen_ms`, A 2026-10-28): served on a connection that negotiated 2.12 or later, and below 2.12 the 1.1 row is served unchanged, without the field; 2.12 adds no method and no capability. `admin.status`'s profile total of what the broadcast ingress gate refuses brought 2.13 (`ipc/admin-status` 1.2.0, `ipc.events_refused_total`, ADR-0026 A 2026-11-10): served on a connection that negotiated 2.13 or later, and below 2.13 the 1.1 `ipc` block is served unchanged, without the member; 2.13 adds no method and no capability.
+
+**Major 3 is the IPC of the derived EndpointId** (ADR-0067 decision 7, the Stage 22 release). Every EndpointId an IPC document carries — the hello's claim, `hello_response.endpoint`, `send-params`, the endpoint rows and params, `message.received`, `endpoint.lease_changed` — is a derived id in the grammar of `ENDPOINTS.md` §EndpointId, and no reader of major 2 tolerates the value, which is ADR-0017's case for a major. The rules of the major:
+
+- **One major is spoken.** A daemon or embedded host of that release speaks major 3 and no other: a major-2 hello is the unsupported major above, answered `close{VersionIncompatible, supported: [{major: 3, minor: IPC_MAX_MINOR}]}`, and a major-3 client reads the same close from a daemon of a release before it, with major 2 in `supported`. No adapter for major 2 exists and none may be added without its own record (ADR-0067: a clean break, on the owner's word that no installed base exists). A client that reads the close says the two programs are of different releases; it does not retry on the other major.
+- **3.0 holds everything 2.13 held.** No method, event, capability, feature, error code or close code was added or removed by the major: the catalogue of 3.0 is the catalogue 2.13 reached, with the id's grammar changed. Major 3 starts at minor 0.
+- **`Since` is a (major, minor) pair, compared as a pair.** The `Since` columns keep the major-2 minor at which each row arrived, as its history; every one of them is at or below 2.13 and is therefore in 3.0, and a row added on major 3 is written `3.<n>`. Wherever this document says a method, an event, a row or a shape is served, granted or sent "only on a connection that negotiated 2.<n> or later", every major-3 connection meets it, whatever its minor; "below 2.<n>" describes a connection of major 2, which no release from Stage 22's serves. A mirror that gates on the minor alone is wrong from 3.0: a 3.0 connection would be refused what 2.1 brought.
+- **One shape per document on 3.0.** A result or event shape that widened behind a major-2 minor (`ipc/trust-list` behind 2.3, `ipc/path-changed` behind 2.4, `ipc/endpoint-list` behind 2.5, `ipc/peer-list` behind 2.6 and 2.12, `trust-set-result` and the superseded refusals behind 2.10, `ipc/admin-status` behind 2.13) is served on major 3 in the shape 2.13 served, and the older shape of each is served to no connection. The widening rule (ADR-0017 A 2026-10-07, A 2026-10-09) applies again from 3.0: a shape that widens behind 3.<n> keeps its 3.0 shape below it.
+- **Every capability major 2 reached is a 3.0 capability.** A first hello of major 3 may name any of them, `admin.trust` and `admin.peers` included; the probe connection the capability rule below costs is owed again only for a capability introduced at 3.1 or later.
+- **The schemas take their majors once.** Every `ipc` schema that `$ref`s the endpoint-id takes a major in the batch that builds this (ADR-0067 decision 7), and `ipc/frame` with them, since it carries those shapes; the closed-shape rule below binds from 3.0 as it bound from 2.0, once a production build speaks it.
+- **Major 3's first production build is the Stage 22 release, and what the stage adds before it is 3.0.** Between the batch that opens the major and that release's tag no production build speaks major 3, which is the pre-release case of ADR-0017 (A 2026-10-01, A 2026-10-07): a schema of major 3 takes an additive property into 3.0 itself, and a method the stage adds is a 3.0 method. So the endpoint dimension of `admin.trust.set` and `admin.trust.list` (ADR-0067 decision 6) is an optional member of their 3.0 params, not a minor — as a minor it could not have been one, a params change being a major once a build speaks the shape — and `IPC_MAX_MINOR` is 0 at the release. The release is not tagged with a part of the stage's IPC surface missing: a build that spoke 3.0 without it would make the rest a major.
+- **`transport_contract_version` is `"3.0"`.** The value names the transport contract's major (`TRANSPORT.md` §Versioning), which moved with the same decision; it is not the IPC version and is negotiated by nothing.
 
 Phases and directions, which JSON Schema cannot express and
 `tests/ipc-v2` asserts: `hello` is the client's first frame and only its
@@ -702,14 +713,17 @@ daemons, `tests/automated-client`'s
 `an_inbound_direct_after_the_stop_began_is_refused_shutting_down` and
 `a_message_admitted_before_the_stop_is_read_before_the_close`). Not
 counted: an event the connection's writer was part-way through writing
-when its writer was aborted. The count is a
+when its writer was aborted, and an event the writer could not encode,
+which ends the writer with that event uncounted and the rest of its lane
+counted (a frame the server built past the body ceiling, its own defect;
+read from `frames.rs`'s `write_loop` and held by no test). The count is a
 floor on what a stop dropped: no delivered event is in it, and it can
 fall short. The floor is held for a client that does not read, by
 `a_stop_counts_what_a_client_that_does_not_read_left` (what was read
 and what was counted do not pass the queue) and, where the writer gave
 up, by `a_stop_counts_what_a_writer_that_gave_up_left`; for a client
-that reads slowly, and for the shortfall below, it is read from the
-code and held by no test. Once the connection has queued its `close`,
+that reads slowly, and for the part-way event, whose loss the next
+sentences trace, it is read from the code and held by no test. Once the connection has queued its `close`,
 or closed its lanes without one, the writer takes no further event from the
 connection's lane, so what the lane held when the stop read it was lost
 whole, and the event the writer was part-way through had left the lane
@@ -740,7 +754,7 @@ are carried by name in the implementation plan (§22, Stage 19, since
 
 ## IPC v1 compatibility
 
-There is no production v1 deployment requirement. The first production implementation targets IPC v2. If a future v1 adapter is added, it must be explicit and cannot reintroduce undocumented direct all-client fan-out into the v2 routing model.
+There is no production v1 deployment requirement, and no major-1 IPC was ever built: the first production implementation spoke major 2. Major 2 is not served beside major 3 (§Version negotiation and phases). If an adapter for an older major is ever added, it must be explicit, under its own record, and cannot reintroduce undocumented direct all-client fan-out into the routing model.
 
 ## Connectivity status over IPC
 

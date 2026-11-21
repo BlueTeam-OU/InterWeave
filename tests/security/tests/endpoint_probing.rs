@@ -97,12 +97,14 @@ impl Codec for RawCodec {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(name)
 }
 
 fn entry(name: &str) -> EndpointConfig {
     EndpointConfig {
         id: endpoint(name),
+        alias: None,
+        key_state: interweave_profile_config::EndpointKeyState::NotRead,
         enabled: true,
         advertise: false,
         allowed_client_kinds: Vec::new(),

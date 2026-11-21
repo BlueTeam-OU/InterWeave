@@ -12,17 +12,25 @@
 
 use interweave_profile_config::{ConfigError, ProfileConfig};
 
+/// The leased endpoint's id: the entry below, named by id, since the
+/// default `human` the schema still gives `runtime.android.endpoint` is a
+/// label no derived entry holds (ADR-0067).
+const LEASED: &str = "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr";
+
 fn profile(deployment: &str, endpoint_enabled: bool, extra: &str) -> ProfileConfig {
     let doc = format!(
         "schema_version: 2
 runtime:
   deployment: {deployment}
+  android:
+    endpoint: {LEASED}
 trust:
   policy: static-allowlist
   allowed_peers: []
 endpoints:
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: {endpoint_enabled}
       advertise: false
 {extra}"
@@ -55,9 +63,9 @@ fn an_android_profile_must_lease_an_enabled_configured_endpoint() {
     assert_eq!(
         android_errors(&profile("embedded-android", false, "")),
         vec![ConfigError::AndroidEndpointNotEnabled {
-            endpoint: "human".to_owned()
+            endpoint: LEASED.to_owned()
         }],
-        "the default endpoint, disabled"
+        "the named endpoint, disabled"
     );
     let mut named = profile("embedded-android", true, "");
     named.runtime.android.endpoint =

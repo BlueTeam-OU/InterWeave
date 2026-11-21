@@ -67,3 +67,5 @@ serde_json = { workspace = true }
 # The test's copy of the daemon's filter construction, the oracle
 # `log_admits` is held to (`tests/log_filter.rs`).
 tracing-subscriber = { workspace = true }
+# The TEST-ONLY derived endpoint ids (ADR-0067) the profiles name.
+interweave-test-support = { path = "../../../tests/support" }

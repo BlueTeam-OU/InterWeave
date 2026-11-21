@@ -57,7 +57,11 @@ const CONTROL: &str = "fabric-control";
 const QUIET: Duration = Duration::from_secs(3);
 
 fn carrier_config() -> ClientConfig {
-    ClientConfig::new(CARRIER, CARRIER_KIND, CHANNEL)
+    ClientConfig::new(
+        interweave_test_support::endpoint_keys::endpoint_id(CARRIER).as_str(),
+        CARRIER_KIND,
+        CHANNEL,
+    )
 }
 
 /// One profile: its home, `PeerId`, port and daemon.
@@ -87,6 +91,10 @@ impl Profile {
     /// loopback listener and static entry, `gzcoord` for `automated-client`),
     /// with `fabric-control` beside it for `human-client`.
     fn render(&self, other: &Self) {
+        let carrier_id = interweave_test_support::endpoint_keys::endpoint_id(CARRIER);
+        let carrier_id = carrier_id.as_str();
+        let control_id = interweave_test_support::endpoint_keys::endpoint_id(CONTROL);
+        let control_id = control_id.as_str();
         self.home.write_config(&format!(
             "schema_version: 2
 profile: {{ name: {name} }}
@@ -96,8 +104,8 @@ trust:
 endpoints:
   default_direct_endpoint: {CARRIER}
   entries:
-    - {{ id: {CARRIER}, enabled: true, advertise: false, allowed_client_kinds: [{CARRIER_KIND}] }}
-    - {{ id: {CONTROL}, enabled: true, advertise: false, allowed_client_kinds: [human-client] }}
+    - {{ key: {carrier_id}.key, alias: {CARRIER}, enabled: true, advertise: false, allowed_client_kinds: [{CARRIER_KIND}] }}
+    - {{ key: {control_id}.key, alias: {CONTROL}, enabled: true, advertise: false, allowed_client_kinds: [human-client] }}
 channels: {{ desired: [] }}
 discovery:
   providers:
@@ -363,7 +371,7 @@ fn no_rows(home: &Home, conversation: &str) {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("an endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(name)
 }
 
 /// `text` as a `HumanChatV2` text message from `gzcoord`, the frame a human

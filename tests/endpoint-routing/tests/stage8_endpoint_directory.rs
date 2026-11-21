@@ -18,12 +18,8 @@ use support::{
     advertised, advertised_to, connected_for_directory, endpoint, profile_directory, who,
 };
 
-fn names(result: &interweave_transport_libp2p::runtime::DirectoryResult) -> Vec<&str> {
-    result
-        .endpoints
-        .iter()
-        .map(interweave_transport_api::EndpointId::as_str)
-        .collect()
+fn names(result: &interweave_transport_libp2p::runtime::DirectoryResult) -> Vec<String> {
+    result.endpoints.iter().map(support::name_of).collect()
 }
 
 /// testing.md 16: the directory lists ONLY endpoints that are advertised,
@@ -708,8 +704,8 @@ async fn the_largest_legal_directory_crosses_the_wire() {
         .expect("32 entries at the ceiling round-trip");
     assert_eq!(result.endpoints.len(), 32);
     assert!(
-        result.endpoints.iter().all(|e| e.as_str().len() == 64),
-        "every label at the 64-byte ceiling"
+        result.endpoints.iter().all(|e| e.as_str().len() == 52),
+        "every id derived, 52 bytes: the longest an id is (ADR-0067)"
     );
     assert!(result.endpoints.windows(2).all(|w| w[0] <= w[1]), "sorted");
 }

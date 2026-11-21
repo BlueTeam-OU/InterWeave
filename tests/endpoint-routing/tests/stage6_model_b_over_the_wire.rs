@@ -148,12 +148,18 @@ async fn one_id_from_two_source_endpoints_delivers_twice() {
         .expect("answers");
     assert_eq!(delivered.len(), 2, "both were delivered");
 
-    let sources: Vec<&str> = delivered
+    let sources: Vec<String> = delivered
         .iter()
-        .map(|e| e.source_endpoint.as_str())
+        .map(|e| support::name_of(&e.source_endpoint))
         .collect();
-    assert!(sources.contains(&"human"), "the human's copy arrived");
-    assert!(sources.contains(&"gpt-5"), "and the other one did too");
+    assert!(
+        sources.iter().any(|s| s == "human"),
+        "the human's copy arrived"
+    );
+    assert!(
+        sources.iter().any(|s| s == "gpt-5"),
+        "and the other one did too"
+    );
     assert_eq!(
         delivered[0].message_id, delivered[1].message_id,
         "under one shared id"

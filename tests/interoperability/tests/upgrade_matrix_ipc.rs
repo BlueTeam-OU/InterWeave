@@ -82,7 +82,8 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 channels:

@@ -77,7 +77,7 @@ fn loopback() -> std::net::Ipv4Addr {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("an endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(name)
 }
 
 impl Profile {
@@ -120,14 +120,18 @@ impl Profile {
             .map(|o| format!("\"{}\"", o.peer.as_str()))
             .collect::<Vec<_>>()
             .join(", ");
+        let control_id = interweave_test_support::endpoint_keys::endpoint_id(CONTROL);
+        let control_id = control_id.as_str();
+        let side_id = interweave_test_support::endpoint_keys::endpoint_id(SIDE);
+        let side_id = side_id.as_str();
         self.home.write_config(&format!(
             "schema_version: 2
 profile: {{ name: {name} }}
 trust: {{ policy: static-allowlist, allowed_peers: [{allowed}] }}
 endpoints:
   entries:
-    - {{ id: {CONTROL}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
-    - {{ id: {SIDE}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
+    - {{ key: {control_id}.key, alias: {CONTROL}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
+    - {{ key: {side_id}.key, alias: {SIDE}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
 channels: {{ desired: [] }}
 discovery: {{ providers: [] }}
 transport:
@@ -142,13 +146,15 @@ observability: {{ log_level: info }}
 
     /// A source: the sink allowed and its one static-bootstrap entry.
     fn render_source(&self, sink: &Self) {
+        let source_id = interweave_test_support::endpoint_keys::endpoint_id(SOURCE);
+        let source_id = source_id.as_str();
         self.home.write_config(&format!(
             "schema_version: 2
 profile: {{ name: {name} }}
 trust: {{ policy: static-allowlist, allowed_peers: [\"{sink}\"] }}
 endpoints:
   entries:
-    - {{ id: {SOURCE}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
+    - {{ key: {source_id}.key, alias: {SOURCE}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
 channels: {{ desired: [] }}
 discovery:
   providers:
@@ -190,7 +196,11 @@ observability: {{ log_level: info }}
 
     async fn client(&self, endpoint: &str) -> Client {
         let mut client = Client::new(
-            ClientConfig::new(endpoint, CLIENT_KIND, CHANNEL),
+            ClientConfig::new(
+                interweave_test_support::endpoint_keys::endpoint_id(endpoint).as_str(),
+                CLIENT_KIND,
+                CHANNEL,
+            ),
             self.home.binding(),
         );
         client.connect(PATIENCE).await.expect("the client leases");

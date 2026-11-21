@@ -299,7 +299,8 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 channels:
@@ -357,7 +358,7 @@ impl Head {
 fn session_request() -> SessionRequest {
     SessionRequest::new(
         "human-client",
-        Some(EndpointId::parse("human").expect("valid")),
+        Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
         [DataCapability::Commands, DataCapability::Events],
     )
     .expect("in bounds")
@@ -393,7 +394,7 @@ async fn head_sends(head: &Head, to: &RawPeer, id: u8) -> Result<EndpointId, Tra
             .send_direct(
                 DirectDestination {
                     peer: peer.clone(),
-                    endpoint: Some(EndpointId::parse("human").expect("valid")),
+                    endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
                 },
                 MessageId::from_bytes([id; 16]),
                 Payload::at_ceiling(None, b"from HEAD".to_vec()).expect("within the ceiling"),

@@ -36,7 +36,7 @@ mod common;
 use common::{Pair, arriving, arriving_before, payload};
 
 fn claude() -> EndpointId {
-    EndpointId::parse("claude").expect("endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id("claude")
 }
 
 /// One raw data connection, its hello written by the test.
@@ -158,7 +158,7 @@ async fn a_source_endpoint_named_by_the_caller_is_refused_and_the_receiver_reads
     let (_, squatter) = Raw::hello(
         &pair.a.data_socket(),
         r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
-        "client":{"kind":"human-client"},"endpoint":{"id":"human"},
+        "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#,
     )
     .await;
@@ -170,7 +170,7 @@ async fn a_source_endpoint_named_by_the_caller_is_refused_and_the_receiver_reads
     let (mut spoofer, granted) = Raw::hello(
         &pair.a.data_socket(),
         r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
-        "client":{"kind":"claude-channel"},"endpoint":{"id":"claude"},
+        "client":{"kind":"claude-channel"},"endpoint":{"id":"12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#,
     )
     .await;
@@ -255,7 +255,7 @@ fn admin_shaped(stranger: &TransportIdentity) -> Vec<Vec<u8>> {
         r#"{{"type":"request","id":"x","method":"admin.trust.set","params":{{"peer":"{}","allowed":true}}}}"#,
         stranger.as_str()
     );
-    let revoke = r#"{"type":"request","id":"y","method":"admin.endpoints.revoke","params":{"endpoint":"human"}}"#;
+    let revoke = r#"{"type":"request","id":"y","method":"admin.endpoints.revoke","params":{"endpoint":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"}}"#;
     let shutdown = r#"{"type":"request","id":"z","method":"admin.shutdown"}"#;
     vec![
         grant.clone().into_bytes(),
