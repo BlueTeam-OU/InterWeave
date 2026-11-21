@@ -329,6 +329,17 @@ long, which counts only the Activity created anew; its paragraph on a
 launch with Connect still owed names the retry at a return or a
 recreation, and a conversation on screen, as above.
 
+Revised 2026-11-21, at rust-ui-dev-01's QUESTION 01a1fd19 on #736. A
+return or a recreation on C4, R4, R3 or R2 after K1 while
+`IdStartBusy` shows there retries the start, as it does on Chats,
+and holds the screen as Try again's press does; the 1 s before
+`ConnectStarting` and the 10 s bound count from the return. A
+`LockHeld` again from that start moves no focus and is not announced
+(§6, A return to a screen showing `IdStartBusy`). Before, the
+profile-in-use row said that the app never retries the start on its
+own, and no rule covered a return to these screens. Acceptance 12
+gains its runs.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -929,7 +940,7 @@ comparison a matter of groups, not of single characters.
 | Seal running | C4, from the press of its primary (Continue, or Try again in its place, by any input), or of `IdStartUnchecked`, until a result shows on C4 or the next screen opens. That covers the seal, the read-back after it, the service start after a success, the service start after Continue while `IdAlreadyCreated` shows, and the service start of `IdStartUnchecked` | The primary, and `IdStartUnchecked` where it shows, disabled, and focus where it was when the press came: the seal moves no focus, but Tab, Shift+Tab and the arrows still move it (§8). C4 has no Back (§3.2). `CopyPeerId` still copies wherever it shows (it is hidden while `IdAlreadyCreated` shows), except under the progress state (§5). A notice already showing stays until the result. The system prompt (Authentication needed, above) shows over C4 when the seal or the service start needs one. The progress state (Profile busy, below) shows over C4 for the seal only, never for the service start (§5) | The result, from one of the rows of this table, or the next screen (§3.2) |
 | Restore running | R3, from the start of the restore (`IdR3Yes`, or the Try again of an R3 notice, by any input) until its result; and from a press of `IdRestoreOther`'s Continue (or of `IdStartBusy`'s Try again in its place) until the next screen opens, which covers the service start that press makes | `IdR3Yes`, `IdR3No` and the action of any notice on R3 disabled, the app bar's back arrow inactive, and focus where it was when the restore began or, after `IdRestoreOther`'s Continue, where it was when that Continue was pressed: neither the restore nor the service start moves focus, but Tab, Shift+Tab and the arrows still move it (§7, §8). `CopyPeerId` still copies, except under the progress state (§5). The system prompt (Authentication needed, above) or the progress state (Profile busy, below) shows over R3 when the restore needs one | The result, from one of the rows of this table, or R4, or, after `IdRestoreOther`'s Continue, the next screen (`design/2026-10-22-add-a-peer.md` §5.1) |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes, other than a service start and the reseal it retries (§5) | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back (Back from a notice, below the table) |
-| Service start refused: profile in use (the runtime's `LockHeld`, `StartRefused::Runtime`) | The service start after C4's or R4's Continue (or C4's Try again in its place), C4's Continue under `IdAlreadyCreated`, C4's `IdStartUnchecked`, and `IdRestoreOther`'s Continue (R3, R2 after K1) | The start takes the profile lock itself with no wait, so it is refused as soon as the start takes its lock, and no progress state shows (§5). When the refusal comes before add-a-peer §5.1's 10 s bound ends, the hold ends, and a notice (`IdStartBusy`) says that the app could not go online because the profile is in use, with Try again. It never says that the identity was not created or not restored: an identity is on record (the one this flow committed, or, under `IdAlreadyCreated` and `IdRestoreOther`, the one already there). It shows where the screen's notices show: on C4 and R4 (R4 has C4's layout, §3.3) in C4's notice place, with Try again in Continue's place; on R3 and on R2 after K1, in `IdRestoreOther`'s place, with the PeerId that `IdRestoreOther` showed kept under `IdStartBusy`, and Try again in the place of `IdRestoreOther`'s Continue. Under `IdAlreadyCreated` and `IdRestoreOther` the rest of the screen stays as that notice left it (on C4, the title `IdAlreadyTitle` and the hidden PeerId, label, `CopyPeerId` and `IdCreatedBody`). Try again makes one service start and nothing else: no seal, no restore, no words. It is pressed as the Continue it replaces, and after `IdStartUnchecked` as that control is, the app's comparison with C4's PeerId included (A start from C4 after a failed read-back): the screen is held from its press, as after that Continue (Seal running, Restore running, Check running; §8), and the 1 s before `ConnectStarting` and the 10 s bound count from that press (`design/2026-10-22-add-a-peer.md` §5.1). The app never retries the start on its own. A refusal after the bound, with Chats already open, shows on Chats or a conversation instead (A start refused with the profile in use after the bound, below the table) | Try again (C4 and R4 have no Back; on R3 and R2 after K1, Back as it works at any other time: Back from a notice, below the table) |
+| Service start refused: profile in use (the runtime's `LockHeld`, `StartRefused::Runtime`) | The service start after C4's or R4's Continue (or C4's Try again in its place), C4's Continue under `IdAlreadyCreated`, C4's `IdStartUnchecked`, and `IdRestoreOther`'s Continue (R3, R2 after K1) | The start takes the profile lock itself with no wait, so it is refused as soon as the start takes its lock, and no progress state shows (§5). When the refusal comes before add-a-peer §5.1's 10 s bound ends, the hold ends, and a notice (`IdStartBusy`) says that the app could not go online because the profile is in use, with Try again. It never says that the identity was not created or not restored: an identity is on record (the one this flow committed, or, under `IdAlreadyCreated` and `IdRestoreOther`, the one already there). It shows where the screen's notices show: on C4 and R4 (R4 has C4's layout, §3.3) in C4's notice place, with Try again in Continue's place; on R3 and on R2 after K1, in `IdRestoreOther`'s place, with the PeerId that `IdRestoreOther` showed kept under `IdStartBusy`, and Try again in the place of `IdRestoreOther`'s Continue. Under `IdAlreadyCreated` and `IdRestoreOther` the rest of the screen stays as that notice left it (on C4, the title `IdAlreadyTitle` and the hidden PeerId, label, `CopyPeerId` and `IdCreatedBody`). Try again makes one service start and nothing else: no seal, no restore, no words. It is pressed as the Continue it replaces, and after `IdStartUnchecked` as that control is, the app's comparison with C4's PeerId included (A start from C4 after a failed read-back): the screen is held from its press, as after that Continue (Seal running, Restore running, Check running; §8), and the 1 s before `ConnectStarting` and the 10 s bound count from that press (`design/2026-10-22-add-a-peer.md` §5.1). The app never retries the start on its own, except at a return or a recreation (A return to a screen showing `IdStartBusy`, below the table). A refusal after the bound, with Chats already open, shows on Chats or a conversation instead (A start refused with the profile in use after the bound, below the table) | Try again (C4 and R4 have no Back; on R3 and R2 after K1, Back as it works at any other time: Back from a notice, below the table) |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
 | Read-back fails, or the record does not open to that PeerId | after those two refusals. The record is always there after them (both follow the publish, and nothing removes it), so no row for a missing record is needed. A record opening to another PeerId cannot follow this flow's own write while it holds the profile lock (§2); should one appear anyway, the app cannot tell what happened, so it is this row | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again and never writes again, on C4, R3 and R2 after K1 alike: the record is there (this row's second column), so what is unknown is whether it opens, which only a read-back answers: a second seal would be refused as another identity on record, and a read-back answers it without writing. A read-back can only report a record whose key opens nothing; a new restore replaces that key, and is the way on when the read-back keeps failing (A read-back that keeps failing, below the table). While the notice shows, R3's `IdR3Yes` does what its Try again does, and so does R2's `IdCheckWords` until the words change. On R2 after K1, an edit of the words removes the notice (An edit on R2, below the table) but does not end this: until a read-back opens the record to that PeerId (the success row) or R2 closes, a check whose words derive the PeerId that the refused restore confirmed reads back instead of restoring, and words that derive another PeerId are checked as any words are (the checksum banner, `IdOtherIdentity`). The record's state is what is unknown, not the notice's, so no edit can turn the next check into a second write. A read-back that opens to the PeerId shown or confirmed before the refusal is the success row above; any other answer shows `IdStorageUnknown` again. A read-back refused because authentication is needed raises the prompt (Authentication needed), and a cancel or denial of that prompt shows `IdStorageUnknown` again. Entered words stay while the screen is open. On R2 after K1, the read-back owed lasts as long as the words do: a rotation, a return to the app and a recreation of the window keep both, and process death, which drops the words, ends both with R2 (§7). rust-ui-dev-01's branch (not yet on main) holds both in one place, and a rotation keeps it; that a recreation keeps it is not yet verified (rust-ui-dev-01's REPLY 01a1f33c), and acceptance 12's recreation run checks it | Try again, or Back (Back from a notice, below the table); on C4, after a failed read-back, `IdStartUnchecked` too while it is offered (below the table) |
@@ -1154,6 +1165,63 @@ that a PeerId was created.
   a seal from this state in the build (rust-ui-dev-01's to say when
   building it), and what `Storage(Unsynced)` leaves on disk on a real
   device.
+
+**A return to a screen showing `IdStartBusy`.** The person may leave
+C4, R4, R3 or R2 after K1 while `IdStartBusy` shows there (Home or
+Recents, then back), or the window may be recreated for a
+configuration change that the app does not handle itself. Such a
+return or recreation retries the start when no start is running, as
+unlock note §11's L3 retries any start after a refused one, and as §6
+does for this notice on Chats (A return or a recreation, under A
+start refused with the profile in use after the bound): a refused
+start is not a start that ran (its L4). Why: the person's Continue
+asked for this start, and the notice asks them to try again. A
+return is the moment a lock that another holder had may have gone,
+and a screen that stays refused until the person finds Try again
+again keeps them from what they had already asked for. One rule for
+this notice wherever it shows also keeps the app predictable
+(*consistency and standards*, Nielsen 4).
+
+- **The hold.** The retried start holds the screen as Try again's
+  press does (the profile-in-use row; Seal running, Restore running,
+  Check running; §8): Try again shows disabled, every control that
+  press holds is held, and Back does nothing. Focus stays where it
+  was at the return: the retry moves no focus. The 1 s before
+  `ConnectStarting` and add-a-peer §5.1's 10 s bound count from the
+  return, never from when `IdStartBusy` first showed. Why: the
+  bound limits how long the person waits on a held screen, and while
+  they were away nothing ran and nothing was held. Counted from the
+  first showing, a return after more than 10 s away would open Chats
+  at once, before the retried start answers anything, and take the
+  person off the screen they came back to. At the bound, Chats opens
+  and the start goes on behind it, as after Try again's press; its
+  refusal after the bound then shows as §6 says (A start refused with
+  the profile in use after the bound).
+- **Its results** are Try again's (the profile-in-use row; §8),
+  except that this start answers no press of the person's. A success
+  opens the next screen, whose focus is add-a-peer §5.1's, as after
+  the Continue that Try again replaces. A `LockHeld` again ends the
+  hold and shows `IdStartBusy` again, with Try again enabled; focus
+  stays where it was and the notice is not announced again: its text
+  has not changed, and the person did not press anything. A prompt
+  that this start needs rises by itself (L3); a cancel or denial ends
+  as a cancelled start after that Continue does (Authentication
+  needed): on Chats, offline and locked, with focus on the locked
+  notice. Any other refusal shows that refusal's row.
+- **Only one start.** A return or a recreation while a start runs
+  (Try again's, or a retry's) starts nothing, and that start's answer
+  stands. A showing that starts nothing holds nothing beyond what
+  the running start already holds. In foreground-only mode, leaving
+  the app ends a running start (`design/2026-10-22-add-a-peer.md`
+  §5.1, Interruptions), so a return after Home finds no start running
+  and retries; a recreation keeps the service in either mode, so a
+  start that runs through it goes on. A rotation is handled by the
+  app without a recreation (§7), so it keeps the notice and retries
+  nothing.
+- **Connect** counts this start as it counts Try again's on these
+  screens: as the start after the Continue it replaces
+  (`design/2026-10-22-add-a-peer.md` §5.1), with its 10 s for the
+  reads counted from its success.
 
 **Back from a notice.** Where a row's way out is Back, Back does what
 it does on that screen at any other time. On R2 after K1 it returns
@@ -2151,7 +2219,8 @@ scale would also be a finding of the Android review
       on R3 and on R2 after K1, the PeerId that `IdRestoreOther` showed stays under
       `IdStartBusy`. Then, with no input for 60 s, the hook records no
       further start. That is a bounded check of §6's "the app never
-      retries the start on its own", which has no end: 60 s is six
+      retries the start on its own" (a return or a recreation
+      apart), which has no end: 60 s is six
       times the longest timer of the start and its hold (the 10 s
       bound), so a retry driven by either would show in it. A retry
       driven by a longer timer, such as the `PeerIdCopied`
@@ -2170,6 +2239,33 @@ scale would also be a finding of the Android review
       moves focus, and Back does nothing. `ConnectStarting` shows 1 s
       after that Enter, and Chats opens 10 s after it, not at once.
       These runs are host tests.
+    - A return to a screen showing `IdStartBusy` (§6, below the
+      table): on each of the five places above, with `IdStartBusy`
+      showing and focus on its text, the test waits 15 s, longer than
+      the 10 s bound, then sends the app to the background and back.
+      Each run is made with Stay reachable on and again in
+      foreground-only mode. The hook records one start at the return,
+      left unanswered: the screen is held as after Enter on Try again
+      (the run above), with Try again disabled, and focus stays on the
+      notice's text. `ConnectStarting` shows 1 s after the return, and
+      Chats opens 10 s after the return, not at once. In a second run,
+      the hook answers that start `LockHeld` within 2 s: the hold
+      ends, `IdStartBusy` shows with Try again enabled, focus stays on
+      the notice's text, nothing is announced, and with no input for
+      60 s the hook records no further start. In a third run, with
+      focus on Try again before the return, answered `LockHeld`:
+      focus stays on Try again. In a fourth run, answered as started:
+      the next screen opens, with add-a-peer §5.1's focus. In a fifth
+      run, on a `user-presence` profile, the return's start asks for
+      the prompt, which rises with no input, and the test cancels it:
+      Chats opens, offline and locked, with focus on the locked
+      notice. In a sixth run, the test recreates the window as a
+      change of the system language does: the hook records one start,
+      answered as in the second run. A rotation instead records no
+      start. In a seventh run, made with Stay reachable on only, Enter
+      on Try again, with the hook leaving that start unanswered, then
+      the return: the hook records that one start and none at the
+      return. These runs are host tests.
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
