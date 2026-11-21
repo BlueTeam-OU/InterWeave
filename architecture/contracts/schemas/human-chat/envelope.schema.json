@@ -45,7 +45,7 @@
     },
     "from_endpoint": {
       "$ref": "urn:interweave:schemas:endpoints:endpoint-id",
-      "description": "AN UNAUTHENTICATED DISPLAY HINT. Direct transport metadata is authoritative for source_peer and the peer-asserted source_endpoint; a conflicting value here is ignored for routing and authority. On broadcast it is unauthenticated by construction, because transport broadcast origin is PeerId-only (ADR-0030) — so a UI that renders this as identity is asserting something the transport never verified."
+      "description": "AN UNAUTHENTICATED DISPLAY HINT. Direct transport metadata is authoritative for source_peer and the peer-asserted source_endpoint; a conflicting value here is ignored for routing and authority. On broadcast it is unauthenticated by construction, because transport broadcast origin is PeerId-only (ADR-0030) — so a UI that renders this as identity is asserting something the transport never verified. Since 3.0.0 (ADR-0067 decision 7) the value is the derived id of `endpoints/endpoint-id` 2.0.0, a label of the retired grammar refused; the envelope's `v` stays 2, since nothing else in the shape changed, and the schema takes the major because no reader of 2.x tolerates the value."
     }
   },
   "allOf": [
@@ -154,14 +154,15 @@
   "x-contract": {
     "name": "human-chat.envelope",
     "status": "active",
-    "version": "2.2.0",
+    "version": "3.0.0",
     "adr": [
       "0039",
       "0044",
       "0047",
       "0050",
       "0059",
-      "0063"
+      "0063",
+      "0067"
     ],
     "specification": "architecture/clients/human/HUMAN-CHAT.md"
   }

@@ -24,8 +24,13 @@ fn peer(s: &str) -> TransportIdentity {
     TransportIdentity::parse(s).expect("a PeerId")
 }
 
-fn endpoint(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("an endpoint")
+/// A derived EndpointId (ADR-0067) named by `name`: the name's bytes stand
+/// in for a public key, so distinct names give distinct ids. Only the text
+/// enters the card bytes, so no key need stand behind it here.
+fn endpoint(name: &str) -> EndpointId {
+    let mut key = [0u8; 32];
+    key[..name.len()].copy_from_slice(name.as_bytes());
+    EndpointId::from_ed25519_public(&key)
 }
 
 fn key() -> SigningKey {
@@ -163,7 +168,8 @@ fn the_frozen_valid_minimal_card_is_what_the_builder_makes_from_its_test_only_ke
     let key = SigningKey::from_bytes(&seed);
     let on = &v["received_on"];
     let sender = peer(on["peer_id"].as_str().expect("peer"));
-    let endpoint = endpoint(on["source_endpoint"].as_str().expect("endpoint"));
+    let endpoint = EndpointId::parse_derived(on["source_endpoint"].as_str().expect("endpoint"))
+        .expect("a derived id");
     let text = build_card(
         v["envelope"]["app_message_id"].as_str().expect("id"),
         CardDraft {

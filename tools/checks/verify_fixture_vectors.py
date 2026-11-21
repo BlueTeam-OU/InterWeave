@@ -523,6 +523,11 @@ def endpoint_id_derivation_v2(vector: dict) -> dict:
     return out
 
 
+def _is_derived_endpoint_id(value: object) -> bool:
+    """ENDPOINTS.md §EndpointId's derived grammar, as `endpoints/endpoint-id` 2.0.0 states it."""
+    return isinstance(value, str) and bool(endpoint_id_derivation_v2({"text": value})["valid"])
+
+
 HEX32_RE = re.compile(r"^[0-9a-f]{32}$")
 SENT_AT_MS_MAX = 253402300799999
 
@@ -559,7 +564,8 @@ def human_chat_v2_envelope(vector: dict) -> bool:
         if not 0 <= sent <= SENT_AT_MS_MAX:
             return False
     src = env.get("from_endpoint")
-    if src is not None and not endpoint_id_grammar_v1({"endpoint_id": src}):
+    # envelope 3.0.0 (ADR-0067 decision 7): the derived id, a label refused.
+    if src is not None and not _is_derived_endpoint_id(src):
         return False
     return True
 
@@ -727,7 +733,7 @@ def _contact_card_verdict(vector: dict) -> tuple[bool, str | None, bytes | None]
     if sent is not None and (isinstance(sent, bool) or not isinstance(sent, int) or not 0 <= sent <= SENT_AT_MS_MAX):
         return False, "sent-at-ms", None
     src = env.get("from_endpoint")
-    if src is not None and not endpoint_id_grammar_v1({"endpoint_id": src}):
+    if src is not None and not _is_derived_endpoint_id(src):
         return False, "from-endpoint", None
     card = env.get("card")
     if not isinstance(card, dict):
@@ -765,6 +771,22 @@ def _contact_card_verdict(vector: dict) -> tuple[bool, str | None, bytes | None]
     if not _card_verifies_strictly(key, sig, message):
         return False, "signature-fails", message
     return True, None, message
+
+
+def _card_source_is_the_keys(vector: dict, key: bytes) -> None:
+    """The connection's source endpoint is the id the signing key derives.
+
+    From the release that builds Stage 22 the receiver also checks that
+    the card's key derives the `source_endpoint` it arrived on
+    (HUMAN-CHAT.md §Contact card, ADR-0067), and no vector states a rule
+    for that yet: so every vector arrives from its own key's endpoint, and
+    none fails that check as a second rule beside the one it names.
+    """
+    stated = vector["received_on"]["source_endpoint"]
+    if stated != _base58btc(ENDPOINT_ID_DERIVED_PREFIX + key):
+        raise ValueError(
+            f"received_on.source_endpoint {stated!r} is not the id the card's signing key derives"
+        )
 
 
 def human_chat_v2_contact_card_v1(vector: dict) -> dict:
@@ -807,6 +829,7 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
         fp = signer.get("fingerprint_hex")
         if fp is not None and fp != hashlib.sha256(pub).digest()[:8].hex():
             raise ValueError("fingerprint_hex is not the first 8 bytes of the key's SHA-256")
+        _card_source_is_the_keys(vector, pub)
         over = dict(signer.get("signed_over", {}))
         ctx = vector["received_on"]
         signed_photo = None
@@ -868,6 +891,7 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
             raise ValueError("small_order_public_key_hex is not a small-order point")
         if card.get("identity_key") != base64.b64encode(key).decode("ascii"):
             raise ValueError("the card's identity_key is not the small-order key")
+        _card_source_is_the_keys(vector, key)
         # A small-order R would be refused by the R check as well, and the
         # vector would then pin nothing about the key: an implementation
         # refusing only small-order R would pass it.

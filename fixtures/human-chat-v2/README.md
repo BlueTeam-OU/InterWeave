@@ -2,7 +2,7 @@
 
 HumanChatV2 valid/invalid canonical application messages, including markdown-subset cases and decode-direction compression vectors with the mandatory cap-abort case (ADR-0050).
 
-`human-chat-v2-envelope.json` — 23 verdict vectors over the envelope shape and grammar: version, kind, the 32-lowercase-hex ID forms, `reply_to` including an unresolvable one, the timestamp interval bounds, `from_endpoint`, an ignored unknown field (the schema is OPEN by design), and `text` required and possibly empty.
+`human-chat-v2-envelope.json` — 23 verdict vectors over the envelope shape and grammar: version, kind, the 32-lowercase-hex ID forms, `reply_to` including an unresolvable one, the timestamp interval bounds, `from_endpoint` (a derived EndpointId since envelope 3.0.0, ADR-0067), an ignored unknown field (the schema is OPEN by design), and `text` required and possibly empty.
 
 `human-chat-v2-brotli-decode.json` — 3 decode-direction compression vectors (ADR-0050, plan §17 batch 3):
 - an envelope whose brotli stream decodes to its frozen raw form;
@@ -11,7 +11,7 @@ HumanChatV2 valid/invalid canonical application messages, including markdown-sub
 
 The encode direction is not fixture-testable: brotli output is non-canonical. `verify_fixture_vectors.py` recomputes each result independently, and `tests/human-chat` runs them through the shared decoder.
 
-`human-chat-v2-contact-card.json` — 20 verdict vectors over a received `contact_card` envelope (HUMAN-CHAT.md §Contact card, ADR-0059, ADR-0063), each with the connection it arrived on (`received_on`: the PeerId and source endpoint, which the canonical bytes take from there and never from the envelope), its `valid` verdict and the one `rule` a malformed vector breaks:
+`human-chat-v2-contact-card.json` — 20 verdict vectors over a received `contact_card` envelope (HUMAN-CHAT.md §Contact card, ADR-0059, ADR-0063), each with the connection it arrived on (`received_on`: the PeerId and source endpoint, which the canonical bytes take from there and never from the envelope), its `valid` verdict and the one `rule` a malformed vector breaks. Since ADR-0067's batch every source endpoint is a derived EndpointId, the one the card's own signing key derives, so that the receiver's check that the key derives the endpoint the card arrived on (HUMAN-CHAT.md §Contact card, from the release that builds Stage 22) refuses no vector for a second rule; the vectors were re-signed over those ids, and `verify_fixture_vectors.py` refuses a vector whose source endpoint is not its key's:
 - valid, 4: a card at the bounds (name and surname at 64 scalar values after NFC, a 256 × 256 PNG of exactly 24,576 bytes carrying no metadata chunk); a name-only card; a name sent decomposed that verifies after NFC; identifier-like members inside `card`, ignored;
 - malformed, 16: signed for another PeerId; the name changed after signing; a 31-byte key; a small-order key whose signature, its R of prime order, a cofactorless verifier accepts; a signature whose R is small order and whose S is recomputed for it, which a cofactorless verifier accepts; the valid signature with S raised by the group order; the key unpadded and URL-safe; `text` and `reply_to` present; a name past the bound; a photo of 24,577 bytes and one of a third media type; whitespace and the URL-safe alphabet in `photo.data`; an unknown kind.
 

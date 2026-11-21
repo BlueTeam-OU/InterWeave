@@ -125,7 +125,8 @@ fn what_this_crate_emits_validates_against_the_schema() {
         text: "**hello** | world".to_owned(),
         reply_to: Some("11111111111111111111111111111111".to_owned()),
         sent_at_ms: Some(1_786_600_000_000),
-        from_endpoint: Some(EndpointId::parse("human").expect("valid")),
+        // A derived id (ADR-0067): envelope 3.0.0 refuses a label.
+        from_endpoint: Some(EndpointId::from_ed25519_public(&[7u8; 32])),
     };
     let minimal = HumanChatV2 {
         reply_to: None,
