@@ -756,9 +756,25 @@ mod tests {
             card_photo(&photo(MAX_CARD_PHOTO_TEXT + 4)).map(|_| ()),
             Err(CardFault::PhotoTooLarge)
         );
+        // One byte past the bound is already past it: a check looser by
+        // up to one base64 quantum would let this through to the decoder.
+        assert_eq!(
+            card_photo(&photo(MAX_CARD_PHOTO_TEXT + 1)).map(|_| ()),
+            Err(CardFault::PhotoTooLarge)
+        );
         assert_eq!(
             card_photo(&photo(MAX_CARD_PHOTO_TEXT)).map(|_| ()),
             Err(CardFault::PhotoEncoding)
+        );
+        // The bound is UTF-8 bytes, not characters: 16,385 copies of "é"
+        // are 16,385 characters, under it, and 32,770 bytes, past it.
+        let accented = "é".repeat(MAX_CARD_PHOTO_TEXT / 2 + 1);
+        assert_eq!(accented.chars().count(), 16_385);
+        assert_eq!(accented.len(), 32_770);
+        assert_eq!(
+            card_photo(&serde_json::json!({ "media_type": "image/png", "data": accented }))
+                .map(|_| ()),
+            Err(CardFault::PhotoTooLarge)
         );
     }
 
