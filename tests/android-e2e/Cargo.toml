@@ -25,7 +25,11 @@ interweave-profile-config = { path = "../../crates/config/profile-config" }
 interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
 interweave-transport-composition = { path = "../../crates/transport/composition" }
-interweave-transport-embedded = { path = "../../crates/transport/embedded" }
+# `test-hooks`: the stand-in's kill is `EmbeddedHost::kill_for_test`, a
+# process death that leaves nothing of the runtime running (j128). A
+# test crate, so no shipped build resolves it
+# (`tools/checks/check_shipped_test_hooks.sh`).
+interweave-transport-embedded = { path = "../../crates/transport/embedded", features = ["test-hooks"] }
 tempfile = { workspace = true }
 # The desktop side and the relay: the harness desktop-e2e shares.
 interweave-test-support = { path = "../support", features = ["e2e"] }

@@ -250,7 +250,10 @@ runs did not record theirs), and in it `reply` reached the peer
 without `--allowedTools`. A print session that skips a channel logs nothing about it. Not
 established: Anthropic's allowlist in `-p`, a bare `--mcp-config`
 server in `-p`, another permission mode, an event arriving during a
-turn, and a session whose stdin has closed.
+turn, and a session whose stdin has closed. S25 measured the event
+during a turn, with stdin open and closed (its runs a and b), and S28
+the closed stdin after the last turn has ended (fact 67), their carried
+measurements below.
 
 **Carried measurement, S25 (2026-10-24, Claude Code 2.1.286,
 rust-services-dev, plan §19): an event during a print turn waits for it;
@@ -280,7 +283,9 @@ gets them. So the refusal text now names that form
 (`apps/claude-channel/src/refused.rs`). Not established: an event after
 stdin has closed and the last turn has ended, the other permission
 modes, a host answering permission prompts, the in-session `/plugin
-configure`, and what sets `auto` on this login.
+configure`, and what sets `auto` on this login. S28 measured the first
+of these on 2.1.317, not delivered (fact 67), its carried measurement
+below.
 
 **Carried measurement, S26 (2026-11-03, Claude Code 2.1.286,
 rust-services-dev, plan §19): without `--allowedTools`, `reply` leaves a
