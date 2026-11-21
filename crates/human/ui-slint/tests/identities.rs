@@ -10,8 +10,7 @@
 //! a root would. What is proved is the view's half: what the window draws,
 //! names, focuses and returns for a press. NOT proved here: the rendered
 //! look (a snapshot under the display wrapper is the check), a screen
-//! reader's reading, a phone's Back key reaching `handle-back`, and the
-//! closing of the model's own snackbar by a switch.
+//! reader's reading, and a phone's Back key reaching `handle-back`.
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
@@ -620,4 +619,92 @@ fn back_closes_the_switcher_with_nothing_changed() {
     assert_eq!(turn(&mut view, &mut model), [IdentityIntent::CloseSwitcher]);
     assert!(!view.window().get_id_switcher().open);
     assert_eq!(model.identities().front(), Some(&key("a")));
+}
+
+fn elapse(ms: u64) {
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+    slint::platform::update_timers_and_animations();
+}
+
+/// A switch while the model's own snackbar is up: the switch's takes the
+/// place, and the model's is closed (one at a time).
+#[test]
+fn a_switch_closes_the_models_snackbar_and_shows_its_own() {
+    let (mut model, conversation) = model_with(&["a", "b"]);
+    let mut view = view(1000.0);
+    view.select(conversation.clone());
+    turn(&mut view, &mut model);
+    model.identifier_copied(conversation);
+    turn(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "the premise: the model's is up");
+    assert!(view.window().get_snack_shown(), "the premise: drawn");
+    assert!(!view.window().get_id_snack_shown());
+
+    model
+        .identities_mut()
+        .act(IdentityIntent::OpenSwitcher, false);
+    model
+        .identities_mut()
+        .act(IdentityIntent::Choose(key("b")), false);
+    // The render that shows the switch's snackbar queues the model's
+    // closing; the next take applies it.
+    turn(&mut view, &mut model);
+    turn(&mut view, &mut model);
+    assert!(view.window().get_id_snack_shown(), "the switch's is up");
+    assert!(model.snackbar().is_none(), "the model's is closed");
+    assert!(!view.window().get_snack_shown(), "and not drawn");
+}
+
+/// The model's snackbar opening while the switch's is up: the model's
+/// takes the place and the switch's is closed, by its own intent.
+#[test]
+fn the_models_snackbar_closes_the_switchs() {
+    let (mut model, conversation) = model_with(&["a", "b"]);
+    let mut view = view(1000.0);
+    view.select(conversation.clone());
+    turn(&mut view, &mut model);
+    model
+        .identities_mut()
+        .act(IdentityIntent::OpenSwitcher, false);
+    model
+        .identities_mut()
+        .act(IdentityIntent::Choose(key("b")), false);
+    turn(&mut view, &mut model);
+    assert!(view.window().get_id_snack_shown(), "the premise");
+    let id = u64::try_from(view.window().get_id_snack_id()).expect("an id");
+
+    model.identifier_copied(conversation);
+    // The render that draws the model's snackbar presses the switch's
+    // close; the next take returns it.
+    let mut taken = turn(&mut view, &mut model);
+    taken.extend(turn(&mut view, &mut model));
+    assert_eq!(taken, [IdentityIntent::SnackbarClosed(id)]);
+    assert!(!view.window().get_id_snack_shown(), "the switch's is gone");
+    assert!(model.snackbar().is_some(), "the model's stays");
+    assert!(view.window().get_snack_shown());
+}
+
+#[test]
+fn the_switchs_snackbar_closes_on_its_own_after_its_time() {
+    let (mut model, _) = model_with(&["a", "b"]);
+    let mut view = view(1000.0);
+    turn(&mut view, &mut model);
+    model
+        .identities_mut()
+        .act(IdentityIntent::OpenSwitcher, false);
+    model
+        .identities_mut()
+        .act(IdentityIntent::Choose(key("b")), false);
+    turn(&mut view, &mut model);
+    assert!(view.window().get_id_snack_shown());
+    let id = u64::try_from(view.window().get_id_snack_id()).expect("an id");
+    elapse(5_000);
+    assert!(turn(&mut view, &mut model).is_empty(), "not yet");
+    assert!(view.window().get_id_snack_shown(), "up before its time");
+    elapse(1_100);
+    assert_eq!(
+        turn(&mut view, &mut model),
+        [IdentityIntent::SnackbarClosed(id)]
+    );
+    assert!(!view.window().get_id_snack_shown(), "closed after it");
 }
