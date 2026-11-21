@@ -16,7 +16,7 @@ Model B requires the same invariants on desktop and Android:
 - identical transport errors/events;
 - administrative authority kept separate from message/event dispatch.
 
-Desktop realizes this contract through IPC v2. Android realizes it inside the first-party app process. Neither realization changes network protocols.
+Desktop realizes this contract through the IPC. Android realizes it inside the first-party app process. Neither realization changes network protocols.
 
 ## 2. Local data-plane session
 

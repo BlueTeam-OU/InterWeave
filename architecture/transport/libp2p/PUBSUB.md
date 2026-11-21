@@ -44,7 +44,7 @@ choice under which this repository agrees with itself about byte order.
 
 The **version byte is carried in band**, which the direct frame does not
 need: direct takes its version from the negotiated protocol name
-`/interweave/direct/2.0.0`, while a GossipSub topic negotiates nothing, so
+`/interweave/direct/3.0.0`, while a GossipSub topic negotiates nothing, so
 the envelope is the only place a broadcast reader can learn what it is
 holding.
 

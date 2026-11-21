@@ -12,7 +12,7 @@ schemas/
 ├── _meta/contract.meta.schema.json    the schema every contract validates against
 ├── common/                            shapes referenced across families
 ├── endpoints/                         Model B endpoint addressing
-├── ipc/                               the local IPC v2 boundary
+├── ipc/                               the local IPC boundary
 ├── direct/                            directed-messaging vocabulary
 ├── identity/                          offline recovery record
 ├── discovery/                         advisory reachability observations

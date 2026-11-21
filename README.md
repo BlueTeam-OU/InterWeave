@@ -64,7 +64,7 @@ Android
 Network
 
   broadcast      -> signed GossipSub
-  directed       -> /interweave/direct/2.0.0
+  directed       -> /interweave/direct/3.0.0
   endpoint query -> /interweave/endpoints/1.0.0
   peer routing   -> private InterWeave Kademlia namespace
   reachability   -> AutoNAT v2 + Circuit Relay v2 + DCUtR
@@ -180,7 +180,7 @@ The receiver-only **Keep** action is local application state; a remote sender ca
 ```text
 Display name:       InterWeave
 Machine namespace:  interweave
-Direct protocol:    /interweave/direct/2.0.0
+Direct protocol:    /interweave/direct/3.0.0
 Endpoint protocol:  /interweave/endpoints/1.0.0
 Kademlia prefix:    /interweave/kad/1.0.0/<network-hash>
 HumanChat media:    application/vnd.interweave-human-chat+json;v=2

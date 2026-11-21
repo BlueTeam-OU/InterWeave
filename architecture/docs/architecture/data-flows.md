@@ -24,7 +24,7 @@ local app owns EndpointId lease
  -> endpoint outbound narrowing policy
  -> profile PeerTrustPolicy
  -> ConnectionManager / dial-admission policy
- -> request-response /interweave/direct/2.0.0
+ -> request-response /interweave/direct/3.0.0
        source_endpoint = caller lease
        destination_endpoint = explicit or absent(default request)
  -> remote route admission

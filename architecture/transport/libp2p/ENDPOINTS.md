@@ -4,11 +4,13 @@ This document specifies the libp2p realization of `contracts/ENDPOINTS.md`.
 
 ## Direct protocol v2
 
-Endpoint-addressed direct traffic uses the existing request-response architecture with a new protocol ID:
+Endpoint-addressed direct traffic uses the existing request-response architecture under the protocol ID:
 
 ```text
-/interweave/direct/2.0.0
+/interweave/direct/3.0.0
 ```
+
+The id is `3.0.0` from the Stage 22 release, which moved it with the derived EndpointId and left the frames as they were (ADR-0067 decision 7, `DIRECT.md` §Selected primitive); "direct v2" in this document names that frame family, `DirectMessageV2` and its responses.
 
 rust-libp2p request-response supports protocol families and per-protocol support, so protocol-version negotiation remains at the libp2p substream boundary rather than inside application payload bytes.
 
@@ -143,7 +145,7 @@ Remote endpoint-directory results may be cached **in memory only** for the respo
 
 ## Protocol compatibility
 
-The implementation target is direct v2. `/direct/1.0.0` is not required because there is no production v1 deployment in this repository.
+The implementation target is direct v2, spoken as `/interweave/direct/3.0.0` alone. `/interweave/direct/2.0.0` is not spoken beside it (ADR-0067 decision 7: a clean break, on the owner's word that no installed base exists), and `/direct/1.0.0` was never implemented.
 
 If a future compatibility adapter is added:
 
