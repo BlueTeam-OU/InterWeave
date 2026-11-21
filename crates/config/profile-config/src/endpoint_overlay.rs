@@ -24,7 +24,9 @@
 //! edits `config.yaml` between restarts is not undone by a stale entry,
 //! and THE EFFECTIVE DEFAULT IS ENABLED OR THERE IS NONE: normalisation
 //! never undoes a disable, only a default
-//! ([`EndpointOverlay::load_within`]).
+//! ([`EndpointOverlay::load_within`]). A reader that must write nothing
+//! takes the same normalisation in memory
+//! ([`EndpointOverlay::read_within`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -292,6 +294,28 @@ impl EndpointOverlay {
         config: &EndpointsConfig,
         boundary: &TrustBoundary,
     ) -> Result<(Self, Vec<Normalised>), EndpointOverlayError> {
+        let (overlay, changes) = Self::read_within(path, config, boundary)?;
+        if !changes.is_empty() {
+            overlay.write_within(path, boundary)?;
+        }
+        Ok((overlay, changes))
+    }
+
+    /// [`Self::load_within`] READ-ONLY: the same read under the same
+    /// rules and the same normalisation, in memory, and the file NEVER
+    /// written back, whatever normalising changed
+    /// (`tests/endpoint_overlay.rs`,
+    /// `read_within_normalises_in_memory_and_writes_nothing`). For a
+    /// client that resolves an alias and writes nothing in the profile;
+    /// what it reads is what the next start's `load_within` composes.
+    ///
+    /// # Errors
+    /// As [`Self::load_within`], less [`EndpointOverlayError::Write`].
+    pub fn read_within(
+        path: &Path,
+        config: &EndpointsConfig,
+        boundary: &TrustBoundary,
+    ) -> Result<(Self, Vec<Normalised>), EndpointOverlayError> {
         let Some(text) =
             private_read::read_private_within(path, boundary, MAX_ENDPOINT_OVERLAY_BYTES)?
         else {
@@ -300,9 +324,6 @@ impl EndpointOverlay {
         let mut overlay: Self =
             private_read::object_only(&text).map_err(EndpointOverlayError::Parse)?;
         let changes = overlay.normalise(config);
-        if !changes.is_empty() {
-            overlay.write_within(path, boundary)?;
-        }
         Ok((overlay, changes))
     }
 

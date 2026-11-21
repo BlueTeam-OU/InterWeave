@@ -18,8 +18,13 @@
 //! 1. and 2. `daemon-ipc` runs the IPC boundary and `embedded-android`
 //!    does not (`ipc.enabled`) -- checked since Stage 13 modelled `ipc`
 //!    ([`RuntimeConfig::validate_into`]).
-//! 3. `embedded-android` names an enabled configured endpoint -- checked
-//!    ([`RuntimeConfig::validate_into`]).
+//! 3. `embedded-android` names an enabled configured endpoint -- split
+//!    between the load and the START (`ENDPOINTS.md`, A 2026-11-21): the
+//!    first-run document has no identity until onboarding seals one, and
+//!    it must load. At load a `runtime.android.endpoint` that is present
+//!    must be a configured entry's id ([`RuntimeConfig::validate_into`]);
+//!    at the start it must be present and enabled in the composed set
+//!    ([`RuntimeConfig::require_android_identity`]).
 //! 4. `embedded-android` runs no AutoNAT or relay server and Kademlia
 //!    only as a client -- checked.
 //! 5. `stay-reachable` means `foreground_service_type = remoteMessaging`
@@ -41,9 +46,6 @@ use interweave_transport_api::EndpointId;
 use serde::{Deserialize, Serialize};
 
 use crate::{ConfigError, DiscoveryProviderType, EndpointsConfig};
-
-/// The Android endpoint when the profile names none (`EndpointId? = human`).
-pub const DEFAULT_ANDROID_ENDPOINT: &str = "human";
 
 /// The `runtime` block.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,8 +74,10 @@ pub enum Deployment {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AndroidRuntimeConfig {
-    /// The endpoint the foreground service leases; absent is
-    /// [`DEFAULT_ANDROID_ENDPOINT`].
+    /// The endpoint the foreground service leases, by its derived id --
+    /// never an alias, which no entry's id equals -- and absent until
+    /// onboarding seals the first identity: no default, since an id is
+    /// derived from a key no document can know in advance (ADR-0067).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<EndpointId>,
     /// The AUTHORED default for whether the service keeps the node
@@ -95,12 +99,11 @@ pub struct AndroidRuntimeConfig {
 }
 
 impl AndroidRuntimeConfig {
-    /// The endpoint the service leases, the default applied.
+    /// The endpoint the service leases, if the profile names one. There
+    /// is no default.
     #[must_use]
     pub fn endpoint(&self) -> Option<EndpointId> {
-        self.endpoint
-            .clone()
-            .or_else(|| EndpointId::parse(DEFAULT_ANDROID_ENDPOINT).ok())
+        self.endpoint.clone()
     }
 }
 
@@ -206,20 +209,15 @@ impl RuntimeConfig {
         if !android {
             return;
         }
-        let endpoint = self.android.endpoint();
-        let enabled = endpoint.as_ref().is_some_and(|id| {
-            context
-                .endpoints
-                .entries
-                .iter()
-                .any(|e| &e.id == id && e.enabled)
-        });
-        if !enabled {
+        // Rule 3, of a field that is PRESENT: absent is the first-run
+        // document before onboarding, which loads
+        // (`tests/provision.rs`, `form_1_loads`), and its start is
+        // refused by `require_android_identity`.
+        if let Some(endpoint) = &self.android.endpoint
+            && !context.endpoints.entries.iter().any(|e| &e.id == endpoint)
+        {
             errors.push(ConfigError::AndroidEndpointNotEnabled {
-                endpoint: endpoint.map_or_else(
-                    || DEFAULT_ANDROID_ENDPOINT.to_owned(),
-                    |id| id.as_str().to_owned(),
-                ),
+                endpoint: endpoint.as_str().to_owned(),
             });
         }
         for (field, on) in [
@@ -252,6 +250,35 @@ impl RuntimeConfig {
                 });
             }
         }
+    }
+}
+
+impl RuntimeConfig {
+    /// The start's half of rule 3, judged on the COMPOSED endpoints --
+    /// `config.yaml`'s with the endpoint overlay applied: an
+    /// embedded-android profile with no `runtime.android.endpoint`, or
+    /// whose composed set enables no endpoint at all, has no identity to
+    /// start as, and neither has one whose named endpoint is not enabled
+    /// there -- whether `config.yaml` or the overlay turned it off.
+    /// Nothing is asked of a daemon
+    /// (`tests/runtime_rules.rs`, `an_android_start_needs_an_identity`).
+    ///
+    /// # Errors
+    /// [`ConfigError::AndroidNoIdentity`].
+    pub fn require_android_identity(&self, composed: &EndpointsConfig) -> Result<(), ConfigError> {
+        if self.deployment != Deployment::EmbeddedAndroid {
+            return Ok(());
+        }
+        let named_enabled = self.android.endpoint.as_ref().is_some_and(|endpoint| {
+            composed
+                .entries
+                .iter()
+                .any(|e| &e.id == endpoint && e.enabled)
+        });
+        if !named_enabled {
+            return Err(ConfigError::AndroidNoIdentity);
+        }
+        Ok(())
     }
 }
 
@@ -293,19 +320,19 @@ pub(crate) fn context(profile: &crate::ProfileConfig) -> RuntimeContext<'_> {
 mod tests {
     #![allow(clippy::expect_used)]
     use super::{
-        AndroidRuntimeConfig, AvailabilityMode, DEFAULT_ANDROID_ENDPOINT, KeyUnlockPolicy,
-        RuntimeConfig, background_restart_requires_user_authentication,
+        AndroidRuntimeConfig, AvailabilityMode, KeyUnlockPolicy, RuntimeConfig,
+        background_restart_requires_user_authentication,
     };
 
+    /// The schema's `EndpointId?` with no default (j185): absent is
+    /// absent, never a label standing in for the first identity.
     #[test]
-    fn the_default_endpoint_is_a_legal_endpoint_id() {
-        assert_eq!(
-            AndroidRuntimeConfig::default()
-                .endpoint()
-                .expect("parses")
-                .as_str(),
-            DEFAULT_ANDROID_ENDPOINT
-        );
+    fn the_android_endpoint_has_no_default() {
+        assert_eq!(AndroidRuntimeConfig::default().endpoint(), None);
+        let parsed: RuntimeConfig =
+            serde_json::from_str(r#"{"deployment":"embedded-android","android":{}}"#)
+                .expect("parses");
+        assert_eq!(parsed.android.endpoint(), None);
     }
 
     #[test]

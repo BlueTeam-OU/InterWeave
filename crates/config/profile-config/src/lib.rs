@@ -2611,12 +2611,20 @@ pub enum ConfigError {
     /// the owner's decision of §7's gate.
     KademliaDefaultEnablementGated,
     /// `runtime.deployment=embedded-android` names an endpoint that is not
-    /// an enabled configured one (the schema's third runtime rule): the
-    /// foreground service would lease an endpoint that does not exist.
+    /// a configured one (the load's half of the schema's third runtime
+    /// rule): the foreground service would lease an endpoint that does not
+    /// exist. One configured but not enabled is the start's
+    /// [`ConfigError::AndroidNoIdentity`].
     AndroidEndpointNotEnabled {
-        /// The endpoint named, the default applied.
+        /// The endpoint named.
         endpoint: String,
     },
+    /// An embedded-android START on a profile with no identity yet: no
+    /// `runtime.android.endpoint`, or no enabled endpoint once the
+    /// endpoint overlay is composed over `config.yaml`'s. Never a load's
+    /// refusal -- the first-run document loads without one -- but the
+    /// start's ([`runtime::RuntimeConfig::require_android_identity`]).
+    AndroidNoIdentity,
     /// `runtime.deployment=embedded-android` with an infrastructure
     /// server role on, or Kademlia in server mode (the schema's fourth
     /// runtime rule).
@@ -2950,7 +2958,10 @@ impl core::fmt::Display for ConfigError {
             ),
             Self::AndroidEndpointNotEnabled { endpoint } => write!(
                 f,
-                "runtime.android.endpoint '{endpoint}' is not an enabled configured endpoint; an embedded-android profile must lease one"
+                "runtime.android.endpoint '{endpoint}' is not a configured endpoint; an embedded-android profile must lease one"
+            ),
+            Self::AndroidNoIdentity => f.write_str(
+                "the Android profile has no identity to start as: runtime.android.endpoint names none, or the endpoint it names is not enabled; onboarding seals the first identity, and the profile starts once it has one enabled"
             ),
             Self::AndroidServesInfrastructure { field } => write!(
                 f,

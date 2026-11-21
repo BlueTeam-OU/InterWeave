@@ -241,6 +241,49 @@ fn a_normalised_overlay_is_not_rewritten() {
     }
 }
 
+/// The READ-ONLY reader (a client that resolves aliases writes nothing
+/// in the profile): on a file `load_within` rewrites -- the control,
+/// which does -- `read_within` returns the same normalised overlay and
+/// the same changes, and leaves the file byte-identical, its inode and
+/// mode unchanged.
+#[test]
+fn read_within_normalises_in_memory_and_writes_nothing() {
+    use std::os::unix::fs::MetadataExt as _;
+    let text = r#"{"enabled":{"a":true,"c":true},"default":"a"}"#;
+    let (_dir, path) = state();
+    put(&path, text);
+    let before = std::fs::read(&path).expect("read");
+    let meta = std::fs::metadata(&path).expect("present");
+    let (read_only, read_changes) =
+        EndpointOverlay::read_within(&path, &config(Some("a")), &TrustBoundary::root())
+            .expect("reads");
+    assert!(!read_changes.is_empty(), "a case normalising changes");
+    assert_eq!(
+        std::fs::read(&path).expect("read"),
+        before,
+        "byte-identical"
+    );
+    let after = std::fs::metadata(&path).expect("present");
+    assert_eq!(
+        (after.ino(), after.mode(), after.mtime_nsec(), after.mtime()),
+        (meta.ino(), meta.mode(), meta.mtime_nsec(), meta.mtime()),
+        "not replaced"
+    );
+    // The control: `load_within` on the same file does rewrite it, to
+    // the overlay the reader returned in memory.
+    let (loaded, load_changes) = load(&path, &config(Some("a"))).expect("loads");
+    assert_eq!((loaded, load_changes), (read_only, read_changes));
+    assert_ne!(std::fs::read(&path).expect("read"), before, "rewritten");
+    assert_eq!(read(&path), "{\n  \"enabled\": {\n    \"c\": true\n  }\n}");
+    // And an absent file is the empty overlay, not created.
+    let (_dir, absent) = state();
+    let (empty, none) =
+        EndpointOverlay::read_within(&absent, &config(Some("a")), &TrustBoundary::root())
+            .expect("reads");
+    assert_eq!((empty, none), (EndpointOverlay::default(), Vec::new()));
+    assert!(!absent.exists());
+}
+
 /// An absent overlay is the empty one and is not created.
 #[test]
 fn an_absent_overlay_is_empty_and_is_not_created() {

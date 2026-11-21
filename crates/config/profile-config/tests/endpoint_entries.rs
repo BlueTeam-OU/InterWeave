@@ -395,6 +395,77 @@ fn an_absent_or_unreadable_key_file_loads_key_missing() {
     }
 }
 
+/// `load_document` READS NO KEY FILE: with `endpoint-keys/` shut (mode
+/// 000) it loads and every entry stays `NotRead`, where `load` -- the
+/// control -- reads the header and answers key-missing, unreadable; and
+/// with a key file whose header derives another id, where `load` is
+/// refused `EndpointKeyMismatch`, it loads `NotRead` too. Its other
+/// guards stand: a retired `id` entry is refused by name.
+#[test]
+fn load_document_reads_no_endpoint_key() {
+    // Shut: the directory itself unsearchable.
+    let dir = private_tempdir();
+    let p = paths(dir.path());
+    let minted = endpoint_key::mint_filesystem(&p).expect("minted");
+    write(&p, &document(&entry(&key_of(&minted), ""), ""));
+    let keys = p.state_dir().join(endpoint_key::ENDPOINT_KEYS_DIR);
+    std::fs::set_permissions(&keys, std::fs::Permissions::from_mode(0o000)).expect("shut");
+    let read = ProfileConfig::load(&p);
+    let document_only = ProfileConfig::load_document(&p);
+    std::fs::set_permissions(&keys, std::fs::Permissions::from_mode(0o700)).expect("open");
+    assert!(
+        matches!(
+            read.expect("load loads").endpoints.entries[0].key_state,
+            EndpointKeyState::Missing(KeyMissing::Unreadable(_))
+        ),
+        "the control: load read the shut directory"
+    );
+    let document_only = document_only.expect("load_document loads");
+    assert_eq!(document_only.endpoints.entries[0].id, minted);
+    assert_eq!(
+        document_only.endpoints.entries[0].key_state,
+        EndpointKeyState::NotRead
+    );
+
+    // A header deriving another id: the minted file under another name.
+    let other = endpoint_id("other");
+    std::fs::rename(
+        endpoint_key::key_path(&p, &minted),
+        endpoint_key::key_path(&p, &other),
+    )
+    .expect("renamed");
+    write(&p, &document(&entry(&key_of(&other), ""), ""));
+    assert_eq!(
+        load_invalid(&p),
+        vec![ConfigError::EndpointKeyMismatch {
+            endpoint: other.clone(),
+            header_derives: Some(minted),
+        }],
+        "the control: load refuses the mismatch"
+    );
+    let document_only = ProfileConfig::load_document(&p).expect("load_document loads");
+    assert_eq!(document_only.endpoints.entries[0].id, other);
+    assert_eq!(
+        document_only.endpoints.entries[0].key_state,
+        EndpointKeyState::NotRead
+    );
+
+    // The guards are load's: a retired entry is refused by name.
+    write(
+        &p,
+        &document(
+            "    - id: human\n      enabled: true\n      advertise: false\n",
+            "",
+        ),
+    );
+    match ProfileConfig::load_document(&p) {
+        Err(LoadError::Invalid(errors)) => {
+            assert!(!not_derived(&errors).is_empty(), "{errors:?}");
+        }
+        other => panic!("refused EndpointIdNotDerived: {other:?}"),
+    }
+}
+
 /// An entry parsed and not loaded has read no file: its state is
 /// `NotRead`, never shown as missing or present.
 #[test]
