@@ -739,6 +739,22 @@ impl ComposedRuntime {
         self.ask(Request::EndDriver).await
     }
 
+    /// Cancel the driver where it waits and return once its future is
+    /// gone, with none of its shutdown run: the driver's half of a
+    /// process death (`EmbeddedHost::kill_for_test`). The request
+    /// channel stays open and the substrate stays up while it is
+    /// cancelled, so the driver cannot be in its shutdown when the abort
+    /// lands. TEST BUILDS ONLY: `tools/checks/check_shipped_test_hooks.sh`.
+    #[cfg(feature = "test-hooks")]
+    pub async fn abort_driver(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+            // Cancelled, or ended on its own before the abort: either
+            // way its future has been dropped once this resolves.
+            let _ = task.await;
+        }
+    }
+
     /// Stop the runtime, returning the neutral events it dropped over its
     /// whole life, the substrate's shutdown backlog included: the one
     /// reading of that count nothing can take afterwards.
