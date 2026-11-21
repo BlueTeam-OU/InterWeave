@@ -197,7 +197,7 @@ pub enum Classified {
 /// never [`Classified::NotCard`].
 #[must_use]
 pub fn classify(text: &str, route: CardRoute<'_>) -> Classified {
-    if !any_top_level_kind_is_card(text) {
+    if !is_card(text) {
         return Classified::NotCard;
     }
     match parse_card(text, route) {
@@ -246,10 +246,13 @@ pub fn canonical_card_bytes(
     Some(out)
 }
 
-/// Whether `text` is a contact card at all, by the same rule [`classify`]
-/// uses and before any of its faults is judged: a consumer that only
-/// discards cards (a card received over broadcast, which is ignored)
-/// asks this, with no route to verify a signature over.
+/// Whether `text` is a contact card at all, before any of its faults is
+/// judged: `false` exactly when [`classify`] answers
+/// [`Classified::NotCard`], which `classify` makes so by asking this
+/// first (`frozen_cards.rs`, `is_card_is_exactly_what_classify_calls_a_card`).
+/// It takes no [`CardRoute`]: a consumer that only discards cards (a
+/// card received over broadcast, which is ignored) asks it with no
+/// `EndpointId` or `PeerId` to build.
 #[must_use]
 pub fn is_card(text: &str) -> bool {
     any_top_level_kind_is_card(text)
@@ -289,7 +292,7 @@ pub struct OwnCardFields {
 /// `the_own_reader_refuses_what_classify_refuses_before_the_signature`).
 #[must_use]
 pub fn read_own_card_unverified(text: &str) -> Option<OwnCardFields> {
-    if !any_top_level_kind_is_card(text) {
+    if !is_card(text) {
         return None;
     }
     parse_fields(text).ok().map(|(fields, _)| fields.own)

@@ -338,7 +338,7 @@ fn broadcast(message: &ReceivedBroadcast) -> Result<Converted, ConvertError> {
         &message.message_id.to_string(),
         message.received_at_ms,
         &message.payload,
-        Origin::Broadcast(&message.source_peer),
+        Origin::Broadcast,
     )?;
     let route = ReplyRoute::Broadcast {
         channel: message.channel.clone(),
@@ -383,8 +383,9 @@ enum Origin<'a> {
         &'a interweave_transport_api::TransportIdentity,
         &'a EndpointId,
     ),
-    /// The authenticated publisher.
-    Broadcast(&'a interweave_transport_api::TransportIdentity),
+    /// A broadcast: no route, since a card is dropped there whatever its
+    /// shape (`card::broadcast`).
+    Broadcast,
 }
 
 /// The keys both modes carry, and the content: a `HumanChatV2` contact card
@@ -404,8 +405,8 @@ fn common(
                 Ok(card::Kind::Text) => None,
                 Err(reason) => return Err(ConvertError::Card(reason)),
             },
-            Origin::Broadcast(publisher) => {
-                card::broadcast(&content.text, publisher).map_err(ConvertError::Card)?;
+            Origin::Broadcast => {
+                card::broadcast(&content.text).map_err(ConvertError::Card)?;
                 None
             }
         }
