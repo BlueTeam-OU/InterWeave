@@ -33,7 +33,9 @@ use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use crate::asks::Asks;
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
-use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end, secure_may_clear};
+use crate::ready_check::{
+    AtFlowEnd, Before, Over, asks_start_at_end, at_flow_end, secure_may_clear,
+};
 use crate::unlock_route::{Route, UnlockRoute, flow_prompts};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, TracedStart, prompt_line, start_line};
@@ -1389,7 +1391,7 @@ fn render() {
         if o.gate.holding() {
             return None;
         }
-        if !o.service_asked && (o.over != Over::Settings || o.offline_asked) {
+        if asks_start_at_end(o.over, o.service_asked, o.offline_asked) {
             ask_service(o);
         }
         let cleared = o.view.borrow_mut().after_next_frame(secure_off);
