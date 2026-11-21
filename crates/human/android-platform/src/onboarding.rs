@@ -13,8 +13,12 @@
 //! record opens, under the cipher, to the `PeerId` just shown or
 //! confirmed. Reading the record's `PeerId` field alone would not do: at
 //! a recovery the old record names that `PeerId` already, so a write that
-//! failed before publishing would read as done. Every other refusal is
-//! reported as it is.
+//! failed before publishing would read as done. A read-back that does not
+//! find it is `ReadBackFailed`, never `Storage`, which says nothing was
+//! written; one the key refuses until the person authenticates is
+//! `ReadBackNeedsAuthentication`, never `UserNotAuthenticated`, which says
+//! the write itself was refused. Both refusals are read back for a seal
+//! and a restore alike. Every other refusal is reported as it is.
 
 use std::path::{Path, PathBuf};
 
@@ -43,8 +47,10 @@ pub fn english() -> &'static [&'static str] {
     bip39::Language::English.word_list()
 }
 
-/// Why a write the screens asked for did not happen. In each, nothing the
-/// person relies on was changed.
+/// Why a write the screens asked for did not happen. In each but
+/// [`WriteRefused::ReadBackFailed`] and
+/// [`WriteRefused::ReadBackNeedsAuthentication`], which both follow the
+/// publish, nothing the person relies on was changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteRefused {
     /// The profile is held by a running host or another flow.
@@ -56,6 +62,23 @@ pub enum WriteRefused {
     /// The profile was provisioned meanwhile: the words shown were never
     /// used.
     AlreadyProvisioned,
+    /// A refusal that came after the record was published
+    /// (`OldKeyRemains`, an unsynced directory), or a read-back asked on
+    /// its own ([`read_back`]), and the record did not open to the
+    /// `PeerId` shown or confirmed: whether the identity was saved is
+    /// unknown (`IdStorageUnknown`, design section 6). As after
+    /// [`WriteRefused::ReadBackNeedsAuthentication`], something may have
+    /// changed.
+    ReadBackFailed(String),
+    /// As [`WriteRefused::ReadBackFailed`], but the read-back was refused
+    /// because the key needs the person to authenticate: the screen raises
+    /// the prompt and reads back again after a grant (design section 6,
+    /// Authentication needed). Unlike [`WriteRefused::UserNotAuthenticated`],
+    /// which refused the write, something may have changed.
+    ReadBackNeedsAuthentication,
+    /// A restore found a record naming another `PeerId`, this one: the
+    /// phone already holds another identity (`IdRestoreOther`).
+    RecordNamesOther(TransportIdentity),
     /// The phrase restores another identity than expected.
     OtherIdentity,
     /// Nothing to restore against, or a record of another shape: the
@@ -133,12 +156,45 @@ fn paths(app_data_dir: &Path, profile: &str) -> Result<ProfilePaths, WriteRefuse
         .map_err(|e| WriteRefused::Storage(e.to_string()))
 }
 
-/// The read-back: whether the record opens, under `cipher`, to `peer`.
-fn opens_to(paths: &ProfilePaths, cipher: &dyn SeedCipher, peer: &TransportIdentity) -> bool {
-    custody::unlock(paths, cipher)
-        .ok()
-        .and_then(|identity| identity.transport_identity().ok())
-        .is_some_and(|opened| opened == *peer)
+/// The read-back: `Ok` when the record opens, under `cipher`, to `peer`;
+/// [`WriteRefused::ReadBackNeedsAuthentication`] when the key needs the
+/// person first; else [`WriteRefused::ReadBackFailed`], saying `why` the
+/// record was read back and what the read found.
+fn opens_to(
+    paths: &ProfilePaths,
+    cipher: &dyn SeedCipher,
+    peer: &TransportIdentity,
+    why: &str,
+) -> Result<(), WriteRefused> {
+    match custody::unlock(paths, cipher) {
+        Ok(identity) if identity.transport_identity().ok().as_ref() == Some(peer) => Ok(()),
+        Ok(_) => Err(WriteRefused::ReadBackFailed(format!(
+            "{why}: the record opens to another PeerId"
+        ))),
+        Err(custody::UnlockRefused::UserNotAuthenticated) => {
+            Err(WriteRefused::ReadBackNeedsAuthentication)
+        }
+        Err(other) => Err(WriteRefused::ReadBackFailed(format!("{why}: {other:?}"))),
+    }
+}
+
+/// `IdStorageUnknown`'s Try again (design section 6): the read-back
+/// alone, writing nothing, since both refusals that raise it come after
+/// the publish and a second seal would find the record. `Ok` when the
+/// record opens, under `cipher`, to `peer`.
+///
+/// # Errors
+/// [`WriteRefused::ReadBackNeedsAuthentication`] when the key needs the
+/// person, else [`WriteRefused::ReadBackFailed`]: still unknown.
+pub fn read_back(
+    app_data_dir: &Path,
+    profile: &str,
+    cipher: &dyn SeedCipher,
+    peer: &TransportIdentity,
+) -> Result<(), WriteRefused> {
+    let paths = paths(app_data_dir, profile)
+        .map_err(|why| WriteRefused::ReadBackFailed(format!("{why:?}")))?;
+    opens_to(&paths, cipher, peer, "read back again")
 }
 
 /// The profile's lock for a flow that shows or takes words: taken once,
@@ -189,13 +245,7 @@ pub fn seal(
         Err(
             refused @ (CustodyRefused::OldKeyRemains(_)
             | CustodyRefused::Storage(PersistError::Unsynced(_))),
-        ) => {
-            if opens_to(&paths, cipher, &creation.peer) {
-                Ok(())
-            } else {
-                Err(WriteRefused::Storage(format!("{refused:?}")))
-            }
-        }
+        ) => opens_to(&paths, cipher, &creation.peer, &format!("{refused:?}")),
         Err(CustodyRefused::AlreadyProvisioned) => Err(WriteRefused::AlreadyProvisioned),
         Err(CustodyRefused::ProfileLocked) => Err(WriteRefused::Busy),
         Err(CustodyRefused::Cipher(CipherFailure::UserNotAuthenticated)) => {
@@ -260,30 +310,42 @@ pub fn restore(
     drop(text);
     match restore_identity(app_data_dir, profile, cipher, &phrase, expected, lock) {
         Ok(_) => Ok(()),
-        // Published, then the directory's sync failed: done if the record
-        // opens to the phrase's identity. (OldKeyRemains is success
-        // already, in restore_identity.)
-        Err(RestoreRefused::Unsynced(why)) => {
-            let peer = crate::identity::phrase_peer(&phrase).ok();
-            let opened = peer
-                .zip(paths(app_data_dir, profile).ok())
-                .is_some_and(|(peer, paths)| opens_to(&paths, cipher, &peer));
-            if opened {
-                Ok(())
-            } else {
-                Err(WriteRefused::Storage(why))
-            }
+        // Published, then the directory's sync failed or the other
+        // policy's key could not be retired: done if the record opens to
+        // the phrase's identity, as at a seal (design section 6).
+        Err(RestoreRefused::Unsynced(why) | RestoreRefused::OldKeyRemains(why)) => {
+            let peer = crate::identity::phrase_peer(&phrase)
+                .map_err(|e| WriteRefused::ReadBackFailed(format!("{why}: {e:?}")))?;
+            let paths = paths(app_data_dir, profile)
+                .map_err(|e| WriteRefused::ReadBackFailed(format!("{why}: {e:?}")))?;
+            opens_to(&paths, cipher, &peer, &why)
         }
+        // A confirmed restore over a record that names the confirmed
+        // PeerId, written before this restore was asked: reached after a
+        // refusal by `IdR3No`, R2's check and `IdR3Yes` on the new R3, which
+        // shows no notice (under `IdStorageUnknown` R3's Yes reads back and
+        // never reaches here). Read back, never written over: done if it
+        // opens to that PeerId; without this arm it would answer
+        // `NoRestore`, shown as nothing changed while a record exists.
+        Err(RestoreRefused::RecordExists) => match expected {
+            Expected::Confirmed(peer) => read_back(app_data_dir, profile, cipher, peer),
+            Expected::Recorded => Err(WriteRefused::NoRestore),
+        },
         Err(refused) => Err(match refused {
             RestoreRefused::Busy => WriteRefused::Busy,
             RestoreRefused::UserNotAuthenticated => WriteRefused::UserNotAuthenticated,
             RestoreRefused::OtherIdentity => WriteRefused::OtherIdentity,
+            RestoreRefused::RecordNamesOther(recorded) => WriteRefused::RecordNamesOther(recorded),
             RestoreRefused::NoRecord
             | RestoreRefused::RecordExists
             | RestoreRefused::RecordUnreadable(_) => WriteRefused::NoRestore,
-            RestoreRefused::Paths(why)
-            | RestoreRefused::Unavailable(why)
-            | RestoreRefused::Unsynced(why) => WriteRefused::Storage(why),
+            RestoreRefused::Paths(why) | RestoreRefused::Unavailable(why) => {
+                WriteRefused::Storage(why)
+            }
+            // Read back above.
+            RestoreRefused::Unsynced(why) | RestoreRefused::OldKeyRemains(why) => {
+                WriteRefused::ReadBackFailed(why)
+            }
         }),
     }
 }

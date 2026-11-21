@@ -452,19 +452,27 @@ export struct IdentityPage {
     paragraphs: [string],
     // An inline banner (section 6), above the content; empty for none.
     notice: string,
-    // The action under the banner's text, a stop right after it: R3's
-    // Try again (section 6); empty for none. Held while R3's restore
-    // runs: it keeps its stop, shown disabled, and presses nothing.
+    // A PeerId under the banner's text, grouped, for the eye alone: the
+    // one `IdRestoreOther` says the phone holds (section 6); no stop.
+    notice-peer: string,
+    // The action under the banner's text, a stop right after it: R2's
+    // and R3's Try again, or `IdRestoreOther`'s Continue (section 6);
+    // empty for none. Held while R2's check or R3's restore runs: it
+    // keeps its stop, shown disabled, and presses nothing.
     notice-action: string,
     notice-action-held: bool,
     peer-label: string,
     // A PeerId grouped by fours for comparing by eye (section 5).
     peer-groups: string,
-    // The text button under the PeerId, R3's and R4's (section 5): its
+    // The text button under the PeerId, C4's, R3's and R4's (section 5): its
     // label, empty for none, and what it copies -- the PeerId's
     // canonical string, with none of the groups' spaces.
     copy-label: string,
     peer-id: string,
+    // C4's PeerId while `IdAlreadyCreated` hides it: no phone will hold
+    // it, so the view takes its own copy of it off the clipboard
+    // (section 6, `peer_clip.rs`); empty on every other page.
+    void-peer: string,
     second-peer-label: string,
     second-peer-groups: string,
     // C2's and S2's numbered words.
@@ -516,6 +524,9 @@ export struct IdentityPage {
     // R2's check is running: every word is held until its result, and an
     // input that does nothing leaves the mode as it was (section 8).
     checking: bool,
+    // R2 after `IdRestoreOther`'s Continue: every held control shows
+    // disabled, keeping its stop, until the next screen opens (section 8).
+    held: bool,
     // The store's key-lost screen: the primary deletes stored data, in
     // `error` (design 2026-10-21 section 7.1).
     primary-danger: bool,
@@ -2244,6 +2255,21 @@ component IdentityScreen inherits FocusScope {
     // the clipboard through its own hidden field, so this page still
     // holds no TextInput (section 5).
     callback copy(string);
+    // The `PeerIdCopied` snackbar's text while it shows (section 5), empty
+    // for none: above the actions, in no focus order, taking no focus.
+    in property <string> copied;
+    // The page's area ends 12 px above the snackbar while it shows; when
+    // Copy PeerId, at `top` and `height` in the window, would then sit
+    // past either end, the area scrolls just far enough to show it whole.
+    function keep-in-view(top: length, height: length) {
+        let below = top + height - (page-flick.absolute-position.y + page-flick.height);
+        let above = page-flick.absolute-position.y - top;
+        if (below > 0) {
+            page-flick.content-y = max(page-flick.height - page-flick.content-height, page-flick.content-y - below);
+        } else if (above > 0) {
+            page-flick.content-y = min(0px, page-flick.content-y + above);
+        }
+    }
     // A control of the page took focus: its focus key, for the window's
     // focus-id and the debug build's trace.
     callback focused(string);
@@ -2561,7 +2587,8 @@ component IdentityScreen inherits FocusScope {
         if (root.page.picker) {
             root.typing = true;
             root.keypad();
-        } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4) {
+        } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4
+            || root.page.screen == IdScreen.c4) {
             root.read-first();
         }
     }
@@ -2617,7 +2644,10 @@ component IdentityScreen inherits FocusScope {
                 // focus on the primary that opened the screen just left
                 // (section 7). R3 and C4 are forward, not Back.
                 root.go(6, 0);
-            } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4) {
+            } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4
+                || root.page.screen == IdScreen.c4) {
+                // C4 too, by any input: Continue seals, so it is reached
+                // by Tab, not by a second Enter (section 8).
                 root.read-first();
             } else if (notice-new) {
                 root.go(0, root.banner-idx());
@@ -2950,6 +2980,18 @@ component IdentityScreen inherits FocusScope {
                             focus-wanted: root.want-seg == 0 && root.want-idx == root.banner-idx();
                             focused(k) => { root.took(k, 0, root.banner-idx()); }
                         }
+                        // The PeerId the notice names, in full, text only:
+                        // no stop and no Copy (section 5).
+                        if root.page.notice-peer != "": Text {
+                            text: root.page.notice-peer;
+                            font-family: root.code-font;
+                            font-size: Type.body-large;
+                            color: Palette.on-surface;
+                            wrap: word-wrap;
+                            min-height: self.preferred-height;
+                            accessible-role: text;
+                            accessible-label: Drawn.spoken(self.text);
+                        }
                         // Its action, under its text (section 6): held,
                         // it keeps its stop and presses nothing.
                         if root.page.notice-action != "": HorizontalLayout {
@@ -2973,6 +3015,26 @@ component IdentityScreen inherits FocusScope {
                                 focus-wanted: root.want-seg == 0 && root.want-idx == root.notice-action-idx();
                                 pressed => { root.typing = false; root.notice-action(); }
                                 focused(k) => { root.took(k, 0, root.notice-action-idx()); }
+                            }
+                        }
+                        // `ConnectStarting` under `IdRestoreOther`'s held
+                        // Continue, inside its notice (add-a-peer 5.1).
+                        if root.page.notice-action != "" && root.page.starting != "": HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            VerticalLayout {
+                                alignment: center;
+                                WaitMark { still: Touch.reduced-motion; }
+                            }
+                            Text {
+                                text: root.page.starting;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface-variant;
+                                wrap: word-wrap;
+                                min-height: self.preferred-height;
+                                vertical-alignment: center;
+                                accessible-role: text;
+                                accessible-label: Drawn.spoken(self.text);
                             }
                         }
                     }
@@ -3082,8 +3144,18 @@ component IdentityScreen inherits FocusScope {
                                     self.absolute-position, self.width, self.height);
                             }
                             focus-wanted: root.want-seg == 0 && root.want-idx == root.copy-idx();
+                            // Under the progress state nothing under it presses,
+                            // Copy included, and it never looks enabled then
+                            // (section 5); it keeps its stop.
+                            enabled-action: root.page.waiting == "";
                             pressed => { root.typing = false; root.copy(root.page.peer-id); }
                             focused(k) => { root.took(k, 0, root.copy-idx()); }
+                            // The snackbar shrinks the area above it: Copy
+                            // stays in view (section 5).
+                            property <bool> snack: root.copied != "";
+                            changed snack => {
+                                if (self.snack) { root.keep-in-view(self.absolute-position.y, self.height); }
+                            }
                         }
                     }
                 }
@@ -3113,6 +3185,7 @@ component IdentityScreen inherits FocusScope {
                 if root.page.grid.length > 0 && root.large-text: ActionButton {
                     text: root.page.review-label;
                     target: 48px;
+                    enabled-action: !root.page.held;
                     focus-key: "identity-review";
                     focus-seq: root.focus-seq;
                     property <int> arrow: root.arrow-seq;
@@ -3133,6 +3206,7 @@ component IdentityScreen inherits FocusScope {
                         row: floor(i / 4);
                         col: mod(i, 4);
                         min-height: 48px;
+                        enabled-action: !root.page.held;
                         label: slot.number + (slot.word != "" ? " " + slot.word : "");
                         focus-seq: root.focus-seq;
                         property <int> arrow: root.arrow-seq;
@@ -3147,10 +3221,13 @@ component IdentityScreen inherits FocusScope {
                         // the page that shows it moves focus to the keypad.
                         pressed => { root.mode(true); root.slot(i); }
                         focus-taken => { root.took("identity-slot:" + i, 1, i); }
+                        // Held, the position and its word dim together, as
+                        // a disabled key's; the ring does not (section 8).
                         Rectangle {
                             border-width: slot.current ? 2px : 1px;
                             border-color: slot.current ? Palette.primary : Palette.outline;
                             border-radius: 4px;
+                            opacity: root.page.held ? 0.38 : 1.0;
                         }
                         HorizontalLayout {
                             padding-left: 6px;
@@ -3161,6 +3238,7 @@ component IdentityScreen inherits FocusScope {
                                 font-size: Type.body-small;
                                 color: Palette.on-surface-variant;
                                 vertical-alignment: center;
+                                opacity: root.page.held ? 0.38 : 1.0;
                                 accessible-role: none;
                             }
                             Text {
@@ -3168,6 +3246,7 @@ component IdentityScreen inherits FocusScope {
                                 font-size: Type.body-medium;
                                 color: Palette.on-surface;
                                 vertical-alignment: center;
+                                opacity: root.page.held ? 0.38 : 1.0;
                                 accessible-role: none;
                             }
                         }
@@ -3207,6 +3286,7 @@ component IdentityScreen inherits FocusScope {
                     min-height: 48px;
                     min-width: chip-text.preferred-width + 24px;
                     radius: 8px;
+                    enabled-action: !root.page.held;
                     label: word;
                     focus-seq: root.focus-seq;
                     property <int> arrow: root.arrow-seq;
@@ -3222,14 +3302,17 @@ component IdentityScreen inherits FocusScope {
                         root.chip-word = word;
                         root.took("identity-chip", 2, i);
                     }
+                    // Held, the chip dims as a disabled key does.
                     Rectangle {
                         border-radius: 8px;
                         border-width: 1px;
                         border-color: Palette.outline;
                         background: Palette.surface-container;
+                        opacity: root.page.held ? 0.38 : 1.0;
                     }
                     chip-text := Text {
                         text: word;
+                        opacity: root.page.held ? 0.38 : 1.0;
                         font-size: Type.body-large;
                         color: Palette.on-surface;
                         horizontal-alignment: center;
@@ -3297,6 +3380,7 @@ component IdentityScreen inherits FocusScope {
                 ActionButton {
                     text: root.page.key-delete-label;
                     target: 48px;
+                    enabled-action: !root.page.held;
                     focus-key: "identity-delete";
                     focus-seq: root.focus-seq;
                     property <int> arrow: root.arrow-seq;
@@ -3313,6 +3397,7 @@ component IdentityScreen inherits FocusScope {
                 ActionButton {
                     text: root.page.key-clear-label;
                     target: 48px;
+                    enabled-action: !root.page.held;
                     focus-key: "identity-clear";
                     focus-seq: root.focus-seq;
                     property <int> arrow: root.arrow-seq;
@@ -3326,6 +3411,24 @@ component IdentityScreen inherits FocusScope {
                     pressed => { root.mode(self.by-tap); root.clear-word(); }
                     focused(k) => { root.took(k, 5, 0); }
                 }
+            }
+        }
+        // The copy's confirmation below Android 13 (section 5): the look
+        // spec's snackbar, no action, 12 px above the actions and 12 px
+        // from the screen's sides -- the layout's 16 px, less 4 -- so the
+        // area above ends 12 px over it and it covers nothing. Its text is
+        // said through the window's live region, not by itself.
+        if root.copied != "": Rectangle {
+            min-height: copied-snack.min-height;
+            preferred-height: copied-snack.preferred-height;
+            vertical-stretch: 0;
+            copied-snack := Snackbar {
+                x: -4px;
+                width: parent.width + 8px;
+                height: parent.height;
+                text: root.copied;
+                undo: false;
+                rtl: root.rtl;
             }
         }
         if root.page.waiting != "": Text {
@@ -3356,7 +3459,7 @@ component IdentityScreen inherits FocusScope {
         // its place and its focus while the start is held (section 5.1).
         // Said once, politely, by the root's live region; the mark stands
         // still under reduced motion, and the text alone says it.
-        if root.page.starting != "": HorizontalLayout {
+        if root.page.starting != "" && root.page.notice-action == "": HorizontalLayout {
             alignment: center;
             spacing: 8px;
             VerticalLayout {
@@ -4470,6 +4573,17 @@ export component AppWindow inherits Window {
     // Set by `View::raise_identity_heading`, taken by the page: focus to
     // its heading once it shows.
     in-out property <bool> identity-heading-wanted;
+    // The `PeerIdCopied` snackbar's text while it shows over the identity
+    // page's actions, empty for none: the view's (`copied.rs`).
+    in property <string> identity-copied;
+    // Copy PeerId on an identity page copied: the view confirms it below
+    // Android 13 (section 5).
+    callback identity-peer-copied();
+    // Where the app makes its own copy (Android, `peer_clip.rs`): Copy
+    // PeerId hands the string to the view, which copies and confirms it,
+    // in place of the window's field and `identity-peer-copied`.
+    in property <bool> identity-own-clipboard;
+    callback identity-peer-copy(string);
     callback identity-primary();
     callback identity-secondary();
     callback identity-tertiary();
@@ -10857,15 +10971,22 @@ export component AppWindow inherits Window {
             slot(i) => { root.identity-slot(i); }
             dialog(delete) => { root.identity-dialog(delete); }
             review(open) => { root.identity-review(open); }
-            // Through the field Copy message source uses, outside this
-            // page, which holds no TextInput.
+            // The app's own copy where it makes one (Android); else through
+            // the field Copy message source uses, outside this page, which
+            // holds no TextInput.
             copy(peer) => {
+                if (root.identity-own-clipboard) {
+                    root.identity-peer-copy(peer);
+                    return;
+                }
                 root.copy-text = peer;
                 peers-copy.select-all();
                 peers-copy.copy();
                 peers-copy.clear-selection();
                 root.copy-text = "";
+                root.identity-peer-copied();
             }
+            copied: root.identity-copied;
             focused(k) => { root.focus-id = k; }
             heading-wanted <=> root.identity-heading-wanted;
             init => { self.focus(); }

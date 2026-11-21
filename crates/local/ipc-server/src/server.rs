@@ -992,8 +992,8 @@ mod tests {
     }
 
     /// A writer that gives up on a client that does not read inside the
-    /// stop's grace (`write_stall` shorter than the grace) drops what its
-    /// lane held, and the stop counts it: what the socket delivered and
+    /// stop's grace (`write_stall` shorter than the grace) closes its
+    /// lane, and the stop counts what it held: what the socket delivered and
     /// what was counted are the queue whole, the event the writer failed
     /// on included. As the gap was found, the lane's events went uncounted
     /// whenever the writer gave up before the grace ended (#709 review F1).

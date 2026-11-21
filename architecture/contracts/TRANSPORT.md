@@ -235,7 +235,7 @@ A direct `MessageReceived` event is emitted only after transport authentication,
 
 A broadcast `MessageReceived` event remains join-filtered per local client.
 
-`TrustPolicyChanged` is operational state only. Revoking a connected peer also closes its data-plane connection and produces `PeerDisconnected { reason_class: policy, ... }` where applicable.
+`TrustPolicyChanged` is operational state only. Revoking a connected peer also closes its data-plane connection and produces `PeerDisconnected { reason_class: policy, ... }` where applicable. That is the rule until the Stage 22 release, while the node holds one list; from that release the close and the event come when the peer leaves the admission set, by whichever write removed it from the last set that held it, and a revoke that leaves it in another set closes nothing (ADR-0067 decision 6, A 2026-11-19).
 
 ## Error model
 
