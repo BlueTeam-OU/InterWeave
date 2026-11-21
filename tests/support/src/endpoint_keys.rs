@@ -54,4 +54,20 @@ mod tests {
         assert_eq!(id, a);
         assert_eq!(id.ed25519_public(), Some(key.verifying_key().to_bytes()));
     }
+
+    /// The ids are reproducible outside Rust: `fixtures/ipc-v3`'s goldens
+    /// name them by seed, and `tools/checks/verify_fixture_vectors.py`
+    /// recomputes them independently (`test_only_endpoint_id`). These are
+    /// the values both produce.
+    #[test]
+    fn the_ids_are_the_ones_the_fixture_verifier_recomputes() {
+        assert_eq!(
+            endpoint_id("human").as_str(),
+            "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"
+        );
+        assert_eq!(
+            endpoint_id("claude").as_str(),
+            "12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd"
+        );
+    }
 }

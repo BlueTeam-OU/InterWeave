@@ -133,7 +133,7 @@ impl Raw {
 /// A hello claiming to be `transportctl`, asking for `capabilities`.
 fn transportctl_hello(capabilities: &str) -> String {
     format!(
-        r#"{{"type":"hello","ipc_version":{{"major":2,"minor":2}},
+        r#"{{"type":"hello","ipc_version":{{"major":3,"minor":0}},
         "client":{{"kind":"transportctl"}},"requested_capabilities":[{capabilities}]}}"#
     )
 }

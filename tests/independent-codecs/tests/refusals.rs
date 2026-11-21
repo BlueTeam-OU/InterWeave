@@ -276,11 +276,13 @@ fn ipc_envelope_rules_hold_beside_their_controls() {
     let nonce = |n: &str| format!(r#"{{"type":"ping","nonce":"{n}"}}"#);
     let lease = |members: &str| {
         format!(
-            r#"{{"type":"hello_response","ipc_version":{{"major":2,"minor":3}},"transport_contract_version":"2.0","peer":"PEER","granted_capabilities":["events"]{members}}}"#
+            r#"{{"type":"hello_response","ipc_version":{{"major":3,"minor":0}},"transport_contract_version":"3.0","peer":"PEER","granted_capabilities":["events"]{members}}}"#
         )
         .replace("PEER", GOLDEN_PEER)
     };
-    let full = r#","endpoint":"human","endpoint_lease_epoch":"AAAAAAAAAAAAAAAA","event_queue":256"#;
+    // TEST-ONLY: a derived EndpointId (the test seed "human"), the only
+    // grammar hello-response 2.0.0 admits.
+    let full = r#","endpoint":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr","endpoint_lease_epoch":"AAAAAAAAAAAAAAAA","event_queue":256"#;
     let owned: Vec<(String, String)> = vec![
         // common/peer-id: 12D3KooW or Qm, then exactly 44 base58btc.
         (lease(""), lease("").replace(GOLDEN_PEER, "12D3KooW")),
@@ -299,13 +301,19 @@ fn ipc_envelope_rules_hold_beside_their_controls() {
         (nonce(&"A".repeat(16)), nonce(&"A".repeat(15))),
         (nonce(&"_-".repeat(32)), nonce(&"A".repeat(65))),
         (nonce(&"A".repeat(16)), nonce(&format!("{}=", "A".repeat(16)))),
+        // hello-response 2.0.0 speaks major 3: a major-2 answer is refused.
+        (lease(""), lease("").replace(r#""major":3"#, r#""major":2"#)),
         // hello-response: the three lease members together or not at all.
-        (lease(""), lease(r#","endpoint":"human""#)),
-        (lease(full), lease(r#","endpoint":"human","endpoint_lease_epoch":"AAAAAAAAAAAAAAAA""#)),
+        (lease(""), lease(r#","endpoint":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr""#)),
+        (lease(full), lease(r#","endpoint":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr","endpoint_lease_epoch":"AAAAAAAAAAAAAAAA""#)),
         (lease(full), lease(r#","event_queue":256"#)),
         (lease(full), lease(&full.replace("AAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAA"))),
         (lease(full), lease(&full.replace("256", "0"))),
-        (lease(full), lease(&full.replace("\"human\"", "\"Human\""))),
+        // The endpoint: the derived id only -- a label of the grammar
+        // ADR-0067 retired, and one non-base58btc character in the tail,
+        // are refused.
+        (lease(full), lease(&full.replace("12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr", "human"))),
+        (lease(full), lease(&full.replace("12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr", "12D3KooW026ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"))),
         (
             lease(""),
             lease("").replace(r#"["events"]"#, r#"["events","events"]"#),

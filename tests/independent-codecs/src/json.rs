@@ -5,7 +5,7 @@
 //! order they were read.
 //!
 //! Hand-written rather than borrowed because the IPC goldens freeze a body
-//! in key order (`ipc-v2-frame-golden.json`'s `canonical_form`), which the
+//! in key order (`ipc-v3-frame-golden.json`'s `canonical_form`), which the
 //! workspace's JSON library loses unless `preserve_order` is on — and it is
 //! enabled nowhere, deliberately. A number keeps its lexeme, so a body
 //! re-encodes byte-equal whatever its numbers look like.

@@ -193,7 +193,7 @@ fn the_fingerprint_domain_is_the_fixtures() {
 
 #[test]
 fn ipc_v2_frames_decode_to_their_bodies_and_reencode_byte_equal() {
-    for v in vectors("ipc-v2/ipc-v2-frame-golden.json") {
+    for v in vectors("ipc-v3/ipc-v3-frame-golden.json") {
         let name = v["name"].as_str().unwrap();
         let frame = hex(v["frame_hex"].as_str().unwrap());
         let env = ipc_v2::decode_frame(&frame).unwrap_or_else(|e| panic!("{name}: {e}"));

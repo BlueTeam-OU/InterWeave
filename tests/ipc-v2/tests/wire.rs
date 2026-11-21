@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! IPC v2 on the wire: the server over a runtime composed from a profile,
+//! IPC on the wire, major 3 (the crate keeps the name `ipc-v2` it had on
+//! major 2): the server over a runtime composed from a profile,
 //! driven by raw frames on real Unix sockets. What a client sees, held to
 //! the frozen schemas -- not what the server's types promise.
 //!
@@ -13,10 +14,10 @@
 //! `LOCAL-IPC.md`'s method table -- read from that table, so the mapping
 //! is the contract's and not a copy of it. The frame schema leaves an
 //! event's data and a result `{}` and defers the pair, which is why those
-//! halves exist (plan §16 exit gate (a)). A result shape a later minor
-//! replaced is held to the older schema on a connection below that minor
-//! ([`OLDER_RESULTS`]), the minor read from the connection's own
-//! `hello_response`. A frame the server wrote and no
+//! halves exist (plan §16 exit gate (a)). On major 3 every result has the
+//! one shape the method table names: major 2's older shapes (the 2.1
+//! empty result of `admin.trust.set` below 2.10) are served to no
+//! connection. A frame the server wrote and no
 //! test read is not audited: what a test does not read, it does not see.
 
 #![cfg(unix)]
@@ -249,12 +250,8 @@ impl Client {
             }
         }
         let mut answered = BTreeSet::new();
-        let mut minor = None;
         for body in &self.seen {
             let value: Value = serde_json::from_str(body).expect("the server wrote json");
-            if value["type"] == "hello_response" {
-                minor = value["ipc_version"]["minor"].as_u64();
-            }
             assert_valid(&schemas.frame, &value, "a server frame");
             if value["type"] == "event" {
                 let pair = serde_json::json!({
@@ -268,13 +265,10 @@ impl Client {
                 let method = methods
                     .get(id)
                     .unwrap_or_else(|| panic!("a response to an id never asked: {body}"));
-                let result = match schemas.older.get(method) {
-                    Some((since, older)) if minor.is_some_and(|minor| minor < *since) => older,
-                    _ => schemas
-                        .results
-                        .get(method)
-                        .unwrap_or_else(|| panic!("{method} has no row in LOCAL-IPC.md's table")),
-                };
+                let result = schemas
+                    .results
+                    .get(method)
+                    .unwrap_or_else(|| panic!("{method} has no row in LOCAL-IPC.md's table"));
                 assert_valid(result, &value["result"], method);
                 answered.insert(method.clone());
             }
@@ -350,15 +344,15 @@ impl Drop for Client {
     }
 }
 
-const DATA: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+const DATA: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
     "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
     "requested_capabilities":["events","commands"],"features":["keepalive"]}"#;
-const ADMIN: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+const ADMIN: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
     "client":{"kind":"transportctl"},
     "requested_capabilities":["admin.status","admin.endpoints"]}"#;
-/// An admin hello naming `admin.trust`, which is 2.1's: legal only at
-/// minor 1 or later.
-const ADMIN_TRUST: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":1},
+/// An admin hello naming `admin.trust`, 2.1's on major 2 and a 3.0
+/// capability: legal in a first hello at minor 0.
+const ADMIN_TRUST: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
     "client":{"kind":"transportctl"},
     "requested_capabilities":["admin.status","admin.trust"]}"#;
 
@@ -376,15 +370,6 @@ fn schema_docs(dir: &Path, out: &mut Vec<Value>) {
     }
 }
 
-/// A method whose result shape a minor replaced: below `since`, the
-/// result is held to `schema`, the shape LOCAL-IPC.md gives it there; the
-/// method table names the shape from `since` on.
-const OLDER_RESULTS: [(&str, u64, &str); 1] = [(
-    "admin.trust.set",
-    interweave_ipc_protocol::SUPERSEDED_SINCE_MINOR,
-    "ipc/empty-result.schema.json",
-)];
-
 /// The validators every audit uses, built once: the frame, request and
 /// event catalogues, and each method's result schema as `LOCAL-IPC.md`'s
 /// method table names it.
@@ -393,8 +378,6 @@ struct Schemas {
     request: jsonschema::Validator,
     event: jsonschema::Validator,
     results: BTreeMap<String, jsonschema::Validator>,
-    /// [`OLDER_RESULTS`]' schemas, by method.
-    older: BTreeMap<String, (u64, jsonschema::Validator)>,
 }
 
 impl Schemas {
@@ -435,12 +418,7 @@ impl Schemas {
                 (method, validator)
             })
             .collect();
-        let older = OLDER_RESULTS
-            .into_iter()
-            .map(|(method, since, schema)| (method.to_owned(), (since, compile(schema))))
-            .collect();
         Self {
-            older,
             frame: compile("ipc/frame.schema.json"),
             request: compile("ipc/request.schema.json"),
             event: compile("ipc/event.schema.json"),
@@ -601,7 +579,7 @@ async fn every_frame_the_server_writes_validates_against_the_schema() {
     assert_eq!(lease_changed.event_type, "endpoint.lease_changed");
     let mut refused = Client::connect(&node.paths.data).await;
     refused
-        .send(r#"{"type":"hello","ipc_version":{"major":3,"minor":0},"client":{"kind":"k"}}"#)
+        .send(r#"{"type":"hello","ipc_version":{"major":2,"minor":13},"client":{"kind":"k"}}"#)
         .await;
     assert_eq!(
         refused.close_code().await,
@@ -703,18 +681,30 @@ async fn each_handshake_refusal_has_its_code() {
             ),
             TransportError::InvalidArgument,
         ),
-        // A 2.1 capability in a hello negotiating 2.0 is the client's
-        // violation on either socket; at 2.1 the data socket refuses it
-        // as every `admin.*`.
+        // Major 2 is not served beside major 3 (ADR-0067 decision 7):
+        // a 2.x hello on either socket -- 2.13 among them, whose minor is
+        // above 3.0's -- is `VersionIncompatible`, before its capabilities
+        // or its claim are judged. The same hellos at 3.0 are the
+        // controls elsewhere in this suite.
         (
             &node.paths.admin,
-            ADMIN_TRUST.replace(r#""minor":1"#, r#""minor":0"#),
-            TransportError::ProtocolViolation,
+            ADMIN_TRUST.replace(r#""major":3,"minor":0"#, r#""major":2,"minor":1"#),
+            TransportError::VersionIncompatible,
         ),
         (
             &node.paths.data,
-            ADMIN_TRUST.replace(r#""minor":1"#, r#""minor":0"#),
-            TransportError::ProtocolViolation,
+            DATA.replace(r#""major":3,"minor":0"#, r#""major":2,"minor":13"#),
+            TransportError::VersionIncompatible,
+        ),
+        // A label claim inside the 1..=64 bounds is no derived id:
+        // `InvalidArgument`, as any malformed claim.
+        (
+            &node.paths.data,
+            DATA.replace(
+                r#""id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr""#,
+                r#""id":"human""#,
+            ),
+            TransportError::InvalidArgument,
         ),
         (
             &node.paths.data,
@@ -824,7 +814,7 @@ async fn an_unleased_connection_holds_commands_and_cannot_send_direct() {
     let mut unleased = Client::connect(&node.paths.data).await;
     unleased
         .send(
-            r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+            r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"broadcaster"},"requested_capabilities":["commands","events"]}"#,
         )
         .await;
@@ -897,9 +887,8 @@ async fn an_unleased_connection_holds_commands_and_cannot_send_direct() {
 /// otherwise close the client first and end its session.
 ///
 /// And the overflow is no refusal: `ipc.events_refused_total` is served
-/// to the connection that negotiated 2.13, kept and so emitted, and
-/// stays 0 throughout; the connection at 2.12 is served the 1.1 block,
-/// without it (`REFUSED_TOTAL_SINCE_MINOR`).
+/// (the 2.13 block, the one 3.0 serves), kept and so emitted, and stays 0
+/// throughout.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
     use interweave_ipc_protocol::{ChannelParams, PublishParams, Request};
@@ -916,15 +905,8 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
         16,
     )
     .await;
-    let since = interweave_ipc_protocol::REFUSED_TOTAL_SINCE_MINOR;
-    let mut older = Client::connect(&node.paths.admin).await;
-    older
-        .hello(&ADMIN.replace(r#""minor":0"#, &format!(r#""minor":{}"#, since - 1)))
-        .await;
     let mut current = Client::connect(&node.paths.admin).await;
-    current
-        .hello(&ADMIN.replace(r#""minor":0"#, &format!(r#""minor":{since}"#)))
-        .await;
+    current.hello(ADMIN).await;
     let mut asked = 0_u32;
     let mut dropped = async || {
         let mut status = async |admin: &mut Client| -> Value {
@@ -938,13 +920,8 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
             let answer: Value = serde_json::from_str(&admin.response().await).expect("json");
             answer["result"]["ipc"].clone()
         };
-        let (old, new) = (status(&mut older).await, status(&mut current).await);
-        assert!(
-            old.get("events_refused_total").is_none(),
-            "below 2.13, the 1.1 block: {old}"
-        );
+        let new = status(&mut current).await;
         assert_eq!(new["events_refused_total"], 0, "no refusal: {new}");
-        assert_eq!(old["events_dropped_total"], new["events_dropped_total"]);
         new["events_dropped_total"]
             .as_u64()
             .unwrap_or_else(|| panic!("the count is kept, so emitted: {new}"))
@@ -968,7 +945,7 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
     let mut publisher = Client::connect(&node.paths.data).await;
     publisher
         .hello(
-            r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+            r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"broadcaster"},"requested_capabilities":["commands"]}"#,
         )
         .await;
@@ -1012,16 +989,16 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
         publish().await;
     }
     assert_eq!(dropped().await, first + 5, "one per broadcast, counted");
-    drop((stalled, publisher, older, current));
+    drop((stalled, publisher, current));
     node.stop().await;
 }
 
-/// The golden client frames of `fixtures/ipc-v2/ipc-v2-frame-golden.json`
+/// The golden client frames of `fixtures/ipc-v3/ipc-v3-frame-golden.json`
 /// are accepted as written.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_golden_client_frames_are_accepted() {
     let fixture: Value = serde_json::from_str(
-        &std::fs::read_to_string(root().join("fixtures/ipc-v2/ipc-v2-frame-golden.json"))
+        &std::fs::read_to_string(root().join("fixtures/ipc-v3/ipc-v3-frame-golden.json"))
             .expect("fixture"),
     )
     .expect("json");
@@ -1092,7 +1069,7 @@ async fn a_trust_revocation_over_the_admin_socket_reaches_the_data_socket_as_pol
     .await;
     let mut data = Client::connect(&subject.paths.data).await;
     data.hello(
-        r#"{"type":"hello","ipc_version":{"major":2,"minor":1},
+        r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"human-client"},
         "requested_capabilities":["events","endpoints.query"]}"#,
     )
@@ -1263,18 +1240,21 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     .await;
     let mut receiver = Client::connect(&target.paths.data).await;
     receiver.hello(DATA).await;
+    // Without `events`: this client reads responses only, and on 3.0 a
+    // route's begin is pushed as a `peer.path_changed` to a session that
+    // holds `events` (major 2 at 2.0 had none to push).
     let mut data = Client::connect(&subject.paths.data).await;
     data.hello(
-        r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
-        "requested_capabilities":["events","commands","endpoints.query"],
+        "requested_capabilities":["commands","endpoints.query"],
         "features":["keepalive"]}"#,
     )
     .await;
     let mut admin = Client::connect(&subject.paths.admin).await;
     admin
         .hello(
-            r#"{"type":"hello","ipc_version":{"major":2,"minor":10},
+            r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"transportctl"},
             "requested_capabilities":["admin.status","admin.endpoints","admin.shutdown",
                 "admin.trust","admin.peers"]}"#,
@@ -1408,12 +1388,12 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         }
     }
 
-    // `session.losses` on a connection of its own at 2.11, the minor it
-    // came with: the one above is at 2.0, where it is no method.
+    // `session.losses` on a connection of its own (a 3.0 method, 2.11's
+    // on major 2).
     let mut losses = Client::connect(&subject.paths.data).await;
     losses
         .hello(
-            r#"{"type":"hello","ipc_version":{"major":2,"minor":11},
+            r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"human-client"},"requested_capabilities":["commands"],
             "features":["keepalive"]}"#,
         )

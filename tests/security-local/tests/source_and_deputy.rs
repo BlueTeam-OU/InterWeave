@@ -157,7 +157,7 @@ async fn a_source_endpoint_named_by_the_caller_is_refused_and_the_receiver_reads
 
     let (_, squatter) = Raw::hello(
         &pair.a.data_socket(),
-        r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#,
     )
@@ -169,7 +169,7 @@ async fn a_source_endpoint_named_by_the_caller_is_refused_and_the_receiver_reads
 
     let (mut spoofer, granted) = Raw::hello(
         &pair.a.data_socket(),
-        r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"claude-channel"},"endpoint":{"id":"12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#,
     )
