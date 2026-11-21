@@ -21,6 +21,7 @@ use interweave_local_client_api::{
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode, FakeSession};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointDirectoryV1, EndpointId,
     MAX_PAYLOAD_BYTES, MessageId, Payload, TransportError, TransportIdentity,
@@ -34,7 +35,7 @@ const PATIENCE: Duration = Duration::from_secs(10);
 const NOW_MS: u64 = 1_791_227_222_497;
 
 fn endpoint(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("endpoint")
+    endpoint_id(s)
 }
 
 fn general() -> ChannelId {
@@ -324,6 +325,7 @@ impl World {
 
     /// The bridge on A, and B as `b` configures it: its peer, for one.
     async fn start_with(delivery: interweave_claude_channel_core::Delivery, b: FakeConfig) -> Self {
+        let peer_endpoint = b.default_endpoint.clone();
         let (a, b) = FakeNetwork::pair(config(), b);
         let record = Arc::new(Record::default());
         let binding = Recorded {
@@ -350,6 +352,7 @@ impl World {
         };
         let config = Config {
             endpoint: endpoint("claude"),
+            endpoint_alias: None,
             desired_channels: Ok(vec![general()]),
             delivery,
         };
@@ -364,7 +367,7 @@ impl World {
             .open(
                 SessionRequest::new(
                     "test-peer",
-                    Some(endpoint("human")),
+                    peer_endpoint,
                     [DataCapability::Events, DataCapability::Commands],
                 )
                 .expect("request"),
@@ -573,8 +576,14 @@ async fn an_inbound_direct_is_notified_and_replied_to_on_its_route() {
     let meta = &n["meta"];
     assert_eq!(meta["delivery_mode"], json!("direct"));
     assert_eq!(meta["source_peer"], json!(w.b.peer().as_str()));
-    assert_eq!(meta["source_endpoint"], json!("claude"));
-    assert_eq!(meta["destination_endpoint"], json!("claude"));
+    assert_eq!(
+        meta["source_endpoint"],
+        json!(endpoint_id("claude").as_str())
+    );
+    assert_eq!(
+        meta["destination_endpoint"],
+        json!(endpoint_id("claude").as_str())
+    );
     assert!(meta.get("source").is_none(), "no source key: {meta}");
     let token = meta["reply_token"].as_str().expect("a token").to_owned();
 
@@ -585,7 +594,13 @@ async fn an_inbound_direct_is_notified_and_replied_to_on_its_route() {
         )
         .await;
     assert!(!error, "{text}");
-    assert_eq!(text, "remote transport accepted at endpoint claude");
+    assert_eq!(
+        text,
+        format!(
+            "remote transport accepted at endpoint {}",
+            endpoint_id("claude").as_str()
+        )
+    );
     let events = b_claude.events(usize::MAX).await.expect("events");
     let reply = events
         .iter()
@@ -628,10 +643,16 @@ async fn send_is_endpoint_aware() {
     let (text, _) = w
         .tool(
             "send",
-            json!({"peer": b, "endpoint": "claude", "content": "x"}),
+            json!({"peer": b, "endpoint": endpoint_id("claude").as_str(), "content": "x"}),
         )
         .await;
-    assert_eq!(text, "remote transport accepted at endpoint claude");
+    assert_eq!(
+        text,
+        format!(
+            "remote transport accepted at endpoint {}",
+            endpoint_id("claude").as_str()
+        )
+    );
     let arrived = b_claude.events(usize::MAX).await.expect("events");
     assert!(
         arrived
@@ -641,7 +662,11 @@ async fn send_is_endpoint_aware() {
     );
     let (text, _) = w.tool("send", json!({"peer": b, "content": "y"})).await;
     assert_eq!(
-        text, "remote transport accepted at endpoint human",
+        text,
+        format!(
+            "remote transport accepted at endpoint {}",
+            endpoint_id("human").as_str()
+        ),
         "the default route is the remote's configured default"
     );
 }
@@ -1015,6 +1040,7 @@ async fn an_endpoint_conflict_is_reported_as_itself() {
     };
     let config = Config {
         endpoint: endpoint("claude"),
+        endpoint_alias: None,
         desired_channels: Ok(Vec::new()),
         delivery: interweave_claude_channel_core::Delivery::Push,
     };
@@ -1272,7 +1298,10 @@ async fn a_pulled_direct_carries_the_pushs_content_and_meta_and_is_replied_to() 
     assert_eq!(event["content"], json!("hello pull"));
     assert_eq!(event["meta"]["delivery_mode"], json!("direct"));
     assert_eq!(event["meta"]["source_peer"], json!(w.b.peer().as_str()));
-    assert_eq!(event["meta"]["destination_endpoint"], json!("claude"));
+    assert_eq!(
+        event["meta"]["destination_endpoint"],
+        json!(endpoint_id("claude").as_str())
+    );
     let token = event["meta"]["reply_token"]
         .as_str()
         .expect("a token")
@@ -2140,6 +2169,12 @@ async fn a_contact_card_at_the_photo_bound_reaches_the_host_as_meta_alone() {
     assert_eq!(over["received_on"]["peer_id"], signer, "one route for both");
     let mut b = config();
     b.peer = TransportIdentity::parse(signer).expect("a peer id");
+    // Still a label, not a derived id: the vectors' signatures bind the
+    // source endpoint as `human` (checked by `classify`), and the frozen
+    // fixtures change only by protocol review.
+    let human = EndpointId::parse("human").expect("the vectors' label");
+    b.endpoints[0] = FakeEndpoint::open(human.clone(), false);
+    b.default_endpoint = Some(human);
     let mut w = World::start_with(interweave_claude_channel_core::Delivery::Push, b).await;
     let a_peer = w.a.peer().clone();
     let send = |v: &Value, id: u8| {

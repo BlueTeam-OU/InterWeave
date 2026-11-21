@@ -298,6 +298,7 @@ pub(crate) fn is_stale(route: &ReplyRoute, held: Option<&Generation>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     const P1: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
@@ -305,7 +306,7 @@ mod tests {
         TransportIdentity::parse(P1).expect("valid identity")
     }
     fn ep(n: &str) -> EndpointId {
-        EndpointId::parse(n).expect("valid endpoint")
+        endpoint_id(n)
     }
     fn epoch(seed: &str) -> Generation {
         Generation::parse(format!("{seed:_<16}")).expect("valid generation")

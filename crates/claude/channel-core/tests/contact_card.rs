@@ -20,6 +20,7 @@ use interweave_human_chat_protocol::{
     Card, CardRoute, Classified, MAX_CARD_PHOTO_BYTES, MEDIA_TYPE_V2, classify,
 };
 use interweave_local_client_api::{Generation, ReceivedBroadcast, ReceivedDirect, SessionEvent};
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{
     ChannelId, EndpointId, MAX_PAYLOAD_BYTES, MediaType, MessageId, Payload, TransportIdentity,
 };
@@ -52,6 +53,9 @@ fn peer(v: &Value) -> TransportIdentity {
     TransportIdentity::parse(v["received_on"]["peer_id"].as_str().expect("a peer")).expect("peer")
 }
 
+/// Still a label: the frozen vectors' signatures bind `source_endpoint`
+/// as the label `human`, so a derived id fails `SignatureFails` until the
+/// vectors are regenerated over derived ids (fixtures are protocol-reviewed).
 fn source_endpoint(v: &Value) -> EndpointId {
     EndpointId::parse(
         v["received_on"]["source_endpoint"]
@@ -84,7 +88,7 @@ fn direct(v: &Value, payload: Payload) -> SessionEvent {
     SessionEvent::Direct(ReceivedDirect {
         source_peer: peer(v),
         source_endpoint: source_endpoint(v),
-        destination_endpoint: EndpointId::parse("claude").expect("endpoint"),
+        destination_endpoint: endpoint_id("claude"),
         message_id: MessageId::parse_hex("000102030405060708090a0b0c0d0e0f").expect("id"),
         payload,
         received_at_ms: NOW,
@@ -104,7 +108,7 @@ fn broadcast(v: &Value, payload: Payload) -> SessionEvent {
 fn leased() -> BridgeState {
     let mut bridge = BridgeState::new();
     bridge.leased(
-        EndpointId::parse("claude").expect("endpoint"),
+        endpoint_id("claude"),
         Generation::parse("AAAAAAAAAAAAAAAAAAAAAQ").expect("epoch"),
     );
     bridge

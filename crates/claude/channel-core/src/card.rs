@@ -16,7 +16,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use interweave_human_chat_protocol::{
-    Card, CardFault, CardRoute, Classified, MAX_CARD_NAME_SCALARS, classify,
+    Card, CardFault, CardRoute, Classified, MAX_CARD_NAME_SCALARS, classify, is_card,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -165,20 +165,22 @@ pub fn direct(
     }
 }
 
-/// `text`, a `HumanChatV2` envelope's decoded text, received over broadcast
-/// from `publisher`. A card of any shape is dropped as
-/// [`CardDrop::Broadcast`]: a broadcast has no source endpoint, and
-/// whether a text is a card is decided before the route is read (the
-/// parser's `classify`), so the endpoint given it here only reaches a
-/// signature check whose answer is not used.
+/// `text`, a `HumanChatV2` envelope's decoded text, received over
+/// broadcast. A card of any shape is dropped as [`CardDrop::Broadcast`].
+/// A broadcast has no source endpoint, so the question is asked of
+/// `is_card`, which takes no route and answers as `classify` does for
+/// not-a-card. A route fabricated here was an `EndpointId` of a grammar
+/// that ADR-0067 retires; once it stopped parsing, every broadcast text
+/// would have been dropped as a card
+/// (`a_card_over_broadcast_is_dropped_and_a_text_envelope_is_not`).
 ///
 /// # Errors
 /// [`CardDrop::Broadcast`] for any card, malformed or not.
-pub fn broadcast(text: &str, publisher: &TransportIdentity) -> Result<(), CardDrop> {
-    let unused = EndpointId::parse("broadcast").map_err(|_| CardDrop::Broadcast)?;
-    match direct(text, publisher, &unused) {
-        Ok(Kind::Text) => Ok(()),
-        Ok(Kind::Card(_)) | Err(_) => Err(CardDrop::Broadcast),
+pub fn broadcast(text: &str) -> Result<(), CardDrop> {
+    if is_card(text) {
+        Err(CardDrop::Broadcast)
+    } else {
+        Ok(())
     }
 }
 
