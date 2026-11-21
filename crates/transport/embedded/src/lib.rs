@@ -292,8 +292,8 @@ pub struct EmbeddedHost {
     // DROPPED IN THIS ORDER (`Drop` below, `stop`): the runtime's tasks
     // first, then the executor, then the lock -- a lock released while
     // the runtime still writes its state would let a second host write
-    // beside it. `kill_for_test` takes the executor first, and waits for
-    // it, so the tasks never begin their own shutdown.
+    // beside it. `kill_for_test` cancels the driver first, while the
+    // request channel is open, so it begins no shutdown of its own.
     composed: Option<ComposedRuntime>,
     executor: Option<tokio::runtime::Runtime>,
     handle: tokio::runtime::Handle,
@@ -579,9 +579,10 @@ impl EmbeddedHost {
     }
 
     /// End the host as a process death does, for a host standing in for
-    /// a device's process: every task cancelled at its next await, with
-    /// no shutdown path run, and NOTHING of the runtime still running
-    /// when this returns. TEST BUILDS ONLY.
+    /// a device's process: the driver cancelled where it waits, with
+    /// none of its shutdown run, then every other task, and nothing of
+    /// the runtime still running when this returns. TEST BUILDS ONLY:
+    /// `tools/checks/check_shipped_test_hooks.sh`.
     ///
     /// Not [`Drop`]: dropping `composed` closes the driver's request
     /// channel, so the driver begins its own shutdown -- which writes
@@ -589,20 +590,24 @@ impl EmbeddedHost {
     /// `shutdown_background` returns without waiting, and that write
     /// could land after the caller removed the file (the android-e2e
     /// neither-source row, CI run 44887404062, and 3 kills in 40 on
-    /// this host, j128). A killed process writes nothing after its
-    /// death. So the executor goes first, and is waited for; `composed`
-    /// is dropped after, onto a runtime that runs nothing.
-    /// `a_killed_host_writes_no_peer_cache_after_it_returns` holds it.
+    /// this host, j128). Nor the executor's shutdown alone: its workers
+    /// cancel tasks one at a time, and a driver polled after the
+    /// substrate's task was cancelled sees the substrate end and runs
+    /// that shutdown too (#740 review F1). So the driver is aborted
+    /// while the channel and the substrate are both up, and awaited;
+    /// then the executor is dropped, which waits for its threads as
+    /// [`stop`](Self::stop) does; then `composed`, onto a runtime that
+    /// runs nothing; then the lock.
+    /// `a_killed_host_writes_no_peer_cache_after_it_returns` holds it:
+    /// no file at the kill's return, nor after.
     ///
     /// BLOCKS; call it off any async context.
     #[cfg(feature = "test-hooks")]
     pub fn kill_for_test(mut self) {
-        // Bounded: a task cannot hold a worker longer than its current
-        // poll, and the blocking pool's threads are waited for this
-        // long at most.
-        if let Some(executor) = self.executor.take() {
-            executor.shutdown_timeout(Duration::from_secs(10));
+        if let (Some(executor), Some(composed)) = (self.executor.as_ref(), self.composed.as_mut()) {
+            executor.block_on(composed.abort_driver());
         }
+        drop(self.executor.take());
         drop(self.composed.take());
         drop(self.lock.take());
     }
