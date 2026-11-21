@@ -8419,7 +8419,26 @@ export component AppWindow inherits Window {
                         accessible-role: none;
                     }
                 // Spaced so a focused bubble's ring clears its day separator.
+                // Sized from the list's width and its own content, never from
+                // the size the list's layout gives the row: a row added to the
+                // list marks that layout's result changed for every row (the
+                // toolkit marks what depends on it dirty without comparing
+                // values), and each row then laid its bubble out again,
+                // measuring all its text -- a page landing above 256 held
+                // rows cost about three times what it costs now, one row as
+                // much as 32 (j307;
+                // `a_page_drawn_above_costs_its_own_rows_not_the_held_ones`).
+                // A leaving row's content fills its closing box, as every
+                // row's once did: given its own height there, the box's clip
+                // hid all of it from its first frame
+                // (`a_leaving_message_closes_its_space_without_a_jump`).
                 row-content := VerticalLayout {
+                    // The list's padding as it sets it: its per-side
+                    // properties read 0 when only `padding` is given, and
+                    // the bubble then reached the list's edge, which cut its
+                    // ring (`every_tab_stop_draws_exactly_one_focus_ring`).
+                    width: messages-column.width - 2 * messages-column.padding;
+                    height: row.leaving ? parent.height : self.preferred-height;
                     padding-top: row.gap;
                     spacing: FocusMode.ring-reach;
                     // The window's marks that stand above it, before its day

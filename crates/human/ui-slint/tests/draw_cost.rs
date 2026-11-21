@@ -8,10 +8,13 @@
 //! by element visits every row.
 //!
 //! The figures are compared within one test, never against a constant:
-//! two pages drawn above the same held rows, so a slower machine or a
-//! loaded one moves both. One test in this binary, since a process holds
-//! one window's event loop. What this cannot prove: the cost on a phone,
-//! or with a screen reader reading the tree.
+//! two pages drawn above the same held rows, or a page against a frame
+//! drawn with nothing changed, so a slower machine or a loaded one moves
+//! both. Each is the drawing thread's own CPU time where the platform
+//! says it (Linux), so other work on the host moves it less. One test in
+//! this binary, since a process holds one window's event loop. What this
+//! cannot prove: the cost on a phone, or with a screen reader reading the
+//! tree.
 
 #![cfg(feature = "desktop")]
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
@@ -57,11 +60,29 @@ fn window() -> View {
     view
 }
 
-/// How long the next frame takes to lay out and draw.
+/// The CPU time this thread has run, where the platform says it.
+fn thread_cpu() -> Option<Duration> {
+    let stat = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
+    Some(Duration::from_nanos(
+        stat.split_whitespace().next()?.parse().ok()?,
+    ))
+}
+
+/// How long the next frame takes to lay out and draw: CPU time where the
+/// platform says it, else the time it took.
 fn draw(view: &View) -> Duration {
-    let at = Instant::now();
+    let (cpu, at) = (thread_cpu(), Instant::now());
     let _ = view.window().window().take_snapshot().expect("a snapshot");
-    at.elapsed()
+    match (cpu, thread_cpu()) {
+        (Some(before), Some(after)) => after.saturating_sub(before),
+        _ => at.elapsed(),
+    }
+}
+
+/// The middle of `costs`.
+fn median(mut costs: Vec<Duration>) -> Duration {
+    costs.sort();
+    costs[costs.len() / 2]
 }
 
 /// The window's reports applied, and the next page above asked.
@@ -113,7 +134,7 @@ fn page(model: &mut UiModel, from: &TransportIdentity, rows: std::ops::RangeIncl
     });
 }
 
-/// A page of 32 arriving above 224 held rows, against a page of one
+/// A page of 32 arriving above some 500 held rows, against a page of one
 /// above the same: the first draw after each, twice. Each row once read
 /// its place as it was made, and each such read laid out every row held,
 /// so a page cost its own rows times the held ones and 32 rows cost about
@@ -121,7 +142,21 @@ fn page(model: &mut UiModel, from: &TransportIdentity, rows: std::ops::RangeIncl
 /// the rows held plus its own (64 rows above 256 held: 2 s in a release
 /// window before, 70 ms placed, whatever was held). Comparing pages over
 /// the same held rows leaves out what every draw spends on them.
-/// Mutation: a row's `in-view` and `item-top` read as it is made.
+///
+/// Then a page of one above some 600 held rows, against a frame drawn
+/// with nothing changed over the same rows. A row added above marks every
+/// held row's size changed, and each held row's bubble, laid out from the
+/// size the list gave it, measured all its text again (j307, thread CPU
+/// time on the desktop's software renderer): one row cost some seven
+/// frames there in an optimised build and some twenty in a debug one,
+/// sized from its own content some three and some seven. The bound is
+/// the build's: a debug build's bindings cost more beside its drawing,
+/// and there the two lie closer, so a debug run caught the second
+/// mutation in two of three runs where an optimised one caught it in
+/// every run.
+/// Mutations: a row's `in-view` and `item-top` read as it is made; the
+/// row's content sized by the row (`row-content` without its `width` and
+/// `height`).
 #[test]
 fn a_page_drawn_above_costs_its_own_rows_not_the_held_ones() {
     let mut view = window();
@@ -131,11 +166,11 @@ fn a_page_drawn_above_costs_its_own_rows_not_the_held_ones() {
         Vec::new(),
         vec![StoredSummary {
             conversation: direct(&from),
-            unread: 400,
+            unread: 800,
             newest: Some(NewestRow {
                 table: Table::Unread,
-                row: RowId::from_stored(400),
-                received_at: 400,
+                row: RowId::from_stored(800),
+                received_at: 800,
                 preview: cut("newest"),
                 card: false,
             }),
@@ -146,7 +181,7 @@ fn a_page_drawn_above_costs_its_own_rows_not_the_held_ones() {
     let _ = view.take_events(&model);
     view.render(&model);
     to_the_top(&mut view, &mut model, &from);
-    let mut top = 400;
+    let mut top = 800;
     let mut drawn = |size: i64| {
         page(&mut model, &from, (top - size + 1)..=top);
         top -= size;
@@ -155,7 +190,7 @@ fn a_page_drawn_above_costs_its_own_rows_not_the_held_ones() {
         to_the_top(&mut view, &mut model, &from);
         cost
     };
-    for _ in 0..7 {
+    for _ in 0..16 {
         let _ = drawn(32);
     }
     let costs = [drawn(32), drawn(1), drawn(32), drawn(1)];
@@ -164,5 +199,15 @@ fn a_page_drawn_above_costs_its_own_rows_not_the_held_ones() {
     assert!(
         page < one * 4,
         "32 rows cost about what one does above the same held rows: {page:?} and {one:?} ({costs:?})"
+    );
+    let ones: Vec<Duration> = (0..5).map(|_| drawn(1)).collect();
+    let frames: Vec<Duration> = (0..5).map(|_| draw(&view)).collect();
+    let (one, frame) = (median(ones.clone()), median(frames.clone()));
+    eprintln!("HELD {ones:?} FRAME {frames:?}");
+    let frames_bound = if cfg!(debug_assertions) { 12 } else { 5 };
+    assert!(
+        one < frame * frames_bound,
+        "a row added above some 600 held rows costs a few frames, not one of each held row: \
+         {one:?} against a frame's {frame:?} ({ones:?}, {frames:?})"
     );
 }
