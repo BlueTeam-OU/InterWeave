@@ -586,6 +586,14 @@ mod tests {
     /// only, no owner, and an owner silent past the deadline. One test,
     /// since every case owns the same clipboard.
     ///
+    /// No CI step runs it: it is run by hand. What CI reaches of the X11
+    /// read is the shipped window's, in the desktop end-to-end suite
+    /// (`tests/desktop-e2e/tests/human_app/codes.rs`): text only and a
+    /// whole PNG pasted, an owner that never answers and one whose
+    /// incremental chunks never end, each given up at the deadline. Only
+    /// this test reaches no owner, a JPEG, an incremental image read to
+    /// its end, and a whole image one byte past the bound.
+    ///
     /// `xvfb-run -a cargo test -p interweave-human-ui-slint --features
     /// desktop --lib -- --ignored x11_reads`
     #[test]
