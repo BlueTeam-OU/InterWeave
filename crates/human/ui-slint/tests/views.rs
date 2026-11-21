@@ -5565,7 +5565,12 @@ fn a_right_to_left_menu_button_moves_the_count_too() {
 // phone; the card is a polite live region, `NoticeCard`), and the
 // return, the recreation and the rotation runs, which need the
 // Activity (android-platform's `ViewSide` and `Hub` tests hold the
-// notice's state through them).
+// notice's state through them); that a new launch drops the notice
+// (human-android's `onboard::launched` clearing it, which no host test
+// reaches; the clearing itself is android-platform's view_side
+// `a_start_refused_busy_shows_its_notice_until_another_answer`); and that
+// a recreation while a start runs starts no second
+// (`NetworkService.busy`, Kotlin).
 
 /// Chats with `IdStartBusy` refused after the bound: a phone's window,
 /// focus where the bound left it.
