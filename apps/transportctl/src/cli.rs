@@ -85,18 +85,18 @@ pub(crate) enum Admin {
     TrustList,
     /// `admin.trust.set`: allow the peer, or revoke it.
     SetTrust(TransportIdentity, bool),
-    /// `admin.peers.list`, every page (IPC 2.2).
+    /// `admin.peers.list`, every page (3.0; IPC 2.2 on major 2).
     PeersList,
-    /// `admin.peers.add_address` (IPC 2.7). The address is the daemon's
+    /// `admin.peers.add_address` (3.0; IPC 2.7 on major 2). The address is the daemon's
     /// to judge -- its grammar and its special-use floor are the
     /// method's, whoever the caller (ADR-0062) -- so it is passed as
     /// typed.
     AddAddress(String),
-    /// `admin.peers.remove_address` (IPC 2.7).
+    /// `admin.peers.remove_address` (3.0; IPC 2.7 on major 2).
     RemoveAddress(String),
-    /// `admin.peers.list_addresses` (IPC 2.7).
+    /// `admin.peers.list_addresses` (3.0; IPC 2.7 on major 2).
     ListAddresses,
-    /// `admin.peers.own_addresses` (IPC 2.8): this node's own addresses,
+    /// `admin.peers.own_addresses` (3.0; IPC 2.8 on major 2): this node's own addresses,
     /// one per line, as the show screen's code carries them.
     ShowAddresses,
 }
@@ -376,8 +376,12 @@ mod tests {
         }
     }
 
+    /// TEST-ONLY: a derived id (`endpoint_keys::endpoint_id("human")` in
+    /// tests/support), the shape a 3.0 daemon takes.
+    const HUMAN: &str = "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr";
+
     fn human() -> EndpointId {
-        EndpointId::parse("human").expect("valid")
+        EndpointId::parse_derived(HUMAN).expect("valid")
     }
 
     #[test]
@@ -389,19 +393,19 @@ mod tests {
             (Admin::EndpointsList, true)
         );
         assert_eq!(
-            admin_of("--profile p endpoints revoke human"),
+            admin_of(&format!("--profile p endpoints revoke {HUMAN}")),
             (Admin::Revoke(human()), false)
         );
         assert_eq!(
-            admin_of("--profile p endpoints enable human"),
+            admin_of(&format!("--profile p endpoints enable {HUMAN}")),
             (Admin::SetEnabled(human(), true), false)
         );
         assert_eq!(
-            admin_of("--profile p endpoints disable human"),
+            admin_of(&format!("--profile p endpoints disable {HUMAN}")),
             (Admin::SetEnabled(human(), false), false)
         );
         assert_eq!(
-            admin_of("--profile p endpoints default human"),
+            admin_of(&format!("--profile p endpoints default {HUMAN}")),
             (Admin::SetDefault(Some(human())), false)
         );
         assert_eq!(

@@ -69,8 +69,9 @@ struct Owed {
     paths: BTreeMap<TransportIdentity, PathNotice>,
     /// Whether the session takes a notice with no `previous` -- a
     /// route's begin, a routed peer's return. A session opened without
-    /// them (`SessionRequest::without_route_notices`, an IPC connection
-    /// below 2.4) is owed none, so no change is ever merged into one
+    /// them (`SessionRequest::without_route_notices`; over IPC, major 2's
+    /// connections below 2.4 were opened so, and major 3 opens none) is
+    /// owed none, so no change is ever merged into one
     /// that its binding would then have to drop: it is owed every change
     /// as it was before them, `previous` included (#245 review F1).
     route_notices: bool,
