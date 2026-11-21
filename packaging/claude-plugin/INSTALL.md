@@ -137,7 +137,7 @@ The second command reports the plugin updated from the old version to the new on
 
 ### Upgrading from a release before Stage 22's
 
-TODO(j84): name the release that carries Stage 22's batch.
+No release carries Stage 22's batch yet: v0.4.0 and every release before it speak IPC major 2, and this section is for the first release after it.
 
 The bridge's endpoint was a label, `claude`, and had no key. From this release, an entry by `id` is refused: the daemon does not start on the profile and names, for the entry, the command that applies. For the bridge's endpoint that is `endpoint init`, never `endpoint adopt`, because there is no key to adopt: `adopt` is for a human identity's key kept under `identity-keys/`, and given an alias with no such key it refuses and names `init`. With the daemon stopped:
 
@@ -150,7 +150,7 @@ Then replace the entry `- id: claude` in `config.yaml` with `- key: <EndpointId>
 
 **The bridge's id is new.** Every peer that sent to the endpoint `claude` must be given the new id: a deployment that renders its peers' configuration renders it again, and a person is told the id. The plugin's `endpoint` setting may stay `claude`. The log file keeps its name while it does.
 
-The new bridge needs a daemon of the same release: an older daemon refuses its handshake by version. TODO(j84): measure what the bridge's `status` shows then, and write it here. Upgrade the archive's daemon and plugin together.
+The new bridge needs a daemon of the same release: an older daemon refuses its handshake by version. The bridge's `status` then shows `endpoint_lease_state` `daemon unavailable` and `last_connect_error` `VersionIncompatible`, and the bridge goes on reconnecting, so it takes its lease once the daemon is upgraded (measured against a scripted major-2 daemon, `apps/claude-channel/tests/endpoint_alias.rs` row 12; not against a v0.4.0 daemon). Upgrade the archive's daemon and plugin together.
 
 ## 7. Allow the channel for the organisation
 
