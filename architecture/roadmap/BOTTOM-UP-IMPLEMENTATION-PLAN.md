@@ -6416,8 +6416,8 @@ none is the status value's, which stays on this stage.
   by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
   REPLY 01a17547-1407 to QUESTION 01a17545-9d3b, read at e31760d0: the
   limit cell's open points are stated limits, not owed work); both
-  cells were to move to `—` on that lane's next pull request, and
-  both read `—` in the matrix at the census of 2026-11-21. One item touches
+  cells move to `—` on that lane's next pull request (A 2026-11-21:
+  both read `—` in the matrix at the census of that day). One item touches
   the row's tests without being owed work: a one-off failure of
   `hostile_routers_seat_no_stranger_and_their_poison_costs_its_address`
   under a full workspace run, held by p2p-network-dev-01 as test
@@ -6593,9 +6593,10 @@ their run records, named in each row's limit cell. (b) Every
 threat-model row and every item of this section's list has a row;
 the one item that had none, rust-ui-dev's carry, has C-06 from this
 record. TM-52 to TM-58 are rows the matrix holds for threats §29 and
-later amendments added; threat-model.md's tables end at TM-51, which
-is a difference of numbering the matrix's grammar states and no
-missing row. (c) The eclipse row states its figures: N = 6, M = 3,
+later amendments added; threat-model.md's tables end at TM-51. That
+departed from the matrix's grammar, which defined a TM id as a
+threat-model.md row, and the grammar says so from this record; it is
+a difference of numbering and no missing row. (c) The eclipse row states its figures: N = 6, M = 3,
 none of 12 eclipsed (S21-06). (d) SPIKE-005's residual cites decided
 (3) (C-02) and the Windows carry cites decided (5) (C-04). (e) Every
 limit is a cell, and those that are open work are re-carried below.
@@ -6610,8 +6611,9 @@ directions, plain and `;ce=br`, direct and relayed, ran on the Pixel
 No unresolved P1 or P2 finding is recorded in this section, in
 threat-model.md or in the matrix.
 
-**Carried by name**, each to §30, the one stage open after this close,
-held by the lane named and not by that stage's own gate:
+**Carried by name.** S21-12's case and C-06 go to §30, the one stage
+open after this close, held by the lane named and not by that stage's
+own gate; C-04 stays where decided (5) put it:
 
 - **S21-12's owed case** (p2p-network-dev-02): a `user-presence` seed
   key invalidated on a device, and what the app shows for it. Every
@@ -6798,8 +6800,11 @@ carries, keep 22 open") after architect-cto's census of this section
 read at `main` 68f856f41, having run beside Stages 17 and 18 from
 2026-10-20. Four releases were cut in it from signed tags, `v0.1.0`,
 `v0.2.0`, `v0.3.0` and `v0.4.0`, each a Linux archive and an Android
-APK under ADR-0057, ADR-0065 and ADR-0066; no store listing exists and
-none is planned. The gate reads every Validate row as a green test on
+APK under ADR-0057 and ADR-0065, and from `v0.2.0` under ADR-0066:
+`v0.1.0` was cut before that record, its archive the one release with
+no signature of its own and its tag signed with the owner's personal
+key (ADR-0066, A 2026-11-10). No store listing exists and none is
+planned. The gate reads every Validate row as a green test on
 `main` or a limit naming its reason, and every carry as met or
 re-carried here.
 
@@ -6863,10 +6868,10 @@ Held with no date, a row of no stage's close:
   `/etc` never written, root's at deployment; the remotely served
   allowlist not asked for (rust-services-dev-02, REPLY 01a20022-daad).
 - **Client autostart of the daemon** (Stage 15, §18 (9)): an option the
-  owner may ask for (`packaging/linux/README.md`, the ruling of
-  2026-11-03).
-- **`flock` on NFS homes** (Stage 13): a limit by reason in
-  `packaging/linux/README.md`.
+  owner may ask for, p2p-network-dev's to build if asked
+  (`packaging/linux/README.md`, the ruling of 2026-11-03).
+- **`flock` on NFS homes** (Stage 13, p2p-network-dev's): a stated
+  limit by reason in `packaging/linux/README.md`, owing no work.
 - **The Windows binding with the BSL-1.0 decision, the macOS
   runtime-directory rule and runner, `packaging/macos` and
   `packaging/windows`**: postponed on the owner's word of 2026-10-28,
