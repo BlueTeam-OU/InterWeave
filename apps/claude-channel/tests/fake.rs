@@ -352,6 +352,7 @@ impl World {
         };
         let config = Config {
             endpoint: endpoint("claude"),
+            endpoint_alias: None,
             desired_channels: Ok(vec![general()]),
             delivery,
         };
@@ -1039,6 +1040,7 @@ async fn an_endpoint_conflict_is_reported_as_itself() {
     };
     let config = Config {
         endpoint: endpoint("claude"),
+        endpoint_alias: None,
         desired_channels: Ok(Vec::new()),
         delivery: interweave_claude_channel_core::Delivery::Push,
     };

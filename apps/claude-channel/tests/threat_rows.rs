@@ -167,6 +167,7 @@ async fn tm_30_peer_text_that_instructs_the_host_reaches_it_as_content_only() {
     };
     let config = Config {
         endpoint: endpoint_id("claude"),
+        endpoint_alias: None,
         desired_channels: Ok(Vec::new()),
         delivery: interweave_claude_channel_core::Delivery::Push,
     };

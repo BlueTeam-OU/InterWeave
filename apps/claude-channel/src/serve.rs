@@ -45,6 +45,7 @@ use interweave_local_client_api::{
     DataCapability, DataSessionBinding, DataSessionPort, LocalSessionEvent, SessionEvent,
     SessionLosses, SessionRequest,
 };
+use interweave_profile_config::EndpointAlias;
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, ConnectivitySummary, DirectDestination, EndpointId, Health,
     MessageId, TransportError, TransportIdentity,
@@ -81,6 +82,12 @@ pub struct Config {
     /// The local endpoint it claims; never a substitute (LIFECYCLE.md
     /// §Endpoint conflict).
     pub endpoint: EndpointId,
+    /// `status.local_endpoint_alias`: the alias of `endpoint`'s entry,
+    /// `Some` only when the entry has one AND the configuration loaded
+    /// (TOOL-SURFACE.md §Status visibility). Resolved once, at start,
+    /// with `endpoint`: a later `config.yaml` edit reaches a new session,
+    /// never this one, whose hello already named the id.
+    pub endpoint_alias: Option<EndpointAlias>,
     /// `status.profile_desired_channels`: the profile document's desired
     /// channels AS CONFIGURED, or the class of the error that kept them
     /// from being read -- unknown, never an empty list (TOOL-SURFACE.md
@@ -1283,6 +1290,10 @@ impl<B: DataSessionBinding> Bridge<B> {
                 Err(unread) => json!({"unavailable": unread.class()}),
             },
         });
+        // Absent, never null, when there is none to report.
+        if let Some(alias) = &self.config.endpoint_alias {
+            status["local_endpoint_alias"] = json!(alias.as_str());
+        }
         // Absent while the lease has never been lost and regained.
         if let Some(gap) = &self.gaps.gap {
             status["lease_gap"] = serde_json::to_value(gap).unwrap_or(Value::Null);

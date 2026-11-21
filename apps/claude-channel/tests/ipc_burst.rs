@@ -94,6 +94,7 @@ async fn a_call_answered_behind_a_burst_of_events_completes() {
     };
     let config = Config {
         endpoint: endpoint_id("claude"),
+        endpoint_alias: None,
         desired_channels: Ok(Vec::new()),
         delivery: interweave_claude_channel_core::Delivery::Push,
     };

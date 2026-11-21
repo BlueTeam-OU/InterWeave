@@ -149,6 +149,7 @@ async fn bridge(root: &std::path::Path, minor: u64) -> (Daemon, Host) {
     };
     let config = Config {
         endpoint: endpoint_id("claude"),
+        endpoint_alias: None,
         desired_channels: Ok(Vec::new()),
         delivery: interweave_claude_channel_core::Delivery::Push,
     };
