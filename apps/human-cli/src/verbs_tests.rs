@@ -1079,7 +1079,7 @@ async fn a_send_with_no_pending_that_needs_attention_is_cancelled() {
 }
 
 /// G4: a cancel the store refuses prints no line for the item and ends the
-/// verb with that refusal (the store's failure, exit 7), never "cancelled":
+/// verb with that refusal (the store's failure, exit 5), never "cancelled":
 /// the row stays pending, and a later run sends it, so saying otherwise
 /// would be false.
 /// Mutation: the line printed before `problems(s)?` after the cancel, or
