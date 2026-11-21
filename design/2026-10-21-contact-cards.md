@@ -1202,7 +1202,9 @@ Switch identity"); its target is at least 48 dp high; its name takes
 what width is left after "Chats" and the ⋮ and ellipsises at the end,
 never below the avatar and three graphemes, the full name in the
 accessible name. On the desktop it is in the list pane's bar, where the
-same menu is.
+same menu is. Where the title, the switch at that minimum and the ⋮ do
+not fit on one row, `design/2026-11-04-identities.md` §12 ("The Chats
+bar when the switch does not fit") gives the bar's two rows.
 
 When another identity has unread items or a message that was not sent,
 the switch carries a badge: a dot with the count of unread items in the

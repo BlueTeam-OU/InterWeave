@@ -744,6 +744,41 @@ can, and the TalkBack rows of §14 are blocked until it does.
   avatar and three graphemes; every "as" line wraps rather than truncates, so
   the whole name is always read; at 200 % text each line still fits
   the 360 dp width by wrapping.
+- **The Chats bar when the switch does not fit beside the title**
+  (rust-ui-dev-02's question, 2026-11-21: the desktop's 280 px list
+  pane cut "Conversations" to "Conversa…" beside the switch). The bar
+  keeps one row when the whole title, the switch at its minimum (the
+  avatar, three graphemes and the ▾) and the ⋮ fit on it at the current
+  text size. When they do not, the bar takes two rows. The first row
+  holds the title and the network-state line under it, across the whole
+  width. The second row holds the switch at its start and the ⋮ at its
+  end, the switch's name taking the width between them and ellipsising
+  as above. Whether the bar has one row or two depends on the width,
+  the text size and the title, never on the name in front, so a switch
+  never reflows the bar. The order stays §11's for Chats: the title,
+  the switch, the ⋮, in reading order and in Tab order, in both
+  layouts. Neither the title nor the switch ellipsises to make room for
+  the other. In the two-row bar the title wraps at a word boundary, and
+  only a single word wider than its row ellipsises at the end, its
+  accessible name always whole. With one identity held there is no
+  switch, and the bar is one row as today.
+  **Alternatives named:**
+  - (a) Wrap the title beside the switch. Rejected: "Conversations" is
+    one word, so it would break inside the word, and the row would grow
+    two lines in a third of the bar's width.
+  - (b) Drop the switch to the avatar alone. Rejected: §5 names the
+    identity in front in words. Two identities without photos show the
+    same placeholder, so the bar would no longer say who acts.
+  - (c) Let the title ellipsise, as first built. Rejected: the desktop's
+    list pane is 280 px at every wide width, so every desktop with two
+    identities would show a cut heading at the default text size.
+  - Material's medium top app bar (the controls on the first row, the
+    title under them). Rejected: it puts the heading after the switch
+    and the ⋮ in reading order, and §11's order and every focus return
+    to the heading would change with it.
+  (Hypothesis, from the platform convention that a top app bar's title
+  is read before its controls; falsified if people at 280 px miss the ⋮
+  on the second row more often than on the first.)
 
 ## 13. Strings
 
@@ -985,6 +1020,18 @@ pass before it lands.
     and its post in a channel the person reads is still shown, which the
     confirmation's text does not contradict. With two identities, the
     same with `ConfirmRevokeAs`. Needs D2. *(§16 Q9, Q10.)*
+26. With two identities held, on the desktop's wide layout (the 280 px
+    list pane), Chats' bar has two rows: "Conversations" whole on the
+    first row, with the network-state line under it; the switch and the
+    ⋮ on the second row. The same holds with a 40-grapheme name in
+    front and with a 3-grapheme name in front, and switching between
+    those two names leaves the bar's height and the title's place
+    unchanged. At 200 % text the title is whole or wrapped, never cut
+    unless a single word is wider than its row, and its accessible name
+    is "Conversations" either way. On a 360 dp phone at 100 % text, the
+    bar is one row when the title, the switch at its minimum and the ⋮
+    fit. Tab from the title reaches the switch, then the ⋮, in both
+    layouts. *(§12 "The Chats bar when the switch does not fit".)*
 
 ## 15. Deliberately left out
 
