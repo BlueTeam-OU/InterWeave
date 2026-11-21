@@ -1346,6 +1346,62 @@ async fn a_trust_change_is_in_the_log_at_every_level() {
     );
 }
 
+/// The daemon holds the lock: the offline identity commands refuse, and
+/// the key is untouched.
+fn the_offline_identity_commands_refuse_while_it_runs(home: &Home, peer: &str) {
+    let key_before = std::fs::read(home.paths.identity_file()).expect("the key");
+    let record = home.root.path().join("record.json");
+    let out = home.transportctl(
+        &[
+            "identity",
+            "backup",
+            "--to-file",
+            record.to_str().expect("utf-8"),
+        ],
+        "",
+    );
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(!record.exists(), "no record written");
+    let out = home.transportctl(
+        &["identity", "restore", "--replace", "--replacing", peer],
+        "not read\n",
+    );
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("lock is held"), "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read(home.paths.identity_file()).expect("the key"),
+        key_before
+    );
+}
+
+/// The two refusals of an endpoint the profile does not configure: the
+/// daemon's for an id (exit 1, its error code) and the client's for an
+/// alias, before anything is sent.
+fn an_unknown_endpoint_is_refused(home: &Home) {
+    // The daemon's refusal is exit 1 with its error code. (A revoke is
+    // idempotent and refuses no endpoint; enabling is what names one.)
+    // The id is a derived one this profile does not configure
+    // (`endpoint_keys::endpoint_id("claude")` in tests/support).
+    let out = home.transportctl(
+        &[
+            "endpoints",
+            "disable",
+            "12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd",
+        ],
+        "",
+    );
+    assert_eq!(out.status.code(), Some(1), "an unknown endpoint is refused");
+    assert!(stderr(&out).contains("EndpointUnknown"), "{}", stderr(&out));
+    // An alias no entry carries is the client's refusal, before a send.
+    let out = home.transportctl(&["endpoints", "disable", "nobody"], "");
+    assert_eq!(out.status.code(), Some(1), "an unknown alias is refused");
+    assert!(
+        stderr(&out).contains("no configured endpoint has the alias 'nobody'"),
+        "{}",
+        stderr(&out)
+    );
+}
+
 /// `transportctl` against a live daemon (plan §16, desktop-e2e): status
 /// and the endpoint list, their `--json` validating against the method's
 /// schema; an endpoint disabled and enabled, the default cleared and set;
@@ -1387,8 +1443,8 @@ async fn transportctl_against_a_live_daemon() {
         "{status}"
     );
     // The two broadcast-loss totals, each kept and so emitted, 0 on a
-    // daemon nothing was published to: transportctl negotiates 2.13, the
-    // minor the refusal total is served from (admin-status 1.2.0).
+    // daemon nothing was published to: transportctl negotiates 3.0, which
+    // serves the refusal total (admin-status 1.2.0).
     assert_eq!(status["ipc"]["events_dropped_total"], 0, "{status}");
     assert_eq!(status["ipc"]["events_refused_total"], 0, "{status}");
 
@@ -1452,43 +1508,9 @@ async fn transportctl_against_a_live_daemon() {
         );
     }
 
-    // The daemon's refusal is exit 1 with its error code. (A revoke is
-    // idempotent and refuses no endpoint; enabling is what names one.)
-    let out = home.transportctl(&["endpoints", "disable", "nobody"], "");
-    assert_eq!(out.status.code(), Some(1), "an unknown endpoint is refused");
-    assert!(stderr(&out).contains("EndpointUnknown"), "{}", stderr(&out));
+    an_unknown_endpoint_is_refused(&home);
 
-    // The daemon holds the lock: the offline identity commands refuse,
-    // and the key is untouched.
-    let key_before = std::fs::read(home.paths.identity_file()).expect("the key");
-    let record = home.root.path().join("record.json");
-    let out = home.transportctl(
-        &[
-            "identity",
-            "backup",
-            "--to-file",
-            record.to_str().expect("utf-8"),
-        ],
-        "",
-    );
-    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-    assert!(!record.exists(), "no record written");
-    let out = home.transportctl(
-        &[
-            "identity",
-            "restore",
-            "--replace",
-            "--replacing",
-            peer.as_str(),
-        ],
-        "not read\n",
-    );
-    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-    assert!(stderr(&out).contains("lock is held"), "{}", stderr(&out));
-    assert_eq!(
-        std::fs::read(home.paths.identity_file()).expect("the key"),
-        key_before
-    );
+    the_offline_identity_commands_refuse_while_it_runs(&home, peer.as_str());
 
     // admin.trust (2.1, rows at 2.3): the list is one `ipc/trust-list`
     // page per line, the profile's one allowed peer -- persisted, from the

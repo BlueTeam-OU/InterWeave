@@ -2,7 +2,17 @@
 // Copyright 2026 Andrea Benetton
 //! The admin commands: one method against the profile's running daemon,
 //! over its admin socket (plan §16 (10)).
+//!
+//! An endpoint is named on the command line by its id or its alias. The
+//! wire takes the id alone, so an alias is resolved here, before anything
+//! is sent, over the profile's `config.yaml` and its endpoint overlay as
+//! the configuration's own readers compose them (ENDPOINTS.md section
+//! Configured endpoint set, A 2026-11-19): `load_document`, which reads
+//! no file under `endpoint-keys/`, and the overlay's read-only
+//! `read_within`, which writes nothing back (A 2026-11-21). An id is sent
+//! as typed, the daemon judging it, so it needs no readable `config.yaml`.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use interweave_ipc_client::{IpcAdmin, IpcBinding, SocketPaths};
@@ -10,8 +20,12 @@ use interweave_local_client_api::{
     AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, TrustChange,
     TrustSource,
 };
-use interweave_profile_config::{ProfileLock, ProfilePaths, XdgRoots};
-use interweave_transport_api::TransportError;
+use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+use interweave_profile_config::{
+    EndpointAlias, EndpointSelector, ProfileConfig, ProfileLock, ProfilePaths, XdgRoots,
+    resolve_endpoint,
+};
+use interweave_transport_api::{EndpointId, TransportError};
 
 use crate::Failure;
 use crate::cli::Admin;
@@ -38,6 +52,9 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
             .admin_socket()
             .map_err(|e| refused("the admin socket", &e))?,
     };
+    // Resolved before the connection: an alias that names nothing is
+    // refused with nothing sent.
+    let write = resolve_write(&paths, &action)?;
     let binding = IpcBinding::new(sockets.clone(), CLIENT_KIND);
     let capability = match action {
         Admin::Status | Admin::PeersList => AdminCapability::Status,
@@ -68,6 +85,9 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
         return Err(Failure::Refused(format!(
             "the daemon does not grant {capability:?} (it is IPC {minor}'s: is the daemon older?)"
         )));
+    }
+    if let Some(write) = write {
+        return endpoint_write(&port, write).await.map_err(code);
     }
     // A REFUSED MOVE EXITS AS REFUSED, naming the daemon's rule, so a
     // script cannot read "nothing changed" as success.
@@ -105,18 +125,128 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
     }
     let peers = action == Admin::PeersList;
     let show = action == Admin::ShowAddresses;
-    call(&port, action, json).await.map_err(|e| match e {
-        // The port refuses a method the connection's version does not
-        // have, before any request (`IpcAdmin::speaks`): every one is a
-        // 3.0 method, so this is said for a minor that brings a method
-        // to come, never for one today.
-        TransportError::ProtocolUnsupported if show => Failure::Refused(
-            "the daemon does not speak admin.peers.own_addresses: is the daemon older?".to_owned(),
+    call(&port, &paths, action, json)
+        .await
+        .map_err(|e| match e {
+            // The port refuses a method the connection's version does not
+            // have, before any request (`IpcAdmin::speaks`): every one is a
+            // 3.0 method, so this is said for a minor that brings a method
+            // to come, never for one today.
+            TransportError::ProtocolUnsupported if show => Failure::Refused(
+                "the daemon does not speak admin.peers.own_addresses: is the daemon older?"
+                    .to_owned(),
+            ),
+            TransportError::ProtocolUnsupported if peers => Failure::Refused(
+                "the daemon does not speak admin.peers.list: is the daemon older?".to_owned(),
+            ),
+            e => code(e),
+        })
+}
+
+/// An endpoint write with its endpoint resolved to the id the wire takes.
+enum EndpointWrite {
+    Revoke(EndpointId),
+    SetEnabled(EndpointId, bool),
+    SetDefault(Option<EndpointId>),
+}
+
+/// `action`'s endpoint write, its endpoint resolved; `None` for any other
+/// action.
+fn resolve_write(paths: &ProfilePaths, action: &Admin) -> Result<Option<EndpointWrite>, Failure> {
+    Ok(Some(match action {
+        Admin::Revoke(endpoint) => EndpointWrite::Revoke(resolve(paths, endpoint)?),
+        Admin::SetEnabled(endpoint, enabled) => {
+            EndpointWrite::SetEnabled(resolve(paths, endpoint)?, *enabled)
+        }
+        Admin::SetDefault(endpoint) => EndpointWrite::SetDefault(
+            endpoint
+                .as_ref()
+                .map(|endpoint| resolve(paths, endpoint))
+                .transpose()?,
         ),
-        TransportError::ProtocolUnsupported if peers => Failure::Refused(
-            "the daemon does not speak admin.peers.list: is the daemon older?".to_owned(),
-        ),
-        e => code(e),
+        _ => return Ok(None),
+    }))
+}
+
+/// The id `selector` names: an id as typed, an alias through
+/// [`resolve_endpoint`] over the composed configuration. An alias no
+/// entry carries, or one given against a configuration that does not
+/// load, is refused naming the alias.
+fn resolve(paths: &ProfilePaths, selector: &EndpointSelector) -> Result<EndpointId, Failure> {
+    let alias = match selector {
+        EndpointSelector::Id(id) => return Ok(id.clone()),
+        EndpointSelector::Alias(alias) => alias,
+    };
+    let (config, overlay) = composed(paths).map_err(|why| {
+        Failure::Refused(format!(
+            "the alias '{alias}' cannot be resolved: {why}; nothing was sent"
+        ))
+    })?;
+    resolve_endpoint(&config.endpoints, &overlay, alias.as_str())
+        .map_err(|e| Failure::Refused(format!("{e}; nothing was sent")))
+}
+
+/// The profile's configuration, read without its keys, and its endpoint
+/// overlay, read without a write back: what an alias is resolved over.
+fn composed(paths: &ProfilePaths) -> Result<(ProfileConfig, EndpointOverlay), String> {
+    let config = ProfileConfig::load_document(paths)
+        .map_err(|e| format!("the profile {}: {e}", paths.config_file().display()))?;
+    let (overlay, _) = EndpointOverlay::read_within(
+        &EndpointOverlay::path_for(paths),
+        &config.endpoints,
+        paths.boundary(),
+    )
+    .map_err(|e| format!("the endpoint overlay: {e}"))?;
+    Ok((config, overlay))
+}
+
+/// Each configured endpoint's alias, `None` for an entry that carries
+/// none, over the composed configuration.
+fn aliases(paths: &ProfilePaths) -> Result<BTreeMap<EndpointId, Option<EndpointAlias>>, String> {
+    let (config, overlay) = composed(paths)?;
+    Ok(overlay
+        .apply(&config.endpoints)
+        .entries
+        .into_iter()
+        .map(|entry| (entry.id, entry.alias))
+        .collect())
+}
+
+/// How a listed endpoint's alias is shown: the alias, `-` for an entry
+/// that carries none, and [`UNKNOWN_ALIAS`] when the client cannot tell
+/// -- `config.yaml` does not load, or names no such endpoint -- never as
+/// absent or empty. Neither stand-in is in the alias grammar, so neither
+/// can be read as an alias.
+const NO_ALIAS: &str = "-";
+/// See [`NO_ALIAS`].
+const UNKNOWN_ALIAS: &str = "(unknown)";
+
+async fn endpoint_write(port: &IpcAdmin, write: EndpointWrite) -> Result<String, TransportError> {
+    Ok(match write {
+        EndpointWrite::Revoke(endpoint) => {
+            port.revoke_endpoint(endpoint.clone()).await?;
+            format!("revoked {}\n", endpoint.as_str())
+        }
+        EndpointWrite::SetEnabled(endpoint, enabled) => {
+            let revoked = port.set_endpoint_enabled(endpoint.clone(), enabled).await?;
+            format!(
+                "{} {}{}\n",
+                if enabled { "enabled" } else { "disabled" },
+                endpoint.as_str(),
+                if revoked.is_some() {
+                    ", its lease revoked"
+                } else {
+                    ""
+                }
+            )
+        }
+        EndpointWrite::SetDefault(endpoint) => {
+            port.set_default_endpoint(endpoint.clone()).await?;
+            match endpoint {
+                Some(endpoint) => format!("default endpoint {}\n", endpoint.as_str()),
+                None => "no default endpoint\n".to_owned(),
+            }
+        }
     })
 }
 
@@ -153,7 +283,66 @@ fn to_json<T: serde::Serialize>(result: &T) -> String {
     serde_json::to_string_pretty(result).unwrap_or_default() + "\n"
 }
 
-async fn call(port: &IpcAdmin, action: Admin, json: bool) -> Result<String, TransportError> {
+/// `endpoints list`: the daemon's rows; in the text form each with the
+/// alias the client resolves for its id.
+async fn endpoint_list(
+    port: &IpcAdmin,
+    paths: &ProfilePaths,
+    json: bool,
+) -> Result<String, TransportError> {
+    let list = port.endpoints_result().await?;
+    if json {
+        // The method's result as the daemon sent it, which the
+        // `ipc/endpoint-list` schema describes: the alias is the
+        // configuration's, shown in the text form alone.
+        return Ok(to_json(&list));
+    }
+    // The daemon's rows carry ids alone; the alias is the
+    // configuration's, read here and never sent.
+    let known = aliases(paths)
+        .inspect_err(|why| eprintln!("transportctl: note: the aliases are unknown: {why}"))
+        .ok();
+    let alias_of = |id: &EndpointId| -> Option<Option<&str>> {
+        known
+            .as_ref()
+            .and_then(|known| known.get(id))
+            .map(|alias| alias.as_ref().map(EndpointAlias::as_str))
+    };
+    Ok({
+        let shown: Vec<&str> = list
+            .endpoints
+            .iter()
+            .map(|row| match alias_of(&row.id) {
+                Some(Some(alias)) => alias,
+                Some(None) => NO_ALIAS,
+                None => UNKNOWN_ALIAS,
+            })
+            .collect();
+        let width = shown.iter().map(|a| a.len()).max().unwrap_or(0);
+        let mut out = String::new();
+        for (row, alias) in list.endpoints.iter().zip(shown) {
+            let _ = writeln!(
+                out,
+                "{}  {alias:<width$}  {}{}{}",
+                row.id.as_str(),
+                if row.enabled { "enabled" } else { "disabled" },
+                if row.default { ", default" } else { "" },
+                row.lease.as_ref().map_or_else(String::new, |lease| format!(
+                    ", leased by {}",
+                    lease.client_kind
+                )),
+            );
+        }
+        out
+    })
+}
+
+async fn call(
+    port: &IpcAdmin,
+    paths: &ProfilePaths,
+    action: Admin,
+    json: bool,
+) -> Result<String, TransportError> {
     Ok(match action {
         Admin::Status => {
             let status = port.status_result().await?;
@@ -181,52 +370,7 @@ async fn call(port: &IpcAdmin, action: Admin, json: bool) -> Result<String, Tran
                 out
             }
         }
-        Admin::EndpointsList => {
-            let list = port.endpoints_result().await?;
-            if json {
-                to_json(&list)
-            } else {
-                let mut out = String::new();
-                for row in &list.endpoints {
-                    let _ = writeln!(
-                        out,
-                        "{:<24} {}{}{}",
-                        row.id.as_str(),
-                        if row.enabled { "enabled" } else { "disabled" },
-                        if row.default { ", default" } else { "" },
-                        row.lease.as_ref().map_or_else(String::new, |lease| format!(
-                            ", leased by {}",
-                            lease.client_kind
-                        )),
-                    );
-                }
-                out
-            }
-        }
-        Admin::Revoke(endpoint) => {
-            port.revoke_endpoint(endpoint.clone()).await?;
-            format!("revoked {}\n", endpoint.as_str())
-        }
-        Admin::SetEnabled(endpoint, enabled) => {
-            let revoked = port.set_endpoint_enabled(endpoint.clone(), enabled).await?;
-            format!(
-                "{} {}{}\n",
-                if enabled { "enabled" } else { "disabled" },
-                endpoint.as_str(),
-                if revoked.is_some() {
-                    ", its lease revoked"
-                } else {
-                    ""
-                }
-            )
-        }
-        Admin::SetDefault(endpoint) => {
-            port.set_default_endpoint(endpoint.clone()).await?;
-            match endpoint {
-                Some(endpoint) => format!("default endpoint {}\n", endpoint.as_str()),
-                None => "no default endpoint\n".to_owned(),
-            }
-        }
+        Admin::EndpointsList => endpoint_list(port, paths, json).await?,
         Admin::Shutdown(grace) => {
             // No --grace: none sent, the daemon's default.
             port.request_shutdown(grace).await?;
@@ -357,8 +501,26 @@ async fn call(port: &IpcAdmin, action: Admin, json: bool) -> Result<String, Tran
             }
         }
         // Answered above, before any printing.
-        Admin::AddAddress(_) | Admin::RemoveAddress(_) | Admin::SetTrust(..) => {
+        Admin::AddAddress(_)
+        | Admin::RemoveAddress(_)
+        | Admin::SetTrust(..)
+        | Admin::Revoke(_)
+        | Admin::SetEnabled(..)
+        | Admin::SetDefault(_) => {
             unreachable!("a write is answered in run")
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Neither stand-in an alias column shows can be read as an alias.
+    #[test]
+    fn the_alias_stand_ins_are_outside_the_alias_grammar() {
+        assert!(EndpointAlias::parse(NO_ALIAS).is_err());
+        assert!(EndpointAlias::parse(UNKNOWN_ALIAS).is_err());
+        assert!(EndpointAlias::parse("unknown").is_ok(), "the control");
+    }
 }
