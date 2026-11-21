@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:hello-response",
   "title": "IPC hello response",
-  "description": "The server's answer to a hello: the selected version, the profile identity, the endpoint actually leased, a fresh lease epoch, the granted event queue bound, and the capabilities actually granted. `granted_capabilities` is the authority the connection has — never what the client asked for.",
+  "description": "The server's answer to a hello: the selected version, the profile identity, the endpoint actually leased, a fresh lease epoch, the granted event queue bound, and the capabilities actually granted. `granted_capabilities` is the authority the connection has — never what the client asked for.\n\n2.0.0 (ADR-0067 decision 7, IPC major 3): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major.",
   "type": "object",
   "required": [
     "type",
@@ -26,7 +26,7 @@
       "properties": {
         "major": {
           "type": "integer",
-          "const": 2
+          "const": 3
         },
         "minor": {
           "type": "integer",
@@ -37,7 +37,7 @@
     "transport_contract_version": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "description": "The transport contract this daemon implements, distinct from the IPC version. Model B is transport v2."
+      "description": "The transport contract this daemon implements, distinct from the IPC version and negotiated by nothing: `3.0` from IPC major 3, the derived EndpointId making it transport v3 as Model B made it v2 (LOCAL-IPC.md \u00a7Version negotiation and phases)."
     },
     "peer": {
       "$ref": "urn:interweave:schemas:common:peer-id"
@@ -124,10 +124,11 @@
   "x-contract": {
     "name": "ipc.hello-response",
     "status": "active",
-    "version": "1.1.0",
+    "version": "2.0.0",
     "adr": [
       "0017",
-      "0030"
+      "0030",
+      "0067"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

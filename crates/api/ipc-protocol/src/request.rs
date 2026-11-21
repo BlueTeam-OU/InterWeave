@@ -139,7 +139,7 @@ pub struct SendParams {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "absent_or_endpoint"
+        deserialize_with = "crate::derived::absent_or_endpoint"
     )]
     pub endpoint: Option<EndpointId>,
     /// The application's message id.
@@ -161,6 +161,7 @@ pub struct QueryParams {
 #[serde(deny_unknown_fields)]
 pub struct EndpointParams {
     /// The configured endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub endpoint: EndpointId,
 }
 
@@ -169,6 +170,7 @@ pub struct EndpointParams {
 #[serde(deny_unknown_fields)]
 pub struct SetEnabledParams {
     /// The configured endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub endpoint: EndpointId,
     /// Disabling revokes a live lease at once and never auto-rebinds.
     pub enabled: bool,
@@ -180,7 +182,7 @@ pub struct SetEnabledParams {
 pub struct SetDefaultParams {
     /// The new default, or `null` to clear it. The key is REQUIRED:
     /// absent is not "clear", it is a malformed request.
-    #[serde(deserialize_with = "required_nullable_endpoint")]
+    #[serde(deserialize_with = "crate::derived::nullable_endpoint")]
     pub endpoint: Option<EndpointId>,
 }
 
@@ -571,18 +573,6 @@ fn absent_or_u64<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, 
     u64::deserialize(d).map(Some)
 }
 
-fn absent_or_endpoint<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Option<EndpointId>, D::Error> {
-    EndpointId::deserialize(d).map(Some)
-}
-
-fn required_nullable_endpoint<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Option<EndpointId>, D::Error> {
-    Option::<EndpointId>::deserialize(d)
-}
-
 fn absent_or_grace<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
     let grace = u32::deserialize(d)?;
     if grace > MAX_SHUTDOWN_GRACE_MS {
@@ -612,7 +602,7 @@ mod tests {
         static NONE: BTreeSet<AdminCapability> = BTreeSet::new();
         Admission {
             domain: AuthorityDomain::Data,
-            version: IpcVersion { major: 2, minor: 0 },
+            version: IpcVersion { major: 3, minor: 0 },
             granted_data: granted,
             granted_admin: &NONE,
         }
@@ -622,7 +612,7 @@ mod tests {
         static NONE: BTreeSet<DataCapability> = BTreeSet::new();
         Admission {
             domain: AuthorityDomain::Admin,
-            version: IpcVersion { major: 2, minor: 0 },
+            version: IpcVersion { major: 3, minor: 0 },
             granted_data: &NONE,
             granted_admin: granted,
         }
@@ -696,8 +686,7 @@ mod tests {
         ]
         .into();
         // At the highest minor, so every method is a name the connection
-        // knows and the refusal is the domain's, not the version's: a
-        // data method introduced after 2.0 is one too (`session.losses`).
+        // knows and the refusal is the domain's, not the version's.
         let mut conn = admin(&caps);
         conn.version.minor = crate::IPC_MAX_MINOR;
         for method in Method::ALL {
@@ -712,19 +701,73 @@ mod tests {
     }
 
     #[test]
-    fn a_method_above_the_negotiated_minor_is_unsupported() {
-        // Every 2.0 method is available at 2.0; a connection at a minor
-        // below a method's is refused as if the name were unknown.
+    fn a_method_above_the_negotiated_version_is_unsupported() {
+        // Every method is available at 3.0; a connection at a version
+        // before a method's is refused as if the name were unknown -- at
+        // 2.13 too, whose minor is the higher.
         let caps = commands();
         let conn = data(&caps);
-        assert!(
+        let leave = || {
             frame(
                 &json!({"type": "request", "id": "1", "method": "channel.leave",
-                         "params": {"channel": "ops"}})
+                           "params": {"channel": "ops"}}),
             )
-            .admit(&conn)
-            .is_ok()
+        };
+        assert!(leave().admit(&conn).is_ok(), "the control, at 3.0");
+        let old = Admission {
+            version: IpcVersion {
+                major: 2,
+                minor: 13,
+            },
+            ..conn
+        };
+        assert_eq!(leave().admit(&old), Err(Refusal::Unsupported));
+    }
+
+    /// Every params field that holds an `EndpointId` takes the derived id
+    /// alone: a label of the retired grammar is a params error,
+    /// `InvalidArgument`, and the derived id is the control.
+    #[test]
+    fn a_label_endpoint_in_params_is_invalid_argument() {
+        let derived = interweave_test_support::endpoint_keys::endpoint_id("human");
+        let send = |endpoint: &str| {
+            json!({"type": "request", "id": "1", "method": "direct.send", "params": {
+                "peer": PEER, "endpoint": endpoint,
+                "message_id": "07070707070707070707070707070707",
+                "payload": {"bytes": "aGk"}}})
+        };
+        let caps = commands();
+        assert!(frame(&send(derived.as_str())).admit(&data(&caps)).is_ok());
+        assert_eq!(
+            frame(&send("human")).admit(&data(&caps)),
+            Err(Refusal::Params(TransportError::InvalidArgument))
         );
+        let admin_caps: BTreeSet<AdminCapability> = [AdminCapability::Endpoints].into();
+        for (method, params) in [
+            ("admin.endpoints.revoke", json!({"endpoint": "%"})),
+            (
+                "admin.endpoints.set_enabled",
+                json!({"endpoint": "%", "enabled": true}),
+            ),
+            ("admin.endpoints.set_default", json!({"endpoint": "%"})),
+        ] {
+            let with = |id: &str| {
+                let text = params.to_string().replace('%', id);
+                json!({"type": "request", "id": "1", "method": method,
+                       "params": serde_json::from_str::<serde_json::Value>(&text).expect("json")})
+            };
+            assert!(
+                frame(&with(derived.as_str()))
+                    .admit(&admin(&admin_caps))
+                    .is_ok(),
+                "{method}"
+            );
+            assert_eq!(
+                frame(&with("human")).admit(&admin(&admin_caps)),
+                Err(Refusal::Params(TransportError::InvalidArgument)),
+                "{method}"
+            );
+        }
     }
 
     #[test]
@@ -860,7 +903,7 @@ mod tests {
     fn every_request_round_trips_through_its_frame() {
         let payload = || Payload::at_ceiling(None, b"hi".to_vec()).expect("payload");
         let peer = || TransportIdentity::parse(PEER).expect("peer");
-        let ep = || EndpointId::parse("human").expect("endpoint");
+        let ep = || interweave_test_support::endpoint_keys::endpoint_id("human");
         let channel = || ChannelId::parse("ops").expect("channel");
         let id = MessageId::from_bytes([7; 16]);
         let requests = [

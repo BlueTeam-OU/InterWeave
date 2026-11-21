@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 
-//! The IPC v2 frame and its envelope, from `LOCAL-IPC.md` §Framing and
+//! The IPC frame of major 3 and its envelope (the module keeps the name it
+//! had on major 2), from `LOCAL-IPC.md` §Framing and
 //! §Message classes and the schema `ipc/frame` with the three it refers to
 //! (`ipc/hello`, `ipc/hello-response`, `ipc/close`):
 //!
@@ -29,7 +30,7 @@ use crate::json::{self, Value};
 /// `LOCAL-IPC.md` §Framing: the body ceiling, the prefix outside it.
 pub const MAX_BODY_BYTES: usize = 131_072;
 
-/// The ten classes of `ipc/frame` 2.x.
+/// The ten classes of `ipc/frame` 3.x.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Class {
     /// The client's first frame.
@@ -257,7 +258,9 @@ fn check_class(class: Class, v: &Value) -> Result<(), DecodeError> {
             }
         }
         Class::HelloResponse => {
-            version(v.get("ipc_version"), Some(2))?;
+            // hello-response 2.0.0 (IPC major 3, ADR-0067 decision 7):
+            // `ipc_version.major` is `const: 3`.
+            version(v.get("ipc_version"), Some(3))?;
             let tcv = v.get("transport_contract_version").and_then(Value::as_str);
             if !tcv.is_some_and(is_major_minor) {
                 return Err(DecodeError(
@@ -289,7 +292,7 @@ fn check_class(class: Class, v: &Value) -> Result<(), DecodeError> {
                 ));
             }
             if let Some(e) = v.get("endpoint")
-                && !e.as_str().is_some_and(crate::is_endpoint_id)
+                && !e.as_str().is_some_and(is_derived_endpoint_id)
             {
                 return Err(DecodeError(
                     "endpoint outside the EndpointId grammar".to_owned(),
@@ -401,6 +404,18 @@ fn check_class(class: Class, v: &Value) -> Result<(), DecodeError> {
 fn is_peer_id(s: &str) -> bool {
     let tail = s.strip_prefix("12D3KooW").or_else(|| s.strip_prefix("Qm"));
     tail.is_some_and(|t| {
+        t.len() == 44
+            && t.bytes().all(|b| {
+                matches!(b, b'1'..=b'9' | b'A'..=b'H' | b'J'..=b'N' | b'P'..=b'Z' | b'a'..=b'k' | b'm'..=b'z')
+            })
+    })
+}
+
+/// `endpoints/endpoint-id` 2.0.0, the derived id IPC major 3 carries
+/// (ADR-0067): `^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$`. The label grammar of
+/// `crate::is_endpoint_id` is the direct v2 frame's, not the IPC's.
+fn is_derived_endpoint_id(s: &str) -> bool {
+    s.strip_prefix("12D3KooW").is_some_and(|t| {
         t.len() == 44
             && t.bytes().all(|b| {
                 matches!(b, b'1'..=b'9' | b'A'..=b'H' | b'J'..=b'N' | b'P'..=b'Z' | b'a'..=b'k' | b'm'..=b'z')

@@ -37,7 +37,7 @@ fn generation(seed: &str) -> Generation {
 fn hello(kind: &str, caps: &[RequestedCapability]) -> Hello {
     Hello {
         frame_type: HelloTag::Hello,
-        ipc_version: IpcVersion { major: 2, minor: 0 },
+        ipc_version: IpcVersion { major: 3, minor: 0 },
         client: ClientInfo {
             kind: kind.to_owned(),
             version: None,

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:hello",
   "title": "IPC hello — the client's first frame",
-  "description": "Opens an IPC v2 connection: version, client identity, an optional endpoint claim, and the capabilities being requested. The socket the client connected to is an authority-domain input the frame cannot influence — an administrative client connects to the admin socket and MUST omit the endpoint claim, and a data-socket connection can never obtain `admin.*` whatever it asks for here.",
+  "description": "Opens an IPC connection (major 3): version, client identity, an optional endpoint claim, and the capabilities being requested. The socket the client connected to is an authority-domain input the frame cannot influence — an administrative client connects to the admin socket and MUST omit the endpoint claim, and a data-socket connection can never obtain `admin.*` whatever it asks for here.\n\n2.0.0 (ADR-0067 decision 7, IPC major 3): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major.",
   "type": "object",
   "required": [
     "type",
@@ -31,7 +31,7 @@
           "minimum": 0
         }
       },
-      "description": "Negotiated in hello, never configured as an operator profile value. Any positive major is a WELL-FORMED hello (1.1.0, A 2026-09-28) so that an unsupported one is answered `close{VersionIncompatible, supported}` rather than a framing error; the server speaks major 2 only (endpoint addressing made this a major version change, ADR-0030) and selects minor = min(client, server)."
+      "description": "Negotiated in hello, never configured as an operator profile value. Any positive major is a WELL-FORMED hello (1.1.0, A 2026-09-28) so that an unsupported one is answered `close{VersionIncompatible, supported}` rather than a framing error; the server speaks major 3 only (the derived EndpointId made this a major version change, ADR-0067 decision 7, as endpoint addressing made major 2, ADR-0030; a major-2 hello is answered `close{VersionIncompatible}`) and selects minor = min(client, server)."
     },
     "client": {
       "type": "object",
@@ -63,7 +63,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 64,
-          "description": "The claimed EndpointId as the client wrote it, within this schema's length bounds (1 to 64 characters; the Rust mirror refuses the same lengths at parse, so a frame outside them is a framing error on both). Within the bounds, the id's grammar (`endpoints/endpoint-id`) is judged by the handshake, not by this schema, so a schema-driven server and the Rust mirror answer alike: a claim that breaks the grammar closes `InvalidArgument` (LOCAL-IPC.md §Handshake item 1). Widened from a `$ref` to `endpoints/endpoint-id` at 1.2.0 (A 2026-10-01) so that `InvalidArgument` is answerable, as `ipc_version.major` was widened at 1.1.0 so that `VersionIncompatible` is."
+          "description": "The claimed EndpointId as the client wrote it, within this schema's length bounds (1 to 64 characters; the Rust mirror refuses the same lengths at parse, so a frame outside them is a framing error on both). Within the bounds, the id's grammar (`endpoints/endpoint-id` 2.0.0, the derived id; a label of the retired grammar or an alias is refused) is judged by the handshake, not by this schema, so a schema-driven server and the Rust mirror answer alike: a claim that breaks the grammar closes `InvalidArgument` (LOCAL-IPC.md §Handshake item 1). Widened from a `$ref` to `endpoints/endpoint-id` at 1.2.0 (A 2026-10-01) so that `InvalidArgument` is answerable, as `ipc_version.major` was widened at 1.1.0 so that `VersionIncompatible` is."
         }
       },
       "description": "Omitted by a data connection that claims no endpoint (it holds no lease: join, leave and publish work, direct send answers EndpointNotRegistered — LOCAL-IPC §Handshake), and REQUIRED to be omitted on the admin socket, which never owns a lease. A direct-capable client needs a successful exclusive claim; the lease is connection-bound and cannot be changed without reconnecting."
@@ -92,11 +92,12 @@
   "x-contract": {
     "name": "ipc.hello",
     "status": "active",
-    "version": "1.2.0",
+    "version": "2.0.0",
     "adr": [
       "0017",
       "0030",
-      "0037"
+      "0037",
+      "0067"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

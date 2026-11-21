@@ -18,7 +18,7 @@ use std::time::Duration;
 use interweave_ipc_client::{IpcBinding, SocketPaths as ClientPaths};
 use interweave_ipc_server::{KeepalivePolicy, Limits, ServerConfig, SocketPaths, bind, serve};
 use interweave_local_client_conformance_tests as suite;
-use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
+use interweave_transport_api::{ChannelId, TransportIdentity};
 use interweave_transport_composition::InProcessBinding;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -217,7 +217,9 @@ async fn item_4_local_refusals_map_exactly() {
     suite::local_refusals_map_exactly(
         &a,
         &pair.b_peer,
-        &EndpointId::parse("nowhere").expect("valid"),
+        // Derived, and configured nowhere: a label would be the claim's
+        // grammar, `InvalidArgument`, over IPC (major 3).
+        &interweave_test_support::endpoint_keys::endpoint_id("nowhere"),
     )
     .await;
     pair.stop().await;

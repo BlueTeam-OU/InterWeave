@@ -92,6 +92,25 @@ pub(crate) fn peer() -> TransportIdentity {
     TransportIdentity::parse(PEER).expect("peer")
 }
 
+/// The endpoints this fake knows, by the names its script and its call
+/// log use. Each id is the TEST-ONLY derived id of its name
+/// (`interweave_test_support::endpoint_keys`): major 3 carries no label.
+const NAMES: [&str; 5] = ["human", "agent", "off", "remote", "bot"];
+
+/// The derived id the fake knows `name` by.
+pub(crate) fn ep(name: &str) -> EndpointId {
+    interweave_test_support::endpoint_keys::endpoint_id(name)
+}
+
+/// The name of an id this fake knows, so the script and the call log read
+/// as names; an id of no known name is written as itself.
+pub(crate) fn name(id: &EndpointId) -> String {
+    NAMES
+        .into_iter()
+        .find(|n| ep(n) == *id)
+        .map_or_else(|| id.as_str().to_owned(), str::to_owned)
+}
+
 pub(crate) fn connectivity() -> ConnectivitySummary {
     ConnectivitySummary {
         direct_inbound: DirectInboundState::Unknown,
@@ -114,12 +133,12 @@ impl DataSessionBinding for Fake {
             None => None,
             Some(endpoint) => {
                 let mut script = self.script();
-                match endpoint.as_str() {
+                match name(endpoint).as_str() {
                     "human" | "agent" => {}
                     "off" => return Err(TransportError::EndpointDisabled),
                     _ => return Err(TransportError::EndpointUnknown),
                 }
-                if !script.leased.insert(endpoint.as_str().to_owned()) {
+                if !script.leased.insert(name(endpoint)) {
                     return Err(TransportError::EndpointInUse);
                 }
                 script.epochs += 1;
@@ -190,7 +209,7 @@ impl DataSessionPort for FakeSession {
         if let Some(hold) = hold {
             hold.notified().await;
         }
-        Ok(EndpointId::parse("remote").expect("endpoint"))
+        Ok(ep("remote"))
     }
 
     async fn losses(&self) -> Result<interweave_local_client_api::SessionLosses, TransportError> {
@@ -224,7 +243,7 @@ impl DataSessionPort for FakeSession {
         Ok(EndpointDirectoryV1 {
             generated_at_ms: 0,
             ttl_ms: 1000,
-            endpoints: vec![EndpointId::parse("agent").expect("endpoint")],
+            endpoints: vec![ep("agent")],
         })
     }
 
@@ -234,7 +253,7 @@ impl DataSessionPort for FakeSession {
         let mut script = self.fake.script();
         script.closed += 1;
         if let Some(lease) = self.session.endpoint_lease() {
-            script.leased.remove(lease.endpoint.as_str());
+            script.leased.remove(&name(&lease.endpoint));
         }
         Ok(())
     }
@@ -288,7 +307,7 @@ impl AdminPort for FakeAdmin {
     }
 
     async fn revoke_endpoint(&self, endpoint: EndpointId) -> Result<(), TransportError> {
-        self.fake.call(format!("revoke {}", endpoint.as_str()));
+        self.fake.call(format!("revoke {}", name(&endpoint)));
         Ok(())
     }
 
@@ -298,7 +317,7 @@ impl AdminPort for FakeAdmin {
         enabled: bool,
     ) -> Result<Option<Generation>, TransportError> {
         self.fake
-            .call(format!("set_enabled {} {enabled}", endpoint.as_str()));
+            .call(format!("set_enabled {} {enabled}", name(&endpoint)));
         Ok(None)
     }
 
@@ -306,7 +325,8 @@ impl AdminPort for FakeAdmin {
         &self,
         endpoint: Option<EndpointId>,
     ) -> Result<(), TransportError> {
-        self.fake.call(format!("set_default {endpoint:?}"));
+        self.fake
+            .call(format!("set_default {:?}", endpoint.as_ref().map(name)));
         Ok(())
     }
 

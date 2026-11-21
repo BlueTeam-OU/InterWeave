@@ -852,7 +852,7 @@ async fn the_data_socket_grants_no_admin_authority_to_a_client_calling_itself_tr
     home.write_config(&profile("e2e", &stranger(), ""));
     let mut daemon = home.start(&[]);
     daemon.serving(&home).await;
-    let hello = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+    let hello = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"transportctl"},"requested_capabilities":["admin.status"]}"#;
     match first_answer(&home.data_socket(), hello).await {
         Frame::Close(close) => assert_eq!(close.code, TransportError::CapabilityDenied),
@@ -1121,7 +1121,7 @@ async fn a_daemons_events_validate_against_their_schemas() {
     // keepalive, joined to `general`.
     let mut raw = RawClient::connect(&b.data_socket()).await;
     raw.send(
-        r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#,
     )
@@ -1860,15 +1860,14 @@ async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the
         "{line}"
     );
 
-    // The 1.1 row at 2.11, and the control at 2.12, over raw frames.
-    for (minor, carries) in [
-        (interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR - 1, false),
-        (interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR, true),
-    ] {
+    // Over raw frames: every 3.0 row carries it (2.12 brought it on
+    // major 2; 3.0 holds all of 2.13, so no row without it is served).
+    {
+        let (minor, carries) = (0_u64, true);
         let mut client = RawClient::connect(&a.admin_socket()).await;
         client
             .send(&format!(
-                r#"{{"type":"hello","ipc_version":{{"major":2,"minor":{minor}}},"client":{{"kind":"transportctl"}},"requested_capabilities":["admin.status"]}}"#
+                r#"{{"type":"hello","ipc_version":{{"major":3,"minor":{minor}}},"client":{{"kind":"transportctl"}},"requested_capabilities":["admin.status"]}}"#
             ))
             .await;
         match client.next(PATIENCE).await {

@@ -2037,7 +2037,10 @@ struct WireEndpoint {
     id: Option<serde_json::Value>,
     #[serde(default)]
     key: Option<String>,
-    #[serde(default)]
+    // Absent or a string: an explicit `null` is refused, as the schema
+    // refuses it (`tests/endpoint_entries.rs`,
+    // `an_alias_is_absent_or_a_string_never_null`).
+    #[serde(default, deserialize_with = "present_alias")]
     alias: Option<String>,
     // REQUIRED, both of them, as the contract declares them. A default of
     // `true` for `enabled` meant an endpoint the operator never mentioned
@@ -2052,6 +2055,22 @@ struct WireEndpoint {
     inbound: EndpointTrustPolicy,
     #[serde(default)]
     outbound: EndpointTrustPolicy,
+}
+
+/// A present `alias` member, which must be a string. Read as a value
+/// first: asked for a string, the YAML reader answers a `null` scalar as
+/// the text "null", which would load as that alias.
+fn present_alias<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(text) => Ok(Some(text)),
+        other => Err(serde::de::Error::invalid_type(
+            serde::de::Unexpected::Other(match other {
+                serde_json::Value::Null => "null",
+                _ => "a non-string",
+            }),
+            &"an alias string",
+        )),
+    }
 }
 
 /// An endpoint entry as it is written back.
@@ -2613,7 +2632,7 @@ pub enum ConfigError {
     /// `runtime.deployment=embedded-android` names an endpoint that is not
     /// a configured one (the load's half of the schema's third runtime
     /// rule): the foreground service would lease an endpoint that does not
-    /// exist. One configured but not enabled is the start's
+    /// exist. Whether any identity is enabled is the start's
     /// [`ConfigError::AndroidNoIdentity`].
     AndroidEndpointNotEnabled {
         /// The endpoint named.
@@ -2961,7 +2980,7 @@ impl core::fmt::Display for ConfigError {
                 "runtime.android.endpoint '{endpoint}' is not a configured endpoint; an embedded-android profile must lease one"
             ),
             Self::AndroidNoIdentity => f.write_str(
-                "the Android profile has no identity to start as: runtime.android.endpoint names none, or the endpoint it names is not enabled; onboarding seals the first identity, and the profile starts once it has one enabled"
+                "the Android profile has no identity to start as: runtime.android.endpoint names none, or no identity is enabled; onboarding seals the first identity, and the profile starts once one is enabled"
             ),
             Self::AndroidServesInfrastructure { field } => write!(
                 f,

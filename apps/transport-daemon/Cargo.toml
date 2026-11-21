@@ -8,7 +8,7 @@
 name = "interweave-transport-daemon"
 version.workspace = true
 publish = false
-description = "InterWeave desktop transport daemon: one profile's runtime behind the IPC v2 sockets."
+description = "InterWeave desktop transport daemon: one profile's runtime behind the IPC sockets."
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true

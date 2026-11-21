@@ -30,7 +30,7 @@ Other decisions worth naming:
 
 Absence uses `media_present = 0` and carries no length field at all, which keeps an absent media type distinct from any present one — and is why the empty string is *rejected* rather than encoded. Two spellings of "no media type" would mean one message with two content identities.
 
-`tests/frozen_fingerprints.rs` reproduces all seven vectors in `fixtures/direct-v2/`. Until now nothing in Rust consumed them, so two implementations could have disagreed with only the Python one checked.
+`tests/frozen_fingerprints.rs` reproduces all seven vectors in `fixtures/direct-v3/`. Until now nothing in Rust consumed them, so two implementations could have disagreed with only the Python one checked.
 
 ## `dedup`
 

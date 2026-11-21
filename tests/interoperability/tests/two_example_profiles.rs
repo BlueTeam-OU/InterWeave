@@ -185,7 +185,7 @@ async fn every_frozen_direct_vector_crosses_two_example_profiles_intact() {
         .await
         .expect("the Android human session leases");
 
-    let file = fixtures::load("direct-v2/direct-message-v2-frame.json");
+    let file = fixtures::load("direct-v3/direct-message-v2-frame.json");
     let vectors = file["vectors"].as_array().expect("a vectors array");
     assert!(!vectors.is_empty());
     for (index, v) in vectors.iter().enumerate() {

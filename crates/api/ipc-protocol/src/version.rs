@@ -12,31 +12,45 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The IPC major version this crate implements.
-pub const IPC_MAJOR: u64 = 2;
+/// The IPC major version this crate implements: 3, the major of the
+/// derived `EndpointId` (ADR-0067 decision 7). Major 2, which every
+/// release before Stage 22's spoke, ended at 2.13 and is not served: a
+/// major-2 hello is an unsupported major ([`negotiate`]), and no adapter
+/// for it exists (`LOCAL-IPC.md` §Version negotiation and phases).
+pub const IPC_MAJOR: u64 = 3;
 
-/// The highest IPC minor this build speaks: the first production build
-/// spoke 2.0, Stage 15's R1 brought 2.1 (`peer.path_changed`),
-/// `admin.peers.list` brought 2.2 (A 2026-10-06), the persisted
-/// trust row brought 2.3 (ADR-0017 A 2026-10-07), the path notice at
-/// a route's begin or a routed peer's reconnect brought 2.4
-/// ([`crate::event::ROUTE_NOTICE_SINCE_MINOR`], A 2026-10-09), and the
-/// persisted endpoint row brought 2.5
-/// ([`crate::ENDPOINT_PERSISTED_SINCE_MINOR`], ADR-0028 A 2026-10-11),
-/// the peer row's route hold brought 2.6
-/// ([`crate::ROUTE_HELD_SINCE_MINOR`], ADR-0011 A 2026-10-21), and the
-/// `admin.peers` capability with its three address methods brought 2.7
-/// (ADR-0062), and its show side's read, `admin.peers.own_addresses`,
-/// brought 2.8 (ADR-0062 decision 4), and its all-or-none add,
-/// `admin.peers.add_addresses`, brought 2.9 (ADR-0062 decision 4), the
-/// superseded refusal of an admin write brought 2.10
-/// ([`crate::SUPERSEDED_SINCE_MINOR`]), and a data session's broadcast
-/// losses, `session.losses`, brought 2.11 (ADR-0026 A 2026-10-24), and
-/// the peer row's last-seen time brought 2.12
-/// ([`crate::LAST_SEEN_SINCE_MINOR`]), and `admin.status`'s profile
-/// total of ingress refusals brought 2.13
-/// ([`crate::REFUSED_TOTAL_SINCE_MINOR`]).
-pub const IPC_MAX_MINOR: u64 = 13;
+/// The highest IPC minor this build speaks. Major 3 starts at minor 0,
+/// and 3.0 holds every method, event, capability and member 2.13
+/// reached, each in the shape 2.13 served it: nothing is gated above
+/// 3.0, so no shape of major 2 is served to any connection.
+pub const IPC_MAX_MINOR: u64 = 0;
+
+/// The version that introduced a method, an event type or a
+/// capability: a (major, minor) pair, compared as a pair
+/// ([`Since::admits`]). A comparison of the minor alone would admit a
+/// major-2 connection at 2.13 to a 3.0 method, and refuse a 3.0
+/// connection what 2.1 brought (`LOCAL-IPC.md` §Version negotiation and
+/// phases, "`Since` is a (major, minor) pair").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Since {
+    /// The major the row arrived on.
+    pub major: u64,
+    /// The minor of that major the row arrived at.
+    pub minor: u64,
+}
+
+impl Since {
+    /// 3.0: every row major 2 reached, and every row major 3 opened with.
+    pub const THREE_ZERO: Self = Self { major: 3, minor: 0 };
+
+    /// Whether a connection that negotiated `version` is at or after
+    /// this pair, in (major, minor) order.
+    /// `a_since_compares_the_major_before_the_minor`.
+    #[must_use]
+    pub const fn admits(self, version: IpcVersion) -> bool {
+        version.major > self.major || (version.major == self.major && version.minor >= self.minor)
+    }
+}
 
 /// A version pair as it crosses the wire.
 ///
@@ -76,15 +90,21 @@ pub struct UnsupportedMajor(pub u64);
 /// Select the version a connection speaks from the client's proposal.
 ///
 /// # Errors
-/// [`UnsupportedMajor`] for any major other than [`IPC_MAJOR`]; the
-/// server answers it `close{VersionIncompatible, supported}`.
+/// [`UnsupportedMajor`] for any major other than [`IPC_MAJOR`], major 2
+/// among them; the server answers it `close{VersionIncompatible,
+/// supported}`.
 pub fn negotiate(proposed: IpcVersion) -> Result<IpcVersion, UnsupportedMajor> {
     if proposed.major != IPC_MAJOR {
         return Err(UnsupportedMajor(proposed.major));
     }
+    #[allow(
+        clippy::unnecessary_min_or_max,
+        reason = "IPC_MAX_MINOR is 0 at 3.0, so the min is constant today; it is the rule for every later minor"
+    )]
+    let minor = proposed.minor.min(IPC_MAX_MINOR);
     Ok(IpcVersion {
         major: IPC_MAJOR,
-        minor: proposed.minor.min(IPC_MAX_MINOR),
+        minor,
     })
 }
 
@@ -151,44 +171,29 @@ mod tests {
 
     #[test]
     fn the_server_lowers_the_minor_and_keeps_its_major() {
-        // min(client, server): a 2.0 client is answered 2.0, and anything
+        // min(client, server): a 3.0 client is answered 3.0, and anything
         // above this build's minor is lowered to it.
-        for (proposed, selected) in [
-            (0, 0),
-            (1, 1),
-            (2, 2),
-            (3, 3),
-            (4, 4),
-            (5, 5),
-            (6, 6),
-            (7, 7),
-            (8, 8),
-            (9, 9),
-            (10, 10),
-            (11, 11),
-            (12, 12),
-            (13, 13),
-            (14, 13),
-            (u64::MAX, IPC_MAX_MINOR),
-        ] {
+        for (proposed, selected) in [(0, 0), (1, 0), (13, 0), (u64::MAX, IPC_MAX_MINOR)] {
             assert_eq!(
                 negotiate(IpcVersion {
-                    major: 2,
+                    major: 3,
                     minor: proposed
                 }),
                 Ok(IpcVersion {
-                    major: 2,
+                    major: 3,
                     minor: selected
                 })
             );
         }
     }
 
+    /// Major 2 is not served beside major 3: a 2.x hello, 2.13 included,
+    /// is an unsupported major like any other.
     #[test]
     fn every_other_major_is_unsupported_and_answered() {
-        for major in [1, 3, u64::MAX] {
+        for (major, minor) in [(1, 0), (2, 0), (2, 13), (4, 0), (u64::MAX, 0)] {
             assert_eq!(
-                negotiate(IpcVersion { major, minor: 0 }),
+                negotiate(IpcVersion { major, minor }),
                 Err(UnsupportedMajor(major))
             );
         }
@@ -199,6 +204,23 @@ mod tests {
                 minor: IPC_MAX_MINOR
             }]
         );
+        assert_eq!((IPC_MAJOR, IPC_MAX_MINOR), (3, 0));
+    }
+
+    /// The pair is ordered major first: 2.13 is below 3.0 although its
+    /// minor is higher, and 3.0 is at or after every major-2 pair.
+    #[test]
+    fn a_since_compares_the_major_before_the_minor() {
+        let at = |major, minor| IpcVersion { major, minor };
+        assert!(Since::THREE_ZERO.admits(at(3, 0)), "the control");
+        assert!(Since::THREE_ZERO.admits(at(3, 7)));
+        assert!(!Since::THREE_ZERO.admits(at(2, 13)), "a higher minor of 2");
+        assert!(!Since::THREE_ZERO.admits(at(2, 0)));
+        let three_one = Since { major: 3, minor: 1 };
+        assert!(!three_one.admits(at(3, 0)));
+        assert!(three_one.admits(at(3, 1)));
+        let two_four = Since { major: 2, minor: 4 };
+        assert!(two_four.admits(at(3, 0)), "3.0 is past every 2.n");
     }
 
     /// A major or minor past `u32` -- and past `u64` -- is a well-formed

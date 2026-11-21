@@ -72,7 +72,7 @@ pub struct TransportConfig {
     /// Address back-off and identity-mismatch quarantine.
     #[serde(default)]
     pub connection_policy: crate::transport::ConnectionPolicyConfig,
-    /// `/interweave/direct/2.0.0`.
+    /// `/interweave/direct/3.0.0`.
     #[serde(default)]
     pub direct: crate::transport::DirectConfig,
     /// Signed GossipSub.

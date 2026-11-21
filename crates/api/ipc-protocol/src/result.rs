@@ -38,60 +38,15 @@ pub const MAX_ENDPOINT_ROWS: usize = 64;
 /// `a_full_trust_page_of_the_largest_rows_fits_the_body`.
 pub const MAX_TRUST_PAGE_ROWS: usize = 1024;
 
-/// The minor from which an `endpoint-list` row says `persisted: true`
-/// for a runtime that keeps the endpoint overlay (ADR-0028 A 2026-10-11;
-/// `ipc/endpoint-list` 1.1.0, behind the minor under ADR-0017 A
-/// 2026-10-07). Below it the 2.0 row is served unchanged, `persisted:
-/// false`.
-pub const ENDPOINT_PERSISTED_SINCE_MINOR: u64 = 5;
-
-/// The minor from which a `trust-list` row is the 2.3 row: `persisted`
-/// true with its `source` (ADR-0017 A 2026-10-07; `ipc/trust-list`
-/// 1.1.0). Below it the 2.1 row is served unchanged.
-pub const TRUST_SOURCE_SINCE_MINOR: u64 = 3;
-
-/// The minor from which a `peer-list` row may carry `route_held_until`,
-/// the latest hold among the peer's circuit routes (ADR-0011 A
-/// 2026-10-21; `ipc/peer-list` 1.1.0, behind the minor under ADR-0017 A
-/// 2026-10-07). Below it the 2.2 row is served unchanged: a client
-/// built before it reads the row with `deny_unknown_fields` and would
-/// refuse the whole page (#329 review F4).
-pub const ROUTE_HELD_SINCE_MINOR: u64 = 6;
-
-/// The minor from which a `peer-list` row carries `last_seen_ms`, the
-/// last moment a retained connection to the peer was open, or `null`
-/// for none since the daemon started (`ipc/peer-list` 1.2.0, behind the
-/// minor under ADR-0017 A 2026-10-07). Present on every row from it, so
-/// a 2.12 client tells "never seen" (`null`) from "the daemon does not
-/// say" (absent, an older daemon). Below it the 1.1 row is served
-/// unchanged, for the reason [`ROUTE_HELD_SINCE_MINOR`] gives.
-pub const LAST_SEEN_SINCE_MINOR: u64 = 12;
-
-/// The minor from which `peers-address-result` may answer `refused:
-/// own_peer` (ADR-0062 decision 1; `ipc/peers-address-result` 1.1.0).
-/// Below it the same refusal is answered `grammar`, the reason a 2.7
-/// client knows: its decoder refuses a name outside the set it was built
-/// with, so `own_peer` would turn a refusal into a protocol violation.
-pub const OWN_PEER_SINCE_MINOR: u64 = 9;
-
-/// The minor from which an admin write the runtime refuses as
-/// superseded is answered by name: `trust-set-result`'s `refused:
-/// superseded` for `admin.trust.set`, and `superseded` in the two address
-/// results (`ipc/peers-address-result` 1.2.0, `ipc/peers-addresses-result`
-/// 1.1.0). Below it the write is STILL refused -- the rule binds every
-/// connection, an older client's late write being the case itself -- and
-/// answered the error `Internal`, nothing changed: no older decoder knows
-/// the name, `admin.trust.set` had no refusal shape at all, and `Internal`
-/// is what every older client already reads as not applied.
-pub const SUPERSEDED_SINCE_MINOR: u64 = 10;
-
-/// The minor from which `admin-status`'s `ipc` block may carry
-/// `events_refused_total` (`ipc/admin-status` 1.2.0, behind the minor
-/// under ADR-0017 A 2026-10-07; architect-cto's ruling of 2026-11-10).
-/// Below it the 1.1 block is served unchanged: a client built before it
-/// reads the block with `deny_unknown_fields` and would refuse the whole
-/// status, for the reason [`ROUTE_HELD_SINCE_MINOR`] gives.
-pub const REFUSED_TOTAL_SINCE_MINOR: u64 = 13;
+// The shapes each widened behind a minor of major 2 -- the persisted
+// endpoint row (2.5), the trust row's `source` (2.3), the peer row's route
+// hold (2.6) and last-seen time (2.12), the address results' `own_peer`
+// (2.9) and `superseded` (2.10), `admin-status`'s refusal total (2.13) --
+// are served on major 3 in the shape 2.13 served, to every connection,
+// and the older shape of each to none (`LOCAL-IPC.md` §Version
+// negotiation and phases, "One shape per document on 3.0"). So no
+// builder here takes the connection's minor: 3.0 has one shape per
+// document, until a shape widens behind a 3.<n>.
 
 /// Rows on one `ipc/peer-list` page: a row is up to 194 bytes, so 1024
 /// would overflow the 128 KiB body and 512 is about 100 KB; a full
@@ -100,12 +55,12 @@ pub const REFUSED_TOTAL_SINCE_MINOR: u64 = 13;
 /// `a_full_page_of_the_largest_rows_fits_the_body`.
 pub const MAX_PEER_PAGE_ROWS: usize = 512;
 
-/// Rows a server puts on one `ipc/peer-list` page from
-/// [`LAST_SEEN_SINCE_MINOR`]: `last_seen_ms` adds up to 36 bytes a row,
-/// and 512 of the largest rows would be about 139 KB against the 128 KiB
-/// body; 456 is about 124 KB, and a full allowlist of 4096 is nine
-/// pages. A reader still accepts [`MAX_PEER_PAGE_ROWS`], the schema's
-/// bound, which a server below 2.12 fills.
+/// Rows a server puts on one `ipc/peer-list` page, every row carrying
+/// `last_seen_ms` (since 2.12, so on every 3.0 row): it adds up to 36
+/// bytes a row, and 512 of the largest rows would be about 139 KB against
+/// the 128 KiB body; 456 is about 124 KB, and a full allowlist of 4096 is
+/// nine pages. A reader still accepts [`MAX_PEER_PAGE_ROWS`], the
+/// schema's bound.
 /// `a_full_page_of_the_largest_rows_fits_the_body`.
 pub const MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN: usize = 456;
 
@@ -128,6 +83,7 @@ pub struct EmptyResult {}
 #[serde(deny_unknown_fields)]
 pub struct SendResult {
     /// Never absent: an accepted send resolved to exactly one endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub resolved_endpoint: EndpointId,
 }
 
@@ -168,6 +124,7 @@ impl<'de> Deserialize<'de> for DirectoryResult {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Wire {
+            #[serde(deserialize_with = "crate::derived::endpoints")]
             endpoints: Vec<EndpointId>,
             ttl_ms: u32,
             generated_at_ms: u64,
@@ -212,13 +169,12 @@ pub struct AdminStatusResult {
 }
 
 impl AdminStatusResult {
-    /// The port's view, with the counters only the IPC server can keep,
-    /// in the shape the connection's `minor` negotiated: the refusal
-    /// total only from [`REFUSED_TOTAL_SINCE_MINOR`]
-    /// (`the_refused_total_is_served_from_its_minor`).
+    /// The port's view, with the counters only the IPC server can keep:
+    /// the refusal total whenever the port keeps one
+    /// (`the_refused_total_is_served_when_kept`).
     /// `ipc.active_leases` is the port's count, never the server's.
     #[must_use]
-    pub fn new(status: AdminStatus, counters: ServerCounters, minor: u64) -> Self {
+    pub fn new(status: AdminStatus, counters: ServerCounters) -> Self {
         Self {
             health: status.health,
             peer: status.peer,
@@ -230,9 +186,7 @@ impl AdminStatusResult {
                 cross_domain_capability_denied_total: counters.cross_domain_capability_denied_total,
                 peer_credential_refused_total: counters.peer_credential_refused_total,
                 events_dropped_total: status.events_dropped,
-                events_refused_total: status
-                    .events_refused
-                    .filter(|_| minor >= REFUSED_TOTAL_SINCE_MINOR),
+                events_refused_total: status.events_refused,
             },
             pre_auth: status.pre_auth.map(|counts| PreAuthCounters {
                 tracked_sources: Some(u64::try_from(counts.tracked_sources).unwrap_or(u64::MAX)),
@@ -326,10 +280,9 @@ pub struct IpcCounters {
     pub events_dropped_total: Option<u64>,
     /// Inbound broadcasts the ingress gate refused, one per refused
     /// message, on any channel since the daemon started: the port's
-    /// count, emitted only when the port keeps one and the connection
-    /// negotiated [`REFUSED_TOTAL_SINCE_MINOR`]. Absent says "not
-    /// counted" (or, below the minor, "not said"), where a 0 says "none
-    /// refused". A signal: a republished refused copy counts again.
+    /// count, emitted only when the port keeps one. Absent says "not
+    /// counted", where a 0 says "none refused". A signal: a republished
+    /// refused copy counts again.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -370,23 +323,20 @@ pub struct EndpointList {
 }
 
 impl EndpointList {
-    /// The port's rows, in the row shape the connection's `minor`
-    /// negotiated: below [`ENDPOINT_PERSISTED_SINCE_MINOR`] the 2.0 row,
-    /// `persisted: false` byte for byte as before it, and from it each
-    /// view's own `persisted`.
+    /// The port's rows, each with the view's own `persisted`.
     ///
     /// # Errors
     /// [`TransportError::Internal`] for more rows than the contract
     /// carries, or a lease whose client kind is outside its bounds: a
     /// port that answered either broke its own contract, and the server
     /// answers that rather than truncating.
-    pub fn from_views(views: Vec<EndpointAdminView>, minor: u64) -> Result<Self, TransportError> {
+    pub fn from_views(views: Vec<EndpointAdminView>) -> Result<Self, TransportError> {
         if views.len() > MAX_ENDPOINT_ROWS {
             return Err(TransportError::Internal);
         }
         let endpoints = views
             .into_iter()
-            .map(|view| EndpointRow::from_view(view, minor))
+            .map(EndpointRow::from_view)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self { endpoints })
     }
@@ -413,14 +363,15 @@ impl<'de> Deserialize<'de> for EndpointList {
 #[serde(deny_unknown_fields)]
 pub struct EndpointRow {
     /// The endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub id: EndpointId,
     /// Whether it accepts traffic and may be claimed.
     pub enabled: bool,
     /// Whether it receives directed sends naming no endpoint.
     pub default: bool,
     /// Whether `enabled` and `default` survive a daemon restart: `true`
-    /// on 2.5 and later for a runtime keeping the endpoint overlay
-    /// (ADR-0028 A 2026-10-11); `false` below 2.5, the 2.0 row.
+    /// for a runtime keeping the endpoint overlay (ADR-0028 A
+    /// 2026-10-11).
     pub persisted: bool,
     /// Present while a connection holds the lease.
     #[serde(
@@ -432,16 +383,16 @@ pub struct EndpointRow {
 }
 
 impl EndpointRow {
-    /// `view` as the row `minor` names ([`EndpointList::from_views`]).
+    /// `view` as its row ([`EndpointList::from_views`]).
     ///
     /// # Errors
     /// [`TransportError::Internal`] for a lease outside its bounds.
-    pub(crate) fn from_view(view: EndpointAdminView, minor: u64) -> Result<Self, TransportError> {
+    pub(crate) fn from_view(view: EndpointAdminView) -> Result<Self, TransportError> {
         Ok(Self {
             id: view.endpoint,
             enabled: view.enabled,
             default: view.default,
-            persisted: minor >= ENDPOINT_PERSISTED_SINCE_MINOR && view.persisted,
+            persisted: view.persisted,
             lease: view.lease.map(LeaseRow::try_from).transpose()?,
         })
     }
@@ -489,17 +440,15 @@ pub struct TrustList {
 
 impl TrustList {
     /// The page of `view` that follows `after` (the first when `None`),
-    /// in the row shape the connection's `minor` negotiated: the 2.1 row
-    /// below [`TRUST_SOURCE_SINCE_MINOR`], byte for byte as before it, and
-    /// from it the 2.3 row a persisted view row becomes.
+    /// each persisted view row carrying its `source`.
     ///
     /// The cursor is a POSITION, not a row: `after` need not be listed,
     /// so a peer revoked between two reads still names the page after
     /// it. Read against the live policy, so pages are not a snapshot.
     /// `a_trust_list_pages_in_order_and_says_when_more_remain`,
-    /// `a_trust_row_is_the_shape_its_minor_names`.
+    /// `a_trust_row_carries_its_source_when_persisted`.
     #[must_use]
-    pub fn page(view: TrustAdminView, after: Option<&TransportIdentity>, minor: u64) -> Self {
+    pub fn page(view: TrustAdminView, after: Option<&TransportIdentity>) -> Self {
         let mut rows = view.allowed;
         rows.sort_by(|a, b| a.peer.cmp(&b.peer));
         rows.dedup_by(|a, b| a.peer == b.peer);
@@ -511,7 +460,7 @@ impl TrustList {
             .by_ref()
             .take(MAX_TRUST_PAGE_ROWS)
             .map(|row| {
-                let persisted = minor >= TRUST_SOURCE_SINCE_MINOR && row.persisted;
+                let persisted = row.persisted;
                 TrustRow {
                     peer: row.peer,
                     persisted,
@@ -589,30 +538,21 @@ impl PeerList {
     /// The page of `rows` that follows `after` (the first when `None`):
     /// sorted and deduplicated by peer here, whatever order the port gave,
     /// so the cursor is a position as [`TrustList::page`]'s is.
-    /// `a_peer_list_pages_in_order_and_says_when_more_remain`. Each row is
-    /// the one the connection's `minor` names
-    /// (`a_peer_row_carries_the_route_hold_from_its_minor`).
+    /// `a_peer_list_pages_in_order_and_says_when_more_remain`; at most
+    /// [`MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN`] rows, every one carrying
+    /// `last_seen_ms`.
     #[must_use]
-    pub fn page(
-        mut rows: Vec<PeerGateView>,
-        after: Option<&TransportIdentity>,
-        minor: u64,
-    ) -> Self {
+    pub fn page(mut rows: Vec<PeerGateView>, after: Option<&TransportIdentity>) -> Self {
         rows.sort_by(|a, b| a.peer.cmp(&b.peer));
         rows.dedup_by(|a, b| a.peer == b.peer);
         let mut rest = rows
             .into_iter()
             .filter(|row| after.is_none_or(|after| &row.peer > after))
             .peekable();
-        let per_page = if minor >= LAST_SEEN_SINCE_MINOR {
-            MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN
-        } else {
-            MAX_PEER_PAGE_ROWS
-        };
         let peers: Vec<PeerRow> = rest
             .by_ref()
-            .take(per_page)
-            .map(|view| PeerRow::from_view(view, minor))
+            .take(MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN)
+            .map(PeerRow::from_view)
             .collect();
         let next = rest
             .peek()
@@ -668,7 +608,7 @@ pub struct PeerRow {
     /// milliseconds since the Unix epoch -- the reading's time while
     /// `connected`, else when the last one closed -- `Some(None)` (`null`)
     /// when none has been since the daemon started, and `None` (absent)
-    /// below [`LAST_SEEN_SINCE_MINOR`] (peer-list 1.2.0).
+    /// when the port does not say.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -706,13 +646,12 @@ pub struct PeerRow {
 }
 
 impl PeerRow {
-    /// `view` as the row `minor` names ([`PeerList::page`]).
-    fn from_view(view: PeerGateView, minor: u64) -> Self {
+    /// `view` as its row ([`PeerList::page`]).
+    fn from_view(view: PeerGateView) -> Self {
         Self {
             peer: view.peer,
             connected: view.connected,
             last_seen_ms: match view.last_seen {
-                _ if minor < LAST_SEEN_SINCE_MINOR => None,
                 PeerLastSeen::At(at) => Some(Some(at)),
                 PeerLastSeen::Never => Some(None),
                 // A port that does not say is answered as one: no key.
@@ -720,9 +659,7 @@ impl PeerRow {
             },
             backoff_until: view.backoff_until,
             quarantined_until: view.quarantined_until,
-            route_held_until: view
-                .route_held_until
-                .filter(|_| minor >= ROUTE_HELD_SINCE_MINOR),
+            route_held_until: view.route_held_until,
             last_outcome: view.last_outcome,
         }
     }
@@ -791,16 +728,16 @@ mod outcome {
     }
 }
 
-/// One `trust-list` row: an allowed peer. The 2.1 row is `persisted`
-/// false with no `source`; the 2.3 row `persisted` true with its
-/// `source` -- the schema's if/then/else, held here in both directions.
+/// One `trust-list` row: an allowed peer. A row the runtime does not
+/// persist is `persisted` false with no `source`; a persisted row is
+/// `persisted` true with its `source` -- the schema's if/then/else, held
+/// here in both directions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TrustRow {
     /// The allowed peer.
     pub peer: TransportIdentity,
-    /// The row survives a restart (2.3): configured rows by
-    /// `config.yaml`, administered rows by the trust overlay (ADR-0028 A
-    /// 2026-10-07). Always false in the 2.1 row.
+    /// The row survives a restart: configured rows by `config.yaml`,
+    /// administered rows by the trust overlay (ADR-0028 A 2026-10-07).
     pub persisted: bool,
     /// Where the row comes from, present exactly when `persisted` is.
     #[serde(skip_serializing_if = "Option::is_none", with = "source")]
@@ -1024,32 +961,6 @@ impl From<AddressChange> for AddressResult {
     }
 }
 
-impl AddressResult {
-    /// `change` as the connection's `minor` may carry it: `own_peer`
-    /// below [`OWN_PEER_SINCE_MINOR`] is answered `grammar`.
-    ///
-    /// # Errors
-    /// [`TransportError::Internal`] for `superseded` below
-    /// [`SUPERSEDED_SINCE_MINOR`], which no older decoder knows: still
-    /// refused, answered as a write that changed nothing.
-    pub fn for_minor(change: AddressChange, minor: u64) -> Result<Self, TransportError> {
-        Ok(Self::from(match change {
-            AddressChange::Refused {
-                reason: AddressRefusal::Superseded,
-                ..
-            } if minor < SUPERSEDED_SINCE_MINOR => return Err(TransportError::Internal),
-            AddressChange::Refused {
-                reason: AddressRefusal::OwnPeer,
-                detail,
-            } if minor < OWN_PEER_SINCE_MINOR => AddressChange::Refused {
-                reason: AddressRefusal::Grammar,
-                detail,
-            },
-            change => change,
-        }))
-    }
-}
-
 impl From<AddressResult> for AddressChange {
     fn from(result: AddressResult) -> Self {
         match (result.outcome, result.refused) {
@@ -1117,10 +1028,8 @@ impl<'de> Deserialize<'de> for AddressResult {
     }
 }
 
-/// `ipc/trust-set-result`: what an `admin.trust.set` did, from minor
-/// [`SUPERSEDED_SINCE_MINOR`]; below it the set answers
-/// [`EmptyResult`], and a superseded set the error `Internal`. A refusal
-/// is an ANSWER naming its rule, never an error.
+/// `ipc/trust-set-result`: what an `admin.trust.set` did. A refusal is
+/// an ANSWER naming its rule, never an error.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TrustSetResult {
     outcome: &'static str,
@@ -1239,28 +1148,17 @@ pub enum LineOutcome {
 }
 
 impl AddressesResult {
-    /// The port's answer to a list of `lines` addresses, on a connection
-    /// that negotiated `minor`.
+    /// The port's answer to a list of `lines` addresses.
     ///
     /// # Errors
-    /// [`TransportError::Internal`] for `superseded` below
-    /// [`SUPERSEDED_SINCE_MINOR`], as [`AddressResult::for_minor`]; and
     /// [`TransportError::Internal`] for an answer the contract cannot
     /// carry -- a row count other than `lines`, so rows a client cannot
     /// match to its lines, more than [`MAX_ADDRESSES_PER_ADD`], a refusal
     /// `authored`, a line named where the rule names none or none where
     /// it names one: a port that answered that broke its own rule, and
     /// the server answers so rather than mending it.
-    pub fn from_view(
-        change: AddressesChange,
-        lines: usize,
-        minor: u64,
-    ) -> Result<Self, TransportError> {
+    pub fn from_view(change: AddressesChange, lines: usize) -> Result<Self, TransportError> {
         Ok(match change {
-            AddressesChange::Refused {
-                reason: AddressRefusal::Superseded,
-                ..
-            } if minor < SUPERSEDED_SINCE_MINOR => return Err(TransportError::Internal),
             AddressesChange::Added(rows) => {
                 if rows.len() != lines || rows.is_empty() || rows.len() > MAX_ADDRESSES_PER_ADD {
                     return Err(TransportError::Internal);
@@ -1653,11 +1551,10 @@ impl From<AddressRow> for BootstrapAddress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::IPC_MAX_MINOR;
-    use serde_json::{Value, json};
+    use serde_json::json;
 
-    fn ep(id: &str) -> EndpointId {
-        EndpointId::parse(id).expect("endpoint")
+    fn ep(name: &str) -> EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn epoch() -> Generation {
@@ -1678,11 +1575,11 @@ mod tests {
                 session_id: Some("s1".into()),
             }),
         };
-        let list = EndpointList::from_views(vec![view], 4).expect("one row");
+        let list = EndpointList::from_views(vec![view]).expect("one row");
         assert_eq!(
             serde_json::to_value(&list).expect("ser"),
             json!({"endpoints": [{
-                "id": "human", "enabled": true, "default": true, "persisted": false,
+                "id": ep("human").as_str(), "enabled": true, "default": true, "persisted": false,
                 "lease": {"epoch": "AAAAAAAAAAAAAAAA", "client_kind": "human-client"}
             }]})
         );
@@ -1691,12 +1588,11 @@ mod tests {
         assert_eq!(back, list);
     }
 
-    /// The row is the shape the connection's minor names: below 2.5 the
-    /// 2.0 row, `persisted: false` whatever the view says; from 2.5 the
-    /// view's own, and a view that does not persist says so there too.
-    /// Each reads back as the view the client is owed.
+    /// The row says what the view says: `persisted` as the port has it,
+    /// on every 3.0 connection, and it reads back as the view the client
+    /// is owed.
     #[test]
-    fn an_endpoint_row_is_the_shape_its_minor_names() {
+    fn an_endpoint_row_says_what_the_view_persists() {
         let view = |persisted| EndpointAdminView {
             endpoint: ep("human"),
             enabled: false,
@@ -1704,25 +1600,18 @@ mod tests {
             persisted,
             lease: None,
         };
-        for (persisted, minor, on_wire) in [
-            (true, ENDPOINT_PERSISTED_SINCE_MINOR - 1, false),
-            (true, ENDPOINT_PERSISTED_SINCE_MINOR, true),
-            (false, ENDPOINT_PERSISTED_SINCE_MINOR, false),
-            (false, 0, false),
-        ] {
-            let list = EndpointList::from_views(vec![view(persisted)], minor).expect("a row");
+        for persisted in [true, false] {
+            let list = EndpointList::from_views(vec![view(persisted)]).expect("a row");
             assert_eq!(
                 serde_json::to_value(&list).expect("ser"),
                 json!({"endpoints": [{
-                    "id": "human", "enabled": false, "default": false, "persisted": on_wire
+                    "id": ep("human").as_str(), "enabled": false, "default": false,
+                    "persisted": persisted
                 }]}),
-                "persisted={persisted} minor={minor}"
+                "persisted={persisted}"
             );
             let back = EndpointAdminView::from(list.endpoints[0].clone());
-            assert_eq!(
-                back.persisted, on_wire,
-                "persisted={persisted} minor={minor}"
-            );
+            assert_eq!(back.persisted, persisted);
         }
     }
 
@@ -1743,7 +1632,7 @@ mod tests {
             persisted: false,
             lease: Some(lease.clone()),
         };
-        let row = EndpointRow::from_view(view.clone(), 4).expect("a row");
+        let row = EndpointRow::from_view(view.clone()).expect("a row");
         let back = EndpointAdminView::from(row);
         assert_eq!(
             back,
@@ -1794,8 +1683,7 @@ mod tests {
             events_dropped: Some(7),
             events_refused: Some(8),
         };
-        let result =
-            AdminStatusResult::new(status.clone(), ServerCounters::default(), IPC_MAX_MINOR);
+        let result = AdminStatusResult::new(status.clone(), ServerCounters::default());
         let wire = serde_json::to_value(&result).expect("ser");
         assert_eq!(
             wire["pre_auth"],
@@ -1827,7 +1715,6 @@ mod tests {
         let wire = serde_json::to_value(AdminStatusResult::new(
             none.clone(),
             ServerCounters::default(),
-            IPC_MAX_MINOR,
         ))
         .expect("ser");
         assert!(
@@ -1838,7 +1725,6 @@ mod tests {
             AdminStatus::from(AdminStatusResult::new(
                 none.clone(),
                 ServerCounters::default(),
-                IPC_MAX_MINOR,
             )),
             none
         );
@@ -1860,14 +1746,14 @@ mod tests {
                 session_id: Some("s".into()),
             }),
         };
-        assert!(EndpointList::from_views(vec![view("é".repeat(MAX_CLIENT_KIND_CHARS))], 4).is_ok());
+        assert!(EndpointList::from_views(vec![view("é".repeat(MAX_CLIENT_KIND_CHARS))]).is_ok());
         assert_eq!(
-            EndpointList::from_views(vec![view("é".repeat(MAX_CLIENT_KIND_CHARS + 1))], 4),
+            EndpointList::from_views(vec![view("é".repeat(MAX_CLIENT_KIND_CHARS + 1))]),
             Err(TransportError::Internal)
         );
         // And the lower bound: an empty kind is not a label (`minLength: 1`).
         assert_eq!(
-            EndpointList::from_views(vec![view(String::new())], 4),
+            EndpointList::from_views(vec![view(String::new())]),
             Err(TransportError::Internal)
         );
     }
@@ -1881,30 +1767,39 @@ mod tests {
             persisted: false,
             lease: None,
         };
-        assert!(EndpointList::from_views((0..MAX_ENDPOINT_ROWS).map(view).collect(), 4).is_ok());
+        assert!(EndpointList::from_views((0..MAX_ENDPOINT_ROWS).map(view).collect()).is_ok());
         assert_eq!(
-            EndpointList::from_views((0..=MAX_ENDPOINT_ROWS).map(view).collect(), 4),
+            EndpointList::from_views((0..=MAX_ENDPOINT_ROWS).map(view).collect()),
             Err(TransportError::Internal)
         );
-        let row = json!({"id": "a", "enabled": true, "default": false, "persisted": false});
+        let row =
+            json!({"id": ep("a").as_str(), "enabled": true, "default": false, "persisted": false});
         assert!(
             serde_json::from_value::<EndpointList>(json!({"endpoints": [row.clone(), row]}))
                 .is_err()
         );
         let not_a_bool = json!({"endpoints": [
-            {"id": "a", "enabled": true, "default": false, "persisted": "yes"}
+            {"id": ep("a").as_str(), "enabled": true, "default": false, "persisted": "yes"}
         ]});
         assert!(serde_json::from_value::<EndpointList>(not_a_bool).is_err());
     }
 
     #[test]
     fn a_directory_past_32_or_repeating_is_refused() {
-        let ids = |n: usize| (0..n).map(|i| format!("e{i}")).collect::<Vec<_>>();
+        let ids = |n: usize| {
+            (0..n)
+                .map(|i| ep(&format!("e{i}")).as_str().to_owned())
+                .collect::<Vec<_>>()
+        };
         let doc = |endpoints: Vec<String>| json!({"endpoints": endpoints, "ttl_ms": 4_294_967_295_u64, "generated_at_ms": 0});
         assert!(serde_json::from_value::<DirectoryResult>(doc(ids(32))).is_ok());
         assert!(serde_json::from_value::<DirectoryResult>(doc(ids(33))).is_err());
         assert!(
-            serde_json::from_value::<DirectoryResult>(doc(vec!["a".into(), "a".into()])).is_err()
+            serde_json::from_value::<DirectoryResult>(doc(vec![
+                ep("a").as_str().into(),
+                ep("a").as_str().into()
+            ]))
+            .is_err()
         );
     }
 
@@ -1938,7 +1833,6 @@ mod tests {
             serde_json::to_value(AdminStatusResult::new(
                 status.clone(),
                 ServerCounters::default(),
-                IPC_MAX_MINOR,
             ))
             .expect("ser")
         };
@@ -1965,14 +1859,12 @@ mod tests {
         }
     }
 
-    /// `ipc.events_refused_total` is served only to a connection that
-    /// negotiated 2.13 (ADR-0017 A 2026-10-07): below it the 1.1 block
-    /// goes out unchanged, byte for byte, whatever the port counted,
-    /// since a reader built before it refuses an unknown member. From it,
-    /// absent is "not counted" and 0 is "none refused", as for
-    /// `events_dropped_total`, and each reads back as the port gave it.
+    /// `ipc.events_refused_total` is served whenever the port keeps the
+    /// count (`ipc/admin-status`'s 2.13 block is 3.0's): absent is "not
+    /// counted" and 0 is "none refused", as for `events_dropped_total`,
+    /// and each reads back as the port gave it.
     #[test]
-    fn the_refused_total_is_served_from_its_minor() {
+    fn the_refused_total_is_served_when_kept() {
         use interweave_transport_api::{
             DirectInboundState, PathReadiness, PreferredPathPolicy, TransportIdentity,
         };
@@ -1996,11 +1888,10 @@ mod tests {
             events_dropped: Some(2),
             events_refused: None,
         };
-        let bytes = |status: &AdminStatus, minor: u64| {
-            serde_json::to_string(&AdminStatusResult::new(
+        let wire = |status: &AdminStatus| {
+            serde_json::to_value(AdminStatusResult::new(
                 status.clone(),
                 ServerCounters::default(),
-                minor,
             ))
             .expect("ser")
         };
@@ -2009,36 +1900,19 @@ mod tests {
                 events_refused: Some(kept),
                 ..unkept.clone()
             };
-            let below = REFUSED_TOTAL_SINCE_MINOR - 1;
-            assert_eq!(
-                bytes(&status, below),
-                bytes(&unkept, below),
-                "below 2.13 the 1.1 block, unchanged"
-            );
-            assert!(!bytes(&status, below).contains("events_refused_total"));
-            let wire: Value =
-                serde_json::from_str(&bytes(&status, REFUSED_TOTAL_SINCE_MINOR)).expect("json");
+            let wire = wire(&status);
             assert_eq!(wire["ipc"]["events_refused_total"], kept, "{wire}");
             assert_eq!(wire["ipc"]["events_dropped_total"], 2, "its sibling apart");
             let back: AdminStatusResult = serde_json::from_value(wire).expect("de");
             assert_eq!(AdminStatus::from(back), status);
         }
-        let wire: Value =
-            serde_json::from_str(&bytes(&unkept, REFUSED_TOTAL_SINCE_MINOR)).expect("json");
+        let none = wire(&unkept);
         assert!(
-            wire["ipc"].get("events_refused_total").is_none(),
-            "a port that keeps no count names none at 2.13 too: {wire}"
+            none["ipc"].get("events_refused_total").is_none(),
+            "a port that keeps no count names none: {none}"
         );
-        // Read below 2.13, the count is not said: `None`, never 0.
-        let read = AdminStatus::from(AdminStatusResult::new(
-            AdminStatus {
-                events_refused: Some(4),
-                ..unkept.clone()
-            },
-            ServerCounters::default(),
-            REFUSED_TOTAL_SINCE_MINOR - 1,
-        ));
-        assert_eq!(read.events_refused, None);
+        let back: AdminStatusResult = serde_json::from_value(none).expect("de");
+        assert_eq!(AdminStatus::from(back).events_refused, None, "never 0");
     }
 
     #[test]
@@ -2187,82 +2061,66 @@ mod tests {
         let mut peers: Vec<_> = (0..=2 * MAX_PEER_PAGE_ROWS).map(synthetic_peer).collect();
         peers.sort();
 
-        // Each minor's page bound: 512 below 2.12, the smaller one from.
-        for (minor, per_page) in [
-            (LAST_SEEN_SINCE_MINOR - 1, MAX_PEER_PAGE_ROWS),
-            (LAST_SEEN_SINCE_MINOR, MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN),
-        ] {
-            let mut after = None;
-            let mut read = Vec::new();
-            let mut pages = 0;
-            loop {
-                let page = PeerList::page(rows.clone(), after.as_ref(), minor);
-                pages += 1;
-                assert!(page.peers.len() <= per_page, "minor {minor}");
-                read.extend(page.peers.iter().map(|row| row.peer.clone()));
-                let Some(next) = page.next else { break };
-                assert_eq!(page.peers.len(), per_page, "a page before the last is full");
-                assert_eq!(Some(&next), read.last(), "the last row is the cursor");
-                after = Some(next);
-            }
-            assert_eq!(pages, peers.len().div_ceil(per_page), "minor {minor}");
-            assert_eq!(read, peers, "every peer once, ascending, minor {minor}");
+        // The server's page bound is the smaller one, every row carrying
+        // `last_seen_ms`; a reader still accepts the schema's 512.
+        let per_page = MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN;
+        let mut after = None;
+        let mut read = Vec::new();
+        let mut pages = 0;
+        loop {
+            let page = PeerList::page(rows.clone(), after.as_ref());
+            pages += 1;
+            assert!(page.peers.len() <= per_page);
+            read.extend(page.peers.iter().map(|row| row.peer.clone()));
+            let Some(next) = page.next else { break };
+            assert_eq!(page.peers.len(), per_page, "a page before the last is full");
+            assert_eq!(Some(&next), read.last(), "the last row is the cursor");
+            after = Some(next);
         }
+        assert_eq!(pages, peers.len().div_ceil(per_page));
+        assert_eq!(read, peers, "every peer once, ascending");
 
         // A row says what the view said, and the cursor is a position.
-        let page = PeerList::page(vec![gate_row(3)], None, crate::IPC_MAX_MINOR);
-        assert_eq!(
-            page.peers,
-            vec![PeerRow::from_view(gate_row(3), crate::IPC_MAX_MINOR)]
-        );
+        let page = PeerList::page(vec![gate_row(3)], None);
+        assert_eq!(page.peers, vec![PeerRow::from_view(gate_row(3))]);
         assert_eq!(page.next, None);
         let gone = peers[10].clone();
         let without: Vec<_> = rows.iter().filter(|r| r.peer != gone).cloned().collect();
-        let page = PeerList::page(without, Some(&gone), crate::IPC_MAX_MINOR);
+        let page = PeerList::page(without, Some(&gone));
         assert_eq!(page.peers[0].peer, peers[11]);
     }
 
-    /// A row carries `route_held_until` from minor 2.6 and is the 2.2 row
-    /// below it, byte for byte: what an older client, which refuses an
-    /// unknown field, is served (#329 review F4). THE CONTROL: at 2.6 the
-    /// same view's hold is there.
+    /// A row carries `route_held_until` when the view holds a route, and
+    /// no key when it holds none.
     #[test]
-    fn a_peer_row_carries_the_route_hold_from_its_minor() {
+    fn a_peer_row_carries_the_route_hold() {
         let held = PeerGateView {
             route_held_until: Some(1_791_329_960_227),
             ..gate_row(1)
         };
-        let at = |minor| {
-            serde_json::to_value(PeerList::page(vec![held.clone()], None, minor))
-                .expect("serializes")
+        let page = |view: PeerGateView| {
+            serde_json::to_value(PeerList::page(vec![view], None)).expect("serializes")
         };
-        let below = at(ROUTE_HELD_SINCE_MINOR - 1);
-        assert_eq!(below["peers"][0].get("route_held_until"), None, "{below}");
-        let without = PeerGateView {
+        assert_eq!(
+            page(held.clone())["peers"][0]["route_held_until"],
+            json!(1_791_329_960_227_u64)
+        );
+        let without = page(PeerGateView {
             route_held_until: None,
-            ..held.clone()
-        };
+            ..held
+        });
         assert_eq!(
-            below,
-            serde_json::to_value(PeerList::page(vec![without], None, ROUTE_HELD_SINCE_MINOR))
-                .expect("serializes"),
-            "the 2.2 row, byte for byte"
+            without["peers"][0].get("route_held_until"),
+            None,
+            "{without}"
         );
-        assert_eq!(
-            at(ROUTE_HELD_SINCE_MINOR)["peers"][0]["route_held_until"],
-            json!(1_791_329_960_227_u64),
-            "the control: from 2.6 the hold is served"
-        );
-        const { assert!(ROUTE_HELD_SINCE_MINOR <= crate::IPC_MAX_MINOR) };
     }
 
-    /// From 2.12 every row carries `last_seen_ms`: the time, or `null`
-    /// for a peer not seen since the daemon started. Below it the 1.1 row,
-    /// byte for byte the row served for the same view at 2.11 before the
-    /// field existed -- what a client that refuses an unknown field reads.
-    /// And the three wire states read back apart: a time, `null`, absent.
+    /// Every row carries `last_seen_ms`: the time, or `null` for a peer
+    /// not seen since the daemon started; a port that does not say is
+    /// answered with no key. The three wire states read back apart.
     #[test]
-    fn a_peer_row_carries_last_seen_from_its_minor() {
+    fn a_peer_row_carries_last_seen() {
         let seen = PeerGateView {
             last_seen: PeerLastSeen::At(1_791_329_940_227),
             ..gate_row(1)
@@ -2271,30 +2129,26 @@ mod tests {
             last_seen: PeerLastSeen::Never,
             ..gate_row(1)
         };
-        let at = |view: &PeerGateView, minor| {
-            serde_json::to_value(PeerList::page(vec![view.clone()], None, minor))
-                .expect("serializes")
+        let at = |view: &PeerGateView| {
+            serde_json::to_value(PeerList::page(vec![view.clone()], None)).expect("serializes")
         };
         assert_eq!(
-            at(&seen, LAST_SEEN_SINCE_MINOR)["peers"][0]["last_seen_ms"],
+            at(&seen)["peers"][0]["last_seen_ms"],
             json!(1_791_329_940_227_u64)
         );
-        let null = at(&never, LAST_SEEN_SINCE_MINOR);
+        let null = at(&never);
         assert_eq!(
             null["peers"][0].get("last_seen_ms"),
             Some(&json!(null)),
             "{null}"
         );
-        let below = at(&seen, LAST_SEEN_SINCE_MINOR - 1);
-        assert_eq!(below["peers"][0].get("last_seen_ms"), None, "{below}");
-        assert_eq!(below, at(&never, LAST_SEEN_SINCE_MINOR - 1), "the 1.1 row");
-        // A port that does not say is answered as one, even at 2.12: no
-        // key, never `null`, which would claim the peer was never seen.
+        // A port that does not say is answered as one: no key, never
+        // `null`, which would claim the peer was never seen.
         let unreported = PeerGateView {
             last_seen: PeerLastSeen::Unreported,
             ..gate_row(1)
         };
-        let absent = at(&unreported, LAST_SEEN_SINCE_MINOR);
+        let absent = at(&unreported);
         assert_eq!(absent["peers"][0].get("last_seen_ms"), None, "{absent}");
 
         let read = |row: serde_json::Value| -> PeerRow {
@@ -2315,7 +2169,6 @@ mod tests {
                 "{bad} refused"
             );
         }
-        const { assert!(LAST_SEEN_SINCE_MINOR <= crate::IPC_MAX_MINOR) };
     }
 
     #[test]
@@ -2400,7 +2253,7 @@ mod tests {
         let mut read = Vec::new();
         let mut pages = 0;
         loop {
-            let page = TrustList::page(view.clone(), after.as_ref(), crate::IPC_MAX_MINOR);
+            let page = TrustList::page(view.clone(), after.as_ref());
             pages += 1;
             assert_eq!(
                 page.local_peer.as_ref(),
@@ -2433,7 +2286,7 @@ mod tests {
                 })
                 .collect(),
         };
-        let page = TrustList::page(full, None, crate::IPC_MAX_MINOR);
+        let page = TrustList::page(full, None);
         assert_eq!(page.allowed.len(), MAX_TRUST_PAGE_ROWS);
         assert_eq!(page.next, None);
         assert_eq!(page.local_peer, None, "absent when the policy has none");
@@ -2442,7 +2295,7 @@ mod tests {
         let gone = peers[10].clone();
         let mut without = view.clone();
         without.allowed.retain(|row| row.peer != gone);
-        let page = TrustList::page(without, Some(&gone), crate::IPC_MAX_MINOR);
+        let page = TrustList::page(without, Some(&gone));
         assert_eq!(page.allowed[0].peer, peers[11]);
     }
 
@@ -2509,13 +2362,12 @@ mod tests {
         );
     }
 
-    /// Below 2.3 the row is the 2.1 row byte for byte, whatever the
-    /// binding knows; from 2.3 a persisted row carries its source. The
-    /// page renders a row the binding does not persist as the 2.1 row at
-    /// every minor; at 2.3 the server refuses to serve one (ipc-server's
-    /// `an_unpersisted_trust_row_is_refused_at_two_three`).
+    /// A persisted row carries its source; the page renders a row the
+    /// binding does not persist without one, and the server refuses to
+    /// serve such a row at all (ipc-server's
+    /// `an_unpersisted_trust_row_is_refused`).
     #[test]
-    fn a_trust_row_is_the_shape_its_minor_names() {
+    fn a_trust_row_carries_its_source_when_persisted() {
         let (configured, administered) = (synthetic_peer(1), synthetic_peer(2));
         let view = |persisted| TrustAdminView {
             local_peer: None,
@@ -2532,33 +2384,22 @@ mod tests {
                 },
             ],
         };
-        let rows = |persisted, minor| {
-            let page = serde_json::to_value(TrustList::page(view(persisted), None, minor))
-                .expect("serializes");
+        let rows = |persisted| {
+            let page =
+                serde_json::to_value(TrustList::page(view(persisted), None)).expect("serializes");
             let mut rows = page["allowed"].as_array().expect("rows").clone();
             rows.sort_by(|a, b| a["peer"].as_str().cmp(&b["peer"].as_str()));
             rows
         };
-        let old = |p: &TransportIdentity| json!({"peer": p.as_str(), "persisted": false});
-        for minor in 0..TRUST_SOURCE_SINCE_MINOR {
-            assert_eq!(
-                rows(true, minor),
-                [old(&configured), old(&administered)],
-                "2.{minor}"
-            );
-        }
         assert_eq!(
-            rows(true, TRUST_SOURCE_SINCE_MINOR),
+            rows(true),
             [
                 json!({"peer": configured.as_str(), "persisted": true, "source": "configured"}),
                 json!({"peer": administered.as_str(), "persisted": true, "source": "administered"}),
             ]
         );
-        assert_eq!(
-            rows(false, TRUST_SOURCE_SINCE_MINOR),
-            [old(&configured), old(&administered)],
-            "the page renders an unpersisted row as the 2.1 row; the server refuses it at 2.3"
-        );
+        let old = |p: &TransportIdentity| json!({"peer": p.as_str(), "persisted": false});
+        assert_eq!(rows(false), [old(&configured), old(&administered)]);
     }
 
     /// A full page of the largest 2.3 rows -- 52-character Ed25519 ids,

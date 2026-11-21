@@ -447,9 +447,9 @@ impl ComposedRuntime {
         // validated alone, and an overlay can break a rule that reads the
         // enabled set (`directory.max_advertised`) -- refused naming the
         // overlay, never as a `config.yaml` the operator cannot find fault
-        // with. The Android lease endpoint's enabled rule is the start's
-        // (`require_android_identity`), which the embedded host asks on
-        // the composed set before it composes.
+        // with. The Android rule that some identity is enabled is the
+        // start's (`require_android_identity`), which the embedded host
+        // asks on the composed set before it composes.
         let authored = profile.clone();
         let mut profile = profile.clone();
         profile.endpoints = endpoint_overlay.apply(&endpoints_configured);
@@ -1487,9 +1487,9 @@ impl Driver {
         if let Some(moved) = &overlay {
             let mut composed = self.authored.clone();
             composed.endpoints = moved.apply(&self.authored.endpoints);
-            // The Android lease endpoint's enabled rule is the start's,
-            // not `validate`'s (`ENDPOINTS.md`, A 2026-11-21), so it is
-            // asked here too: a set that disables it is refused.
+            // The Android rule that some identity is enabled is the
+            // start's, not `validate`'s (`ENDPOINTS.md`, A 2026-11-21), so
+            // it is asked here too: a set leaving none enabled is refused.
             if !composed.validate().is_empty()
                 || composed
                     .runtime

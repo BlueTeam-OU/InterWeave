@@ -12,7 +12,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::handshake::{AuthorityDomain, RequestedCapability};
-use crate::version::IpcVersion;
+use crate::version::{IpcVersion, Since};
 
 /// One request method of the closed catalogue.
 ///
@@ -96,9 +96,11 @@ pub struct MethodEntry {
     pub domain: AuthorityDomain,
     /// The capability the connection must hold.
     pub capability: RequestedCapability,
-    /// The IPC minor (of major 2) that introduced the method: it is
-    /// accepted only on a connection that negotiated at least this.
-    pub since_minor: u64,
+    /// The IPC version that introduced the method: it is accepted only on
+    /// a connection that negotiated this pair or a later one. Every method
+    /// is [`Since::THREE_ZERO`]: the version each arrived at on major 2 is
+    /// its history, in its doc comment and `LOCAL-IPC.md`'s table.
+    pub since: Since,
 }
 
 impl Method {
@@ -129,7 +131,8 @@ impl Method {
     ];
 
     /// THE table: an exhaustive match, so a new method does not compile
-    /// until it has a domain, a capability and a minor.
+    /// until it has a domain and a capability; its `since` is 3.0 until
+    /// a method arrives on a later minor, which names its own.
     #[must_use]
     pub const fn entry(self) -> MethodEntry {
         use AuthorityDomain::{Admin, Data};
@@ -154,21 +157,10 @@ impl Method {
             | Self::AdminPeersOwnAddresses
             | Self::AdminPeersAddAddresses => (Admin, C::AdminPeers),
         };
-        let since_minor = match self {
-            Self::AdminTrustList | Self::AdminTrustSet => 1,
-            Self::AdminPeersList => 2,
-            Self::AdminPeersAddAddress
-            | Self::AdminPeersRemoveAddress
-            | Self::AdminPeersListAddresses => 7,
-            Self::AdminPeersOwnAddresses => 8,
-            Self::AdminPeersAddAddresses => 9,
-            Self::SessionLosses => 11,
-            _ => 0,
-        };
         MethodEntry {
             domain,
             capability,
-            since_minor,
+            since: Since::THREE_ZERO,
         }
     }
 
@@ -207,11 +199,11 @@ impl Method {
     }
 
     /// Whether a connection that negotiated `version` may use the method:
-    /// minors are additive, so a method is unknown below the minor that
-    /// introduced it.
+    /// minors are additive, so a method is unknown below the (major,
+    /// minor) pair that introduced it, compared as a pair.
     #[must_use]
     pub const fn available_at(self, version: IpcVersion) -> bool {
-        version.minor >= self.entry().since_minor
+        self.entry().since.admits(version)
     }
 }
 
@@ -252,42 +244,47 @@ mod tests {
         }
     }
 
+    /// Every method is a 3.0 method: available on a 3.0 connection and
+    /// unknown to a 2.13 one, whose minor is higher than 3.0's -- the
+    /// case a comparison of the minor alone gets wrong.
     #[test]
-    fn a_method_is_unavailable_below_its_minor() {
-        let at = |minor| IpcVersion { major: 2, minor };
+    fn a_method_is_available_from_three_zero_and_not_at_two_thirteen() {
+        let at = |major, minor| IpcVersion { major, minor };
         for method in Method::ALL {
-            assert!(method.available_at(at(method.entry().since_minor)));
-            if let Some(below) = method.entry().since_minor.checked_sub(1) {
-                assert!(!method.available_at(at(below)));
-            }
+            assert_eq!(
+                method.entry().since,
+                Since::THREE_ZERO,
+                "{}",
+                method.as_str()
+            );
+            assert!(method.available_at(at(3, 0)), "{}", method.as_str());
+            assert!(!method.available_at(at(2, 13)), "{}", method.as_str());
+            assert!(!method.available_at(at(2, 0)), "{}", method.as_str());
         }
     }
 
     #[test]
-    fn the_trust_methods_are_admin_and_arrive_at_two_one() {
+    fn the_trust_methods_are_admin_under_trust() {
         for method in [Method::AdminTrustList, Method::AdminTrustSet] {
             let entry = method.entry();
             assert_eq!(entry.domain, AuthorityDomain::Admin);
             assert_eq!(entry.capability, RequestedCapability::AdminTrust);
-            assert_eq!(entry.since_minor, 1);
         }
-        assert_eq!(Method::AdminShutdown.entry().since_minor, 0, "the control");
     }
 
-    /// A method never arrives before its capability: one stated at a
-    /// lower minor than its capability could be asked on a connection
+    /// A method never arrives before its capability: one stated at an
+    /// earlier version than its capability could be asked on a connection
     /// that could not hold it. It may arrive AFTER it -- a later read
-    /// under an existing capability, as `admin.peers.list` (2.2) is under
-    /// `admin.status` (2.0) -- since a connection below the method's minor
-    /// is answered as for an unknown method whatever it holds
-    /// (`available_at`). Until 2.2 the two minors were equal for every
-    /// method, which this test then pinned.
+    /// under an existing capability, as `admin.peers.list` (2.2) was under
+    /// `admin.status` (2.0) -- since a connection below the method's
+    /// version is answered as for an unknown method whatever it holds
+    /// (`available_at`).
     #[test]
     fn no_method_arrives_before_its_capability() {
         for method in Method::ALL {
             let entry = method.entry();
             assert!(
-                entry.since_minor >= entry.capability.since_minor(),
+                entry.since >= entry.capability.since(),
                 "{}",
                 method.as_str()
             );
@@ -295,17 +292,9 @@ mod tests {
     }
 
     #[test]
-    fn the_peers_read_is_admin_under_status_and_arrives_at_two_two() {
+    fn the_peers_read_is_admin_under_status() {
         let entry = Method::AdminPeersList.entry();
         assert_eq!(entry.domain, AuthorityDomain::Admin);
         assert_eq!(entry.capability, RequestedCapability::AdminStatus);
-        assert_eq!(entry.since_minor, 2);
-        let at = |minor| IpcVersion { major: 2, minor };
-        assert!(
-            !Method::AdminPeersList.available_at(at(1)),
-            "unknown at 2.1"
-        );
-        assert!(Method::AdminPeersList.available_at(at(2)));
-        assert!(Method::AdminStatus.available_at(at(0)), "the control");
     }
 }

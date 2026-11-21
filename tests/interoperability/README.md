@@ -7,7 +7,7 @@ Cross-version, cross-platform and wire compatibility, built in two parts.
 - direct messages;
 - broadcasts.
 
-The frame vectors of both wires (`direct-v2/direct-message-v2-frame.json`, `gossipsub/broadcast-message-v1-frame.json`) carry their payload and media type through the composed runtimes, and arrive unchanged. So does the first vector's frozen message id.
+The frame vectors of both wires (`direct-v3/direct-message-v2-frame.json`, `gossipsub/broadcast-message-v1-frame.json`) carry their payload and media type through the composed runtimes, and arrive unchanged. So does the first vector's frozen message id.
 
 The rest of each vector does not travel: its source and destination endpoints, its timestamp and its frame bytes. The composed runtime sends from the session's lease, to the receiver's configured endpoint, at its own time. The fingerprint, message-id and topic-key fixtures are not exercised here.
 
@@ -21,10 +21,10 @@ The byte-exact encoding of those vectors is pinned beside the codecs, in `tests/
   | wire | unsupported major | minor bump | lower minor |
   |---|---|---|---|
   | IPC (`upgrade_matrix_ipc.rs`) | a major-3 hello gets exactly one frame, `close{VersionIncompatible, supported:[{2, IPC_MAX_MINOR}]}`, then EOF | offers at, above and far above HEAD's minor negotiate HEAD's and serve | the 2.0 golden frames, byte for byte, negotiate 2.0 and are served |
-  | direct (`upgrade_matrix_direct.rs`) | a peer listing only 3.0.0: `UnsupportedProtocols` toward HEAD, `ProtocolUnsupported` from HEAD, nothing read | a peer listing `[2.1.0, 2.0.0]` exchanges on 2.0.0 in both dial directions | the frozen request and response vectors (`tests/direct-v2`, `tests/independent-codecs`) |
+  | direct (`upgrade_matrix_direct.rs`) | a peer listing only 2.0.0, the id of every release before Stage 22's (DIRECT.md §Protocol family, ADR-0067 decision 7): `UnsupportedProtocols` toward HEAD, `ProtocolUnsupported` from HEAD, nothing read, beside a 3.0.0 control that exchanges both ways | a peer listing `[3.1.0, 3.0.0]` exchanges on 3.0.0 in both dial directions | the frozen request and response vectors (`fixtures/direct-v3`, read in `tests/direct-v2` and `tests/independent-codecs`) |
   | broadcast (`upgrade_matrix_broadcast.rs`) | versions 0, 2 and 255 from a trusted signed publisher are `Reject` and undelivered, beside version-1 controls | not applicable: the version byte is a major | the frozen envelope vectors |
 
-  Every frame HEAD writes in these rows is read through the independent codecs. The raw peers stand in for a newer build and speak only those codecs.
+  Every frame HEAD writes in these rows is read through the independent codecs. The raw peers stand in for a newer build and speak only those codecs, except the direct row's 2.0.0 peer, which stands in for an older one: the frame it offers is its own contract's, with label endpoints, and is never written, since the refusal comes at negotiation. The direct codecs are written for 3.0.0: every endpoint field is a 52-byte derived id, the destination's 0 aside, and every acceptance 70 bytes.
 
 - **The upgrade matrix's previous-build axis** (`upgrade_matrix_previous.rs`). Each build in `tools/ci/previous-builds.txt` (the first is `stage13-45ba3928`, the Stage 13 build that spoke IPC 2.0) is built from its own commit as a second binary and run against HEAD:
 

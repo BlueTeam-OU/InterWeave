@@ -302,7 +302,14 @@ fn identifiers_validate_against_their_common_schemas() {
             derived.as_str(),
         );
     }
-    let label = interweave_test_support::endpoint_keys::endpoint_id("human");
+    // A label of the retired grammar, which `parse` still takes on its
+    // transitional path: the derived id of the same name above would be
+    // accepted, so it is no control for the refusal.
+    let label = EndpointId::parse("human").expect("a label, transitional");
+    assert!(
+        EndpointId::parse_derived(label.as_str()).is_err(),
+        "it is not a derived id"
+    );
     assert!(
         !endpoint.is_valid(&serde_json::to_value(&label).expect("ser")),
         "the schema must refuse a label"
@@ -322,7 +329,7 @@ fn a_hello_frame_validates_and_a_schema_valid_hello_parses() {
     let validator = validator_for("ipc/hello.schema.json");
     let hello = Hello {
         frame_type: HelloTag::Hello,
-        ipc_version: IpcVersion { major: 2, minor: 0 },
+        ipc_version: IpcVersion { major: 3, minor: 0 },
         client: ClientInfo {
             kind: "human-client".to_owned(),
             version: Some("0.1".to_owned()),
@@ -342,7 +349,7 @@ fn a_hello_frame_validates_and_a_schema_valid_hello_parses() {
     // The other direction, from a hand-written schema-valid document.
     let minimal = serde_json::json!({
         "type": "hello",
-        "ipc_version": { "major": 2, "minor": 0 },
+        "ipc_version": { "major": 3, "minor": 0 },
         "client": { "kind": "diagnostics" }
     });
     assert_valid(&validator, &minimal, "minimal hello");
@@ -393,7 +400,7 @@ fn a_discovery_candidate_validates() {
         observed_at: 1_700_000_000_000,
         expires_at: Some(1_700_000_060_000),
         protocol_observations: [ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 1_700_000_000_000,
         }]

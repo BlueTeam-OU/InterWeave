@@ -497,7 +497,7 @@ libp2p = { version = "0.57", default-features = false, features = [
     # NOT `cbor`. It was enabled here on the assumption that direct v2
     # responses would ride on it; `DirectCodec` encodes and decodes the
     # frozen binary shapes by hand instead, pinned by
-    # `fixtures/direct-v2/`, and nothing in the tree ever referred to
+    # `fixtures/direct-v3/`, and nothing in the tree ever referred to
     # cbor. A feature nobody uses is dependency surface bought for
     # nothing.
     "request-response",

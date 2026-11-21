@@ -33,12 +33,12 @@ GOLDEN="d73342f033f00fca9c4ffcced6f9e6debaeb53e3743049ee9aaf227a55f9bf15"
 
 make_fixture() {
     local r="$1" sha="$2"
-    mkdir -p "$r/fixtures/direct-v2"
+    mkdir -p "$r/fixtures/direct-v3"
     # The anchor ADR must exist: a fixture citing a decision that is not
     # there is one of the things the checker reports.
     mkdir -p "$r/architecture/adr"
     : > "$r/architecture/adr/0047-namespace.md"
-    cat > "$r/fixtures/direct-v2/f.json" <<EOF
+    cat > "$r/fixtures/direct-v3/f.json" <<EOF
 {
   "algorithm": { "id": "direct-content-fingerprint-v1" },
   "vectors": [
@@ -70,7 +70,7 @@ out="$(run "$R")"
 # The domain prefix participates in the hash, so a fixture frozen under a
 # different project namespace cannot silently survive.
 R="$TMP/namespace"; make_fixture "$R" "$GOLDEN"
-python3 - "$R/fixtures/direct-v2/f.json" <<'PY'
+python3 - "$R/fixtures/direct-v3/f.json" <<'PY'
 import json,sys,hashlib
 p=sys.argv[1]; d=json.load(open(p))
 old = b"someotherproject/direct-content-fingerprint/v1\x00"
@@ -85,7 +85,7 @@ R="$TMP/unknown"; make_fixture "$R" "$GOLDEN"
 python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['algorithm']['id']='some-future-thing'
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"cannot compute"* ]] && ok "an unverifiable algorithm is reported, not skipped" || bad "unknown algorithm should fail"
 
@@ -96,7 +96,7 @@ import json,sys,copy
 p=sys.argv[1]; d=json.load(open(p))
 dup=copy.deepcopy(d['vectors'][0]); dup['name']='twin'; dup.pop('frozen_by')
 d['vectors'].append(dup)
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"collides with"* ]] && ok "a duplicate fingerprint is reported as a collision" || bad "should report the collision"
 
@@ -148,7 +148,7 @@ R="$TMP/unanchored"; make_fixture "$R" "$GOLDEN"
 python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['vectors'][0].pop('frozen_by')
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"nothing anchors this file"* ]] && ok "a fixture with no anchor at all is reported" || bad "should require an anchor"
 
@@ -157,13 +157,13 @@ R="$TMP/badmedia"; make_fixture "$R" "$GOLDEN"
 python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['vectors'][0]['media_type']=''
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"empty is invalid rather than absent"* ]] && ok "an empty media type is rejected, not treated as absent" || bad "should reject empty media"
 
 # ── non-vector JSON under fixtures/ is ignored ───────────────────────────
 R="$TMP/other"; make_fixture "$R" "$GOLDEN"
-printf '{"note":"not a vector file"}\n' > "$R/fixtures/direct-v2/notes.json"
+printf '{"note":"not a vector file"}\n' > "$R/fixtures/direct-v3/notes.json"
 [ "$(run_code "$R")" = "0" ] && ok "JSON without a vectors array is ignored" || bad "non-vector JSON should be ignored"
 
 # ── anchoring: a file-level `adr` is a valid anchor on its own ───────────
@@ -176,7 +176,7 @@ python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p))
 d['adr']=['0019']; d['vectors'][0].pop('frozen_by')
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 [ "$(run_code "$R")" = "0" ] && ok "a file-level adr anchors a derived-vector file" || bad "file-level adr should anchor: $(run "$R")"
 
 # ── ...but a cited ADR that does not exist is caught ─────────────────────
@@ -186,7 +186,7 @@ python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p))
 d['adr']=['9999']; d['vectors'][0].pop('frozen_by')
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"ADR-9999"* ]] && ok "a nonexistent anchor ADR is reported" || bad "should report the missing ADR"
 
@@ -195,7 +195,7 @@ R="$TMP/anchor-none"; make_fixture "$R" "$GOLDEN"
 python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['vectors'][0].pop('frozen_by')
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"nothing anchors this file"* ]] && ok "an unanchored file is still reported" || bad "should require an anchor"
 
@@ -287,7 +287,7 @@ printf 'media_type = "text/plain"\npayload    = UTF8("hello")\nSHA-256    = %s\n
 # is not the question — a membership test passes a prose copy that quoted
 # the absent-media edge vector beside the golden's own inputs.
 R="$TMP/prose-wrong-vector"; make_fixture "$R" "$GOLDEN"
-python3 - "$R/fixtures/direct-v2/f.json" <<'PY'
+python3 - "$R/fixtures/direct-v3/f.json" <<'PY'
 import json,sys
 p=sys.argv[1]; d=json.load(open(p))
 d['vectors'].append({"name":"absent-media","media_type":None,
@@ -313,16 +313,16 @@ printf 'DirectContentFingerprint\n  media_type = "text/plain"\n  payload = UTF8(
     > "$R/architecture/adr/0047-names.md"
 [ "$(run_code "$R")" = "0" ] && ok "a neighbouring golden is not misattributed" || bad "neighbour should not be flagged: $(run "$R")"
 
-# ── ipc-v2-length-prefix-v1 ──────────────────────────────────────────────
+# ── ipc-v3-length-prefix-v1 ──────────────────────────────────────────────
 # Frames written out by hand from LOCAL-IPC.md §Framing: a 4-byte
 # big-endian length, then the compact UTF-8 JSON body. Not produced by
 # the verifier's own code, so a wrong encoder cannot agree with itself.
 make_ipc() {
     local r="$1" vectors="$2"
-    mkdir -p "$r/fixtures/ipc-v2" "$r/architecture/adr"
+    mkdir -p "$r/fixtures/ipc-v3" "$r/architecture/adr"
     : > "$r/architecture/adr/0017-local-ipc.md"
-    printf '{ "algorithm": { "id": "ipc-v2-length-prefix-v1" }, "adr": ["0017"], "vectors": [%s] }\n' \
-        "$vectors" > "$r/fixtures/ipc-v2/frame.json"
+    printf '{ "algorithm": { "id": "ipc-v3-length-prefix-v1" }, "adr": ["0017"], "vectors": [%s] }\n' \
+        "$vectors" > "$r/fixtures/ipc-v3/frame.json"
 }
 # {"a":1} is 7 bytes; {"s":"é"} is 10 (é is two UTF-8 bytes, written raw
 # as serde_json writes it); {"b":1,"a":2} keeps the order it is listed in.
@@ -330,7 +330,7 @@ IPC_OK='{ "name": "small", "body": {"a": 1}, "frame_hex": "000000077b2261223a317
         { "name": "utf8", "body": {"s": "é"}, "frame_hex": "0000000a7b2273223a22c3a9227d" },
         { "name": "order", "body": {"b": 1, "a": 2}, "frame_hex": "0000000d7b2262223a312c2261223a327d" }'
 R="$TMP/ipc-ok"; make_ipc "$R" "$IPC_OK"
-[ "$(run_code "$R")" = "0" ] && ok "ipc-v2 frames recompute: prefix, raw UTF-8, source key order" || bad "ipc-v2 frames should pass: $(run "$R")"
+[ "$(run_code "$R")" = "0" ] && ok "ipc-v3 frames recompute: prefix, raw UTF-8, source key order" || bad "ipc-v3 frames should pass: $(run "$R")"
 
 R="$TMP/ipc-len"; make_ipc "$R" '{ "name": "small", "body": {"a": 1}, "frame_hex": "000000087b2261223a317d" }'
 out="$(run "$R")"
@@ -338,6 +338,30 @@ out="$(run "$R")"
 
 R="$TMP/ipc-sorted"; make_ipc "$R" '{ "name": "order", "body": {"b": 1, "a": 2}, "frame_hex": "0000000d7b2261223a322c2262223a317d" }'
 [ "$(run_code "$R")" = "1" ] && ok "a frame with the keys re-sorted is DRIFT: source order is the form" || bad "sorted keys should drift: $(run "$R")"
+
+# ── major 3: derived ids recomputed from their names, server frames at 3 ──
+# The test-only ids are tests/support `endpoint_keys::endpoint_id`'s,
+# written out here, not produced by the verifier's own code.
+R="$TMP/ipc-derived"; make_ipc "$R" '{ "name": "derived", "body": {"type": "hello", "ipc_version": {"major": 3, "minor": 0}, "client": {"kind": "k"}, "endpoint": {"id": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"}}, "test_only_endpoints": {"/endpoint/id": "human"}, "frame_hex": "000000937b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a226b227d2c22656e64706f696e74223a7b226964223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372227d7d" }'
+[ "$(run_code "$R")" = "0" ] && ok "a derived id named by its test-only seed recomputes" || bad "the derived id should pass: $(run "$R")"
+R="$TMP/ipc-label"; make_ipc "$R" '{ "name": "label", "body": {"type": "hello", "ipc_version": {"major": 3, "minor": 0}, "client": {"kind": "k"}, "endpoint": {"id": "human"}}, "frame_hex": "000000647b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a226b227d2c22656e64706f696e74223a7b226964223a2268756d616e227d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"derived ids only"* ]] && ok "a label endpoint in a golden is refused" || bad "a label should be refused: $out"
+R="$TMP/ipc-wrong-name"; make_ipc "$R" '{ "name": "wrong", "body": {"type": "hello", "ipc_version": {"major": 3, "minor": 0}, "client": {"kind": "k"}, "endpoint": {"id": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"}}, "test_only_endpoints": {"/endpoint/id": "claude"}, "frame_hex": "000000937b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a226b227d2c22656e64706f696e74223a7b226964223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372227d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"test-only id of 'claude' is 12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd"* ]] && ok "an id its named seed does not derive is refused" || bad "a mis-named id should be refused: $out"
+R="$TMP/ipc-stray-name"; make_ipc "$R" '{ "name": "stray", "body": {"a": 1}, "test_only_endpoints": {"/a": "human"}, "frame_hex": "000000077b2261223a317d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"holds no EndpointId"* ]] && ok "a name for a pointer that holds no endpoint is refused" || bad "a stray name should be refused: $out"
+R="$TMP/ipc-major-2"; make_ipc "$R" '{ "name": "major-2", "body": {"type": "hello_response", "ipc_version": {"major": 2, "minor": 0}, "transport_contract_version": "3.0", "peer": "p", "granted_capabilities": []}, "frame_hex": "000000857b2274797065223a2268656c6c6f5f726573706f6e7365222c226970635f76657273696f6e223a7b226d616a6f72223a322c226d696e6f72223a307d2c227472616e73706f72745f636f6e74726163745f76657273696f6e223a22332e30222c2270656572223a2270222c226772616e7465645f6361706162696c6974696573223a5b5d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"speaks major 3"* ]] && ok "a hello_response at major 2 is refused" || bad "major 2 should be refused: $out"
+R="$TMP/ipc-contract-2"; make_ipc "$R" '{ "name": "contract-2", "body": {"type": "hello_response", "ipc_version": {"major": 3, "minor": 0}, "transport_contract_version": "2.0", "peer": "p", "granted_capabilities": []}, "frame_hex": "000000857b2274797065223a2268656c6c6f5f726573706f6e7365222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c227472616e73706f72745f636f6e74726163745f76657273696f6e223a22322e30222c2270656572223a2270222c226772616e7465645f6361706162696c6974696573223a5b5d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"transport_contract_version"* ]] && ok "a transport contract of 2.0 is refused" || bad "contract 2.0 should be refused: $out"
+R="$TMP/ipc-close-2"; make_ipc "$R" '{ "name": "close-2", "body": {"type": "close", "code": "VersionIncompatible", "supported": [{"major": 2, "minor": 13}]}, "frame_hex": "000000527b2274797065223a22636c6f7365222c22636f6465223a2256657273696f6e496e636f6d70617469626c65222c22737570706f72746564223a5b7b226d616a6f72223a322c226d696e6f72223a31337d5d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"names major 3 alone"* ]] && ok "a close supporting major 2 is refused" || bad "a major-2 close should be refused: $out"
 
 # The ceiling: {"x":"<n A>"} is n + 8 bytes, so n = 131064 is exactly
 # 131,072 and n = 131065 is one over.
@@ -378,6 +402,40 @@ out="$(run "$R")"
 R="$TMP/ipc-negzero"; make_ipc "$R" '{ "name": "negzero", "body": {"n": -0}, "frame_hex": "000000077b226e223a307d" }'
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"-0"* ]] && ok "-0 in a body is refused" || bad "-0 should be refused: $out"
+
+# ── direct 3.0.0: every endpoint field is a derived id of 52 bytes ───────
+# A copy of the real request-frame file, so the control is the frozen file
+# itself and each mutation is one field of one vector.
+make_direct() {
+    local r="$1"
+    mkdir -p "$r/fixtures/direct-v3" "$r/architecture/adr"
+    for a in 0005 0030 0067; do : > "$r/architecture/adr/$a-x.md"; done
+    cp "$SCRIPT_DIR/../../fixtures/direct-v3/direct-message-v2-frame.json" "$r/fixtures/direct-v3/f.json"
+}
+mutate_direct() {
+    python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v=d['vectors'][0]
+exec(sys.argv[2])
+json.dump(d, open(p,'w'))" "$1/fixtures/direct-v3/f.json" "$2"
+}
+R="$TMP/direct-ok"; make_direct "$R"
+[ "$(run_code "$R")" = "0" ] && ok "the direct request vectors recompute in a sandbox" || bad "direct copy should pass: $(run "$R")"
+
+R="$TMP/direct-key"; make_direct "$R"; mutate_direct "$R" "v['source_endpoint_test_key']='someone-else'"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"disagrees with its test key"* ]] \
+    && ok "an endpoint id its test key does not derive is caught" || bad "a wrong test key should fail: $out"
+
+R="$TMP/direct-51"; make_direct "$R"; mutate_direct "$R" "v['source_endpoint']=v['source_endpoint'][:51]; v.pop('source_endpoint_test_key')"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"exactly 52"* ]] \
+    && ok "a 51-byte endpoint field is refused" || bad "51 bytes should be refused: $out"
+
+R="$TMP/direct-label"; make_direct "$R"; mutate_direct "$R" "v['destination_endpoint']='a'*52; v.pop('destination_endpoint_test_key')"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not a derived EndpointId"* ]] \
+    && ok "a 52-byte label is refused as not derived" || bad "a label should be refused: $out"
 
 # ── the real fixtures verify ─────────────────────────────────────────────
 REAL="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"

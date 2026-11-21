@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 
-//! `/interweave/direct/2.0.0`: inbound admission, outbound exchanges,
+//! `/interweave/direct/3.0.0`: inbound admission, outbound exchanges,
 //! and the endpoint configuration both sides resolve against.
 //!
 //! Split out of `runtime.rs` unchanged. The admission decisions

@@ -3,7 +3,7 @@
 //! The Stage 6 exit gate: direct v2 between real peers over loopback.
 //!
 //! Two `SwarmRuntime`s, a real TCP transport, a real Noise handshake, and
-//! the real `/interweave/direct/2.0.0` codec. Nothing here is mocked,
+//! the real `/interweave/direct/3.0.0` codec. Nothing here is mocked,
 //! because every property under test is one a mock would grant for free:
 //! "the queue admitted it before `AcceptedV2` was sent" is a statement
 //! about ordering across a socket, and a stub responder answers in the

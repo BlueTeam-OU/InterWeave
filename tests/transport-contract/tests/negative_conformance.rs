@@ -266,7 +266,7 @@ fn boundaries() -> Vec<Boundary> {
             schema: "ipc/hello.schema.json",
             seed: json!({
                 "type": "hello",
-                "ipc_version": {"major": 2, "minor": 0},
+                "ipc_version": {"major": 3, "minor": 0},
                 "client": {"kind": "human-client", "version": "1.0.0"},
                 "requested_capabilities": ["events"],
                 "features": ["keepalive"]
@@ -328,7 +328,10 @@ fn boundaries() -> Vec<Boundary> {
         Boundary {
             name: "endpoints.direct-destination",
             schema: "endpoints/direct-destination.schema.json",
-            seed: json!({"peer": PEER, "endpoint": "human"}),
+            seed: json!({
+                "peer": PEER,
+                "endpoint": interweave_test_support::endpoint_keys::endpoint_id("human").as_str()
+            }),
             parse: parse_direct_destination,
             responsible: everything,
         },

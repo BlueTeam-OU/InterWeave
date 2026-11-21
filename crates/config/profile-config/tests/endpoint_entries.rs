@@ -111,6 +111,29 @@ fn an_entry_naming_its_key_file_loads_as_the_stems_id() {
     assert_eq!(e.key_state, EndpointKeyState::Missing(KeyMissing::Absent));
 }
 
+/// `alias` is absent or a string, never `null`, as the endpoint-config
+/// schema says; an absent alias is the control.
+#[test]
+fn an_alias_is_absent_or_a_string_never_null() {
+    let dir = private_tempdir();
+    let p = paths(dir.path());
+    let key = key_of(&endpoint_id("human"));
+    write(&p, &document(&entry(&key, ""), ""));
+    assert_eq!(
+        ProfileConfig::load(&p)
+            .expect("absent loads")
+            .endpoints
+            .entries[0]
+            .alias,
+        None
+    );
+    write(&p, &document(&entry(&key, "      alias: null\n"), ""));
+    assert!(
+        matches!(ProfileConfig::load(&p), Err(LoadError::Parse(_))),
+        "an explicit null alias is refused, never read as the alias \"null\""
+    );
+}
+
 /// The retired `id` member is refused `EndpointIdNotDerived`, naming per
 /// entry the one command that applies: `adopt` where
 /// `identity-keys/<old id>.key` is there -- judged by its presence

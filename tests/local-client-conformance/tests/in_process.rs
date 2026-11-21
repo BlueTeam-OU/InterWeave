@@ -783,8 +783,9 @@ async fn a_drained_message_is_a_route_and_a_path_change_follows_it() {
     pair.stop().await;
 }
 
-/// A session opened `without_route_notices` -- what the IPC server opens
-/// for a connection below 2.4 -- is owed a change that follows its
+/// A session opened `without_route_notices` -- what the IPC server opened
+/// for a major-2 connection below 2.4; major 3 opens none, and the IPC
+/// binding refuses the request -- is owed a change that follows its
 /// route's begin with its `previous`, through the in-process binding's
 /// own wiring; the control, a session that takes route notices, is owed
 /// the change merged into the begin. The window is held open the way

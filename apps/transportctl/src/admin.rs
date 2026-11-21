@@ -106,17 +106,15 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
     let peers = action == Admin::PeersList;
     let show = action == Admin::ShowAddresses;
     call(&port, action, json).await.map_err(|e| match e {
-        // `admin.peers` is granted from 2.7 and the show side is 2.8's,
-        // so a 2.7 daemon is told by the port's refusal.
+        // The port refuses a method the connection's version does not
+        // have, before any request (`IpcAdmin::speaks`): every one is a
+        // 3.0 method, so this is said for a minor that brings a method
+        // to come, never for one today.
         TransportError::ProtocolUnsupported if show => Failure::Refused(
-            "the daemon does not speak IPC 2.8's admin.peers.own_addresses: is the daemon older?"
-                .to_owned(),
+            "the daemon does not speak admin.peers.own_addresses: is the daemon older?".to_owned(),
         ),
-        // `admin.status` is granted at every minor, so a daemon too old
-        // for the 2.2 read is told by the port's refusal, not by a
-        // missing capability.
         TransportError::ProtocolUnsupported if peers => Failure::Refused(
-            "the daemon does not speak IPC 2.2's admin.peers.list: is the daemon older?".to_owned(),
+            "the daemon does not speak admin.peers.list: is the daemon older?".to_owned(),
         ),
         e => code(e),
     })
