@@ -2239,7 +2239,8 @@ scale would also be a finding of the Android review
       (the run above), with Try again disabled, and focus stays on the
       notice's text. `ConnectStarting` shows 1 s after the return, and
       Chats opens 10 s after the return, not at once. In a second run,
-      the hook answers that start `LockHeld` within 2 s: the hold
+      the hook answers that start `LockHeld` within 0.5 s, before
+      `ConnectStarting` could show: the hold
       ends, `IdStartBusy` shows with Try again enabled, focus stays on
       the notice's text, nothing is announced, and with no input for
       60 s the hook records no further start. In a third run, with
