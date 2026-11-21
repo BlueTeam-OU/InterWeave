@@ -274,6 +274,16 @@ pub(crate) enum Request {
     /// builds only.
     #[cfg(feature = "test-hooks")]
     OperatorHolds(String, oneshot::Sender<bool>),
+    /// The next book removals answer "kept" without reaching the
+    /// substrate. Test builds only.
+    #[cfg(feature = "test-hooks")]
+    KeepForgets(usize, oneshot::Sender<()>),
+    /// How many removals are held for the next round. Test builds only.
+    #[cfg(feature = "test-hooks")]
+    HeldForgets(oneshot::Sender<usize>),
+    /// Run one discovery round now, as the tick does. Test builds only.
+    #[cfg(feature = "test-hooks")]
+    DiscoveryRound(oneshot::Sender<()>),
     /// End the driver as if its substrate had gone: how a test reaches
     /// a runtime that ends on its own. Test builds only.
     #[cfg(feature = "test-hooks")]
@@ -624,6 +634,8 @@ impl ComposedRuntime {
             overlay_faults: std::collections::VecDeque::new(),
             #[cfg(feature = "test-hooks")]
             publish_faults: 0,
+            #[cfg(feature = "test-hooks")]
+            kept_forgets: 0,
             outcomes: LastOutcomes::default(),
             refusals: ReconnectRefusals::default(),
             writes: LastWrites::new(order),
@@ -739,6 +751,22 @@ impl ComposedRuntime {
         self.ask(Request::EndDriver).await
     }
 
+    /// Cancel the driver where it waits and return once its future is
+    /// gone, with none of its shutdown run: the driver's half of a
+    /// process death (`EmbeddedHost::kill_for_test`). The request
+    /// channel stays open and the substrate stays up while it is
+    /// cancelled, so the driver cannot be in its shutdown when the abort
+    /// lands. TEST BUILDS ONLY: `tools/checks/check_shipped_test_hooks.sh`.
+    #[cfg(feature = "test-hooks")]
+    pub async fn abort_driver(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+            // Cancelled, or ended on its own before the abort: either
+            // way its future has been dropped once this resolves.
+            let _ = task.await;
+        }
+    }
+
     /// Stop the runtime, returning the neutral events it dropped over its
     /// whole life, the substrate's shutdown backlog included: the one
     /// reading of that count nothing can take afterwards.
@@ -822,6 +850,39 @@ impl ComposedRuntime {
     pub async fn operator_holds(&self, address: &str) -> Result<bool, TransportError> {
         self.ask(|reply| Request::OperatorHolds(address.to_owned(), reply))
             .await
+    }
+
+    /// Make the next `count` book removals answer "kept" without reaching
+    /// the substrate, the address left in the book and at the door: the
+    /// answer a live quarantine the table has no room for gives, which a
+    /// composed runtime cannot fill its table to reach. TEST BUILDS ONLY.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` once the runtime has stopped.
+    #[cfg(feature = "test-hooks")]
+    pub async fn keep_forgets(&self, count: usize) -> Result<(), TransportError> {
+        self.ask(|reply| Request::KeepForgets(count, reply)).await
+    }
+
+    /// How many removals the book kept are held for the next discovery
+    /// round (`PendingForgets`). TEST BUILDS ONLY.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` once the runtime has stopped.
+    #[cfg(feature = "test-hooks")]
+    pub async fn held_forgets(&self) -> Result<usize, TransportError> {
+        self.ask(Request::HeldForgets).await
+    }
+
+    /// Run one discovery round now, through the tick's own handling: how a
+    /// test under a long `discovery_interval` says when a round runs.
+    /// TEST BUILDS ONLY.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` once the runtime has stopped.
+    #[cfg(feature = "test-hooks")]
+    pub async fn discovery_round(&self) -> Result<(), TransportError> {
+        self.ask(Request::DiscoveryRound).await
     }
 
     /// Make the next `count` trust or endpoint publishes fail as if the
@@ -935,6 +996,9 @@ struct Driver {
     /// (test builds).
     #[cfg(feature = "test-hooks")]
     publish_faults: usize,
+    /// How many of the next book removals answer "kept" (test builds).
+    #[cfg(feature = "test-hooks")]
+    kept_forgets: usize,
     /// The bootstrap-peers overlay as it is in force (ADR-0062).
     bootstrap: BootstrapOverlay,
     bootstrap_file: Option<PathBuf>,
@@ -1383,6 +1447,20 @@ impl Driver {
                 self.publish_faults = count;
                 let _ = reply.send(());
             }
+            #[cfg(feature = "test-hooks")]
+            Request::KeepForgets(count, reply) => {
+                self.kept_forgets = count;
+                let _ = reply.send(());
+            }
+            #[cfg(feature = "test-hooks")]
+            Request::HeldForgets(reply) => {
+                let _ = reply.send(self.pending_forget.len());
+            }
+            #[cfg(feature = "test-hooks")]
+            Request::DiscoveryRound(reply) => {
+                self.discovery_round().await;
+                let _ = reply.send(());
+            }
         }
     }
 
@@ -1414,6 +1492,25 @@ impl Driver {
         #[cfg(feature = "test-hooks")]
         if self.publish_faults > 0 {
             self.publish_faults -= 1;
+            return true;
+        }
+        false
+    }
+
+    /// Whether the next book removal is to answer "kept" (test builds
+    /// only), counting it off.
+    #[cfg_attr(
+        not(feature = "test-hooks"),
+        expect(
+            clippy::unused_self,
+            clippy::missing_const_for_fn,
+            reason = "the test-hooks build reads and counts self.kept_forgets"
+        )
+    )]
+    fn take_kept_forget(&mut self) -> bool {
+        #[cfg(feature = "test-hooks")]
+        if self.kept_forgets > 0 {
+            self.kept_forgets -= 1;
             return true;
         }
         false
@@ -1745,6 +1842,9 @@ impl Driver {
     /// Take `address` out of the operator's door and the book; `false`
     /// while the book keeps it (a live quarantine it cannot hand over).
     async fn forget(&mut self, peer: &TransportIdentity, address: &str) -> bool {
+        if self.take_kept_forget() {
+            return false;
+        }
         let Ok(parsed) = address.parse() else {
             return true;
         };
