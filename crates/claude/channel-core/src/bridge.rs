@@ -442,6 +442,7 @@ fn is_human_chat(payload: &Payload) -> bool {
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
     use interweave_transport_api::{
         MAX_PAYLOAD_BYTES, MediaType, MessageId, Payload, TransportIdentity,
     };
@@ -450,7 +451,7 @@ mod tests {
     const NOW: u64 = 1_791_227_222_497;
 
     fn endpoint(s: &str) -> EndpointId {
-        EndpointId::parse(s).expect("endpoint")
+        endpoint_id(s)
     }
     fn channel(s: &str) -> ChannelId {
         ChannelId::parse(s).expect("channel")
@@ -503,13 +504,14 @@ mod tests {
             .expect("a notification");
         assert_eq!(n.content, "hello");
         let entries: Vec<_> = n.meta.entries().collect();
+        let (human, claude) = (endpoint_id("human"), endpoint_id("claude"));
         assert_eq!(
             entries,
             [
                 ("delivery_mode", "direct"),
                 ("source_peer", PEER),
-                ("source_endpoint", "human"),
-                ("destination_endpoint", "claude"),
+                ("source_endpoint", human.as_str()),
+                ("destination_endpoint", claude.as_str()),
                 ("message_id", "000102030405060708090a0b0c0d0e0f"),
                 ("received_at", "2026-10-05T19:07:02.497Z"),
                 ("reply_token", "BwcHBwcHBwcHBwcHBwcHBw"),

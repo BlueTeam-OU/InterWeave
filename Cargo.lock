@@ -3398,6 +3398,7 @@ dependencies = [
  "interweave-local-client-api",
  "interweave-local-client-fake",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "serde",
  "serde_json",
