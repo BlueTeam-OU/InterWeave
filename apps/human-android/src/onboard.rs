@@ -620,6 +620,24 @@ struct Onboarding {
     done: Rc<dyn Fn()>,
 }
 
+impl Onboarding {
+    /// The ask that starts the service now. The first is the flow's own
+    /// ([`Over::start_ask`]). Any later one -- `IdStartBusy`'s Try again,
+    /// a held start resumed after a granted prompt, the Unlock after that
+    /// prompt was cancelled -- finds the service bound and started: a bind
+    /// would find the binding (MainActivity.connect) and Show my phrase's
+    /// way back the service already back (NetworkService.online), and
+    /// either would start nothing. A restart starts it again, and binds
+    /// when the service is unbound since.
+    const fn start_ask(&self) -> jni::sys::jint {
+        if self.service_asked {
+            ask::RESTART
+        } else {
+            self.over.start_ask()
+        }
+    }
+}
+
 thread_local! {
     static ONBOARDING: RefCell<Option<Onboarding>> = const { RefCell::new(None) };
 }
@@ -1012,8 +1030,9 @@ fn not_run(o: &mut Onboarding, effect: &Effect) -> Vec<Effect> {
         // section 6 forbids. Whether a return prompts is the route's
         // ([`UnlockRoute`]), which counts no decline for a dropped ask.
         Effect::StartService => {
+            let start = o.start_ask();
             o.service_asked = true;
-            await_authentication(o.over.start_ask());
+            await_authentication(start);
             // C4's or R4's continue ends on Chats with the notice focused
             // -- the held screen's start is decided, refused -- S2's Done
             // on Settings, which keeps its own (identity note §10 item
@@ -1493,13 +1512,7 @@ pub(crate) fn secure_off() {
 /// goes first: the service takes it.
 fn ask_service(o: &mut Onboarding) {
     o.lock = None;
-    // An ask after an earlier one -- `IdStartBusy`'s Try again, or a held
-    // start resumed after a granted prompt -- finds the service bound and
-    // started: a bind would find the binding (MainActivity.connect) and
-    // Show my phrase's way back the service already back
-    // (NetworkService.online), and either would start nothing. A restart
-    // starts it again, and binds when the service is unbound since.
-    let again = o.service_asked;
+    let start = o.start_ask();
     o.service_asked = true;
     let hub = ServiceHost::global().hub();
     // Before the ask: an answer counted past this is this start's.
@@ -1510,9 +1523,5 @@ fn ask_service(o: &mut Onboarding) {
     clear_authentication();
     person_asked();
     FLOW_START.store(o.flow.start_held(), Ordering::SeqCst);
-    ASKS.push(if again {
-        ask::RESTART
-    } else {
-        o.over.start_ask()
-    });
+    ASKS.push(start);
 }
