@@ -12,11 +12,17 @@ use interweave_independent_codecs::broadcast_v1::BroadcastMessageV1;
 use interweave_independent_codecs::direct_response_v2::DirectResponseV2;
 use interweave_independent_codecs::direct_v2::DirectMessageV2;
 use interweave_independent_codecs::ipc_v2;
-use interweave_independent_codecs::{MAX_PAYLOAD_BYTES, fingerprint};
+use interweave_independent_codecs::{MAX_PAYLOAD_BYTES, derive_endpoint_id, fingerprint};
 
 /// The `PeerId` the IPC goldens carry: a real one, in the common/peer-id
 /// grammar, so a control is a frame the contract accepts.
 const GOLDEN_PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+
+/// A derived `EndpointId`, from the Ed25519 key `[n; 32]`: the direct
+/// wire's endpoint fields carry nothing else on 3.0.0.
+fn id(n: u8) -> String {
+    derive_endpoint_id(&[n; 32])
+}
 
 fn direct(
     source: &str,
@@ -37,11 +43,17 @@ fn direct(
 /// Encode under the bound, then patch the bytes past it: the encoder
 /// refuses what the decoder is being asked to refuse.
 fn direct_bytes(source: &str, media_len: usize, payload: usize) -> Vec<u8> {
+    direct_bytes_to(source, "", media_len, payload)
+}
+
+/// [`direct_bytes`] with a destination field; `""` is the default's 0.
+fn direct_bytes_to(source: &str, dest: &str, media_len: usize, payload: usize) -> Vec<u8> {
     let mut out = vec![7u8; 16];
     out.extend_from_slice(&1u64.to_be_bytes());
     out.push(u8::try_from(source.len()).unwrap());
     out.extend_from_slice(source.as_bytes());
-    out.push(0);
+    out.push(u8::try_from(dest.len()).unwrap());
+    out.extend_from_slice(dest.as_bytes());
     out.push(u8::try_from(media_len).unwrap());
     out.extend(std::iter::repeat_n(b'm', media_len));
     out.extend_from_slice(&u32::try_from(payload).unwrap().to_be_bytes());
@@ -51,12 +63,12 @@ fn direct_bytes(source: &str, media_len: usize, payload: usize) -> Vec<u8> {
 
 #[test]
 fn direct_payload_ceiling_is_exact() {
-    let at = direct_bytes("human", 0, MAX_PAYLOAD_BYTES);
+    let at = direct_bytes(&id(1), 0, MAX_PAYLOAD_BYTES);
     assert_eq!(
         DirectMessageV2::decode(&at).unwrap().payload.len(),
         MAX_PAYLOAD_BYTES
     );
-    let over = direct_bytes("human", 0, MAX_PAYLOAD_BYTES + 1);
+    let over = direct_bytes(&id(1), 0, MAX_PAYLOAD_BYTES + 1);
     assert!(
         DirectMessageV2::decode(&over)
             .unwrap_err()
@@ -64,12 +76,12 @@ fn direct_payload_ceiling_is_exact() {
             .contains("above")
     );
     assert!(
-        direct("human", None, None, MAX_PAYLOAD_BYTES)
+        direct(&id(1), None, None, MAX_PAYLOAD_BYTES)
             .encode()
             .is_ok()
     );
     assert!(
-        direct("human", None, None, MAX_PAYLOAD_BYTES + 1)
+        direct(&id(1), None, None, MAX_PAYLOAD_BYTES + 1)
             .encode()
             .is_err()
     );
@@ -77,7 +89,7 @@ fn direct_payload_ceiling_is_exact() {
 
 #[test]
 fn a_declared_payload_past_the_frame_is_refused_before_it_is_taken() {
-    let mut f = direct_bytes("human", 0, 0);
+    let mut f = direct_bytes(&id(1), 0, 0);
     let n = f.len();
     f[n - 4..].copy_from_slice(&5u32.to_be_bytes());
     let err = DirectMessageV2::decode(&f).unwrap_err();
@@ -88,49 +100,73 @@ fn a_declared_payload_past_the_frame_is_refused_before_it_is_taken() {
 
 #[test]
 fn direct_media_type_is_one_to_128_ascii() {
-    assert!(DirectMessageV2::decode(&direct_bytes("human", 128, 1)).is_ok());
-    assert!(DirectMessageV2::decode(&direct_bytes("human", 129, 1)).is_err());
+    assert!(DirectMessageV2::decode(&direct_bytes(&id(1), 128, 1)).is_ok());
+    assert!(DirectMessageV2::decode(&direct_bytes(&id(1), 129, 1)).is_err());
     assert!(
-        direct("human", None, Some(&"m".repeat(128)), 1)
+        direct(&id(1), None, Some(&"m".repeat(128)), 1)
             .encode()
             .is_ok()
     );
     assert!(
-        direct("human", None, Some(&"m".repeat(129)), 1)
+        direct(&id(1), None, Some(&"m".repeat(129)), 1)
             .encode()
             .is_err()
     );
-    assert!(direct("human", None, Some(""), 1).encode().is_err());
-    assert!(direct("human", None, Some("tëxt"), 1).encode().is_err());
+    assert!(direct(&id(1), None, Some(""), 1).encode().is_err());
+    assert!(direct(&id(1), None, Some("tëxt"), 1).encode().is_err());
     // Printable only (the schemas' pattern; see `is_media_type`): the
     // first and last printable bytes pass, a tab and DEL do not.
-    assert!(direct("human", None, Some(" ~"), 1).encode().is_ok());
-    assert!(direct("human", None, Some("a\tb"), 1).encode().is_err());
-    assert!(direct("human", None, Some("a\u{7f}"), 1).encode().is_err());
+    assert!(direct(&id(1), None, Some(" ~"), 1).encode().is_ok());
+    assert!(direct(&id(1), None, Some("a\tb"), 1).encode().is_err());
+    assert!(direct(&id(1), None, Some("a\u{7f}"), 1).encode().is_err());
 }
 
 #[test]
 fn direct_source_is_always_present_and_in_the_grammar() {
-    assert!(DirectMessageV2::decode(&direct_bytes("h", 0, 0)).is_ok());
-    let mut none = direct_bytes("h", 0, 0);
-    none.remove(16 + 8 + 1);
-    none[16 + 8] = 0;
+    assert!(DirectMessageV2::decode(&direct_bytes(&id(1), 0, 0)).is_ok());
+    let none = direct_bytes("", 0, 0);
     assert!(
         DirectMessageV2::decode(&none)
             .unwrap_err()
             .0
             .contains("always present")
     );
-    assert!(DirectMessageV2::decode(&direct_bytes("Human", 0, 0)).is_err());
-    assert!(DirectMessageV2::decode(&direct_bytes(&"a".repeat(64), 0, 0)).is_ok());
-    assert!(DirectMessageV2::decode(&direct_bytes(&"a".repeat(65), 0, 0)).is_err());
-    assert!(direct("claude", Some("9bad"), None, 0).encode().is_err());
-    assert!(direct("claude", Some("good"), None, 0).encode().is_ok());
+    // A label of the retired grammar, at its old length and at 52: the
+    // first is refused by length, the second by the derived grammar.
+    assert!(DirectMessageV2::decode(&direct_bytes("human", 0, 0)).is_err());
+    assert!(DirectMessageV2::decode(&direct_bytes(&"a".repeat(52), 0, 0)).is_err());
+    // 52 base58btc characters that are not the canonical form of a key.
+    let mut altered = id(1);
+    altered.replace_range(..1, "2");
+    assert!(DirectMessageV2::decode(&direct_bytes(&altered, 0, 0)).is_err());
+    assert!(direct(&id(2), Some("9bad"), None, 0).encode().is_err());
+    assert!(direct(&id(2), Some("good"), None, 0).encode().is_err());
+    assert!(direct(&id(2), Some(&id(3)), None, 0).encode().is_ok());
+}
+
+/// `DIRECT.md` §Request on 3.0.0: an endpoint field is 52 bytes, or 0 for
+/// the destination alone. 51, 53 and 1 are refused in either field, beside
+/// 52 and the destination's 0.
+#[test]
+fn direct_endpoint_fields_are_52_bytes_or_the_destinations_0() {
+    let cut = |n: usize| id(1).chars().cycle().take(n).collect::<String>();
+    assert!(DirectMessageV2::decode(&direct_bytes_to(&id(1), &id(2), 0, 0)).is_ok());
+    let default = DirectMessageV2::decode(&direct_bytes_to(&id(1), "", 0, 0)).unwrap();
+    assert_eq!(default.destination_endpoint, None);
+    for n in [51, 53, 1] {
+        let err = DirectMessageV2::decode(&direct_bytes_to(&cut(n), &id(2), 0, 0)).unwrap_err();
+        assert!(err.0.contains(&format!("source_endpoint_len {n}")), "{err}");
+        let err = DirectMessageV2::decode(&direct_bytes_to(&id(1), &cut(n), 0, 0)).unwrap_err();
+        assert!(
+            err.0.contains(&format!("destination_endpoint_len {n}")),
+            "{err}"
+        );
+    }
 }
 
 #[test]
 fn a_byte_after_the_payload_is_a_different_frame() {
-    let ok = direct_bytes("human", 0, 2);
+    let ok = direct_bytes(&id(1), 0, 2);
     assert!(DirectMessageV2::decode(&ok).is_ok());
     let mut extra = ok;
     extra.push(0);
@@ -325,11 +361,11 @@ fn ipc_envelope_rules_hold_beside_their_controls() {
 /// `DIRECT.md` §Response byte layout, each refusal beside its control.
 #[test]
 fn response_rules_hold_beside_their_controls() {
-    let accepted = |label: &str| {
+    let accepted = |endpoint: &str| {
         let mut f = vec![1u8];
         f.extend_from_slice(&[5; 16]);
-        f.push(u8::try_from(label.len()).unwrap());
-        f.extend_from_slice(label.as_bytes());
+        f.push(u8::try_from(endpoint.len()).unwrap());
+        f.extend_from_slice(endpoint.as_bytes());
         f
     };
     let rejected = |code: u8| {
@@ -338,15 +374,21 @@ fn response_rules_hold_beside_their_controls() {
         f.push(code);
         f
     };
-    assert!(DirectResponseV2::decode(&accepted("human")).is_ok());
-    assert!(DirectResponseV2::decode(&accepted(&"a".repeat(64))).is_ok());
-    assert_eq!(accepted(&"a".repeat(64)).len(), 82);
+    // Every legal acceptance is 70 bytes on 3.0.0, the longest response.
+    assert!(DirectResponseV2::decode(&accepted(&id(1))).is_ok());
+    assert_eq!(accepted(&id(1)).len(), 70);
+    assert_eq!(
+        interweave_independent_codecs::direct_response_v2::MAX_RESPONSE_BYTES,
+        70
+    );
     assert!(
         DirectResponseV2::decode(&accepted("")).is_err(),
-        "a zero label"
+        "a zero length"
     );
-    assert!(DirectResponseV2::decode(&accepted(&"a".repeat(65))).is_err());
-    assert!(DirectResponseV2::decode(&accepted("Human")).is_err());
+    assert!(DirectResponseV2::decode(&accepted(&id(1)[..51])).is_err());
+    assert!(DirectResponseV2::decode(&accepted(&format!("{}1", id(1)))).is_err());
+    assert!(DirectResponseV2::decode(&accepted("human")).is_err());
+    assert!(DirectResponseV2::decode(&accepted(&"a".repeat(52))).is_err());
     for code in 1..=7 {
         assert!(DirectResponseV2::decode(&rejected(code)).is_ok(), "{code}");
     }
@@ -359,7 +401,7 @@ fn response_rules_hold_beside_their_controls() {
     let mut long = rejected(1);
     long.push(0);
     assert!(DirectResponseV2::decode(&long).is_err());
-    let mut long = accepted("human");
+    let mut long = accepted(&id(1));
     long.push(b'x');
     assert!(DirectResponseV2::decode(&long).is_err());
     assert!(

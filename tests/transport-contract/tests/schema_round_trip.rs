@@ -393,7 +393,7 @@ fn a_discovery_candidate_validates() {
         observed_at: 1_700_000_000_000,
         expires_at: Some(1_700_000_060_000),
         protocol_observations: [ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 1_700_000_000_000,
         }]

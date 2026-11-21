@@ -10,13 +10,18 @@
 //! ```
 //!
 //! No version byte: the version is the negotiated protocol id
-//! `/interweave/direct/2.0.0`.
+//! `/interweave/direct/3.0.0`. The frame keeps its `V2` name, the layout's;
+//! on 3.0.0 each endpoint field is a derived `EndpointId`, so its length is
+//! 52, or 0 for the destination alone, and any other is refused.
 
 use crate::wire::{self, Reader};
-use crate::{DecodeError, MAX_PAYLOAD_BYTES, is_endpoint_id, is_media_type};
+use crate::{
+    DERIVED_ENDPOINT_ID_BYTES, DecodeError, MAX_PAYLOAD_BYTES, is_derived_endpoint_id,
+    is_media_type,
+};
 
 /// The protocol id the frame travels under.
-pub const PROTOCOL: &str = "/interweave/direct/2.0.0";
+pub const PROTOCOL: &str = "/interweave/direct/3.0.0";
 
 /// One request frame, every field as the contract names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,7 +30,7 @@ pub struct DirectMessageV2 {
     pub message_id: [u8; 16],
     /// Diagnostic only.
     pub sent_at_ms: u64,
-    /// 1..64 bytes of `EndpointId` grammar: a source is always present.
+    /// A derived `EndpointId`, 52 bytes: a source is always present.
     pub source_endpoint: String,
     /// `None` is length zero: the receiver's configured default, never
     /// fan-out.
@@ -53,12 +58,14 @@ impl DirectMessageV2 {
                 "source_endpoint_len 0: a source is always present".to_owned(),
             ));
         }
+        length(source_len, "source_endpoint")?;
         let source_endpoint = endpoint(r.take(source_len, "source_endpoint")?, "source_endpoint")?;
 
         let dest_len = usize::from(r.u8("destination_endpoint_len")?);
         let destination_endpoint = if dest_len == 0 {
             None
         } else {
+            length(dest_len, "destination_endpoint")?;
             Some(endpoint(
                 r.take(dest_len, "destination_endpoint")?,
                 "destination_endpoint",
@@ -84,13 +91,13 @@ impl DirectMessageV2 {
     /// An endpoint outside the grammar, an empty or over-long media type,
     /// or a payload above [`MAX_PAYLOAD_BYTES`].
     pub fn encode(&self) -> Result<Vec<u8>, DecodeError> {
-        if !is_endpoint_id(&self.source_endpoint) {
+        if !is_derived_endpoint_id(&self.source_endpoint) {
             return Err(DecodeError(
                 "source_endpoint outside the grammar".to_owned(),
             ));
         }
         if let Some(d) = &self.destination_endpoint
-            && !is_endpoint_id(d)
+            && !is_derived_endpoint_id(d)
         {
             return Err(DecodeError(
                 "destination_endpoint outside the grammar".to_owned(),
@@ -106,7 +113,9 @@ impl DirectMessageV2 {
         if self.payload.len() > MAX_PAYLOAD_BYTES {
             return Err(DecodeError("payload above the ceiling".to_owned()));
         }
-        let mut out = Vec::with_capacity(16 + 8 + 3 + 4 + 64 * 2 + 128 + self.payload.len());
+        let mut out = Vec::with_capacity(
+            16 + 8 + 3 + 4 + DERIVED_ENDPOINT_ID_BYTES * 2 + 128 + self.payload.len(),
+        );
         out.extend_from_slice(&self.message_id);
         out.extend_from_slice(&self.sent_at_ms.to_be_bytes());
         put_label(&mut out, Some(&self.source_endpoint));
@@ -117,10 +126,20 @@ impl DirectMessageV2 {
     }
 }
 
+/// An endpoint field's length is 52: nothing else can carry a derived id.
+fn length(len: usize, what: &str) -> Result<(), DecodeError> {
+    if len != DERIVED_ENDPOINT_ID_BYTES {
+        return Err(DecodeError(format!(
+            "{what}_len {len}: an endpoint field is {DERIVED_ENDPOINT_ID_BYTES} bytes"
+        )));
+    }
+    Ok(())
+}
+
 fn endpoint(bytes: &[u8], what: &str) -> Result<String, DecodeError> {
     let text =
         core::str::from_utf8(bytes).map_err(|_| DecodeError(format!("{what} is not ASCII")))?;
-    if !is_endpoint_id(text) {
+    if !is_derived_endpoint_id(text) {
         return Err(DecodeError(format!(
             "{what} {text:?} outside the EndpointId grammar"
         )));

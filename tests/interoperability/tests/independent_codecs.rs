@@ -65,6 +65,18 @@ fn endpoint(r: &mut Rng) -> String {
     s
 }
 
+/// A derived `EndpointId` of a random key: the only value a direct
+/// endpoint field carries on `/interweave/direct/3.0.0`, so the direct
+/// shapes draw from this and the endpoint directory, still on the label
+/// grammar, from [`endpoint`].
+fn derived_endpoint(r: &mut Rng) -> String {
+    let mut key = [0_u8; 32];
+    for chunk in key.chunks_mut(8) {
+        chunk.copy_from_slice(&r.next().to_le_bytes());
+    }
+    ind::derive_endpoint_id(&key)
+}
+
 fn media(r: &mut Rng) -> Option<String> {
     let len = match r.below(5) {
         0 => return None,
@@ -110,11 +122,11 @@ fn ind_direct(r: &mut Rng) -> ind::direct_v2::DirectMessageV2 {
     ind::direct_v2::DirectMessageV2 {
         message_id: id(r),
         sent_at_ms: sent_at(r),
-        source_endpoint: endpoint(r),
+        source_endpoint: derived_endpoint(r),
         destination_endpoint: if r.below(3) == 0 {
             None
         } else {
-            Some(endpoint(r))
+            Some(derived_endpoint(r))
         },
         media_type: media(r),
         payload: payload(r),
@@ -284,10 +296,6 @@ fn mutated_frames_get_the_same_verdict_from_both_decoders() {
         if msg.media_type.as_ref().is_some_and(|t| t.len() > 8) {
             msg.media_type = Some("text/x".to_owned());
         }
-        msg.source_endpoint.truncate(6);
-        if let Some(dest) = &mut msg.destination_endpoint {
-            dest.truncate(6);
-        }
         let frame = msg.encode().expect("legal");
         for at in 0..frame.len() {
             for &v in VALUES {
@@ -369,7 +377,7 @@ fn prod_reason(name: &str) -> DirectRejectReason {
     }
 }
 
-/// Every reason and a spread of labels, encoded on each side, decoded on
+/// Every reason and a spread of derived ids, encoded on each side, decoded on
 /// the other; then every one-byte change of each, with the same verdict
 /// and the same fields from both decoders.
 #[test]
@@ -386,7 +394,7 @@ fn direct_responses_agree_in_both_directions_and_under_mutation() {
     for _ in 0..200 {
         cases.push(DirectResponseV2::Accepted {
             message_id: id(&mut r),
-            resolved_destination_endpoint: endpoint(&mut r),
+            resolved_destination_endpoint: derived_endpoint(&mut r),
         });
     }
     let to_prod = |c: &DirectResponseV2| match c {
@@ -395,8 +403,8 @@ fn direct_responses_agree_in_both_directions_and_under_mutation() {
             resolved_destination_endpoint,
         } => DirectResponse::Accepted {
             message_id: MessageId::from_bytes(*message_id),
-            resolved_endpoint: EndpointId::parse(resolved_destination_endpoint.clone())
-                .expect("label"),
+            resolved_endpoint: EndpointId::parse_derived(resolved_destination_endpoint.clone())
+                .expect("a derived id"),
         },
         DirectResponseV2::Rejected { message_id, reason } => DirectResponse::Rejected {
             message_id: MessageId::from_bytes(*message_id),

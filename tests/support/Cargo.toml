@@ -23,7 +23,7 @@ serde_json = { workspace = true }
 ed25519-dalek = { workspace = true }
 sha2 = { workspace = true }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
-# `silent-peer` only: a raw libp2p peer holding direct v2 requests
+# `silent-peer` only: a raw libp2p peer holding direct requests
 # unanswered, for the shutdown-grace tests. A feature so the suites that
 # need only fixtures do not build a swarm.
 futures = { workspace = true, optional = true }

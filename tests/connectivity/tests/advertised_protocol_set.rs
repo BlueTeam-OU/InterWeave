@@ -171,7 +171,7 @@ const IDLE_FAR_BEYOND_PATIENCE: Duration = Duration::from_secs(600);
 /// infrastructure-only peer. A new one arriving without that
 /// restriction is the gap that invariant names.
 const ADVERTISED: &[&str] = &[
-    "/interweave/direct/2.0.0",
+    "/interweave/direct/3.0.0",
     "/interweave/endpoints/1.0.0",
     "/ipfs/id/1.0.0",
     "/ipfs/id/push/1.0.0",

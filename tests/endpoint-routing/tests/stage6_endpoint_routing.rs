@@ -36,31 +36,36 @@ fn every_resolve_failure_is_no_route_on_the_wire() {
     }
 }
 
-/// The endpoint grammar the frame carries is the one the registry keys
-/// on: the 64-byte ceiling and the leading-lowercase rule are shared,
-/// so a name the codec accepts is a name the registry can hold.
+/// The endpoint id the frame carries is the one the registry keys on: on
+/// `/interweave/direct/3.0.0` a derived id (ADR-0067), 52 bytes, which the
+/// wire's strict parser and the registry's id both accept, while a label of
+/// the retired grammar, still constructible through the transitional
+/// `EndpointId::parse`, is refused by the strict one the codec uses.
 #[test]
 fn endpoint_ids_share_one_grammar_between_wire_and_registry() {
-    assert_eq!(EndpointId::MAX_BYTES, 64);
-    assert!(EndpointId::parse("a".repeat(64)).is_ok());
-    assert!(EndpointId::parse("a".repeat(65)).is_err());
-    assert!(EndpointId::parse("Human").is_err(), "must begin a-z");
-    assert!(EndpointId::parse("human").is_ok());
+    let id = interweave_test_support::endpoint_keys::endpoint_id("human");
+    assert_eq!(
+        id.as_str().len(),
+        interweave_transport_api::ENDPOINT_FIELD_BYTES
+    );
+    assert_eq!(EndpointId::parse_derived(id.as_str()), Ok(id.clone()));
+    assert_eq!(EndpointId::parse(id.as_str()), Ok(id));
+    assert!(EndpointId::parse_derived("human").is_err());
+    assert!(EndpointId::parse_derived("a".repeat(52)).is_err());
 }
 
-/// ENDPOINT NAMES ARE AN OPEN SET, and this stage must not quietly close
-/// it. `human` and `claude` are configured labels, not variants: a
-/// profile that adds `gpt-5`, `gemini`, or `llama-4` is editing config,
-/// not this crate, and no wire byte changes because the frame carries a
-/// length-prefixed label rather than a code point.
+/// ENDPOINT IDS ARE AN OPEN SET, and this stage must not quietly close it.
+/// An id is the name of whatever key the endpoint holds (ADR-0067): a
+/// profile that adds an endpoint for a model that does not exist yet is
+/// making a key, not editing this crate, and no wire byte changes because
+/// the frame carries a length-prefixed id rather than a code point.
 ///
-/// The risk is not today's code — it is a future `match name { "human"
-/// => .., "claude" => .. }` somewhere in routing, which would compile,
-/// pass every existing test, and silently make unknown endpoints
-/// unroutable. This asserts the property directly so that change fails
-/// here.
+/// The risk is not today's code — it is a future `match` on known ids or
+/// aliases somewhere in routing, which would compile, pass every existing
+/// test, and silently make unknown endpoints unroutable. This asserts the
+/// property directly so that change fails here.
 #[test]
-fn an_endpoint_name_no_one_has_heard_of_is_as_valid_as_the_familiar_ones() {
+fn an_endpoint_no_one_has_heard_of_is_as_valid_as_the_familiar_ones() {
     for name in [
         "human",
         "claude",
@@ -71,13 +76,10 @@ fn an_endpoint_name_no_one_has_heard_of_is_as_valid_as_the_familiar_ones() {
         "some.future.llm",
         "a",
     ] {
+        let id = interweave_test_support::endpoint_keys::endpoint_id(name);
         assert!(
-            EndpointId::parse(name).is_ok(),
-            "`{name}` must be a legal endpoint label"
+            EndpointId::parse_derived(id.as_str()).is_ok(),
+            "the key for `{name}` names a legal endpoint"
         );
     }
-
-    // The grammar is what constrains a label — never a known-names list.
-    assert!(EndpointId::parse("gpt 5").is_err(), "spaces are not legal");
-    assert!(EndpointId::parse("GPT-5").is_err(), "must begin a-z");
 }

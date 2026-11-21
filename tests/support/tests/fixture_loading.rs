@@ -76,7 +76,7 @@ fn a_named_vector_is_reachable_by_name() {
     // so a rename would be visible in review rather than silent.
     let file = fixtures::vector_files()
         .into_iter()
-        .find(|f| f.relative_path == "fixtures/direct-v2/direct-content-fingerprint-v1.json")
+        .find(|f| f.relative_path == "fixtures/direct-v3/direct-content-fingerprint-v1.json")
         .expect("the direct content fingerprint fixture is present");
 
     let golden = file
