@@ -329,8 +329,12 @@ and holds the screen as Try again's press does; the 1 s before
 `LockHeld` again from that start moves no focus and is not announced
 (§6, A return to a screen showing `IdStartBusy`). Before, the
 profile-in-use row said that the app never retries the start on its
-own, and no rule covered a return to these screens. Acceptance 15
-gains its runs.
+own, and no rule covered a return to these screens. For an owed
+Connect, that start and its reads must answer within the bound from
+the return; no 10 s counts from the start's success, as it does for a
+launch. §8's C4 bullet, its error-banner rule and a new bullet say
+that `IdStartBusy` shown again by that start takes no focus.
+Acceptance 15 gains its runs, two of them for Connect on R4.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
