@@ -5,7 +5,7 @@ topic: "pixel-checks-owed"
 description: "Device checks owed on the Pixel once the owner is back (InterWeave, from 2026-10-21)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 3348ec498df5fb9d
   - 701301d08f1c110c
+  - 8acb21ae619ae5e0
 ---
 
 ## Device checks owed on the Pixel once the owner is back (InterWeave, from 2026-10-21)
@@ -50,6 +51,8 @@ of F9 step 5, F17, F10, acceptance 23, F4 Details at 200 %/light on afb4466b (in
 API 37 runs of app_lifecycle need a fresh-profile phone (POST_NOTIFICATIONS grant) — not the Pixel.
 
 2026-10-31 (j183): notification arrival ran on the Pixel at API 37, 3 of 3 (grant given). The rebind's drop half is now in the app's log. Both are recorded in device-runs/2026-10-31-pixel-9a.md, e63313a9, on branch feat/j183 (no PR; REPLY 01a19298). The arrival runs left three test conversations unread in the Pixel's store.
+
+- j266/#654 (merged 41bb631b9, 2026-11-13): on a phone, a tap on a disabled identity key/primary leaves focus and mode; a tap then Return takes the suggestion (host-only so far).
 
 *References: android-relay-front-instance, empty-line-takes-no-room*
 

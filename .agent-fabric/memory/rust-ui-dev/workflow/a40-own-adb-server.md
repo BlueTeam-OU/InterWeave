@@ -5,7 +5,7 @@ topic: "a40-own-adb-server"
 description: "Driving the Samsung A40 (InterWeave Stage 17 device, API 30): no phone-run for it; lease samsung-a40 + own adb server port, address only from the owner"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -15,6 +15,7 @@ derived_from:
   - 3520c6cd7c564843
   - 44040ae9eab6dfd2
   - 474afb8246bdb027
+  - 8d67d36204234c9d
 ---
 
 ## Driving the Samsung A40 (InterWeave Stage 17 device, API 30): no phone-run for it; lease samsung-a40 + own adb server port, address only from the owner
@@ -44,6 +45,8 @@ Related: [[release-phone-after-testing]] [[android-e2e-device-run]]
 - `input keyevent KEYCODE_BACK` over adb did NOT cancel One UI's BiometricPrompt3P (device credential) that time; the owner's Back did (onError 10).
 - `adb shell run-as P sed -i 's/a b/c d/'` breaks: adb shell joins the words. Push a file instead: `adb shell "run-as P sh -c 'cat > F'" < local`.
 - First run with no identity reads `ui-trace identity=w`. Check the state dir for identity.iwk1 / identity-keys before trusting "done".
+
+- Owner's rule, 2026-11-09 (coordinator REPLY 01a1bf93): the A40 lives on its cable with `settings global stay_on_while_plugged_in` = 7. Leave it at 7 before and after every run; never restore it to 0 (a run that did let the screen time out and brought the secure keyguard back, which then needs the owner's unlock).
 
 *References: android-e2e-device-run, pixel-no-destructive, release-phone-after-testing*
 

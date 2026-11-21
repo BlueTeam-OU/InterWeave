@@ -5,7 +5,7 @@ topic: "adr-0067-roster-endpoint-ids-plan"
 description: "InterWeave ADR-0067 (derived EndpointIds) lands in the fabric as an ADR-064 amendment, built only when Stage 22 opens (j458)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"

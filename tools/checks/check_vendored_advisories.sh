@@ -194,7 +194,8 @@
 # clause said that id "skips instead", full stop, contradicting the
 # paragraph above it. It is named here
 # because this paragraph is where an operator looks. Same remedy:
-# move the fixture to another clean crate. <<< help
+# move the fixture to another clean crate.
+# <<< help
 
 set -uo pipefail
 
