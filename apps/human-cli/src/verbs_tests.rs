@@ -1078,6 +1078,50 @@ async fn a_send_with_no_pending_that_needs_attention_is_cancelled() {
     assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
 }
 
+/// G4: a cancel the store refuses prints no line for the item and ends the
+/// verb with that refusal (the store's failure, exit 7), never "cancelled":
+/// the row stays pending, and a later run sends it, so saying otherwise
+/// would be false.
+/// Mutation: the line printed before `problems(s)?` after the cancel, or
+/// the refusal swallowed.
+#[tokio::test]
+async fn a_send_with_no_pending_whose_cancel_the_store_refuses_prints_nothing() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let mut alice = session(&a, store(dir.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    // A store that cannot delete a pending row, as one that cannot be
+    // written cannot: the insert goes through, the cancel's delete aborts.
+    rusqlite::Connection::open(dir.path().join("human.sqlite3"))
+        .expect("open")
+        .execute_batch(
+            "CREATE TRIGGER refuse_cancel BEFORE DELETE ON pending_outbound \
+             BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+        )
+        .expect("trigger");
+    let nobody = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer");
+    let verb = Verb::Send {
+        conversation: to(&nobody),
+        text: Some("stays".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Store(_))), "{sent:?}");
+    assert!(out.is_empty(), "no line for the item: {out}");
+    alice.close().await;
+    // Read raw: the store refuses to open over the planted trigger.
+    let pending: i64 = rusqlite::Connection::open(dir.path().join("human.sqlite3"))
+        .expect("open")
+        .query_row("SELECT count(*) FROM pending_outbound", [], |r| r.get(0))
+        .expect("count");
+    assert_eq!(pending, 1, "still pending for a later run");
+}
+
 /// Bob's store holding `texts` unread from alice, committed by a run that
 /// reads nothing, and bob's session opened afresh over it.
 async fn unread_at_open(
