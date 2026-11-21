@@ -9,8 +9,7 @@ use std::sync::Arc;
 use interweave_ipc_protocol::{
     ChannelParams, ClientInfo, DirectoryResult, EmptyResult, EndpointClaim, FEATURE_KEEPALIVE,
     Hello, HelloResponse, HelloTag, IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, Method, PublishParams,
-    QueryParams, ROUTE_NOTICE_SINCE_MINOR, Request, RequestedCapability, SendParams, SendResult,
-    SessionLossesResult,
+    QueryParams, Request, RequestedCapability, SendParams, SendResult, SessionLossesResult,
 };
 use interweave_local_client_api::{
     DEFAULT_EVENT_QUEUE, DataCapability, DataSessionBinding, DataSessionPort, EndpointLease,
@@ -39,12 +38,6 @@ pub struct SocketPaths {
 pub struct IpcBinding {
     paths: Arc<SocketPaths>,
     admin_kind: String,
-    /// The minor this daemon selected when last offered ours, learnt from
-    /// a `hello_response`: a capability above 2.0 is named only to a
-    /// daemon known to select its minor (`LOCAL-IPC.md` §Version
-    /// negotiation). Shared by every clone, so one probe serves them all
-    /// until a refusal says the daemon changed.
-    learned_minor: Arc<std::sync::Mutex<Option<u64>>>,
 }
 
 impl IpcBinding {
@@ -55,7 +48,6 @@ impl IpcBinding {
         Self {
             paths: Arc::new(paths),
             admin_kind: admin_kind.into(),
-            learned_minor: Arc::default(),
         }
     }
 
@@ -65,20 +57,6 @@ impl IpcBinding {
 
     pub(crate) fn admin_kind(&self) -> &str {
         &self.admin_kind
-    }
-
-    pub(crate) fn learned_minor(&self) -> Option<u64> {
-        *self
-            .learned_minor
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    pub(crate) fn learn_minor(&self, minor: Option<u64>) {
-        *self
-            .learned_minor
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = minor;
     }
 }
 
@@ -144,8 +122,19 @@ fn events_buffer(response: &HelloResponse) -> Option<usize> {
 impl DataSessionBinding for IpcBinding {
     type Session = IpcSession;
 
+    /// A request that declines route notices is refused
+    /// `ProtocolUnsupported`, nothing sent: on major 3 every session takes
+    /// them (2.4 brought them, and 3.0 holds all of 2.13), so no hello can
+    /// ask for a session without them -- major 2 asked by offering a minor
+    /// below 2.4, which no daemon of major 3 serves. Honoured in process
+    /// (the composition), never dropped here: a session handed notices it
+    /// declined would meet the shape it said it cannot read (#245
+    /// re-review N5).
     async fn open(&self, request: SessionRequest) -> Result<IpcSession, TransportError> {
-        let mut hello = hello(
+        if !request.route_notices() {
+            return Err(TransportError::ProtocolUnsupported);
+        }
+        let hello = hello(
             request.client_kind(),
             request.endpoint(),
             request
@@ -158,13 +147,6 @@ impl DataSessionBinding for IpcBinding {
             // refuses a claim without it, and the reader answers pings.
             [FEATURE_KEEPALIVE.to_owned()].into(),
         );
-        // A SESSION THAT DECLINES ROUTE NOTICES asks for the minor below
-        // them, so the server opens it the way it opens any client that
-        // cannot read them -- the request is honoured by negotiation,
-        // not dropped (#245 re-review N5).
-        if !request.route_notices() {
-            hello.ipc_version.minor = hello.ipc_version.minor.min(ROUTE_NOTICE_SINCE_MINOR - 1);
-        }
         let opened = open(&self.paths().data, hello, events_buffer).await?;
         let response = opened.response;
         let lease = match (request.endpoint(), &response.lease) {
@@ -191,7 +173,7 @@ impl DataSessionBinding for IpcBinding {
         .map_err(|_| TransportError::ProtocolViolation)?;
         Ok(IpcSession {
             session,
-            minor: response.ipc_version.minor,
+            version: response.ipc_version,
             connection: opened.connection,
             events: opened
                 .events
@@ -213,9 +195,9 @@ impl DataSessionBinding for IpcBinding {
 /// the one event its reader holds while it pauses.
 pub struct IpcSession {
     session: LocalDataSession,
-    /// The minor the server selected: a method above it is answered
-    /// here, never sent.
-    minor: u64,
+    /// The version the server selected: a method introduced after it is
+    /// answered here, never sent.
+    version: IpcVersion,
     connection: Connection,
     /// Present exactly when `events` was granted: the buffer, and the
     /// inbox holding the server's newest state and the wake.
@@ -353,12 +335,11 @@ impl DataSessionPort for IpcSession {
             .map(EndpointDirectoryV1::from)
     }
 
-    /// Sent only on a connection that negotiated 2.11 or later: below it
-    /// the server would answer an unknown method, and this answers the
-    /// same without asking. A session that declined route notices asked
-    /// for a minor below 2.4 and is one of those.
+    /// Sent only on a connection whose version has the method (3.0 does):
+    /// on one without it the server would answer an unknown method, and
+    /// this answers the same without asking.
     async fn losses(&self) -> Result<SessionLosses, TransportError> {
-        if self.minor < Method::SessionLosses.entry().since_minor {
+        if !Method::SessionLosses.available_at(self.version) {
             return Err(TransportError::ProtocolUnsupported);
         }
         self.connection

@@ -7,11 +7,10 @@ use std::time::Duration;
 
 use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
-    ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, EndpointParams,
-    MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList, PeerList,
-    PeerListParams, Request, RequestedCapability, SUPERSEDED_SINCE_MINOR, SetDefaultParams,
-    SetEnabledParams, SetEnabledResult, ShutdownParams, TRUST_SOURCE_SINCE_MINOR, TrustList,
-    TrustListParams, TrustSetParams, TrustSetResult,
+    EmptyResult, EndpointList, EndpointParams, IpcVersion, MAX_BOOTSTRAP_ADDRESS_CHARS,
+    MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList, PeerList, PeerListParams, Request,
+    RequestedCapability, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams,
+    TrustList, TrustListParams, TrustSetParams, TrustSetResult,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressesChange, AdminBinding, AdminCapability, AdminPort,
@@ -39,9 +38,9 @@ const fn requested(capability: AdminCapability) -> RequestedCapability {
 /// rather than following it.
 const MAX_TRUST_PAGES: usize = 8;
 
-/// Pages `peers` reads at most: a full allowlist is eight (4096 peers,
-/// 512 a page) below 2.12 and nine from it (456 a page), and the gate's
-/// rows may move while they are read.
+/// Pages `peers` reads at most: a full allowlist is nine (4096 peers, 456
+/// a page, every row carrying `last_seen_ms`), and the gate's rows may
+/// move while they are read.
 const MAX_PEER_PAGES: usize = 10;
 
 impl IpcBinding {
@@ -52,79 +51,27 @@ impl IpcBinding {
     ) -> Result<crate::connection::Opened, TransportError> {
         // No endpoint: an admin connection never holds a lease.
         let hello = hello(self.admin_kind(), None, asked, BTreeSet::new());
-        let opened = open(&self.paths().admin, hello, |_| None).await?;
-        // Every answer says what the daemon selects now: remembered, so
-        // an upgrade a port happens to see is not left unlearnt.
-        self.learn_minor(Some(opened.response.ipc_version.minor));
-        Ok(opened)
-    }
-
-    /// Learn the minor the daemon selects, over a connection asking only
-    /// what 2.0 has (`LOCAL-IPC.md` §Version negotiation: a first hello
-    /// names only 2.0 capabilities), closed once answered.
-    async fn probe_minor(
-        &self,
-        wanted: &BTreeSet<RequestedCapability>,
-    ) -> Result<u64, TransportError> {
-        let first = wanted
-            .iter()
-            .copied()
-            .filter(|c| c.since_minor() == 0)
-            .collect();
-        let opened = self.admin_hello(first).await?;
-        let minor = opened.response.ipc_version.minor;
-        // CLOSED, not dropped, before the real hello: the admin socket's
-        // own client ceiling may be one.
-        let _ = opened.connection.close().await;
-        Ok(minor)
+        open(&self.paths().admin, hello, |_| None).await
     }
 }
 
 impl AdminBinding for IpcBinding {
     type Admin = IpcAdmin;
 
-    /// A capability above 2.0 is named only to a daemon this binding has
-    /// learnt selects its minor -- learnt by a probe connection, then
-    /// remembered -- and is left out, so the port does not hold it, for a
-    /// daemon that does not; a minor remembered below it is probed again
-    /// at the next port, so an upgraded daemon is asked
-    /// (`a_daemon_upgraded_since_the_probe_is_asked_again`). A `ProtocolViolation` close to a hello that
-    /// named one means the daemon changed (a restart may change its
-    /// minor): the minor is learnt again and the hello sent once more
-    /// (`a_trust_port_probes_once_and_relearns_after_a_refusal`).
+    /// Every capability is named in the first hello: each is a 3.0
+    /// capability (`LOCAL-IPC.md` §Version negotiation and phases), so the
+    /// capability rule's probe connection -- owed only for a capability a
+    /// minor above 3.0 brings -- is owed for none. Major 2's probe for
+    /// `admin.trust` (2.1) and `admin.peers` (2.7) is gone with major 2;
+    /// a capability arriving at 3.1 brings it back
+    /// (`every_capability_is_named_in_a_first_hello`).
     async fn admin(
         &self,
         capabilities: BTreeSet<AdminCapability>,
     ) -> Result<IpcAdmin, TransportError> {
         let wanted: BTreeSet<RequestedCapability> =
             capabilities.into_iter().map(requested).collect();
-        let needs = wanted.iter().map(|c| c.since_minor()).max().unwrap_or(0);
-        let opened = if needs == 0 {
-            self.admin_hello(wanted).await?
-        } else {
-            let mut relearnt = false;
-            loop {
-                // A minor remembered below what is wanted is asked again: the
-                // daemon may have been upgraded since, and only a refusal
-                // would otherwise ever clear it.
-                let minor = match self.learned_minor() {
-                    Some(minor) if !relearnt && minor >= needs => minor,
-                    _ => self.probe_minor(&wanted).await?,
-                };
-                let asked = wanted
-                    .iter()
-                    .copied()
-                    .filter(|c| c.since_minor() <= minor)
-                    .collect();
-                match self.admin_hello(asked).await {
-                    Err(TransportError::ProtocolViolation) if !relearnt => {
-                        self.learn_minor(None);
-                        relearnt = true;
-                    }
-                    other => break other?,
-                }
-            }
-        };
+        let opened = self.admin_hello(wanted).await?;
         let granted = opened
             .response
             .granted_capabilities
@@ -132,7 +79,7 @@ impl AdminBinding for IpcBinding {
             .filter_map(|c| c.as_admin());
         Ok(IpcAdmin {
             port: LocalAdminPort::new(mint(), granted),
-            minor: opened.response.ipc_version.minor,
+            version: opened.response.ipc_version,
             connection: opened.connection,
         })
     }
@@ -142,9 +89,9 @@ impl AdminBinding for IpcBinding {
 /// connection ends.
 pub struct IpcAdmin {
     port: LocalAdminPort,
-    /// The minor this port's connection negotiated: a method above it is
-    /// not sent (`admin.peers.list`, 2.2, under the 2.0 `admin.status`).
-    minor: u64,
+    /// The version this port's connection negotiated: a method introduced
+    /// after it is not sent ([`Self::speaks`]).
+    version: IpcVersion,
     connection: Connection,
 }
 
@@ -157,6 +104,19 @@ impl std::fmt::Debug for IpcAdmin {
 }
 
 impl IpcAdmin {
+    /// Whether the connection's version has `method`: one it does not is
+    /// refused `ProtocolUnsupported` here, with nothing sent, as the
+    /// daemon would answer it (an unknown method). Every method is 3.0's,
+    /// so on 3.0 this refuses none; it holds for a method a later minor
+    /// brings.
+    fn speaks(&self, method: Method) -> Result<(), TransportError> {
+        if method.available_at(self.version) {
+            Ok(())
+        } else {
+            Err(TransportError::ProtocolUnsupported)
+        }
+    }
+
     /// `admin.status`'s result object as the daemon sent it, the IPC
     /// server's counters included -- which [`AdminPort::status`]'s neutral
     /// view has no field for. What `transportctl status --json` prints
@@ -173,15 +133,13 @@ impl IpcAdmin {
 
     /// `admin.peers.list_addresses`'s result object as the daemon sent it,
     /// for `transportctl peers addresses --json` and
-    /// [`AdminPort::bootstrap_addresses`]. Below 2.7 the method does not
-    /// exist, so it is refused `ProtocolUnsupported` with nothing sent.
+    /// [`AdminPort::bootstrap_addresses`].
     ///
     /// # Errors
-    /// The call's, and `ProtocolUnsupported` below 2.7.
+    /// The call's, and `ProtocolUnsupported` on a version without the
+    /// method ([`Self::speaks`]).
     pub async fn addresses_result(&self) -> Result<AddressList, TransportError> {
-        if self.minor < Method::AdminPeersListAddresses.entry().since_minor {
-            return Err(TransportError::ProtocolUnsupported);
-        }
+        self.speaks(Method::AdminPeersListAddresses)?;
         self.connection
             .call::<AddressList>(Request::AdminPeersListAddresses)
             .await
@@ -189,16 +147,13 @@ impl IpcAdmin {
 
     /// `admin.peers.own_addresses`'s result object as the daemon sent it,
     /// for `transportctl peers show --json` and
-    /// [`AdminPort::own_addresses`]. Below 2.8 the method does not exist
-    /// -- though `admin.peers` is granted from 2.7 -- so it is refused
-    /// `ProtocolUnsupported` with nothing sent.
+    /// [`AdminPort::own_addresses`].
     ///
     /// # Errors
-    /// The call's, and `ProtocolUnsupported` below 2.8.
+    /// The call's, and `ProtocolUnsupported` on a version without the
+    /// method ([`Self::speaks`]).
     pub async fn own_addresses_result(&self) -> Result<OwnAddressList, TransportError> {
-        if self.minor < Method::AdminPeersOwnAddresses.entry().since_minor {
-            return Err(TransportError::ProtocolUnsupported);
-        }
+        self.speaks(Method::AdminPeersOwnAddresses)?;
         self.connection
             .call::<OwnAddressList>(Request::AdminPeersOwnAddresses)
             .await
@@ -206,24 +161,21 @@ impl IpcAdmin {
 
     /// `admin.endpoints.list`'s result object as the daemon sent it, for
     /// `transportctl endpoints list --json` and [`AdminPort::leases`]: the
-    /// one reader, so both hold the row to its minor's shape. From 2.5 the
+    /// one reader, so both hold the row to the one shape 3.0 serves, the
     /// 2.5 row, `persisted: true` -- a production daemon keeps the
-    /// endpoint overlay, and one without it is never served there; below
-    /// 2.5 the 2.0 row, `persisted: false`, which is what a daemon
-    /// speaking no 2.5 does, since it keeps no overlay. A row in the other
-    /// minor's shape is a daemon this client cannot read truthfully:
+    /// endpoint overlay, and one without it is never served. A row
+    /// `persisted: false` is a daemon this client cannot read truthfully:
     /// refused `Internal`, never read as a value (ADR-0028 A 2026-10-11),
-    /// as a 2.1 trust row is at 2.3.
+    /// as an unpersisted trust row is.
     ///
     /// # Errors
-    /// The call's, and `Internal` for a row in the other minor's shape.
+    /// The call's, and `Internal` for a row that does not persist.
     pub async fn endpoints_result(&self) -> Result<EndpointList, TransportError> {
         let list = self
             .connection
             .call::<EndpointList>(Request::AdminEndpointsList)
             .await?;
-        let persists = self.minor >= ENDPOINT_PERSISTED_SINCE_MINOR;
-        if list.endpoints.iter().any(|row| row.persisted != persists) {
+        if list.endpoints.iter().any(|row| !row.persisted) {
             return Err(TransportError::Internal);
         }
         Ok(list)
@@ -265,19 +217,13 @@ impl IpcAdmin {
     /// Every page of `admin.peers.list` as the daemon sent it, in order,
     /// for `transportctl peers list --json`: one `ipc/peer-list` each.
     ///
-    /// Not sent on a connection that negotiated below 2.2, where the
-    /// daemon would answer it as an unknown method: answered that way
-    /// here instead, without a round trip (`LOCAL-IPC.md`,
-    /// `admin.peers.list`).
-    ///
     /// # Errors
-    /// `ProtocolUnsupported` below 2.2; as [`AdminPort::peers`]; and
-    /// `Internal` for a daemon whose cursor does not advance or that pages
-    /// past [`MAX_PEER_PAGES`].
+    /// `ProtocolUnsupported` on a version without the method
+    /// ([`Self::speaks`]); as [`AdminPort::peers`]; and `Internal` for a
+    /// daemon whose cursor does not advance or that pages past
+    /// [`MAX_PEER_PAGES`].
     pub async fn peers_pages(&self) -> Result<Vec<PeerList>, TransportError> {
-        if self.minor < Method::AdminPeersList.entry().since_minor {
-            return Err(TransportError::ProtocolUnsupported);
-        }
+        self.speaks(Method::AdminPeersList)?;
         let mut pages: Vec<PeerList> = Vec::new();
         let mut after: Option<TransportIdentity> = None;
         loop {
@@ -401,22 +347,13 @@ impl AdminPort for IpcAdmin {
     }
 
     /// Read page by page and joined: the local peer from the first page,
-    /// the rows in order.
-    ///
-    /// Only on a connection that negotiated 2.3 or later, whose row says
-    /// where each peer comes from: below it the 2.1 row carries no
-    /// source, and an unknown is never shown as a value, so the read is
-    /// refused `ProtocolUnsupported` without a round trip, as
-    /// [`AdminPort::peers`] is below 2.2 (`LOCAL-IPC.md` `admin.trust`;
-    /// architect-cto's ruling, relay seq 15229). `set_trust` carries no
-    /// row.
+    /// the rows in order, each saying where its peer comes from (the 2.3
+    /// row, the one 3.0 serves).
     async fn trust(&self) -> Result<TrustAdminView, TransportError> {
-        if self.minor < TRUST_SOURCE_SINCE_MINOR {
-            return Err(TransportError::ProtocolUnsupported);
-        }
+        self.speaks(Method::AdminTrustList)?;
         let pages = self.trust_pages().await?;
         let local_peer = pages.first().and_then(|page| page.local_peer.clone());
-        // At 2.3 every row a production daemon sends is persisted with its
+        // Every row a production daemon sends is persisted with its
         // source (a composition without a store is never served over IPC,
         // LOCAL-CLIENT.md §7 item 11); a row without one is a daemon this
         // client cannot read truthfully.
@@ -438,32 +375,19 @@ impl AdminPort for IpcAdmin {
         })
     }
 
-    /// The result is the one the connection negotiated: from 2.10
-    /// `trust-set-result`, which names a superseded set; below it the
-    /// empty result, which is a set made, and the daemon answers a
-    /// superseded set `Internal`.
+    /// `trust-set-result`, which names a superseded set (the 2.10 result,
+    /// the one 3.0 serves).
     async fn set_trust(
         &self,
         peer: TransportIdentity,
         allowed: bool,
     ) -> Result<TrustChange, TransportError> {
-        let request = Request::AdminTrustSet(TrustSetParams { peer, allowed });
-        if self.minor >= SUPERSEDED_SINCE_MINOR {
-            self.connection
-                .call::<TrustSetResult>(request)
-                .await
-                .map(TrustChange::from)
-        } else {
-            self.connection
-                .call::<EmptyResult>(request)
-                .await
-                .map(|_| TrustChange::Set)
-        }
+        self.connection
+            .call::<TrustSetResult>(Request::AdminTrustSet(TrustSetParams { peer, allowed }))
+            .await
+            .map(TrustChange::from)
     }
 
-    /// Below 2.7 the method does not exist, so it is refused
-    /// `ProtocolUnsupported` without a round trip, as
-    /// [`AdminPort::peers`] is below 2.2.
     async fn add_bootstrap_address(
         &self,
         address: String,
@@ -472,10 +396,8 @@ impl AdminPort for IpcAdmin {
             .await
     }
 
-    /// Below 2.9 the method does not exist -- though `admin.peers` is
-    /// granted from 2.7 -- so it is refused `ProtocolUnsupported` without
-    /// a round trip; a list the schema refuses (none, or more than 16
-    /// lines) is refused `InvalidArgument` without one too. An answer
+    /// A list the schema refuses (none, or more than 16 lines) is refused
+    /// `InvalidArgument` without a round trip. An answer
     /// whose rows do not match the lines sent one for one is the daemon's
     /// `ProtocolViolation`: a client could not say which line each row is.
     ///
@@ -492,9 +414,7 @@ impl AdminPort for IpcAdmin {
         &self,
         addresses: Vec<String>,
     ) -> Result<AddressesChange, TransportError> {
-        if self.minor < Method::AdminPeersAddAddresses.entry().since_minor {
-            return Err(TransportError::ProtocolUnsupported);
-        }
+        self.speaks(Method::AdminPeersAddAddresses)?;
         // The capability before any local answer, in the server's own
         // order: a port without `admin.peers` is `CapabilityDenied` for
         // every list, as at every other binding.
@@ -601,9 +521,7 @@ impl IpcAdmin {
         method: Method,
         address: String,
     ) -> Result<AddressChange, TransportError> {
-        if self.minor < method.entry().since_minor {
-            return Err(TransportError::ProtocolUnsupported);
-        }
+        self.speaks(method)?;
         // The capability first, as the server judges it before the params
         // (`bootstrap_addresses_answer_alike_at_every_binding`).
         if !self.port.holds(AdminCapability::Peers) {
@@ -630,5 +548,38 @@ impl IpcAdmin {
             Request::AdminPeersRemoveAddress(params)
         };
         Ok(self.connection.call::<AddressResult>(request).await?.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use interweave_ipc_protocol::{IPC_MAJOR, RequestedCapability, Since};
+
+    /// The binding names every capability in its first hello, with no
+    /// probe connection (`IpcBinding::admin`). That is right only while
+    /// every capability is a minor-0 capability of the major spoken; one a
+    /// later minor brings fails here, and the capability rule's probe
+    /// (`LOCAL-IPC.md` §Version negotiation) must come back with it.
+    #[test]
+    fn every_capability_is_named_in_a_first_hello() {
+        for capability in [
+            RequestedCapability::Events,
+            RequestedCapability::Commands,
+            RequestedCapability::EndpointsQuery,
+            RequestedCapability::AdminStatus,
+            RequestedCapability::AdminEndpoints,
+            RequestedCapability::AdminShutdown,
+            RequestedCapability::AdminTrust,
+            RequestedCapability::AdminPeers,
+        ] {
+            assert_eq!(
+                capability.since(),
+                Since {
+                    major: IPC_MAJOR,
+                    minor: 0
+                },
+                "{capability:?}"
+            );
+        }
     }
 }
