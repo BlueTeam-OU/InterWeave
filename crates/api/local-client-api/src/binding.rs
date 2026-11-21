@@ -76,11 +76,14 @@ impl SessionRequest {
 
     /// The same request for a session that takes no `PeerPathChanged`
     /// without a `previous` -- no route-begin and no return notice
-    /// (`LOCAL-CLIENT.md` item 12, A 2026-10-09). A binding opens such a
-    /// session for a client that cannot read that shape, the IPC server
-    /// for a connection below minor 2.4: owed none, it is owed every path
-    /// change as it was before them, `previous` included, rather than a
-    /// change merged into a notice the binding then has to drop.
+    /// (`LOCAL-CLIENT.md` item 12, A 2026-10-09). The in-process binding
+    /// opens such a session for a client that cannot read that shape:
+    /// owed none, it is owed every path change as it was before them,
+    /// `previous` included, rather than a change merged into a notice the
+    /// binding then has to drop. No major-3 IPC connection declines them
+    /// (`LOCAL-IPC.md`, A 2026-11-21): the IPC client refuses this request
+    /// with `ProtocolUnsupported`; a connection below minor 2.4 was major
+    /// 2's way to decline.
     #[must_use]
     pub const fn without_route_notices(mut self) -> Self {
         self.route_notices = false;
