@@ -188,11 +188,11 @@ its number, never a number put before a fixed word.
 | `MigratedCards` {n} | n contact cards the person had not answered went; the sender can share theirs again | "{n} contact cards you had not answered" |
 | `MigratedUnread` {n} | n unread messages went, before they were read; never a card | "{n} unread messages" |
 | `MigratedKept` {n} | n messages the person had kept went | "{n} kept messages" |
-| `MigratedConversations` {n} | n conversations went, all of them with someone who never shared a contact card | "{n} conversations with no contact card" |
-| `MigratedContacts` {n} | n contacts went, each with no contact card | "{n} contacts with no contact card" |
+| `MigratedConversations` {n} | n conversations went, each with someone whose contact card the person had not accepted (unread or declined counts as not accepted) | "{n} conversations with no accepted contact card" |
+| `MigratedContacts` {n} | n contacts went, each with no accepted contact card | "{n} contacts with no accepted contact card" |
 | `MigratedCombined` {n} | n contacts were joined to another contact of the same person; that person's contact stays, the joined contact's own name and notes did not | "{n} contacts were combined with another contact of the same person. Their own names and notes were not kept." |
-| `MigratedWhy` | each contact is now reached by the key on their card; what had no card could not move; the app cannot show which items went | "Each contact is now reached by the key on their contact card, so what had no card could not be kept. The app cannot show which items were removed." |
-| `MigratedKeptWhat` | contacts with a card, and their conversations, are still there | "Your contacts with a contact card and their conversations are still here." |
+| `MigratedWhy` | each contact is now reached by the key on the card the person accepted; what had no accepted card could not move; the app cannot show which items went | "Each contact is now reached by the key on their contact card, so what had no accepted card could not be kept. The app cannot show which items were removed." |
+| `MigratedKeptWhat` | contacts with an accepted card, and their conversations, are still there | "Your contacts with an accepted contact card and their conversations are still here." |
 | `MigratedOk` | acknowledges, and the notice will not return; distinct from Close, which elsewhere dismisses with no effect | "OK" (new: no OK string exists) |
 
 No string names a peer, an identity, a PeerId or a label.
