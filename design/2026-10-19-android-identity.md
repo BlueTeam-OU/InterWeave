@@ -1651,9 +1651,9 @@ access.
   copies wherever it shows (§6), since a copy changes nothing the seal reads, except under
   the progress state (§5). When the result
   comes, focus goes as follows, wherever the person moved it. A §6
-  notice takes focus (the error-banner rule below), except after a
-  start retried at a return, which no press made (A start retried at
-  a return, below). A cancelled or
+  notice takes focus (the error-banner rule below), except
+  `IdStartBusy` shown again by a start retried at a return, which no
+  press made (A start retried at a return, below). A cancelled or
   denied prompt for the seal leaves C4 as it was,
   with its primary enabled again and focus where it was before the
   prompt. One for its read-back shows `IdStorageUnknown`, which takes
