@@ -5570,7 +5570,15 @@ fn a_right_to_left_menu_button_moves_the_count_too() {
 // reaches; the clearing itself is android-platform's view_side
 // `a_start_refused_busy_shows_its_notice_until_another_answer`); and that
 // a recreation while a start runs starts no second
-// (`NetworkService.busy`, Kotlin).
+// (`NetworkService.busy`, Kotlin); that only a showing which starts the
+// service marks the notice's start running, one starting nothing
+// (Show my phrase, authentication needed, a binding whose service runs)
+// leaving Try again enabled; and that a return's start while C4, R4, R3
+// or R2 shows `IdStartBusy` holds that screen and is counted for it
+// (MainActivity.onStart deciding, human-android's
+// `onboard::showing_starts`; the flow's half is ui-model's
+// `a_showings_start_holds_as_try_again_and_asks_nothing` and
+// `a_showings_start_refused_busy_again_raises_nothing`).
 
 /// Chats with `IdStartBusy` refused after the bound: a phone's window,
 /// focus where the bound left it.
