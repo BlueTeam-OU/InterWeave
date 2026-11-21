@@ -985,7 +985,12 @@ def _canonical_json_len(obj: dict) -> int:
     return len(json.dumps(obj, separators=(",", ":"), ensure_ascii=False))
 
 
-def ipc_v2_payload_fit(vector: dict) -> str:
+# An EndpointId on IPC major 3 is the derived id (ADR-0067 decision 7):
+# `endpoints/endpoint-id` 2.0.0's 52 characters, exactly.
+IPC_V3_ENDPOINT_ID_CHARS = 52
+
+
+def ipc_v3_payload_fit(vector: dict) -> str:
     """From architecture/contracts/LOCAL-IPC.md §Framing / §Payload-fit invariant.
 
     Builds the maximal legal object for one direction and returns its
@@ -999,6 +1004,12 @@ def ipc_v2_payload_fit(vector: dict) -> str:
     vector's own `envelope_headroom_bytes` rather than invented here.
     """
     payload_bytes = int(vector["payload_bytes"])
+    for key in ("destination_endpoint_bytes", "source_endpoint_bytes"):
+        if key in vector and vector[key] != IPC_V3_ENDPOINT_ID_CHARS:
+            raise ValueError(
+                f"{key} is {vector[key]}; a derived EndpointId is exactly "
+                f"{IPC_V3_ENDPOINT_ID_CHARS} characters (endpoints/endpoint-id 2.0.0)"
+            )
     if payload_bytes > 49152:
         raise ValueError(f"{payload_bytes} exceeds the 49,152-byte ADR-0026 payload ceiling")
 
@@ -1014,6 +1025,11 @@ def ipc_v2_payload_fit(vector: dict) -> str:
     def field(n: int, ch: str = "a") -> str:
         return ch * n
 
+    def endpoint(n: int, ch: str) -> str:
+        # The derived id's shape, `12D3KooW` and 44 base58btc characters:
+        # its length is the invariant, its content is not.
+        return "12D3KooW" + ch * (n - len("12D3KooW"))
+
     direction = vector["direction"]
     payload = {
         "media_type": field(vector["media_type_bytes"], "x"),
@@ -1022,7 +1038,7 @@ def ipc_v2_payload_fit(vector: dict) -> str:
     if direction == "send-params":
         obj = {
             "peer": field(vector["peer_id_bytes"], "P"),
-            "endpoint": field(vector["destination_endpoint_bytes"], "d"),
+            "endpoint": endpoint(vector["destination_endpoint_bytes"], "d"),
             "payload": payload,
             "message_id": field(32, "0"),
         }
@@ -1031,8 +1047,8 @@ def ipc_v2_payload_fit(vector: dict) -> str:
             "message_id": field(32, "0"),
             "mode": "direct",
             "source_peer": field(vector["peer_id_bytes"], "P"),
-            "source_endpoint": field(vector["source_endpoint_bytes"], "s"),
-            "destination_endpoint": field(vector["destination_endpoint_bytes"], "d"),
+            "source_endpoint": endpoint(vector["source_endpoint_bytes"], "s"),
+            "destination_endpoint": endpoint(vector["destination_endpoint_bytes"], "d"),
             "payload": payload,
             "received_at": int(vector["received_at"]),
         }
@@ -1058,9 +1074,113 @@ def ipc_v2_payload_fit(vector: dict) -> str:
     return body_len.to_bytes(4, "big").hex()
 
 
-# --- IPC v2 frame ---------------------------------------------------------
+# --- IPC v3 frame ---------------------------------------------------------
 
-IPC_V2_FRAME_CEILING = 131072
+IPC_V3_FRAME_CEILING = 131072
+
+# Major 3 (LOCAL-IPC.md §Version negotiation and phases): what a server
+# frame names as its version, and the transport contract it states.
+IPC_V3_MAJOR = 3
+IPC_V3_TRANSPORT_CONTRACT = "3.0"
+
+# The keys under which an IPC document carries an EndpointId as a string
+# (hello's claim is `endpoint.id`, handled apart), and the one that
+# carries a list of them (a directory result).
+_IPC_ENDPOINT_KEYS = {"endpoint", "source_endpoint", "destination_endpoint", "resolved_endpoint"}
+_IPC_ENDPOINT_LIST_KEYS = {"endpoints"}
+
+# The domain of the TEST-ONLY endpoint keys (tests/support
+# `endpoint_keys::DOMAIN`): seed = SHA-256(domain || name), public by
+# construction, so a golden's id is recomputable from its name.
+TEST_ONLY_ENDPOINT_DOMAIN = b"interweave/test-only/endpoint-key/v1\x00"
+
+
+def test_only_endpoint_id(name: str) -> str:
+    """tests/support `endpoint_keys::endpoint_id(name)`, independently.
+
+    The Ed25519 public key of the seed SHA-256(DOMAIN || name), derived
+    into an EndpointId as ENDPOINTS.md §EndpointId states: base58btc of
+    the identity multihash over the libp2p public-key protobuf.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    seed = hashlib.sha256(TEST_ONLY_ENDPOINT_DOMAIN + name.encode("utf-8")).digest()
+    public = Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    return _base58btc(ENDPOINT_ID_DERIVED_PREFIX + public)
+
+
+def _ipc_endpoint_pointers(value: object, pointer: str = "") -> list[str]:
+    """The JSON pointers of every EndpointId string an IPC body carries."""
+    found: list[str] = []
+    if isinstance(value, dict):
+        for k, item in value.items():
+            here = f"{pointer}/{k}"
+            if k in _IPC_ENDPOINT_KEYS and isinstance(item, str):
+                found.append(here)
+            elif k == "endpoint" and isinstance(item, dict) and isinstance(item.get("id"), str):
+                found.append(f"{here}/id")
+            elif k in _IPC_ENDPOINT_LIST_KEYS and isinstance(item, list):
+                found.extend(f"{here}/{i}" for i, e in enumerate(item) if isinstance(e, str))
+            else:
+                found.extend(_ipc_endpoint_pointers(item, here))
+    elif isinstance(value, list):
+        for i, item in enumerate(value):
+            found.extend(_ipc_endpoint_pointers(item, f"{pointer}/{i}"))
+    return found
+
+
+def _at_pointer(value: object, pointer: str) -> object:
+    for part in pointer.split("/")[1:]:
+        if isinstance(value, list):
+            value = value[int(part)]
+        else:
+            value = value[part]
+    return value
+
+
+def _ipc_v3_body_rules(vector: dict, body: dict) -> None:
+    """What major 3 adds to a frame body (ADR-0067 decision 7).
+
+    Every EndpointId the body carries is a TEST-ONLY derived id named in
+    the vector's `test_only_endpoints` ({JSON pointer into the body:
+    name}) and recomputed from that name here, so no label and no id
+    without a recomputable key can sit in a golden; a named pointer that
+    holds no endpoint is refused too. A server's frame speaks major 3:
+    `hello_response` at major 3 with transport contract `3.0`, and a
+    `close`'s `supported` list naming major 3 alone.
+    """
+    named = vector.get("test_only_endpoints", {})
+    if not isinstance(named, dict):
+        raise ValueError("test_only_endpoints is a {JSON pointer: name} object")
+    pointers = _ipc_endpoint_pointers(body)
+    for ptr in pointers:
+        if ptr not in named:
+            raise ValueError(
+                f"body{ptr} = {_at_pointer(body, ptr)!r} is an EndpointId no "
+                "test_only_endpoints name derives; major 3 carries derived ids only"
+            )
+    for ptr, name in named.items():
+        if ptr not in pointers:
+            raise ValueError(f"test_only_endpoints names {ptr}, which holds no EndpointId")
+        expected = test_only_endpoint_id(name)
+        stored = _at_pointer(body, ptr)
+        if stored != expected:
+            raise ValueError(
+                f"body{ptr} = {stored!r}, but the test-only id of {name!r} is {expected}"
+            )
+    kind = body.get("type")
+    if kind == "hello_response":
+        if body.get("ipc_version", {}).get("major") != IPC_V3_MAJOR:
+            raise ValueError(f"a hello_response speaks major {IPC_V3_MAJOR}")
+        if body.get("transport_contract_version") != IPC_V3_TRANSPORT_CONTRACT:
+            raise ValueError(f"transport_contract_version is {IPC_V3_TRANSPORT_CONTRACT!r} on major 3")
+    if kind == "close" and "supported" in body:
+        majors = {s.get("major") for s in body["supported"]}
+        if majors != {IPC_V3_MAJOR}:
+            raise ValueError(f"a close names major {IPC_V3_MAJOR} alone in supported, not {sorted(majors)}")
 
 # serde_json writes every integer in i64/u64 exactly; outside that range
 # it has no integer to write, so a vector there would freeze a frame no
@@ -1084,7 +1204,7 @@ def _parse_int(literal: str) -> int:
     return _NegativeZero(0) if literal == "-0" else int(literal)
 
 
-def _ipc_v2_serializable(value: object, path: str) -> None:
+def _ipc_v3_serializable(value: object, path: str) -> None:
     """Refuse what Python and serde_json would serialize differently.
 
     Floats are refused outright: the two libraries format them by
@@ -1104,17 +1224,17 @@ def _ipc_v2_serializable(value: object, path: str) -> None:
         return
     if isinstance(value, list):
         for i, item in enumerate(value):
-            _ipc_v2_serializable(item, f"{path}[{i}]")
+            _ipc_v3_serializable(item, f"{path}[{i}]")
         return
     if isinstance(value, dict):
         for k, item in value.items():
-            _ipc_v2_serializable(item, f"{path}.{k}")
+            _ipc_v3_serializable(item, f"{path}.{k}")
         return
     raise ValueError(f"{path} has a type JSON does not have: {type(value).__name__}")
 
 
-def ipc_v2_length_prefix_v1(vector: dict) -> str:
-    """Encode one IPC v2 frame, returning hex.
+def ipc_v3_length_prefix_v1(vector: dict) -> str:
+    """Encode one IPC frame of major 3, returning hex.
 
     From architecture/contracts/LOCAL-IPC.md §Framing: a 4-byte unsigned
     big-endian length N, then N bytes of a UTF-8 JSON object; N is at
@@ -1132,15 +1252,16 @@ def ipc_v2_length_prefix_v1(vector: dict) -> str:
         raise ValueError(
             f"body is {type(body).__name__}, not a JSON object; a frame carries exactly one object"
         )
-    _ipc_v2_serializable(body, "body")
+    _ipc_v3_serializable(body, "body")
+    _ipc_v3_body_rules(vector, body)
     data = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     # Unreachable from an object -- `{}` is two bytes -- and kept because
     # §Framing states it as its own rule, independent of the object check.
     if not data:
         raise ValueError("zero-length body; §Framing makes zero length invalid")
-    if len(data) > IPC_V2_FRAME_CEILING:
+    if len(data) > IPC_V3_FRAME_CEILING:
         raise ValueError(
-            f"body is {len(data)} bytes, over the {IPC_V2_FRAME_CEILING}-byte IPC frame ceiling"
+            f"body is {len(data)} bytes, over the {IPC_V3_FRAME_CEILING}-byte IPC frame ceiling"
         )
     return (len(data).to_bytes(4, "big") + data).hex()
 
@@ -1200,11 +1321,11 @@ ALGORITHMS = {
     "kad-network-namespace-v1": (
         kad_network_namespace_v1, ("network_hash", "protocol"), True, ("network_id",),
     ),
-    "ipc-v2-payload-fit": (
-        ipc_v2_payload_fit, "frame_length_prefix_hex", True, (),
+    "ipc-v3-payload-fit": (
+        ipc_v3_payload_fit, "frame_length_prefix_hex", True, (),
     ),
-    "ipc-v2-length-prefix-v1": (
-        ipc_v2_length_prefix_v1, "frame_hex", True, (),
+    "ipc-v3-length-prefix-v1": (
+        ipc_v3_length_prefix_v1, "frame_hex", True, (),
     ),
     "endpoint-id-grammar-v1": (endpoint_id_grammar_v1, "valid", False, ()),
     "endpoint-id-derivation-v2": (

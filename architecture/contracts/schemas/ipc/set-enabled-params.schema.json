@@ -16,15 +16,16 @@
       "type": "boolean"
     }
   },
-  "description": "Disabling an endpoint revokes its live lease at once (`endpoint.lease_changed`) and never auto-rebinds; the change is kept in the state directory's endpoint overlay, written before it is published and before it is answered, so it survives a restart; config.yaml is never written (ADR-0028 A 2026-10-11).",
+  "description": "Disabling an endpoint revokes its live lease at once (`endpoint.lease_changed`) and never auto-rebinds; the change is kept in the state directory's endpoint overlay, written before it is published and before it is answered, so it survives a restart; config.yaml is never written (ADR-0028 A 2026-10-11).\n\n2.0.0 (ADR-0067 decision 7, IPC major 3): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major.",
   "x-contract": {
     "name": "ipc.set-enabled-params",
     "status": "active",
-    "version": "1.0.1",
+    "version": "2.0.0",
     "adr": [
       "0017",
       "0037",
-      "0028"
+      "0028",
+      "0067"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

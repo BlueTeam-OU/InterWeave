@@ -83,6 +83,11 @@ MAJOR="$(sed -n 's/^pub const IPC_MAJOR: u64 = \([0-9]*\);$/\1/p' "$REPO/$VERSIO
 [ -n "$MAJOR" ] || { echo "test_check_ipc_prose_versions: no IPC_MAJOR in $VERSION_RS" >&2; exit 1; }
 HIGH="the server's highest minor on major $MAJOR, $MAX since "
 PEER_LIST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["x-contract"]["version"])' "$REPO/$SCHEMAS/peer-list.schema.json")"
+HELLO="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["x-contract"]["version"])' "$REPO/$SCHEMAS/hello.schema.json")"
+# A hello version above the file's in semver order and below it in text
+# order: the file's major plus ten (2.0.0 -> 12.0.0), so a text compare
+# would let it pass.
+HELLO_ABOVE="$(( ${HELLO%%.*} + 10 )).0.0"
 
 printf 'test_check_ipc_prose_versions\n'
 
@@ -196,15 +201,15 @@ expect_fail "$R" 3 "$(line_of "$F" "\`peer-list\` ($PEER_LIST since")" "the pare
 
 echo "rule 4: no schema version above its file"
 R="$(copy r4-above)"; F="$R/$CONTRACT"
-edit "$F" "\`ipc/hello\` 1.2.0" "\`ipc/hello\` 1.10.0" || exit 1
-expect_fail "$R" 4 "$(line_of "$F" "\`ipc/hello\` 1.10.0")" "ipc/hello named above its file (semver, not text, order)"
+edit "$F" "\`ipc/hello\` 1.2.0" "\`ipc/hello\` $HELLO_ABOVE" || exit 1
+expect_fail "$R" 4 "$(line_of "$F" "\`ipc/hello\` $HELLO_ABOVE")" "ipc/hello named above its file (semver, not text, order)"
 R="$(copy r4-name)"; F="$R/$CONTRACT"
 edit "$F" "\`ipc/hello\` 1.2.0" "\`ipc/no-such\` 1.0.0" || exit 1
 expect_fail "$R" 4 "$(line_of "$F" "\`ipc/no-such\` 1.0.0")" "a name with no schema file"
 
 R="$(copy r4-noversion)"; F="$R/$CONTRACT"
 # A schema whose version cannot be read fails the rule that needed it.
-edit "$R/$SCHEMAS/hello.schema.json" '"version": "1.2.0"' '"revision": "1.2.0"' || exit 1
+edit "$R/$SCHEMAS/hello.schema.json" "\"version\": \"$HELLO\"" "\"revision\": \"$HELLO\"" || exit 1
 expect_fail "$R" 4 "$(line_of "$F" "\`ipc/hello\` 1.2.0")" "a schema with no x-contract.version"
 R="$(copy r4-notjson)"; F="$R/$CONTRACT"
 printf '{ not json\n' > "$R/$SCHEMAS/hello.schema.json"

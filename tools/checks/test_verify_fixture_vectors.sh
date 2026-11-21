@@ -313,16 +313,16 @@ printf 'DirectContentFingerprint\n  media_type = "text/plain"\n  payload = UTF8(
     > "$R/architecture/adr/0047-names.md"
 [ "$(run_code "$R")" = "0" ] && ok "a neighbouring golden is not misattributed" || bad "neighbour should not be flagged: $(run "$R")"
 
-# ── ipc-v2-length-prefix-v1 ──────────────────────────────────────────────
+# ── ipc-v3-length-prefix-v1 ──────────────────────────────────────────────
 # Frames written out by hand from LOCAL-IPC.md §Framing: a 4-byte
 # big-endian length, then the compact UTF-8 JSON body. Not produced by
 # the verifier's own code, so a wrong encoder cannot agree with itself.
 make_ipc() {
     local r="$1" vectors="$2"
-    mkdir -p "$r/fixtures/ipc-v2" "$r/architecture/adr"
+    mkdir -p "$r/fixtures/ipc-v3" "$r/architecture/adr"
     : > "$r/architecture/adr/0017-local-ipc.md"
-    printf '{ "algorithm": { "id": "ipc-v2-length-prefix-v1" }, "adr": ["0017"], "vectors": [%s] }\n' \
-        "$vectors" > "$r/fixtures/ipc-v2/frame.json"
+    printf '{ "algorithm": { "id": "ipc-v3-length-prefix-v1" }, "adr": ["0017"], "vectors": [%s] }\n' \
+        "$vectors" > "$r/fixtures/ipc-v3/frame.json"
 }
 # {"a":1} is 7 bytes; {"s":"é"} is 10 (é is two UTF-8 bytes, written raw
 # as serde_json writes it); {"b":1,"a":2} keeps the order it is listed in.
@@ -330,7 +330,7 @@ IPC_OK='{ "name": "small", "body": {"a": 1}, "frame_hex": "000000077b2261223a317
         { "name": "utf8", "body": {"s": "é"}, "frame_hex": "0000000a7b2273223a22c3a9227d" },
         { "name": "order", "body": {"b": 1, "a": 2}, "frame_hex": "0000000d7b2262223a312c2261223a327d" }'
 R="$TMP/ipc-ok"; make_ipc "$R" "$IPC_OK"
-[ "$(run_code "$R")" = "0" ] && ok "ipc-v2 frames recompute: prefix, raw UTF-8, source key order" || bad "ipc-v2 frames should pass: $(run "$R")"
+[ "$(run_code "$R")" = "0" ] && ok "ipc-v3 frames recompute: prefix, raw UTF-8, source key order" || bad "ipc-v3 frames should pass: $(run "$R")"
 
 R="$TMP/ipc-len"; make_ipc "$R" '{ "name": "small", "body": {"a": 1}, "frame_hex": "000000087b2261223a317d" }'
 out="$(run "$R")"
@@ -338,6 +338,30 @@ out="$(run "$R")"
 
 R="$TMP/ipc-sorted"; make_ipc "$R" '{ "name": "order", "body": {"b": 1, "a": 2}, "frame_hex": "0000000d7b2261223a322c2262223a317d" }'
 [ "$(run_code "$R")" = "1" ] && ok "a frame with the keys re-sorted is DRIFT: source order is the form" || bad "sorted keys should drift: $(run "$R")"
+
+# ── major 3: derived ids recomputed from their names, server frames at 3 ──
+# The test-only ids are tests/support `endpoint_keys::endpoint_id`'s,
+# written out here, not produced by the verifier's own code.
+R="$TMP/ipc-derived"; make_ipc "$R" '{ "name": "derived", "body": {"type": "hello", "ipc_version": {"major": 3, "minor": 0}, "client": {"kind": "k"}, "endpoint": {"id": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"}}, "test_only_endpoints": {"/endpoint/id": "human"}, "frame_hex": "000000937b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a226b227d2c22656e64706f696e74223a7b226964223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372227d7d" }'
+[ "$(run_code "$R")" = "0" ] && ok "a derived id named by its test-only seed recomputes" || bad "the derived id should pass: $(run "$R")"
+R="$TMP/ipc-label"; make_ipc "$R" '{ "name": "label", "body": {"type": "hello", "ipc_version": {"major": 3, "minor": 0}, "client": {"kind": "k"}, "endpoint": {"id": "human"}}, "frame_hex": "000000647b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a226b227d2c22656e64706f696e74223a7b226964223a2268756d616e227d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"derived ids only"* ]] && ok "a label endpoint in a golden is refused" || bad "a label should be refused: $out"
+R="$TMP/ipc-wrong-name"; make_ipc "$R" '{ "name": "wrong", "body": {"type": "hello", "ipc_version": {"major": 3, "minor": 0}, "client": {"kind": "k"}, "endpoint": {"id": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"}}, "test_only_endpoints": {"/endpoint/id": "claude"}, "frame_hex": "000000937b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a226b227d2c22656e64706f696e74223a7b226964223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372227d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"test-only id of 'claude' is 12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd"* ]] && ok "an id its named seed does not derive is refused" || bad "a mis-named id should be refused: $out"
+R="$TMP/ipc-stray-name"; make_ipc "$R" '{ "name": "stray", "body": {"a": 1}, "test_only_endpoints": {"/a": "human"}, "frame_hex": "000000077b2261223a317d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"holds no EndpointId"* ]] && ok "a name for a pointer that holds no endpoint is refused" || bad "a stray name should be refused: $out"
+R="$TMP/ipc-major-2"; make_ipc "$R" '{ "name": "major-2", "body": {"type": "hello_response", "ipc_version": {"major": 2, "minor": 0}, "transport_contract_version": "3.0", "peer": "p", "granted_capabilities": []}, "frame_hex": "000000857b2274797065223a2268656c6c6f5f726573706f6e7365222c226970635f76657273696f6e223a7b226d616a6f72223a322c226d696e6f72223a307d2c227472616e73706f72745f636f6e74726163745f76657273696f6e223a22332e30222c2270656572223a2270222c226772616e7465645f6361706162696c6974696573223a5b5d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"speaks major 3"* ]] && ok "a hello_response at major 2 is refused" || bad "major 2 should be refused: $out"
+R="$TMP/ipc-contract-2"; make_ipc "$R" '{ "name": "contract-2", "body": {"type": "hello_response", "ipc_version": {"major": 3, "minor": 0}, "transport_contract_version": "2.0", "peer": "p", "granted_capabilities": []}, "frame_hex": "000000857b2274797065223a2268656c6c6f5f726573706f6e7365222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c227472616e73706f72745f636f6e74726163745f76657273696f6e223a22322e30222c2270656572223a2270222c226772616e7465645f6361706162696c6974696573223a5b5d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"transport_contract_version"* ]] && ok "a transport contract of 2.0 is refused" || bad "contract 2.0 should be refused: $out"
+R="$TMP/ipc-close-2"; make_ipc "$R" '{ "name": "close-2", "body": {"type": "close", "code": "VersionIncompatible", "supported": [{"major": 2, "minor": 13}]}, "frame_hex": "000000527b2274797065223a22636c6f7365222c22636f6465223a2256657273696f6e496e636f6d70617469626c65222c22737570706f72746564223a5b7b226d616a6f72223a322c226d696e6f72223a31337d5d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"names major 3 alone"* ]] && ok "a close supporting major 2 is refused" || bad "a major-2 close should be refused: $out"
 
 # The ceiling: {"x":"<n A>"} is n + 8 bytes, so n = 131064 is exactly
 # 131,072 and n = 131065 is one over.
