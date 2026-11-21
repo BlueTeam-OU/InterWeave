@@ -438,6 +438,42 @@ def endpoint_id_grammar_v1(vector: dict) -> bool:
     return bool(1 <= len(raw) <= 64 and ENDPOINT_ID_RE.fullmatch(value))
 
 
+ENDPOINT_ID_DERIVED_PREFIX = bytes([0x00, 0x24, 0x08, 0x01, 0x12, 0x20])
+
+
+def endpoint_id_derivation_v2(vector: dict) -> dict:
+    """From architecture/contracts/ENDPOINTS.md §EndpointId (ADR-0067).
+
+    Two kinds of vector share the file. `public_key_hex` derives the id:
+    base58btc of the identity multihash over the libp2p Ed25519 public-key
+    protobuf, `00 24 08 01 12 20 || key`. `text` is judged: valid only if it
+    base58btc-decodes to exactly those 38 bytes AND re-encodes to the input,
+    which is what one canonical form means. Both fields are returned, the
+    one a vector does not carry as None, so the stored absence is compared
+    too.
+    """
+    out: dict = {"expected_endpoint_id": None, "valid": None}
+    if "public_key_hex" in vector:
+        key = bytes.fromhex(vector["public_key_hex"])
+        if len(key) != 32:
+            raise ValueError(f"public key is {len(key)} bytes; Ed25519 is exactly 32")
+        out["expected_endpoint_id"] = _base58btc(ENDPOINT_ID_DERIVED_PREFIX + key)
+    if "text" in vector:
+        text = vector["text"]
+        valid = False
+        try:
+            raw = _base58btc_decode(text) if text else b""
+            valid = (
+                len(raw) == 38
+                and raw[:6] == ENDPOINT_ID_DERIVED_PREFIX
+                and _base58btc(raw) == text
+            )
+        except ValueError:
+            valid = False  # a glyph outside the alphabet
+        out["valid"] = valid
+    return out
+
+
 HEX32_RE = re.compile(r"^[0-9a-f]{32}$")
 SENT_AT_MS_MAX = 253402300799999
 
@@ -1096,6 +1132,9 @@ ALGORITHMS = {
         ipc_v2_length_prefix_v1, "frame_hex", True, (),
     ),
     "endpoint-id-grammar-v1": (endpoint_id_grammar_v1, "valid", False, ()),
+    "endpoint-id-derivation-v2": (
+        endpoint_id_derivation_v2, ("expected_endpoint_id", "valid"), False, (),
+    ),
     "human-chat-v2-envelope": (human_chat_v2_envelope, "valid", False, ()),
     "human-chat-v2-brotli-decode": (human_chat_v2_brotli_decode, "result", False, ()),
     "human-chat-v2-contact-card-v1": (

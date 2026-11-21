@@ -4097,6 +4097,7 @@ dependencies = [
 name = "interweave-test-support"
 version = "0.4.0"
 dependencies = [
+ "ed25519-dalek",
  "futures",
  "interweave-ipc-client",
  "interweave-local-client-api",
@@ -4110,6 +4111,7 @@ dependencies = [
  "libp2p",
  "rustix 1.1.6",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
 ]

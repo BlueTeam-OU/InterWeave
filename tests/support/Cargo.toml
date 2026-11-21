@@ -16,6 +16,13 @@ workspace = true
 
 [dependencies]
 serde_json = { workspace = true }
+# `endpoint_keys`: a real Ed25519 key behind a derived EndpointId, from a
+# public test-only seed. Both crates are already in the graph (the chat
+# protocol and the transport use them), so this adds no crate and no
+# licence term.
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+interweave-transport-api = { path = "../../crates/api/transport-api" }
 # `silent-peer` only: a raw libp2p peer holding direct v2 requests
 # unanswered, for the shutdown-grace tests. A feature so the suites that
 # need only fixtures do not build a swarm.
@@ -32,7 +39,6 @@ interweave-ipc-client = { path = "../../crates/local/ipc-client", optional = tru
 interweave-local-client-api = { path = "../../crates/api/local-client-api", optional = true }
 interweave-profile-config = { path = "../../crates/config/profile-config", optional = true }
 interweave-profile-identity = { path = "../../crates/identity/profile-identity", optional = true }
-interweave-transport-api = { path = "../../crates/api/transport-api", optional = true }
 interweave-transport-libp2p = { path = "../../crates/transport/libp2p", optional = true }
 interweave-transport-runtime = { path = "../../crates/transport/runtime", optional = true }
 interweave-trust-api = { path = "../../crates/api/trust-api", optional = true }
@@ -50,7 +56,6 @@ e2e = [
     "dep:interweave-local-client-api",
     "dep:interweave-profile-config",
     "dep:interweave-profile-identity",
-    "dep:interweave-transport-api",
     "dep:interweave-transport-libp2p",
     "dep:interweave-transport-runtime",
     "dep:interweave-trust-api",

@@ -26,6 +26,8 @@
 
 use std::path::PathBuf;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
+
 use interweave_local_client_api::{DataCapability, EndpointLease, Generation, LocalDataSession};
 use interweave_transport_api::{
     ConnectivitySummary, DirectInboundState, EndpointId, MediaType, MessageId, PathReadiness,
@@ -190,7 +192,7 @@ fn a_payload_validates_inside_ipc_send_params() {
     ] {
         let instance = serde_json::json!({
             "peer": TEST_PEER,
-            "endpoint": "human",
+            "endpoint": endpoint_id("human").as_str(),
             "payload": serde_json::to_value(&payload).expect("ser"),
             "message_id": MessageId::from_bytes([0x0a; 16]).to_hex(),
         });
@@ -215,8 +217,8 @@ fn a_direct_message_received_event_validates() {
         "message_id": MessageId::from_bytes([0x01; 16]).to_hex(),
         "mode": "direct",
         "source_peer": TEST_PEER,
-        "source_endpoint": "claude",
-        "destination_endpoint": "human",
+        "source_endpoint": endpoint_id("claude").as_str(),
+        "destination_endpoint": endpoint_id("human").as_str(),
         "payload": serde_json::to_value(&payload).expect("ser"),
         "received_at": 1_700_000_000_000_u64,
     });
@@ -289,14 +291,22 @@ fn identifiers_validate_against_their_common_schemas() {
     assert_valid(&message, &serde_json::json!(id.to_hex()), "message id");
 
     let endpoint = validator_for("endpoints/endpoint-id.schema.json");
-    for name in ["human", "claude", "automation.build", "a"] {
-        let parsed = EndpointId::parse(name).expect("valid");
+    // ADR-0067: the schema is the derived grammar. `parse` still takes a
+    // label (transitional), which the schema refuses; the control is the
+    // derived id it accepts.
+    for key in [[0_u8; 32], [0x7f; 32], [0xff; 32]] {
+        let derived = EndpointId::from_ed25519_public(&key);
         assert_valid(
             &endpoint,
-            &serde_json::to_value(&parsed).expect("ser"),
-            name,
+            &serde_json::to_value(&derived).expect("ser"),
+            derived.as_str(),
         );
     }
+    let label = EndpointId::parse("human").expect("valid label");
+    assert!(
+        !endpoint.is_valid(&serde_json::to_value(&label).expect("ser")),
+        "the schema must refuse a label"
+    );
 
     let channel = validator_for("common/channel-id.schema.json");
     for name in ["general", "General", "team.eu:builds/nightly-1"] {
@@ -360,7 +370,7 @@ fn an_endpoint_trust_policy_validates_in_both_shapes() {
         ),
     ] {
         let instance = serde_json::json!({
-            "id": "human",
+            "id": endpoint_id("human").as_str(),
             "enabled": true,
             "advertise": false,
             "inbound": serde_json::to_value(&policy).expect("ser"),

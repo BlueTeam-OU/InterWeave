@@ -5,7 +5,7 @@
     {
       "name": "endpoint-id",
       "file": "endpoint-id.schema.json",
-      "status": "active"
+      "status": "approved"
     },
     {
       "name": "endpoint-config",

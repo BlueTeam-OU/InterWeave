@@ -2,17 +2,20 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:endpoints:endpoint-id",
   "title": "EndpointId",
-  "description": "A routing selector inside one PeerId. It is NOT a second PeerId, a human identity, an organizational role, or an authorization proof. Received from the network it is peer-asserted metadata: a remote source_endpoint proves only that the authenticated PeerId claimed that route label. Names such as `human` and `claude` are conventions, not reserved semantics.",
+  "description": "The name of an endpoint's own Ed25519 key pair, derived from the public key exactly as a PeerId is from the node's: the libp2p identity multihash over the protobuf-encoded public key, written in canonical base58btc. It is NOT a second PeerId, a human identity, an organizational role, or an authorization principal. Received from the network it is peer-asserted routing metadata: a remote source_endpoint proves only that the authenticated PeerId claimed that endpoint. Derived, never chosen: a value that is not the canonical encoding of an Ed25519 key is refused as EndpointIdNotDerived.",
   "type": "string",
-  "pattern": "^[a-z][a-z0-9._-]{0,63}$",
-  "minLength": 1,
-  "maxLength": 64,
-  "examples": ["human", "claude", "automation.build"],
+  "pattern": "^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$",
+  "minLength": 52,
+  "maxLength": 52,
+  "examples": [
+    "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+    "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5"
+  ],
   "x-contract": {
     "name": "endpoints.endpoint-id",
-    "status": "active",
-    "version": "1.0.0",
-    "adr": ["0030"],
+    "status": "approved",
+    "version": "2.0.0",
+    "adr": ["0030", "0067"],
     "specification": "architecture/contracts/ENDPOINTS.md"
   }
 }
