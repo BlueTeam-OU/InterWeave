@@ -160,7 +160,7 @@ mod tests {
     /// answered by it but runs and is refused or not by the Keystore. The
     /// gate has no clock to consult (design section 6: "The app keeps no
     /// clock of the window"). Mutation: `prompted` keeping the held effect
-    /// on a grant fails the second assertion.
+    /// on a grant fails the last assertion.
     #[test]
     fn a_grant_with_nothing_held_opens_nothing() {
         let mut gate = PresenceGate::default();
