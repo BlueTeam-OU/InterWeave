@@ -353,6 +353,18 @@ screen through the start after a successful seal and under
 §11d no longer say that the build does not name this refusal: #736
 built it.
 
+Revised 2026-11-21 a third time, for what #728's review carried
+(F24, F25, F35). A recreation of the window moves no focus: the
+recreated window puts focus on the control that had it, on Chats, in
+a conversation and on the flow screens alike (§6). Before, §12 left
+focus after a recreation to the build while acceptance 15's
+recreation runs checked it on both kinds of screen; §12 drops that
+item, and the Chats recreation variant now checks focus too. The
+retry at a return on C4 after `IdStartUnchecked` repeats the app's
+comparison with C4's PeerId (§6, The hold), and acceptance 15 gains a
+tenth return run for it, blocked as acceptance 12's comparison run
+is. The ninth return run now says that both reads answer empty.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -1185,11 +1197,21 @@ again keeps them from what they had already asked for. One rule for
 this notice wherever it shows also keeps the app predictable
 (*consistency and standards*, Nielsen 4).
 
-- **The hold.** The retried start holds the screen as Try again's
-  press does (the profile-in-use row; Seal running, Restore running,
-  Check running; §8): Try again shows disabled, every control that
-  press holds is held, and Back does nothing. Focus stays where it
-  was at the return: the retry moves no focus. The 1 s before
+- **The hold.** The retried start is made as Try again's press makes
+  it, and holds the screen as that press does (the profile-in-use row;
+  Seal running, Restore running, Check running; §8): Try again shows
+  disabled, every control that press holds is held, and Back does
+  nothing. On C4 after `IdStartUnchecked`, the start includes the
+  app's comparison with C4's PeerId (A start from C4 after a failed
+  read-back): a record that opens to another PeerId starts nothing,
+  and C4 shows `IdStorageUnknown` again with Try again only and focus
+  on the notice, as after that press, since the notice that held
+  focus has gone. Why: the ruling on Q15 (§11d) lets nothing run as
+  that identity from C4, and a return is no exception to it. Focus stays where it
+  was at the return: the retry moves no focus. A recreation moves
+  none either: the recreated window puts focus on the control that
+  had it before, as on Chats (A return or a recreation, under A
+  start refused with the profile in use after the bound). The 1 s before
   `ConnectStarting` and add-a-peer §5.1's 10 s bound count from the
   return, never from when `IdStartBusy` first showed. Why: the
   bound limits how long the person waits on a held screen, and while
@@ -1325,9 +1347,15 @@ Q12).
   were and is not announced again, and a success moves focus only as
   above. A prompt that this start needs shows with no press, and a
   cancel or denial shows the locked notice with focus on it (L3,
-  F12). A rotation is handled by the app without a recreation (the
-  Activity's `configChanges` in `AndroidManifest.xml`), so it keeps
-  the notice and retries nothing (§7).
+  F12). A recreation moves no focus of its own: the recreated window
+  puts focus on the control that had it before, a disabled Try again
+  included, and an answer then moves it as above. Why: Android keeps
+  a focused view through a configuration change, so a keyboard user
+  who changes the system language expects to be where they were
+  (*consistency and standards*, Nielsen 4). A rotation is handled by
+  the app without a recreation (the Activity's `configChanges` in
+  `AndroidManifest.xml`), so it keeps the notice and retries nothing
+  (§7).
 - **How long.** Until a start succeeds, until the notice of another
   refused start takes its place, or until the process ends. A new
   launch (the Activity created anew, as the unlock note counts it; a
@@ -2330,9 +2358,17 @@ scale would also be a finding of the Android review
       started 8 s after the return and both reads empty 12 s after
       it: Chats opens 10 s after the return, with focus on its title,
       and Connect does not open when the reads answer. In a ninth
-      run, the start and both reads answer within 2 s of the return:
-      Connect opens, with focus on its heading. These runs are host
-      tests.
+      run, the hook answers the start as started and both reads empty
+      within 2 s of the return: Connect opens, with focus on its
+      heading. In a tenth run, on C4 showing `IdStartBusy` after
+      `IdStartUnchecked`'s start met `LockHeld`, the double's record
+      is made to name and open to another PeerId than C4's before the
+      return: at the return nothing starts (the hook records no
+      service start), `IdStorageUnknown` shows with Try again only
+      and focus on the notice, and `IdStartUnchecked` stays hidden.
+      Like acceptance 12's comparison run, the tenth run needs the
+      app's comparison before the start, and is blocked until it
+      exists. These runs are host tests.
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
@@ -2418,7 +2454,10 @@ scale would also be a finding of the Android review
         recreated window shows the notice with Try again disabled
         until it answers. Answered as started, the notice goes;
         answered `LockHeld`, the notice shows with Try again enabled.
-        Where focus is after the recreation is not checked (§12).
+        Focus is on Try again, disabled, after the recreation, as
+        before it; answered as started, it moves to the list heading,
+        and answered `LockHeld`, to `IdStartBusy` (add-a-peer §8 item
+        1, that notice's Try again rows).
         Its foreground-only variant, as a host test: the test feeds
         the end of Try again's start at the press of Home, as the host suite
         feeds any start's end, and the hook records a second start at
@@ -3138,8 +3177,4 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   lock and the start (§6), so it gets none. A read-back that keeps failing can come only after the two refusals that can come after the write, and no device has shown
   it yet; words for it are language-culture's, if a test shows people
   stuck there.
-- **Where focus goes after a recreation of the window** while
-  `IdStartBusy` shows on Chats or in a conversation (§6). The notice
-  and its Try again are kept; focus after the system makes the window
-  again is the build's today, and no run checks it.
 - **What the Settings screen shows besides the new item.**
