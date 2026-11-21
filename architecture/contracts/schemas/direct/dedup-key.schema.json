@@ -25,6 +25,6 @@
     "version": "1.0.0",
     "adr": ["0019", "0030"],
     "specification": "architecture/transport/libp2p/DIRECT.md",
-    "fixtures": ["fixtures/direct-v2/direct-content-fingerprint-v1.json"]
+    "fixtures": ["fixtures/direct-v3/direct-content-fingerprint-v1.json"]
   }
 }

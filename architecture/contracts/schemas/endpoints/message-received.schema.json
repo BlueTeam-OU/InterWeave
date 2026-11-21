@@ -73,7 +73,7 @@
     "specification": "architecture/contracts/ENDPOINTS.md",
     "wire-protocol": "/interweave/direct/2.0.0",
     "fixtures": [
-      "fixtures/direct-v2/direct-content-fingerprint-v1.json"
+      "fixtures/direct-v3/direct-content-fingerprint-v1.json"
     ]
   }
 }
