@@ -23,8 +23,8 @@
 //!    first-run document has no identity until onboarding seals one, and
 //!    it must load. At load a `runtime.android.endpoint` that is present
 //!    must be a configured entry's id ([`RuntimeConfig::validate_into`]);
-//!    at the start it must be present and enabled in the composed set
-//!    ([`RuntimeConfig::require_android_identity`]).
+//!    at the start it must be present and the composed set must enable
+//!    at least one identity ([`RuntimeConfig::require_android_identity`]).
 //! 4. `embedded-android` runs no AutoNAT or relay server and Kademlia
 //!    only as a client -- checked.
 //! 5. `stay-reachable` means `foreground_service_type = remoteMessaging`
@@ -258,8 +258,8 @@ impl RuntimeConfig {
     /// `config.yaml`'s with the endpoint overlay applied: an
     /// embedded-android profile with no `runtime.android.endpoint`, or
     /// whose composed set enables no endpoint at all, has no identity to
-    /// start as, and neither has one whose named endpoint is not enabled
-    /// there -- whether `config.yaml` or the overlay turned it off.
+    /// start as; any enabled identity will do, the named one included or
+    /// not (ADR-0061 decision 7).
     /// Nothing is asked of a daemon
     /// (`tests/runtime_rules.rs`, `an_android_start_needs_an_identity`).
     ///
@@ -269,13 +269,9 @@ impl RuntimeConfig {
         if self.deployment != Deployment::EmbeddedAndroid {
             return Ok(());
         }
-        let named_enabled = self.android.endpoint.as_ref().is_some_and(|endpoint| {
-            composed
-                .entries
-                .iter()
-                .any(|e| &e.id == endpoint && e.enabled)
-        });
-        if !named_enabled {
+        // ANY enabled identity, not the named one: the first identity may
+        // be turned off once another is enabled (ADR-0061 decision 7).
+        if self.android.endpoint.is_none() || !composed.entries.iter().any(|e| e.enabled) {
             return Err(ConfigError::AndroidNoIdentity);
         }
         Ok(())

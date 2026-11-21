@@ -2613,7 +2613,7 @@ pub enum ConfigError {
     /// `runtime.deployment=embedded-android` names an endpoint that is not
     /// a configured one (the load's half of the schema's third runtime
     /// rule): the foreground service would lease an endpoint that does not
-    /// exist. One configured but not enabled is the start's
+    /// exist. Whether any identity is enabled is the start's
     /// [`ConfigError::AndroidNoIdentity`].
     AndroidEndpointNotEnabled {
         /// The endpoint named.
@@ -2961,7 +2961,7 @@ impl core::fmt::Display for ConfigError {
                 "runtime.android.endpoint '{endpoint}' is not a configured endpoint; an embedded-android profile must lease one"
             ),
             Self::AndroidNoIdentity => f.write_str(
-                "the Android profile has no identity to start as: runtime.android.endpoint names none, or the endpoint it names is not enabled; onboarding seals the first identity, and the profile starts once it has one enabled"
+                "the Android profile has no identity to start as: runtime.android.endpoint names none, or no identity is enabled; onboarding seals the first identity, and the profile starts once one is enabled"
             ),
             Self::AndroidServesInfrastructure { field } => write!(
                 f,

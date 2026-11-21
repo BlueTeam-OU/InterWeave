@@ -72,7 +72,7 @@ fn an_android_profile_must_lease_an_enabled_configured_endpoint() {
             .runtime
             .require_android_identity(&disabled.endpoints),
         Err(ConfigError::AndroidNoIdentity),
-        "and its start is refused"
+        "and its start is refused: no identity is enabled"
     );
     let mut named = profile("embedded-android", true, "");
     named.runtime.android.endpoint =
@@ -221,8 +221,8 @@ fn an_android_start_needs_an_identity() {
         Ok(()),
         "the control: named and enabled"
     );
-    // The named entry disabled while another is enabled: still no
-    // identity to start as, since the service leases the named one.
+    // The named entry disabled while another is enabled: an identity to
+    // start as (ADR-0061 decision 7).
     let mut other = named.endpoints.clone();
     let mut second = other.entries[0].clone();
     second.id = interweave_test_support::endpoint_keys::endpoint_id("other");
@@ -231,7 +231,7 @@ fn an_android_start_needs_an_identity() {
     other.entries.push(second);
     assert_eq!(
         named.runtime.require_android_identity(&other),
-        Err(ConfigError::AndroidNoIdentity),
+        Ok(()),
         "the named endpoint disabled beside an enabled one"
     );
     // The composed set (an overlay disabling the one entry) enables none.
