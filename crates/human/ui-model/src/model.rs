@@ -23,6 +23,7 @@ use interweave_transport_api::{
 use crate::connect::{
     Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectPhase, ConnectState,
 };
+use crate::identities::Identities;
 use crate::labels::{
     ErrorClass, LabelKey, UiText, fill, outbound_label, placeholder_en, send_error_class,
     session_problem_class, short_peer,
@@ -802,6 +803,8 @@ pub struct UiModel {
     rows_not_shown: usize,
     /// The bounds held to (`the_default_bounds_are_the_published_caps`).
     bounds: Bounds,
+    /// The user identities held and the one in front (plan §30 step 1).
+    identities: Identities,
 }
 
 impl Default for UiModel {
@@ -850,6 +853,7 @@ impl UiModel {
             directory: directory::Directory::default(),
             rows_not_shown: 0,
             bounds: Bounds::default(),
+            identities: Identities::new(),
         }
     }
 
@@ -1679,6 +1683,19 @@ impl UiModel {
     /// daemon's answers.
     pub const fn trust_settings_mut(&mut self) -> &mut TrustSettings {
         &mut self.trust
+    }
+
+    /// The user identities held, the one in front, the switcher and the
+    /// switch's snackbar (plan §30 step 1).
+    #[must_use]
+    pub const fn identities(&self) -> &Identities {
+        &self.identities
+    }
+
+    /// The identities, for the root's `held_changed` and `start` and the
+    /// person's [`crate::IdentityIntent`]s.
+    pub const fn identities_mut(&mut self) -> &mut Identities {
+        &mut self.identities
     }
 
     /// Peers by address (ADR-0062).

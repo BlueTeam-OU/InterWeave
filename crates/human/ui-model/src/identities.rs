@@ -18,6 +18,8 @@
 //! where the design gives one
 //! (`with_one_held_nothing_names_an_identity`).
 
+use unicode_segmentation::UnicodeSegmentation as _;
+
 use crate::labels::{UiText, by_count, fill, isolated, placeholder_en};
 
 /// How many identities a profile holds at most: the profile's endpoint
@@ -302,6 +304,58 @@ pub enum NotificationOpened {
     NoOneIdentity(Vec<IdentityKey>),
 }
 
+/// A person's act on the identity switch, the switcher or the switch's
+/// snackbar, as a view returns it (cards §5.7.1, §5.7.3; identities §11),
+/// applied by [`Identities::act`].
+///
+/// A type of its own rather than [`crate::Intent`] variants until a
+/// composition root carries identities out: every root matches `Intent`
+/// exhaustively, and nothing feeds a second identity in production yet
+/// (plan §30 step 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdentityIntent {
+    /// The switch was activated: the switcher opens.
+    OpenSwitcher,
+    /// Escape, Back or the scrim: the switcher closes with nothing
+    /// changed.
+    CloseSwitcher,
+    /// A switcher row was chosen, by the identity it showed.
+    Choose(IdentityKey),
+    /// Switch back on the switch's snackbar, by the snackbar's id.
+    SwitchBack(u64),
+    /// The switch's snackbar closed without its action: its time, a
+    /// swipe, or another snackbar taking its place.
+    SnackbarClosed(u64),
+    /// Your identities at the switcher's bottom: the switcher closes and
+    /// the root opens the page, switching nothing.
+    OpenIdentities,
+    /// Try again on a Could not start identity (identities §5.2): the
+    /// root runs the assertion and the lease again; the model waits for
+    /// the state the root reads back.
+    TryAgain(IdentityKey),
+}
+
+/// Where an act asks focus to go (identities §11's focus table).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityFocus {
+    /// The switch: the switcher closed with nothing changed (F2), or a
+    /// switch by the switcher or Switch back (F3).
+    Switch,
+    /// The switcher's title: it opened (F1).
+    SwitcherTitle,
+}
+
+/// The switch's snackbar while it is up, by its id: a Switch back or a
+/// close names this one, so an answer to one already replaced does
+/// nothing (`switch_back_and_a_close_name_their_own_snackbar`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShownSwitchSnackbar {
+    /// Its id, new for every switch.
+    pub id: u64,
+    /// What it says.
+    pub snackbar: SwitchSnackbar,
+}
+
 /// The switch's badge (cards §5.7.1), over the identities other than the
 /// one in front. It counts and names nothing
 /// (`the_badge_counts_the_others_and_names_nothing`).
@@ -318,6 +372,11 @@ pub struct Badge {
 pub struct SwitchView {
     /// The identity in front's name, shown.
     pub name: String,
+    /// The name's first three graphemes, or the whole of a shorter name:
+    /// the switch ellipsises its name, never below the avatar and these
+    /// (cards §5.7.1, identities §12;
+    /// `the_switch_keeps_three_graphemes_of_the_name`).
+    pub least: String,
     /// Its badge, if any.
     pub badge: Option<Badge>,
     /// Its accessible name, sentence by sentence: `IdentitySwitch`, then
@@ -436,6 +495,14 @@ pub struct Identities {
     previous: Option<IdentityKey>,
     pending: Option<Pending>,
     opening: Option<Opening>,
+    /// The switcher is open over Chats.
+    switcher_open: bool,
+    /// The switch's snackbar, while up.
+    snackbar: Option<ShownSwitchSnackbar>,
+    /// The last snackbar's id.
+    snackbar_seq: u64,
+    /// The newest focus request, by its own count.
+    focus: Option<(u64, IdentityFocus)>,
 }
 
 impl Identities {
@@ -534,6 +601,16 @@ impl Identities {
             self.opening = None;
             change.transition_left = true;
         }
+        // Back to one, nothing of the switch shows (ADR-0061 d. 3); with
+        // the identity Switch back returns to gone, its snackbar would
+        // offer an act that does nothing
+        // (`going_back_to_one_closes_the_switcher_and_its_snackbar`).
+        if !self.shows_identity() {
+            self.switcher_open = false;
+        }
+        if !self.shows_identity() || self.previous.is_none() {
+            self.snackbar = None;
+        }
         Ok(change)
     }
 
@@ -548,6 +625,8 @@ impl Identities {
         self.previous = None;
         self.pending = None;
         self.opening = None;
+        self.switcher_open = false;
+        self.snackbar = None;
         self.front.as_ref()
     }
 
@@ -578,7 +657,108 @@ impl Identities {
             return FrontOutcome::Unchanged;
         };
         self.previous = Some(previous.clone());
-        FrontOutcome::Switched(self.switched(to, previous, true, false))
+        let switched = self.switched(to, previous, true, false);
+        self.shown(&switched);
+        FrontOutcome::Switched(switched)
+    }
+
+    /// A switch done: its snackbar replaces the one up, and focus goes
+    /// to the switch unless a notification's Chats takes it.
+    fn shown(&mut self, switched: &Switched) {
+        self.snackbar_seq = self.snackbar_seq.wrapping_add(1);
+        self.snackbar = Some(ShownSwitchSnackbar {
+            id: self.snackbar_seq,
+            snackbar: switched.snackbar.clone(),
+        });
+        if switched.focus_switch {
+            self.ask_focus(IdentityFocus::Switch);
+        }
+    }
+
+    fn ask_focus(&mut self, to: IdentityFocus) {
+        let seq = self.focus.map_or(1, |(seq, _)| seq.wrapping_add(1));
+        self.focus = Some((seq, to));
+    }
+
+    /// The person's act on the switch, the switcher or the switch's
+    /// snackbar. `unsaved_edit` is whether an identity's page with
+    /// changes is open, as [`Identities::switch`] takes it.
+    ///
+    /// The switcher opens with two or more held and no transition
+    /// showing (`the_switcher_opens_with_two_held_and_closes_to_the_switch`);
+    /// a choice is taken from the open switcher alone, and closes it
+    /// (`a_choice_is_taken_from_the_open_switcher_alone`); choosing the
+    /// row in front closes it with nothing changed
+    /// (`choosing_the_chosen_row_closes_the_switcher_with_nothing_changed`).
+    /// Your identities and Try again change nothing here: the root opens
+    /// the page or runs the retry.
+    pub fn act(&mut self, intent: IdentityIntent, unsaved_edit: bool) -> FrontOutcome {
+        match intent {
+            IdentityIntent::OpenSwitcher => {
+                if self.shows_identity() && self.opening.is_none() && !self.switcher_open {
+                    self.switcher_open = true;
+                    self.ask_focus(IdentityFocus::SwitcherTitle);
+                }
+                FrontOutcome::Unchanged
+            }
+            IdentityIntent::CloseSwitcher => {
+                if self.switcher_open {
+                    self.switcher_open = false;
+                    self.ask_focus(IdentityFocus::Switch);
+                }
+                FrontOutcome::Unchanged
+            }
+            IdentityIntent::Choose(to) => {
+                if !self.switcher_open {
+                    return FrontOutcome::Unchanged;
+                }
+                self.switcher_open = false;
+                let outcome = self.switch(&to, unsaved_edit);
+                // A switch asked its own focus; CardDiscardChanges takes
+                // focus as it opens.
+                if outcome == FrontOutcome::Unchanged {
+                    self.ask_focus(IdentityFocus::Switch);
+                }
+                outcome
+            }
+            IdentityIntent::SwitchBack(id) => {
+                if self.snackbar.as_ref().map(|s| s.id) != Some(id) {
+                    return FrontOutcome::Unchanged;
+                }
+                self.snackbar = None;
+                self.switch_back(unsaved_edit)
+            }
+            IdentityIntent::SnackbarClosed(id) => {
+                if self.snackbar.as_ref().map(|s| s.id) == Some(id) {
+                    self.snackbar = None;
+                }
+                FrontOutcome::Unchanged
+            }
+            IdentityIntent::OpenIdentities => {
+                self.switcher_open = false;
+                FrontOutcome::Unchanged
+            }
+            IdentityIntent::TryAgain(_) => FrontOutcome::Unchanged,
+        }
+    }
+
+    /// Whether the switcher is open: with two or more held alone.
+    #[must_use]
+    pub const fn switcher_open(&self) -> bool {
+        self.switcher_open && self.shows_identity()
+    }
+
+    /// The switch's snackbar, while it is up.
+    #[must_use]
+    pub const fn switch_snackbar(&self) -> Option<&ShownSwitchSnackbar> {
+        self.snackbar.as_ref()
+    }
+
+    /// The newest focus request, by its count: a view moves focus once
+    /// per count.
+    #[must_use]
+    pub const fn focus_request(&self) -> Option<(u64, IdentityFocus)> {
+        self.focus
     }
 
     fn switched(
@@ -657,6 +837,7 @@ impl Identities {
             return FrontOutcome::ShowChats;
         };
         self.previous = Some(previous.clone());
+        self.switcher_open = false;
         self.opening = Some(Opening {
             to: to.clone(),
             previous,
@@ -688,7 +869,9 @@ impl Identities {
             return None;
         }
         let opening = self.opening.take()?;
-        Some(self.switched(opening.to, opening.previous, false, true))
+        let switched = self.switched(opening.to, opening.previous, false, true);
+        self.shown(&switched);
+        Some(switched)
     }
 
     /// When the transition's hold next ends, for the root's timer: `None`
@@ -799,6 +982,7 @@ impl Identities {
         }
         Some(SwitchView {
             name: front.name().to_owned(),
+            least: front.name().graphemes(true).take(3).collect(),
             badge,
             accessible,
         })
@@ -1677,5 +1861,203 @@ mod tests {
             ]
         );
         assert_eq!(m.notification_subtext(&key("b")), Some("Name b".to_owned()));
+    }
+
+    fn focus(m: &Identities) -> Option<IdentityFocus> {
+        m.focus_request().map(|(_, f)| f)
+    }
+
+    #[test]
+    fn the_switcher_opens_with_two_held_and_closes_to_the_switch() {
+        let mut one = model(&["a"]);
+        assert_eq!(
+            one.act(IdentityIntent::OpenSwitcher, false),
+            FrontOutcome::Unchanged
+        );
+        assert!(
+            !one.switcher_open(),
+            "one held: no switcher (ADR-0061 d. 3)"
+        );
+        assert_eq!(one.focus_request(), None);
+        let mut none = Identities::new();
+        none.act(IdentityIntent::OpenSwitcher, false);
+        assert!(!none.switcher_open(), "none held");
+
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenSwitcher, false);
+        assert!(m.switcher_open());
+        assert_eq!(focus(&m), Some(IdentityFocus::SwitcherTitle), "F1");
+        let asked = m.focus_request().map(|(seq, _)| seq);
+        m.act(IdentityIntent::CloseSwitcher, false);
+        assert!(!m.switcher_open());
+        assert_eq!(focus(&m), Some(IdentityFocus::Switch), "F2");
+        assert_ne!(
+            m.focus_request().map(|(seq, _)| seq),
+            asked,
+            "a new request"
+        );
+        assert_eq!(m.front(), Some(&key("a")), "nothing changed");
+        assert_eq!(m.previous(), None);
+        assert_eq!(m.switch_snackbar(), None);
+        // Closing what is not open asks nothing.
+        let asked = m.focus_request();
+        m.act(IdentityIntent::CloseSwitcher, false);
+        assert_eq!(m.focus_request(), asked);
+    }
+
+    #[test]
+    fn choosing_another_row_switches_shows_its_snackbar_and_focuses_the_switch() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenSwitcher, false);
+        let s = switched(m.act(IdentityIntent::Choose(key("b")), false));
+        assert_eq!(s.to, key("b"));
+        assert!(!m.switcher_open(), "closed by the choice");
+        assert_eq!(focus(&m), Some(IdentityFocus::Switch), "F3");
+        let shown = m.switch_snackbar().cloned();
+        assert_eq!(shown.as_ref().map(|s| &s.snackbar), Some(&s.snackbar));
+        assert_eq!(
+            shown.map(|s| s.snackbar.said.english()),
+            Some(format!("You are now using {}", name("b")))
+        );
+        // Switch back on it: back to a, a snackbar of its own.
+        let id = m.switch_snackbar().map(|s| s.id).unwrap_or_default();
+        let back = switched(m.act(IdentityIntent::SwitchBack(id), false));
+        assert_eq!(back.to, key("a"));
+        assert_eq!(focus(&m), Some(IdentityFocus::Switch), "F3");
+        assert!(
+            m.switch_snackbar().is_some_and(|s| s.id != id),
+            "a new snackbar replaces the one acted on"
+        );
+    }
+
+    #[test]
+    fn choosing_the_chosen_row_closes_the_switcher_with_nothing_changed() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenSwitcher, false);
+        assert_eq!(
+            m.act(IdentityIntent::Choose(key("a")), false),
+            FrontOutcome::Unchanged
+        );
+        assert!(!m.switcher_open());
+        assert_eq!(focus(&m), Some(IdentityFocus::Switch), "F2");
+        assert_eq!(m.switch_snackbar(), None);
+        assert_eq!(m.previous(), None);
+    }
+
+    #[test]
+    fn a_choice_is_taken_from_the_open_switcher_alone() {
+        let mut m = model(&["a", "b"]);
+        assert_eq!(
+            m.act(IdentityIntent::Choose(key("b")), false),
+            FrontOutcome::Unchanged
+        );
+        assert_eq!(m.front(), Some(&key("a")));
+        assert_eq!(m.switch_snackbar(), None);
+        // An unsaved edit asks first, and the switcher is closed meanwhile.
+        m.act(IdentityIntent::OpenSwitcher, false);
+        assert_eq!(
+            m.act(IdentityIntent::Choose(key("b")), true),
+            FrontOutcome::AskDiscard
+        );
+        assert!(!m.switcher_open());
+        assert_eq!(m.switch_snackbar(), None, "nothing switched yet");
+        switched(m.discard_confirmed(0));
+        assert!(
+            m.switch_snackbar().is_some(),
+            "the switch's snackbar once done"
+        );
+    }
+
+    #[test]
+    fn switch_back_and_a_close_name_their_own_snackbar() {
+        let mut m = model(&["a", "b", "c"]);
+        m.act(IdentityIntent::OpenSwitcher, false);
+        switched(m.act(IdentityIntent::Choose(key("b")), false));
+        let first = m.switch_snackbar().map(|s| s.id).unwrap_or_default();
+        m.act(IdentityIntent::OpenSwitcher, false);
+        switched(m.act(IdentityIntent::Choose(key("c")), false));
+        let second = m.switch_snackbar().map(|s| s.id).unwrap_or_default();
+        assert_ne!(first, second);
+        assert_eq!(
+            m.act(IdentityIntent::SwitchBack(first), false),
+            FrontOutcome::Unchanged,
+            "a replaced snackbar's Switch back"
+        );
+        assert_eq!(m.front(), Some(&key("c")));
+        m.act(IdentityIntent::SnackbarClosed(first), false);
+        assert_eq!(m.switch_snackbar().map(|s| s.id), Some(second));
+        m.act(IdentityIntent::SnackbarClosed(second), false);
+        assert_eq!(m.switch_snackbar(), None);
+        assert_eq!(
+            m.act(IdentityIntent::SwitchBack(second), false),
+            FrontOutcome::Unchanged,
+            "a closed snackbar's"
+        );
+        assert_eq!(m.front(), Some(&key("c")));
+    }
+
+    #[test]
+    fn your_identities_and_try_again_switch_nothing() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenSwitcher, false);
+        assert_eq!(
+            m.act(IdentityIntent::OpenIdentities, false),
+            FrontOutcome::Unchanged
+        );
+        assert!(!m.switcher_open());
+        assert_eq!(
+            m.act(IdentityIntent::TryAgain(key("b")), false),
+            FrontOutcome::Unchanged
+        );
+        assert_eq!(m.front(), Some(&key("a")));
+        assert_eq!(m.switch_snackbar(), None);
+    }
+
+    #[test]
+    fn going_back_to_one_closes_the_switcher_and_its_snackbar() {
+        let mut m = model(&["a", "b", "c"]);
+        m.act(IdentityIntent::OpenSwitcher, false);
+        switched(m.act(IdentityIntent::Choose(key("b")), false));
+        m.act(IdentityIntent::OpenSwitcher, false);
+        // The one Switch back returns to goes: so does its snackbar.
+        m.held_changed(holding(&["b", "c"])).ok();
+        assert!(m.switcher_open(), "two still held");
+        assert_eq!(m.switch_snackbar(), None);
+        m.held_changed(holding(&["b"])).ok();
+        assert!(!m.switcher_open());
+        // Held again, it does not come back open.
+        m.held_changed(holding(&["b", "c"])).ok();
+        assert!(!m.switcher_open());
+    }
+
+    #[test]
+    fn the_transition_closes_the_switcher_and_its_switch_shows_the_snackbar_without_focus() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenSwitcher, false);
+        let asked = m.focus_request();
+        m.open_notification(NotificationOpened::Identity(key("b")), false, 0);
+        assert!(!m.switcher_open());
+        m.act(IdentityIntent::OpenSwitcher, false);
+        assert!(!m.switcher_open(), "not over the transition");
+        assert!(m.opening_ready(SWITCHING_HOLD_MS).is_some());
+        assert!(m.switch_snackbar().is_some());
+        assert_eq!(m.focus_request(), asked, "the Chats it opens takes focus");
+    }
+
+    #[test]
+    fn the_switch_keeps_three_graphemes_of_the_name() {
+        let mut held = holding(&["a", "b"]);
+        // "e" with a combining acute is one grapheme of two characters.
+        held[0].card_name = Some("e\u{301}xyz".to_owned());
+        let mut m = Identities::new();
+        m.held_changed(held.clone()).ok();
+        m.start(None);
+        assert_eq!(
+            m.switch_view().map(|v| v.least),
+            Some("e\u{301}xy".to_owned())
+        );
+        held[0].card_name = Some("Al".to_owned());
+        m.held_changed(held).ok();
+        assert_eq!(m.switch_view().map(|v| v.least), Some("Al".to_owned()));
     }
 }
