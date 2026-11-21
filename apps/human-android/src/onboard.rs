@@ -1571,6 +1571,9 @@ fn ask_service(o: &mut Onboarding) {
     hub.start_asked(false);
     clear_authentication();
     person_asked();
+    // A press, or a granted prompt resuming a showing's start: either way
+    // the person's, so its answer is raised as theirs.
+    o.flow.person_started();
     FLOW_START.store(o.flow.start_held(), Ordering::SeqCst);
     ASKS.push(start);
 }
