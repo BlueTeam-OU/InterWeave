@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
 #
-# IPC v2 wire models and the frame codec. Language-neutral by contract
+# IPC wire models (major 3) and the frame codec. Language-neutral by contract
 # (ADR-0039): no socket, stream, async runtime, or platform type appears
 # here. This crate decides what the BYTES mean; carrying them is someone
 # else's job, which is what lets the desktop daemon and a third-party
@@ -10,7 +10,7 @@
 name = "interweave-ipc-protocol"
 version.workspace = true
 publish = false
-description = "IPC v2 frame, handshake, and error models for InterWeave."
+description = "IPC frame, handshake, and error models for InterWeave."
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -34,3 +34,6 @@ serde_json = { workspace = true, features = ["raw_value"] }
 # tests/transport-contract does; the same version, so the graph gains
 # nothing.
 jsonschema = "0.49"
+# TEST-ONLY derived EndpointIds (`endpoint_keys::endpoint_id`), its default
+# features only: no IPC crate, so no cycle.
+interweave-test-support = { path = "../../../tests/support" }
