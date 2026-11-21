@@ -33,12 +33,12 @@ GOLDEN="d73342f033f00fca9c4ffcced6f9e6debaeb53e3743049ee9aaf227a55f9bf15"
 
 make_fixture() {
     local r="$1" sha="$2"
-    mkdir -p "$r/fixtures/direct-v2"
+    mkdir -p "$r/fixtures/direct-v3"
     # The anchor ADR must exist: a fixture citing a decision that is not
     # there is one of the things the checker reports.
     mkdir -p "$r/architecture/adr"
     : > "$r/architecture/adr/0047-namespace.md"
-    cat > "$r/fixtures/direct-v2/f.json" <<EOF
+    cat > "$r/fixtures/direct-v3/f.json" <<EOF
 {
   "algorithm": { "id": "direct-content-fingerprint-v1" },
   "vectors": [
@@ -70,7 +70,7 @@ out="$(run "$R")"
 # The domain prefix participates in the hash, so a fixture frozen under a
 # different project namespace cannot silently survive.
 R="$TMP/namespace"; make_fixture "$R" "$GOLDEN"
-python3 - "$R/fixtures/direct-v2/f.json" <<'PY'
+python3 - "$R/fixtures/direct-v3/f.json" <<'PY'
 import json,sys,hashlib
 p=sys.argv[1]; d=json.load(open(p))
 old = b"someotherproject/direct-content-fingerprint/v1\x00"
@@ -85,7 +85,7 @@ R="$TMP/unknown"; make_fixture "$R" "$GOLDEN"
 python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['algorithm']['id']='some-future-thing'
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"cannot compute"* ]] && ok "an unverifiable algorithm is reported, not skipped" || bad "unknown algorithm should fail"
 
@@ -96,7 +96,7 @@ import json,sys,copy
 p=sys.argv[1]; d=json.load(open(p))
 dup=copy.deepcopy(d['vectors'][0]); dup['name']='twin'; dup.pop('frozen_by')
 d['vectors'].append(dup)
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"collides with"* ]] && ok "a duplicate fingerprint is reported as a collision" || bad "should report the collision"
 
@@ -148,7 +148,7 @@ R="$TMP/unanchored"; make_fixture "$R" "$GOLDEN"
 python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['vectors'][0].pop('frozen_by')
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"nothing anchors this file"* ]] && ok "a fixture with no anchor at all is reported" || bad "should require an anchor"
 
@@ -157,13 +157,13 @@ R="$TMP/badmedia"; make_fixture "$R" "$GOLDEN"
 python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['vectors'][0]['media_type']=''
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"empty is invalid rather than absent"* ]] && ok "an empty media type is rejected, not treated as absent" || bad "should reject empty media"
 
 # ── non-vector JSON under fixtures/ is ignored ───────────────────────────
 R="$TMP/other"; make_fixture "$R" "$GOLDEN"
-printf '{"note":"not a vector file"}\n' > "$R/fixtures/direct-v2/notes.json"
+printf '{"note":"not a vector file"}\n' > "$R/fixtures/direct-v3/notes.json"
 [ "$(run_code "$R")" = "0" ] && ok "JSON without a vectors array is ignored" || bad "non-vector JSON should be ignored"
 
 # ── anchoring: a file-level `adr` is a valid anchor on its own ───────────
@@ -176,7 +176,7 @@ python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p))
 d['adr']=['0019']; d['vectors'][0].pop('frozen_by')
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 [ "$(run_code "$R")" = "0" ] && ok "a file-level adr anchors a derived-vector file" || bad "file-level adr should anchor: $(run "$R")"
 
 # ── ...but a cited ADR that does not exist is caught ─────────────────────
@@ -186,7 +186,7 @@ python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p))
 d['adr']=['9999']; d['vectors'][0].pop('frozen_by')
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"ADR-9999"* ]] && ok "a nonexistent anchor ADR is reported" || bad "should report the missing ADR"
 
@@ -195,7 +195,7 @@ R="$TMP/anchor-none"; make_fixture "$R" "$GOLDEN"
 python3 -c "
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['vectors'][0].pop('frozen_by')
-json.dump(d, open(p,'w'))" "$R/fixtures/direct-v2/f.json"
+json.dump(d, open(p,'w'))" "$R/fixtures/direct-v3/f.json"
 out="$(run "$R")"
 [[ "$out" == *"nothing anchors this file"* ]] && ok "an unanchored file is still reported" || bad "should require an anchor"
 
@@ -287,7 +287,7 @@ printf 'media_type = "text/plain"\npayload    = UTF8("hello")\nSHA-256    = %s\n
 # is not the question — a membership test passes a prose copy that quoted
 # the absent-media edge vector beside the golden's own inputs.
 R="$TMP/prose-wrong-vector"; make_fixture "$R" "$GOLDEN"
-python3 - "$R/fixtures/direct-v2/f.json" <<'PY'
+python3 - "$R/fixtures/direct-v3/f.json" <<'PY'
 import json,sys
 p=sys.argv[1]; d=json.load(open(p))
 d['vectors'].append({"name":"absent-media","media_type":None,
@@ -378,6 +378,40 @@ out="$(run "$R")"
 R="$TMP/ipc-negzero"; make_ipc "$R" '{ "name": "negzero", "body": {"n": -0}, "frame_hex": "000000077b226e223a307d" }'
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"-0"* ]] && ok "-0 in a body is refused" || bad "-0 should be refused: $out"
+
+# ── direct 3.0.0: every endpoint field is a derived id of 52 bytes ───────
+# A copy of the real request-frame file, so the control is the frozen file
+# itself and each mutation is one field of one vector.
+make_direct() {
+    local r="$1"
+    mkdir -p "$r/fixtures/direct-v3" "$r/architecture/adr"
+    for a in 0005 0030 0067; do : > "$r/architecture/adr/$a-x.md"; done
+    cp "$SCRIPT_DIR/../../fixtures/direct-v3/direct-message-v2-frame.json" "$r/fixtures/direct-v3/f.json"
+}
+mutate_direct() {
+    python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v=d['vectors'][0]
+exec(sys.argv[2])
+json.dump(d, open(p,'w'))" "$1/fixtures/direct-v3/f.json" "$2"
+}
+R="$TMP/direct-ok"; make_direct "$R"
+[ "$(run_code "$R")" = "0" ] && ok "the direct request vectors recompute in a sandbox" || bad "direct copy should pass: $(run "$R")"
+
+R="$TMP/direct-key"; make_direct "$R"; mutate_direct "$R" "v['source_endpoint_test_key']='someone-else'"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"disagrees with its test key"* ]] \
+    && ok "an endpoint id its test key does not derive is caught" || bad "a wrong test key should fail: $out"
+
+R="$TMP/direct-51"; make_direct "$R"; mutate_direct "$R" "v['source_endpoint']=v['source_endpoint'][:51]; v.pop('source_endpoint_test_key')"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"exactly 52"* ]] \
+    && ok "a 51-byte endpoint field is refused" || bad "51 bytes should be refused: $out"
+
+R="$TMP/direct-label"; make_direct "$R"; mutate_direct "$R" "v['destination_endpoint']='a'*52; v.pop('destination_endpoint_test_key')"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not a derived EndpointId"* ]] \
+    && ok "a 52-byte label is refused as not derived" || bad "a label should be refused: $out"
 
 # ── the real fixtures verify ─────────────────────────────────────────────
 REAL="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"

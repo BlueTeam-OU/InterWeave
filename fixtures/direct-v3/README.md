@@ -1,10 +1,16 @@
-# direct-v2
+# direct-v3
 
-DirectMessageV2 framing and DirectContentFingerprintV1 vectors.
+DirectMessageV2 framing on `/interweave/direct/3.0.0` and DirectContentFingerprintV1 vectors.
+
+The directory takes the protocol's major (`DIRECT.md` §Selected primitive): it was `fixtures/direct-v2/` while the protocol was `/interweave/direct/2.0.0`, and every frame vector was regenerated when ADR-0067 made each endpoint field a derived EndpointId. The frames keep their `V2` names, which name the layout, and the layout did not change.
+
+**The endpoint ids are TEST-ONLY.** Each is the derived id of the Ed25519 key whose seed is `SHA-256("interweave/test-only/endpoint-key/v1" || 0x00 || name)`, the rule of `tests/support`'s `endpoint_keys::endpoint_id(name)`, and each vector names its key beside the id (`source_endpoint_test_key`, `destination_endpoint_test_key`, `resolved_destination_endpoint_test_key`). The seed is public by construction, so these keys are never an identity outside a test. The verifier derives each id from its name and refuses a vector whose id the name does not derive, and the Rust suites check the same ids against `endpoint_id(name)`.
 
 ## `direct-message-v2-frame.json`
 
-The request frame implementations must agree on byte for byte. Six vectors covering the cases a codec gets wrong: an explicit destination, `destination_endpoint_len = 0` for the receiver's default, `media_type_len = 0` for absence, an empty payload that still carries its `u32be` length, both endpoint labels at the 64-byte ceiling, and a pair differing only in `sent_at_ms` — the frames differ, the content fingerprint does not.
+The request frame implementations must agree on byte for byte. Six vectors covering the cases a codec gets wrong: an explicit destination, `destination_endpoint_len = 0` for the receiver's default, `media_type_len = 0` for absence, an empty payload that still carries its `u32be` length, two endpoint fields from keys no other vector uses, and a pair differing only in `sent_at_ms` — the frames differ, the content fingerprint does not.
+
+Every endpoint field is 52 bytes, the one legal length on 3.0.0 (or 0 for the destination's default), so the file no longer has a ceiling vector: the 64-byte label case it carried on 2.0.0 is the `two-other-test-keys` vector now. The refusals of the other lengths (51, 53, 1) are the codecs' tests, not vectors: a vector here is a frame that decodes.
 
 These are **derived** from the layout in `architecture/transport/libp2p/DIRECT.md`, not published by any ADR, so the file is anchored by its `adr` list rather than a per-vector `frozen_by`.
 
@@ -15,10 +21,10 @@ Writing them surfaced a gap: the frame's byte order was never stated. `DIRECT.md
 The `AcceptedV2`/`RejectedV2` response frame (`DIRECT.md` §Response byte layout). It has nine vectors:
 
 - an ordinary acceptance;
-- an acceptance at the 64-byte label ceiling, which is the longest legal response (82 bytes);
+- an acceptance naming the default the receiver resolved for an omitted destination;
 - one rejection per assigned reason code, 1 through 7.
 
-Every code has a vector because the numbering is the part a second implementation would otherwise have to guess.
+Every code has a vector because the numbering is the part a second implementation would otherwise have to guess. Every acceptance is 70 bytes (1 + 16 + 1 + 52), which is the longest legal response; a rejection is 18.
 
 Writing them closed a gap. Until then the layout and the numbering were stated only in the production codec, so a second implementation had nothing to agree with but that code. As with the request frame, the vectors are **derived** from `DIRECT.md` and anchored by the file's `adr` list. The verifier takes the numbering from `schemas/direct/reject-reason`'s enum order, never from this file.
 

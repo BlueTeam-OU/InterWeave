@@ -97,6 +97,53 @@ def direct_content_fingerprint_v1(vector: dict) -> str:
     return hashlib.sha256(buf).hexdigest()
 
 
+# The TEST-ONLY endpoint keys the direct vectors name (tests/support's
+# `endpoint_keys`): seed SHA-256(domain || name), public by construction.
+# Restated here from that module's rule rather than read from a fixture,
+# and the Rust suites check the same ids against `endpoint_id(name)`.
+TEST_ONLY_ENDPOINT_KEY_DOMAIN = b"interweave/test-only/endpoint-key/v1\x00"
+
+# DIRECT.md §Request on /interweave/direct/3.0.0: an endpoint field is the
+# 52-byte text of a derived EndpointId, or 0 for the destination alone.
+DIRECT_ENDPOINT_FIELD_BYTES = 52
+
+
+def _test_only_endpoint_id(name: str) -> str:
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    except ImportError as e:  # pragma: no cover - environment problem, not drift
+        raise RuntimeError(f"python3 cryptography is required to verify this vector: {e}") from e
+    seed = hashlib.sha256(TEST_ONLY_ENDPOINT_KEY_DOMAIN + name.encode("utf-8")).digest()
+    public = Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    return _base58btc(ENDPOINT_ID_DERIVED_PREFIX + public)
+
+
+def _direct_endpoint(vector: dict, field: str) -> bytes:
+    """One endpoint field of a direct vector, checked, as its wire bytes.
+
+    The id must be a derived one of exactly 52 bytes, and when the vector
+    names the test-only key it came from (`<field>_test_key`) it must be
+    the id that key derives: so a vector's id is recomputed, never only
+    copied into the frame.
+    """
+    text = vector[field]
+    raw = text.encode("ascii")
+    if len(raw) != DIRECT_ENDPOINT_FIELD_BYTES:
+        raise ValueError(f"{field} is {len(raw)} bytes; an endpoint field is exactly 52")
+    if not endpoint_id_derivation_v2({"text": text})["valid"]:
+        raise ValueError(f"{field} {text!r} is not a derived EndpointId")
+    key_name = vector.get(f"{field}_test_key")
+    if key_name is not None and _test_only_endpoint_id(key_name) != text:
+        raise ValueError(
+            f"{field} disagrees with its test key {key_name!r}: stored {text}, "
+            f"derived {_test_only_endpoint_id(key_name)}"
+        )
+    return raw
+
+
 def direct_message_v2_frame(vector: dict) -> str:
     """Encode one DirectMessageV2 request frame, returning hex.
 
@@ -104,7 +151,9 @@ def direct_message_v2_frame(vector: dict) -> str:
     integers are big-endian, which that document pins explicitly — it did
     not until these vectors forced the question, and the answer had to
     match the IPC length prefix and the content fingerprint or the three
-    would disagree about the same repository's byte order.
+    would disagree about the same repository's byte order. On 3.0.0 each
+    endpoint field is a derived id of 52 bytes, the destination's 0 the
+    default selector.
     """
     mid = bytes.fromhex(vector["message_id"])
     if len(mid) != 16:
@@ -112,15 +161,14 @@ def direct_message_v2_frame(vector: dict) -> str:
 
     out = mid + int(vector["sent_at_ms"]).to_bytes(8, "big")
 
-    src = vector["source_endpoint"].encode("ascii")
-    if not 1 <= len(src) <= 64:
-        raise ValueError("source_endpoint is 1..64 bytes and is always present")
+    src = _direct_endpoint(vector, "source_endpoint")
     out += bytes([len(src)]) + src
 
-    dst = vector.get("destination_endpoint")
-    dst_b = dst.encode("ascii") if dst is not None else b""
-    if len(dst_b) > 64:
-        raise ValueError("destination_endpoint exceeds 64 bytes")
+    dst_b = (
+        _direct_endpoint(vector, "destination_endpoint")
+        if vector.get("destination_endpoint") is not None
+        else b""
+    )
     out += bytes([len(dst_b)]) + dst_b
 
     media = vector.get("media_type")
@@ -157,10 +205,11 @@ def direct_response_v2_frame(vector: dict) -> str:
         raise ValueError(f"message_id is {len(mid)} bytes; the response echoes exactly 16")
     kind = vector["kind"]
     if kind == "accepted":
-        label = vector["resolved_destination_endpoint"].encode("ascii")
-        if not 1 <= len(label) <= 64:
-            raise ValueError("resolved_destination_endpoint is 1..64 bytes and never empty")
-        out = b"\x01" + mid + bytes([len(label)]) + label
+        resolved = _direct_endpoint(vector, "resolved_destination_endpoint")
+        out = b"\x01" + mid + bytes([len(resolved)]) + resolved
+        # DIRECT.md §Response byte layout: every legal AcceptedV2 is 70.
+        if len(out) != 70:
+            raise ValueError(f"an AcceptedV2 is {len(out)} bytes; every legal one is 70")
     elif kind == "rejected":
         schema = pathlib.Path(__file__).resolve().parent.parent.parent / (
             "architecture/contracts/schemas/direct/reject-reason.schema.json"
@@ -225,7 +274,7 @@ def broadcast_message_v1_frame(vector: dict) -> str:
     endpoint fields, because ADR-0030 keeps EndpointId out of broadcast
     entirely. And there is a leading `version` byte, because direct takes
     its version from the negotiated protocol name `/interweave/direct/
-    2.0.0` while a GossipSub topic negotiates nothing — the envelope is
+    3.0.0` while a GossipSub topic negotiates nothing — the envelope is
     the only place a broadcast reader can learn what it is holding.
     """
     version = int(vector["version"])

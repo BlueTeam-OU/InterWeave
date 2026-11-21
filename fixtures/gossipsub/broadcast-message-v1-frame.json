@@ -12,7 +12,7 @@
     "byte_order": "big-endian for every multi-byte integer (network byte order)",
     "layout": "version:u8 || message_id:16 || sent_at_ms:u64be || media_type_len:u8 || media_type || payload_len:u32be || payload",
     "notes": [
-      "version is 1 and is carried IN BAND. DirectMessageV2 needs no version byte because it takes one from the negotiated protocol name /interweave/direct/2.0.0; a GossipSub topic negotiates nothing, so the envelope is the only place a reader can learn what it is holding.",
+      "version is 1 and is carried IN BAND. DirectMessageV2 needs no version byte because it takes one from the negotiated protocol name /interweave/direct/3.0.0; a GossipSub topic negotiates nothing, so the envelope is the only place a reader can learn what it is holding.",
       "message_id is exactly 16 bytes - 128 bits - and is the APPLICATION identity. It is never an input to the mesh duplicate key, which is GossipSubMessageIdV1 over the authenticated source PeerId and the wire sequence number (ADR-0004).",
       "There is no source_endpoint and no destination_endpoint. ADR-0030 keeps EndpointId out of broadcast entirely, so two local endpoints on one PeerId are intentionally indistinguishable as broadcast originators.",
       "There is no channel field. The receiver learns the channel from the GossipSub topic the message arrived on, which it can always map back because it only receives topics it subscribed to. Carrying it twice would create a disagreement case with no right answer.",
