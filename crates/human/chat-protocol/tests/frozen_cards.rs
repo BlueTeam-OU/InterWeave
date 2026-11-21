@@ -121,7 +121,8 @@ fn route(v: &serde_json::Value) -> (TransportIdentity, EndpointId) {
     let on = &v["received_on"];
     (
         TransportIdentity::parse(on["peer_id"].as_str().expect("peer_id")).expect("a PeerId"),
-        EndpointId::parse(on["source_endpoint"].as_str().expect("endpoint")).expect("an endpoint"),
+        EndpointId::parse_derived(on["source_endpoint"].as_str().expect("endpoint"))
+            .expect("an endpoint"),
     )
 }
 
@@ -508,12 +509,16 @@ fn a_card_on_another_endpoint_fails_its_signature() {
     // other, whatever `from_endpoint` says.
     let doc = fixture();
     let v = vector(&doc, "valid-minimal");
-    let (peer, _) = route(v);
-    let other = EndpointId::parse("admin").expect("an endpoint");
+    let (peer, signed_for) = route(v);
+    let other = EndpointId::from_ed25519_public(&[7u8; 32]);
+    assert_ne!(other, signed_for);
     let valid = wire(v);
+    // The envelope names the endpoint the card was signed for, and the
+    // route is another: the route's decides.
     let text = format!(
-        r#"{},"from_endpoint":"human"}}"#,
-        valid.strip_suffix('}').expect("an object")
+        r#"{},"from_endpoint":"{}"}}"#,
+        valid.strip_suffix('}').expect("an object"),
+        signed_for.as_str()
     );
     assert_eq!(
         classify(
