@@ -5,13 +5,14 @@ topic: "v0-2-1-gate-update-in-place-follows-the-cut-2026-11-08"
 description: "Ruling 2026-11-08 for p2p-network-dev-01 — Restore and the Pixel run (test-key release APK) gate the owner's v0.2.1 cut; the update in place from v0.2.0 runs on the published v0.2.1 APK after the cut, a named limit until then; §22…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 7532ce572aa4761b
   - 86e889541b9ac285
 ---
 
@@ -22,5 +23,10 @@ p2p-network-dev-01 asked (QUESTION 01a1ba06-1145) whether the update in place fr
 Ruled (a) (REPLY 01a1ba06-bafa): Restore on a release build and the Pixel 9a at API 37 on the fixed release gate the cut; the update in place runs on the published v0.2.1 straight after the cut and is a named limit of the Validate row until it runs. Grounds: plan §22's baseline rule (the PATCH is the baseline the update half runs from), v0.2.0 holds no identity so the case sees only the package update, and (b) hand-signing outside release.yml would defeat ADR-0066's six-job key/token split.
 
 **Owed:** amend §22's onboarding paragraph when p2p-01's Pixel/Restore device record is on a branch (they send the sha): the record names the update in place as the one case left for the first window after the cut, and the cut waits on that record.
+
+
+**Superseded in number only (2026-11-08, the owner's word):** the release is v0.3.0 (store schema 10→13 and two IPC schema minors since v0.2.0, ADR-0065 d.4); the ruling's substance stands: Restore + Pixel gate the cut, the v0.2.0 update runs on the published v0.3.0 APK after it. See [[j558-v0-2-1-pre-cut-record-fold-2026-11-08]].
+
+*References: j558-v0-2-1-pre-cut-record-fold-2026-11-08*
 
 *Observed 2026-11-08 (architect-cto)*

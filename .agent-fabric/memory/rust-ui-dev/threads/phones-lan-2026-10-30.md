@@ -5,13 +5,14 @@ topic: "phones-lan-2026-10-30"
 description: "Where the test phones are since the LAN moved on 2026-10-30, their lease names, and whose adb key the Pixel accepts"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 735301f070489532
   - 97c6999e2d9679bd
   - d0726b46d5bf459e
 ---
@@ -36,7 +37,8 @@ Update 2026-10-30 later: the A40 accepts rust-ui-dev-01's key too (j158 install 
 2026-10-31: the Pixel was at a private-network address:45649. After j183's Wi-Fi toggle it moved to a private-network address:35475. The A40 was at a private-network address:42654 (the owner's word). The Pixel still accepts rust-ui-dev-01's key.
 
 2026-11-05 (p2p-network-dev-01 INFO 01a1aba7, owner's word, for their j141): the Pixel's debug app and org.interweave.human.test were UNINSTALLED with their profile; it now runs RELEASE v0.2.0 (signer a7f38b5e), no identity. My debug APK can no longer go over it with install -r: that needs an uninstall, which [[pixel-no-destructive]] says to ask the owner for. Pixel that day at a private-network address:44767. The A40 is untouched.
+- 2026-11-08 16:58Z (INFO 01a1bc1f from rust-ui-dev-02): the A40 no longer runs my main debug build; it runs rust-ui-dev-02's j95 debug + androidTest at 73006e66b (signer 26d1eb18, fresh app data). A build of mine signed f8b1b43e needs an uninstall first, on the owner's word. A40 shows a secure keyguard again (deviceLocked=1).
 
 *References: pixel-install-r-keeps-data, pixel-no-destructive*
 
-*Observed 2026-11-05 (rust-ui-dev)*
+*Observed 2026-11-08 (rust-ui-dev)*
