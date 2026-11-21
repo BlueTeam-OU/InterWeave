@@ -91,3 +91,7 @@ person cannot see, which the decision forbids. Ruled by architect-cto
 as the design proposed. Propagation: `human-client-ui.md` §10 and
 §13's notification and lock-screen bullets, the plan's §30 exit gate,
 this note, the log row, the digest entry.
+
+### Amendment 2026-11-21 — On the phone the first identity is the entry the app writes after its key is sealed
+
+Decision 1 named the first identity as the profile's "authored human endpoint (`human-client-ui.md` §2 step 4; `runtime.android.endpoint` on the phone)". Under ADR-0067 that endpoint is named by its key, and on the phone no key exists when the app first writes its profile document, so the document holds no identity until onboarding seals the first key (ADR-0067 A 2026-11-21 has the ruling and what it refused). The parenthesis now says what the phone's first identity is: the entry `runtime.android.endpoint` names in the app's own document, an entry of `config.yaml` as the desktop's is and never one of the overlay's `added`. Nothing of the decision changes; making the first identity an added one was the alternative refused, since decision 7's rule for it (never removed, only turned off) rests on its standing.
