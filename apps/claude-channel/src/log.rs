@@ -330,6 +330,7 @@ fn wall_ms() -> u64 {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     fn private_state() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -343,7 +344,7 @@ mod tests {
     }
 
     fn endpoint() -> EndpointId {
-        EndpointId::parse("claude".to_owned()).expect("an endpoint")
+        endpoint_id("claude")
     }
 
     /// Written far past the bound, the file never exceeds it, the

@@ -22,9 +22,8 @@ use interweave_ipc_protocol::{
     DecodedFrame, DirectReceived, Frame, FrameError, decode_frame, encode_frame,
 };
 use interweave_local_client_api::ReceivedDirect;
-use interweave_transport_api::{
-    EndpointId, MAX_PAYLOAD_BYTES, MessageId, Payload, TransportIdentity,
-};
+use interweave_test_support::endpoint_keys::endpoint_id;
+use interweave_transport_api::{MAX_PAYLOAD_BYTES, MessageId, Payload, TransportIdentity};
 use serde_json::{Value, json};
 use tokio::io::{
     AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream, Lines,
@@ -149,7 +148,7 @@ async fn bridge(root: &std::path::Path, minor: u64) -> (Daemon, Host) {
         ),
     };
     let config = Config {
-        endpoint: EndpointId::parse("claude").expect("endpoint"),
+        endpoint: endpoint_id("claude"),
         desired_channels: Ok(Vec::new()),
         delivery: interweave_claude_channel_core::Delivery::Push,
     };
@@ -175,7 +174,7 @@ async fn bridge(root: &std::path::Path, minor: u64) -> (Daemon, Host) {
             "ipc_version": {"major": 2, "minor": minor},
             "transport_contract_version": "2.0",
             "peer": PEER,
-            "endpoint": "claude",
+            "endpoint": endpoint_id("claude").as_str(),
             "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ",
             "event_queue": QUEUE,
             "granted_capabilities": ["events", "commands"]
@@ -240,8 +239,8 @@ async fn status_reads_session_losses_on_the_wire_behind_a_burst() {
     for sequence in 0..BURST {
         let message = ReceivedDirect {
             source_peer: TransportIdentity::parse(PEER).expect("peer"),
-            source_endpoint: EndpointId::parse("human").expect("endpoint"),
-            destination_endpoint: EndpointId::parse("claude").expect("endpoint"),
+            source_endpoint: endpoint_id("human"),
+            destination_endpoint: endpoint_id("claude"),
             message_id: MessageId::from_bytes([u8::try_from(sequence).expect("small"); 16]),
             payload: Payload::new(None, format!("m{sequence}").into_bytes(), MAX_PAYLOAD_BYTES)
                 .expect("payload"),

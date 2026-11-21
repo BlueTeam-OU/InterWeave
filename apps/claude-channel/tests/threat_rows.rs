@@ -30,8 +30,9 @@ use interweave_ipc_protocol::{
     DecodedFrame, DirectReceived, Frame, FrameError, decode_frame, encode_frame,
 };
 use interweave_local_client_api::ReceivedDirect;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{
-    EndpointId, MAX_PAYLOAD_BYTES, MediaType, MessageId, Payload, TransportIdentity,
+    MAX_PAYLOAD_BYTES, MediaType, MessageId, Payload, TransportIdentity,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
@@ -39,7 +40,6 @@ use tokio::net::{UnixListener, UnixStream};
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 /// The remote's peer-asserted endpoint: a peer's string.
-const SOURCE_ENDPOINT: &str = "zq-wk7p-rt4v-hs2x";
 const PATIENCE: Duration = Duration::from_secs(10);
 
 struct Daemon {
@@ -64,7 +64,7 @@ impl Daemon {
                 "ipc_version": {"major": 2, "minor": 1},
                 "transport_contract_version": "2.0",
                 "peer": PEER,
-                "endpoint": "claude",
+                "endpoint": endpoint_id("claude").as_str(),
                 "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ",
                 "event_queue": 16,
                 "granted_capabilities": ["events", "commands"]
@@ -99,12 +99,12 @@ impl Daemon {
         .expect("the client writes in time")
     }
 
-    /// One inbound direct from [`PEER`] at [`SOURCE_ENDPOINT`].
+    /// One inbound direct from [`PEER`] at the `source` endpoint.
     async fn direct(&mut self, sequence: u8, media_type: Option<&str>, bytes: &[u8]) {
         let message = ReceivedDirect {
             source_peer: TransportIdentity::parse(PEER).expect("peer"),
-            source_endpoint: EndpointId::parse(SOURCE_ENDPOINT).expect("endpoint"),
-            destination_endpoint: EndpointId::parse("claude").expect("endpoint"),
+            source_endpoint: endpoint_id("source"),
+            destination_endpoint: endpoint_id("claude"),
             message_id: MessageId::from_bytes([sequence; 16]),
             payload: Payload::new(
                 media_type.map(|m| MediaType::parse(m).expect("a media type")),
@@ -166,7 +166,7 @@ async fn tm_30_peer_text_that_instructs_the_host_reaches_it_as_content_only() {
         ),
     };
     let config = Config {
-        endpoint: EndpointId::parse("claude").expect("endpoint"),
+        endpoint: endpoint_id("claude"),
         desired_channels: Ok(Vec::new()),
         delivery: interweave_claude_channel_core::Delivery::Push,
     };
@@ -218,8 +218,14 @@ async fn tm_30_peer_text_that_instructs_the_host_reaches_it_as_content_only() {
     );
     assert_eq!(meta["delivery_mode"], json!("direct"));
     assert_eq!(meta["source_peer"], json!(PEER));
-    assert_eq!(meta["source_endpoint"], json!(SOURCE_ENDPOINT));
-    assert_eq!(meta["destination_endpoint"], json!("claude"));
+    assert_eq!(
+        meta["source_endpoint"],
+        json!(endpoint_id("source").as_str())
+    );
+    assert_eq!(
+        meta["destination_endpoint"],
+        json!(endpoint_id("claude").as_str())
+    );
     assert_eq!(meta["payload_encoding"], json!("utf8"));
     // The one peer string `meta` carries as written: a value, which the
     // host escapes for XML (SPIKE-001 fact 14), and never a key.
@@ -258,7 +264,7 @@ async fn tm_30_peer_text_that_instructs_the_host_reaches_it_as_content_only() {
     daemon
         .write(
             &json!({"type": "response", "id": request.id.as_str(), "ok": true,
-                       "result": {"resolved_endpoint": SOURCE_ENDPOINT}}),
+                       "result": {"resolved_endpoint": endpoint_id("source").as_str()}}),
         )
         .await;
     let routed = next_json(&mut lines).await;
@@ -300,7 +306,7 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr_or_its_log()
             "--profile",
             "leak",
             "--endpoint",
-            "claude",
+            endpoint_id("claude").as_str(),
             "--delivery",
             "push",
             "--log-level",
@@ -391,7 +397,7 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr_or_its_log()
     daemon
         .write(
             &json!({"type": "response", "id": request.id.as_str(), "ok": true,
-                       "result": {"resolved_endpoint": SOURCE_ENDPOINT}}),
+                       "result": {"resolved_endpoint": endpoint_id("source").as_str()}}),
         )
         .await;
     assert_eq!(next_json(&mut lines).await["id"], json!(11));
@@ -411,9 +417,10 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr_or_its_log()
     )
     .expect("the bridge writes UTF-8");
 
-    let log_file = scratch
-        .path()
-        .join("state/interweave/profiles/leak/claude-channel/claude.log");
+    let log_file = scratch.path().join(format!(
+        "state/interweave/profiles/leak/claude-channel/{}.log",
+        endpoint_id("claude").as_str()
+    ));
     let log = std::fs::read_to_string(&log_file).expect("the bridge's log file");
 
     // The control: both streams were live, and said what was refused.
@@ -443,7 +450,7 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr_or_its_log()
         ("the minted reply token", token.as_str()),
         ("the message id", message_id.as_str()),
         ("the peer id", PEER),
-        ("the source endpoint", SOURCE_ENDPOINT),
+        ("the source endpoint", endpoint_id("source").as_str()),
     ] {
         for (offset, window) in windows(secret, 8) {
             for (stream, text) in [("stderr", &stderr), ("the log", &log)] {
