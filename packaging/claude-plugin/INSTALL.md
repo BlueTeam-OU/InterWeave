@@ -44,7 +44,7 @@ Keep the printed PeerId: it is what other peers trust (step 4). The key never le
 The bridge's endpoint is a key of its own, and its id is derived from that key the way the PeerId is (ADR-0067). Mint it with the alias the plugin uses:
 
 ```sh
-transportctl endpoint init --profile claude --alias claude   # prints the endpoint's id, 12D3KooW followed by 44 characters
+transportctl endpoint init --profile claude --alias claude   # prints the id, 12D3KooW and 44 characters, then key: and alias: lines
 ```
 
 Keep the printed id. It is the bridge's address: a peer that sends to the bridge by endpoint names this id, never `claude`, since an alias stays on this host. The bridge never reads the key, and the daemon reads only its public part.
@@ -55,7 +55,7 @@ Keep the printed id. It is the bridge's address: a peer that sends to the bridge
 mkdir -p -m 0700 ~/.config/interweave ~/.config/interweave/profiles ~/.config/interweave/profiles/claude
 ```
 
-Write `~/.config/interweave/profiles/claude/config.yaml`. The bridge's endpoint is declared under `endpoints.entries` by its key: `key` is the id `endpoint init` printed, followed by `.key`. In the file below, it is also the default endpoint, named by its alias, so a message a peer sends without naming an endpoint reaches the bridge. The example `architecture/config/examples/human-and-claude.yaml` shows the same endpoint beside a human one.
+Write `~/.config/interweave/profiles/claude/config.yaml`. The bridge's endpoint is declared under `endpoints.entries` by its key: `key` is the id `endpoint init` printed, followed by `.key`: the `key:` and `alias:` lines it printed after the id are the entry's two members as written below. In the file below, it is also the default endpoint, named by its alias, so a message a peer sends without naming an endpoint reaches the bridge. The example `architecture/config/examples/human-and-claude.yaml` shows the same endpoint beside a human one.
 
 ```yaml
 schema_version: 2
