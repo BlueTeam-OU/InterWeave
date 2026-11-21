@@ -1651,7 +1651,9 @@ access.
   copies wherever it shows (§6), since a copy changes nothing the seal reads, except under
   the progress state (§5). When the result
   comes, focus goes as follows, wherever the person moved it. A §6
-  notice takes focus (the error-banner rule below). A cancelled or
+  notice takes focus (the error-banner rule below), except after a
+  start retried at a return, which no press made (A start retried at
+  a return, below). A cancelled or
   denied prompt for the seal leaves C4 as it was,
   with its primary enabled again and focus where it was before the
   prompt. One for its read-back shows `IdStorageUnknown`, which takes
@@ -1704,6 +1706,14 @@ access.
   at its press, and its results move focus as §6 says (A start
   refused with the profile in use after the bound). Each case is a
   row of `design/2026-10-22-add-a-peer.md` §8 item 1's table.
+- **A start retried at a return** to C4, R4, R3 or R2 after K1 while
+  `IdStartBusy` shows there (§6, A return to a screen showing
+  `IdStartBusy`) moves no focus while it holds the screen. Refused
+  with the profile in use again, it leaves focus where it was and
+  `IdStartBusy` takes no focus, the error-banner rule apart: this
+  result answers no press. Its other results move focus as after the
+  Continue it replaces (the bullets above). It is a row of
+  `design/2026-10-22-add-a-peer.md` §8 item 1's table.
 - When a grid position is chosen to edit, by any input, focus goes as
   for a row chosen from the full list: to the keypad's first enabled
   key, or to the delete key when the word put back leaves no letter
@@ -1735,7 +1745,9 @@ access.
   again, as unlock note F11 says for a cancelled prompt
   (`design/2026-11-05-unlock-policy-pending.md`).
 - After an error banner appears, focus goes to the banner. C3's
-  `IdCheckWrong` counts as one (above).
+  `IdCheckWrong` counts as one (above). `IdStartBusy` shown again by
+  a start retried at a return takes no focus (A start retried at a
+  return, above).
 - After a dialog closes, focus returns to what opened it. The discard
   dialog's `IdDiscard` leaves the screen instead, and §7 names where
   focus goes then.
