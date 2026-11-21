@@ -341,7 +341,7 @@ mod tests {
         let held = lanes.events.clone().reserve_owned().await.expect("room");
         let event = || {
             Frame::parse(
-                r#"{"type":"event","sequence":0,"event_type":"endpoint.lease_changed","data":{"endpoint":"human","revoked_epoch":"AAAAAAAAAAAAAAAAAAAAAQ"}}"#,
+                r#"{"type":"event","sequence":0,"event_type":"endpoint.lease_changed","data":{"endpoint":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr","revoked_epoch":"AAAAAAAAAAAAAAAAAAAAAQ"}}"#,
             )
             .expect("an event")
         };

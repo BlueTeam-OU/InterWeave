@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use interweave_ipc_protocol::{
     AuthorityDomain, Close, FEATURE_KEEPALIVE, Frame, GrantedLease, HELLO_TIMEOUT,
-    HandshakeOutcome, HelloResponse, IpcVersion, ROUTE_NOTICE_SINCE_MINOR, negotiate,
+    HandshakeOutcome, HelloResponse, IpcVersion, negotiate,
 };
 use interweave_local_client_api::{
     AdminBinding, DataSessionBinding, DataSessionPort as _, SessionRequest,
@@ -170,9 +170,11 @@ where
     };
     // A CAPABILITY ABOVE THE NEGOTIATED MINOR is the client's protocol
     // violation, on either socket and before the socket is asked about
-    // it (LOCAL-IPC.md §Version negotiation): a 2.0 server's closed
-    // capability parse refuses the same hello, so the client sees one
-    // result whichever daemon it reached. Judged after the minor is
+    // it (LOCAL-IPC.md §Version negotiation): a server that predates the
+    // capability refuses the same hello in its closed capability parse,
+    // so the client sees one result whichever daemon it reached. Every
+    // capability is 3.0's today, so no 3.x hello meets this yet; it holds
+    // for the first capability a later minor brings. Judged after the minor is
     // known, since only the minor makes such a hello wrong.
     if !hello.capabilities_available_at(version) {
         return close(TransportError::ProtocolViolation);
@@ -193,17 +195,10 @@ where
             ) else {
                 return close(TransportError::InvalidArgument);
             };
-            // BELOW 2.4 THE SESSION TAKES NO ROUTE NOTICE AT ALL, rather
-            // than taking one and having the send loop drop it: a change
-            // merged into a route-begin notice would go with it, and a
-            // client below 2.4 lost a path change it was owed before
-            // (#245 review F1). The send loop's `available_to` stays the
-            // backstop for the shape.
-            let request = if version.minor < ROUTE_NOTICE_SINCE_MINOR {
-                request.without_route_notices()
-            } else {
-                request
-            };
+            // Every session takes route notices: 2.4 brought them, and
+            // every 3.0 connection is past 2.4 (`LOCAL-IPC.md` §Version
+            // negotiation and phases). Major 2's sessions below 2.4, which
+            // declined them, are not served.
             let session = match DataSessionBinding::open(binding, request).await {
                 Ok(session) => session,
                 Err(code) => return close(code),
@@ -297,10 +292,17 @@ mod tests {
     }
 
     /// Offers a minor above any this build speaks, so the answer is the
-    /// server lowering it to `IPC_MAX_MINOR` whatever that is now.
-    const DATA_HELLO: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":99},
-        "client":{"kind":"human-client"},"endpoint":{"id":"human"},
+    /// server lowering it to `IPC_MAX_MINOR` whatever that is now. Its
+    /// claim is the fake's `human`, the TEST-ONLY derived id
+    /// `fake::ep("human")` (`the_hello_claims_the_fakes_human`).
+    const DATA_HELLO: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":99},
+        "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#;
+
+    #[test]
+    fn the_hello_claims_the_fakes_human() {
+        assert!(DATA_HELLO.contains(crate::fake::ep("human").as_str()));
+    }
 
     #[tokio::test]
     async fn a_data_hello_claims_its_lease_and_is_answered_with_what_was_granted() {
@@ -313,13 +315,13 @@ mod tests {
         assert_eq!(
             response.ipc_version,
             IpcVersion {
-                major: 2,
+                major: 3,
                 minor: interweave_ipc_protocol::IPC_MAX_MINOR
             },
             "the minor lowered to this build's"
         );
         let lease = response.lease.as_ref().expect("the lease");
-        assert_eq!(lease.endpoint.as_str(), "human");
+        assert_eq!(lease.endpoint, crate::fake::ep("human"));
         assert_eq!(
             lease.event_queue.get(),
             4,
@@ -367,21 +369,48 @@ mod tests {
         );
     }
 
+    /// Major 2 is not served beside major 3 (ADR-0067 decision 7): a 2.0
+    /// hello and a 2.13 one -- whose minor is above 3.0's -- are each
+    /// answered `close{VersionIncompatible}` naming 3.0 alone, on either
+    /// socket, and the binding is never asked. The same hello at 3.0 is
+    /// the control, and so is a major above 3.
     #[tokio::test]
     async fn an_unsupported_major_is_answered_with_what_to_speak() {
-        let fake = Fake::default();
-        let (ok, frames) = run(
-            AuthorityDomain::Data,
-            &[r#"{"type":"hello","ipc_version":{"major":3,"minor":0},"client":{"kind":"k"}}"#],
-            &fake,
-        )
-        .await;
-        assert!(!ok);
-        let [Frame::Close(close)] = &frames[..] else {
-            panic!("a close: {frames:?}")
+        let hello = |major: u64, minor: u64| {
+            format!(
+                r#"{{"type":"hello","ipc_version":{{"major":{major},"minor":{minor}}},"client":{{"kind":"k"}},"requested_capabilities":["events"]}}"#
+            )
         };
-        assert_eq!(close.code, TransportError::VersionIncompatible);
-        assert_eq!(close.supported.as_deref().map(<[_]>::len), Some(1));
+        let admin = |major: u64, minor: u64| {
+            format!(
+                r#"{{"type":"hello","ipc_version":{{"major":{major},"minor":{minor}}},"client":{{"kind":"k"}},"requested_capabilities":["admin.status"]}}"#
+            )
+        };
+        for (domain, frame) in [
+            (AuthorityDomain::Data, hello as fn(u64, u64) -> String),
+            (AuthorityDomain::Admin, admin),
+        ] {
+            let fake = Fake::default();
+            for (major, minor) in [(2, 0), (2, 13), (4, 0)] {
+                let (ok, frames) = run(domain, &[&frame(major, minor)], &fake).await;
+                assert!(!ok, "{domain:?} {major}.{minor}");
+                let [Frame::Close(close)] = &frames[..] else {
+                    panic!("a close: {frames:?}")
+                };
+                assert_eq!(close.code, TransportError::VersionIncompatible);
+                assert_eq!(
+                    close.supported.as_deref(),
+                    Some(&[IpcVersion { major: 3, minor: 0 }][..]),
+                    "{domain:?} {major}.{minor}"
+                );
+            }
+            assert!(
+                fake.script().calls.is_empty(),
+                "the binding was never asked"
+            );
+            let (ok, frames) = run(domain, &[&frame(3, 0)], &fake).await;
+            assert!(ok, "the control, 3.0 on {domain:?}: {frames:?}");
+        }
     }
 
     /// Refused in `hello`, before any lease exists: the binding is never
@@ -404,7 +433,10 @@ mod tests {
             ("nowhere", TransportError::EndpointUnknown),
             ("off", TransportError::EndpointDisabled),
         ] {
-            let hello = DATA_HELLO.replace(r#""id":"human""#, &format!(r#""id":"{endpoint}""#));
+            let hello = DATA_HELLO.replace(
+                crate::fake::ep("human").as_str(),
+                crate::fake::ep(endpoint).as_str(),
+            );
             let (ok, frames) = run(AuthorityDomain::Data, &[&hello], &fake).await;
             assert!(!ok);
             assert_eq!(close_code(&frames), Some(code), "{endpoint}");
@@ -422,7 +454,7 @@ mod tests {
     #[tokio::test]
     async fn the_socket_decides_the_domain_not_the_frame() {
         let fake = Fake::default();
-        let admin_on_data = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        let admin_on_data = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"transportctl"},"requested_capabilities":["admin.shutdown"]}"#;
         let (ok, frames) = run(AuthorityDomain::Data, &[admin_on_data], &fake).await;
         assert!(!ok);
@@ -438,53 +470,44 @@ mod tests {
         );
     }
 
-    /// `admin.trust` arrived at 2.1: a hello naming it while negotiating
-    /// minor 0 is closed `ProtocolViolation` on either socket, before the
-    /// socket's own rule is asked; at minor 1 the admin socket grants it
-    /// and the data socket refuses it as every `admin.*`. A client
-    /// offering a minor above the server's negotiates 1 and is granted it.
+    /// Every capability major 2 reached is a 3.0 capability: a first
+    /// hello of major 3 at minor 0 names `admin.trust` and `admin.peers`
+    /// (2.1 and 2.7 on major 2) and the admin socket grants them, while
+    /// the data socket refuses them as every `admin.*`. A client offering
+    /// a minor above the server's is lowered and granted them too.
     #[tokio::test]
-    async fn admin_trust_is_named_only_at_the_minor_that_introduced_it() {
+    async fn every_capability_is_named_at_three_zero() {
         let hello = |minor: u64| {
             format!(
-                r#"{{"type":"hello","ipc_version":{{"major":2,"minor":{minor}}},
+                r#"{{"type":"hello","ipc_version":{{"major":3,"minor":{minor}}},
                 "client":{{"kind":"transportctl"}},
-                "requested_capabilities":["admin.status","admin.trust"]}}"#
+                "requested_capabilities":["admin.status","admin.trust","admin.peers"]}}"#
             )
         };
         let fake = Fake::default();
-        for domain in [AuthorityDomain::Admin, AuthorityDomain::Data] {
-            let (ok, frames) = run(domain, &[&hello(0)], &fake).await;
-            assert!(!ok, "{domain:?}");
-            assert_eq!(
-                close_code(&frames),
-                Some(TransportError::ProtocolViolation),
-                "{domain:?}"
-            );
-        }
-        let (ok, frames) = run(AuthorityDomain::Data, &[&hello(1)], &fake).await;
+        let (ok, frames) = run(AuthorityDomain::Data, &[&hello(0)], &fake).await;
         assert!(!ok);
         assert_eq!(close_code(&frames), Some(TransportError::CapabilityDenied));
-        for minor in [1, 7] {
+        for minor in [0, 7] {
             let (ok, frames) = run(AuthorityDomain::Admin, &[&hello(minor)], &fake).await;
             assert!(ok, "minor {minor}: {frames:?}");
             let [Frame::HelloResponse(response)] = frames.as_slice() else {
                 panic!("a response: {frames:?}")
             };
+            // Lowered to the server's own (0 at 3.0), whatever was offered.
             assert_eq!(
                 response.ipc_version.minor,
-                minor.min(interweave_ipc_protocol::IPC_MAX_MINOR)
+                interweave_ipc_protocol::IPC_MAX_MINOR
             );
-            assert!(
-                response
-                    .granted_capabilities
-                    .contains(&interweave_ipc_protocol::RequestedCapability::AdminTrust)
-            );
+            for capability in [
+                interweave_ipc_protocol::RequestedCapability::AdminTrust,
+                interweave_ipc_protocol::RequestedCapability::AdminPeers,
+            ] {
+                assert!(
+                    response.granted_capabilities.contains(&capability),
+                    "{capability:?}"
+                );
+            }
         }
-        // The control: the same hello without it is a 2.0 hello.
-        let plain = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
-            "client":{"kind":"transportctl"},"requested_capabilities":["admin.status"]}"#;
-        let (ok, frames) = run(AuthorityDomain::Admin, &[plain], &fake).await;
-        assert!(ok, "{frames:?}");
     }
 }

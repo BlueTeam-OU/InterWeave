@@ -1,6 +1,6 @@
 # ipc-server
 
-The desktop IPC v2 server: the data and admin Unix sockets, over the neutral local-session binding.
+The desktop IPC server (major 3, ADR-0067 decision 7): the data and admin Unix sockets, over the neutral local-session binding.
 
 **Current status:** Stage 13, active workspace member. A library generic over `DataSessionBinding` and `AdminBinding` (`interweave-local-client-api`); it depends on nothing under `crates/transport/*` and on no libp2p crate, so it cannot hold a lease table or an event queue of its own. Unix only.
 
