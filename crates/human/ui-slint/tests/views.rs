@@ -5578,7 +5578,13 @@ fn a_right_to_left_menu_button_moves_the_count_too() {
 // (MainActivity.onStart deciding, human-android's
 // `onboard::showing_starts`; the flow's half is ui-model's
 // `a_showings_start_holds_as_try_again_and_asks_nothing` and
-// `a_showings_start_refused_busy_again_raises_nothing`).
+// `a_showings_start_refused_busy_again_raises_nothing`); that a granted
+// prompt over that screen makes its restart the person's
+// (`onboard::ask_service` calling the flow's `person_started`, held by
+// ui-model's `a_granted_prompt_over_a_showings_start_answers_the_person`);
+// and that an Unlock after a held start's prompt was cancelled or dropped
+// restarts the bound service (`onboard::not_run` asking
+// `Onboarding::start_ask`, RESTART once a start was asked).
 
 /// Chats with `IdStartBusy` refused after the bound: a phone's window,
 /// focus where the bound left it.
