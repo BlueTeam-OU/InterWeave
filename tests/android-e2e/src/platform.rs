@@ -1320,8 +1320,9 @@ channels:
     }
 
     /// Every first-run shape a phone may hold: the example as provisioned,
-    /// the debug app's stand-in, and profile-config's (`android:` with no
-    /// mode); and both as a person might indent them, four spaces a level.
+    /// the debug app's stand-in, and profile-config's form 1 (no
+    /// `android:`); and the stand-in and form 2 (`android:` with no mode)
+    /// as a person might indent them, four spaces a level.
     fn shapes() -> [(&'static str, String); 5] {
         [
             ("example", concrete_example()),
@@ -1335,11 +1336,19 @@ channels:
                 STAND_IN.replace("\n  deployment:", "\n    deployment:"),
             ),
             (
+                // Form 2, the first identity sealed: the form that has an
+                // `android:` block to indent (form 1 has none).
                 "first-run, four spaces",
-                interweave_profile_config::provision::embedded_document("human-android")
-                    .replace("\n  deployment:", "\n    deployment:")
-                    .replace("\n  android:", "\n    android:")
-                    .replace("\n    endpoint: human", "\n        endpoint: human"),
+                interweave_profile_config::provision::embedded_identity_document(
+                    "human-android",
+                    &interweave_transport_api::EndpointId::parse_derived(
+                        "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+                    )
+                    .expect("a derived id"),
+                )
+                .replace("\n  deployment:", "\n    deployment:")
+                .replace("\n  android:", "\n    android:")
+                .replace("\n    endpoint: ", "\n        endpoint: "),
             ),
         ]
     }

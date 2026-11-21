@@ -25,7 +25,8 @@ use interweave_local_client_api::{
     AdminBinding as _, AdminCapability, AdminPort as _, DataCapability, DataSessionBinding as _,
     SessionRequest, TrustChange,
 };
-use interweave_profile_config::provision::provision_embedded;
+use interweave_profile_config::endpoint_key::mint_filesystem;
+use interweave_profile_config::provision::{provision_embedded, provision_identity};
 use interweave_profile_config::{ClientKind, ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::{ENTROPY_BYTES, ProfileIdentity, RecoveryPhrase};
 use interweave_transport_embedded::{EmbeddedHost, EmbeddedLaunch, EmbeddedRefused};
@@ -139,6 +140,10 @@ fn a_killed_host_leaves_a_profile_a_fresh_host_starts_on() {
         ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app).expect("a boundary"))
             .expect("paths");
     provision_embedded(&paths).expect("provisioned");
+    // The first identity, as onboarding seals it: form 1 has none, and a
+    // start on it is refused.
+    let id = mint_filesystem(&paths).expect("a key minted");
+    provision_identity(&paths, &id).expect("the first identity");
     let peer = trusted_peer().transport_identity().expect("a peer");
 
     let mut child = Supervised(

@@ -43,13 +43,13 @@ pub mod custody;
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
 pub use interweave_profile_config::availability_overlay::StayReachable;
 use interweave_profile_config::availability_overlay::{self, AvailabilityError};
-use interweave_profile_config::endpoint_overlay::EndpointOverlayError;
+use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
 use interweave_profile_config::profile_format::{self, ProfileFormatError};
 pub use interweave_profile_config::runtime::AvailabilityMode;
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::trust_overlay::OverlayError;
 use interweave_profile_config::{
-    LoadError, PersistError, ProfileConfig, ProfileLock, ProfilePaths, TrustBoundary,
+    ConfigError, LoadError, PersistError, ProfileConfig, ProfileLock, ProfilePaths, TrustBoundary,
     runtime::Deployment,
 };
 use interweave_profile_identity::ProfileIdentity;
@@ -109,6 +109,11 @@ pub enum EmbeddedRefused {
     LockHeld(String),
     /// The profile's `runtime.deployment` is not `embedded-android`.
     NotEmbedded,
+    /// The profile has no identity yet -- the first-run document before
+    /// onboarding sealed one: always
+    /// [`ConfigError::AndroidNoIdentity`], carried so the cause is the
+    /// configuration's own by name. The person's remedy is onboarding.
+    NoIdentity(ConfigError),
     /// `config.yaml` is missing, unreadable or fails validation, or it
     /// fails validation with the endpoint overlay composed over it (the
     /// text names the overlay).
@@ -138,6 +143,7 @@ impl std::fmt::Display for EmbeddedRefused {
         match self {
             Self::LockHeld(detail) => write!(f, "the profile is held by another host: {detail}"),
             Self::NotEmbedded => f.write_str("the profile's deployment is not embedded-android"),
+            Self::NoIdentity(e) => write!(f, "the profile cannot start: {e}"),
             Self::ProfileInvalid(detail) => write!(f, "the profile cannot be used: {detail}"),
             Self::DirectoryRefused(detail) => write!(f, "a directory is refused: {detail}"),
             Self::IdentityRejected => f.write_str("the identity has no transport identity"),
@@ -349,6 +355,20 @@ impl EmbeddedHost {
         // app's private profile at once; it is kept as the ruling's
         // under-lock read, not as a tested path.
         profile_format::require_supported(&paths)?;
+        // THE START'S HALF OF THE LEASE RULE (architect-cto's ruling for
+        // j185): the first-run document loads without an identity, and
+        // a start on it is refused by name before anything is written,
+        // judged on the endpoints the runtime would compose -- the
+        // overlay read under the lock, in memory, as composition reads
+        // it below (`a_start_on_form_1_is_refused_no_identity`).
+        let overlay_file = EndpointOverlay::path_for(&paths);
+        let (overlay, _) =
+            EndpointOverlay::read_within(&overlay_file, &config.endpoints, paths.boundary())
+                .map_err(CompositionError::EndpointOverlay)?;
+        config
+            .runtime
+            .require_android_identity(&overlay.apply(&config.endpoints))
+            .map_err(EmbeddedRefused::NoIdentity)?;
         // Read under the lock, so no other host is writing it. A present
         // overlay that cannot be trusted refuses the start, as the trust
         // overlay's does: read as absent, it would turn the person's
