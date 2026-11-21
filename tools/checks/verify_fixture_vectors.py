@@ -843,11 +843,17 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
     return {"valid": valid, "rule": rule}
 
 
+CONFIG_KEY_RE = re.compile(r"^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}\.key$")
+CONFIG_ALIAS_RE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
+
+
 def config_v2_cross_field(vector: dict) -> bool:
     """From architecture/config/config.schema.yaml §endpoints cross-field.
 
-    The five rules stated there, in order: unique endpoint IDs; a set
-    default naming an ENABLED endpoint; static-subset peers being a
+    The rules stated there, in order: an entry naming its key file as
+    `<EndpointId>.key` with a derived stem (ADR-0067); unique endpoint IDs
+    and aliases; a set default, an alias or an id, naming an ENABLED
+    endpoint; static-subset peers being a
     subset of profile trust; endpoint policy narrowing rather than
     widening; and advertised entries fitting the directory bound. Each is
     a relationship BETWEEN fields, which is exactly what a JSON Schema
@@ -858,13 +864,33 @@ def config_v2_cross_field(vector: dict) -> bool:
     endpoints = cfg.get("endpoints", {})
     entries = endpoints.get("entries", [])
 
-    ids = [e.get("id") for e in entries]
+    # ADR-0067: an entry names its key file, `<EndpointId>.key`, and its id
+    # is that name's stem, a derived id; the retired `id` member is
+    # refused (EndpointIdNotDerived), and so is any other `key` shape.
+    ids = []
+    for e in entries:
+        key = e.get("key")
+        if "id" in e or not isinstance(key, str) or not CONFIG_KEY_RE.match(key):
+            return False
+        stem = key[: -len(".key")]
+        if not endpoint_id_derivation_v2({"text": stem})["valid"]:
+            return False
+        ids.append(stem)
     if len(ids) != len(set(ids)):
         return False
+    # Aliases: the retired label grammar, unique within the profile
+    # (AliasInvalid, AliasTaken).
+    aliases = [e["alias"] for e in entries if "alias" in e]
+    if not all(isinstance(a, str) and CONFIG_ALIAS_RE.match(a) for a in aliases):
+        return False
+    if len(aliases) != len(set(aliases)):
+        return False
 
+    # The default is an alias or an id (ENDPOINTS.md §Default direct
+    # endpoint), naming an ENABLED entry either way.
     default = endpoints.get("default_direct_endpoint")
     if default is not None:
-        match = [e for e in entries if e.get("id") == default]
+        match = [e for e, i in zip(entries, ids) if default in (i, e.get("alias"))]
         if not match or not match[0].get("enabled", True):
             return False
 

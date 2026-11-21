@@ -18,8 +18,8 @@ use interweave_local_client_api::{
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
-    DirectDestination, DisconnectReason, EndpointId, MessageId, Payload, TransportError,
-    TransportEvent, TransportIdentity, TransportRuntime,
+    DirectDestination, DisconnectReason, MessageId, Payload, TransportError, TransportEvent,
+    TransportIdentity, TransportRuntime,
 };
 use interweave_transport_composition::{ComposedRuntime, CompositionOptions, Ended};
 
@@ -38,7 +38,8 @@ trust:
   allowed_peers: [{}]
 endpoints:
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 discovery:
@@ -187,7 +188,7 @@ async fn dropping_the_runtime_ends_it_while_a_binding_is_held() {
     let claim = || {
         SessionRequest::new(
             "conformance",
-            Some(EndpointId::parse("human").expect("valid")),
+            Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             [DataCapability::Commands],
         )
         .expect("in bounds")
@@ -247,7 +248,7 @@ async fn stop_within_settles_for_the_grace_it_is_given() {
         .open(
             SessionRequest::new(
                 "human-client",
-                Some(EndpointId::parse("human").expect("valid")),
+                Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
                 [DataCapability::Commands],
             )
             .expect("in bounds"),
@@ -259,7 +260,7 @@ async fn stop_within_settles_for_the_grace_it_is_given() {
         session.send_direct(
             DirectDestination {
                 peer: silent_peer,
-                endpoint: Some(EndpointId::parse("human").expect("valid")),
+                endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             },
             MessageId::from_bytes([9; 16]),
             Payload::at_ceiling(None, b"held".to_vec()).expect("within the ceiling"),
@@ -394,7 +395,7 @@ async fn the_admin_status_carries_the_ingress_limiters_tracked_peers() {
     let human = || {
         SessionRequest::new(
             "human-client",
-            Some(EndpointId::parse("human").expect("valid")),
+            Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             [DataCapability::Commands],
         )
         .expect("in bounds")
@@ -415,7 +416,7 @@ async fn the_admin_status_carries_the_ingress_limiters_tracked_peers() {
         .send_direct(
             DirectDestination {
                 peer: b.clone(),
-                endpoint: Some(EndpointId::parse("human").expect("valid")),
+                endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             },
             MessageId::from_bytes([7; 16]),
             Payload::at_ceiling(None, b"counted".to_vec()).expect("within the ceiling"),

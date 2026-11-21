@@ -4,10 +4,22 @@
   "title": "Configured endpoint",
   "description": "One entry in a profile's configured endpoint set. Registration is configured-only: an ordinary local data-plane client cannot create an endpoint by naming it at handshake. Endpoint policy can only NARROW profile trust — no configuration here can authorize a PeerId that PeerTrustPolicy rejects.",
   "type": "object",
-  "required": ["id", "enabled", "advertise"],
+  "required": ["key", "enabled", "advertise"],
   "additionalProperties": false,
   "properties": {
-    "id": { "$ref": "urn:interweave:schemas:endpoints:endpoint-id" },
+    "key": {
+      "type": "string",
+      "pattern": "^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}\\.key$",
+      "minLength": 56,
+      "maxLength": 56,
+      "description": "The endpoint's key file NAME, `<EndpointId>.key`, under `<state_dir>/endpoint-keys/` (ADR-0067 decision 3): never a path and never a bare id. The id is derived from the file's header at load and must equal the stem, or the entry is refused by name; with the file absent or unreadable the stem, after the full derived-id check, is the id and the entry loads in the key-missing state. The pattern is the shape; the stem's decode is the loader's. The retired `id` member is refused as EndpointIdNotDerived.",
+      "examples": ["12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key"]
+    },
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{0,63}$",
+      "description": "A local display name the configuration and the clients' command lines pick the endpoint by: never on the wire, unique within the profile, proving nothing (AliasInvalid, AliasTaken; ENDPOINTS.md section EndpointId)."
+    },
     "enabled": {
       "type": "boolean",
       "description": "A disabled endpoint yields local EndpointDisabled on claim and coarse no_route on the wire."
@@ -51,8 +63,8 @@
   "x-contract": {
     "name": "endpoints.endpoint-config",
     "status": "approved",
-    "version": "1.0.0",
-    "adr": ["0030", "0028", "0026"],
+    "version": "2.0.0",
+    "adr": ["0030", "0028", "0026", "0067"],
     "specification": "architecture/contracts/ENDPOINTS.md"
   }
 }

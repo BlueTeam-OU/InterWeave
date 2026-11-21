@@ -41,7 +41,7 @@ trust: {{ policy: static-allowlist, allowed_peers: [\"{}\"] }}
 endpoints:
   default_direct_endpoint: human
   entries:
-    - {{ id: human, enabled: true, advertise: false }}
+    - {{ key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key, alias: human, enabled: true, advertise: false }}
 channels: {{ desired: [] }}
 discovery: {{ providers: [] }}
 transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }} }}
@@ -1122,7 +1122,7 @@ async fn a_daemons_events_validate_against_their_schemas() {
     let mut raw = RawClient::connect(&b.data_socket()).await;
     raw.send(
         r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
-        "client":{"kind":"human-client"},"endpoint":{"id":"human"},
+        "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#,
     )
     .await;
@@ -1406,13 +1406,40 @@ async fn transportctl_against_a_live_daemon() {
     let human = list(&home);
     assert_eq!(
         (human["id"].as_str(), human["enabled"].as_bool()),
-        (Some("human"), Some(true))
+        (
+            Some("12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"),
+            Some(true)
+        )
     );
 
     for (args, enabled, default) in [
-        (&["endpoints", "disable", "human"][..], false, false),
-        (&["endpoints", "enable", "human"][..], true, false),
-        (&["endpoints", "default", "human"][..], true, true),
+        (
+            &[
+                "endpoints",
+                "disable",
+                "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+            ][..],
+            false,
+            false,
+        ),
+        (
+            &[
+                "endpoints",
+                "enable",
+                "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+            ][..],
+            true,
+            false,
+        ),
+        (
+            &[
+                "endpoints",
+                "default",
+                "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+            ][..],
+            true,
+            true,
+        ),
         (&["endpoints", "default", "--none"][..], true, false),
     ] {
         let out = home.transportctl(args, "");

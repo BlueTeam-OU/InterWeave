@@ -58,16 +58,20 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
-    - id: agent
+    - key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key
+      alias: agent
       enabled: true
       advertise: true
-    - id: off
+    - key: 12D3KooWFEcPrcCLkqUz5WdakpJFWz3mAbMfJorh5Tb2g23QPQVA.key
+      alias: off
       enabled: false
       advertise: false
-    - id: kept
+    - key: 12D3KooWSvbnLu3m8LA34YemjUhvQ3Yk7Dqgwf6E4aoe5RYudPqB.key
+      alias: kept
       enabled: true
       advertise: false
       allowed_client_kinds: [claude-channel]
@@ -347,7 +351,7 @@ impl Drop for Client {
 }
 
 const DATA: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
-    "client":{"kind":"human-client"},"endpoint":{"id":"human"},
+    "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
     "requested_capabilities":["events","commands"],"features":["keepalive"]}"#;
 const ADMIN: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
     "client":{"kind":"transportctl"},
@@ -584,7 +588,7 @@ async fn every_frame_the_server_writes_validates_against_the_schema() {
         .await;
     assert!(admin.response().await.contains(r#""ok":true"#));
     admin
-        .send(r#"{"type":"request","id":"r","method":"admin.endpoints.revoke","params":{"endpoint":"human"}}"#)
+        .send(r#"{"type":"request","id":"r","method":"admin.endpoints.revoke","params":{"endpoint":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"}}"#)
         .await;
     assert!(admin.response().await.contains(r#""ok":true"#));
     let lease_changed = loop {
@@ -637,7 +641,10 @@ async fn each_handshake_refusal_has_its_code() {
     let cases = [
         (
             &node.paths.data,
-            DATA.replace(r#""id":"human""#, r#""id":"nowhere""#),
+            DATA.replace(
+                r#""id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr""#,
+                r#""id":"12D3KooWHQpUvhguW2jjvwe1r32MtUqs5RCPEcEcwxwqFGcaNe4U""#,
+            ),
             TransportError::EndpointUnknown,
         ),
         (
@@ -647,8 +654,11 @@ async fn each_handshake_refusal_has_its_code() {
         ),
         (
             &node.paths.data,
-            DATA.replace(r#""id":"human""#, r#""id":"agent""#)
-                .replace(r#","features":["keepalive"]"#, ""),
+            DATA.replace(
+                r#""id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr""#,
+                r#""id":"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5""#,
+            )
+            .replace(r#","features":["keepalive"]"#, ""),
             TransportError::CapabilityDenied,
         ),
         (
@@ -658,7 +668,10 @@ async fn each_handshake_refusal_has_its_code() {
         ),
         (
             &node.paths.admin,
-            DATA.replace(r#""id":"human""#, r#""id":"agent""#),
+            DATA.replace(
+                r#""id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr""#,
+                r#""id":"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5""#,
+            ),
             TransportError::CapabilityDenied,
         ),
         (
@@ -668,17 +681,26 @@ async fn each_handshake_refusal_has_its_code() {
         ),
         (
             &node.paths.data,
-            DATA.replace(r#""id":"human""#, r#""id":"off""#),
+            DATA.replace(
+                r#""id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr""#,
+                r#""id":"12D3KooWFEcPrcCLkqUz5WdakpJFWz3mAbMfJorh5Tb2g23QPQVA""#,
+            ),
             TransportError::EndpointDisabled,
         ),
         (
             &node.paths.data,
-            DATA.replace(r#""id":"human""#, r#""id":"kept""#),
+            DATA.replace(
+                r#""id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr""#,
+                r#""id":"12D3KooWSvbnLu3m8LA34YemjUhvQ3Yk7Dqgwf6E4aoe5RYudPqB""#,
+            ),
             TransportError::EndpointClientKindDenied,
         ),
         (
             &node.paths.data,
-            DATA.replace(r#""id":"human""#, r#""id":"Not An Id!""#),
+            DATA.replace(
+                r#""id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr""#,
+                r#""id":"Not An Id!""#,
+            ),
             TransportError::InvalidArgument,
         ),
         // A 2.1 capability in a hello negotiating 2.0 is the client's
@@ -1148,10 +1170,12 @@ endpoints:
   default_direct_endpoint: human
   directory: {{ enabled: true }}
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: true
-    - id: agent
+    - key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key
+      alias: agent
       enabled: true
       advertise: true
 channels:
@@ -1212,7 +1236,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         PublishParams, QueryParams, Request, SendParams, SetDefaultParams, SetEnabledParams,
         ShutdownParams, TrustListParams, TrustSetParams,
     };
-    use interweave_transport_api::{ChannelId, EndpointId, MessageId, Payload};
+    use interweave_transport_api::{ChannelId, MessageId, Payload};
     let ip = interweave_test_support::net::require_private_interface_v4();
     let (a_id, b_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
     let (a, b) = (
@@ -1242,7 +1266,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     let mut data = Client::connect(&subject.paths.data).await;
     data.hello(
         r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
-        "client":{"kind":"human-client"},"endpoint":{"id":"human"},
+        "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
         "requested_capabilities":["events","commands","endpoints.query"],
         "features":["keepalive"]}"#,
     )
@@ -1258,7 +1282,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         .await;
 
     let general = || ChannelId::parse("general").expect("channel");
-    let endpoint = |id: &str| EndpointId::parse(id).expect("endpoint");
+    let endpoint = interweave_test_support::endpoint_keys::endpoint_id;
     let payload = || Payload::at_ceiling(None, b"held to its schema".to_vec()).expect("payload");
     let plain: [(&str, Request); 3] = [
         (

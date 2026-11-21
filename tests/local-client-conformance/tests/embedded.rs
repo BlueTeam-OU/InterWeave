@@ -32,7 +32,7 @@ use interweave_profile_config::{
 };
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_transport_api::{
-    ChannelId, DirectDestination, EndpointId, MessageId, TransportError, TransportIdentity,
+    ChannelId, DirectDestination, MessageId, TransportError, TransportIdentity,
 };
 use interweave_transport_composition::InProcessBinding;
 use interweave_transport_embedded::{EmbeddedHost, EmbeddedLaunch, NetworkView};
@@ -95,7 +95,7 @@ profile:
 runtime:
   deployment: embedded-android
   android:
-    endpoint: phone
+    endpoint: 12D3KooWGsv91QPZvyGN9REuYCo4NciuHgdcgvZ6Uk5SYTsJxwTe
 ipc:
   enabled: false
   client_event_queue: {QUEUE_BOUND}
@@ -108,13 +108,16 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
-    - id: agent
+    - key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key
+      alias: agent
       enabled: true
       advertise: true
-    - id: phone
+    - key: 12D3KooWGsv91QPZvyGN9REuYCo4NciuHgdcgvZ6Uk5SYTsJxwTe.key
+      alias: phone
       enabled: true
       advertise: false
 channels:
@@ -324,7 +327,7 @@ fn item_4_local_refusals_map_exactly() {
     pair.run(suite::local_refusals_map_exactly(
         &a,
         &pair.b_peer,
-        &EndpointId::parse("nowhere").expect("valid"),
+        &interweave_test_support::endpoint_keys::endpoint_id("nowhere"),
     ));
     pair.stop();
 }

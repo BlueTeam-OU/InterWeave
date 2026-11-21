@@ -314,7 +314,8 @@ fn boundaries() -> Vec<Boundary> {
             name: "endpoints.endpoint-config",
             schema: "endpoints/endpoint-config.schema.json",
             seed: json!({
-                "id": "human",
+                "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+                "alias": "human",
                 "enabled": true,
                 "advertise": false,
                 "allowed_client_kinds": ["human-client"],

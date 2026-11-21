@@ -2,16 +2,18 @@
   "algorithm": {
     "id": "config-v2-cross-field",
     "specification": "architecture/config/config.schema.yaml",
-    "summary": "The five endpoint cross-field rules stated in the schema: unique endpoint IDs; a set default naming an ENABLED endpoint; static-subset peers being a subset of trust.allowed_peers; endpoint policy narrowing rather than widening profile trust (ADR-0012); and enabled advertised entries fitting directory.max_advertised. Verdict set.",
+    "summary": "The endpoint cross-field rules stated in the schema: an entry names its key file as `<EndpointId>.key` with a derived stem, never the retired `id` (ADR-0067); unique endpoint IDs and unique aliases; a set default, an alias or an id, naming an ENABLED endpoint; static-subset peers being a subset of trust.allowed_peers; endpoint policy narrowing rather than widening profile trust (ADR-0012); and enabled advertised entries fitting directory.max_advertised. Verdict set.",
     "why_not_json_schema": "Each rule is a relationship BETWEEN fields. JSON Schema constrains shape, not agreement between two branches of a document, which is exactly the gap these vectors cover beside contracts/schemas/.",
-    "wire_shape": "Endpoint policies use the shape frozen by endpoints/endpoint-config.schema.json: the bare string \"inherit_profile_trust\", or {\"static_subset\": [...]}. An earlier revision of this file used a Serde-tagged {\"policy\": ...} form that the schema never accepted — corrected as a defect, not a protocol change, since no shape ever validated both ways."
+    "wire_shape": "Endpoint policies use the shape frozen by endpoints/endpoint-config.schema.json: the bare string \"inherit_profile_trust\", or {\"static_subset\": [...]}. An earlier revision of this file used a Serde-tagged {\"policy\": ...} form that the schema never accepted — corrected as a defect, not a protocol change, since no shape ever validated both ways.",
+    "test_only_ids": "Every EndpointId here is TEST-ONLY: derived from the Ed25519 key whose seed is SHA-256(\"interweave/test-only/endpoint-key/v1\\0\" || alias), tests/support's endpoint_keys, so the seed is public by construction. Regenerated under ADR-0067 decision 7 from the label-keyed entries, each label kept as the alias."
   },
   "adr": [
     "0012",
     "0026",
     "0028",
     "0030",
-    "0031"
+    "0031",
+    "0067"
   ],
   "vectors": [
     {
@@ -33,12 +35,14 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false
             },
             {
-              "id": "claude",
+              "key": "12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd.key",
+              "alias": "claude",
               "enabled": true,
               "advertise": false
             }
@@ -66,12 +70,14 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false
             },
             {
-              "id": "claude",
+              "key": "12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd.key",
+              "alias": "claude",
               "enabled": true,
               "advertise": false
             }
@@ -100,7 +106,8 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false
             }
@@ -128,7 +135,8 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false,
               "inbound": {
@@ -161,7 +169,8 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false,
               "outbound": {
@@ -195,7 +204,8 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false,
               "inbound": "inherit_profile_trust",
@@ -225,82 +235,98 @@
           },
           "entries": [
             {
-              "id": "e0",
+              "key": "12D3KooWSHmnBh6RinmcVFJWcBSnU9NrZH17BLFE1L3bqU7w3bUR.key",
+              "alias": "e0",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e1",
+              "key": "12D3KooWPsH1AFUWtcQrqfURhK7MgF91jY5aTSmh8qKx1bkd6Pbu.key",
+              "alias": "e1",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e2",
+              "key": "12D3KooWDZwMVc3ZvhGPGHF8BtXsLYpAZRBBnNCiSzzYA394DJCy.key",
+              "alias": "e2",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e3",
+              "key": "12D3KooWMCMwnDgLjqTzSodZswKZ7bqGPEbzqsHcUGTnCHoAVhAi.key",
+              "alias": "e3",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e4",
+              "key": "12D3KooWDVsHVDnXpA7rUEZgkkpBUXBoJuemGvhw76ASKs75LNG7.key",
+              "alias": "e4",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e5",
+              "key": "12D3KooWHADMZiy4JwYwuMLr7KELv7VXTJtgPLEroW6Q9HyoM21a.key",
+              "alias": "e5",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e6",
+              "key": "12D3KooWHLqr7VLHe8oCaFM63JEe5yz58QUvpPmiRTaEw55ELAtZ.key",
+              "alias": "e6",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e7",
+              "key": "12D3KooWMwsWmQxMKj2Ei6VWxJDVgwGo1FxXKqd1ucpBzwwMJ8Rq.key",
+              "alias": "e7",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e8",
+              "key": "12D3KooWNBNiVeCzhRkEvCp1meC6G8YeavqbSbzBCSBue4XVn8r2.key",
+              "alias": "e8",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e9",
+              "key": "12D3KooWQpKQzvUJwPrrd7aQo4aDisEzpkvZa9UtiJv88JzCGJMD.key",
+              "alias": "e9",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e10",
+              "key": "12D3KooW9uGufqg5puTUZQv7ufw9jXSpXQyDjbYVjLFefXQtDrt4.key",
+              "alias": "e10",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e11",
+              "key": "12D3KooWN7oP3WUFLt8mYXU4PPhc4PkanabPnTi9cooVrnUxqGCm.key",
+              "alias": "e11",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e12",
+              "key": "12D3KooWEzqUKsPdKAnMhHF4Mu4VSUJGEyQ7hRYZGcb1piJz7f1d.key",
+              "alias": "e12",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e13",
+              "key": "12D3KooWLT1vNUJFiqJiT1Sz6BhNEnXfSndzrquXTpSQhowknuA9.key",
+              "alias": "e13",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e14",
+              "key": "12D3KooWRode7HqVLp3AErcsDW1oXaagGF9byNMRbK7xZo4n4vht.key",
+              "alias": "e14",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e15",
+              "key": "12D3KooWG5iRZUDgyMZC5nGu9TbAexYd8mEWZrgEp4ECQXnmZL3c.key",
+              "alias": "e15",
               "enabled": true,
               "advertise": true
             }
@@ -328,87 +354,104 @@
           },
           "entries": [
             {
-              "id": "e0",
+              "key": "12D3KooWSHmnBh6RinmcVFJWcBSnU9NrZH17BLFE1L3bqU7w3bUR.key",
+              "alias": "e0",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e1",
+              "key": "12D3KooWPsH1AFUWtcQrqfURhK7MgF91jY5aTSmh8qKx1bkd6Pbu.key",
+              "alias": "e1",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e2",
+              "key": "12D3KooWDZwMVc3ZvhGPGHF8BtXsLYpAZRBBnNCiSzzYA394DJCy.key",
+              "alias": "e2",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e3",
+              "key": "12D3KooWMCMwnDgLjqTzSodZswKZ7bqGPEbzqsHcUGTnCHoAVhAi.key",
+              "alias": "e3",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e4",
+              "key": "12D3KooWDVsHVDnXpA7rUEZgkkpBUXBoJuemGvhw76ASKs75LNG7.key",
+              "alias": "e4",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e5",
+              "key": "12D3KooWHADMZiy4JwYwuMLr7KELv7VXTJtgPLEroW6Q9HyoM21a.key",
+              "alias": "e5",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e6",
+              "key": "12D3KooWHLqr7VLHe8oCaFM63JEe5yz58QUvpPmiRTaEw55ELAtZ.key",
+              "alias": "e6",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e7",
+              "key": "12D3KooWMwsWmQxMKj2Ei6VWxJDVgwGo1FxXKqd1ucpBzwwMJ8Rq.key",
+              "alias": "e7",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e8",
+              "key": "12D3KooWNBNiVeCzhRkEvCp1meC6G8YeavqbSbzBCSBue4XVn8r2.key",
+              "alias": "e8",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e9",
+              "key": "12D3KooWQpKQzvUJwPrrd7aQo4aDisEzpkvZa9UtiJv88JzCGJMD.key",
+              "alias": "e9",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e10",
+              "key": "12D3KooW9uGufqg5puTUZQv7ufw9jXSpXQyDjbYVjLFefXQtDrt4.key",
+              "alias": "e10",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e11",
+              "key": "12D3KooWN7oP3WUFLt8mYXU4PPhc4PkanabPnTi9cooVrnUxqGCm.key",
+              "alias": "e11",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e12",
+              "key": "12D3KooWEzqUKsPdKAnMhHF4Mu4VSUJGEyQ7hRYZGcb1piJz7f1d.key",
+              "alias": "e12",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e13",
+              "key": "12D3KooWLT1vNUJFiqJiT1Sz6BhNEnXfSndzrquXTpSQhowknuA9.key",
+              "alias": "e13",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e14",
+              "key": "12D3KooWRode7HqVLp3AErcsDW1oXaagGF9byNMRbK7xZo4n4vht.key",
+              "alias": "e14",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e15",
+              "key": "12D3KooWG5iRZUDgyMZC5nGu9TbAexYd8mEWZrgEp4ECQXnmZL3c.key",
+              "alias": "e15",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "spare",
+              "key": "12D3KooWP6smnNq2apka7qnnfUdtjv1xMzBjDdVB6QMhyFfKsspr.key",
+              "alias": "spare",
               "enabled": false,
               "advertise": true
             }
@@ -436,12 +479,13 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false
             },
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
               "enabled": true,
               "advertise": false
             }
@@ -469,12 +513,13 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false
             }
           ],
-          "default_direct_endpoint": "claude"
+          "default_direct_endpoint": "12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd"
         }
       },
       "valid": false
@@ -498,7 +543,8 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": false,
               "advertise": false
             }
@@ -527,7 +573,8 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false,
               "inbound": {
@@ -561,7 +608,8 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false,
               "outbound": {
@@ -591,7 +639,8 @@
           },
           "entries": [
             {
-              "id": "human",
+              "key": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key",
+              "alias": "human",
               "enabled": true,
               "advertise": false,
               "inbound": {
@@ -624,87 +673,104 @@
           },
           "entries": [
             {
-              "id": "e0",
+              "key": "12D3KooWSHmnBh6RinmcVFJWcBSnU9NrZH17BLFE1L3bqU7w3bUR.key",
+              "alias": "e0",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e1",
+              "key": "12D3KooWPsH1AFUWtcQrqfURhK7MgF91jY5aTSmh8qKx1bkd6Pbu.key",
+              "alias": "e1",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e2",
+              "key": "12D3KooWDZwMVc3ZvhGPGHF8BtXsLYpAZRBBnNCiSzzYA394DJCy.key",
+              "alias": "e2",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e3",
+              "key": "12D3KooWMCMwnDgLjqTzSodZswKZ7bqGPEbzqsHcUGTnCHoAVhAi.key",
+              "alias": "e3",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e4",
+              "key": "12D3KooWDVsHVDnXpA7rUEZgkkpBUXBoJuemGvhw76ASKs75LNG7.key",
+              "alias": "e4",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e5",
+              "key": "12D3KooWHADMZiy4JwYwuMLr7KELv7VXTJtgPLEroW6Q9HyoM21a.key",
+              "alias": "e5",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e6",
+              "key": "12D3KooWHLqr7VLHe8oCaFM63JEe5yz58QUvpPmiRTaEw55ELAtZ.key",
+              "alias": "e6",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e7",
+              "key": "12D3KooWMwsWmQxMKj2Ei6VWxJDVgwGo1FxXKqd1ucpBzwwMJ8Rq.key",
+              "alias": "e7",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e8",
+              "key": "12D3KooWNBNiVeCzhRkEvCp1meC6G8YeavqbSbzBCSBue4XVn8r2.key",
+              "alias": "e8",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e9",
+              "key": "12D3KooWQpKQzvUJwPrrd7aQo4aDisEzpkvZa9UtiJv88JzCGJMD.key",
+              "alias": "e9",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e10",
+              "key": "12D3KooW9uGufqg5puTUZQv7ufw9jXSpXQyDjbYVjLFefXQtDrt4.key",
+              "alias": "e10",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e11",
+              "key": "12D3KooWN7oP3WUFLt8mYXU4PPhc4PkanabPnTi9cooVrnUxqGCm.key",
+              "alias": "e11",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e12",
+              "key": "12D3KooWEzqUKsPdKAnMhHF4Mu4VSUJGEyQ7hRYZGcb1piJz7f1d.key",
+              "alias": "e12",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e13",
+              "key": "12D3KooWLT1vNUJFiqJiT1Sz6BhNEnXfSndzrquXTpSQhowknuA9.key",
+              "alias": "e13",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e14",
+              "key": "12D3KooWRode7HqVLp3AErcsDW1oXaagGF9byNMRbK7xZo4n4vht.key",
+              "alias": "e14",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e15",
+              "key": "12D3KooWG5iRZUDgyMZC5nGu9TbAexYd8mEWZrgEp4ECQXnmZL3c.key",
+              "alias": "e15",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e16",
+              "key": "12D3KooWMod3TMJPk4rFaSou9SYGb6VXw94uGaB6UN1Yzjd99qu2.key",
+              "alias": "e16",
               "enabled": true,
               "advertise": true
             }
@@ -732,27 +798,32 @@
           },
           "entries": [
             {
-              "id": "e0",
+              "key": "12D3KooWSHmnBh6RinmcVFJWcBSnU9NrZH17BLFE1L3bqU7w3bUR.key",
+              "alias": "e0",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e1",
+              "key": "12D3KooWPsH1AFUWtcQrqfURhK7MgF91jY5aTSmh8qKx1bkd6Pbu.key",
+              "alias": "e1",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e2",
+              "key": "12D3KooWDZwMVc3ZvhGPGHF8BtXsLYpAZRBBnNCiSzzYA394DJCy.key",
+              "alias": "e2",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e3",
+              "key": "12D3KooWMCMwnDgLjqTzSodZswKZ7bqGPEbzqsHcUGTnCHoAVhAi.key",
+              "alias": "e3",
               "enabled": true,
               "advertise": true
             },
             {
-              "id": "e4",
+              "key": "12D3KooWDVsHVDnXpA7rUEZgkkpBUXBoJuemGvhw76ASKs75LNG7.key",
+              "alias": "e4",
               "enabled": true,
               "advertise": true
             }

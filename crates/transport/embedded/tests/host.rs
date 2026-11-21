@@ -54,6 +54,10 @@ profile:
   name: {PROFILE}
 runtime:
   deployment: {deployment}
+  # By id: the schema's default `human` is a label no derived entry
+  # holds (ADR-0067).
+  android:
+    endpoint: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr
 ipc:
   enabled: {ipc}
 trust:
@@ -61,7 +65,8 @@ trust:
   allowed_peers: []
 endpoints:
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 transport:
@@ -180,9 +185,9 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
     // endpoint the embedded profile must lease.
     let text = document("embedded-android", false).replace(
         "endpoints:\n  entries:\n",
-        "endpoints:\n  entries:\n    - id: agent\n      enabled: true\n      advertise: false\n",
+        "endpoints:\n  entries:\n    - key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key\n      alias: agent\n      enabled: true\n      advertise: false\n",
     );
-    assert!(text.contains("id: agent"), "{text}");
+    assert!(text.contains("alias: agent"), "{text}");
     provision(&app.dir, &text);
     let rows = |host: &EmbeddedHost| {
         let port = host
@@ -205,7 +210,7 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
         .runtime()
         .block_on(host.binding().admin([AdminCapability::Endpoints].into()))
         .expect("an admin port");
-    let human = interweave_transport_api::EndpointId::parse("human").expect("an id");
+    let human = interweave_test_support::endpoint_keys::endpoint_id("human");
     assert_eq!(
         host.runtime()
             .block_on(port.set_endpoint_enabled(human, false)),
@@ -220,21 +225,49 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
     assert_eq!(
         rows(&host),
         vec![
-            ("agent".to_owned(), true, true),
-            ("human".to_owned(), true, true)
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                true,
+                true
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true,
+                true
+            )
         ]
     );
     assert!(!overlay.exists(), "loaded absent, and not created");
     host.stop(Duration::from_secs(1)).expect("stops");
 
-    std::fs::write(&overlay, r#"{"enabled":{"agent":false}}"#).expect("written");
+    std::fs::write(
+        &overlay,
+        r#"{"enabled":{"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5":false}}"#,
+    )
+    .expect("written");
     std::fs::set_permissions(&overlay, std::fs::Permissions::from_mode(0o600)).expect("chmod");
     let host = EmbeddedHost::start(launch(&app.dir)).expect("restarts");
     assert_eq!(
         rows(&host),
         vec![
-            ("agent".to_owned(), false, true),
-            ("human".to_owned(), true, true)
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                false,
+                true
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true,
+                true
+            )
         ]
     );
     host.stop(Duration::from_secs(1)).expect("stops");
@@ -251,7 +284,11 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
     // Disabling the endpoint the embedded profile must lease: config.yaml
     // validates alone, the composed profile does not, and the refusal
     // names the overlay.
-    std::fs::write(&overlay, r#"{"enabled":{"human":false}}"#).expect("written");
+    std::fs::write(
+        &overlay,
+        r#"{"enabled":{"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr":false}}"#,
+    )
+    .expect("written");
     std::fs::set_permissions(&overlay, std::fs::Permissions::from_mode(0o600)).expect("chmod");
     match EmbeddedHost::start(launch(&app.dir)) {
         Err(EmbeddedRefused::ProfileInvalid(detail)) => {

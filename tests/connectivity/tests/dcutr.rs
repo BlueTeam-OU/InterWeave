@@ -2193,7 +2193,7 @@ async fn a_punched_connection_that_dies_within_the_interval_leaves_the_relay_pre
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(name)
 }
 
 /// `human` alone, the default: the subject's direct endpoints.
@@ -2216,6 +2216,8 @@ fn endpoints() -> DirectEndpoints {
             directory: DirectoryConfig::default(),
             entries: vec![EndpointConfig {
                 id: endpoint("human"),
+                alias: None,
+                key_state: interweave_profile_config::EndpointKeyState::NotRead,
                 enabled: true,
                 advertise: false,
                 allowed_client_kinds: Vec::new(),

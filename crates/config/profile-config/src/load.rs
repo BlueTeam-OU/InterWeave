@@ -17,7 +17,10 @@
 use std::io::Read as _;
 
 use crate::paths::CONFIG_FILE;
-use crate::{ConfigError, ProfileConfig, ProfilePaths};
+use crate::{
+    ConfigError, EndpointKeyState, EndpointRemedy, KeyMissing, NotDerivedEntry, ProfileConfig,
+    ProfilePaths,
+};
 
 /// The largest profile document read, in bytes.
 ///
@@ -277,12 +280,71 @@ impl core::error::Error for LoadError {
 }
 
 impl ProfileConfig {
-    /// Parse a profile document. Nothing is validated beyond the shape.
+    /// Parse a profile document. Nothing is validated beyond the shape --
+    /// and the endpoint entries' names, which are shape too but have
+    /// refusals of their own name.
+    ///
+    /// The entries' `id`, `key` and `alias` members and the
+    /// `default_direct_endpoint` alias are judged first, on the document
+    /// as written: an entry with the retired `id` member, a `key` that is
+    /// not `<EndpointId>.key`, an invalid alias, and a default alias no
+    /// entry carries cannot be held by the typed model, so they are
+    /// answered as [`LoadError::Invalid`] with their [`ConfigError`]s by
+    /// name -- every one of them, and nothing else, since the model the
+    /// other rules judge does not exist. Serde's own path refuses the
+    /// same entries with the same text, untyped.
     ///
     /// # Errors
-    /// [`LoadError::Parse`] for anything that is not a profile.
+    /// [`LoadError::Invalid`] for those refusals, [`LoadError::Parse`] for
+    /// anything else that is not a profile.
     pub fn parse_yaml(text: &str) -> Result<Self, LoadError> {
+        let refused = endpoint_name_refusals(text);
+        if !refused.is_empty() {
+            return Err(LoadError::Invalid(refused));
+        }
         serde_norway::from_str(text).map_err(|e| LoadError::Parse(e.to_string()))
+    }
+
+    /// Read each endpoint entry's key file header -- its public part
+    /// alone -- under `paths`' state directory and set the entry's
+    /// [`EndpointKeyState`]: the load phase of ADR-0067 decision 3.
+    ///
+    /// A header whose public key derives the entry's id is
+    /// [`EndpointKeyState::Present`]; no file is the key-missing state,
+    /// [`KeyMissing::Absent`], and a file that cannot be read or holds no
+    /// record this build reads is [`KeyMissing::Unreadable`] -- the entry
+    /// keeps its lease and its routes either way. A header that derives
+    /// another id, or names one its own key does not derive, is refused:
+    /// [`ConfigError::EndpointKeyMismatch`], returned, the entry's state
+    /// left [`EndpointKeyState::NotRead`].
+    #[must_use]
+    pub fn read_endpoint_keys(&mut self, paths: &ProfilePaths) -> Vec<ConfigError> {
+        use crate::endpoint_key::{self, KeyFileError, RecordError};
+        let mut errors = Vec::new();
+        for entry in &mut self.endpoints.entries {
+            entry.key_state = match endpoint_key::read_header(paths, &entry.id) {
+                Ok(Some(header)) if header.endpoint() == &entry.id => EndpointKeyState::Present {
+                    custody: header.custody(),
+                },
+                Ok(Some(header)) => {
+                    errors.push(ConfigError::EndpointKeyMismatch {
+                        endpoint: entry.id.clone(),
+                        header_derives: Some(header.endpoint().clone()),
+                    });
+                    EndpointKeyState::NotRead
+                }
+                Err(KeyFileError::Record(RecordError::HeaderNotDerived)) => {
+                    errors.push(ConfigError::EndpointKeyMismatch {
+                        endpoint: entry.id.clone(),
+                        header_derives: None,
+                    });
+                    EndpointKeyState::NotRead
+                }
+                Ok(None) => EndpointKeyState::Missing(KeyMissing::Absent),
+                Err(e) => EndpointKeyState::Missing(KeyMissing::Unreadable(e)),
+            };
+        }
+        errors
     }
 
     /// Load `paths`' profile document: refuse it when a newer build
@@ -318,14 +380,21 @@ impl ProfileConfig {
                 limit: MAX_PROFILE_BYTES,
             });
         }
-        let profile = Self::parse_yaml(&text)?;
+        let mut profile = match Self::parse_yaml(&text) {
+            Ok(profile) => profile,
+            Err(LoadError::Invalid(errors)) => {
+                return Err(LoadError::Invalid(name_remedies(errors, paths)));
+            }
+            Err(e) => return Err(e),
+        };
         if profile.profile.as_ref().map(|p| p.name.as_str()) != Some(paths.profile()) {
             return Err(LoadError::NameMismatch {
                 expected: paths.profile().to_owned(),
                 found: profile.profile.map(|p| p.name),
             });
         }
-        let errors = profile.validate();
+        let mut errors = profile.validate();
+        errors.extend(profile.read_endpoint_keys(paths));
         if !errors.is_empty() {
             return Err(LoadError::Invalid(errors));
         }
@@ -350,6 +419,108 @@ impl ProfileConfig {
         }
         Ok(profile)
     }
+}
+
+/// `errors` with each retired-`id` refusal given the command that applies
+/// in `paths`' profile ([`EndpointRemedy::for_retired_id`]).
+fn name_remedies(errors: Vec<ConfigError>, paths: &ProfilePaths) -> Vec<ConfigError> {
+    errors
+        .into_iter()
+        .map(|e| match e {
+            ConfigError::EndpointIdNotDerived {
+                found: NotDerivedEntry::RetiredId { id, remedy: None },
+            } => ConfigError::EndpointIdNotDerived {
+                found: NotDerivedEntry::RetiredId {
+                    remedy: EndpointRemedy::for_retired_id(paths, &id),
+                    id,
+                },
+            },
+            other => other,
+        })
+        .collect()
+}
+
+/// The endpoint block's members as written, every other key ignored: what
+/// [`endpoint_name_refusals`] reads.
+#[derive(serde::Deserialize)]
+struct Probe {
+    #[serde(default)]
+    endpoints: Option<ProbeEndpoints>,
+}
+
+#[derive(serde::Deserialize)]
+struct ProbeEndpoints {
+    #[serde(default)]
+    default_direct_endpoint: Option<serde_json::Value>,
+    #[serde(default)]
+    entries: Option<Vec<ProbeEntry>>,
+}
+
+#[derive(serde::Deserialize)]
+struct ProbeEntry {
+    #[serde(default)]
+    id: Option<serde_json::Value>,
+    #[serde(default)]
+    key: Option<serde_json::Value>,
+    #[serde(default)]
+    alias: Option<serde_json::Value>,
+}
+
+/// The endpoint entries' name refusals in `text`, by the rules
+/// [`crate::judge_entry_names`] states, and a default alias no entry
+/// carries. Empty when there are none -- and when the document does not
+/// even have the probed shape, which the typed parse then refuses with
+/// its own message. A member of a type the rules do not judge (a `key`
+/// that is a number) is left to the typed parse as well.
+fn endpoint_name_refusals(text: &str) -> Vec<ConfigError> {
+    let Ok(probe) = serde_norway::from_str::<Probe>(text) else {
+        return Vec::new();
+    };
+    let Some(endpoints) = probe.endpoints else {
+        return Vec::new();
+    };
+    let entries = endpoints.entries.unwrap_or_default();
+    // Past the ceiling the typed parse refuses the array as a whole.
+    if entries.len() > crate::MAX_ENDPOINTS {
+        return Vec::new();
+    }
+    let mut errors = Vec::new();
+    let mut aliases = Vec::new();
+    let mut any_refused = false;
+    let text_of = |member: &Option<serde_json::Value>| match member {
+        None => Ok(None),
+        Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
+        Some(_) => Err(()),
+    };
+    for entry in &entries {
+        let (Ok(key), Ok(alias)) = (text_of(&entry.key), text_of(&entry.alias)) else {
+            // Left to the typed parse, and so is the default below.
+            any_refused = true;
+            continue;
+        };
+        let (key, alias) = (key.as_deref(), alias.as_deref());
+        if let Some(alias) = alias {
+            aliases.push(alias.to_owned());
+        }
+        if let Err(refused) =
+            crate::judge_entry_names(entry.id.as_ref().map(crate::retired_id_text), key, alias)
+        {
+            any_refused = true;
+            errors.extend(refused);
+        }
+    }
+    // A default alias that no entry carries, judged only when every entry
+    // was readable: one refused above may be the entry it names.
+    if !any_refused
+        && let Some(serde_json::Value::String(text)) = &endpoints.default_direct_endpoint
+        && let Some(crate::EndpointSelector::Alias(alias)) = crate::EndpointSelector::parse(text)
+        && !aliases.iter().any(|a| a == alias.as_str())
+    {
+        errors.push(ConfigError::DefaultEndpointUnknown {
+            selector: text.clone(),
+        });
+    }
+    errors
 }
 
 /// `path` with its longest existing prefix resolved by the filesystem

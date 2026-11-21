@@ -96,8 +96,20 @@ async fn a_set_is_on_disk_when_it_is_answered() {
     assert_eq!(
         on_disk(&path),
         vec![
-            ("agent".to_owned(), false, false),
-            ("human".to_owned(), true, true)
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                false,
+                false
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true,
+                true
+            )
         ]
     );
     runtime.stop().await.expect("stops");
@@ -213,10 +225,26 @@ async fn a_set_whose_write_lands_and_then_fails_is_put_back_or_left_ahead() {
         let next = on_disk(&path);
         assert_eq!(
             next[0],
-            ("agent".to_owned(), !disabled_on_disk, false),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                !disabled_on_disk,
+                false
+            ),
             "{case}: what the next start loads"
         );
-        assert_eq!(next[1], ("human".to_owned(), true, false), "{case}");
+        assert_eq!(
+            next[1],
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true,
+                false
+            ),
+            "{case}"
+        );
     }
 }
 
@@ -251,7 +279,11 @@ async fn a_failed_publish_restores_the_previous_overlay() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_overlay_that_cannot_be_trusted_stops_the_start() {
     let (_dir, path) = state();
-    std::fs::write(&path, r#"{"enabled":{"agent":false}}"#).expect("written");
+    std::fs::write(
+        &path,
+        r#"{"enabled":{"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5":false}}"#,
+    )
+    .expect("written");
     for (mode, starts) in [(0o600, true), (0o644, false)] {
         chmod(&path, mode);
         match start(Some(&path)).await {
@@ -276,7 +308,11 @@ async fn an_overlay_that_cannot_be_trusted_stops_the_start() {
 async fn an_overlay_is_normalised_and_in_force_from_the_start() {
     let _ = logged();
     let (_dir, path) = state();
-    std::fs::write(&path, r#"{"enabled":{"human":false}}"#).expect("written");
+    std::fs::write(
+        &path,
+        r#"{"enabled":{"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr":false}}"#,
+    )
+    .expect("written");
     chmod(&path, 0o600);
     let runtime = start(Some(&path)).await.expect("starts");
     assert_eq!(
@@ -288,10 +324,10 @@ async fn an_overlay_is_normalised_and_in_force_from_the_start() {
     );
     assert_eq!(
         std::fs::read_to_string(&path).expect("read"),
-        "{\n  \"enabled\": {\n    \"human\": false\n  },\n  \"default\": null\n}"
+        "{\n  \"enabled\": {\n    \"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr\": false\n  },\n  \"default\": null\n}"
     );
     assert!(
-        logged().contains("the configured default human is disabled"),
+        logged().contains("the configured default 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr is disabled"),
         "the warning names the entry"
     );
     runtime.stop().await.expect("stops");
@@ -314,10 +350,12 @@ endpoints:
   directory:
     max_advertised: 1
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: true
-    - id: agent
+    - key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key
+      alias: agent
       enabled: false
       advertise: true
 discovery:
@@ -379,7 +417,11 @@ async fn a_set_the_next_start_would_refuse_is_refused_and_writes_nothing() {
 async fn an_overlay_the_composed_profile_refuses_stops_the_start_by_name() {
     let (identity, _) = id();
     let (_dir, path) = state();
-    std::fs::write(&path, r#"{"enabled":{"agent":true}}"#).expect("written");
+    std::fs::write(
+        &path,
+        r#"{"enabled":{"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5":true}}"#,
+    )
+    .expect("written");
     chmod(&path, 0o600);
     match ComposedRuntime::start(&identity, &one_advertised(), options(Some(&path))).await {
         Err(CompositionError::EndpointOverlayConflicts(errors)) => {

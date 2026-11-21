@@ -302,7 +302,7 @@ fn identifiers_validate_against_their_common_schemas() {
             derived.as_str(),
         );
     }
-    let label = EndpointId::parse("human").expect("valid label");
+    let label = interweave_test_support::endpoint_keys::endpoint_id("human");
     assert!(
         !endpoint.is_valid(&serde_json::to_value(&label).expect("ser")),
         "the schema must refuse a label"
@@ -328,7 +328,7 @@ fn a_hello_frame_validates_and_a_schema_valid_hello_parses() {
             version: Some("0.1".to_owned()),
         },
         endpoint: Some(interweave_ipc_protocol::EndpointClaim::new(
-            &EndpointId::parse("human").expect("valid"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
         )),
         requested_capabilities: [RequestedCapability::Events, RequestedCapability::Commands]
             .into_iter()
@@ -370,7 +370,8 @@ fn an_endpoint_trust_policy_validates_in_both_shapes() {
         ),
     ] {
         let instance = serde_json::json!({
-            "id": endpoint_id("human").as_str(),
+            "key": format!("{}.key", endpoint_id("human").as_str()),
+            "alias": "human",
             "enabled": true,
             "advertise": false,
             "inbound": serde_json::to_value(&policy).expect("ser"),
@@ -421,7 +422,7 @@ fn a_data_session_never_carries_an_admin_capability() {
         interweave_transport_api::TransportIdentity::parse(TEST_PEER).expect("valid"),
         "human-client",
         Some(EndpointLease {
-            endpoint: EndpointId::parse("human").expect("valid"),
+            endpoint: interweave_test_support::endpoint_keys::endpoint_id("human"),
             epoch: Generation::parse("lease_generation_1").expect("valid"),
         }),
         [DataCapability::Events, DataCapability::Commands],
@@ -461,7 +462,7 @@ async fn a_composed_runtimes_own_summary_and_peer_paths_validate() {
         let peers: Vec<String> = statics.iter().map(|s| format!("\"{s}\"")).collect();
         let doc = format!(
             "schema_version: 2\ntrust:\n  policy: static-allowlist\n  allowed_peers: [\"{}\"]\n\
-             endpoints:\n  entries:\n    - id: human\n      enabled: true\n      advertise: false\n\
+             endpoints:\n  entries:\n    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key\n      alias: human\n      enabled: true\n      advertise: false\n\
              discovery:\n  providers:\n    - type: static-bootstrap\n      enabled: true\n      priority: 10\n      config:\n        peers: [{}]\n",
             trusted.as_str(),
             peers.join(", ")

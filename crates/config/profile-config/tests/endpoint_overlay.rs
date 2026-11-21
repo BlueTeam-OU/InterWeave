@@ -18,17 +18,46 @@ use interweave_profile_config::endpoint_overlay::{
 use interweave_profile_config::{EndpointsConfig, MAX_ENDPOINTS, TrustBoundary};
 use interweave_transport_api::EndpointId;
 
+/// The TEST-ONLY derived id named `s` (tests/support): the entries below
+/// carry `s` as their alias.
 fn id(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("a valid endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(s)
 }
 
-/// `a` and `b` enabled, `c` disabled; the default `default`.
+/// The names the overlay texts below write in place of ids, so that each
+/// reads as the case it is. The one rewrite that names two endpoints
+/// names `a` and `b`, whose ids sort as the names do, so the rewrite the
+/// overlay orders by id reads in the same order.
+const NAMES: [&str; 4] = ["a", "b", "c", "gone"];
+
+/// `text` with each quoted name replaced by its quoted id: what is put on
+/// disk.
+fn sub(text: &str) -> String {
+    NAMES.iter().fold(text.to_owned(), |t, n| {
+        t.replace(&format!("\"{n}\""), &format!("\"{}\"", id(n).as_str()))
+    })
+}
+
+/// [`sub`] undone: what a file read back says, in names.
+fn unsub(text: &str) -> String {
+    NAMES.iter().fold(text.to_owned(), |t, n| {
+        t.replace(&format!("\"{}\"", id(n).as_str()), &format!("\"{n}\""))
+    })
+}
+
+#[test]
+fn the_ids_of_a_and_b_sort_as_the_names_do() {
+    assert!(id("a") < id("b"), "the two-endpoint rewrite's order");
+}
+
+/// `a` and `b` enabled, `c` disabled; the default `default`, an alias.
 fn config(default: Option<&str>) -> EndpointsConfig {
+    let key = |n: &str| interweave_profile_config::endpoint_key::key_file_name(&id(n));
     serde_json::from_value(serde_json::json!({
         "entries": [
-            {"id": "a", "enabled": true, "advertise": false},
-            {"id": "b", "enabled": true, "advertise": false},
-            {"id": "c", "enabled": false, "advertise": false},
+            {"key": key("a"), "alias": "a", "enabled": true, "advertise": false},
+            {"key": key("b"), "alias": "b", "enabled": true, "advertise": false},
+            {"key": key("c"), "alias": "c", "enabled": false, "advertise": false},
         ],
         "default_direct_endpoint": default,
     }))
@@ -44,7 +73,7 @@ fn state() -> (tempfile::TempDir, PathBuf) {
 
 /// Write `text` at `path` as the daemon would: owner-only.
 fn put(path: &Path, text: &str) {
-    std::fs::write(path, text).expect("written");
+    std::fs::write(path, sub(text)).expect("written");
     chmod(path, 0o600);
 }
 
@@ -61,7 +90,7 @@ fn load(
 }
 
 fn read(path: &Path) -> String {
-    std::fs::read_to_string(path).expect("read")
+    unsub(&std::fs::read_to_string(path).expect("read"))
 }
 
 /// One normalisation case: what it is, the configured default, the file
@@ -390,6 +419,8 @@ fn a_present_overlay_that_cannot_be_trusted_stops_the_load() {
         let (_dir, path) = state();
         let bound = usize::try_from(MAX_ENDPOINT_OVERLAY_BYTES).expect("fits");
         // At the bound it loads (the control); one byte past, refused.
+        // Measured on the text as put, ids in place of names.
+        let good = sub(good);
         put(&path, &format!("{good}{}", " ".repeat(bound - good.len())));
         assert!(load(&path, &config).is_ok(), "at the bound");
         put(
@@ -432,26 +463,36 @@ fn a_failed_normalisation_rewrite_stops_the_load() {
 }
 
 /// The largest overlay a normalised file can hold -- every configured
-/// endpoint at the id bound, each flipped, the default `null` -- fits
-/// well inside the size bound and loads as itself, so the bound refuses
-/// only what no set could have written.
+/// endpoint, each flipped, the default `null` -- fits well inside the
+/// size bound and loads as itself, so the bound refuses only what no set
+/// could have written. Every id is derived, so every id is 52 bytes: the
+/// longest an overlay can name, under `EndpointId::MAX_BYTES`.
 #[test]
 fn the_largest_overlay_fits_its_bound() {
-    let ids: Vec<String> = (0..MAX_ENDPOINTS).map(|i| format!("e{i:0>63}")).collect();
-    assert!(ids.iter().all(|s| s.len() == EndpointId::MAX_BYTES));
+    let ids: Vec<EndpointId> = (0..MAX_ENDPOINTS).map(|i| id(&format!("e{i}"))).collect();
+    assert!(
+        ids.iter()
+            .all(|s| s.as_str().len() == 52 && s.as_str().len() <= EndpointId::MAX_BYTES)
+    );
     let entries: Vec<_> = ids
         .iter()
-        .map(|s| serde_json::json!({"id": s, "enabled": true, "advertise": false}))
+        .map(|s| {
+            serde_json::json!({
+                "key": interweave_profile_config::endpoint_key::key_file_name(s),
+                "enabled": true,
+                "advertise": false,
+            })
+        })
         .collect();
     let config: EndpointsConfig = serde_json::from_value(serde_json::json!({
         "entries": entries,
-        "default_direct_endpoint": ids[0],
+        "default_direct_endpoint": ids[0].as_str(),
     }))
     .expect("an endpoints block");
     let mut overlay = EndpointOverlay::default();
     for s in &ids {
         overlay = overlay
-            .set_enabled(&config, &id(s), false)
+            .set_enabled(&config, s, false)
             .expect("known")
             .expect("a change");
     }

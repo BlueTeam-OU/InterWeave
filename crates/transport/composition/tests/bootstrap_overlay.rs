@@ -24,8 +24,7 @@ use interweave_profile_config::ProfileConfig;
 use interweave_profile_config::bootstrap_overlay::BOOTSTRAP_OVERLAY_FILE;
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
-    DirectDestination, EndpointId, MessageId, Payload, TransportEvent, TransportIdentity,
-    TransportRuntime as _,
+    DirectDestination, MessageId, Payload, TransportEvent, TransportIdentity, TransportRuntime as _,
 };
 use interweave_transport_composition::{ComposedRuntime, CompositionError, CompositionOptions};
 
@@ -74,7 +73,8 @@ trust:
   allowed_peers: [{peers}]
 endpoints:
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 discovery:
@@ -602,7 +602,7 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
         .open(
             SessionRequest::new(
                 "human-client",
-                Some(EndpointId::parse("human").expect("valid")),
+                Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
                 [DataCapability::Commands],
             )
             .expect("in bounds"),
@@ -613,7 +613,7 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
         .send_direct(
             DirectDestination {
                 peer: b.clone(),
-                endpoint: Some(EndpointId::parse("human").expect("valid")),
+                endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             },
             MessageId::from_bytes([7; 16]),
             Payload::at_ceiling(None, b"to a removed address".to_vec()).expect("in bounds"),
