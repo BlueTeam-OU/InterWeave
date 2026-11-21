@@ -137,7 +137,9 @@ class NetworkService : Service() {
          * that keeps the binding starts it again, as a return does by
          * binding anew (identity note section 6, A return or a
          * recreation). While a start runs `mode` is UNANSWERED, so this is
-         * false then and a recreation does not start a second.
+         * false then and a recreation does not start a second (BLOCKED on
+         * a device run: ui-slint's views.rs, the `IdStartBusy` after the
+         * bound block).
          */
         fun busy(): Boolean = mode == Native.REFUSED_LOCK_HELD
 

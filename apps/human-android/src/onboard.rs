@@ -422,8 +422,10 @@ pub(crate) fn window_shown(shown: bool) {
 /// `Native.launched`: the Activity was created anew, not recreated in
 /// this process -- a launch, which prompts as a cold launch does.
 pub(crate) fn launched() {
-    // A new launch shows what its own start answers, never `IdStartBusy`
-    // (identity note section 6, How long).
+    // A new launch shows what its own start answers, not `IdStartBusy`
+    // (identity note section 6, How long). BLOCKED on a device run: no host
+    // test reaches this call (ui-slint's views.rs, the `IdStartBusy` after
+    // the bound block).
     ServiceHost::global().hub().start_asked(false);
     route_state().launched();
 }
