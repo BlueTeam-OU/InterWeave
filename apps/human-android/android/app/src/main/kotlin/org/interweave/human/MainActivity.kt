@@ -868,9 +868,12 @@ class MainActivity : NativeActivity() {
     }
 
     /**
-     * A camera went away under the scan. Told to the window from the main
-     * thread, and only for the camera this Activity holds now: one closed
-     * since, whose failure arrives late, ends no newer scan.
+     * A camera went away under the scan: told to the window from the main
+     * thread when `lost` is still the camera held. closeCamera drops the
+     * object it closes, so a later scan opens a new one and a failure of
+     * the old, arriving late, is passed over (#418). Unheld by a
+     * test: nothing under androidTest makes a camera fail under a scan;
+     * BLOCKED on a device case that does.
      */
     private fun cameraLost(lost: CodeCamera) {
         runOnUiThread {

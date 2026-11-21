@@ -27,6 +27,12 @@ impl PendingForgets {
         }
     }
 
+    /// How many removals are held (`ComposedRuntime::held_forgets`).
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
     /// Every held removal still to ask, taken out of the set: one that
     /// `named` -- every operator input as it is now -- names again is
     /// dropped. A removal the book still refuses is handed back to
