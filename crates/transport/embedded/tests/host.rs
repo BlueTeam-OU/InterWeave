@@ -204,19 +204,6 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
 
     let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
     let overlay = EndpointOverlay::path_for(host.paths());
-    // A set disabling the endpoint the profile must lease is refused, as
-    // the next start would refuse the composed profile; nothing written.
-    let port = host
-        .runtime()
-        .block_on(host.binding().admin([AdminCapability::Endpoints].into()))
-        .expect("an admin port");
-    let human = interweave_test_support::endpoint_keys::endpoint_id("human");
-    assert_eq!(
-        host.runtime()
-            .block_on(port.set_endpoint_enabled(human, false)),
-        Err(interweave_transport_api::TransportError::InvalidArgument)
-    );
-    drop(port);
     assert!(
         overlay.starts_with(app.dir.join("interweave")),
         "{}",
@@ -281,12 +268,25 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
         }
         other => panic!("refused as not private: {:?}", other.map(|_| ())),
     }
-    // Disabling the endpoint the embedded profile must lease: config.yaml
-    // validates alone, and the composed set holds no enabled identity to
-    // start as -- the start's rule (`ENDPOINTS.md`, A 2026-11-21).
+    // The named endpoint disabled beside an enabled one starts: any
+    // enabled identity will do (ADR-0061 decision 7) -- the control for
+    // the refusal below.
     std::fs::write(
         &overlay,
         r#"{"enabled":{"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr":false}}"#,
+    )
+    .expect("written");
+    std::fs::set_permissions(&overlay, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    EmbeddedHost::start(launch(&app.dir))
+        .expect("another identity is enabled")
+        .stop(Duration::from_secs(1))
+        .expect("stops");
+    // Both disabled: config.yaml validates alone, and the composed set
+    // holds no enabled identity to start as -- the start's rule
+    // (`ENDPOINTS.md`, A 2026-11-21).
+    std::fs::write(
+        &overlay,
+        r#"{"enabled":{"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr":false,"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5":false}}"#,
     )
     .expect("written");
     std::fs::set_permissions(&overlay, std::fs::Permissions::from_mode(0o600)).expect("chmod");
@@ -296,6 +296,38 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
         )) => {}
         other => panic!("refused AndroidNoIdentity: {:?}", other.map(|_| ())),
     }
+}
+
+/// An admin set that would leave no identity enabled is refused, as the
+/// next start would refuse the composed profile (`ENDPOINTS.md`,
+/// A 2026-11-21), and nothing is written; the same set re-enabling it is
+/// the control that the port answers sets at all.
+#[test]
+fn an_endpoint_set_leaving_no_identity_enabled_is_refused() {
+    let app = app();
+    provision(&app.dir, &document("embedded-android", false));
+    let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+    let overlay = EndpointOverlay::path_for(host.paths());
+    let port = host
+        .runtime()
+        .block_on(host.binding().admin([AdminCapability::Endpoints].into()))
+        .expect("an admin port");
+    let human = interweave_test_support::endpoint_keys::endpoint_id("human");
+    assert_eq!(
+        host.runtime()
+            .block_on(port.set_endpoint_enabled(human.clone(), false)),
+        Err(interweave_transport_api::TransportError::InvalidArgument),
+        "the only identity, disabled"
+    );
+    assert!(!overlay.exists(), "nothing written");
+    assert!(
+        host.runtime()
+            .block_on(port.set_endpoint_enabled(human, true))
+            .is_ok(),
+        "the control: a set the next start accepts is answered"
+    );
+    drop(port);
+    host.stop(Duration::from_secs(1)).expect("stops");
 }
 
 /// A FRESH INSTALL: nothing has written `config.yaml`, so the start is
