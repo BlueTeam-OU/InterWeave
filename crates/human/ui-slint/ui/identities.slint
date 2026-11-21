@@ -1,0 +1,824 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Andrea Benetton
+//
+// The identity in front and switching (plan section 30 step 1;
+// design/2026-10-21-contact-cards.md sections 5.7.1 to 5.7.3 as
+// design/2026-11-04-identities.md sections 4, 5, 5.2, 5.3, 11 and 12
+// amend them): the identity switch on Chats' bar, the switcher it opens,
+// and a conversation's "As" line above Send. Shown only with two or more
+// identities held: Rust leaves `shown` and `open` false otherwise
+// (ADR-0061 d. 3).
+//
+// app.slint imports this file, so nothing here can import app.slint (Slint
+// refuses a recursive import): its colour roles, type sizes and keyboard
+// mode arrive as one `IdLook` that app.slint builds from its `Palette`,
+// `Type` and `FocusMode`, and every person-facing string arrives from Rust
+// already chosen and spoken (Drawn.spoken's form), as app.slint's do. Each
+// control reports its focus key through `focused`, which app.slint writes
+// to `focus-id`, and the keyboard mode a press sets through
+// `keyboard-mode`, which app.slint writes to `FocusMode.keyboard`.
+
+// app.slint's colour roles, type scale and focus mode, handed in.
+export struct IdLook {
+    surface: color,
+    surface-container: color,
+    surface-container-high: color,
+    surface-variant: color,
+    on-surface: color,
+    on-surface-variant: color,
+    outline: color,
+    primary: color,
+    on-primary: color,
+    unread-dot: color,
+    tertiary: color,
+    on-tertiary: color,
+    error: color,
+    // The scrim behind a dialog: app.slint's own value for it.
+    scrim: color,
+    keyboard: bool,
+    ring-reach: length,
+    title-large: length,
+    body-large: length,
+    body-medium: length,
+    body-small: length,
+    label-large: length,
+}
+
+// The switch (cards section 5.7.1).
+export struct IdSwitch {
+    shown: bool,
+    name: string,
+    // The first three graphemes of the name, which its width keeps.
+    least: string,
+    // The whole accessible name, its sentences joined, spoken form.
+    accessible: string,
+    badge: bool,
+    // The badge's count; empty for a dot with no count.
+    count: string,
+}
+
+// One switcher row (cards section 5.7.1, identities section 6.1).
+export struct IdRow {
+    name: string,
+    // The name as its accessible name.
+    name-said: string,
+    second-line: string,
+    // Its accessible description: IdentityIdLabel, the unread count
+    // spoken, IdentityNotSent and the state's line.
+    description: string,
+    unread: string,
+    not-sent: string,
+    state: string,
+    try-again: string,
+    try-enabled: bool,
+    try-progress: bool,
+    chosen: bool,
+}
+
+export struct IdSwitcherView {
+    open: bool,
+    title: string,
+    rows: [IdRow],
+    identities: string,
+}
+
+// The line above Send (cards section 5.7.2 N2, identities section 5.2):
+// ComposerAs, or the state's text in its place, with Try again at its end.
+export struct IdComposer {
+    shown: bool,
+    line: string,
+    line-said: string,
+    try-again: string,
+    try-enabled: bool,
+    try-progress: bool,
+}
+
+// app.slint's focus ring, as drawn there: 3 px, 2 px outside the control,
+// placed 5 px out by each use so it moves no layout. Named as app.slint's
+// is, so the tests' ring walks find it.
+component FocusRing inherits Rectangle {
+    in property <bool> shown;
+    in property <IdLook> look;
+    in property <length> radius: 4px;
+    border-width: 3px;
+    border-color: root.look.primary;
+    border-radius: root.radius + 5px;
+    opacity: root.shown && root.look.keyboard ? 1 : 0;
+}
+
+// A placeholder avatar: identities have no photo or letters in the model
+// yet, so a plain circle, decoration only.
+component IdAvatar inherits Rectangle {
+    in property <IdLook> look;
+    in property <length> size: 24px;
+    accessible-role: none;
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    background: root.look.surface-variant;
+    border-width: 1px;
+    border-color: root.look.outline;
+}
+
+component IdProgress inherits Rectangle {
+    in property <brush> ink;
+    accessible-role: none;
+    width: 16px;
+    height: 16px;
+    Path {
+        width: 16px;
+        height: 16px;
+        viewbox-width: 2;
+        viewbox-height: 2;
+        stroke: root.ink;
+        stroke-width: 2px;
+        transform-rotation: animation-tick() * 360deg / 1000ms;
+        commands: "M 1 0.1 A 0.9 0.9 0 0 1 1.9 1";
+    }
+}
+
+// A text button: a row's or the line's Try again, and Your identities.
+// Disabled, it keeps its stop and presses nothing (identities section
+// 5.2: Try again through its own retry).
+component IdTextButton inherits FocusScope {
+    in property <IdLook> look;
+    in property <string> label;
+    in property <string> detail;
+    in property <string> focus-key;
+    in property <bool> enabled-action: true;
+    in property <bool> progress;
+    in property <length> target: 48px;
+    callback pressed();
+    callback focused(string);
+    callback keyboard-mode(bool);
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { root.keyboard-mode(true); }
+        if (reason == FocusReason.pointer-click) { root.keyboard-mode(false); }
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.detail;
+    accessible-enabled: root.enabled-action;
+    accessible-action-default => {
+        if (root.enabled-action) { root.pressed(); }
+    }
+    // A focus request: each new `focus-seq` focuses it while
+    // `focus-wanted` is true.
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    // The last stop of a dialog whose Tab goes round: Tab here is
+    // `tab-out`, not the window's next stop.
+    in property <bool> last-stop;
+    callback tab-out();
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            if (root.enabled-action) { root.pressed(); }
+            return accept;
+        }
+        if (root.last-stop && event.text == Key.Tab) {
+            root.keyboard-mode(true);
+            root.tab-out();
+            return accept;
+        }
+        reject
+    }
+    min-height: root.target;
+    min-width: max(root.target, label-text.preferred-width + (root.progress ? 40px : 16px));
+    Rectangle {
+        opacity: root.enabled-action ? 1 : 0.38;
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 8px;
+            alignment: center;
+            if root.progress: VerticalLayout {
+                alignment: center;
+                IdProgress { ink: root.look.primary; }
+            }
+            label-text := Text {
+                text: root.label;
+                font-size: root.look.label-large;
+                font-weight: 500;
+                color: root.look.primary;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+        }
+    }
+    TouchArea {
+        enabled: root.enabled-action;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) { root.keyboard-mode(false); }
+        }
+        clicked => { root.pressed(); }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        look: root.look;
+        shown: root.has-focus;
+    }
+}
+
+// One line that may be a person's name: elided at its end inside a box
+// that clips it, as app.slint's OneLine (a stacked character's ink is
+// drawn wherever it reaches under `elide` alone).
+component IdOneLine inherits Rectangle {
+    in property <string> value;
+    in property <length> font-size;
+    in property <int> font-weight: 400;
+    in property <brush> ink;
+    in property <bool> rtl;
+    clip: true;
+    HorizontalLayout {
+        Text {
+            text: root.value;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            color: root.ink;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+            accessible-role: none;
+        }
+    }
+}
+
+// The identity switch on Chats' bar: the avatar, the name, a ▾ and the
+// badge. At least 48 px high; its name ellipsises at the end, never below
+// the avatar and three graphemes (`least`), the whole name in its
+// accessible name.
+export component IdentitySwitch inherits FocusScope {
+    in property <IdLook> look;
+    in property <IdSwitch> view;
+    in property <bool> rtl;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    callback pressed();
+    callback focused(string);
+    callback keyboard-mode(bool);
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { root.keyboard-mode(true); }
+        if (reason == FocusReason.pointer-click) { root.keyboard-mode(false); }
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused("identity-switch"); }
+    }
+    accessible-role: button;
+    accessible-label: root.view.accessible;
+    accessible-action-default => { root.pressed(); }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            root.pressed();
+            return accept;
+        }
+        reject
+    }
+    // Padding, the avatar, the spacing, the name's least or whole width,
+    // the spacing and the ▾.
+    property <length> fixed: 8px + 24px + 8px + 8px + caret.preferred-width + 8px;
+    min-height: 48px;
+    min-width: root.fixed + least-measure.preferred-width;
+    preferred-width: root.fixed + name-measure.preferred-width;
+    horizontal-stretch: 0;
+    // With the ellipsis an elided name ends in: without it, the three
+    // graphemes elided to two (seen rendered in a 280 px list pane).
+    least-measure := Text {
+        text: root.view.least + "…";
+        font-size: root.look.body-large;
+        visible: false;
+        accessible-role: none;
+    }
+    name-measure := Text {
+        text: root.view.name;
+        font-size: root.look.body-large;
+        visible: false;
+        accessible-role: none;
+    }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+        if root.rtl: Text {
+            text: "▾";
+            font-size: root.look.body-large;
+            color: root.look.on-surface-variant;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+        if root.rtl: IdOneLine {
+            horizontal-stretch: 1;
+            min-width: least-measure.preferred-width;
+            value: root.view.name;
+            font-size: root.look.body-large;
+            ink: root.look.on-surface;
+            rtl: true;
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                IdAvatar { look: root.look; }
+                // The badge, on the avatar's top end corner (cards 5.7.1):
+                // the count of the others' unread items, or a dot with no
+                // count. It names nothing.
+                if root.view.badge && root.view.count != "": Rectangle {
+                    x: root.rtl ? -6px : parent.width - self.width + 6px;
+                    y: -6px;
+                    height: 16px;
+                    width: max(16px, badge-count.preferred-width + 8px);
+                    border-radius: 8px;
+                    background: root.look.tertiary;
+                    badge-count := Text {
+                        text: root.view.count;
+                        font-size: root.look.body-small;
+                        font-weight: 500;
+                        color: root.look.on-tertiary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        accessible-role: none;
+                    }
+                }
+                if root.view.badge && root.view.count == "": Rectangle {
+                    x: root.rtl ? -2px : parent.width - self.width + 2px;
+                    y: -2px;
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: root.look.unread-dot;
+                }
+            }
+        }
+        if !root.rtl: IdOneLine {
+            horizontal-stretch: 1;
+            min-width: least-measure.preferred-width;
+            value: root.view.name;
+            font-size: root.look.body-large;
+            ink: root.look.on-surface;
+        }
+        if !root.rtl: Text {
+            text: "▾";
+            font-size: root.look.body-large;
+            color: root.look.on-surface-variant;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+    }
+    caret := Text {
+        text: "▾";
+        font-size: root.look.body-large;
+        visible: false;
+        accessible-role: none;
+    }
+    TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) { root.keyboard-mode(false); }
+        }
+        clicked => { root.pressed(); }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        radius: 24px;
+        look: root.look;
+        shown: root.has-focus;
+    }
+}
+
+// A switcher row: one stop, a single choice (cards 5.7.1). Arrows move
+// between rows; Enter, Space, a tap or a screen reader's activate choose.
+component IdSwitcherRow inherits FocusScope {
+    in property <IdLook> look;
+    in property <IdRow> item;
+    in property <int> index;
+    in property <bool> rtl;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    callback chosen(int);
+    callback moved(int);
+    callback focused(string);
+    callback keyboard-mode(bool);
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { root.keyboard-mode(true); }
+        if (reason == FocusReason.pointer-click) { root.keyboard-mode(false); }
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused("identity-row:" + root.index); }
+    }
+    accessible-role: radio-button;
+    accessible-checkable: true;
+    accessible-checked: root.item.chosen;
+    accessible-label: root.item.name-said;
+    accessible-description: root.item.description;
+    accessible-action-default => { root.chosen(root.index); }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            root.chosen(root.index);
+            return accept;
+        }
+        if (event.text == Key.DownArrow) {
+            root.moved(root.index + 1);
+            return accept;
+        }
+        if (event.text == Key.UpArrow) {
+            root.moved(root.index - 1);
+            return accept;
+        }
+        reject
+    }
+    min-height: 56px;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 16px;
+        // The choice's mark, then the avatar, the lines and the count, in
+        // the line's direction.
+        if !root.rtl: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                border-width: 2px;
+                border-color: root.item.chosen ? root.look.primary : root.look.on-surface-variant;
+                if root.item.chosen: Rectangle {
+                    x: 5px;
+                    y: 5px;
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 5px;
+                    background: root.look.primary;
+                }
+            }
+        }
+        if !root.rtl: VerticalLayout {
+            alignment: center;
+            IdAvatar { look: root.look; size: 40px; }
+        }
+        if root.rtl && root.item.unread != "": VerticalLayout {
+            alignment: center;
+            Rectangle {
+                height: 20px;
+                min-width: max(20px, rtl-count.preferred-width + 12px);
+                border-radius: 10px;
+                background: root.look.tertiary;
+                rtl-count := Text {
+                    text: root.item.unread;
+                    font-size: root.look.body-small;
+                    font-weight: 500;
+                    color: root.look.on-tertiary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            IdOneLine {
+                value: root.item.name;
+                font-size: root.look.body-large;
+                ink: root.look.on-surface;
+                rtl: root.rtl;
+            }
+            IdOneLine {
+                value: root.item.second-line;
+                font-size: root.look.body-medium;
+                ink: root.look.on-surface-variant;
+                rtl: root.rtl;
+            }
+            if root.item.not-sent != "": Text {
+                text: root.item.not-sent;
+                font-size: root.look.body-small;
+                color: root.look.error;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                accessible-role: none;
+            }
+            if root.item.state != "": Text {
+                text: root.item.state;
+                font-size: root.look.body-small;
+                color: root.look.on-surface-variant;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                accessible-role: none;
+            }
+        }
+        if !root.rtl && root.item.unread != "": VerticalLayout {
+            alignment: center;
+            Rectangle {
+                height: 20px;
+                min-width: max(20px, ltr-count.preferred-width + 12px);
+                border-radius: 10px;
+                background: root.look.tertiary;
+                ltr-count := Text {
+                    text: root.item.unread;
+                    font-size: root.look.body-small;
+                    font-weight: 500;
+                    color: root.look.on-tertiary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
+            }
+        }
+        if root.rtl: VerticalLayout {
+            alignment: center;
+            IdAvatar { look: root.look; size: 40px; }
+        }
+        if root.rtl: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                border-width: 2px;
+                border-color: root.item.chosen ? root.look.primary : root.look.on-surface-variant;
+                if root.item.chosen: Rectangle {
+                    x: 5px;
+                    y: 5px;
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 5px;
+                    background: root.look.primary;
+                }
+            }
+        }
+    }
+    TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) { root.keyboard-mode(false); }
+        }
+        clicked => { root.chosen(root.index); }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        look: root.look;
+        shown: root.has-focus;
+    }
+}
+
+// The switcher (cards 5.7.1): a modal bottom sheet on a narrow layout, a
+// dialog anchored under Chats' bar on a wide one, over a scrim. Its title
+// takes focus as it opens (identities section 11, F1); Tab and Shift+Tab
+// go round its stops -- the title, the rows (each with its Try again),
+// Your identities -- and never leave it. Escape, Back and the scrim close
+// it with nothing changed.
+export component IdentitySwitcher inherits Rectangle {
+    in property <IdLook> look;
+    in property <IdSwitcherView> view;
+    in property <bool> narrow;
+    in property <bool> rtl;
+    // Where the wide dialog's top left corner is, in this element: under
+    // Chats' bar, the list pane's, where the switch is.
+    in property <length> anchor-x;
+    in property <length> anchor-y;
+    callback closed();
+    callback chosen(int);
+    callback try-again(int);
+    callback identities();
+    callback focused(string);
+    callback keyboard-mode(bool);
+    property <int> seq;
+    property <string> want;
+    function go(key: string) {
+        root.want = key;
+        root.seq += 1;
+    }
+    // The scrim: a press on it closes the switcher.
+    TouchArea {
+        clicked => {
+            root.keyboard-mode(false);
+            root.closed();
+        }
+        Rectangle { background: root.look.scrim; }
+    }
+    panel := FocusScope {
+        focus-on-tab-navigation: false;
+        focus-on-click: false;
+        x: root.narrow ? 0px : root.anchor-x;
+        y: root.narrow ? root.height - self.height : root.anchor-y;
+        width: root.narrow ? root.width : min(360px, root.width - 16px);
+        height: min(body.preferred-height,
+            root.narrow ? root.height * 0.9 : root.height - root.anchor-y - 8px);
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.closed();
+                return accept;
+            }
+            reject
+        }
+        Rectangle {
+            background: root.look.surface-container;
+            border-radius: 28px;
+            // A sheet stands on the window's bottom edge: square there.
+            border-bottom-left-radius: root.narrow ? 0px : 28px;
+            border-bottom-right-radius: root.narrow ? 0px : 28px;
+            clip: true;
+            // A press on the panel is the panel's, not the scrim's.
+            TouchArea { }
+            Flickable {
+                width: parent.width;
+                height: parent.height;
+                content-height: body.preferred-height;
+                interactive: body.preferred-height > self.height;
+                // The rings reach 5 px past their controls: padded by that,
+                // so the Flickable does not cut them.
+                body := VerticalLayout {
+                    padding: root.look.ring-reach;
+                    padding-top: 16px;
+                    padding-bottom: 16px;
+                    spacing: root.look.ring-reach;
+                    title := FocusScope {
+                        accessible-role: text;
+                        accessible-label: root.view.title;
+                        focus-gained(reason) => {
+                            if (reason == FocusReason.tab-navigation) { root.keyboard-mode(true); }
+                        }
+                        changed has-focus => {
+                            if (self.has-focus) { root.focused("identity-switcher-title"); }
+                        }
+                        property <int> seq: root.seq;
+                        changed seq => {
+                            if (root.want == "title") { self.focus(); }
+                        }
+                        // Shift+Tab from the first stop goes round to the last.
+                        key-pressed(event) => {
+                            if (event.text == Key.Backtab) {
+                                root.keyboard-mode(true);
+                                root.go("identities");
+                                return accept;
+                            }
+                            reject
+                        }
+                        // Focus moves here once it is in the window: a focus
+                        // asked from `init` is lost (app.slint's MenuItem).
+                        property <bool> taken;
+                        Timer {
+                            interval: 1ms;
+                            running: !title.taken;
+                            triggered => {
+                                title.taken = true;
+                                title.focus();
+                            }
+                        }
+                        min-height: 48px;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            Text {
+                                text: root.view.title;
+                                font-size: root.look.title-large;
+                                color: root.look.on-surface;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                                min-height: self.preferred-height;
+                                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                accessible-role: none;
+                            }
+                        }
+                        FocusRing {
+                            x: -5px;
+                            y: -5px;
+                            width: title.width + 10px;
+                            height: title.height + 10px;
+                            look: root.look;
+                            shown: title.has-focus;
+                        }
+                    }
+                    for item[i] in root.view.rows: VerticalLayout {
+                        spacing: root.look.ring-reach;
+                        IdSwitcherRow {
+                            look: root.look;
+                            item: item;
+                            index: i;
+                            rtl: root.rtl;
+                            focus-seq: root.seq;
+                            focus-wanted: root.want == "row:" + i;
+                            chosen(n) => { root.chosen(n); }
+                            moved(n) => {
+                                if (n >= 0 && n < root.view.rows.length) { root.go("row:" + n); }
+                            }
+                            focused(k) => { root.focused(k); }
+                            keyboard-mode(on) => { root.keyboard-mode(on); }
+                        }
+                        if item.try-again != "": HorizontalLayout {
+                            alignment: root.rtl ? LayoutAlignment.start : LayoutAlignment.end;
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            IdTextButton {
+                                look: root.look;
+                                label: item.try-again;
+                                detail: item.name-said;
+                                focus-key: "identity-try-again:" + i;
+                                enabled-action: item.try-enabled;
+                                progress: item.try-progress;
+                                pressed => { root.try-again(i); }
+                                focused(k) => { root.focused(k); }
+                                keyboard-mode(on) => { root.keyboard-mode(on); }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: root.rtl ? LayoutAlignment.end : LayoutAlignment.start;
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        identities := IdTextButton {
+                            look: root.look;
+                            label: root.view.identities;
+                            focus-key: "identity-your-identities";
+                            pressed => { root.identities(); }
+                            focused(k) => { root.focused(k); }
+                            keyboard-mode(on) => { root.keyboard-mode(on); }
+                            focus-seq: root.seq;
+                            focus-wanted: root.want == "identities";
+                            // Tab from the last stop goes round to the first.
+                            last-stop: true;
+                            tab-out => { root.go("title"); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The "As" line above Send (cards 5.7.2 N2): text, not a control -- a
+// conversation never changes identity -- at the line's end side, with the
+// 24 px avatar; or the state's text in its place, with Try again at its
+// end (identities 5.2). It wraps rather than truncates (section 12).
+export component ComposerAs inherits HorizontalLayout {
+    in property <IdLook> look;
+    in property <IdComposer> view;
+    in property <bool> rtl;
+    callback try-again();
+    callback focused(string);
+    callback keyboard-mode(bool);
+    alignment: root.rtl ? LayoutAlignment.start : LayoutAlignment.end;
+    spacing: 8px;
+    if root.rtl && root.view.try-again != "": IdTextButton {
+        look: root.look;
+        label: root.view.try-again;
+        detail: root.view.line-said;
+        focus-key: "identity-composer-try-again";
+        enabled-action: root.view.try-enabled;
+        progress: root.view.try-progress;
+        pressed => { root.try-again(); }
+        focused(k) => { root.focused(k); }
+        keyboard-mode(on) => { root.keyboard-mode(on); }
+    }
+    VerticalLayout {
+        alignment: center;
+        IdAvatar { look: root.look; }
+    }
+    Text {
+        text: root.view.line;
+        font-size: root.look.body-small;
+        color: root.look.on-surface-variant;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+        min-width: 0px;
+        horizontal-stretch: 1;
+        vertical-alignment: center;
+        horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
+        accessible-role: text;
+        accessible-label: root.view.line-said;
+    }
+    if !root.rtl && root.view.try-again != "": IdTextButton {
+        look: root.look;
+        label: root.view.try-again;
+        detail: root.view.line-said;
+        focus-key: "identity-composer-try-again";
+        enabled-action: root.view.try-enabled;
+        progress: root.view.try-progress;
+        pressed => { root.try-again(); }
+        focused(k) => { root.focused(k); }
+        keyboard-mode(on) => { root.keyboard-mode(on); }
+    }
+}

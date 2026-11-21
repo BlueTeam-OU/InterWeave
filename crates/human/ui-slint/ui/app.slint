@@ -15,6 +15,7 @@
 // take focus and does not report it would leave a stale row named there.
 
 import { Palette as Style } from "std-widgets.slint";
+import { IdLook, IdSwitch, IdSwitcherView, IdComposer, IdentitySwitch, IdentitySwitcher, ComposerAs } from "identities.slint";
 
 // What a row's swipe does in one direction (design/2026-10-16-message-
 // swipe.md section 3): `none` when it does nothing that way, and then the
@@ -4776,6 +4777,49 @@ export component AppWindow inherits Window {
     in property <string> snack-text;
     in property <bool> snack-undo;
     in property <string> undo-label;
+    // The identities (identities.slint, plan section 30 step 1): the
+    // switch, the switcher, the switch's snackbar and the line above
+    // Send, each left empty by Rust with fewer than two held.
+    in property <IdSwitch> id-switch;
+    in property <IdSwitcherView> id-switcher;
+    in property <IdComposer> id-composer;
+    // Send held back by the identity's state (identities section 5.2).
+    in property <bool> id-send-held;
+    in property <bool> id-snack-shown;
+    in property <int> id-snack-id;
+    in property <string> id-snack-text;
+    in property <string> id-snack-action;
+    callback id-switch-pressed();
+    callback id-switcher-closed();
+    callback id-row-chosen(int);
+    callback id-try-again(int);
+    callback id-your-identities();
+    callback id-snack-pressed(int);
+    callback id-snack-closed(int);
+    // What identities.slint draws with, which cannot import this file.
+    property <IdLook> id-look: {
+        surface: Palette.surface,
+        surface-container: Palette.surface-container,
+        surface-container-high: Palette.surface-container-high,
+        surface-variant: Palette.surface-variant,
+        on-surface: Palette.on-surface,
+        on-surface-variant: Palette.on-surface-variant,
+        outline: Palette.outline,
+        primary: Palette.primary,
+        on-primary: Palette.on-primary,
+        unread-dot: Palette.unread-dot,
+        tertiary: Palette.tertiary,
+        on-tertiary: Palette.on-tertiary,
+        error: Palette.error,
+        scrim: #00000052,
+        keyboard: FocusMode.keyboard,
+        ring-reach: FocusMode.ring-reach,
+        title-large: Type.title-large,
+        body-large: Type.body-large,
+        body-medium: Type.body-medium,
+        body-small: Type.body-small,
+        label-large: Type.label-large,
+    };
     // The open conversation's "Hide conversation", when it is offered.
     in property <bool> hide-conversation-shown;
     in property <string> hide-conversation-label;
@@ -5620,6 +5664,11 @@ export component AppWindow inherits Window {
             root.identity-back();
             return true;
         }
+        // Back closes the identity switcher with nothing changed.
+        if (root.id-switcher.open) {
+            root.id-switcher-closed();
+            return true;
+        }
         // Back on Connect is Not now (section 5.1); on a page it opened,
         // that page's own Back, below.
         if (root.connect-shown) {
@@ -5800,6 +5849,21 @@ export component AppWindow inherits Window {
                             focused(k) => { root.focus-id = k; }
                         }
                     }
+                    // The identity switch, between the title and the
+                    // app's options (cards section 5.7.1).
+                    if root.rtl && root.id-switch.shown: VerticalLayout {
+                        alignment: center;
+                        IdentitySwitch {
+                            look: root.id-look;
+                            view: root.id-switch;
+                            rtl: true;
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "identity-switch";
+                            pressed => { root.id-switch-pressed(); }
+                            focused(k) => { root.focus-id = k; }
+                            keyboard-mode(on) => { FocusMode.keyboard = on; }
+                        }
+                    }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         alignment: center;
@@ -5850,6 +5914,18 @@ export component AppWindow inherits Window {
                                     ink: Palette.on-surface-variant;
                                 }
                             }
+                        }
+                    }
+                    if !root.rtl && root.id-switch.shown: VerticalLayout {
+                        alignment: center;
+                        IdentitySwitch {
+                            look: root.id-look;
+                            view: root.id-switch;
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "identity-switch";
+                            pressed => { root.id-switch-pressed(); }
+                            focused(k) => { root.focus-id = k; }
+                            keyboard-mode(on) => { FocusMode.keyboard = on; }
                         }
                     }
                     if !root.rtl: VerticalLayout {
@@ -6150,6 +6226,24 @@ export component AppWindow inherits Window {
                     rtl: root.rtl;
                     undo-pressed(id) => { root.undo(id); }
                     dismissed(id) => { root.snack-closed(id); }
+                    focused(k) => { root.focus-id = k; }
+                }
+                }
+                // A switch's snackbar, with Switch back (cards section
+                // 5.7.3), where the switch is.
+                if root.id-snack-shown: HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-bottom: 12px;
+                Snackbar {
+                    text: root.id-snack-text;
+                    undo: true;
+                    undo-label: root.id-snack-action;
+                    snack-id: root.id-snack-id;
+                    action-key: "identity-switch-back";
+                    rtl: root.rtl;
+                    undo-pressed(id) => { root.id-snack-pressed(id); }
+                    dismissed(id) => { root.id-snack-closed(id); }
                     focused(k) => { root.focus-id = k; }
                 }
                 }
@@ -9094,6 +9188,21 @@ export component AppWindow inherits Window {
                         accessible-label: Drawn.spoken(self.text);
                         accessible-live-region: polite;
                     }
+                    // The identity it sends as, directly above Send (cards
+                    // section 5.7.2 N2), or why it cannot send now.
+                    // The field's ring reaches above the field: the line
+                    // stands that far off it.
+                    if root.composer-enabled && root.id-composer.shown: VerticalLayout {
+                        padding-bottom: FocusMode.ring-reach;
+                        ComposerAs {
+                            look: root.id-look;
+                            view: root.id-composer;
+                            rtl: root.rtl;
+                            try-again => { root.id-try-again(-1); }
+                            focused(k) => { root.focus-id = k; }
+                            keyboard-mode(on) => { FocusMode.keyboard = on; }
+                        }
+                    }
                     // The composer (section 6): a filled, fully rounded field and a
                     // round Send. It exists only for an open conversation: an
                     // empty, disabled box would offer nothing to type into.
@@ -9223,8 +9332,9 @@ export component AppWindow inherits Window {
                             rtl: root.rtl;
                             label: root.send-label;
                             filled: true;
-                            // Dimmed and inactive while the field is empty.
-                            active: root.draft != "";
+                            // Dimmed and inactive while the field is empty,
+                            // or the identity cannot send now.
+                            active: root.draft != "" && !root.id-send-held;
                             focus-key: "send";
                             pressed => { root.send(); }
                             focused(k) => { root.focus-id = k; }
@@ -9961,6 +10071,25 @@ export component AppWindow inherits Window {
                     focused(k) => { root.focus-id = k; }
                 }
             }
+        }
+        // The identity switcher (cards section 5.7.1), over the window.
+        if root.id-switcher.open: IdentitySwitcher {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            look: root.id-look;
+            view: root.id-switcher;
+            narrow: root.narrow;
+            rtl: root.rtl;
+            anchor-x: root.safe-area-insets.left + 8px;
+            anchor-y: root.safe-area-insets.top + 56px;
+            closed => { root.id-switcher-closed(); }
+            chosen(i) => { root.id-row-chosen(i); }
+            try-again(i) => { root.id-try-again(i); }
+            identities => { root.id-your-identities(); }
+            focused(k) => { root.focus-id = k; }
+            keyboard-mode(on) => { FocusMode.keyboard = on; }
         }
         // The overflow menu (section 6), under its button at the line's end.
         if root.menu-open: Rectangle {
