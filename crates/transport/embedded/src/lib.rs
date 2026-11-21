@@ -598,8 +598,11 @@ impl EmbeddedHost {
     /// then the executor is dropped, which waits for its threads as
     /// [`stop`](Self::stop) does; then `composed`, onto a runtime that
     /// runs nothing; then the lock.
-    /// `a_killed_host_writes_no_peer_cache_after_it_returns` holds it:
-    /// no file at the kill's return, nor after.
+    /// `a_killed_host_writes_no_peer_cache_after_it_returns` holds the
+    /// outcome -- no file at the kill's return, nor after -- and fails
+    /// with a drop in this method's place. It does not reach the abort's
+    /// place before the executor: that interleaving needs a busy worker,
+    /// and the test passed with the abort removed (measured, j128).
     ///
     /// BLOCKS; call it off any async context.
     #[cfg(feature = "test-hooks")]
