@@ -1701,6 +1701,12 @@ fn opening(links: usize) -> (View, UiModel) {
     (view, model)
 }
 
+/// How far ahead the held-input cases stamp their input, so it is recent
+/// at every firing. It must outlast the whole case: a minute did not, on
+/// a host at load 53 with the suite in parallel, where the 1,812-pass
+/// case ran past it and the hold ended early (1,436 passes counted).
+const HELD_INPUT_AHEAD: Duration = Duration::from_secs(3600);
+
 /// How many timer passes an opening takes until its rows are in.
 fn passes_to_rows(view: &mut View, model: &mut UiModel) -> usize {
     let mut passes = 0;
@@ -1738,9 +1744,9 @@ fn an_opening_rests_one_pass_after_each_turn() {
 #[test]
 fn platform_input_holds_an_opening_until_it_is_quiet() {
     let (mut view, mut model) = opening(3000);
-    // Recorded as arriving a minute from now: held for the whole test
+    // Recorded as arriving an hour from now: held for the whole test
     // whatever the host's speed.
-    view.platform_input_at(std::time::Instant::now() + Duration::from_secs(60));
+    view.platform_input_at(std::time::Instant::now() + HELD_INPUT_AHEAD);
     for _ in 0..20 {
         after(1);
         let _ = intents(&mut view, &mut model);
@@ -1766,8 +1772,8 @@ fn platform_input_holds_an_opening_until_it_is_quiet() {
 #[test]
 fn input_that_never_stops_holds_an_opening_only_so_long() {
     let (mut view, mut model) = opening(3000);
-    // Recorded as arriving a minute from now: recent at every firing.
-    view.platform_input_at(std::time::Instant::now() + Duration::from_secs(60));
+    // Recorded as arriving an hour from now: recent at every firing.
+    view.platform_input_at(std::time::Instant::now() + HELD_INPUT_AHEAD);
     let mut passes = 0;
     while view.window().get_reader_rows().row_count() == 0 {
         passes += 1;
