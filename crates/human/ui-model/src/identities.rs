@@ -367,6 +367,11 @@ pub struct Badge {
     pub not_sent: bool,
 }
 
+/// A name's first three graphemes, or the whole of a shorter name.
+fn least(name: &str) -> String {
+    name.graphemes(true).take(3).collect()
+}
+
 /// The identity switch on Chats' app bar (cards §5.7.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwitchView {
@@ -377,6 +382,13 @@ pub struct SwitchView {
     /// (cards §5.7.1, identities §12;
     /// `the_switch_keeps_three_graphemes_of_the_name`).
     pub least: String,
+    /// Every held identity's `least`, in the held order, the one in front
+    /// among them: the Chats bar decides between one row and two by the
+    /// widest, so the row count never depends on the name in front and a
+    /// switch never reflows the bar (identities §12 "The Chats bar when
+    /// the switch does not fit";
+    /// `every_held_identitys_least_is_offered_whoever_is_in_front`).
+    pub leasts: Vec<String>,
     /// Its badge, if any.
     pub badge: Option<Badge>,
     /// Its accessible name, sentence by sentence: `IdentitySwitch`, then
@@ -982,7 +994,8 @@ impl Identities {
         }
         Some(SwitchView {
             name: front.name().to_owned(),
-            least: front.name().graphemes(true).take(3).collect(),
+            least: least(front.name()),
+            leasts: self.held.iter().map(|h| least(h.name())).collect(),
             badge,
             accessible,
         })
@@ -2059,5 +2072,23 @@ mod tests {
         held[0].card_name = Some("Al".to_owned());
         m.held_changed(held).ok();
         assert_eq!(m.switch_view().map(|v| v.least), Some("Al".to_owned()));
+    }
+
+    #[test]
+    fn every_held_identitys_least_is_offered_whoever_is_in_front() {
+        let mut held = holding(&["a", "b", "c"]);
+        held[0].card_name = Some("Al".to_owned());
+        held[1].card_name = Some("Wolfgang".to_owned());
+        held[2].card_name = Some("e\u{301}xyz".to_owned());
+        let mut m = Identities::new();
+        m.held_changed(held).ok();
+        m.start(None);
+        let every = vec!["Al".to_owned(), "Wol".to_owned(), "e\u{301}xy".to_owned()];
+        assert_eq!(m.switch_view().map(|v| v.leasts), Some(every.clone()));
+        m.act(IdentityIntent::OpenSwitcher, false);
+        m.act(IdentityIntent::Choose(m.held()[1].key.clone()), false);
+        let after = m.switch_view().expect("two or more held");
+        assert_eq!(after.least, "Wol", "the premise: another in front");
+        assert_eq!(after.leasts, every, "the same, whoever is in front");
     }
 }
