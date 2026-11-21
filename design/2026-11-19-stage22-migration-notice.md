@@ -86,8 +86,8 @@ someone for whom nothing was lost.
   The banner is one short line, so it fits the slot at every text size
   the slot already serves; the counts are in the dialog (§4), whose
   content scrolls.
-- **Why a dialog for the counts.** Up to seven lines of counts and
-  explanation in the banner would fill a phone's screen at large text
+- **Why a dialog for the counts.** Up to ten lines (eight counts and
+  two of explanation, §4) in the banner would fill a phone's screen at large text
   sizes and push Chats below it. A dialog holds them where they can
   scroll, and the person reads them by one press. (Heuristic: visibility
   of system status without blocking the primary task. Hypothesis, not
