@@ -5,7 +5,7 @@
 //! (design/2026-10-19-android-identity.md §6, A start refused with the
 //! profile in use after the bound; §11d Q12), through the model's public
 //! surface. Where it shows on screen, its focus and its announcement are
-//! the view's (ui-slint's `tests/start_busy.rs`); when it is said, the
+//! the view's (ui-slint's `tests/views.rs`); when it is said, the
 //! platform's (android-platform's `ViewSide`).
 
 #![allow(clippy::expect_used)]
