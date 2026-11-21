@@ -1202,8 +1202,11 @@ this notice wherever it shows also keeps the app predictable
   nothing.
 - **Connect** counts this start as it counts Try again's on these
   screens: as the start after the Continue it replaces
-  (`design/2026-10-22-add-a-peer.md` §5.1), with its 10 s for the
-  reads counted from its success.
+  (`design/2026-10-22-add-a-peer.md` §5.1): the start and its two
+  reads must answer within the hold's 10 s bound from the return, and
+  at the bound the start counts as deferred (that §5.1, The bound).
+  No second 10 s counts from the start's success: that count is a
+  launch's, which has no held screen.
 
 **Back from a notice.** Where a row's way out is Back, Back does what
 it does on that screen at any other time. On R2 after K1 it returns
