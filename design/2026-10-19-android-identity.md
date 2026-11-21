@@ -329,7 +329,7 @@ and holds the screen as Try again's press does; the 1 s before
 `LockHeld` again from that start moves no focus and is not announced
 (§6, A return to a screen showing `IdStartBusy`). Before, the
 profile-in-use row said that the app never retries the start on its
-own, and no rule covered a return to these screens. Acceptance 12
+own, and no rule covered a return to these screens. Acceptance 15
 gains its runs.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
