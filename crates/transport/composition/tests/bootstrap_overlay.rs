@@ -889,7 +889,8 @@ async fn a_later_line_of_an_added_list_is_dialled() {
 /// Whether `peer` connects within `within`, one discovery round asked
 /// for every quarter second: under a long tick it is the round's
 /// reconnect, reading the book, that dials. The deadline is read before
-/// each round, so a connect seen after it does not count.
+/// each round, so no round is asked for after it; a connect seen in the
+/// last round's quarter second still counts, up to 250 ms past it.
 async fn connects_driving_rounds(
     runtime: &mut ComposedRuntime,
     peer: &TransportIdentity,
