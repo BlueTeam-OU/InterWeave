@@ -2256,7 +2256,14 @@ scale would also be a finding of the Android review
       start. In a seventh run, made with Stay reachable on only, Enter
       on Try again, with the hook leaving that start unanswered, then
       the return: the hook records that one start and none at the
-      return. These runs are host tests.
+      return. In an eighth run, on R4 with no address recorded (so
+      Connect is owed), the hook answers the return's start as
+      started 8 s after the return and both reads empty 12 s after
+      it: Chats opens 10 s after the return, with focus on its title,
+      and Connect does not open when the reads answer. In a ninth
+      run, the start and both reads answer within 2 s of the return:
+      Connect opens, with focus on its heading. These runs are host
+      tests.
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
