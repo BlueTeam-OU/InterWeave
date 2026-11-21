@@ -413,8 +413,9 @@ pub struct IdentityFlow {
     notices_raised: u32,
     /// Who asked the held start: a showing's ([`Self::showing_started`])
     /// answers no press, so the notice its `LockHeld` shows again is not
-    /// raised for focus. `Showing` only while the screen holds, and taken
-    /// back to `Press` by that answer; any other answer ends the flow.
+    /// raised for focus. `Showing` only while the screen holds for the
+    /// showing's own start: taken back to `Press` by its `LockHeld`, or by
+    /// [`Self::person_started`] when a granted prompt starts it again.
     held_by: HeldBy,
 }
 
@@ -1667,6 +1668,17 @@ impl IdentityFlow {
         if pressed {
             self.notices_raised += 1;
         }
+    }
+
+    /// The person asked the held screen's start again -- a granted prompt
+    /// over it resuming the start a showing made: that start answers the
+    /// person, so its `LockHeld` raises `IdStartBusy` for focus as Try
+    /// again's would (design section 6, the row's "answers the person's
+    /// press"). Nothing on a screen a press holds, or one not held.
+    /// `a_granted_prompt_over_a_showings_start_answers_the_person` holds
+    /// it.
+    pub fn person_started(&mut self) {
+        self.held_by = HeldBy::Press;
     }
 
     /// A showing of the window -- a return -- started the service again
@@ -3717,6 +3729,26 @@ mod tests {
                 raised + 1,
                 "{place}: a press's raises"
             );
+        }
+    }
+
+    /// A showing's start refused for the person, whose granted prompt
+    /// starts it again: that start is the person's, so its `LockHeld`
+    /// raises the notice as Try again's does.
+    ///
+    /// Mutation: `person_started` leaving `held_by` at `Showing` fails
+    /// here.
+    #[test]
+    fn a_granted_prompt_over_a_showings_start_answers_the_person() {
+        for (place, mut flow) in held_starts() {
+            flow.start_busy();
+            let raised = flow.notices_raised();
+            assert!(flow.showing_started(), "control: {place} held");
+            flow.person_started();
+            assert!(flow.start_held(), "{place}: still held");
+            flow.start_busy();
+            assert_eq!(flow.notice(), Some(&busy_on(place)), "{place}: again");
+            assert_eq!(flow.notices_raised(), raised + 1, "{place}: raised");
         }
     }
 
