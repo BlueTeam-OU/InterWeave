@@ -3,8 +3,8 @@
 //! The `DirectMessageV2` wire frame and its two response shapes.
 //!
 //! Hand-written against frozen bytes, not derived. The layout is pinned
-//! by `architecture/transport/libp2p/DIRECT.md` and by six vectors in
-//! `fixtures/direct-v2/direct-message-v2-frame.json`; a derived codec
+//! by `architecture/transport/libp2p/DIRECT.md` and by the vectors in
+//! `fixtures/direct-v3/direct-message-v2-frame.json`; a derived codec
 //! would be free to change its encoding when a field was reordered or a
 //! type widened, and the fixtures exist precisely because that must be a
 //! protocol decision rather than a refactor.
@@ -25,6 +25,13 @@
 //! default endpoint and never fan-out, while `media_type_len = 0` encodes
 //! an ABSENT media type — never an empty string, which does not exist on
 //! this wire and which would hash differently in the content fingerprint.
+//!
+//! The frame keeps its `V2` name on `/interweave/direct/3.0.0` (DIRECT.md
+//! §Selected primitive): the name is the layout's, and the layout did not
+//! change. What 3.0.0 changed is the endpoint fields' value: each carries a
+//! derived `EndpointId` (ADR-0067), so its length is
+//! [`ENDPOINT_FIELD_BYTES`], or 0 for the destination alone, and any other
+//! length is `malformed` before a byte of the field is read.
 
 use crate::ids::{EndpointId, IdError, MessageId};
 use crate::payload::{MAX_MEDIA_TYPE_BYTES, MAX_PAYLOAD_BYTES, MediaType, Payload, PayloadError};
@@ -32,6 +39,14 @@ use crate::status::DirectRejectReason;
 
 /// Bytes of the fixed-size prefix: `message_id` plus `sent_at_ms`.
 const FIXED_PREFIX: usize = 16 + 8;
+
+/// The one legal length of an endpoint field on `/interweave/direct/3.0.0`:
+/// the text of a derived `EndpointId`, `12D3KooW` and 44 base58btc
+/// characters (`ENDPOINTS.md` §`EndpointId`, `DIRECT.md` §Request). The
+/// destination's 0 is the default selector, not a length of an id.
+/// `tests::the_endpoint_field_is_the_length_of_a_derived_id` pins it to what
+/// `EndpointId::from_ed25519_public` writes.
+pub const ENDPOINT_FIELD_BYTES: usize = 52;
 
 /// Why a frame did not decode.
 ///
@@ -74,12 +89,24 @@ pub enum FrameError {
         /// The ceiling in force.
         max: usize,
     },
-    /// A required endpoint label was declared zero-length.
+    /// A required endpoint was declared zero-length.
     ///
     /// `source_endpoint` is always present; only the destination may be
     /// omitted, and only by the destination's own zero length.
     EmptySourceEndpoint,
-    /// An endpoint label did not satisfy [`EndpointId`] grammar.
+    /// An endpoint field declared a length other than
+    /// [`ENDPOINT_FIELD_BYTES`] (or, for the destination, 0).
+    ///
+    /// Refused at the length byte, before the field is read: on 3.0.0 no
+    /// other length can carry an `EndpointId`, so the length alone decides.
+    EndpointLength {
+        /// Which field declared it.
+        field: &'static str,
+        /// The declared length.
+        got: usize,
+    },
+    /// An endpoint field was 52 bytes but not a derived [`EndpointId`]:
+    /// a label of the retired grammar among them (DIRECT.md §Request).
     Endpoint {
         /// Which field carried it.
         field: &'static str,
@@ -135,6 +162,10 @@ impl core::fmt::Display for FrameError {
             Self::EmptySourceEndpoint => {
                 write!(f, "source_endpoint_len is 0; the source is never omitted")
             }
+            Self::EndpointLength { field, got } => write!(
+                f,
+                "`{field}` declared {got} bytes; an endpoint field is {ENDPOINT_FIELD_BYTES}"
+            ),
             Self::Endpoint { field, error } => write!(f, "`{field}`: {error}"),
             Self::Media(e) => write!(f, "media type: {e}"),
             Self::TrailingBytes { extra } => {
@@ -146,7 +177,7 @@ impl core::fmt::Display for FrameError {
 
 impl core::error::Error for FrameError {}
 
-/// One directed message, as it appears on `/interweave/direct/2.0.0`.
+/// One directed message, as it appears on `/interweave/direct/3.0.0`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectMessageV2 {
     /// The sender's idempotency key. Any 128-bit value.
@@ -194,6 +225,11 @@ impl DirectMessageV2 {
     /// Total size is computable in advance, so the buffer is allocated
     /// once. Every length written here was validated when its component
     /// type was constructed, which is why this cannot fail.
+    ///
+    /// It does not refuse a label: `EndpointId::parse` still constructs
+    /// one (TRANSITIONAL, ids.rs), and such a frame encodes and is refused
+    /// by every 3.0.0 decoder, this one included
+    /// (`tests::a_label_encodes_and_is_refused_on_decode`).
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let source = self.source_endpoint.as_str().as_bytes();
@@ -223,7 +259,7 @@ impl DirectMessageV2 {
 
         // Each length is a u8 by construction: EndpointId caps at 64 and
         // MediaType at 128, both below 256, and both were checked when the
-        // value was parsed.
+        // value was parsed. A derived id is 52.
         out.push(u8::try_from(source.len()).unwrap_or(u8::MAX));
         out.extend_from_slice(source);
         out.push(u8::try_from(destination.len()).unwrap_or(u8::MAX));
@@ -250,7 +286,7 @@ impl DirectMessageV2 {
     /// checking it against its ceiling steps over a field `decode` would
     /// have refused, and can land on a plausible-looking `payload_len`
     /// further in. A frame declaring a 200-byte source endpoint is
-    /// malformed — `EndpointId::MAX_BYTES` says so — and must not be
+    /// malformed — [`ENDPOINT_FIELD_BYTES`] says so — and must not be
     /// reportable as `too_large` because the bytes after it happened to
     /// read as a big number.
     ///
@@ -283,7 +319,7 @@ impl DirectMessageV2 {
             if len == 0 {
                 return Err(FrameError::EmptySourceEndpoint);
             }
-            ceiling("source_endpoint", len, EndpointId::MAX_BYTES)?;
+            endpoint_length("source_endpoint", len)?;
             endpoint("source_endpoint", cursor.take("source_endpoint", len)?)?
         };
 
@@ -293,7 +329,7 @@ impl DirectMessageV2 {
                 // ABSENCE, and it means the receiver's default endpoint.
                 None
             } else {
-                ceiling("destination_endpoint", len, EndpointId::MAX_BYTES)?;
+                endpoint_length("destination_endpoint", len)?;
                 Some(endpoint(
                     "destination_endpoint",
                     cursor.take("destination_endpoint", len)?,
@@ -383,6 +419,18 @@ fn ceiling(field: &'static str, got: usize, max: usize) -> Result<(), FrameError
     Ok(())
 }
 
+/// Refuse an endpoint length other than [`ENDPOINT_FIELD_BYTES`], before
+/// the field is read. The destination's 0 never reaches here.
+fn endpoint_length(field: &'static str, got: usize) -> Result<(), FrameError> {
+    if got != ENDPOINT_FIELD_BYTES {
+        return Err(FrameError::EndpointLength { field, got });
+    }
+    Ok(())
+}
+
+/// The field's bytes as a DERIVED id, strictly: `parse_derived`, never the
+/// transitional `parse`, so a 52-byte label of the retired grammar is
+/// refused here as DIRECT.md §Request requires.
 fn endpoint(field: &'static str, raw: &[u8]) -> Result<EndpointId, FrameError> {
     let text = core::str::from_utf8(raw).map_err(|_| FrameError::Endpoint {
         field,
@@ -391,7 +439,7 @@ fn endpoint(field: &'static str, raw: &[u8]) -> Result<EndpointId, FrameError> {
             byte: raw.first().copied().unwrap_or(0),
         },
     })?;
-    EndpointId::parse(text).map_err(|error| FrameError::Endpoint { field, error })
+    EndpointId::parse_derived(text).map_err(|error| FrameError::Endpoint { field, error })
 }
 
 /// A bounds-checked reader over the frame.
@@ -469,22 +517,152 @@ mod tests {
         MessageId::parse_hex(hex).expect("valid message id")
     }
 
+    /// A derived id per name: the name's bytes zero-padded into the key.
+    /// Any 32 bytes derive an id, and distinct short names distinct ones.
     fn endpoint_id(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        let mut key = [0_u8; 32];
+        key[..name.len()].copy_from_slice(name.as_bytes());
+        EndpointId::from_ed25519_public(&key)
     }
 
     fn frame(destination: Option<&str>, media: Option<&str>, payload: &[u8]) -> DirectMessageV2 {
+        frame_from(
+            endpoint_id("human"),
+            destination.map(endpoint_id),
+            media,
+            payload,
+        )
+    }
+
+    fn frame_from(
+        source: EndpointId,
+        destination: Option<EndpointId>,
+        media: Option<&str>,
+        payload: &[u8],
+    ) -> DirectMessageV2 {
         DirectMessageV2 {
             message_id: message_id("9f2c1d4e7a0b48c3915ed6f0a72b3c58"),
             sent_at_ms: 1_786_600_000_000,
-            source_endpoint: endpoint_id("human"),
-            destination_endpoint: destination.map(endpoint_id),
+            source_endpoint: source,
+            destination_endpoint: destination,
             payload: Payload::at_ceiling(
                 media.map(|m| MediaType::parse(m).expect("valid media type")),
                 payload.to_vec(),
             )
             .expect("within the ceiling"),
         }
+    }
+
+    /// Bytes of a frame whose source field declares `source` bytes and
+    /// whose destination field declares `destination`, each filled from a
+    /// derived id (repeated or cut to length), with a short payload after.
+    fn frame_with_lengths(source: usize, destination: usize) -> Vec<u8> {
+        let fill = |n: usize, id: &EndpointId| -> Vec<u8> {
+            id.as_str().bytes().cycle().take(n).collect()
+        };
+        let mut out = vec![7_u8; FIXED_PREFIX];
+        out.push(u8::try_from(source).expect("a u8 length"));
+        out.extend(fill(source, &endpoint_id("human")));
+        out.push(u8::try_from(destination).expect("a u8 length"));
+        out.extend(fill(destination, &endpoint_id("claude")));
+        out.push(0); // no media type
+        out.extend_from_slice(&2_u32.to_be_bytes());
+        out.extend_from_slice(b"hi");
+        out
+    }
+
+    /// The derived id's text is what the field's one length counts.
+    #[test]
+    fn the_endpoint_field_is_the_length_of_a_derived_id() {
+        for key in [[0_u8; 32], [0xff; 32], [0x5a; 32]] {
+            assert_eq!(
+                EndpointId::from_ed25519_public(&key).as_str().len(),
+                ENDPOINT_FIELD_BYTES
+            );
+        }
+    }
+
+    /// DIRECT.md §Request on 3.0.0: an endpoint field is 52 bytes, or 0 for
+    /// the destination alone; 51, 53 and 1 are `malformed`, refused at the
+    /// length byte. The controls are the two legal lengths.
+    #[test]
+    fn an_endpoint_length_other_than_52_is_malformed() {
+        let ok = DirectMessageV2::decode(&frame_with_lengths(52, 52), MAX_PAYLOAD_BYTES)
+            .expect("52 and 52 decode");
+        assert_eq!(ok.destination_endpoint, Some(endpoint_id("claude")));
+        let default = DirectMessageV2::decode(&frame_with_lengths(52, 0), MAX_PAYLOAD_BYTES)
+            .expect("a destination of 0 is the default selector");
+        assert_eq!(default.destination_endpoint, None);
+
+        for bad in [51, 53, 1] {
+            let error = DirectMessageV2::decode(&frame_with_lengths(bad, 52), MAX_PAYLOAD_BYTES)
+                .expect_err("a source of another length is refused");
+            assert_eq!(
+                error,
+                FrameError::EndpointLength {
+                    field: "source_endpoint",
+                    got: bad
+                }
+            );
+            assert_eq!(error.to_wire(), DirectRejectReason::Malformed);
+            let error = DirectMessageV2::decode(&frame_with_lengths(52, bad), MAX_PAYLOAD_BYTES)
+                .expect_err("a destination of another length is refused");
+            assert_eq!(
+                error,
+                FrameError::EndpointLength {
+                    field: "destination_endpoint",
+                    got: bad
+                }
+            );
+            assert_eq!(error.to_wire(), DirectRejectReason::Malformed);
+            // The header parser the oversize path uses refuses it too.
+            assert_eq!(
+                DirectMessageV2::declared_payload_len(&frame_with_lengths(bad, 52)),
+                Err(FrameError::EndpointLength {
+                    field: "source_endpoint",
+                    got: bad
+                })
+            );
+        }
+    }
+
+    /// A label still constructs through the transitional `EndpointId::parse`
+    /// and encodes, and a 3.0.0 decoder refuses it: by its length, or, at 52
+    /// bytes, by the derived grammar.
+    #[test]
+    fn a_label_encodes_and_is_refused_on_decode() {
+        let short = frame_from(
+            EndpointId::parse("human").expect("a transitional label"),
+            None,
+            None,
+            b"hi",
+        );
+        assert_eq!(
+            DirectMessageV2::decode(&short.encode(), MAX_PAYLOAD_BYTES),
+            Err(FrameError::EndpointLength {
+                field: "source_endpoint",
+                got: 5
+            })
+        );
+        let long = frame_from(
+            endpoint_id("human"),
+            Some(EndpointId::parse("a".repeat(52)).expect("a 52-byte label")),
+            None,
+            b"hi",
+        );
+        let error = DirectMessageV2::decode(&long.encode(), MAX_PAYLOAD_BYTES)
+            .expect_err("a 52-byte label is not a derived id");
+        assert!(
+            matches!(
+                error,
+                FrameError::Endpoint {
+                    field: "destination_endpoint",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert_eq!(error.to_wire(), DirectRejectReason::Malformed);
     }
 
     #[test]
