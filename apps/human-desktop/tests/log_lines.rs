@@ -39,7 +39,7 @@ mod common;
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use interweave_human_app_core::test_hooks::{Fault, StoreFaults};
 use interweave_human_app_core::{Command, FacadeSide, Opener, Surface};
@@ -249,6 +249,7 @@ fn desktop_on(
 ) -> Desktop {
     let faults = Arc::clone(faults);
     let make_fails = build.make_fails;
+    let ended = Arc::clone(&die);
     i_slint_backend_testing::init_no_event_loop();
     let view = View::new(RuntimeHost::Daemon).expect("a window");
     view.window()
@@ -284,7 +285,11 @@ fn desktop_on(
             assert!(!die.load(Ordering::SeqCst), "the facade thread dies here");
             Ok(true)
         },
-        Arc::new(|| {}),
+        // Holds the flag too, so a test sees the thread gone by its count
+        // ([`until_ended`]).
+        Arc::new(move || {
+            let _: &Arc<AtomicBool> = &ended;
+        }),
         |_| {},
     )
     .expect("the facade thread");
@@ -314,6 +319,17 @@ fn until(app: &mut Desktop, what: &str, done: impl Fn(&Desktop) -> bool) {
         turn(app);
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+/// Turn until the facade thread has ended, `die` being the flag its
+/// probe and its `notify` hold ([`desktop_on`]). The `notify` closure is
+/// the thread's own, dropped as the thread's closure is, after the future
+/// that owns the command receiver: once only the test holds the flag, a
+/// command can no longer be handed over. The probe runs once a second.
+fn until_ended(app: &mut Desktop, die: &Arc<AtomicBool>) {
+    until(app, "the facade thread to end", |_| {
+        Arc::strong_count(die) == 1
+    });
 }
 
 /// Turn until a line starting with `class` is written, and return it: the
@@ -512,12 +528,7 @@ fn a_command_for_a_stopped_facade_is_logged_as_that_class_alone() {
             .any(|c| c.key == key)
     });
     die.store(true, Ordering::SeqCst);
-    // The probe runs once a second: turn past it, the thread ended.
-    let end = Instant::now() + Duration::from_millis(2_500);
-    while Instant::now() < end {
-        turn(&mut app);
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    until_ended(&mut app, &die);
     app.side_mut().surface_mut().0.0.select(key);
     let line = until_line(&mut app, "the transport side has stopped");
     assert_eq!(line, "the transport side has stopped");

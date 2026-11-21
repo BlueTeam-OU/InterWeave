@@ -384,6 +384,26 @@ pub enum SessionNotice {
     /// own meanwhile, so nothing here says the app will connect
     /// (android-key-custody.md's failure list; #309 acceptance 10).
     AuthenticationNeeded,
+    /// The service start was refused with the profile in use (the
+    /// runtime's `LockHeld`) after add-a-peer §5.1's bound, with Chats
+    /// already shown (`IdStartBusy`; design/2026-10-19-android-identity.md
+    /// §6, A start refused with the profile in use after the bound).
+    /// Nothing retries it while the person stays, so it says nothing of
+    /// connecting by itself, as [`Self::NoDaemon`] would;
+    /// [`Intent::RetryStart`] makes one start.
+    StartBusy(StartBusy),
+}
+
+/// Where [`SessionNotice::StartBusy`]'s start stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartBusy {
+    /// Refused: Try again makes one start.
+    Shown,
+    /// A start for it runs -- Try again's, or a return's -- and its
+    /// answer is awaited: Try again shows disabled and starts nothing
+    /// more, since a second start would itself be refused with
+    /// `LockHeld` (`a_busy_start_is_retried_once_until_it_answers`).
+    Starting,
 }
 
 impl SessionNotice {
@@ -396,6 +416,9 @@ impl SessionNotice {
             Self::Refused(_) => Some(Intent::Reopen),
             Self::NetworkDenied => Some(Intent::AllowNetwork),
             Self::AuthenticationNeeded => Some(Intent::Authenticate),
+            // Offered while its start runs too, shown disabled: the
+            // model refuses it then ([`UiModel::offers`]).
+            Self::StartBusy(_) => Some(Intent::RetryStart),
         }
     }
 }
@@ -454,6 +477,11 @@ pub enum Intent {
     /// whose key needs the person. Carried out by the platform, never by
     /// the facade.
     Authenticate,
+    /// Make one service start for [`SessionNotice::StartBusy`]: no seal,
+    /// no restore, no words, and nothing else. Offered only while no
+    /// start runs for the notice. Carried out by the platform, never by
+    /// the facade, which does not run.
+    RetryStart,
     /// Read the trust allowlist: the trust settings opened, or a change's
     /// list was not read back ([`crate::TrustSettings::take_reread`]).
     ReadTrust,
@@ -769,6 +797,8 @@ pub struct UiModel {
     /// The platform withholds network access, as the root last saw it.
     network_denied: bool,
     authentication_needed: bool,
+    /// [`SessionNotice::StartBusy`], as the root last said it.
+    start_busy: Option<StartBusy>,
     /// The unlock note's facts, as the platform last said them, with
     /// the start they are from and whether the person saw the Trust
     /// page's line in that start (unlock note sections 3 and 4).
@@ -831,6 +861,7 @@ impl UiModel {
             daemon_absent: false,
             network_denied: false,
             authentication_needed: false,
+            start_busy: None,
             unlock: None,
             connectivity: Connectivity::Unknown,
             paths: HashMap::new(),
@@ -1153,6 +1184,26 @@ impl UiModel {
     /// offline, whatever else is known.
     pub fn authentication_needed(&mut self, needed: bool) {
         self.authentication_needed = needed;
+    }
+
+    /// The last start was refused with the profile in use after the
+    /// bound, as the root says it (`Some`), or it was not (`None`): while
+    /// it was, the session's notice is [`SessionNotice::StartBusy`] unless
+    /// the locked notice or the network-denied one takes its place
+    /// (`the_busy_start_notice_shows_below_the_lock_and_network_denied`).
+    /// Kept by the platform for the process, so a model made again -- a
+    /// reattach, a window made again -- shows it too.
+    pub fn start_busy(&mut self, busy: Option<StartBusy>) {
+        self.start_busy = busy;
+    }
+
+    /// [`Intent::RetryStart`] was carried out: Try again shows disabled
+    /// until the root says the start answered. Nothing while no notice
+    /// shows.
+    pub fn retry_start_asked(&mut self) {
+        if self.start_busy.is_some() {
+            self.start_busy = Some(StartBusy::Starting);
+        }
     }
 
     /// The unlock note's four facts, as the last start left them, and
@@ -1571,6 +1622,9 @@ impl UiModel {
             } => return self.delete_route(contact_id, peer, endpoint).is_some(),
             // Not while the contacts are unread (design section 11).
             Intent::AcceptCard(row) => return self.card_actions(*row).contains(intent),
+            // One start at a time: a second while the first runs would be
+            // refused with `LockHeld` itself (identity note §6).
+            Intent::RetryStart => return self.start_busy == Some(StartBusy::Shown),
             _ => return true,
         };
         key.is_some_and(|key| match intent {
@@ -1652,6 +1706,11 @@ impl UiModel {
         // ever be re-opening, and the person can act on the cause.
         if self.network_denied {
             return Some(SessionNotice::NetworkDenied);
+        }
+        // In the place of any other refused start's notice, before what a
+        // facade that does not run says.
+        if let Some(busy) = self.start_busy {
+            return Some(SessionNotice::StartBusy(busy));
         }
         match &self.session {
             SessionState::Ready { .. } | SessionState::Closed => None,

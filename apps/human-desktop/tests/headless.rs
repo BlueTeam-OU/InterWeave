@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use interweave_human_app_core::{Command, FacadeSide, Opener, Update};
 use interweave_human_desktop::app::{App, SlintSurface};
-use interweave_human_desktop::facade_thread::FacadeThread;
+use interweave_human_desktop::facade_thread::{FacadeThread, FromFacade};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{ConversationKey, RuntimeHost, SessionNotice};
@@ -276,11 +276,14 @@ fn a_lock_that_cannot_answer_is_never_read_as_no_daemon() {
 }
 
 /// A facade that could not be built ends its thread at once; closing then
-/// returns at once, not after its whole wait.
+/// returns at once, not after its whole wait. The window has taken the
+/// thread's last message (`Closed`, after `FacadeFailed`) before it closes,
+/// so the close has nothing to receive and must read the thread's ended
+/// sender as the end. Mutation: `close` treating only `Closed` as the end
+/// (`facade_thread.rs`) -- it then waits out its deadline and the elapsed
+/// assertion fails.
 #[test]
 fn closing_a_facade_thread_that_already_ended_returns_at_once() {
-    i_slint_backend_testing::init_no_event_loop();
-    let view = View::new(RuntimeHost::Daemon).expect("a window");
     let thread = FacadeThread::spawn(
         || -> Result<FacadeSide<FakeNode, FakeNode>, _> {
             Err(interweave_human_store::StoreError::AlreadyRead)
@@ -290,11 +293,22 @@ fn closing_a_facade_thread_that_already_ended_returns_at_once() {
         |_| {},
     )
     .expect("the facade thread");
-    let mut alice = App::new(SlintSurface(view), NoLinks, thread);
-    std::thread::sleep(Duration::from_millis(200));
-    alice.pump();
+    let mut taken = Vec::new();
+    let wait = common::Wait::on("the ended thread's last message");
+    while !taken.iter().any(|m| matches!(m, FromFacade::Closed)) {
+        wait.check_showing(|| format!("taken so far: {taken:?}"));
+        taken.extend(thread.take());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        matches!(
+            taken.as_slice(),
+            [FromFacade::FacadeFailed, FromFacade::Closed]
+        ),
+        "the failure, then the end: {taken:?}"
+    );
     let started = Instant::now();
-    assert!(alice.close(Duration::from_secs(5)), "it had ended");
+    assert!(thread.close(Duration::from_secs(5)), "it had ended");
     assert!(
         started.elapsed() < Duration::from_secs(1),
         "returned at once, not at the deadline: {:?}",
@@ -307,7 +321,6 @@ fn closing_a_facade_thread_that_already_ended_returns_at_once() {
 /// without the link.
 #[test]
 fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
 
     use interweave_human_desktop::app::DesktopOpener;
@@ -317,15 +330,13 @@ fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
     let record = dir.path().join("args");
     let marker = dir.path().join("pwned");
     let handler = dir.path().join("handler");
-    std::fs::write(
+    common::write_script(
         &handler,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" > '{}'\n",
             record.display()
         ),
-    )
-    .expect("handler");
-    std::fs::set_permissions(&handler, std::fs::Permissions::from_mode(0o700)).expect("mode");
+    );
 
     let link = format!(
         "https://example.org/a b;touch {} $(touch {})",
@@ -368,7 +379,6 @@ fn a_link_is_one_argument_to_the_handler_and_never_in_a_report() {
 #[test]
 #[cfg(target_os = "linux")]
 fn an_opened_links_process_is_reaped() {
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use interweave_human_desktop::app::DesktopOpener;
@@ -376,8 +386,7 @@ fn an_opened_links_process_is_reaped() {
     static PID: AtomicU32 = AtomicU32::new(0);
     let dir = common::private_tempdir();
     let handler = dir.path().join("handler");
-    std::fs::write(&handler, "#!/bin/sh\nexit 0\n").expect("handler");
-    std::fs::set_permissions(&handler, std::fs::Permissions::from_mode(0o700)).expect("mode");
+    common::write_script(&handler, "#!/bin/sh\nexit 0\n");
     let mut opener =
         DesktopOpener::with(handler, |_| {}).on_spawn(|pid| PID.store(pid, Ordering::SeqCst));
     opener.open("https://example.org/");
@@ -444,7 +453,6 @@ fn a_window_that_stops_taking_holds_the_facade_to_its_bound() {
     use std::collections::BTreeSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use interweave_human_desktop::facade_thread::FromFacade;
     use interweave_human_transport_client::{ClientEvent, OutboundStatus};
 
     const CAPACITY: usize = 4;
@@ -584,47 +592,35 @@ fn a_window_that_stops_taking_holds_the_facade_to_its_bound() {
 
 /// Closing while the facade thread waits on a full queue completes: the
 /// close drains what waits, so the facade reaches the close it was sent.
+/// With one slot and a window that never takes, the facade's first
+/// message (`Started`, which `notify` follows) fills it, and every later
+/// one -- a turn's update, or the `Closed` the close itself asks for --
+/// waits on it; so once the notify is seen, the facade cannot end unless
+/// the close drains. Mutation: `close` waiting on the thread without
+/// receiving (`facade_thread.rs`) -- it runs out its deadline and the
+/// first assertion fails.
 #[test]
 fn closing_while_the_facade_waits_on_a_full_queue_completes() {
-    let (a, b) = FakeNetwork::pair(node(), node());
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NOTIFIED: AtomicUsize = AtomicUsize::new(0);
+    let (a, _b) = FakeNetwork::pair(node(), node());
     let node_a = a.clone();
     let alice = FacadeThread::spawn_bounded(
         move || Ok(facade(node_a)),
         || Ok(true),
-        Arc::new(|| {}),
+        Arc::new(|| {
+            NOTIFIED.fetch_add(1, Ordering::SeqCst);
+        }),
         |_| {},
         1,
     )
     .expect("the facade thread");
-    let wait = common::Wait::on("alice's session");
-    while a.open_sessions() == 0 {
+    let wait = common::Wait::on("alice's session, and the slot filled");
+    while a.open_sessions() == 0 || NOTIFIED.load(Ordering::SeqCst) == 0 {
         wait.check();
         std::thread::sleep(Duration::from_millis(20));
     }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime");
-    let mut bob = facade(b);
-    runtime.block_on(async {
-        let _ = bob.turn(0).await;
-        for n in 0..20 {
-            let _ = bob
-                .execute(
-                    Command::Send {
-                        key: ConversationKey::Direct {
-                            peer: a.peer().clone(),
-                            endpoint: None,
-                        },
-                        draft: format!("filling {n}"),
-                    },
-                    1,
-                )
-                .await;
-        }
-    });
-    // Long enough for the facade to fill the one slot and wait on it.
-    std::thread::sleep(Duration::from_secs(1));
     let started = Instant::now();
     assert!(
         alice.close(Duration::from_secs(5)),

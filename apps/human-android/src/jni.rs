@@ -52,6 +52,12 @@ mod refused {
     /// The Keystore invalidated the store key (ADR-0060 decision 6): the
     /// window shows the key-lost screen.
     pub(super) const STORE_KEY_INVALIDATED: jint = -13;
+    /// Native.kt's `REFUSED_LOCK_HELD`: the runtime refused the start with
+    /// the profile in use (`EmbeddedRefused::LockHeld`). A return or a
+    /// recreation retries it (identity note section 6, A return or a
+    /// recreation); the window's notice is `IdStartBusy`, told apart by
+    /// the hub's `StoreAnswer::ProfileBusy`.
+    pub(super) const LOCK_HELD: jint = -14;
 }
 
 /// One line to the platform's log, under the app's tag. A started
@@ -246,6 +252,7 @@ fn refusal(why: &StartRefused) -> jint {
     log(&format!("the network service did not start: {why:?}"));
     match why {
         StartRefused::Runtime(EmbeddedRefused::NetworkDenied(_)) => refused::NETWORK_DENIED,
+        StartRefused::Runtime(EmbeddedRefused::LockHeld(_)) => refused::LOCK_HELD,
         StartRefused::Runtime(_) => refused::RUNTIME,
         StartRefused::NoHumanEndpoint => refused::ENDPOINT,
         StartRefused::StoreNeedsRecovery => refused::STORE_RECOVERY,
@@ -647,6 +654,35 @@ extern "system" fn Java_org_interweave_human_DebugHooks_answerNextSealAlreadyPro
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
+/// `DebugHooks.refuseNextStartsBusy(starts)`, the debug build's hook for
+/// identity note section 9's acceptance 12 and 15 (`IdStartBusy`), armed
+/// from the launch's extras (`DebugHooks.fromLaunch`): each of the next
+/// `starts` service starts is refused with the profile in use
+/// (`EmbeddedRefused::LockHeld`) after its custody step, as a profile
+/// another host holds refuses it. With `holdStartMs` the refusal comes
+/// after the bound. Debug only, as
+/// [`Java_org_interweave_human_DebugHooks_refuseNextStoreOpen`].
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextStartsBusy<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    starts: jint,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        ServiceHost::global().refuse_next_starts_busy(u32::try_from(starts).unwrap_or(0));
+        log(&format!(
+            "busy-start hook: the next {starts} starts answer LockHeld"
+        ));
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `DebugHooks.holdNextStart(ms)`, the debug build's hook for add-a-peer
 /// §8 item 12's start that has not answered within the bound, armed from
 /// the launch's extras (`DebugHooks.fromLaunch`): the next service start
@@ -1018,6 +1054,24 @@ extern "system" fn Java_org_interweave_human_Native_shown<'caller>(
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::onboard::window_shown(shown);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.showingStarts()`: the showing `onStart` began starts the
+/// service again, just after this returns.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_showingStarts<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::showing_starts();
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

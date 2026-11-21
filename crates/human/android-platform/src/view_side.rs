@@ -22,7 +22,7 @@
 //! (a refused or discarded store's rows never come back).
 
 use interweave_human_app_core::{ModelSide, Opener, Surface};
-use interweave_human_ui_model::ConnectPhase;
+use interweave_human_ui_model::{ConnectPhase, StartBusy};
 
 use crate::hub::{StoreAnswer, StoreGeneration, ToView, UnlockSaid};
 
@@ -56,6 +56,9 @@ pub struct ViewSide<S: Surface, O: Opener> {
     /// lock is said while nothing runs, its drafts carried by the next
     /// start.
     kept: Option<ModelSide<S, O>>,
+    /// `IdStartBusy`'s notice, as the hub last said it: the process's,
+    /// so every model made here shows it.
+    busy: Option<StartBusy>,
 }
 
 impl<S: Surface, O: Opener> ViewSide<S, O> {
@@ -73,6 +76,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             unlock: None,
             stopped: None,
             kept: None,
+            busy: None,
         }
     }
 
@@ -117,6 +121,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 // model keeps what the hub last said of it.
                 self.side.network_access(self.network);
                 self.side.authentication_needed(self.authentication);
+                self.side.start_busy(self.busy);
                 self.say_unlock();
                 if !running && self.authentication {
                     self.show_kept();
@@ -148,6 +153,10 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 self.unlock = Some(said);
                 self.say_unlock();
             }
+            ToView::StartBusy(busy) => {
+                self.busy = busy;
+                self.side.start_busy(busy);
+            }
             ToView::Store(answer, generation) => {
                 // Any other answer is a start that ran or was refused for
                 // a reason other than the lock: what it showed replaced the
@@ -174,6 +183,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
         if let Some(mut kept) = self.kept.take() {
             kept.network_access(self.network);
             kept.authentication_needed(self.authentication);
+            kept.start_busy(self.busy);
             kept.carry_drafts(self.side.drafts());
             kept.remade();
             self.side = kept;
@@ -213,6 +223,19 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             return true;
         }
         self.running && self.side.model().connect_phase() != ConnectPhase::Owed
+    }
+
+    /// Whether the start a held screen waits on was refused with the
+    /// profile in use (identity note §6): an answer counted past
+    /// `asked_at`, as [`start_decided`](Self::start_decided) reads one,
+    /// that is [`StoreAnswer::ProfileBusy`]. Before the bound the screen
+    /// shows `IdStartBusy` rather than handing over to Chats; after it,
+    /// Chats shows the notice ([`ToView::StartBusy`]).
+    #[must_use]
+    pub fn start_busy(&self, asked_at: StoreGeneration) -> bool {
+        self.store.is_some_and(|(answer, generation)| {
+            generation > asked_at && answer == StoreAnswer::ProfileBusy
+        })
     }
 
     /// Whether the start a held C4 or R4 waits on ran and then ended
@@ -260,7 +283,7 @@ mod tests {
     use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
     use interweave_human_client_api::{ClientEvent, Origin, Received, SessionState};
     use interweave_human_core::RowId;
-    use interweave_human_ui_model::{SessionNotice, UiModel, ViewEvent};
+    use interweave_human_ui_model::{SessionNotice, StartBusy, UiModel, ViewEvent};
     use interweave_profile_identity::ProfileIdentity;
     use interweave_transport_api::EndpointId;
 
@@ -940,5 +963,88 @@ mod tests {
         assert!(!pump(&mut side, &mut link));
         assert_eq!(side.start(), Some(next), "the return's start runs");
         assert!(side.start_ended(asked_at), "still ended");
+    }
+
+    /// `IdStartBusy` after the bound (identity note §6, A start refused
+    /// with the profile in use after the bound; §11d Q12): a held
+    /// screen's start refused with the profile in use is told apart from
+    /// any other refused start by its answer -- this start's, counted past
+    /// the ask, never an earlier one an attach hears again -- and Chats
+    /// shows the notice, never `NoDaemon` and never the locked notice. The
+    /// notice is the process's: a reattach (a foreground-only Home and
+    /// return) shows it, and a model made again at a stop keeps it. A
+    /// return's retry shows it with Try again disabled until that start
+    /// answers; `LockHeld` again shows it enabled; any other answer, or a
+    /// new launch's start, takes it away.
+    ///
+    /// Mutations: the hub not saying the notice at an attach, the fresh
+    /// model at `Running` not given it, `start_busy` reading an earlier
+    /// answer, or `start_asked(false)` keeping it, fails here.
+    #[test]
+    fn a_start_refused_busy_shows_its_notice_until_another_answer() {
+        let busy = |side: &ViewSide<Blank, Blank>| model(side).session_notice();
+        let hub = crate::Hub::new();
+        hub.set_store_answer(StoreAnswer::ProfileBusy);
+        // A held screen asks its start: an earlier busy answer is not its.
+        hub.start_asked(false);
+        let asked_at = hub.store_generation();
+        let mut link = hub.attach(std::sync::Arc::new(|| {}));
+        let mut side = view_side();
+        assert!(!pump(&mut side, &mut link));
+        assert!(!side.start_busy(asked_at), "an earlier start's answer");
+        assert!(side.start_busy(StoreGeneration::default()), "control: read");
+        assert_eq!(busy(&side), Some(SessionNotice::NoDaemon), "control");
+
+        hub.set_store_answer(StoreAnswer::ProfileBusy);
+        assert!(!pump(&mut side, &mut link));
+        assert!(side.start_busy(asked_at), "this start's: refused busy");
+        assert!(side.start_decided(asked_at), "and decided");
+        assert_eq!(
+            busy(&side),
+            Some(SessionNotice::StartBusy(StartBusy::Shown)),
+            "in NoDaemon's place, no locked notice"
+        );
+
+        // A foreground-only Home and return: attached again.
+        let mut link = hub.attach(std::sync::Arc::new(|| {}));
+        let mut side = view_side();
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(
+            busy(&side),
+            Some(SessionNotice::StartBusy(StartBusy::Shown))
+        );
+        // The return's retry: shown, Try again disabled, through a model
+        // made again.
+        hub.start_asked(true);
+        assert!(!pump(&mut side, &mut link));
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(
+            busy(&side),
+            Some(SessionNotice::StartBusy(StartBusy::Starting))
+        );
+        hub.set_store_answer(StoreAnswer::ProfileBusy);
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(
+            busy(&side),
+            Some(SessionNotice::StartBusy(StartBusy::Shown)),
+            "LockHeld again: Try again enabled"
+        );
+        hub.set_store_answer(StoreAnswer::OtherRefusal);
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(busy(&side), Some(SessionNotice::NoDaemon), "another answer");
+
+        // A new launch's start: its own answer, never this notice.
+        hub.set_store_answer(StoreAnswer::ProfileBusy);
+        assert!(!pump(&mut side, &mut link));
+        hub.start_asked(false);
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(busy(&side), Some(SessionNotice::NoDaemon), "a launch");
+        hub.start_asked(true);
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(
+            busy(&side),
+            Some(SessionNotice::NoDaemon),
+            "a retry with no notice shows none"
+        );
     }
 }

@@ -309,7 +309,7 @@ impl StartRules {
 mod tests {
     use interweave_human_app_core::{ModelSide, Update};
     use interweave_human_client_api::{AddressList, TrustList};
-    use interweave_human_ui_model::{UiModel, ViewEvent};
+    use interweave_human_ui_model::{StartBusy, UiModel, ViewEvent};
     use interweave_profile_identity::ProfileIdentity;
 
     use super::*;
@@ -726,5 +726,60 @@ mod tests {
         rules.count_from(1);
         let mut side = unread_side(1);
         assert_eq!(rules.turn(&mut side, false, 1, 10).launch, Launch::Armed);
+    }
+
+    /// Acceptance 15's Connect run of a start refused with the profile
+    /// in use after the bound (identity note §6, Connect;
+    /// add-a-peer §5.1, A launch with Connect still owed): a held R4's
+    /// start passes its bound unanswered, so its model would be
+    /// deferred, and is then refused `LockHeld`, which drops that
+    /// deferral; something is opened from Chats meanwhile. Try again's
+    /// start is a later start the person asked for: its openings count
+    /// from the press, and its success opens Connect when both reads
+    /// answer empty within the bound of that success.
+    ///
+    /// Mutations: `start_decided` not reading `ProfileBusy` as a refusal
+    /// (the deferral kept: Chats, never Connect), or the press not
+    /// counting from itself (the earlier opening gives Connect up), fails
+    /// here.
+    #[test]
+    fn a_busy_starts_try_again_owes_connect_as_a_later_start() {
+        let hub = Hub::new();
+        let mut rules = StartRules::new();
+        rules.count_from(0);
+        let mut side = ViewSide::new(|| {
+            let mut side = ModelSide::new(Blank, Blank);
+            side.connect_owed();
+            side
+        });
+        let asked_at = hub.store_generation();
+        let _ = rules.turn(&mut side, true, 0, 0);
+        rules.bound_passed(asked_at, false);
+        hub.set_store_answer(StoreAnswer::ProfileBusy);
+        side.apply(ToView::Store(
+            StoreAnswer::ProfileBusy,
+            hub.store_generation(),
+        ))
+        .expect("applied");
+        side.apply(ToView::StartBusy(Some(StartBusy::Shown)))
+            .expect("applied");
+        // Chats, refused: a conversation opened before the press.
+        let _ = rules.turn(&mut side, false, 2, 100);
+        // Try again.
+        rules.count_from(2);
+        side.apply(ToView::StartBusy(Some(StartBusy::Starting)))
+            .expect("applied");
+        side.apply(ToView::Start(1)).expect("applied");
+        side.apply(ToView::Running(true)).expect("applied");
+        let turned = rules.turn(&mut side, false, 2, 5_000);
+        assert!(turned.started);
+        assert_eq!(turned.launch, Launch::Armed, "the bound from its success");
+        read_empty(&mut side);
+        let _ = rules.turn(&mut side, false, 2, 5_000 + BOUND_MS - 1);
+        assert_eq!(
+            side.side().model().connect_phase(),
+            ConnectPhase::Open,
+            "Connect over Chats"
+        );
     }
 }
