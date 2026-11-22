@@ -20,7 +20,12 @@ const P: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 fn store() -> (tempfile::TempDir, std::path::PathBuf, HumanStore) {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     (dir, path, store)
 }
 
@@ -175,7 +180,12 @@ fn a_reclassification_rewrites_every_row_and_records_its_version() {
     drop(store);
 
     // Durable: a reopened store reads the new kinds and the version.
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert_eq!(
         store.inbound_kind_version().expect("version").as_deref(),
         Some("2")

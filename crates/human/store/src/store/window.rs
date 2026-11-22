@@ -153,7 +153,8 @@ pub struct InboundCounts {
 
 /// Shown rows of one table, by conversation, between two bounds, in
 /// `order`. `{table}`, `{read}` and `{direction}` are literals of this
-/// module; `{conversation}` is one of the two filters below.
+/// module; `{conversation}` is one of the two filters below, each of the
+/// identity `?8` (schema v14).
 fn page_sql(table: &str, conversation: &str, order: Order) -> String {
     let direction = match order {
         Order::NewestFirst => "DESC",
@@ -179,11 +180,11 @@ fn page_sql(table: &str, conversation: &str, order: Order) -> String {
 /// A direct conversation: the peer and its endpoint key, served by the
 /// `_by_conversation` index. A broadcast row's endpoint key is empty, and a
 /// direct row's never is, so no channel row matches.
-const DIRECT: &str = "source_peer = ?1 AND source_endpoint_key = ?2";
+const DIRECT: &str = "local_endpoint_id = ?8 AND source_peer = ?1 AND source_endpoint_key = ?2";
 
 /// A channel: its key alone, served by the `_by_channel` index. `?2` is
 /// unused and bound empty so both filters take the same parameters.
-const CHANNEL: &str = "channel_key = ?1 AND ?2 = ''";
+const CHANNEL: &str = "local_endpoint_id = ?8 AND channel_key = ?1 AND ?2 = ''";
 
 /// The badge's count of direct conversations, and of channels, and the
 /// hidden counts: each read from a `_by_kind` index alone, no row read
@@ -192,19 +193,24 @@ const CHANNEL: &str = "channel_key = ?1 AND ?2 = ''";
 /// from an index alone, and named rather than left to the planner, which with no
 /// statistics picks a narrower index and reads the rows. A kind this build
 /// does not know -- a newer build's -- is
-/// neither text nor card, so it is hidden rather than counted.
+/// neither text nor card, so it is hidden rather than counted. Each of the
+/// identity `?1`, which leads every `_by_kind` index (schema v14).
 const DIRECT_COUNTS: &str = "SELECT source_peer, source_endpoint, COUNT(*)
    FROM unread_inbound INDEXED BY unread_inbound_by_kind
-  WHERE channel_id IS NULL AND source_endpoint IS NOT NULL AND kind IN ('text', 'card')
+  WHERE local_endpoint_id = ?1 AND channel_id IS NULL AND source_endpoint IS NOT NULL
+    AND kind IN ('text', 'card')
   GROUP BY source_peer, source_endpoint";
 const CHANNEL_COUNTS: &str = "SELECT channel_id, COUNT(*)
    FROM unread_inbound INDEXED BY unread_inbound_by_kind
-  WHERE channel_id IS NOT NULL AND kind IN ('text', 'card')
+  WHERE local_endpoint_id = ?1 AND channel_id IS NOT NULL AND kind IN ('text', 'card')
   GROUP BY channel_id";
 const INBOUND_COUNTS: &str =
-    "SELECT (SELECT COUNT(*) FROM unread_inbound INDEXED BY unread_inbound_by_kind WHERE kind NOT IN ('text', 'card')),
-            (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind NOT IN ('text', 'card')),
-            (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind WHERE kind IN ('text', 'card'))";
+    "SELECT (SELECT COUNT(*) FROM unread_inbound INDEXED BY unread_inbound_by_kind
+              WHERE local_endpoint_id = ?1 AND kind NOT IN ('text', 'card')),
+            (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind
+              WHERE local_endpoint_id = ?1 AND kind NOT IN ('text', 'card')),
+            (SELECT COUNT(*) FROM kept_inbound INDEXED BY kept_inbound_by_kind
+              WHERE local_endpoint_id = ?1 AND kind IN ('text', 'card'))";
 
 /// The conversations with a shown row: a direct one by its peer and
 /// endpoint, a channel by its id, from each inbound table's kind index.
@@ -213,54 +219,49 @@ const SHOWN_CONVERSATIONS: &str = "SELECT DISTINCT
         CASE WHEN channel_id IS NULL THEN source_endpoint END,
         channel_id
    FROM unread_inbound INDEXED BY unread_inbound_by_kind
-  WHERE kind IN ('text', 'card')
+  WHERE local_endpoint_id = ?1 AND kind IN ('text', 'card')
  UNION
  SELECT DISTINCT
         CASE WHEN channel_id IS NULL THEN source_peer END,
         CASE WHEN channel_id IS NULL THEN source_endpoint END,
         channel_id
    FROM kept_inbound INDEXED BY kept_inbound_by_kind
-  WHERE kind IN ('text', 'card')";
+  WHERE local_endpoint_id = ?1 AND kind IN ('text', 'card')";
 
 /// Whether a direct conversation stores a shown row of an id, unread or
-/// kept: each table probed on its `_by_message` index (schema v13) at all
-/// five columns, the row never read, so no payload is.
+/// kept: each table probed on its `_by_message` index (schema v13, led by
+/// the identity `?4` since v14) at all six columns, the row never read, so
+/// no payload is.
 const REPLY_TARGET_DIRECT: &str = "SELECT EXISTS (
      SELECT 1 FROM unread_inbound INDEXED BY unread_inbound_by_message
-      WHERE app_message_id = ?1 AND channel_id IS NULL
+      WHERE local_endpoint_id = ?4 AND app_message_id = ?1 AND channel_id IS NULL
         AND source_peer = ?2 AND source_endpoint = ?3 AND kind IN ('text', 'card'))
   OR EXISTS (
      SELECT 1 FROM kept_inbound INDEXED BY kept_inbound_by_message
-      WHERE app_message_id = ?1 AND channel_id IS NULL
+      WHERE local_endpoint_id = ?4 AND app_message_id = ?1 AND channel_id IS NULL
         AND source_peer = ?2 AND source_endpoint = ?3 AND kind IN ('text', 'card'))";
 
-/// The same for a channel, whoever published: the id and the channel, the
-/// kind read from the index entry.
+/// The same for a channel, whoever published: the identity `?3`, the id
+/// and the channel, the kind read from the index entry.
 const REPLY_TARGET_CHANNEL: &str = "SELECT EXISTS (
      SELECT 1 FROM unread_inbound INDEXED BY unread_inbound_by_message
-      WHERE app_message_id = ?1 AND channel_id = ?2 AND kind IN ('text', 'card'))
+      WHERE local_endpoint_id = ?3 AND app_message_id = ?1 AND channel_id = ?2
+        AND kind IN ('text', 'card'))
   OR EXISTS (
      SELECT 1 FROM kept_inbound INDEXED BY kept_inbound_by_message
-      WHERE app_message_id = ?1 AND channel_id = ?2 AND kind IN ('text', 'card'))";
+      WHERE local_endpoint_id = ?3 AND app_message_id = ?1 AND channel_id = ?2
+        AND kind IN ('text', 'card'))";
 
-/// A peer's distinct endpoints: its conversations by a range on the
-/// index's key, its contacts' routes by the route index, never a scan of
-/// either (`the_endpoint_count_reads_its_indexes`).
+/// A peer's distinct endpoints under the identity `?1` (schema v14: each
+/// identity counted alone): its conversations by the index on `(identity,
+/// peer)`, never the text of a conversation id, and its contacts' routes by
+/// the routes' key on the same, never a scan of either
+/// (`the_endpoint_count_reads_its_indexes`).
 const ENDPOINT_COUNT: &str = "SELECT COUNT(*) FROM (
-     SELECT endpoint_id FROM conversation_index
-      WHERE conversation_id > ?1 AND conversation_id < ?2
+     SELECT endpoint_id FROM conversation_index INDEXED BY conversation_index_by_peer
+      WHERE local_endpoint_id = ?1 AND peer_id = ?2
      UNION
-     SELECT endpoint_id FROM contact_routes WHERE peer_id = ?3)";
-
-/// The bounds of `peer`'s direct conversation ids, `direct/<peer>/...`,
-/// for a range read on the index's key: `/` sorts just before `0`, so
-/// every id of this peer, and no other's, is between them.
-fn conversation_id_range(peer: &TransportIdentity) -> (String, String) {
-    (
-        format!("direct/{}/", peer.as_str()),
-        format!("direct/{}0", peer.as_str()),
-    )
-}
+     SELECT endpoint_id FROM contact_routes WHERE local_endpoint_id = ?1 AND peer_id = ?2)";
 
 /// The rank of a table among rows received at one instant: kept rows rank
 /// above unread ones, so in a newest-first page a kept row comes first
@@ -273,19 +274,22 @@ const fn rank(table: BackupTable) -> u8 {
     }
 }
 
-/// Index the direct conversation of `peer`'s `endpoint`, if it is not
-/// already: written with the conversation's first row, in its
+/// Index `local`'s direct conversation with `peer`'s `endpoint`, if it is
+/// not already: written with the conversation's first row, in its
 /// transaction (STATE.md, the per-peer endpoint bound).
 pub(crate) fn index_direct(
     tx: &rusqlite::Connection,
+    local: &str,
     peer: &TransportIdentity,
     endpoint: &EndpointId,
 ) -> rusqlite::Result<()> {
     tx.execute(
-        "INSERT OR IGNORE INTO conversation_index (conversation_id, peer_id, endpoint_id)
-         VALUES (?1, ?2, ?3)",
+        "INSERT OR IGNORE INTO conversation_index
+             (conversation_id, local_endpoint_id, peer_id, endpoint_id)
+         VALUES (?1, ?2, ?3, ?4)",
         params![
             crate::direct_conversation_id(peer, endpoint),
+            local,
             peer.as_str(),
             endpoint.as_str()
         ],
@@ -346,8 +350,10 @@ pub(crate) fn backfill_conversation_index(
     ] {
         tx.execute(
             &format!(
-                "INSERT OR IGNORE INTO conversation_index (conversation_id, peer_id, endpoint_id)
-                 SELECT DISTINCT 'direct/' || {peer} || '/' || {endpoint}, {peer}, {endpoint}
+                "INSERT OR IGNORE INTO conversation_index
+                     (conversation_id, local_endpoint_id, peer_id, endpoint_id)
+                 SELECT DISTINCT 'direct/' || {peer} || '/' || {endpoint}, local_endpoint_id,
+                        {peer}, {endpoint}
                    FROM {table}
                   WHERE {channel} IS NULL AND {endpoint} IS NOT NULL"
             ),
@@ -355,8 +361,10 @@ pub(crate) fn backfill_conversation_index(
         )?;
     }
     tx.execute(
-        "INSERT OR IGNORE INTO conversation_index (conversation_id, peer_id, endpoint_id)
-         SELECT DISTINCT 'direct/' || peer_id || '/' || endpoint_id, peer_id, endpoint_id
+        "INSERT OR IGNORE INTO conversation_index
+             (conversation_id, local_endpoint_id, peer_id, endpoint_id)
+         SELECT DISTINCT 'direct/' || peer_id || '/' || endpoint_id, local_endpoint_id, peer_id,
+                endpoint_id
            FROM contact_routes",
         [],
     )?;
@@ -369,24 +377,25 @@ pub(crate) fn backfill_conversation_index(
 }
 
 impl HumanStore {
-    /// How many distinct endpoints of `peer` the store holds: its indexed
-    /// direct conversations and the routes kept under contacts, together
-    /// (HUMAN-CHAT.md's malformed rule; STATE.md). Two indexed reads.
+    /// How many distinct endpoints of `peer` this identity holds: its
+    /// indexed direct conversations and the routes kept under its
+    /// contacts, together (HUMAN-CHAT.md's malformed rule; STATE.md), each
+    /// identity counted alone from schema v14
+    /// (`the_endpoint_bound_is_counted_per_identity`). Two indexed reads.
     ///
     /// # Errors
     /// A storage error.
     pub fn remote_endpoints(&self, peer: &TransportIdentity) -> Result<u64, StoreError> {
-        let (from, to) = conversation_id_range(peer);
-        let count: i64 =
-            self.conn
-                .query_row(ENDPOINT_COUNT, params![from, to, peer.as_str()], |r| {
-                    r.get(0)
-                })?;
+        let count: i64 = self.conn.query_row(
+            ENDPOINT_COUNT,
+            params![self.identity.as_str(), peer.as_str()],
+            |r| r.get(0),
+        )?;
         Ok(u64::try_from(count).unwrap_or(0))
     }
 
-    /// Whether the store already holds `endpoint` of `peer`, as an indexed
-    /// conversation or a contact's route.
+    /// Whether this identity already holds `endpoint` of `peer`, as an
+    /// indexed conversation or a contact's route.
     ///
     /// # Errors
     /// A storage error.
@@ -396,13 +405,11 @@ impl HumanStore {
         endpoint: &EndpointId,
     ) -> Result<bool, StoreError> {
         Ok(self.conn.query_row(
-            "SELECT EXISTS (SELECT 1 FROM conversation_index WHERE conversation_id = ?1)
-                 OR EXISTS (SELECT 1 FROM contact_routes WHERE peer_id = ?2 AND endpoint_id = ?3)",
-            params![
-                crate::direct_conversation_id(peer, endpoint),
-                peer.as_str(),
-                endpoint.as_str()
-            ],
+            "SELECT EXISTS (SELECT 1 FROM conversation_index INDEXED BY conversation_index_by_peer
+                             WHERE local_endpoint_id = ?1 AND peer_id = ?2 AND endpoint_id = ?3)
+                 OR EXISTS (SELECT 1 FROM contact_routes
+                             WHERE local_endpoint_id = ?1 AND peer_id = ?2 AND endpoint_id = ?3)",
+            params![self.identity.as_str(), peer.as_str(), endpoint.as_str()],
             |r| r.get(0),
         )?)
     }
@@ -422,15 +429,16 @@ impl HumanStore {
         conversation: &StoreConversation,
         app_message_id: &str,
     ) -> Result<bool, StoreError> {
+        let local = self.identity.as_str();
         Ok(match conversation {
             StoreConversation::Direct { peer, endpoint } => self.conn.query_row(
                 REPLY_TARGET_DIRECT,
-                params![app_message_id, peer.as_str(), endpoint.as_str()],
+                params![app_message_id, peer.as_str(), endpoint.as_str(), local],
                 |r| r.get(0),
             )?,
             StoreConversation::Channel(channel) => self.conn.query_row(
                 REPLY_TARGET_CHANNEL,
-                params![app_message_id, channel.as_str()],
+                params![app_message_id, channel.as_str(), local],
                 |r| r.get(0),
             )?,
         })
@@ -522,7 +530,14 @@ impl HumanStore {
             let mut stmt = self.conn.prepare(&page_sql(name, filter, order))?;
             let rows = stmt.query_map(
                 params![
-                    first, second, older_at, older_row, newer_at, newer_row, fetch
+                    first,
+                    second,
+                    older_at,
+                    older_row,
+                    newer_at,
+                    newer_row,
+                    fetch,
+                    self.identity.as_str()
                 ],
                 InboundRow::read,
             )?;
@@ -600,8 +615,9 @@ impl HumanStore {
     /// A storage error, or a row this build cannot read back.
     pub fn unread_counts(&self) -> Result<Vec<ConversationUnread>, StoreError> {
         let mut out = Vec::new();
+        let local = self.identity.as_str();
         let mut direct = self.conn.prepare(DIRECT_COUNTS)?;
-        let rows = direct.query_map([], |r| {
+        let rows = direct.query_map(params![local], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -621,7 +637,9 @@ impl HumanStore {
             });
         }
         let mut channels = self.conn.prepare(CHANNEL_COUNTS)?;
-        let rows = channels.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let rows = channels.query_map(params![local], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
         for row in rows {
             let (channel, count) = row?;
             out.push(ConversationUnread {
@@ -645,7 +663,7 @@ impl HumanStore {
     pub fn shown_conversations(&self) -> Result<Vec<StoreConversation>, StoreError> {
         let mut out = std::collections::BTreeSet::new();
         let mut stmt = self.conn.prepare(SHOWN_CONVERSATIONS)?;
-        let rows = stmt.query_map([], |r| {
+        let rows = stmt.query_map(params![self.identity.as_str()], |r| {
             Ok((
                 r.get::<_, Option<String>>(0)?,
                 r.get::<_, Option<String>>(1)?,
@@ -679,9 +697,10 @@ impl HumanStore {
     /// A storage error.
     pub fn inbound_counts(&self) -> Result<InboundCounts, StoreError> {
         let (hidden_unread, hidden_kept, kept): (i64, i64, i64) =
-            self.conn.query_row(INBOUND_COUNTS, [], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })?;
+            self.conn
+                .query_row(INBOUND_COUNTS, params![self.identity.as_str()], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?;
         Ok(InboundCounts {
             hidden_unread: u64::try_from(hidden_unread).unwrap_or(0),
             hidden_kept: u64::try_from(hidden_kept).unwrap_or(0),
@@ -721,8 +740,8 @@ impl HumanStore {
             .query_row(
                 "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
                         media_type, payload, received_at, NULL, NULL, kind
-                   FROM unread_inbound WHERE row_id = ?1",
-                params![row_id.get()],
+                   FROM unread_inbound WHERE row_id = ?1 AND local_endpoint_id = ?2",
+                params![row_id.get(), self.identity.as_str()],
                 InboundRow::read,
             )
             .optional()?
@@ -744,7 +763,11 @@ mod tests {
     /// migration 10.
     #[test]
     fn the_window_reads_use_their_indexes() {
-        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         for (table, filter, index) in [
             ("unread_inbound", DIRECT, "unread_inbound_by_conversation"),
             ("kept_inbound", DIRECT, "kept_inbound_by_conversation"),
@@ -758,7 +781,7 @@ mod tests {
                     page_sql(table, filter, super::Order::NewestFirst)
                 ))
                 .expect("plan")
-                .query_map(rusqlite::params!["p", "e", 1, 1, 0, 0, 1], |r| {
+                .query_map(rusqlite::params!["p", "e", 1, 1, 0, 0, 1, "me"], |r| {
                     r.get::<_, String>(3)
                 })
                 .expect("rows")
@@ -780,7 +803,11 @@ mod tests {
     /// migration 11 not run, the kept kind index narrow.
     #[test]
     fn the_counts_read_a_covering_index_alone() {
-        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         for (sql, indexes) in [
             (
                 DIRECT_COUNTS,
@@ -809,7 +836,7 @@ mod tests {
                 .conn
                 .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
                 .expect("plan")
-                .query_map([], |r| r.get::<_, String>(3))
+                .query_map(["me"], |r| r.get::<_, String>(3))
                 .expect("rows")
                 .collect::<Result<_, _>>()
                 .expect("plan rows");
@@ -841,10 +868,14 @@ mod tests {
     /// bound by `channel_key`, the generated form.
     #[test]
     fn a_reply_target_is_read_from_an_index_alone() {
-        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         for (sql, params) in [
-            (REPLY_TARGET_DIRECT, &["m", "p", "e"][..]),
-            (REPLY_TARGET_CHANNEL, &["m", "c"][..]),
+            (REPLY_TARGET_DIRECT, &["m", "p", "e", "me"][..]),
+            (REPLY_TARGET_CHANNEL, &["m", "c", "me"][..]),
         ] {
             let plan: Vec<String> = store
                 .conn
@@ -876,17 +907,23 @@ mod tests {
         }
     }
 
-    /// A peer's endpoint count reads the conversation index by a range on
-    /// its key and the routes by their index, never a scan of either table.
-    /// Mutation: the range replaced by a filter on `peer_id`.
+    /// A peer's endpoint count reads the conversation index by its
+    /// `(identity, peer)` index and the routes by their key on the same,
+    /// never a scan of either table (schema v14). Mutation: the index
+    /// rows' filter on the identity dropped. That the count is the
+    /// identity's alone is `the_endpoint_bound_is_counted_per_identity`'s.
     #[test]
     fn the_endpoint_count_reads_its_indexes() {
-        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let plan: Vec<String> = store
             .conn
             .prepare(&format!("EXPLAIN QUERY PLAN {ENDPOINT_COUNT}"))
             .expect("plan")
-            .query_map(rusqlite::params!["a", "b", "p"], |r| r.get::<_, String>(3))
+            .query_map(rusqlite::params!["me", "p"], |r| r.get::<_, String>(3))
             .expect("rows")
             .collect::<Result<_, _>>()
             .expect("plan rows");
@@ -896,7 +933,8 @@ mod tests {
             "{plan:?}"
         );
         assert!(
-            plan.iter().any(|s| s.contains("contact_routes_by_route")),
+            plan.iter()
+                .any(|s| s.starts_with("SEARCH contact_routes USING")),
             "{plan:?}"
         );
         assert!(

@@ -30,6 +30,7 @@ fn store() -> (tempfile::TempDir, HumanStore) {
     let dir = common::private_tempdir();
     let store = HumanStore::open(
         &dir.path().join("state").join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("opens");
@@ -781,16 +782,38 @@ fn a_v12_store_gains_the_message_indexes_and_finds_an_earlier_target() {
     store
         .commit_unread_inbound(&direct(1, P, 1, InboundKind::Text))
         .expect("committed");
+    // A card accepted on the route, so schema v14, which every open from
+    // v12 runs as well, rebinds the conversation to the id its key derives
+    // rather than discarding it (STATE.md §Migrations (b), (c)).
+    let ada = interweave_test_support::endpoint_keys::signing_key("ada");
+    store
+        .accept_card(
+            &interweave_human_store::AcceptedCard {
+                peer: &peer(P),
+                endpoint: &human(),
+                name: "Ada",
+                surname: None,
+                identity_key: ada.verifying_key().to_bytes(),
+                photo: None,
+            },
+            1,
+        )
+        .expect("a contact");
     drop(store);
     let conn = rusqlite::Connection::open(&path).expect("raw");
     conn.execute_batch(&format!("{}PRAGMA user_version = 12;", common::UNDO_V13))
         .expect("back to v12");
     drop(conn);
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates to v13");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("migrates to v13");
     let conversation = StoreConversation::Direct {
         peer: peer(P),
-        endpoint: human(),
+        endpoint: interweave_test_support::endpoint_keys::endpoint_id("ada"),
     };
     assert!(
         store

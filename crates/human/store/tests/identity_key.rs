@@ -429,6 +429,7 @@ fn the_store_directory_removed_and_made_again_leaves_every_key() {
     let store = interweave_human_store::HumanStore::open_profile(
         &paths,
         &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         interweave_human_store::StoreOptions::default(),
     )
     .expect("a store");
@@ -438,6 +439,7 @@ fn the_store_directory_removed_and_made_again_leaves_every_key() {
         interweave_human_store::HumanStore::open_profile(
             &paths,
             &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             interweave_human_store::StoreOptions::default(),
         )
         .expect("a new store"),

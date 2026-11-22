@@ -111,7 +111,12 @@ fn on_the_full_mount(mount: &Path) {
 
     let dir = mount.join("state");
     let path = dir.join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let mut acknowledged = Vec::new();
     let mut refused = None;
     for n in 1..=OFFERED {
@@ -171,7 +176,12 @@ fn on_the_full_mount(mount: &Path) {
         .status()
         .expect("mount runs");
     assert!(grown.success(), "the mount grows: {grown}");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     let held: Vec<u32> = store
         .unread_inbound()
         .expect("read")
