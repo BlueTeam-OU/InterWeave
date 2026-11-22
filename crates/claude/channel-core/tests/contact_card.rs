@@ -56,7 +56,7 @@ fn peer(v: &Value) -> TransportIdentity {
 /// The frozen vectors' signatures bind `source_endpoint`, a derived id,
 /// so any other endpoint judges the same card `SignatureFails`.
 fn source_endpoint(v: &Value) -> EndpointId {
-    EndpointId::parse(
+    EndpointId::parse_derived(
         v["received_on"]["source_endpoint"]
             .as_str()
             .expect("an endpoint"),
