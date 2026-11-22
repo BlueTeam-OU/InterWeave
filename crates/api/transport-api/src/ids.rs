@@ -552,11 +552,22 @@ macro_rules! deserialize_via_parse {
     };
 }
 
-// Deserialization goes through `parse` for every one of these. A derived
-// impl would build a value that never satisfied its grammar, which is the
-// whole failure mode these newtypes exist to prevent — and JSON arriving
-// over IPC is exactly the untrusted path where it would happen.
-deserialize_via_parse!(EndpointId);
+// Deserialization goes through each type's parser. A derived impl would
+// build a value that never satisfied its grammar, which is the whole
+// failure mode these newtypes exist to prevent — and JSON arriving over
+// IPC is exactly the untrusted path where it would happen.
+//
+// An `EndpointId` deserializes by `parse_derived` alone: every schema that
+// carries one demands the derived grammar (ADR-0067), and the
+// transitional `parse` would let a retired label in through any JSON or
+// YAML boundary (`a_label_does_not_deserialize_as_an_endpoint_id`,
+// `negative_conformance`).
+impl<'de> Deserialize<'de> for EndpointId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::parse_derived(s).map_err(serde::de::Error::custom)
+    }
+}
 deserialize_via_parse!(ChannelId);
 deserialize_via_parse!(TransportIdentity);
 
@@ -776,6 +787,22 @@ mod tests {
         assert_eq!(serde_json::from_str::<EndpointId>(&json).expect("de"), id);
         let bad = format!("\"{}\"", "Qm".to_owned() + &"1".repeat(44));
         assert!(serde_json::from_str::<EndpointId>(&bad).is_err());
+    }
+
+    /// The retired grammar does not come in through serde: a label, and a
+    /// 52-character string that is not a derived id, are refused where the
+    /// derived id beside them (the control) round-trips.
+    #[test]
+    fn a_label_does_not_deserialize_as_an_endpoint_id() {
+        let id = EndpointId::from_ed25519_public(&KEYS[1]);
+        let control = serde_json::to_string(&id).expect("ser");
+        assert_eq!(
+            serde_json::from_str::<EndpointId>(&control).expect("de"),
+            id
+        );
+        for bad in ["\"human\"".to_owned(), format!("\"{}\"", "x".repeat(52))] {
+            assert!(serde_json::from_str::<EndpointId>(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
@@ -1010,7 +1037,9 @@ mod tests {
         let omitted = format!(r#"{{"peer":"{TEST_PEER}"}}"#);
         let d: DirectDestination = serde_json::from_str(&omitted).expect("parses");
         assert_eq!(d.endpoint, None);
-        let named = format!(r#"{{"peer":"{TEST_PEER}","endpoint":"human"}}"#);
-        assert!(serde_json::from_str::<DirectDestination>(&named).is_ok());
+        let id = EndpointId::from_ed25519_public(&KEYS[1]);
+        let named = format!(r#"{{"peer":"{TEST_PEER}","endpoint":"{}"}}"#, id.as_str());
+        let d: DirectDestination = serde_json::from_str(&named).expect("parses");
+        assert_eq!(d.endpoint, Some(id));
     }
 }
