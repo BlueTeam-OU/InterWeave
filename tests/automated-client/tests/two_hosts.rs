@@ -17,8 +17,10 @@
 //! no real latency, loss, MTU or clock skew from a tunnel and no real
 //! overlay in the path; no NAT; no second uid in the case itself
 //! (decision 5's port rule is measured on the host,
-//! `packaging/linux/evidence/2026-10-27-second-uid-port.md`, and still
-//! owed as a CI case); a real second host, which needs a runner on a
+//! `packaging/linux/evidence/2026-10-27-second-uid-port.md`, and its
+//! refusal is held in CI by a one-host case of its own,
+//! `a_port_another_account_holds_refuses_the_start` in
+//! `automated_client.rs`, ADR-0055 A 2026-11-18); a real second host, which needs a runner on a
 //! second machine or the hosted edge itself as a test peer.
 
 #![cfg(target_os = "linux")]
