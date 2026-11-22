@@ -552,6 +552,9 @@ impl Root {
     }
 
     fn attach(view: Rc<RefCell<View>>) -> Self {
+        // The line the recreation device cases read (D1, D3 of
+        // device-runs/identity-recreation-cases.md).
+        log("the chats attach to the window");
         let link = ServiceHost::global().hub().attach(Arc::new(|| {
             invoke_on_window(turn);
         }));
