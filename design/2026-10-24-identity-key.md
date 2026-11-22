@@ -242,8 +242,8 @@ conditions, written below; the store's text for the link and the
 list, and the ADR amendments, are architect-cto's supply on the j185
 batch, not this note's. The list's bound and what the step does at
 the trust overlay's row bound wait for Q-bound (§12), which names the
-acceptance it blocks. It is built with plan §30 steps 1–3, once an identity
-can be created and removed through the administrative boundary (ADR-0061
+acceptance items it blocks. Part 2 is built with plan §30 steps 1–3,
+once an identity can be created and removed through the administrative boundary (ADR-0061
 decisions 2 and 7). Until then, part 1's interim stands: `KeyNoNewKey`
 and no action (§3, §4.1). From the Stage 22 release this replaces the
 Stage 21 "Make a new key", which git history keeps (ADR-0067
@@ -256,8 +256,8 @@ who gets what, that messages to the old identity stop reaching them,
 what the new identity takes from the old one (the people it trusts
 and a copy of its contacts), and what happens to the old identity.
 The rulings' common reason (REPLY 01a20525): a replacement is the
-person's own confirmed act saying the new identity stands for the old
-one, so what the old one held about other people may follow where the
+person's own confirmed act saying the new identity takes the place of
+the old one, so what the old one held about other people may follow where the
 confirmation says so; nothing about the old identity itself follows,
 not its key, its EndpointId, its route or its messages (ADR-0061
 decision 9).
@@ -284,16 +284,17 @@ dialog; on Android `AlertDialog`'s placement). In order:
 
 - title `KeyReplaceTitle`: "Replace {identity} with a new identity?";
 - `KeyReplaceBody`, one paragraph, every case: InterWeave makes a new
-  identity with this card's name and photo; to your contacts it is a
-  different identity, and they get its card only when you share it
-  with them; messages they send to {identity} no longer reach you.
+  identity with this card's name and photo; to your contacts the new
+  identity is a different identity from {identity}, and they get the new identity's card only when
+  you share that card with them; messages they send to {identity}
+  will no longer reach you.
   It says nothing of when contacts can see the new identity itself: a
   trusted peer's directory query shows the new endpoint once it is
   advertised, before any card is shared (REPLY 01a20525, Q-trust), so
   "only after a share" is true of the card and of nothing else;
 - `KeyReplaceCarries`, every case: the new identity trusts the people
-  {identity} trusts and gets a copy of its contacts; nothing is sent
-  to them (Q-trust, Q-carry). The copy admits nobody new to the node:
+  that {identity} trusts and gets a copy of the contacts of
+  {identity}; nothing is sent to these people (Q-trust, Q-carry). The copy admits nobody new to the node:
   those peers are already in its admission set;
 - what happens to the old identity, one of:
   - an added identity: `KeyReplaceRemoves` ("{identity} is then
@@ -303,8 +304,9 @@ dialog; on Android `AlertDialog`'s placement). In order:
     `IdentityRemoveOthersKeep` — so a removal by replacement says
     exactly what a removal by Remove says; then
     `KeyReplaceKeepsList`: what stays, the list of whom to share the
-    new card with (§5.4), which is the one thing of a removed identity
-    that outlives its Remove (Q-list), so it is said beside what goes;
+    new card with (§5.4). That list is the one thing of a removed
+    identity that outlives its Remove (Q-list), so it is said beside
+    what goes;
   - the first identity: `KeyReplaceTurnsOff`: it is turned off; its
     conversations and contacts stay, to read; it cannot send or
     receive (identities §7's Turn off);
@@ -354,10 +356,10 @@ The step, in this order:
    in this order: the share-again list (§5.4) is stored; the old
    identity's contacts are copied as rows of the new identity, routes,
    name and photo as accepted (Q-carry); and the old identity's
-   trusted set is written as the new identity's, as the person's trust
-   acts under it, through the endpoint dimension (Q-trust; the add
-   itself still writes the set empty, ADR-0067 decision 6). Nothing is
-   sent by any of them. The old identity's own rows then go or stay
+   trusted set is written as the new identity's, as trust acts of the
+   person under the new identity, through the endpoint dimension
+   (Q-trust; the add itself still writes the set empty, ADR-0067
+   decision 6). None of these writes sends anything. The old identity's own rows then go or stay
    with it in step 5. The trust overlay's row bound can refuse a write
    while both sets exist; the step then stops there, the list and the
    contacts written and the trusted set partly copied, and the person
@@ -401,8 +403,9 @@ already knows**:
   no identity the node holds; the client discards it at the next open
   and shows this case, so a record alone never shows as unfinished.
 - stopped after step 1, before step 5 is done: both identities exist.
-  The old identity's page shows `KeyReplaceUnfinished` ("{new}
-  replaces this identity, but the replacement did not finish.") and,
+  The old identity's page shows `KeyReplaceUnfinished` ("{new} was
+  made to replace this identity, but the replacement did not
+  finish.") and,
   in place of Replace, **Finish replacing** (`KeyReplaceFinish`),
   which runs steps 2 to 5 only, without a dialog (the person
   confirmed them), and never creates another identity. This needs the
@@ -411,8 +414,8 @@ already knows**:
   A refusal anywhere in steps 2 to 5 leaves this state too, never
   `KeyReplaceFailed`, whose words are true only before step 1 has
   stored the new identity. Step 2 resumes where it stopped: a trusted
-  peer or a contact already copied is not written twice. When step 2 stopped at the trust
-  overlay's row bound, the page also shows `KeyReplaceTrustFull`
+  peer or a contact already copied is not written twice. When step 2
+  stopped at the trust overlay's row bound, the page also shows `KeyReplaceTrustFull`
   under `KeyReplaceUnfinished`, and Finish replacing is offered again
   (Q-bound).
 - after step 5: the result (§5.4).
@@ -426,8 +429,8 @@ open it.
 **Replaced.** The client switches to the new identity visibly, as
 cards §5.7.5's transition does ("Opening as {identity}"), and shows
 the new identity's card page: its fingerprint row, and under it
-`KeyReplaced` ("{new} replaces {old}. Your contacts get {new}'s card
-only when you share it with them."). The line is that session's: it is
+`KeyReplaced` ("{new} has replaced {old}. Your contacts get the card
+of {new} only when you share that card with them."). The line is that session's: it is
 not stored, and after an added identity's step 5 nothing stored names
 the old one (REPLY 01a20525, Q-link), so once the page is left, or
 the app restarts, it does not show again; the list below does.
@@ -458,10 +461,10 @@ conversations it is read from are deleted in step 5, so leaving the
 page would lose it for good. The list's bound is Q-bound (§12).
 
 Because the new identity trusts the old one's peers and holds a copy
-of its contacts (step 2), a row opens a conversation with a named
-contact, and the counterparty's reply to the shared card is admitted.
-The counterparty still sees a new identity, and holds their old
-contact until they accept the new card.
+of the old one's contacts (step 2), a row opens a conversation with a
+named contact, and the counterparty's reply to the shared card is
+admitted. The counterparty still sees a new identity, and still has
+their contact for the old identity until they accept the new card.
 
 **Failed** (step 1 refused — a key that cannot be minted or sealed, the
 add refused): `KeyReplaceFailed` ("InterWeave could not make the new
@@ -477,7 +480,7 @@ The old identity, after a replacement:
   and contacts readable under it, its page still showing this state's
   block (§4.1) without Replace, since it has been replaced: its
   `KeyReplaced` line reads from the old side as `KeyReplacedBy` ("{new}
-  replaces this identity."), read from the record of step 1, which is
+  has replaced this identity."), read from the record of step 1, which is
   kept while both exist. If the new identity is later removed, the
   record goes with it, and the first identity's page shows this
   state's block with Replace again and no `KeyReplacedBy`.
@@ -766,8 +769,10 @@ exists those runs are blocked.
 
 The Text column is language-culture-en's final English (2026-10-24;
 part 1's rows, `KeyNoNewKey`, `KeyNewerVersion`, `KeyCannotShare` and
-`KeyCannotShareHere`, 2026-11-23); the third column is what it must
-say. A row marked *retired* is not in the build from the Stage 22
+`KeyCannotShareHere`, 2026-11-23; part 2's `KeyReplaceBody`,
+`KeyReplaceCarries`, `KeyReplaceKeepsList`, `KeyReplaced`,
+`KeyReplacedBy` and `KeyReplaceUnfinished`, 2026-11-23); the third
+column is what it must say. A row marked *retired* is not in the build from the Stage 22
 release; it stays here as the record. Part 2's rows (§5) are
 ux-designer's proposals for language-culture-en to finalise, marked
 *proposed*. `{identity}` is the identity's card name, or its route
@@ -809,20 +814,20 @@ identity's, each as `{identity}` is.
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 | `KeyReplace` | *proposed:* Replace with a new identity | §5.1 action; must name the result, a new identity, not a new key |
 | `KeyReplaceTitle` | *proposed:* Replace {identity} with a new identity? | §5.2 title |
-| `KeyReplaceBody` | *proposed:* InterWeave makes a new identity with this card's name and photo. To your contacts, it is a different identity, and they get its card only when you share it with them. Messages they send to {identity} no longer reach you. | §5.2, every case; must say: a new identity with the same name and photo; contacts see a different identity, and get its card only after a share; messages to the old identity stop reaching the person. Never "key change"; never that contacts cannot see the new identity before a share, since a trusted peer's directory shows it once advertised (REPLY 01a20525) |
-| `KeyReplaceCarries` | *proposed:* The new identity trusts the people {identity} trusts and gets a copy of its contacts. Nothing is sent to them. | §5.2, every case, after `KeyReplaceBody`; must say both copies, that they are the new identity's, and that nobody is told (Q-trust, Q-carry) |
+| `KeyReplaceBody` | InterWeave makes a new identity with this card's name and photo. To your contacts, the new identity is a different identity from {identity}, and they get the new identity's card only when you share that card with them. Messages they send to {identity} will no longer reach you. | §5.2, every case; must say: a new identity with the same name and photo; contacts see a different identity, and get its card only after a share; messages to the old identity stop reaching the person. Never "key change"; never that contacts cannot see the new identity before a share, since a trusted peer's directory shows it once advertised (REPLY 01a20525) |
+| `KeyReplaceCarries` | The new identity trusts the people that {identity} trusts and gets a copy of the contacts of {identity}. Nothing is sent to these people. | §5.2, every case, after `KeyReplaceBody`; must say both copies, that they are the new identity's, and that nobody is told (Q-trust, Q-carry) |
 | `KeyReplaceRemoves` | *proposed:* {identity} is then removed: | §5.2, an added identity, before identities §7's Remove list; must say the removal follows the new identity |
-| `KeyReplaceKeepsList` | *proposed:* InterWeave keeps only a list of the conversations where you shared this card, so you can share the new card there. | §5.2, an added identity, after the Remove list; must say what stays (the list, Q-list) beside what goes, that it is the only thing kept, and that it holds no messages |
+| `KeyReplaceKeepsList` | Only one thing of {identity} stays: a list of the conversations where you shared its card or tried to share it, so that you can share the new card with the same people. The list holds no messages. | §5.2, an added identity, after the Remove list; must say what stays (the list, Q-list) beside what goes, that it is the only thing kept, and that it holds no messages |
 | `KeyReplaceTurnsOff` | *proposed:* {identity} is then turned off. You can still read its conversations and contacts, but it cannot send or receive messages. | §5.2, the first identity; must say what stays (to read) and what stops (send and receive) |
 | `KeyReplaceOldNewer` | *proposed:* A newer version of InterWeave may be able to use this identity's key. To try to keep this identity, update InterWeave first. | §5.2, "possibly a newer version's"; must say the choice is the update or the replacement, and claim no more than *may* |
 | `KeyReplacePending` | *proposed:* In some conversations, this identity's card has not reached the contact yet. If InterWeave has not sent the card yet, replacing the identity cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it. | §5.2, only when the old identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make |
 | `KeyReplaceConfirm` | *proposed:* Replace | §5.2 confirm |
 | `KeyReplacing` | *proposed:* Replacing {identity}… | §5.3 |
-| `KeyReplaced` | *proposed:* {new} replaces {old}. Your contacts get {new}'s card only when you share it with them. | §5.4, the new identity's page, that session only; must name both identities and that contacts get the new card only after a share; as `KeyReplaceBody`, never that they cannot see the identity before it |
-| `KeyReplacedBy` | *proposed:* {new} replaces this identity. | §5.4, the first identity's page after it was replaced |
+| `KeyReplaced` | {new} has replaced {old}. Your contacts get the card of {new} only when you share that card with them. | §5.4, the new identity's page, that session only; must name both identities and that contacts get the new card only after a share; as `KeyReplaceBody`, never that they cannot see the identity before it |
+| `KeyReplacedBy` | {new} has replaced this identity. | §5.4, the first identity's page after it was replaced |
 | `KeyReplaceFailed` | *proposed:* InterWeave could not make the new identity. {identity} has not changed. Choose Replace with a new identity to try again. | §5.4, step 1 failed; true only because nothing of the old identity is touched before step 1 (§5.3) |
-| `KeyReplaceUnfinished` | *proposed:* {new} replaces this identity, but the replacement did not finish. | §5.3, the old identity's page after a stop between steps 1 and 5 |
-| `KeyReplaceTrustFull` | *proposed:* InterWeave could not give the new identity every person {old} trusts, because this device holds as many trusted people as it can. | §5.3, under `KeyReplaceUnfinished` when step 2 stopped at the trust overlay's row bound; must say what did not finish and why; what the person can do, and the bound's name, wait for Q-bound |
+| `KeyReplaceUnfinished` | {new} was made to replace this identity, but the replacement did not finish. | §5.3, the old identity's page after a stop between steps 1 and 5 |
+| `KeyReplaceTrustFull` | *proposed, first sentence final:* InterWeave stopped before {new} trusted all the people that this identity trusts, because this device cannot hold more trusted people. | §5.3, under `KeyReplaceUnfinished` when step 2 stopped at the trust overlay's row bound; must say what did not finish and why; what the person can do, and the bound's name, wait for Q-bound |
 | `KeyReplaceFinish` | *proposed:* Finish replacing | §5.3 action, in place of Replace |
 | `KeyShareAgainDone` | *proposed:* Done | §5.4, closes the share-again list |
 
