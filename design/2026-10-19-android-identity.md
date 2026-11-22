@@ -438,8 +438,9 @@ From the contracts; listed so a reviewer can check each screen:
   binds its meaning and not its words (`IDENTITY-RECOVERY.md`,
   Recovery format; architect-cto-01's REPLY 01a20581-237c, Q16, which
   supersedes REPLYs 01a16736 and 01a1673d on this point). Every screen
-  that names or shows the phrase still says that it restores this
-  app's PeerId and that it is not a cryptocurrency wallet seed. Where
+  that names or shows the phrase still says that it restores the
+  PeerId, by that word, and that it is not a cryptocurrency wallet
+  seed (REPLY 01a20588-c2bc). Where
   this note's own prose says "identity" for what the phrase holds, it
   is the PeerId in that sense.
 
@@ -525,7 +526,7 @@ matters, in six short points:
   cryptocurrency wallet seed (`IDENTITY-RECOVERY.md`, Recovery format);
 - write them on paper and keep it safe;
 - anyone who has them can be you;
-- they restore only this app's PeerId, not the contacts, trust,
+- they restore only your PeerId, not the contacts, trust,
   settings, messages or the name and photo of any identity; on Android
   the rest cannot be exported, so the point asks for nothing (`human-client-ui.md` §9 as
   amended at 2f3b0587);
@@ -1981,7 +1982,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdC1Point2` (changed 2026-11-23) | They are an InterWeave recovery phrase, not a cryptocurrency wallet seed. | C1, second point, in the order of §3.2's list (`IDENTITY-RECOVERY.md`). No "identity": on screen it means a name and photo, which the phrase does not restore (§2; Q16, §11e) |
 | `IdC1Point3` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, third point. The PeerId is named here, because R1 asks for it later |
 | `IdC1Point4` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, fourth point: "can be you", without alarm |
-| `IdC1Point5` (meaning changed 2026-11-23) | Your words restore only this app's PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity. | C1, fifth point, and S1 under its body (§3.5): `human-client-ui.md` §9 as amended (2f3b0587). It names the fact and asks for nothing, since Android has no export of the rest. Plural: the phone may hold several identities (ADR-0061), and none of their names and photos comes back; the text must be true with one identity and with several |
+| `IdC1Point5` (meaning changed 2026-11-23) | Your words restore only your PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity. | C1, fifth point, and S1 under its body (§3.5): `human-client-ui.md` §9 as amended (2f3b0587). It names the fact and asks for nothing, since Android has no export of the rest. Plural: the phone may hold several identities (ADR-0061), and none of their names and photos comes back; the text must be true with one identity and with several |
 | `IdC1Point6` | Your PeerId is created only after you check two of the words. | C1, sixth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
 | `IdNotWalletSeed` (new; changed 2026-11-23) | InterWeave recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen. The contract's label also says "transport" and "identity"; both are left out, "transport" as a word the person does not know and "identity" as `IdC1Point2` says |
@@ -3256,9 +3257,12 @@ here; the first was already answered on this branch.
   Answered by architect-cto, REPLY 01a20581-237c: no. `IdC1Point2` and
   `IdNotWalletSeed` say "InterWeave recovery phrase", the client
   glossary's term, and §2 says so. Still binding on every screen that
-  names or shows the phrase: it restores this app's PeerId, in those
-  words, and it is not a wallet seed. S2 shows the phrase outside C1,
-  so S1 now carries `IdC1Point5` (§3.5). The question, as asked: §2 kept the contract name, "InterWeave
+  names or shows the phrase: it restores the PeerId, named by that
+  word and never "identity" or "account", and it is not a wallet seed.
+  S2 shows the phrase outside C1, so S1 now carries `IdC1Point5`
+  (§3.5). It says "your PeerId", as every other identity screen does
+  (architect-cto, REPLY 01a20588-c2bc: "this app's PeerId" read as a
+  second PeerId to language-culture-en's cold reader). The question, as asked: §2 kept the contract name, "InterWeave
   identity recovery phrase", on architect-cto's REPLYs 01a16736 and
   01a1673d. Language-culture-en proposes "InterWeave recovery phrase"
   in `IdC1Point2` and `IdNotWalletSeed`, because since Stage 22
