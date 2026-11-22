@@ -1514,6 +1514,34 @@ impl IdentityFlow {
         )
     }
 
+    /// The screen now shows a service start the flow asked: held for it
+    /// ([`Self::start_held`]), or showing `IdStartBusy` on C4, R4, R3 or
+    /// R2 -- the screens a showing's start holds
+    /// ([`Self::showing_started`]). A reading of the current screen, not
+    /// of the flow's past: R3's Back off `IdStartBusy`, to R2 and on to
+    /// K1, shows no start. `a_start_shows_on_its_screen_and_goes_with_it`
+    /// holds it.
+    #[must_use]
+    pub const fn start_shows(&self) -> bool {
+        self.start_held()
+            || matches!(
+                self.screen,
+                Screen::C4 {
+                    notice: Some(Notice::StartBusy { .. }),
+                    ..
+                } | Screen::R4 {
+                    notice: Some(Notice::StartBusy { .. }),
+                    ..
+                } | Screen::R3 {
+                    notice: Some(Notice::StartBusy { .. }),
+                    ..
+                } | Screen::R2 {
+                    notice: Some(Notice::StartBusy { .. }),
+                    ..
+                }
+            )
+    }
+
     /// Whether `ConnectStarting` shows under the held Continue, as the
     /// root's clock says: 1 s after the press with no decision, and not
     /// while a system prompt is up (§5.1).
@@ -3695,6 +3723,59 @@ mod tests {
         for (place, flow) in [("C4", &mut failed), ("R3", &mut r3), ("R4", &mut r4)] {
             assert!(!flow.showing_started(), "{place}: nothing to hold");
             assert!(!flow.start_held(), "{place}: not held");
+        }
+    }
+
+    /// `start_shows` reads the screen now shown (identity note section 6,
+    /// A return or a recreation): on each of the five places a start
+    /// shows while it is held and while `IdStartBusy` shows, and none
+    /// once the flow is off that screen -- R3's Back to R2, R2's discard
+    /// off it, a decided start to Done -- nor on a screen that never asked
+    /// one. So the Activity's check of a recreation after R3's Back off
+    /// `IdStartBusy` restarts nothing under K1.
+    ///
+    /// Mutations: `start_shows` without its `start_held` (a held C4 shows
+    /// none), without its `StartBusy` arms (C4 under `IdStartBusy` shows
+    /// none), or answering a latch of the start once asked (R3's Back
+    /// still shows one), fails here.
+    #[test]
+    fn a_start_shows_on_its_screen_and_goes_with_it() {
+        for (place, mut flow) in held_starts() {
+            assert!(flow.start_shows(), "{place}: held");
+            flow.start_busy();
+            assert!(flow.start_shows(), "{place}: IdStartBusy");
+            match place {
+                "R3" => {
+                    flow.back();
+                    assert_eq!(flow.screen(), ScreenId::R2, "control: R3's Back");
+                    assert!(!flow.start_shows(), "R3: Back to R2");
+                    // R2's Back with words entered asks the discard dialog.
+                    flow.back();
+                    flow.discard(true);
+                    assert_eq!(flow.screen(), ScreenId::R1, "control: R2's discard");
+                    assert!(!flow.start_shows(), "R3: on to R1");
+                }
+                "R2 after K1" => {
+                    flow.back();
+                    assert!(flow.start_shows(), "R2: the dialog over IdStartBusy");
+                    flow.discard(true);
+                    assert_eq!(flow.screen(), ScreenId::K1, "control: R2's discard");
+                    assert!(!flow.start_shows(), "R2: on to K1");
+                }
+                _ => {
+                    assert_eq!(try_again(place, &mut flow), [Effect::StartService]);
+                    assert_eq!(flow.decided(), [Effect::OpenChats], "{place}");
+                    assert!(!flow.start_shows(), "{place}: Done");
+                }
+            }
+        }
+        let mut failed = c4_sealing();
+        failed.sealed(Err(StepFailed::Busy));
+        let mut r4 = at_r3();
+        r4.primary();
+        r4.restored(Ok(()));
+        for (place, flow) in [("C4", &failed), ("R3", &at_r3()), ("R4", &r4)] {
+            assert!(!flow.start_shows(), "{place}: none asked");
         }
     }
 
