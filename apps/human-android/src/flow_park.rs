@@ -4,7 +4,7 @@
 //! `window_ended` and `start`): each Activity instance runs its own
 //! `android_main` thread, and a recreation the manifest does not absorb
 //! -- a change of the system or app language -- ends that thread. A flow
-//! kept only for the thread showed Welcome again on C4 over an identity
+//! that died with its thread showed Welcome again on C4 over an identity
 //! already sealed, and lost a held start (identity note section 6, A
 //! return to a screen showing `IdStartBusy`; section 7, The app leaves
 //! the screen). What happens to a flow when its window ends, what the
@@ -64,7 +64,10 @@ pub(crate) enum Destroy {
 /// instance, and a new instance is a new display, behind the prompt
 /// (section 7) -- MainActivity.onDestroy brings the service back for it.
 /// A flow that finished the Activity ends as the finish asked. Any other
-/// is parked.
+/// is parked. The decision is
+/// `a_window_end_parks_only_an_open_flow_past_a_destroy_that_is_not_a_finish`'s;
+/// that S2 then shows behind a new prompt is BLOCKED on a device run:
+/// acceptance 11, S2 left by a recreation rather than Home.
 pub(crate) const fn at_window_end(over: Over, finish: Finish, destroy: Destroy) -> AtWindowEnd {
     if matches!(destroy, Destroy::Finishing)
         || matches!(finish, Finish::Asked)
@@ -95,10 +98,12 @@ pub(crate) enum FlowCheck {
 
 /// The check for a flow whose service was `asked` at some point and whose
 /// current screen `shows` a start (`IdentityFlow::start_shows`). Started
-/// only for both: `asked` alone is a latch the flow never resets, and a
-/// flow back on K1 after R3's `IdStartBusy` would have the Activity
-/// restart the service under it, with nothing held, and the next restore
-/// refused busy.
+/// only for both
+/// (`a_flow_answers_started_only_while_its_screen_shows_the_start`):
+/// `asked` alone is a latch, set at the first ask and kept while the
+/// screen moves on, and a flow back on K1 after R3's `IdStartBusy` would
+/// have the Activity restart the service under it, with nothing held,
+/// and the next restore refused busy.
 pub(crate) const fn flow_check(asked: bool, shows: bool) -> FlowCheck {
     if asked && shows {
         FlowCheck::Started
@@ -108,7 +113,7 @@ pub(crate) const fn flow_check(asked: bool, shows: bool) -> FlowCheck {
 }
 
 /// Whether the chats are attached under a flow's window: a fact the flow
-/// records of its window, never inferred from where it was opened -- a
+/// records of its window, not inferred from where it was opened -- a
 /// K1 opened at a window's start over a running process (`Over::Running`)
 /// has none attached until it hands over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,7 +139,8 @@ impl Attached {
     /// The window that takes the parked flow up attaches its chats at
     /// once, the flow's page on top, exactly where the window that parked
     /// it had them; otherwise the flow's own hand-over attaches them, and
-    /// attached twice the window would make two roots.
+    /// attached twice the window would make two roots
+    /// (`the_next_window_attaches_its_chats_where_the_last_had_them`).
     pub(crate) const fn at_rebind(self) -> bool {
         matches!(self, Self::Yes)
     }
@@ -148,10 +154,13 @@ pub(crate) const OWED_MAX: usize = 32;
 /// Answers for the window that holds the flow, from threads that cannot
 /// tell whether one does: `invoke_on_window` between two windows queues
 /// into the ended window's loop, which never runs it, and says it
-/// succeeded. Each answer is held here and the window told to take them;
-/// a window that never does leaves them to the next, which takes them
-/// once it holds the flow. At most [`OWED_MAX`]: past it the oldest is
-/// dropped and handed back.
+/// succeeded (BLOCKED on a device run: acceptance 12's recreation run, a
+/// held start's refusal answered across the recreation). Each answer is
+/// held here and the window told to take them; a window
+/// that does not take them leaves them to the next, which takes them
+/// once it holds the flow (`owed_answers_are_taken_once_in_order`). At
+/// most [`OWED_MAX`]: past it the oldest is dropped and handed back
+/// (`owed_answers_are_bounded_dropping_the_oldest`).
 pub(crate) struct Owed<T> {
     queue: VecDeque<T>,
 }

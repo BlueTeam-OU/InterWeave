@@ -698,7 +698,11 @@ struct Onboarding {
     handed: bool,
     /// Whether the chats are attached under the flow's window: raised
     /// over attached chats, or handed over under a held screen. The next
-    /// window attaches them at once exactly when they were ([`rebind`]).
+    /// window attaches them at once exactly when they were ([`rebind`];
+    /// the rule held by [`Attached::at_rebind`]'s test
+    /// `the_next_window_attaches_its_chats_where_the_last_had_them`, and
+    /// where each flow sets it is BLOCKED on a device run: acceptance
+    /// 12's recreation run, a kept K1 and a held C4 recreated).
     attached: Attached,
     /// Whether the flow finished the Activity (Back on a first screen):
     /// its window's end then ends it rather than keeping it
@@ -868,8 +872,10 @@ static OWED: Mutex<Owed<Box<dyn FnOnce() + Send>>> = Mutex::new(Owed::new());
 
 /// Run `task` on the window that holds the flow: held in [`OWED`], and
 /// that window told to take it. Between two windows the tell reaches the
-/// ended window's loop, which never runs it, and the next window takes
-/// what is held once it holds the flow ([`start`]) -- a prompt's answer,
+/// ended window's loop, which never runs it (BLOCKED on a device run:
+/// acceptance 12's recreation run, a held start's refusal answered
+/// across the recreation), and the next window takes what is held once
+/// it holds the flow ([`start`]) -- a prompt's answer,
 /// an Unlock ask dropped unraised, a held start's refusal for the person
 /// are not lost to a recreation.
 fn owe(task: impl FnOnce() + Send + 'static) {
@@ -1048,7 +1054,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         asked_at: StoreGeneration::default(),
         handed: false,
         // A K1 kept for a window's start included: its window attaches
-        // the chats only at its hand-over.
+        // the chats at its hand-over.
         attached: Attached::opened(false),
         finished: Finish::Open,
         done: Rc::new(done),

@@ -315,6 +315,9 @@ class MainActivity : NativeActivity() {
         // after super.onDestroy(), which returns only once the window's
         // thread ended and the flow let go of the profile's lock: before
         // it, the start could find the lock still held and be refused busy.
+        // BLOCKED on a device run: acceptance 10, Show my phrase's S2
+        // through a recreation of the window, the service back online
+        // after it and not refused busy.
         val phrase = phraseShown
         phraseShown = false
         super.onDestroy()
