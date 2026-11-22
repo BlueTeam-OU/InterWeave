@@ -40,16 +40,22 @@ items 10 to 12 do not hold these recreation cases.
   running window (D7, and D2's start). Fired with no Activity alive (Back on
   Chats under Stay reachable, so the service runs on), then `RESTART` and a
   launch from the launcher, the process keeps the K1 and the new window's
-  start opens it before any chats attach (D3). The run's record says which
+  start opens it before any chats attach (D3). D3 holds only if the process
+  outlives the refused start, so its record gives the app's pid (`pidof`)
+  before the launch and after it, the same. The run's record says which
   drive it used.
 - Stay reachable (D3, D5): main has no switch for it. On the owner's word,
   write `{"availability_mode": "stay-reachable"}` to
-  `<state>/profiles/human-android/availability-overlay.json` and start the
-  app from its launcher (as `2026-11-17-pixel-9a-samsung-a40-hold-ping-cost.md`
+  `<state>/profiles/human-android/availability-overlay.json` as the app's
+  own user (`run-as org.interweave.human`), private to it and not a link,
+  which the overlay's reader refuses otherwise; then start the app from its
+  launcher (as `2026-11-17-pixel-9a-samsung-a40-hold-ping-cost.md`
   did). The record says whether the overlay was left on.
-- Counting the attach line: every count of "the chats attach to the window"
-  runs from the case's action to the case's end, the last step its row
-  names.
+- Counting the attach line: a case's window opens at its first action and
+  closes 15 s after its last one (the row's last step: the recreation for
+  D1, End for D3 and D7), so it holds what that step sets off, a held
+  start's answer after `holdStartMs 12000` included. "After End" is the
+  part of the window after End.
 - What shows: `screencap` stills, and the debug `ui-trace` lines in logcat.
   Never the words of a phrase: a still taken of S2 or C2 is deleted unread,
   and the case reads only the trace's kinds.
@@ -58,7 +64,7 @@ items 10 to 12 do not hold these recreation cases.
 
 | case | the screen and its setup | what is done | it passes when |
 |---|---|---|---|
-| D1 | C4 with its start held (`holdStartMs`), then that start refused busy (`busyStarts 1`), so `IdStartBusy` shows | a recreation | the new window shows C4 with `IdStartBusy`, not Welcome; the record is read once; logcat has exactly one "the chats attach to the window" from the recreation to the case's end, and it comes before the start succeeds; after the hold, the start runs once and is not refused busy by the old flow's lock |
+| D1 | C4 with its start held (`holdStartMs`), then that start refused busy (`busyStarts 1`), so `IdStartBusy` shows | a recreation | the new window shows C4 with `IdStartBusy`, not Welcome; the record is read once; logcat has exactly one "the chats attach to the window" in the window, and it comes before the start succeeds; after the hold, the start runs once and is not refused busy by the old flow's lock |
 | D2 | R2 after a kept K1, with R3's `IdStartBusy` reached and Back pressed to R2 | a recreation | R2 shows with no notice; no service start in logcat between the recreation and the next action (`identityState` answered 4, not 5) |
 | D3 | a K1 kept in a running process, with the chats not attached under it | a recreation, then End on K1 | the chats attach only at K1's end, as in the first window: logcat has no "the chats attach to the window" between the recreation and End, and exactly one after End |
 | D4 | Show my phrase's S2 with the service taken offline for it | a recreation | the new instance shows no phrase: it shows the chats, and S2 is reached again only through Show recovery phrase and its prompt (section 7, a new instance is a new display); after the old window ends, the service is back online and not refused busy |
