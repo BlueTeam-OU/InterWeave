@@ -31,24 +31,45 @@ pub(crate) enum AtWindowEnd {
 /// `Effect::Finish`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Finish {
-    /// It did not: the Activity ended for another reason, a recreation
-    /// or the system's own end of it.
+    /// It did not: the Activity ended for another reason -- a recreation,
+    /// or a finish that was not the flow's ([`Destroy`] says which).
     Open,
     /// It did, and its window's end ends it as the finish asked.
     Asked,
 }
 
+/// How the Activity whose window ended was destroyed, as its `onDestroy`
+/// said before the window's thread ended (`Native.windowEnding`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Destroy {
+    /// Not a finish: a recreation for a configuration change, or the
+    /// system's destroy of an instance it may make again. The task stays.
+    Kept,
+    /// A finish (`isFinishing`, and not changing configurations): the
+    /// task removed from Recents, `finish()` by the system or the app.
+    /// Identity note section 7: a finish drops the words, and the next
+    /// launch is a launch.
+    Finishing,
+}
+
 /// The end of a window showing a flow opened `over` a launch, Settings
-/// or a running window, and `finish` says whether the flow itself
-/// finished the Activity.
+/// or a running window, `finish` saying whether the flow itself finished
+/// the Activity and `destroy` how the Activity went.
 ///
-/// Show my phrase ends: S2's words show again without a new prompt only
-/// in the same Activity instance, and a new instance is a new display,
-/// behind the prompt (identity note section 7) -- MainActivity.onDestroy
-/// brings the service back for it. A flow that finished the Activity
-/// ends as the finish asked. Any other is parked.
-pub(crate) const fn at_window_end(over: Over, finish: Finish) -> AtWindowEnd {
-    if matches!(finish, Finish::Asked) || matches!(over, Over::Settings) {
+/// A finishing destroy ends the flow, whoever finished it, as
+/// `Finish::Asked` does: kept, a launch later in the same process would
+/// show the words a finish dropped (identity note section 7, Finish,
+/// cancellation, completion or process death). Show my phrase ends: S2's
+/// words show again without a new prompt only in the same Activity
+/// instance, and a new instance is a new display, behind the prompt
+/// (section 7) -- MainActivity.onDestroy brings the service back for it.
+/// A flow that finished the Activity ends as the finish asked. Any other
+/// is parked.
+pub(crate) const fn at_window_end(over: Over, finish: Finish, destroy: Destroy) -> AtWindowEnd {
+    if matches!(destroy, Destroy::Finishing)
+        || matches!(finish, Finish::Asked)
+        || matches!(over, Over::Settings)
+    {
         AtWindowEnd::End
     } else {
         AtWindowEnd::Park
@@ -165,18 +186,46 @@ mod tests {
     use super::*;
 
     /// A launch's flow and a K1 raised over a running window are parked
-    /// at the window's end, so a recreation on C4 keeps C4 and not
-    /// Welcome; Show my phrase ends with its instance (section 7), and a
-    /// flow that finished the Activity ends. Mutation: parking Settings
-    /// fails the first assertion; ignoring `finish` fails the loop's.
+    /// at a destroy that is not a finish, so a recreation on C4 keeps C4
+    /// and not Welcome; a finishing destroy ends every flow, whoever
+    /// finished, so a later launch in the process does not show the words
+    /// (section 7); Show my phrase ends with its instance, and a flow
+    /// that finished the Activity ends. Mutations: ignoring `destroy`
+    /// fails the loop's `Finishing` assertion; ignoring `finish`, its
+    /// `Asked` one; parking Settings, the first assertion.
     #[test]
-    fn a_window_end_parks_every_flow_but_show_my_phrase_and_a_finish() {
+    fn a_window_end_parks_only_an_open_flow_past_a_destroy_that_is_not_a_finish() {
+        use Destroy::{Finishing, Kept};
         use Finish::{Asked, Open};
-        assert_eq!(at_window_end(Over::Settings, Open), AtWindowEnd::End);
-        assert_eq!(at_window_end(Over::Settings, Asked), AtWindowEnd::End);
+        assert_eq!(at_window_end(Over::Settings, Open, Kept), AtWindowEnd::End);
+        for (finish, destroy) in [(Asked, Kept), (Open, Finishing), (Asked, Finishing)] {
+            assert_eq!(
+                at_window_end(Over::Settings, finish, destroy),
+                AtWindowEnd::End,
+                "Settings, {finish:?}, {destroy:?}"
+            );
+        }
         for over in [Over::Launch, Over::Running] {
-            assert_eq!(at_window_end(over, Open), AtWindowEnd::Park, "{over:?}");
-            assert_eq!(at_window_end(over, Asked), AtWindowEnd::End, "{over:?}");
+            assert_eq!(
+                at_window_end(over, Open, Kept),
+                AtWindowEnd::Park,
+                "{over:?}"
+            );
+            assert_eq!(
+                at_window_end(over, Open, Finishing),
+                AtWindowEnd::End,
+                "{over:?}: a finish not the flow's"
+            );
+            assert_eq!(
+                at_window_end(over, Asked, Kept),
+                AtWindowEnd::End,
+                "{over:?}"
+            );
+            assert_eq!(
+                at_window_end(over, Asked, Finishing),
+                AtWindowEnd::End,
+                "{over:?}"
+            );
         }
     }
 

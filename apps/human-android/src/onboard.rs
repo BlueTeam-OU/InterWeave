@@ -32,7 +32,7 @@ use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 
 use crate::asks::Asks;
 use crate::flow_park::{
-    AtWindowEnd, Attached, Finish, FlowCheck, OWED_MAX, Owed, at_window_end, flow_check,
+    AtWindowEnd, Attached, Destroy, Finish, FlowCheck, OWED_MAX, Owed, at_window_end, flow_check,
 };
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
@@ -893,17 +893,40 @@ fn run_owed() {
     }
 }
 
+/// Whether the Activity being destroyed is finishing, as its `onDestroy`
+/// said ([`window_ending`]) for [`window_ended`], which takes it. A
+/// process static, not the window's: `onDestroy` runs on the JVM's main
+/// thread, before `super.onDestroy()` lets the window's thread end.
+static FINISHING: AtomicBool = AtomicBool::new(false);
+
+/// `Native.windowEnding`: the Activity's `onDestroy`, before
+/// `super.onDestroy()`, says whether it is finishing (`isFinishing`, and
+/// not changing configurations). Stored before the window's event loop
+/// can return: the glue's destroy, which ends that loop, is sent by
+/// `super.onDestroy()`.
+pub(crate) fn window_ending(finishing: bool) {
+    FINISHING.store(finishing, Ordering::SeqCst);
+}
+
 /// The window of this thread ended (`android_main`, once its event loop
 /// returned): a flow it showed is parked for the next window, or ends
-/// with it ([`at_window_end`]). Runs before the Activity's `onDestroy`
-/// returns -- android-activity's `notify_destroyed` waits for the
-/// `android_main` thread to stop -- so before the platform creates the
-/// next instance and its thread asks for the flow.
+/// with it ([`at_window_end`]) -- at a finishing destroy as when the flow
+/// finished itself. Runs before the Activity's `onDestroy` returns --
+/// android-activity's `notify_destroyed` waits for the `android_main`
+/// thread to stop -- so before the platform creates the next instance
+/// and its thread asks for the flow.
 pub(crate) fn window_ended() {
+    // Taken at every window's end, a flow shown or not: the next
+    // window's destroy says its own.
+    let destroy = if FINISHING.swap(false, Ordering::SeqCst) {
+        Destroy::Finishing
+    } else {
+        Destroy::Kept
+    };
     let Some(o) = ONBOARDING.with(|slot| slot.borrow_mut().take()) else {
         return;
     };
-    match at_window_end(o.over, o.finished) {
+    match at_window_end(o.over, o.finished, destroy) {
         AtWindowEnd::Park => {
             log("the window ended: its identity flow is kept for the next");
             *PARKED.lock().unwrap_or_else(PoisonError::into_inner) = Some(o.park());

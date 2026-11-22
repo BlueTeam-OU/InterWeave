@@ -292,6 +292,17 @@ class MainActivity : NativeActivity() {
     }
 
     override fun onDestroy() {
+        // Before super.onDestroy(), which ends the window's thread: a
+        // finish -- the task removed from Recents, the system's finish()
+        // -- ends an identity flow the window showed, and drops its words
+        // as identity note section 7 says; only a destroy that is not one
+        // keeps it for the next window (onboard.rs, window_ended; the
+        // decision is flow_park.rs's
+        // a_window_end_parks_only_an_open_flow_past_a_destroy_that_is_not_a_finish).
+        // That this call lands before the window's thread ends is BLOCKED
+        // on a device run: acceptance 11, the flow's words gone at a
+        // launch after the task was removed from Recents.
+        Native.windowEnding(isFinishing && !isChangingConfigurations)
         unregisterReceiver(lockReceiver)
         // The editor goes with the window: its photo's open is not wanted.
         cancelPhotoOpen()

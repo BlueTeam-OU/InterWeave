@@ -290,6 +290,14 @@ internal object Native {
     /** An Activity's window started (true) or stopped (false) showing. */
     @JvmStatic external fun shown(shown: Boolean)
 
+    /**
+     * The Activity's onDestroy, before super.onDestroy(): whether it is
+     * [finishing] -- isFinishing and not changing configurations. An
+     * identity flow its window showed ends at a finish, and is kept for
+     * the next window otherwise (onboard.rs, window_ended).
+     */
+    @JvmStatic external fun windowEnding(finishing: Boolean)
+
     /** The Activity was created anew -- a launch -- not recreated in this process. */
     @JvmStatic external fun launched()
 
