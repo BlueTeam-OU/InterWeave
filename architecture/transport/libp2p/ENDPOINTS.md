@@ -80,10 +80,12 @@ LocalRouteRejected { local_reason_class }
 Optional protocol:
 
 ```text
-/interweave/endpoints/1.0.0
+/interweave/endpoints/2.0.0
 ```
 
 It is a separate request-response behavior/control protocol, not a GossipSub topic and not application payload.
+
+`/interweave/endpoints/1.0.0` is not spoken beside it (ADR-0067 decision 7, A 2026-11-22: a clean break, on the owner's word that no installed base exists). Its entries were labels of 1 to 64 bytes; an entry here is a derived EndpointId, and neither release's reader tolerates the other's entries, so the id takes a major (ADR-0017's test) and a node of the release before the Stage 22 one and a node of that release agree on no directory protocol: the querier reports `ProtocolUnsupported`, by version and by name, where one id for both layouts would have read an honest peer's answer as a `ProtocolViolation`. The frames keep their `V1` names and their tags, as the direct frames keep `V2`: the names say the layout's generation, the protocol id says what is spoken.
 
 Request:
 
@@ -104,8 +106,8 @@ EndpointDirectoryV1 {
   ttl_ms: u32,                     // clamped by the receiver, never refused
   count: u8,                       // 0..=32
   endpoints: count × {
-    len: u8,                       // 1..=64
-    endpoint: ASCII bytes,
+    len: u8,                       // 52, no other value
+    endpoint: ASCII bytes,         // a derived EndpointId (ADR-0067)
   },
 }
 
@@ -125,7 +127,7 @@ Multi-byte integers are **big-endian**, matching `DIRECT.md`, the IPC length pre
 
 A response stream that ends with no bytes at all is not a malformed response (A 2026-10-26): a malformed response — an unassigned reason, a short field, a byte after the last field — means at least one byte arrived. Zero bytes is the exchange not completing, as the request side of this section already says of an empty request: the responder read the query and never wrote an answer (its own request deadline firing first, SPIKE-002 finding 1's race, or a response dropped before anything was written — the two cases proved over real sockets — and any other way it ends with zero bytes written reads the same), and the querier reports `PeerUnreachable`, the same class as a request-response timeout (`contracts/TRANSPORT.md`, outcome unknown), never a local `ProtocolViolation`. The rule is DIRECT.md §Response byte layout's; the directory sits on the same handler and the same muxer, and its codec shares the check. (`tests/endpoint-routing/tests/stage8_endpoint_directory.rs`: an empty frame reads `PeerUnreachable` beside the three hostile forms that stay `ProtocolViolation`.)
 
-A refusal carries no endpoint list. The maximum request is 1 byte; the maximum response is 1 + 8 + 4 + 1 + 32 × 65 = **2094 bytes**, and both codecs bound their reads to those ceilings before allocating. `fixtures/endpoints/endpoint-directory-v1-frame.json` freezes the empty, single-entry and ceiling frames, one refusal, and the request.
+An entry's `len` is exactly 52, the length of every derived EndpointId (`12D3KooW` and 44 characters); any other value is a malformed response, a local `ProtocolViolation`, refused at the length byte before the entry is read. A refusal carries no endpoint list. The maximum request is 1 byte; the maximum response is 1 + 8 + 4 + 1 + 32 × 53 = **1710 bytes**, and both codecs bound their reads to those ceilings before allocating. The read bound is the largest legal frame and not the 2094 bytes of `1.0.0` (32 entries at the 64-byte label ceiling): a bound no legal frame reaches is one no test can fail on, and one byte past 1710 is refused. `fixtures/endpoints/endpoint-directory-v1-frame.json` freezes the empty, single-entry and ceiling frames, one refusal, and the request.
 
 The sender sorts the list lexicographically for deterministic fixtures. Only currently leased endpoints configured with `advertise: true` — the effective value, the endpoint overlay applied over the authored configuration (ADR-0028 A 2026-10-21; a human identity's endpoint is never advertised, ADR-0061) — are included. No endpoint metadata beyond `EndpointId` is carried.
 

@@ -75,7 +75,7 @@ channel project-alpha
 human client -> peer_endpoints(P)
  -> profile trust check
  -> ConnectionManager
- -> /interweave/endpoints/1.0.0
+ -> /interweave/endpoints/2.0.0
  -> remote snapshot of active advertise=true routes allowed for requester
  -> bounded in-memory cache / UI result
 ```

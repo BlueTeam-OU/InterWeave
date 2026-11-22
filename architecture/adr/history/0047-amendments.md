@@ -9,3 +9,7 @@ This amendment changes nothing this ADR decided: the `vnd.interweave-` vendor pr
 ### Amendment 2026-11-19 — The direct protocol id is `/interweave/direct/3.0.0` from the Stage 22 release
 
 ADR-0067 decision 7 moves the direct protocol's version, not its namespace. The canonical network identifier list read `/interweave/direct/2.0.0`; it now reads `/interweave/direct/3.0.0`. Nothing this record decided changes: the `interweave` namespace, the domain-separation prefixes and the four re-frozen goldens are untouched, since the protocol id takes part in no hash. Propagation: the list; this note; the log row; the digest entry.
+
+### Amendment 2026-11-22 — The endpoint directory protocol id is `/interweave/endpoints/2.0.0` from the Stage 22 release
+
+ADR-0067 decision 7 (A 2026-11-22) moves the endpoint directory protocol's version, not its namespace. The canonical network identifier list read `/interweave/endpoints/1.0.0`; it now reads `/interweave/endpoints/2.0.0`. Nothing this record decided changes: the `interweave` namespace, the domain-separation prefixes and the four re-frozen goldens are untouched, since the protocol id takes part in no hash. Propagation: the list; this note; the log row; the digest entry.
