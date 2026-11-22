@@ -20,11 +20,11 @@ use interweave_transport_api::{ChannelId, EndpointId, TransportError, TransportI
 const QUEUE_BOUND: usize = 2;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("human")
 }
 
 fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("agent")
 }
 
 /// One node configured as the real fixture's profile is: `human` the
@@ -134,7 +134,7 @@ async fn item_4_local_refusals_map_exactly() {
     suite::local_refusals_map_exactly(
         &p.a,
         &p.b_peer,
-        &EndpointId::parse("nowhere").expect("valid"),
+        &interweave_test_support::endpoint_keys::endpoint_id("nowhere"),
     )
     .await;
 }

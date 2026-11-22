@@ -15,9 +15,7 @@ use interweave_local_client_api::{
     TrustChange,
 };
 use interweave_local_client_conformance_tests as suite;
-use interweave_transport_api::{
-    ChannelId, DirectDestination, EndpointId, MessageId, TransportError,
-};
+use interweave_transport_api::{ChannelId, DirectDestination, MessageId, TransportError};
 use interweave_transport_composition::ComposedRuntime;
 
 mod common;
@@ -104,7 +102,7 @@ async fn item_4_local_refusals_map_exactly() {
     suite::local_refusals_map_exactly(
         &a,
         &pair.b_peer,
-        &EndpointId::parse("nowhere").expect("valid"),
+        &interweave_test_support::endpoint_keys::endpoint_id("nowhere"),
     )
     .await;
     pair.stop().await;
