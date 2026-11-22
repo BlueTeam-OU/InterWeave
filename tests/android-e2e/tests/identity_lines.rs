@@ -218,8 +218,8 @@ fn k1_warns_that_the_phrase_may_be_live_elsewhere() {
 /// phone, and what the app shows for it. The person removes the screen
 /// lock and sets it again, which the platform answers by invalidating
 /// (or deleting) every key bound to the person's authentication; the
-/// app then opens on K1, the recovery page, with the warning, and no
-/// service; and the identity record is the one found, so nothing was
+/// app then opens on K1, the recovery page, with the warning, no prompt
+/// and no service; and the identity record is the one found, so nothing was
 /// minted over it (the custody seam's
 /// `an_invalidated_or_missing_key_requires_recovery_and_mints_nothing`,
 /// on the phone).
@@ -284,6 +284,8 @@ fn an_invalidated_user_presence_key_opens_on_k1_and_mints_nothing() {
 
     passed(&s.launch_to_identity("k1", PATIENCE), &s);
     passed(&s.lines_after(0, &["warns=active-elsewhere"], PATIENCE), &s);
+    // The positive control is the prompt the locked launch above raised.
+    assert!(!prompt_shown(), "no prompt raised on K1");
     assert!(
         network_service().is_none(),
         "no service on K1: {:?}",
