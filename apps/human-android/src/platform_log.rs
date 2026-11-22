@@ -274,7 +274,7 @@ mod tests {
         let paths = interweave_profile_config::TrustBoundary::new(&scratch)
             .and_then(|b| interweave_profile_config::ProfilePaths::resolve_embedded("test", b))
             .expect("paths");
-        let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         let key = identity_key::create(&paths, &human, &FilesystemCustody).expect("a key");
         let record = base64::engine::general_purpose::STANDARD
             .decode(
