@@ -50,7 +50,7 @@ impl Rng {
 
 /// A derived `EndpointId` of a random key: the only value a direct
 /// endpoint field carries on `/interweave/direct/3.0.0` and an endpoint
-/// directory entry on `/interweave/endpoints/1.0.0` (ADR-0067), so every
+/// directory entry on `/interweave/endpoints/2.0.0` (ADR-0067), so every
 /// shape here that carries an endpoint draws from this.
 fn derived_endpoint(r: &mut Rng) -> String {
     let mut key = [0_u8; 32];
