@@ -893,7 +893,7 @@ mod tests {
         let peer = TransportIdentity::parse(TEST_PEER).expect("valid");
         let d = DirectDestination::to_default(peer.clone());
         assert!(d.endpoint.is_none());
-        let e = EndpointId::parse("human").expect("valid");
+        let e = EndpointId::from_ed25519_public(&KEYS[1]);
         assert_eq!(
             DirectDestination::to_endpoint(peer, e.clone()).endpoint,
             Some(e)
