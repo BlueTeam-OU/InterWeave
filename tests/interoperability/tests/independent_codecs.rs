@@ -120,11 +120,11 @@ fn to_prod_direct(m: &ind::direct_v2::DirectMessageV2) -> DirectMessageV2 {
     DirectMessageV2 {
         message_id: MessageId::from_bytes(m.message_id),
         sent_at_ms: m.sent_at_ms,
-        source_endpoint: EndpointId::parse(m.source_endpoint.clone()).expect("source"),
+        source_endpoint: EndpointId::parse_derived(m.source_endpoint.clone()).expect("source"),
         destination_endpoint: m
             .destination_endpoint
             .clone()
-            .map(|d| EndpointId::parse(d).expect("destination")),
+            .map(|d| EndpointId::parse_derived(d).expect("destination")),
         payload: Payload::at_ceiling(
             m.media_type
                 .clone()
