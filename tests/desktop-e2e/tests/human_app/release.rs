@@ -49,6 +49,7 @@ use interweave_human_store::{
 use interweave_human_store::{at_rest, store_key};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
 use interweave_profile_config::endpoint_key;
+use interweave_profile_config::endpoint_overlay::EndpointOverlay;
 use interweave_profile_config::profile_format::{self, PROFILE_FORMAT};
 use interweave_transport_api::{
     DirectDestination, EndpointId, MAX_PAYLOAD_BYTES, MediaType, MessageId, TransportIdentity,
@@ -317,13 +318,10 @@ const RETIRED_IDS: [&str; 2] = ["human", "claude"];
 ///
 /// The frozen endpoint overlay is `{"enabled": {"claude": false}}`,
 /// keyed by the LABEL. The operator does nothing to that file by hand:
-/// carrying `enabled.<label>` (and `default`) over to the id is asked of
-/// `endpoint adopt|init --alias <label>`, and refusing a key that is no
-/// id by name of the loader -- not of the operator -- so the file stays
-/// as the previous build wrote it. Until that lands, the daemon's
-/// normalising drops the label's key, and the upgrade case's DISABLED
-/// assertion and its no-rewrite assertion fail on it: the known defect,
-/// left showing rather than the assertions weakened.
+/// `endpoint init --alias claude` carries the label's member over to the
+/// id it mints (ENDPOINTS.md, A 2026-11-22), so the overlay is the third
+/// file the commands write, and what it holds after them is asserted
+/// below: `claude`'s new id disabled, no label left.
 fn operated(tree: &Path) -> Operated {
     brought_over(install(tree))
 }
@@ -429,8 +427,19 @@ fn brought_over(home: Home) -> Operated {
         .map(|id| name(&endpoint_key::key_path(&home.paths, id)))
         .chain([name(&config_path)])
         .collect();
+    // The commands, not the operator, rewrote the overlay: the label's
+    // member carried to the id `endpoint init --alias` printed for it.
+    let overlay = EndpointOverlay::path_for(&home.paths);
+    expected.push(name(&overlay));
     expected.sort();
     assert_eq!(changed(&frozen, &operated), expected);
+    let carried: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&overlay).expect("the overlay")).expect("json");
+    assert_eq!(
+        carried,
+        serde_json::json!({"enabled": {ids["claude"].as_str(): false}}),
+        "the label's member is carried to the id, and no label is left"
+    );
     for id in ids.values() {
         assert!(
             !frozen.contains_key(Path::new(&name(&endpoint_key::key_path(&home.paths, id)))),
@@ -603,10 +612,9 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     {
         assert!(allowed.contains(peer), "{peer} in {allowed:?}");
     }
-    // What must hold whichever way the label-keyed overlay is carried
-    // over (the loader, or `endpoint init --alias`): the endpoint the
-    // previous build disabled reads DISABLED under the id its alias now
-    // names, as the daemon reports it.
+    // The endpoint the previous build disabled reads DISABLED under the
+    // id its alias now names, as the daemon reports it: what the overlay
+    // carry `endpoint init --alias` made means what it meant.
     assert!(
         !endpoint_enabled(home, disabled.as_str()).await,
         "the endpoint the previous build disabled ('{}', now {}) reads disabled",
