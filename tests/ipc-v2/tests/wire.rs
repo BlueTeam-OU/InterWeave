@@ -1212,7 +1212,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     use interweave_ipc_protocol::{
         AddressParams, AddressesParams, ChannelParams, EndpointParams, PeerListParams,
         PublishParams, QueryParams, Request, SendParams, SetDefaultParams, SetEnabledParams,
-        ShutdownParams, TrustListParams, TrustSetParams,
+        ShutdownParams, TrustListParams, TrustSeedParams, TrustSetParams,
     };
     use interweave_transport_api::{ChannelId, MessageId, Payload};
     let ip = interweave_test_support::net::require_private_interface_v4();
@@ -1316,7 +1316,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         ),
     };
     let added = bootstrap();
-    let admin_requests: [(&str, Request); 15] = [
+    let admin_requests: [(&str, Request); 18] = [
         ("status", Request::AdminStatus),
         ("list", Request::AdminEndpointsList),
         ("trust", Request::AdminTrustList(TrustListParams::default())),
@@ -1330,6 +1330,34 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
                 peer: b.clone(),
                 allowed: true,
                 endpoint: None,
+            }),
+        ),
+        // The endpoint dimension (IPC 3.0, ADR-0067 decision 6): the
+        // agent endpoint's inherited set read, then its own set given
+        // B -- whom the operator's list already holds, so the connection
+        // above is undisturbed -- then the seed, `present` after it.
+        (
+            "endpoint_trust",
+            Request::AdminTrustList(
+                serde_json::from_value::<TrustListParams>(serde_json::json!({
+                    "endpoint": endpoint("agent").as_str(),
+                    "direction": "inbound",
+                }))
+                .expect("the endpoint form's params"),
+            ),
+        ),
+        (
+            "endpoint_allow",
+            Request::AdminTrustSet(TrustSetParams {
+                peer: b.clone(),
+                allowed: true,
+                endpoint: Some(endpoint("agent")),
+            }),
+        ),
+        (
+            "seed",
+            Request::AdminTrustSeed(TrustSeedParams {
+                endpoint: endpoint("agent"),
             }),
         ),
         (
@@ -1380,7 +1408,12 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         let answer = admin.response().await;
         assert!(answer.contains(r#""ok":true"#), "{id}: {answer}");
         // A refusal is ok too; the move itself must have happened.
-        for (move_id, outcome) in [("add", "added"), ("remove", "removed"), ("adds", "added")] {
+        for (move_id, outcome) in [
+            ("add", "added"),
+            ("remove", "removed"),
+            ("adds", "added"),
+            ("seed", "present"),
+        ] {
             if id == move_id {
                 assert!(
                     answer.contains(&format!(r#""outcome":"{outcome}""#)),
