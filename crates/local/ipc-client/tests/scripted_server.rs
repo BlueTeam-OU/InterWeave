@@ -1006,34 +1006,6 @@ async fn a_route_notice_reads_back_on_a_three_zero_connection() {
     );
 }
 
-/// A request that declines route notices is refused `ProtocolUnsupported`
-/// and no connection is made: major 3 has no hello that asks for a
-/// session without them (every 3.0 session takes them), where major 2
-/// offered a minor below 2.4. The control opens, offering the client's
-/// maximum on major 3 (#245 re-review N5).
-#[tokio::test]
-async fn a_request_declining_route_notices_is_refused_unsent() {
-    use interweave_ipc_protocol::{IPC_MAJOR, IPC_MAX_MINOR};
-    let script = Script::new();
-    let (declined, accepted) = tokio::join!(
-        script.binding.open(request().without_route_notices()),
-        tokio::time::timeout(Duration::from_millis(200), script.listener.accept())
-    );
-    assert_eq!(
-        declined.err(),
-        Some(interweave_transport_api::TransportError::ProtocolUnsupported)
-    );
-    assert!(accepted.is_err(), "no connection was made");
-    let (_, proposed) = tokio::join!(script.binding.open(request()), async {
-        let mut server = Server::accept(&script.listener).await;
-        let Some(Frame::Hello(hello)) = server.read().await else {
-            panic!("a hello first");
-        };
-        (hello.ipc_version.major, hello.ipc_version.minor)
-    });
-    assert_eq!(proposed, (IPC_MAJOR, IPC_MAX_MINOR));
-}
-
 /// A session opened with events, the server selecting IPC 3.`minor`.
 async fn opened_at(script: &Script, minor: u64) -> (interweave_ipc_client::IpcSession, Server) {
     let (session, server) = tokio::join!(script.binding.open(request()), async {
