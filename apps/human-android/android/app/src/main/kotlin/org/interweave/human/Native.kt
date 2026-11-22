@@ -192,6 +192,17 @@ internal object Native {
     const val IDENTITY_AUTHENTICATION_NEEDED = 3
 
     /**
+     * An identity flow shows -- in the window, or kept from the window a
+     * recreation ended, for this one -- and asked its service start (a
+     * held C4 or R4, or `IdStartBusy` there or on R3 or R2 after K1): set
+     * `FLAG_SECURE`, then decide a start as for [IDENTITY_READY], a busy
+     * or locked one retried and one running left alone (identity note
+     * section 6, A return to a screen showing `IdStartBusy`). A flow that
+     * has not asked it answers as a first run: the flag, and nothing bound.
+     */
+    const val IDENTITY_FLOW_STARTED = 5
+
+    /**
      * The identity screens' next ask of the Activity ([Ask]) in its low
      * [Ask.BITS], its argument above them, or 0. BLOCKS.
      */

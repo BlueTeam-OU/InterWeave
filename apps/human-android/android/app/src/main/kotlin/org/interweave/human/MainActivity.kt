@@ -147,7 +147,10 @@ class MainActivity : NativeActivity() {
         // Before super.onStart(), which waits for the window's thread to
         // take the Start; that thread waits for this answer before it
         // chooses between the identity screens and the chats (onboard.rs).
-        // After it, each would wait on the other (#309 review N1). Asked at
+        // After it, each would wait on the other (#309 review N1). A flow
+        // kept from the window a recreation ended is shown again without
+        // the wait, and this answers for it unread (IDENTITY_FLOW_STARTED,
+        // or a first run's answer before its start). Asked at
         // every start, a return's and a launch's in a running process
         // included: a start refused for the screen lock is answered as in
         // a fresh process (unlock note section 11). Shown first, so the
@@ -195,8 +198,10 @@ class MainActivity : NativeActivity() {
         if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) return
         // The identity screens come before the service: a profile with no
         // identity, or one the phone lost, binds nothing until the screens
-        // say the identity is ready (onboard.rs).
-        if (identity != Native.IDENTITY_READY) return
+        // say the identity is ready (onboard.rs). A flow that asked its
+        // start -- shown again after a recreation, or on a return -- goes
+        // on to the start's decision below, its flag set above.
+        if (identity != Native.IDENTITY_READY && identity != Native.IDENTITY_FLOW_STARTED) return
         identityReady = true
         if (phraseShown) return
         // A binding kept across a recreation, whose service's last start

@@ -902,8 +902,12 @@ fn android_main(app: AndroidApp) {
     if let Err(e) = handle.run() {
         log(&format!("the event loop ended: {e}"));
     }
-    // The Activity is gone: its link goes with it, and the hub detaches
+    // The Activity is gone. An identity flow it showed is kept for the
+    // next window, whose thread is another (onboard.rs, window_ended):
+    // done here, before the glue lets onDestroy return and the platform
+    // makes the next instance. Its link goes with it, and the hub detaches
     // it on its next send. The session stays the Service's.
+    crate::onboard::window_ended();
     ROOT.with(|root| root.borrow_mut().take());
     VIEW.with(|slot| slot.borrow_mut().take());
     SHOW_OPEN.with(|slot| slot.borrow_mut().take());
