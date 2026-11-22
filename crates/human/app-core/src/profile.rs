@@ -180,7 +180,10 @@ mod tests {
 
     #[test]
     fn every_entry_naming_the_human_kind_in_file_order_disabled_too() {
-        let config = ProfileConfig::parse_yaml(
+        use interweave_test_support::endpoint_keys::endpoint_id;
+        let [second, claude, human] = ["second", "claude", "human"].map(endpoint_id);
+        let [s, c, h] = [&second, &claude, &human].map(EndpointId::as_str);
+        let config = ProfileConfig::parse_yaml(&format!(
             "schema_version: 2
 profile:
   name: test
@@ -197,18 +200,14 @@ trust:
 endpoints:
   registration_policy: configured-only
   entries:
-    - { id: second, enabled: false, advertise: false, allowed_client_kinds: [human-client] }
-    - { id: claude, enabled: true, advertise: true, allowed_client_kinds: [claude-channel] }
-    - { id: human, enabled: true, advertise: true, allowed_client_kinds: [claude-channel, human-client] }
-channels: { desired: [] }
+    - {{ key: {s}.key, alias: second, enabled: false, advertise: false, allowed_client_kinds: [human-client] }}
+    - {{ key: {c}.key, alias: claude, enabled: true, advertise: true, allowed_client_kinds: [claude-channel] }}
+    - {{ key: {h}.key, alias: human, enabled: true, advertise: true, allowed_client_kinds: [claude-channel, human-client] }}
+channels: {{ desired: [] }}
 ",
-        )
+        ))
         .expect("parses");
-        let ids: Vec<String> = leasable_endpoints(&config)
-            .into_iter()
-            .map(|e| e.as_str().to_owned())
-            .collect();
-        assert_eq!(ids, ["second", "human"]);
+        assert_eq!(leasable_endpoints(&config), [second, human]);
     }
 }
 
