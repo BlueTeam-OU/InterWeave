@@ -331,14 +331,14 @@ and holds the screen as Try again's press does; the 1 s before
 profile-in-use row said that the app never retries the start on its
 own, and no rule covered a return to these screens. For an owed
 Connect, that start and its reads must answer within the bound from
-the return; no 10 s counts from the start's success, as it does for a
-launch. §8's C4 bullet, its error-banner rule and a new bullet say
+the return. A launch counts its 10 s from the start's success; a start
+retried at a return does not. §8's C4 bullet, its error-banner rule and a new bullet say
 that `IdStartBusy` shown again by that start takes no focus.
 Acceptance 15 gains its runs, two of them for Connect on R4.
 
 Revised 2026-11-21 again, at rust-ui-dev-01's REPLY 01a1fb77 on #736.
-In foreground-only mode, Home does not cancel a start of `IdStartBusy`
-that has not answered: an answer that comes before the service stops
+In foreground-only mode, Home does not cancel a start made from
+`IdStartBusy` that has not answered: an answer that comes before the service stops
 stands, and the return shows it; a stop that comes first ends the
 start, and the return retries (§6, Foreground-only Home and a start's
 answer). Before, §6 said only that leaving the app ends a running
@@ -1127,7 +1127,7 @@ is open. Every other place in this note that names
 `IdStartUnchecked` as shown means "while it is offered" in this
 sense. `IdStartUnchecked` shows disabled while a Try again under the notice runs and while its own start runs, as the primary does (Seal
 running). Under it, a line
-(`IdStorageUnknownRestore`, new, §9) says that if the app then asks for the recovery phrase, the person enters the words just written down, and that these words restore the PeerId. Neither text says
+(`IdStorageUnknownRestore`, new, §9) says that if the app then asks for the recovery phrase, the person enters the phrase just written down, and that this phrase restores the PeerId. Neither text says
 that a PeerId was created.
 - **What it does.** The creation flow ends and lets go of its profile
   lock, as before any start after C4; then the start unlocks the
@@ -1192,8 +1192,8 @@ start refused with the profile in use after the bound): a refused
 start is not a start that ran (its L4). Why: the person's Continue
 asked for this start, and the notice asks them to try again. A
 return is the moment a lock that another holder had may have gone,
-and a screen that stays refused until the person finds Try again
-again keeps them from what they had already asked for. One rule for
+and a screen that stays refused until the person presses Try again
+once more keeps them from what they had already asked for. One rule for
 this notice wherever it shows also keeps the app predictable
 (*consistency and standards*, Nielsen 4).
 
@@ -1205,7 +1205,7 @@ this notice wherever it shows also keeps the app predictable
   app's comparison with C4's PeerId (A start from C4 after a failed
   read-back): a record that opens to another PeerId starts nothing,
   and C4 shows `IdStorageUnknown` again with Try again only and focus
-  on the notice, as after that press, since the notice that held
+  on the notice, as after that press, since the notice that had
   focus has gone. Why: the ruling on Q15 (§11d) lets nothing run as
   that identity from C4, and a return is no exception to it. Focus stays where it
   was at the return: the retry moves no focus. A recreation moves
@@ -1235,9 +1235,10 @@ this notice wherever it shows also keeps the app predictable
   notice. Any other refusal shows that refusal's row.
 - **Only one start.** A return or a recreation while a start runs
   (Try again's, or a retry's) starts nothing, and that start's answer
-  stands. A showing that starts nothing holds nothing beyond what
-  the running start already holds. In foreground-only mode, leaving
-  the app ends a running start (`design/2026-10-22-add-a-peer.md`
+  stands. A return or a recreation that starts nothing holds nothing
+  beyond what the running start already holds. In foreground-only
+  mode, leaving the app stops the service, and a start that has not
+  answered by then ends with the service (`design/2026-10-22-add-a-peer.md`
   §5.1, Interruptions), so a return after Home finds no start running
   and retries; a recreation keeps the service in either mode, so a
   start that runs through it goes on. Home does not cancel the start:
@@ -1383,8 +1384,9 @@ mode, Home or Recents while a start of this section has not answered
 (`onStop`, `MainActivity.kt`), and the service stops. The start can
 still answer before the service has stopped (rust-ui-dev-01, REPLY
 01a1fb77, on #736). Home does not cancel the start, and the app never
-drops an answer that comes before the stop. Whichever comes first
-decides what the return shows:
+drops an answer that comes before the stop. Whichever comes first,
+the start's answer or the service's stop, decides what the return
+shows:
 
 - **The start answered first.** Its answer stands, as with Stay
   reachable on, and the return shows what it decided. On C4, R4, R3
@@ -1402,8 +1404,8 @@ Either way, at most one start is in flight, and the return shows a
 state this section already designs. Why not cancel at Home: a cancel
 would drop the answer of a start that succeeded, so the person would
 come back to `IdStartBusy` for a start that had worked, and the return
-would make the start again. A retry made while
-the stopping service still holds the lock is refused with `LockHeld`
+would make the start again. That retry, made while the stopping
+service still holds the lock, would be refused with `LockHeld`
 (§11c, Q11), so the person would see "profile in use" caused by the
 app's own start. The answer that came is the one true status to show
 (*visibility of system status*, Nielsen 1), and an unanswered start
@@ -1741,8 +1743,8 @@ access.
   the progress state (§5). When the result
   comes, focus goes as follows, wherever the person moved it. A §6
   notice takes focus (the error-banner rule below), except
-  `IdStartBusy` shown again by a start retried at a return, which no
-  press made (A start retried at a return, below). A cancelled or
+  `IdStartBusy` shown again by a start retried at a return: no press
+  made that start (A start retried at a return, below). A cancelled or
   denied prompt for the seal leaves C4 as it was,
   with its primary enabled again and focus where it was before the
   prompt. One for its read-back shows `IdStorageUnknown`, which takes
@@ -1799,15 +1801,15 @@ access.
   `IdStartBusy` shows there (§6, A return to a screen showing
   `IdStartBusy`) moves no focus while it holds the screen. Refused
   with the profile in use again, it leaves focus where it was and
-  `IdStartBusy` takes no focus, the error-banner rule apart: this
-  result answers no press. Its other results move focus as after the
+  `IdStartBusy` takes no focus, as an exception to the error-banner
+  rule: this result answers no press. Its other results move focus as after the
   Continue it replaces (the bullets above). It is a row of
-  `design/2026-10-22-add-a-peer.md` §8 item 1's table. A start of Try
-  again that answered before a foreground-only Home stopped the
-  service (§6, Foreground-only Home and a start's answer) moved focus
+  `design/2026-10-22-add-a-peer.md` §8 item 1's table. Try again's
+  start, if it answered before a foreground-only Home stopped the
+  service (§6, Foreground-only Home and a start's answer), moved focus
   at its answer as Try again's result does, and the return keeps that
   focus: on the next screen, add-a-peer §5.1's; on `IdStartBusy`
-  again, the notice, then the return's retry moves no focus.
+  again, the notice; the retry at the return then moves no focus.
 - When a grid position is chosen to edit, by any input, focus goes as
   for a row chosen from the full list: to the keypad's first enabled
   key, or to the delete key when the word put back leaves no letter
@@ -2331,7 +2333,7 @@ scale would also be a finding of the Android review
       showing and focus on its text, the test waits 15 s, longer than
       the 10 s bound, then sends the app to the background and back.
       Each run is made with Stay reachable on and again in
-      foreground-only mode. The hook records one start at the return,
+      foreground-only mode, unless the run says otherwise. The hook records one start at the return,
       left unanswered: the screen is held as after Enter on Try again
       (the run above), with Try again disabled, and focus stays on the
       notice's text. `ConnectStarting` shows 1 s after the return, and
@@ -2350,9 +2352,10 @@ scale would also be a finding of the Android review
       notice. In a sixth run, the test recreates the window as a
       change of the system language does: the hook records one start,
       answered as in the second run. A rotation instead records no
-      start. In a seventh run, made with Stay reachable on only, Enter
-      on Try again, with the hook leaving that start unanswered, then
-      the return: the hook records that one start and none at the
+      start. In a seventh run, made with Stay reachable on only, the
+      test presses Enter on Try again, the hook leaves that start
+      unanswered, and the test then sends the app to the background
+      and back: the hook records that one start and none at the
       return. In an eighth run, on R4 with no address recorded (so
       Connect is owed), the hook answers the return's start as
       started 8 s after the return and both reads empty 12 s after
@@ -2362,13 +2365,13 @@ scale would also be a finding of the Android review
       within 2 s of the return: Connect opens, with focus on its
       heading. In a tenth run, on C4 showing `IdStartBusy` after
       `IdStartUnchecked`'s start met `LockHeld`, the double's record
-      is made to name and open to another PeerId than C4's before the
+      is made to name and open to a PeerId other than C4's before the
       return: at the return nothing starts (the hook records no
       service start), `IdStorageUnknown` shows with Try again only
       and focus on the notice, and `IdStartUnchecked` stays hidden.
       Like acceptance 12's comparison run, the tenth run needs the
-      app's comparison before the start, and is blocked until it
-      exists. These runs are host tests.
+      app's comparison before the start, and is blocked until that
+      comparison exists. These runs are host tests.
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
@@ -3077,8 +3080,8 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   (§6). rust-ui-dev-01 said the notice of §6 could be built as a
   session notice of its own, with an action that makes one service
   start by the path a granted Unlock uses, once `LockHeld` was told
-  apart from the other refused runtime starts; its state kept by the
-  process, not by the runtime that ends, so that it survives a
+  apart from the other refused runtime starts, with the notice's state
+  kept by the process, not by the runtime that ends, so that the notice survives a
   foreground-only Home and shows at the return. #736 (merged
   b0bf4eb49) built it so: `IdStartBusy` before the bound on C4, R4,
   R3 and R2 after K1, and after the bound as a session notice on

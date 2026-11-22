@@ -12,9 +12,9 @@ on the person's acknowledgement and on nothing else. STATE.md's text
 follows as architect-cto's for/ branch onto this PR; until it lands, the
 merged sentence still reads "shows once at the first open and then
 deletes", and this note follows the ruling.
-Revised 2026-11-21, at #728's review (F29, F30): focus moved by the
-person before a late banner stays where it is, whichever notice showed
-first (§6), and §5 says what the dialog does when a session notice
+Revised 2026-11-21, at #728's review (F29, F30): when the person moved
+focus before a late banner showed, focus stays where it is, whichever
+notice showed first (§6), and §5 says what the dialog does when a session notice
 rises under it, which acceptance 9 now sets up. Before, two rows of §6
 both applied to a late banner, and acceptance 9 needed OK with a store
 degraded from the open, which hides the banner.
@@ -38,10 +38,11 @@ the desktop and on Android; the command-line client's form is left out
   contact when it holds no other route, and the second copy of a message
   where two copies meet; (e) every pending row and every unread contact
   card proposal. What (c), (d) and (e) discarded is counted into one
-  content-free `settings` row. As merged it names six counts; ruled
-  2026-11-19 (§11) it holds eight, each one thing a person would call
-  gone or changed: conversations, unread messages, kept messages,
-  pending never attempted, pending that may have reached, contacts
+  content-free `settings` row. As merged, STATE.md names six counts; as
+  ruled on 2026-11-19 (§11), the row holds eight, each one thing a person
+  would call gone or changed: conversations, unread messages, kept
+  messages, pending messages never attempted, pending messages that may
+  have reached their counterparty, contacts
   ((c)'s: deleted with their last route), contacts combined ((d)'s: a
   route moved to another contact of the same identity, its own name and
   notes gone), card proposals ((e)'s unread proposals). A second copy
@@ -77,8 +78,8 @@ what they do next:
 
 - messages they were sending and that were **not sent**: they may want
   to write them again;
-- messages they were sending that **may have been received**: they must
-  not assume these failed, and the app will not send them again.
+- messages they were sending that **may have reached the peer**: they
+  must not assume these failed, and the app will not send them again.
 
 They cannot get any of it back, and the app cannot show which items
 went. The notice must not invite a search for them, and must not alarm
@@ -93,9 +94,9 @@ someone for whom nothing was lost.
   the slot already serves; the counts are in the dialog (§4), whose
   content scrolls.
 - **Why a dialog for the counts.** Up to ten lines (eight counts and
-  two of explanation, §4) in the banner would fill a phone's screen at large text
-  sizes and push Chats below it. A dialog holds them where they can
-  scroll, and the person reads them by one press. (Heuristic: visibility
+  two of explanation, §4) in the banner would fill a phone's screen at
+  large text sizes and push Chats below it. A dialog holds them where
+  they can scroll, and the person reads them with one press. (Heuristic: visibility
   of system status without blocking the primary task. Hypothesis, not
   tested with a person.)
 - **When.** At every open that finds the `settings` row with at least
@@ -104,7 +105,7 @@ someone for whom nothing was lost.
   client deletes it at that open.
 - **Under what.** A session notice (authentication needed, storage
   degraded, the device offline) goes first, as for the discard's
-  notice; the banner shows once no session notice is shown. An identity
+  notice; the banner shows when no session notice is shown. An identity
   screen (R, K, K1) or the reader over Chats hides the banner as it
   hides the slot.
 - **Which identity.** The banner shows on Chats whichever identity is in
@@ -112,8 +113,8 @@ someone for whom nothing was lost.
   client held one identity, and its words name none: it is about the
   update, not about an identity.
 - **Never** in a conversation's notice slot alone: a narrow window that
-  opens into a conversation (a notification) shows it when Chats is
-  shown.
+  opens on a conversation (from a notification) shows the banner when
+  Chats is shown.
 
 ## 4. The dialog
 
@@ -151,14 +152,14 @@ dialog; OK stays reachable.
   banner goes for this session, with no further message; the row stays,
   so the banner comes back at the next open. Nothing is lost by that,
   and the degraded store already has its own session notice.
-- **A session notice rises while the dialog is open** (the store
-  turns degraded, say): the dialog stays open and keeps focus, and
+- **A session notice rises while the dialog is open** (for example,
+  the store becomes degraded): the dialog stays open and keeps focus, and
   under it the notice takes the slot from the banner, as at any time
-  (§3). OK then meets the refused delete above, and focus goes to the
-  session notice: it rose behind the dialog, so the person has not
+  (§3). A press on OK then has its delete refused, as above, and focus
+  goes to the session notice: it rose behind the dialog, so the person has not
   seen it yet. (Heuristic: visibility of system status.)
-- **The process ends before OK** (killed, a crash, a restart, the
-  update of Android's own): the row is still there, so the next open
+- **The process ends before OK** (killed, a crash, a restart, an
+  update of Android itself): the row is still there, so the next open
   shows the banner again. What the person was told matches what the
   store holds: nothing says "done" until the row is gone.
 - **The app goes to the background with the dialog open**: on return
@@ -170,9 +171,9 @@ dialog; OK stays reachable.
 | case | focus goes to | check |
 |---|---|---|
 | Chats shows the banner at an open (no session notice, no screen over it) | the banner's Details | keyboard: open a store with the row; Tab order starts on Details; desktop screen reader reads the banner text then "Details, button" |
-| a session notice was shown first, and goes | Details, once the banner shows | keyboard: open with storage degraded, then healthy |
-| an identity screen or the reader was over Chats, and goes | Details, once the banner shows | keyboard, with K1 raised at the open |
-| the person moved focus before the banner showed (it showed late) | stays where it was; this row wins over the two above, whatever showed first | keyboard: open with storage degraded, Tab into the list, then healthy |
+| a session notice was shown first, and goes | Details, when the banner shows | keyboard: open with storage degraded, then healthy |
+| an identity screen or the reader was over Chats, and goes | Details, when the banner shows | keyboard, with K1 raised at the open |
+| the person moved focus before the banner showed (it showed late) | stays where it was; this row applies instead of the session-notice and identity-screen rows above, whatever showed first | keyboard: open with storage degraded, Tab into the list, then healthy |
 | Details pressed | the dialog's title (screen reader), OK (keyboard) | keyboard: Enter on Details, then Enter presses OK; desktop screen reader reads title, the lines in order, the explanation, then OK |
 | dialog closed without OK (Back, Escape, outside) | Details | keyboard: Escape returns to Details |
 | OK | the Chats list heading, as when the locked notice leaves (unlock note F14) | keyboard |
@@ -187,25 +188,27 @@ until the Android build exposes an accessibility tree (contact-cards
 ## 7. Strings
 
 language-culture writes every word; what follows is what each must say,
-with a proposal in English to make the flow concrete. Plural forms and
+and its English words (language-culture, j386). Plural forms and
 number formats are the locale's: each count line is one message with
-its number, never a number put before a fixed word.
+its number, never a number put before a fixed word. For English, a
+count line has two forms: "one" for 1 and "other" for every other
+number.
 
-| key | must say | proposal |
+| key | must say | words |
 |---|---|---|
-| `MigratedBanner` | the update removed some stored items; more is one press away | "This update removed some stored messages." |
-| `Details` | opens the counts | "Details" |
+| `MigratedBanner` | the update removed some stored items; more is one press away | "This update removed some saved items." |
+| `Details` | opens the counts | "Details" (the existing `Details` value) |
 | `MigratedTitle` | the dialog's subject | "What this update removed" |
-| `MigratedNotSent` {n} | n of the person's sends were never sent and will not be | "{n} messages you were sending were not sent" |
-| `MigratedMayHaveReached` {n} | n of the person's sends may have been received before the update; the app will not send them again; never "not sent" | "{n} messages you were sending may have been received before the update. They will not be sent again." |
-| `MigratedCards` {n} | n contact cards the person had not answered went; the sender can share theirs again | "{n} contact cards you had not answered" |
-| `MigratedUnread` {n} | n unread messages went, before they were read; never a card | "{n} unread messages" |
-| `MigratedKept` {n} | n messages the person had kept went | "{n} kept messages" |
-| `MigratedConversations` {n} | n conversations went, each with someone whose contact card the person had not accepted (unread or declined counts as not accepted) | "{n} conversations with no accepted contact card" |
-| `MigratedContacts` {n} | n contacts went, each with no accepted contact card | "{n} contacts with no accepted contact card" |
-| `MigratedCombined` {n} | n contacts were joined to another contact of the same person; that person's contact stays, the joined contact's own name and notes did not | "{n} contacts were combined with another contact of the same person. Their own names and notes were not kept." |
-| `MigratedWhy` | each contact is now reached by the key on the card the person accepted; what had no accepted card could not move; the app cannot show which items went | "Each contact is now reached by the key on their contact card, so what had no accepted card could not be kept. The app cannot show which items were removed." |
-| `MigratedKeptWhat` | contacts with an accepted card, and their conversations, are still there | "Your contacts with an accepted contact card and their conversations are still here." |
+| `MigratedNotSent` {n} | n of the person's sends were never sent and will not be | one: "{n} message you were sending was not sent. InterWeave will not send it."; other: "{n} messages you were sending were not sent. InterWeave will not send them." |
+| `MigratedMayHaveReached` {n} | n of the person's sends may have reached the peer before the update; the app will not send them again; never "not sent" | one: "{n} message you were sending may have reached the peer before the update. InterWeave will not send it again."; other: "{n} messages you were sending may each have reached its peer before the update. InterWeave will not send them again." |
+| `MigratedCards` {n} | n contact cards the person had not answered went; the sender can share theirs again | one: "{n} contact card that you had not accepted or declined was removed. The sender can share it again."; other: "{n} contact cards that you had not accepted or declined were removed. The senders can share their cards again." |
+| `MigratedUnread` {n} | n unread messages went, before they were read; never a card | one: "{n} unread message was removed."; other: "{n} unread messages were removed." |
+| `MigratedKept` {n} | n messages the person had kept went | one: "{n} message you had kept was removed."; other: "{n} messages you had kept were removed." |
+| `MigratedConversations` {n} | n conversations went, each with someone whose contact card the person had not accepted (unread or declined counts as not accepted) | one: "{n} conversation was removed. You had not accepted a contact card from the other person."; other: "{n} conversations were removed. In each, you had not accepted a contact card from the other person." |
+| `MigratedContacts` {n} | n contacts went, each with no accepted contact card | one: "{n} contact was removed. You had not accepted a contact card from them."; other: "{n} contacts were removed. You had not accepted a contact card from any of them." |
+| `MigratedCombined` {n} | n contacts were joined to another contact of the same person; that person's contact stays, the joined contact's own name and notes did not | one: "{n} contact was merged into another contact of the same person. The contact it was merged into stays, but the name and notes you had given the merged one were removed."; other: "{n} contacts were each merged into another contact of the same person. The contacts they were merged into stay, but the names and notes you had given the merged ones were removed." |
+| `MigratedWhy` | each contact is now reached by the key on the card the person accepted; what had no accepted card could not move; the app cannot show which items went | "InterWeave now recognizes each contact by the key on the contact card you accepted from them. Conversations and contacts without an accepted contact card could not stay. InterWeave cannot show which items were removed." |
+| `MigratedKeptWhat` | contacts with an accepted card, and their conversations, are still there | "Your contacts with an accepted contact card, and your conversations with them, are still in InterWeave." |
 | `MigratedOk` | acknowledges, and the notice will not return; distinct from Close, which elsewhere dismisses with no effect | "OK" (new: no OK string exists) |
 
 No string names a peer, an identity, a PeerId or a label.
