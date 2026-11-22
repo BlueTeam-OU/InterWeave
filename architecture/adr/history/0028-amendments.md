@@ -760,3 +760,17 @@ act. Four full sets' worth is far above what a person's identities
 hold and keeps the file near one mebibyte. The bound is this record's
 author's, taken with the ruling and not put to the owner; the byte
 bound that follows from it is the loader's, derived in code.
+
+What the loader answers to a file that breaks these was settled with
+its builder once the loader existed, and the body says it: an `added`
+entry that carries an `inbound` or `outbound` field fails the load,
+naming the member; a list that names a PeerId twice fails the load,
+naming the member, the endpoint and the peer; a list that is unsorted
+and without a repeat is read as the set it names, with no rewrite at
+load, and is written sorted at the file's next write. Nothing is
+rewritten for a refused file. The body had said since 2026-10-21 that
+an `added` id `config.yaml` also authors fails the load by name; the
+same now holds of an `added` alias that an authored entry or another
+added one holds. Dropping the added entry was the alternative and was
+refused: it would lose that identity's sets silently, where a refused
+start names the entry and leaves both files as they were.
