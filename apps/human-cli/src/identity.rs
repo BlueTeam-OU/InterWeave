@@ -76,8 +76,8 @@ pub(crate) async fn show<B: interweave_human_transport_client::SessionBinding, A
 
 /// `identity show <endpoint>` of a human endpoint that is not the one in
 /// front: its key file read under the desktop's custody, `absent` when it
-/// has none. Nothing is made or changed: a key is made only for the
-/// identity in front, at its first run
+/// has none. Nothing is made or changed: no client makes a key
+/// (ADR-0067 decision 5; `transportctl endpoint init` mints one)
 /// (`another_identitys_key_is_read_and_never_made`).
 pub(crate) fn show_file(
     paths: &ProfilePaths,
