@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The `/interweave/endpoints/1.0.0` request-response codec (ADR-0031).
+//! The `/interweave/endpoints/2.0.0` request-response codec (ADR-0031).
 //!
 //! The bytes are decided in `architecture/transport/libp2p/ENDPOINTS.md`
 //! and pinned by `fixtures/endpoints/endpoint-directory-v1-frame.json`;
@@ -9,18 +9,19 @@
 //!
 //! # Both reads are bounded before they allocate
 //!
-//! A request is ONE byte and a response is at most 2094, and each read
-//! `.take()`s its ceiling plus one — the extra byte being how "exactly
-//! at the limit" is told from "over it". A peer that streams forever is
+//! A request is ONE byte and a response is at most 1710, the largest
+//! frame that decodes (32 derived entries), and each read `.take()`s its
+//! ceiling plus one — the extra byte being how "exactly at the limit" is
+//! told from "over it". A peer that streams forever is
 //! cut off at a length this profile chose.
 //!
 //! # Grammar is refused here, not later
 //!
 //! Each entry is decoded by [`EndpointId::parse_derived`], never the
 //! transitional `parse`: on the wire an entry is a derived id (ADR-0067),
-//! 52 bytes, and a label of the retired grammar is malformed metadata. So
-//! a response carrying a label, or an entry of any other length, fails to
-//! DECODE, and request-response reports that to the requester as an
+//! 52 bytes (`ENDPOINT_FIELD_BYTES`), and a label of the retired grammar is
+//! malformed metadata. So a response carrying a label, or an entry whose
+//! length byte is not 52, fails to DECODE, and request-response reports that to the requester as an
 //! `Io(InvalidData)` the runtime reads as `ProtocolViolation`
 //! (`an_entry_that_is_not_a_derived_id_does_not_decode`). The count and
 //! duplicate rules are the runtime's (`transport-runtime::directory`) because they are
@@ -34,26 +35,24 @@ use libp2p::StreamProtocol;
 use libp2p::request_response::Codec;
 
 use interweave_transport_api::{
-    DirectoryRefusal, EndpointDirectoryV1, EndpointId, MAX_DIRECTORY_ENTRIES,
+    DirectoryRefusal, ENDPOINT_FIELD_BYTES, EndpointDirectoryV1, EndpointId, MAX_DIRECTORY_ENTRIES,
 };
 
 /// The protocol this codec speaks (ADR-0031). Versioned in the string,
 /// so an incompatible framing is a NEW id and `UnsupportedProtocols`
 /// stays a usable major-version signal.
-pub const ENDPOINTS_PROTOCOL: StreamProtocol = StreamProtocol::new("/interweave/endpoints/1.0.0");
+pub const ENDPOINTS_PROTOCOL: StreamProtocol = StreamProtocol::new("/interweave/endpoints/2.0.0");
 
 /// The whole request: one tag byte. Not empty, because an empty request
 /// is indistinguishable from a closed stream.
 pub const MAX_REQUEST_BYTES: usize = 1;
 
 /// The read bound of a response: tag, `generated_at_ms`, `ttl_ms`, count,
-/// and 32 entries each at the 64-byte `EndpointId` ceiling. 2094, and the
-/// spec quotes that number from these same widths. It bounds what is
-/// READ, not the largest frame that decodes: every entry is a derived id
-/// of 52 bytes, so that is `1 + 8 + 4 + 1 + 32 * 53` = 1710, the
-/// fixture's `largest-32-entries`.
+/// and 32 entries each a length byte and a derived id. 1710, which is also
+/// the largest frame that decodes: the fixture's `largest-32-entries`
+/// (`the_largest_legal_frame_is_the_read_ceiling`).
 pub const MAX_RESPONSE_BYTES: usize =
-    1 + 8 + 4 + 1 + MAX_DIRECTORY_ENTRIES * (1 + EndpointId::MAX_BYTES);
+    1 + 8 + 4 + 1 + MAX_DIRECTORY_ENTRIES * (1 + ENDPOINT_FIELD_BYTES);
 
 const TAG_REQUEST: u8 = 0x01;
 const TAG_DIRECTORY: u8 = 0x01;
@@ -150,8 +149,8 @@ pub fn encode_response(response: &DirectoryResponse) -> Vec<u8> {
 ///
 /// # Errors
 /// A static description of the first thing wrong: unknown tag, short
-/// frame, an entry that is not a derived `EndpointId` (a label of the
-/// retired grammar among them), more than 32 entries, or trailing bytes.
+/// frame, an entry whose length byte is not 52 or that is not a derived
+/// `EndpointId` (a label of the retired grammar among them), more than 32 entries, or trailing bytes.
 pub fn decode_response(bytes: &[u8]) -> Result<DirectoryResponse, &'static str> {
     let (&tag, rest) = bytes.split_first().ok_or("empty response")?;
     match tag {
@@ -170,6 +169,9 @@ pub fn decode_response(bytes: &[u8]) -> Result<DirectoryResponse, &'static str> 
             let mut endpoints = Vec::with_capacity(count);
             for _ in 0..count {
                 let (&len, tail) = rest.split_first().ok_or("short entry length")?;
+                if usize::from(len) != ENDPOINT_FIELD_BYTES {
+                    return Err("entry length is not that of a derived id");
+                }
                 let (label, tail) = tail
                     .split_at_checked(usize::from(len))
                     .ok_or("short entry")?;
@@ -345,11 +347,11 @@ mod tests {
         assert_eq!(seen, 5, "every vector in the file was exercised");
     }
 
-    /// The largest frame that decodes is 32 derived entries, 1710 bytes,
-    /// under the 2094-byte read bound; the 2094-byte frame of 64-byte
-    /// labels the bound was computed from is refused by the grammar.
+    /// The largest legal frame IS the read ceiling: 32 derived entries,
+    /// 1710 bytes. A frame one byte longer is refused by the bound itself,
+    /// through the codec's own `read_response`.
     #[test]
-    fn the_largest_legal_frame_is_32_derived_entries_under_the_read_bound() {
+    fn the_largest_legal_frame_is_the_read_ceiling() {
         let doc = fixture();
         let largest = doc["vectors"]
             .as_array()
@@ -357,19 +359,52 @@ mod tests {
             .iter()
             .find(|v| v["name"] == "largest-32-entries")
             .expect("the largest vector");
-        assert_eq!(largest["frame_len"].as_u64(), Some(1 + 8 + 4 + 1 + 32 * 53));
-        assert_eq!(MAX_RESPONSE_BYTES, 2094);
+        let frame = unhex(largest["frame_hex"].as_str().expect("hex"));
+        assert_eq!(largest["frame_len"].as_u64(), Some(1710));
+        assert_eq!(frame.len(), MAX_RESPONSE_BYTES);
+        assert_eq!(MAX_RESPONSE_BYTES, 1710);
+        assert!(decode_response(&frame).is_ok());
 
-        let mut at_bound = vec![TAG_DIRECTORY];
-        at_bound.extend_from_slice(&0u64.to_be_bytes());
-        at_bound.extend_from_slice(&0u32.to_be_bytes());
-        at_bound.push(32);
-        for i in 0..32u8 {
-            at_bound.push(64);
-            at_bound.extend_from_slice(format!("{}{i:02}", "a".repeat(62)).as_bytes());
+        let read = |bytes: Vec<u8>| {
+            futures::executor::block_on(async move {
+                EndpointsCodec
+                    .read_response(&ENDPOINTS_PROTOCOL, &mut futures::io::Cursor::new(bytes))
+                    .await
+            })
+        };
+        assert!(read(frame.clone()).is_ok(), "the ceiling passes the bound");
+        let mut over = frame;
+        over.push(0);
+        let err = read(over).expect_err("one byte past the ceiling");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("ceiling"), "{err}");
+    }
+
+    /// An entry whose length byte is not 52 is malformed whatever it
+    /// holds: 51 and 53 bytes, and the retired 64-byte label.
+    #[test]
+    fn an_entry_of_any_length_but_52_does_not_decode() {
+        let entry = |len: usize| {
+            let mut frame = vec![TAG_DIRECTORY];
+            frame.extend_from_slice(&0u64.to_be_bytes());
+            frame.extend_from_slice(&0u32.to_be_bytes());
+            frame.push(1);
+            frame.push(u8::try_from(len).expect("short"));
+            frame.extend_from_slice(&vec![b'a'; len]);
+            frame
+        };
+        for len in [0, 1, 51, 53, 64] {
+            assert_eq!(
+                decode_response(&entry(len)),
+                Err("entry length is not that of a derived id"),
+                "{len}"
+            );
         }
-        assert_eq!(at_bound.len(), MAX_RESPONSE_BYTES);
-        assert_eq!(decode_response(&at_bound), Err("entry outside the grammar"));
+        // The control: 52 bytes reach the grammar check, and fail there.
+        assert_eq!(
+            decode_response(&entry(52)),
+            Err("entry outside the grammar")
+        );
     }
 
     /// A derived id one character off, and a label the transitional
@@ -407,7 +442,11 @@ mod tests {
         labelled.push(1);
         labelled.push(u8::try_from(label.as_str().len()).expect("short"));
         labelled.extend_from_slice(label.as_str().as_bytes());
-        assert_eq!(decode_response(&labelled), Err("entry outside the grammar"));
+        // 5 bytes: refused by its length before the grammar is asked.
+        assert_eq!(
+            decode_response(&labelled),
+            Err("entry length is not that of a derived id")
+        );
     }
 
     #[test]
