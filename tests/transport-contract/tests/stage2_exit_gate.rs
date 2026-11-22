@@ -28,7 +28,7 @@ fn peer(s: &str) -> TransportIdentity {
     TransportIdentity::parse(s).expect("valid identity")
 }
 fn ep(n: &str) -> EndpointId {
-    EndpointId::parse(n).expect("valid endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id(n)
 }
 fn generation(seed: &str) -> Generation {
     Generation::parse(format!("{seed:_<16}")).expect("valid generation")
