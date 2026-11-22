@@ -1217,6 +1217,39 @@ fn init_rerun_after_an_interruption_mints_nothing() {
     }
 }
 
+/// The `link` fallback cut short between its link and its unlink leaves
+/// the pending key under its id's name as well: the rerun finds the same
+/// bytes there, removes the pending name and prints the entry. The
+/// control: another key under the id's name is refused, both kept.
+#[test]
+fn init_finishes_when_the_key_is_under_both_names() {
+    let home = Home::new();
+    let id = home.plant_pending();
+    let pending = home.keys_dir().join(".pending-claude.key");
+    let named = home.keys_dir().join(format!("{}.key", id.as_str()));
+    let line = std::fs::read_to_string(&pending).expect("pending");
+    std::fs::hard_link(&pending, &named).expect("a second name");
+    let (printed_id, _) = printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+    assert_eq!(printed_id, id);
+    assert_eq!(home.minted(), [format!("{}.key", id.as_str())]);
+    assert_eq!(std::fs::read_to_string(&named).expect("named"), line);
+
+    // The control: the id's name holds other bytes.
+    let other = Home::new();
+    let id = other.plant_pending();
+    let named = other.keys_dir().join(format!("{}.key", id.as_str()));
+    std::fs::write(&named, "not the pending key\n").expect("planted");
+    std::fs::set_permissions(&named, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    let out = other.run(&["endpoint", "init", "--alias", "claude"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert!(
+        text(&out.stderr).contains("holds another key"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert_eq!(other.minted().len(), 2, "both kept");
+}
+
 /// A carry that fails in `init` leaves the pending file, so the rerun
 /// finds the same key; the control is the rerun finishing once the
 /// overlay is settled.

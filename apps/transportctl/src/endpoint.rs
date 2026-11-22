@@ -217,11 +217,39 @@ fn init_with_alias(
             "transportctl: warning: {} is written, but its directory could not be synced: {e}",
             new.display()
         ),
+        // The `link` fallback (a filesystem without RENAME_NOREPLACE)
+        // cut short between its link and its unlink leaves the key under
+        // both names: the same bytes there finish the run, anything else
+        // is refused and both are kept
+        // (`init_finishes_when_the_key_is_under_both_names`).
         Err(PersistError::AlreadyExists) => {
-            return Err(Failure::Refused(format!(
-                "{} is there already: {shown} is kept, and nothing was replaced",
-                new.display()
-            )));
+            let same = |p: &Path| {
+                read_private_within(p, paths.boundary(), MAX_RECORD_BYTES)
+                    .ok()
+                    .flatten()
+                    .map(Zeroizing::new)
+            };
+            match (same(&pending), same(&new)) {
+                (Some(a), Some(b)) if a == b => {
+                    if let Err(e) = interweave_profile_config::persist::remove_private_within(
+                        &pending,
+                        paths.boundary(),
+                    ) {
+                        eprintln!(
+                            "transportctl: warning: {shown} is a second name of {}, and could \
+                             not be removed: {e}",
+                            new.display()
+                        );
+                    }
+                }
+                _ => {
+                    return Err(Failure::Refused(format!(
+                        "{} is there already and holds another key: {shown} is kept, and \
+                         nothing was replaced",
+                        new.display()
+                    )));
+                }
+            }
         }
         Err(e) => {
             return Err(Failure::Refused(format!(
@@ -275,8 +303,8 @@ fn legacy_path(paths: &ProfilePaths, alias: &EndpointAlias) -> PathBuf {
 /// judged; the new file is written by the exclusive create, which syncs
 /// the file and its directory; the new file is read back and must hold
 /// the same key; the overlay's members for the label are carried to the
-/// id; only then is the old file removed, and its directory synced. Interrupted anywhere, both files or the old one alone are
-/// left, and a second run finishes from either: a new file already there
+/// id; only then is the old file removed, and its directory synced.
+/// Interrupted anywhere, both files or the old one alone are left, and a second run finishes from either: a new file already there
 /// is checked, never replaced, and nothing is minted.
 /// `tests/endpoint.rs`
 /// `a_failed_write_leaves_the_old_file` fails if the removal comes first.
