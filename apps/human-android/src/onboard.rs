@@ -65,8 +65,10 @@ pub(crate) mod state {
     /// start went with: `FLAG_SECURE` on and nothing bound, its record
     /// unread (`Native.IDENTITY_FLOW`).
     pub(crate) const FLOW: jint = 4;
-    /// An identity flow shows with its start asked -- a held C4 or R4, or
-    /// `IdStartBusy` on C4, R4, R3 or R2 after K1: `FLAG_SECURE` on, and
+    /// An identity flow shows with its start asked -- a held C4 or R4, R2
+    /// or R3 held after `IdRestoreOther`'s Continue, or `IdStartBusy` on
+    /// C4, R4, R3 or R2 after K1 (`IdentityFlow::start_shows`):
+    /// `FLAG_SECURE` on, and
     /// the binding decides a start as for a ready identity, a busy or
     /// locked one retried and one running left alone (identity note
     /// section 6, A return to a screen showing `IdStartBusy`;
@@ -701,8 +703,8 @@ struct Onboarding {
     /// window attaches them at once exactly when they were ([`rebind`];
     /// the rule held by [`Attached::at_rebind`]'s test
     /// `the_next_window_attaches_its_chats_where_the_last_had_them`, and
-    /// where each flow sets it is BLOCKED on a device run: acceptance
-    /// 12's recreation run, a kept K1 and a held C4 recreated).
+    /// where each flow sets it is BLOCKED on a device run: cases D1 and
+    /// D3 of `device-runs/identity-recreation-cases.md`).
     attached: Attached,
     /// Whether the flow finished the Activity (Back on a first screen):
     /// its window's end then ends it rather than keeping it
@@ -873,8 +875,8 @@ static OWED: Mutex<Owed<Box<dyn FnOnce() + Send>>> = Mutex::new(Owed::new());
 /// Run `task` on the window that holds the flow: held in [`OWED`], and
 /// that window told to take it. Between two windows the tell reaches the
 /// ended window's loop, which never runs it (BLOCKED on a device run:
-/// acceptance 12's recreation run, a held start's refusal answered
-/// across the recreation), and the next window takes what is held once
+/// case D6 of `device-runs/identity-recreation-cases.md`), and the next
+/// window takes what is held once
 /// it holds the flow ([`start`]) -- a prompt's answer,
 /// an Unlock ask dropped unraised, a held start's refusal for the person
 /// are not lost to a recreation.

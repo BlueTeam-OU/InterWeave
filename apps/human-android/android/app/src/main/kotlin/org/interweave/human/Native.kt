@@ -207,7 +207,8 @@ internal object Native {
     /**
      * An identity flow shows -- in the window, or kept from the window a
      * recreation ended, for this one -- and asked its service start (a
-     * held C4 or R4, or `IdStartBusy` there or on R3 or R2 after K1): set
+     * held C4 or R4, R2 or R3 held after `IdRestoreOther`'s Continue, or
+     * `IdStartBusy` on C4, R4, R3 or R2 after K1): set
      * `FLAG_SECURE`, then decide a start as for [IDENTITY_READY], a busy
      * or locked one retried and one running left alone (identity note
      * section 6, A return to a screen showing `IdStartBusy`). A flow whose

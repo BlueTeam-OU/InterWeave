@@ -211,7 +211,10 @@ class MainActivity : NativeActivity() {
         identityReady = true
         if (phraseShown) return
         // A binding kept across a recreation, whose service's last start
-        // was refused for the lock, starts again now the key opens; one
+        // was refused for the lock, starts again: for a ready identity
+        // now the key opens; for a flow that asked its start
+        // (IDENTITY_FLOW_STARTED) with no key read, the start's own
+        // refusal raising the prompt (onboard.rs, identity_state); one
         // refused with the profile in use starts again too, as a return
         // that binds anew does (identity note section 6). With no binding,
         // connect binds, which creates the service and starts it: Home let
@@ -300,8 +303,8 @@ class MainActivity : NativeActivity() {
         // decision is flow_park.rs's
         // a_window_end_parks_only_an_open_flow_past_a_destroy_that_is_not_a_finish).
         // That this call lands before the window's thread ends is BLOCKED
-        // on a device run: acceptance 11, the flow's words gone at a
-        // launch after the task was removed from Recents.
+        // on a device run: case D5 of
+        // apps/human-android/device-runs/identity-recreation-cases.md.
         Native.windowEnding(isFinishing && !isChangingConfigurations)
         unregisterReceiver(lockReceiver)
         // The editor goes with the window: its photo's open is not wanted.
@@ -315,9 +318,8 @@ class MainActivity : NativeActivity() {
         // after super.onDestroy(), which returns only once the window's
         // thread ended and the flow let go of the profile's lock: before
         // it, the start could find the lock still held and be refused busy.
-        // BLOCKED on a device run: acceptance 10, Show my phrase's S2
-        // through a recreation of the window, the service back online
-        // after it and not refused busy.
+        // BLOCKED on a device run: case D4 of
+        // apps/human-android/device-runs/identity-recreation-cases.md.
         val phrase = phraseShown
         phraseShown = false
         super.onDestroy()
