@@ -537,7 +537,16 @@ fn a_network_report_never_waits_on_a_start() {
     std::thread::sleep(Duration::from_millis(5));
     let mut during_the_start = 0_u32;
     let network = 1;
-    while !done.load(std::sync::atomic::Ordering::SeqCst) {
+    // A start that panics never sets `done`, and one that never returns
+    // would spin this loop for ever: end on the thread's own end, and
+    // fail at a deadline rather than hang the suite.
+    const START_DEADLINE: Duration = Duration::from_secs(120);
+    let began = Instant::now();
+    while !done.load(std::sync::atomic::Ordering::SeqCst) && !starting.is_finished() {
+        assert!(
+            began.elapsed() < START_DEADLINE,
+            "the start did not return within {START_DEADLINE:?}"
+        );
         let _ = service.network_report(NetworkReport::Link {
             network,
             link: Link {
@@ -1036,9 +1045,9 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
                     // as the facade writes one.
                     origin: InboundOrigin {
                         peer: peer.clone(),
-                        endpoint: Some(
-                            interweave_transport_api::EndpointId::parse("human").expect("endpoint"),
-                        ),
+                        endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id(
+                            "human",
+                        )),
                         channel: None,
                     },
                     media_type: Some(MediaType::parse(&encoded.media_type).expect("media type")),

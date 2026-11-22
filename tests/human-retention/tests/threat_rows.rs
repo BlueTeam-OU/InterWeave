@@ -37,11 +37,11 @@ const LIMIT: usize = 49_152;
 const WALL: u64 = 1_786_600_000_000;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("human")
 }
 
 fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("agent")
 }
 
 fn node() -> FakeConfig {

@@ -68,6 +68,7 @@ serde_json = { workspace = true, optional = true }
 # (src/platform_log.rs, src/identity_keys.rs), to look for its secret.
 base64 = { workspace = true }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
+interweave-test-support = { path = "../../tests/support" }
 
 [features]
 # A first run's identity created and Keystore-provisioned by the Service

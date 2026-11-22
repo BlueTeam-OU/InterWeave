@@ -92,7 +92,7 @@ fn on_the_runtime_alone_a_case_leases_human_itself_and_not_beside_the_facade() {
     let request = || {
         SessionRequest::new(
             "human-client",
-            Some(interweave_transport_api::EndpointId::parse("human").expect("endpoint")),
+            Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             [DataCapability::Events, DataCapability::Commands],
         )
         .expect("a request")

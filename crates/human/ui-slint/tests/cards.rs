@@ -1741,7 +1741,7 @@ fn fixture_key() -> ([u8; 32], String) {
     .expect("the fixture");
     let vector = &fixture["vectors"][0];
     let route_peer = peer(vector["received_on"]["peer_id"].as_str().expect("peer"));
-    let route_endpoint = EndpointId::parse(
+    let route_endpoint = EndpointId::parse_derived(
         vector["received_on"]["source_endpoint"]
             .as_str()
             .expect("e"),

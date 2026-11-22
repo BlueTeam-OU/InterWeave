@@ -60,7 +60,7 @@ fn app() -> App {
 }
 
 fn endpoint(id: &str) -> EndpointId {
-    EndpointId::parse(id).expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id(id)
 }
 
 /// The peer: an embedded host trusting the phone, leasing `agent`,

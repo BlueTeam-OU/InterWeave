@@ -35,6 +35,7 @@ interweave-human-store = { path = "../../crates/human/store" }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
 
 [dev-dependencies]
+interweave-test-support = { path = "../support" }
 interweave-human-chat-protocol = { path = "../../crates/human/chat-protocol" }
 interweave-human-core = { path = "../../crates/human/core" }
 # The client's half of cases 1, 5 and 14 (`tests/client_half.rs`): the
