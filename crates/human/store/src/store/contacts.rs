@@ -1343,10 +1343,11 @@ impl HumanStore {
     }
 
     /// Whether any conversation ever recorded a share of the identity's
-    /// card: with the own card rows still pending, what tells a first
-    /// start from a key file lost after counterparties got, or may still
-    /// get, its key (app-core's `card_may_be_held`). `card_shared_at` is cleared by nothing
-    /// short of a discard of the whole store.
+    /// card. `card_shared_at` is cleared by nothing short of a discard of
+    /// the whole store. Until ADR-0067 decision 5, app-core read it to
+    /// tell a first start, where it then made a key, from a key file lost
+    /// after a share; a missing key file is now the key-missing state
+    /// whatever this says, and no client reads it for that.
     ///
     /// # Errors
     /// A storage error.

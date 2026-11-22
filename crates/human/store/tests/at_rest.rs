@@ -479,8 +479,10 @@ fn a_discard_removes_everything_and_the_key_and_the_next_open_recreates_an_empty
 fn a_discard_leaves_every_identity_key_and_the_profiles_other_state() {
     let (_dir, paths) = profile();
     drop(HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap());
-    let human = EndpointId::parse("human").unwrap();
-    interweave_human_store::identity_key::create(&paths, &human, &FilesystemCustody).unwrap();
+    let human = interweave_human_store::identity_key::create(&paths, &FilesystemCustody)
+        .unwrap()
+        .endpoint()
+        .clone();
     let identity = std::fs::read(interweave_human_store::identity_key::key_path(
         &paths, &human,
     ))
