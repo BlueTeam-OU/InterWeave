@@ -112,6 +112,10 @@ pub struct AdmissionContext<'a> {
     pub reservations: &'a mut ReservationMap,
     /// Configured endpoints, their policies and their leases.
     pub registry: &'a EndpointRegistry,
+    /// The operator's list, which the endpoint step judges an inheriting
+    /// or authored endpoint against -- never the admission set the prefix
+    /// gate's `trust` is (ADR-0067 decision 6).
+    pub operator: &'a PeerTrustPolicy,
     /// Open delivery queues.
     pub queues: &'a mut EndpointQueues,
 }
@@ -129,7 +133,8 @@ pub struct AdmissionContext<'a> {
 /// are used in is this module's subject, and a caller handed them
 /// individually could use them in some other order.
 pub struct PrefixContext<'a> {
-    /// Who this profile trusts, at profile scope.
+    /// Who this profile trusts at profile scope: the admission set, which
+    /// decides the connection (ADR-0067 decision 6).
     pub trust: &'a PeerTrustPolicy,
     /// The ingress token buckets for this mode.
     ///
@@ -383,11 +388,11 @@ pub fn admit_structured(
         frame.destination_endpoint.as_ref(),
         // 6-7. The endpoint's inbound trust, decided by trust-api: its own
         //      set, else its authored filter narrowing the operator's list
-        //      (`ctx.prefix.trust`, never the admission set), so no call
+        //      (`ctx.operator`, never the admission set), so no call
         //      site can order it to widen.
         |trust: EndpointTrust<'_>| {
             matches!(
-                ctx.prefix.trust.decide_at_endpoint(source_peer, trust),
+                ctx.operator.decide_at_endpoint(source_peer, trust),
                 TrustDecision::Allowed
             )
         },
@@ -571,6 +576,7 @@ mod tests {
                 dedup: &mut self.dedup,
                 reservations: &mut self.reservations,
                 registry: &self.registry,
+                operator: &self.trust,
                 queues: &mut self.queues,
             };
             admit_inbound(
@@ -680,6 +686,7 @@ mod tests {
                 dedup: &mut w.dedup,
                 reservations: &mut w.reservations,
                 registry: &w.registry,
+                operator: &w.trust,
                 queues: &mut w.queues,
             };
             assert!(
@@ -700,6 +707,7 @@ mod tests {
             dedup: &mut w.dedup,
             reservations: &mut w.reservations,
             registry: &w.registry,
+            operator: &w.trust,
             queues: &mut w.queues,
         };
         assert_eq!(
@@ -1048,6 +1056,7 @@ mod tests {
             dedup: &mut w.dedup,
             reservations: &mut w.reservations,
             registry: &w.registry,
+            operator: &w.trust,
             queues: &mut w.queues,
         };
         assert!(matches!(
