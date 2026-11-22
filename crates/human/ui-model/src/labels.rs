@@ -623,18 +623,19 @@ ui_texts! {
     IdAlreadyTitle => "This phone already has a PeerId",
     /// ANDROID, identity screens: C4's notice when another first run
     /// sealed first (`AlreadyProvisioned`, section 6), under
-    /// `IdAlreadyTitle`, so it does not say that again; Continue opens
-    /// the identity on record.
-    IdAlreadyCreated => "The words you just saw were not used, so they do not restore this phone's PeerId. Do not use the paper where you wrote those words as your backup.",
+    /// `IdAlreadyTitle`, so it does not say that again; its last sentence
+    /// says what Continue does: it opens the identity on record.
+    IdAlreadyCreated => "The words you just saw were not used, so they do not restore this phone's PeerId. Do not use the paper where you wrote those words as your backup. Choose Continue to go online with this phone's PeerId.",
     /// ANDROID, identity screens: section 6's notice when the read-back
     /// after a refusal that may follow the write fails, two lines, with
     /// `TryAgain`, which reads back before it writes. Never says that
     /// nothing changed.
     IdStorageUnknown => "The app does not know whether your PeerId was saved. Try again to check.",
     /// ANDROID, identity screens: section 6's another-identity-on-record
-    /// notice at a restore, two lines, the record's `PeerId` in full
-    /// under it, then `IdContinue`.
-    IdRestoreOther => "Your PeerId was not restored. This phone already has a different saved PeerId, shown below.",
+    /// notice at a restore, three lines on R3 and R2 after K1, the
+    /// record's `PeerId` in full under it, then `IdContinue`; its last
+    /// sentence says that Continue goes online with that `PeerId`.
+    IdRestoreOther => "Your PeerId was not restored. This phone already has a different saved PeerId, shown below. Choose Continue to go online with the PeerId below.",
     /// ANDROID, identity screens and Chats: section 6's notice when the
     /// service start was refused with the profile in use (the runtime's
     /// `LockHeld`), with `TryAgain`. On C4 and R4 in C4's notice place,
