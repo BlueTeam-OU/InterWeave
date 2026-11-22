@@ -353,7 +353,6 @@ screen through the start after a successful seal and under
 §11d no longer say that the build does not name this refusal: #736
 built it.
 
-
 Revised 2026-11-21 a third time, for what #728's review carried
 (F24, F25, F35). A recreation of the window moves no focus: the
 recreated window puts focus on the control that had it, on Chats, in
@@ -368,9 +367,9 @@ is. The ninth return run now says that both reads answer empty.
 
 Revised 2026-11-22, at #738's review (F2, F7, F9). In foreground-only
 mode, after a start that answered as started before the stop, the
-return makes one start, a launch's (add-a-peer §5.1), never a retry
-(§6, The start answered first); acceptance 15's two checks of that
-case expect it. Before, they expected no start at the return, which a
+return makes one start, as a new launch does (add-a-peer §5.1), never
+a retry (§6, The start answered first); acceptance 15's two checks
+of that case expect it. Before, they expected no start at the return, which a
 build that follows §5.1 cannot give. §6's sentence on the order of
 answer and stop names the second device run.
 
@@ -1362,7 +1361,7 @@ Q12).
   nothing, and that start's answer stands, so only one start is ever
   in flight (Try again, above). In foreground-only mode, leaving the
   app stops the service, and a start that has not answered by then
-  ends with it (`design/2026-10-22-add-a-peer.md` §5.1,
+  ends when the service stops (`design/2026-10-22-add-a-peer.md` §5.1,
   Interruptions), so a return after Home finds no start running and
   retries; a recreation keeps the service in either mode, so a start
   that runs through it goes on. Home does not cancel the start: one
@@ -1420,11 +1419,11 @@ shows:
   (`design/2026-10-22-add-a-peer.md` §5.1), and the return shows that
   screen, never `IdStartBusy`; on Chats or a conversation, a success
   has removed the notice. The service stopped at Home all the same, so
-  the return then makes one start, a launch's (add-a-peer §5.1: a new
-  launch, counted as one for Connect), never a retry, and no
-  `IdStartBusy` shows for it. A `LockHeld` again has shown `IdStartBusy`
-  with Try again enabled, so the return finds no start running and
-  retries, as above. Any other answer shows its row.
+  the return then makes one start, as a new launch does (add-a-peer
+  §5.1: the return is a new launch, counted as one for Connect), never
+  a retry, and no `IdStartBusy` shows for it. A `LockHeld` again has
+  shown `IdStartBusy` with Try again enabled, so the return finds no
+  start running and retries, as above. Any other answer shows its row.
 - **The stop came first.** The start ended unanswered, and nothing it
   asked for happened, so the return finds no start running and
   retries, as above.
@@ -1441,9 +1440,10 @@ app's own start. The answer that came is the one true status to show
 needs no cancel: the stop already ends it. Not verified on a phone:
 which comes first, and that an answer received while the Activity is
 stopped shows at the return. Acceptance 15's second device run in
-foreground-only mode (`busyStarts` 1) records which comes first; it
-sees an answer received while the Activity is stopped only when the
-phone's order gives one, and the run says which it saw.
+foreground-only mode (`busyStarts` 1) records which comes first; the
+run sees an answer received while the Activity is stopped only when
+the order of events on that phone produces one, and the run says
+which it saw.
 
 ## 7. Leaving, Back and interruptions
 
@@ -2505,8 +2505,8 @@ scale would also be a finding of the Android review
         Home and a start's answer): answered as started, on C4 after
         a seal, the next screen shows at the return, with focus as
         add-a-peer §5.1 gives it, `IdStartBusy` does not, and the
-        hook records one start at the return, the launch's, with no
-        `IdStartBusy` and no Try again shown; answered `LockHeld`,
+        hook records one start at the return, as at a new launch,
+        with no `IdStartBusy` and no Try again shown; answered `LockHeld`,
         `IdStartBusy` shows at the return with focus on it, and the
         hook records a second start there, with Try again disabled
         until it answers and focus still on the notice. Whether Home
@@ -2532,9 +2532,10 @@ scale would also be a finding of the Android review
         service's stop, and passes when the return shows what that
         order requires (§6, Foreground-only Home and a start's
         answer): after an answer of started, the next screen, no
-        `IdStartBusy`, and one start at the return, the launch's; after the stop, `IdStartBusy` and a
-        second start, with Try again disabled until it answers. This
-        run needs no new hook.
+        `IdStartBusy`, and one start at the return, as at a new
+        launch; after the stop, `IdStartBusy` and a second start,
+        with Try again disabled until it answers. This run needs no
+        new hook.
       - Connect: with no address recorded, after R4's Continue (so
         Connect is owed and was deferred at the bound), Try again's
         start is answered as started and both reads answer empty

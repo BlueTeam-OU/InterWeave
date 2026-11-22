@@ -19,15 +19,17 @@ notice showed first (§6), and §5 says what the dialog does when a session noti
 rises under it, which acceptance 9 now sets up. Before, two rows of §6
 both applied to a late banner, and acceptance 9 needed OK with a store
 degraded from the open, which hides the banner.
+
 Revised 2026-11-22, at #738's review (F1, F3-F6, F8). Only storage
 degraded refuses OK's delete; under another session notice OK deletes
 the row (§5, §6, acceptance 9's second run). The late-banner row of §6
 covers focus moved on Chats only. Acceptance 9's store hook is named as
-missing, so that run is blocked. The client deletes no all-zero row,
-and acceptance 1 checks that no banner shows. §1 counts each pending
-and card row whichever step took it, asked as Q3 (§11). Before, §5 said
-that any session notice refused the delete, and §3 had the client
-delete an all-zero row, which STATE.md's "on nothing else" forbids.
+missing, so its first run is blocked. The client deletes no all-zero
+row, and acceptance 1 checks that no banner shows. §1 counts each
+pending and card row whichever step took it, as Q3 (§11, open)
+proposes. Before, §5 said that any session notice refused the delete,
+and §3 had the client delete an all-zero row, which STATE.md's "on
+nothing else" forbids.
 
 Owner of the design: ux-designer. The words are language-culture's: §7
 names each string and what it must say. No new colour: the banner is
@@ -57,10 +59,11 @@ the desktop and on Android; the command-line client's form is left out
   route moved to another contact of the same identity, its own name and
   notes gone), card proposals (unread contact card proposals). A second
   copy under (d) is counted nowhere: the message is still held, or was
-  read and not kept. Each of the two pending counts and the card
-  proposals count holds every such row the migration discarded, whether
-  (c) or (e) took it; unread and kept messages hold no card (Q3 in §11,
-  asked of architect-cto, which STATE.md then states).
+  read and not kept. The two pending counts and the card proposals
+  count each hold every such row the migration discarded, whether (c)
+  or (e) took it; the unread and kept counts hold no card row (Q3 in
+  §11, open: asked of architect-cto, and STATE.md is to state the
+  answer).
 - The pending rows are counted in two parts, "as Remove of an identity
   names them" (ADR-0061 decision 7): those never attempted were not
   sent; those with an attempt behind them "may have reached their
@@ -195,7 +198,7 @@ dialog; OK stays reachable.
 | Chats shows the banner at an open (no session notice, no screen over it) | the banner's Details | keyboard: open a store with the row; Tab order starts on Details; desktop screen reader reads the banner text then "Details, button" |
 | a session notice was shown first, and goes | Details, when the banner shows | keyboard: open with storage degraded, then healthy |
 | an identity screen or the reader was over Chats, and goes | Details, when the banner shows | keyboard, with K1 raised at the open |
-| the person moved focus on Chats before the banner showed (it showed late) | stays where it was; this row applies instead of the session-notice and identity-screen rows above, whichever showed first; focus moved on an identity screen or the reader is that row's | keyboard: open with storage degraded, Tab into the list, then healthy |
+| the person moved focus on Chats before the banner showed (it showed late) | stays where it was; this row applies, not the session-notice or identity-screen row above, even when a session notice or an identity screen showed first; when focus was moved on an identity screen or on the reader, the identity-screen row applies instead | keyboard: open with storage degraded, Tab into the list, then healthy |
 | Details pressed | the dialog's title (screen reader), OK (keyboard) | keyboard: Enter on Details, then Enter presses OK; desktop screen reader reads title, the lines in order, the explanation, then OK |
 | dialog closed without OK (Back, Escape, outside) | Details | keyboard: Escape returns to Details |
 | OK | the Chats list heading, as when the locked notice leaves (unlock note F14) | keyboard |
@@ -300,8 +303,8 @@ cases named (the store's own migration tests build such stores).
    query), and the next healthy open shows the banner. No such hook
    exists today (Android's `REFUSE_STORE`, `DebugHooks.kt`, refuses
    the store at the next start; the view tests feed only the session
-   state, which refuses no write), so this run is blocked, not passed,
-   until rust-ui-dev adds one. A second run, on Android, raises the
+   state, which refuses no write), so this first run is blocked, not
+   passed, until rust-ui-dev adds one. A second run, on Android, raises the
    device-offline notice under the open dialog (airplane mode on): OK
    closes the dialog, focus is on that notice, the row is gone (store
    query), and the next open shows no banner.
@@ -360,13 +363,15 @@ count; the text below is the question as asked.
   #738's review, F3 and F8; open). STATE.md names the two pending counts
   "(e)'s two parts" and the card proposals "the unread rows of kind
   `card` that (e) discarded", while (c) also discards the pending and
-  unread rows of every conversation it removes, and fixes no order
-  between them. Read in the order (a) to (e), (c) takes first the sends
-  and cards of exactly the conversations a person is most likely to
-  have them in (no accepted card), and the notice would tell the person
-  fewer sends were lost than were. Proposal: each pending count and the
-  card proposals count hold every such row discarded, whichever of (c)
-  and (e) took it; unread and kept messages hold no card. With it:
+  unread rows of every conversation it removes, and STATE.md fixes no
+  order between the two steps. Applied in the order (a) to (e), (c)
+  runs first and takes the sends and cards of exactly the conversations
+  most likely to hold them (those with no accepted card), and the
+  notice would tell the person that fewer sends were lost than really
+  were.
+  Proposal: the two pending counts and the card proposals count each
+  hold every such row discarded, whichever of (c) and (e) took it; the unread and kept counts
+  hold no card row. Also asked with it:
   `human-client-ui.md` §13's first Stage 22 criterion still says
   "once, at the first open" and names six counts; §1 above follows
   STATE.md, and §13 is architect-cto's to bring in line.
