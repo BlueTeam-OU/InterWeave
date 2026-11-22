@@ -769,6 +769,7 @@ fn unused(flags: &Flags) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
@@ -785,7 +786,7 @@ mod tests {
 
     #[test]
     fn every_verb_in_the_usage_parses() {
-        let c = format!("{PEER}/human");
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         let cases: &[&[&str]] = &[
             &["--profile", "p", "status"],
             &["--profile", "p", "conversations", "--json"],
@@ -930,7 +931,7 @@ mod tests {
     fn a_conversation_is_a_peer_a_peer_and_endpoint_or_a_channel() {
         for text in [
             PEER.to_owned(),
-            format!("{PEER}/human"),
+            format!("{PEER}/{}", endpoint_id("human").as_str()),
             "#general".to_owned(),
         ] {
             assert_eq!(
@@ -945,7 +946,7 @@ mod tests {
 
     #[test]
     fn a_message_starting_with_a_dash_is_sent_after_the_end_of_the_flags() {
-        let c = format!("{PEER}/human");
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         assert_eq!(
             verb(&["--profile", "p", "send", &c, "--", "-1 is a number"]),
             Verb::Send {
@@ -962,7 +963,7 @@ mod tests {
 
     #[test]
     fn flags_that_do_not_apply_are_usage_errors() {
-        let c = format!("{PEER}/human");
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         for args in [
             vec!["--profile", "p", "trust", "allow", PEER, "--json"],
             vec![
@@ -1151,7 +1152,7 @@ mod tests {
     /// Mutations: a flag accepted on another verb; --input without --json.
     #[test]
     fn the_carriers_flags_go_where_they_apply() {
-        let c = format!("{PEER}/human");
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         assert!(matches!(
             run(&["--profile", "p", "listen", "--input", "--consume", "--json"]),
             Ok(Command::Run {
@@ -1246,7 +1247,7 @@ mod tests {
     fn a_conversation_filter_names_a_peer_or_one_of_its_endpoints() {
         let direct = |e: Option<&str>| ConversationKey::Direct {
             peer: TransportIdentity::parse(PEER).expect("a PeerId"),
-            endpoint: e.map(|e| EndpointId::parse(e).expect("an endpoint")),
+            endpoint: e.map(endpoint_id),
         };
         let on = |c: ConversationKey| ListenFilter {
             events: None,

@@ -8,6 +8,7 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -32,7 +33,7 @@ use crate::verbs_tests::{Shared, after, held_for, unread_count};
 const WALL: u64 = 1_792_652_603_000;
 
 fn endpoint() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn node() -> FakeConfig {
@@ -215,7 +216,7 @@ async fn the_own_card_is_set_and_shown_with_its_fingerprint() {
     shown.expect("shown");
     let card = &lines(&out)[0];
     assert_eq!(card["name"], "Ada Lovelace");
-    assert_eq!(card["endpoint"], "human");
+    assert_eq!(card["endpoint"], endpoint().as_str());
     assert_eq!(card["has_photo"], false);
     let fingerprint = card["fingerprint"].as_str().expect("a fingerprint");
     assert_eq!(fingerprint.len(), 16);
@@ -259,7 +260,7 @@ async fn a_shared_card_is_a_proposal_that_accept_makes_a_contact() {
     shown.expect("shown");
     let route = &lines(&out)[0]["routes"][0];
     assert_eq!(route["peer"], alice.node.peer().as_str());
-    assert_eq!(route["endpoint"], "human");
+    assert_eq!(route["endpoint"], endpoint().as_str());
     assert_eq!(route["fingerprint"], held[0]["fingerprint"]);
 }
 
@@ -829,13 +830,16 @@ async fn identity_show_prints_the_fingerprint_of_the_identity_in_front() {
     let (out, shown) = run(&mut s, Verb::IdentityShow(None), true).await;
     shown.expect("shown");
     let line = &lines(&out)[0];
-    assert_eq!(line["endpoint"], "human");
+    assert_eq!(line["endpoint"], endpoint().as_str());
     assert_eq!(line["fingerprint"], fingerprint.as_str());
     assert_eq!(line["key_problem"], Value::Null);
     let (out, _) = run(&mut s, Verb::IdentityShow(None), false).await;
     assert_eq!(
         out,
-        format!("identity     human\nfingerprint  {fingerprint}\n")
+        format!(
+            "identity     {}\nfingerprint  {fingerprint}\n",
+            endpoint().as_str()
+        )
     );
 }
 
@@ -908,7 +912,7 @@ fn another_identitys_key_is_read_and_never_made() {
         TrustBoundary::new(dir.path()).expect("a boundary"),
     )
     .expect("paths");
-    let second = EndpointId::parse("second").expect("valid");
+    let second = endpoint_id("second");
     let mut out = String::new();
     let shown = crate::identity::show_file(&paths, &second, true, &mut out);
     assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
@@ -951,8 +955,13 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     let conn = rusqlite::Connection::open(bob.dir.path().join("human.sqlite3")).expect("open");
     conn.execute(
         "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
-         VALUES (?1, ?2, 'human', ?3)",
-        rusqlite::params![contact, other.as_str(), [7_u8; 32].as_slice()],
+         VALUES (?1, ?2, ?4, ?3)",
+        rusqlite::params![
+            contact,
+            other.as_str(),
+            [7_u8; 32].as_slice(),
+            endpoint().as_str()
+        ],
     )
     .expect("seeded");
     drop(conn);
@@ -961,7 +970,7 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     let delete = |peer: &TransportIdentity, endpoint: &str| Verb::RouteDelete {
         contact: contact.clone(),
         peer: peer.clone(),
-        endpoint: EndpointId::parse(endpoint).expect("valid"),
+        endpoint: endpoint_id(endpoint),
     };
     let (_, unknown) = run(&mut s, delete(&other, "other"), false).await;
     assert!(matches!(unknown, Err(Failure::Refused(_))), "{unknown:?}");
@@ -969,7 +978,11 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     deleted.expect("deleted");
     assert_eq!(
         out,
-        format!("{}/human deleted from {contact}\n", other.as_str())
+        format!(
+            "{}/{} deleted from {contact}\n",
+            other.as_str(),
+            endpoint().as_str()
+        )
     );
     let (out, _) = run(&mut s, Verb::ContactShow(contact.clone()), true).await;
     let routes = lines(&out)[0]["routes"].clone();
@@ -1005,7 +1018,7 @@ async fn a_key_folder_not_safe_is_refused_naming_the_folder() {
     let real = alice.paths().state_dir().join("identity-keys.real");
     std::fs::rename(&keys, &real).expect("moved");
     std::os::unix::fs::symlink(&real, &keys).expect("linked");
-    let file = real.join("human.key");
+    let file = real.join(format!("{}.key", endpoint().as_str()));
     let before = std::fs::read(&file).expect("read");
 
     let mut s = alice.session_from_file();
@@ -1308,7 +1321,7 @@ async fn contacts_are_printed_in_the_collated_order() {
     {
         let mut held = store(bob.dir.path());
         for (i, name) in fixture.iter().enumerate() {
-            let at = EndpointId::parse(format!("e{i}")).expect("a label");
+            let at = endpoint_id(&format!("e{i}"));
             held.accept_card(
                 &interweave_human_store::AcceptedCard {
                     peer: alice.node.peer(),
