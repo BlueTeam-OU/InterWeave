@@ -1055,3 +1055,164 @@ async fn an_identitys_set_admits_a_peer_and_only_its_last_revoke_closes_it() {
     assert_eq!(reason, DisconnectReason::Policy);
     drop(target);
 }
+
+/// `profile` with a second configured endpoint, `agent`, beside `human`.
+fn two_endpoint_profile(trusted: &[&TransportIdentity], statics: &[String]) -> ProfileConfig {
+    let one = serde_norway::to_string(&profile(trusted, statics)).expect("serialises");
+    let mut doc: serde_norway::Value = serde_norway::from_str(&one).expect("reparses");
+    let entries = doc["endpoints"]["entries"]
+        .as_sequence_mut()
+        .expect("entries");
+    let mut agent = entries[0].clone();
+    agent["key"] = "12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key".into();
+    agent["alias"] = "agent".into();
+    entries.push(agent);
+    serde_norway::from_value(doc).expect("the profile parses")
+}
+
+/// An identity's own inbound set routes a direct message to it alone
+/// (ADR-0067 decision 6), over real sockets: S is admitted to R only
+/// because E1's set holds it, so a direct message to E1 is accepted and
+/// read by E1's session, the same message to E2 (no set of its own, the
+/// operator's list empty) is answered `no_route` -- the sender sees
+/// `RemoteEndpointUnavailable`, never a policy reason -- and reaches
+/// nothing, and once S leaves E1's set the connection closes as `policy`
+/// and no further message is accepted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_identitys_inbound_set_routes_a_direct_message_to_it_alone() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let listen = CompositionOptions {
+        listen: vec![format!("/ip4/{ip}/tcp/0")],
+        ..CompositionOptions::default()
+    };
+    let e1 = interweave_test_support::endpoint_keys::endpoint_id("human");
+    let e2 = interweave_test_support::endpoint_keys::endpoint_id("agent");
+    let (r_id, r) = id();
+    let (s_id, s) = id();
+    let mut receiver =
+        ComposedRuntime::start(&r_id, &two_endpoint_profile(&[], &[]), listen.clone())
+            .await
+            .expect("r composes");
+    let admin = receiver
+        .sessions()
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("a port");
+    // E1's own set holds S; the operator's list holds nobody.
+    assert_eq!(
+        admin.set_endpoint_trust(e1.clone(), s.clone(), true).await,
+        Ok(TrustChange::Set)
+    );
+    assert!(
+        admin
+            .trust()
+            .await
+            .expect("the operator's list")
+            .allowed
+            .is_empty()
+    );
+    let reading = |endpoint: &interweave_transport_api::EndpointId| {
+        SessionRequest::new(
+            "human-client",
+            Some(endpoint.clone()),
+            [DataCapability::Events],
+        )
+        .expect("in bounds")
+    };
+    let at_e1 = receiver
+        .sessions()
+        .open(reading(&e1))
+        .await
+        .expect("leases e1");
+    let at_e2 = receiver
+        .sessions()
+        .open(reading(&e2))
+        .await
+        .expect("leases e2");
+
+    let r_addr = format!("{}/p2p/{}", receiver.listening()[0], r.as_str());
+    let mut sender = ComposedRuntime::start(&s_id, &profile(&[&r], &[r_addr]), listen)
+        .await
+        .expect("s composes");
+    let connected = |event: &TransportEvent, who: &TransportIdentity| matches!(event, TransportEvent::PeerConnected { peer, .. } if peer == who);
+    while !connected(&next_within(&mut receiver).await, &s) {}
+    while !connected(&next_within(&mut sender).await, &r) {}
+    let sending = sender
+        .sessions()
+        .open(
+            SessionRequest::new("human-client", Some(e1.clone()), [DataCapability::Commands])
+                .expect("in bounds"),
+        )
+        .await
+        .expect("s leases");
+    let send = |to: &interweave_transport_api::EndpointId, tag: u8| {
+        sending.send_direct(
+            DirectDestination {
+                peer: r.clone(),
+                endpoint: Some(to.clone()),
+            },
+            MessageId::from_bytes([tag; 16]),
+            Payload::at_ceiling(None, vec![tag]).expect("within the ceiling"),
+        )
+    };
+
+    // Positive: E1's set admits S at the route.
+    assert_eq!(
+        tokio::time::timeout(PATIENCE, send(&e1, 1))
+            .await
+            .expect("answered"),
+        Ok(e1.clone())
+    );
+    tokio::time::timeout(PATIENCE, at_e1.ready())
+        .await
+        .expect("e1 is owed something")
+        .expect("ready");
+    let got = at_e1.events(16).await.expect("reads");
+    assert!(
+        got.iter().any(|e| matches!(
+            e,
+            SessionEvent::Direct(d) if d.source_peer == s && d.destination_endpoint == e1
+        )),
+        "e1 read S's message: {got:?}"
+    );
+
+    // Negative: E2 has no set, and the operator's list lacks S.
+    assert_eq!(
+        tokio::time::timeout(PATIENCE, send(&e2, 2))
+            .await
+            .expect("answered"),
+        Err(TransportError::RemoteEndpointUnavailable),
+        "the wire's no_route class"
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        at_e2
+            .events(16)
+            .await
+            .expect("reads")
+            .iter()
+            .all(|e| !matches!(e, SessionEvent::Direct(_))),
+        "nothing reached e2"
+    );
+
+    // Revoke S from E1's set: closed as policy, and nothing more accepted.
+    assert_eq!(
+        admin.set_endpoint_trust(e1.clone(), s.clone(), false).await,
+        Ok(TrustChange::Set)
+    );
+    let reason = loop {
+        if let TransportEvent::PeerDisconnected {
+            peer, reason_class, ..
+        } = next_within(&mut receiver).await
+            && peer == s
+        {
+            break reason_class;
+        }
+    };
+    assert_eq!(reason, DisconnectReason::Policy);
+    let after = tokio::time::timeout(PATIENCE, send(&e1, 3))
+        .await
+        .expect("answered");
+    assert!(after.is_err(), "no longer accepted: {after:?}");
+    drop((at_e1, at_e2, sending));
+}
