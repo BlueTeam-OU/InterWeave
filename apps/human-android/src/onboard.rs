@@ -32,7 +32,7 @@ use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 
 use crate::asks::Asks;
 use crate::flow_park::{
-    AtWindowEnd, Finish, OWED_MAX, Owed, ParkedCheck, at_window_end, attach_at_rebind, parked_check,
+    AtWindowEnd, Finish, FlowCheck, OWED_MAX, Owed, at_window_end, attach_at_rebind, flow_check,
 };
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
@@ -185,10 +185,10 @@ pub(crate) fn identity_state(
     // bind the service under it, against the lock the flow holds; read
     // on C4 after the seal, a recreation answered ready and the next
     // window showed Welcome over the sealed identity (j311).
-    if let Some(asked) = *FLOW_SHOWS.lock().unwrap_or_else(PoisonError::into_inner) {
-        return match parked_check(asked) {
-            ParkedCheck::BeforeStart => state::FLOW,
-            ParkedCheck::Started => state::FLOW_STARTED,
+    if let Some(check) = *FLOW_SHOWS.lock().unwrap_or_else(PoisonError::into_inner) {
+        return match check {
+            FlowCheck::BeforeStart => state::FLOW,
+            FlowCheck::Started => state::FLOW_STARTED,
         };
     }
     if ready {
@@ -830,19 +830,21 @@ thread_local! {
 static PARKED: Mutex<Option<Parked>> = Mutex::new(None);
 
 /// Whether an identity flow opened at a launch or over a running window
-/// lives -- shown by a window or [`PARKED`] -- and whether its service
-/// was asked, for `Native.identityState` on the Activity's thread
-/// ([`identity_state`]), which runs beside the window's. Show my phrase
+/// lives -- shown by a window or [`PARKED`] -- and whether its screen now
+/// shows the service start it asked ([`flow_check`]), for
+/// `Native.identityState` on the Activity's thread ([`identity_state`]),
+/// which runs beside the window's. Said again at each render, so it
+/// follows the screen after every input. Show my phrase
 /// is not counted: Settings' service is bound and running, and its words
 /// keep the Activity from starting anything by its own flag
 /// (`MainActivity.phraseShown`).
-static FLOW_SHOWS: Mutex<Option<bool>> = Mutex::new(None);
+static FLOW_SHOWS: Mutex<Option<FlowCheck>> = Mutex::new(None);
 
 /// Say in [`FLOW_SHOWS`] whether `o`, the flow now shown or none, lives.
 fn flow_shows(o: Option<&Onboarding>) {
     *FLOW_SHOWS.lock().unwrap_or_else(PoisonError::into_inner) = o
         .filter(|o| !matches!(o.over, Over::Settings))
-        .map(|o| o.service_asked);
+        .map(|o| flow_check(o.service_asked, o.flow.start_shows()));
 }
 
 /// Answers for the flow, from threads that cannot tell which window holds
@@ -1639,6 +1641,8 @@ fn render() {
             .borrow_mut()
             .trace_identity(Some(o.flow.screen()), page.as_ref());
         if let Some(page) = page {
+            // The screen this input left: a start shown or gone with it.
+            flow_shows(Some(o));
             o.view.borrow().show_identity(Some(page));
             schedule_hold(o.hold.as_ref(), now);
             // Held with the service asked: the chats attach under the

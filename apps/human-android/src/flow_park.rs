@@ -55,29 +55,34 @@ pub(crate) const fn at_window_end(over: Over, finish: Finish) -> AtWindowEnd {
     }
 }
 
-/// What `Native.identityState` answers while a flow is parked, read
-/// before the record: the record's state is the flow's to decide, and a
-/// read here would answer ready over a flow that still shows (R4 before
-/// its Continue, a restore committed), and the Activity would bind the
-/// service under it.
+/// What `Native.identityState` answers while a flow lives -- shown by a
+/// window or parked -- read before the record: the record's state is the
+/// flow's to decide, and a read here would answer ready over a flow that
+/// still shows (R4 before its Continue, a restore committed), and the
+/// Activity would bind the service under it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ParkedCheck {
-    /// The flow has not asked the service yet: `FLAG_SECURE` on, and
-    /// nothing bound or started, as for a first run.
+pub(crate) enum FlowCheck {
+    /// No start shows: `FLAG_SECURE` on, and nothing bound or started,
+    /// as for a first run.
     BeforeStart,
-    /// The flow asked the service (a held C4 or R4, or `IdStartBusy` on
-    /// C4, R4, R3 or R2 after K1): `FLAG_SECURE` on, and the binding's
+    /// The flow's screen shows the start it asked (a held C4, R4, R3 or
+    /// R2, or `IdStartBusy` on one): `FLAG_SECURE` on, and the binding's
     /// own decision of a start -- a busy or locked start retried, one
     /// running left alone -- as when the identity is ready.
     Started,
 }
 
-/// The check for a parked flow whose service was `asked` or not.
-pub(crate) const fn parked_check(asked: bool) -> ParkedCheck {
-    if asked {
-        ParkedCheck::Started
+/// The check for a flow whose service was `asked` at some point and whose
+/// current screen `shows` a start (`IdentityFlow::start_shows`). Started
+/// only for both: `asked` alone is a latch the flow never resets, and a
+/// flow back on K1 after R3's `IdStartBusy` would have the Activity
+/// restart the service under it, with nothing held, and the next restore
+/// refused busy.
+pub(crate) const fn flow_check(asked: bool, shows: bool) -> FlowCheck {
+    if asked && shows {
+        FlowCheck::Started
     } else {
-        ParkedCheck::BeforeStart
+        FlowCheck::BeforeStart
     }
 }
 
@@ -151,14 +156,23 @@ mod tests {
         }
     }
 
-    /// A parked flow that asked its start answers the check so the
-    /// Activity decides a retry; one that did not binds nothing.
-    /// Mutation: answering `Started` for both lets the Activity bind the
-    /// service under R4 before its Continue.
+    /// A flow answers started exactly while it asked its start and its
+    /// screen shows that start: a held C4, or `IdStartBusy` on C4, has
+    /// the Activity decide a retry; R3's Back off `IdStartBusy` -- the
+    /// start asked, its screen gone -- binds nothing, nor does a flow
+    /// that never asked, R4 before its Continue. Mutations: answering
+    /// `Started` on `asked` alone fails the third assertion; on `shows`
+    /// alone, the fourth.
     #[test]
-    fn a_parked_flow_binds_only_once_it_asked_its_start() {
-        assert_eq!(parked_check(true), ParkedCheck::Started);
-        assert_eq!(parked_check(false), ParkedCheck::BeforeStart);
+    fn a_flow_answers_started_only_while_its_screen_shows_the_start() {
+        // A held C4, or `IdStartBusy` there: asked, and shown.
+        assert_eq!(flow_check(true, true), FlowCheck::Started);
+        // R4 before its Continue: nothing asked, nothing shown.
+        assert_eq!(flow_check(false, false), FlowCheck::BeforeStart);
+        // R3 under `IdStartBusy`, then Back: asked, shown no more.
+        assert_eq!(flow_check(true, false), FlowCheck::BeforeStart);
+        // A screen held before its ask is carried out (C4's seal running).
+        assert_eq!(flow_check(false, true), FlowCheck::BeforeStart);
     }
 
     /// The chats are attached at once under a held screen that handed
