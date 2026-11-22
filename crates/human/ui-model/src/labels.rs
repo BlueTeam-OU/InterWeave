@@ -637,8 +637,7 @@ ui_texts! {
     /// §5.1's bound, a session notice on Chats or a conversation, where
     /// no flow screen is in view. Says that the start failed, never that
     /// the identity was not created or not restored: one is on record.
-    // PLACEHOLDER (en)
-    IdStartBusy => "The app could not go online because this profile is in use. Wait a moment, then try again.",
+    IdStartBusy => "The app could not go online because this profile is busy. Wait a moment, then try again.",
     /// ANDROID, identity screens: R1's title.
     IdR1Title => "Restore your identity",
     /// ANDROID, identity screens: R1's body, three lines.
