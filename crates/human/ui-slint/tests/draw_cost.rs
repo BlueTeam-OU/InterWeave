@@ -60,8 +60,12 @@ fn window() -> View {
     view
 }
 
-/// The CPU time this thread has run, where the platform says it.
+/// The CPU time this thread has run, where the platform says it. The
+/// kernel brings a running thread's count up to date only at a scheduler
+/// event, and reading the file is none: without the yield a read is up to
+/// a tick behind, as much as a short frame costs (#742 F2).
 fn thread_cpu() -> Option<Duration> {
+    std::thread::yield_now();
     let stat = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
     Some(Duration::from_nanos(
         stat.split_whitespace().next()?.parse().ok()?,
@@ -147,13 +151,13 @@ fn page(model: &mut UiModel, from: &TransportIdentity, rows: std::ops::RangeIncl
 /// with nothing changed over the same rows. A row added above marks every
 /// held row's size changed, and each held row's bubble, laid out from the
 /// size the list gave it, measured all its text again (j307, thread CPU
-/// time on the desktop's software renderer): one row cost some seven
-/// frames there in an optimised build and some twenty in a debug one,
-/// sized from its own content some three and some seven. The bound is
-/// the build's: a debug build's bindings cost more beside its drawing,
-/// and there the two lie closer, so a debug run caught the second
-/// mutation in two of three runs where an optimised one caught it in
-/// every run.
+/// time on the desktop's software renderer, the median of nine): one row
+/// cost 8.5 to 12 frames in an optimised build and 16 to 24 in a debug
+/// one, sized from its own content 3.4 to 4.8 and 4.5 to 6.3. Each bound
+/// lies between the two, about as far from either: a debug build's
+/// bindings cost more beside its drawing. Over six debug runs and four
+/// optimised ones of each, the bounds failed every run of the second
+/// mutation and passed every run of the code as it is (#742 F1).
 /// Mutations: a row's `in-view` and `item-top` read as it is made; the
 /// row's content sized by the row (`row-content` without its `width` and
 /// `height`).
@@ -200,13 +204,16 @@ fn a_page_drawn_above_costs_its_own_rows_not_the_held_ones() {
         page < one * 4,
         "32 rows cost about what one does above the same held rows: {page:?} and {one:?} ({costs:?})"
     );
-    let ones: Vec<Duration> = (0..5).map(|_| drawn(1)).collect();
-    let frames: Vec<Duration> = (0..5).map(|_| draw(&view)).collect();
+    let ones: Vec<Duration> = (0..9).map(|_| drawn(1)).collect();
+    let frames: Vec<Duration> = (0..9).map(|_| draw(&view)).collect();
     let (one, frame) = (median(ones.clone()), median(frames.clone()));
-    eprintln!("HELD {ones:?} FRAME {frames:?}");
-    let frames_bound = if cfg!(debug_assertions) { 12 } else { 5 };
+    eprintln!(
+        "HELD {ones:?} FRAME {frames:?} RATIO {:.1}",
+        one.as_secs_f64() / frame.as_secs_f64()
+    );
+    let frames_bound = if cfg!(debug_assertions) { 10.0 } else { 6.5 };
     assert!(
-        one < frame * frames_bound,
+        one < frame.mul_f64(frames_bound),
         "a row added above some 600 held rows costs a few frames, not one of each held row: \
          {one:?} against a frame's {frame:?} ({ones:?}, {frames:?})"
     );
