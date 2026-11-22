@@ -1036,9 +1036,9 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
                     // as the facade writes one.
                     origin: InboundOrigin {
                         peer: peer.clone(),
-                        endpoint: Some(
-                            interweave_transport_api::EndpointId::parse("human").expect("endpoint"),
-                        ),
+                        endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id(
+                            "human",
+                        )),
                         channel: None,
                     },
                     media_type: Some(MediaType::parse(&encoded.media_type).expect("media type")),

@@ -1111,8 +1111,7 @@ mod tests {
             row: interweave_human_core::RowId::from_stored(1),
             origin: Origin::Direct {
                 peer,
-                endpoint: interweave_transport_api::EndpointId::parse("human")
-                    .expect("an endpoint"),
+                endpoint: interweave_test_support::endpoint_keys::endpoint_id("human"),
             },
             envelope: HumanChatV2 {
                 v: 2,
