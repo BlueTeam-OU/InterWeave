@@ -540,12 +540,12 @@ fn a_network_report_never_waits_on_a_start() {
     // A start that panics never sets `done`, and one that never returns
     // would spin this loop for ever: end on the thread's own end, and
     // fail at a deadline rather than hang the suite.
-    const START_DEADLINE: Duration = Duration::from_secs(120);
-    let began = Instant::now();
+    let start_bound = Duration::from_secs(120);
+    let deadline = Instant::now() + start_bound;
     while !done.load(std::sync::atomic::Ordering::SeqCst) && !starting.is_finished() {
         assert!(
-            began.elapsed() < START_DEADLINE,
-            "the start did not return within {START_DEADLINE:?}"
+            Instant::now() < deadline,
+            "the start did not return within {start_bound:?}"
         );
         let _ = service.network_report(NetworkReport::Link {
             network,
