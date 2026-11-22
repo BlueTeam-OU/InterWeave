@@ -2175,7 +2175,7 @@ async fn a_contact_card_at_the_photo_bound_reaches_the_host_as_meta_alone() {
     assert_eq!(over["received_on"]["source_endpoint"], source, "one route");
     let mut b = config();
     b.peer = TransportIdentity::parse(signer).expect("a peer id");
-    let sender = EndpointId::parse(source).expect("the vectors' endpoint");
+    let sender = EndpointId::parse_derived(source).expect("the vectors' endpoint");
     b.endpoints[0] = FakeEndpoint::open(sender.clone(), false);
     b.default_endpoint = Some(sender);
     let mut w = World::start_with(interweave_claude_channel_core::Delivery::Push, b).await;
