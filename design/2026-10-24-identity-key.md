@@ -212,7 +212,7 @@ keeps its title and its "as {identity}" line, and replaces the preview
 and `ShareCardNote` with the reason line (for "key folder not safe",
 `KeyDirUnsafe` with `KeyDirUnsafePath` under it, as in §4.1, since
 the reason refers to the location shown) and `KeyCannotShareHere`
-("You cannot share your card until this identity's key can be used").
+("You cannot share your card without this identity's key").
 The primary becomes **Open your card** (`KeyOpenCard`), which opens
 §4.1 for this identity; Cancel stays; Edit your card is not offered
 (it is the same page). Share is never shown disabled, as cards §5.3
@@ -653,13 +653,13 @@ or Q-carry name it and wait for its ruling.
 
 ## 10. Strings
 
-The Text column is language-culture-en's final English (2026-10-24),
-except the two rows marked *proposed* (part 1, 2026-11-22), whose words
-are ux-designer's proposal for language-culture-en to finalise; the
-third column is what it must say. A row marked *retired* is not in the
-build from the Stage 22 release; it stays here as the record.
-Part 2's rows (§5) are ux-designer's proposals for
-language-culture-en to finalise, marked *proposed*. `{identity}` is the identity's card name, or its route
+The Text column is language-culture-en's final English (2026-10-24;
+part 1's rows, `KeyNoNewKey`, `KeyNewerVersion`, `KeyCannotShare` and
+`KeyCannotShareHere`, 2026-11-23); the third column is what it must
+say. A row marked *retired* is not in the build from the Stage 22
+release; it stays here as the record. Part 2's rows (§5) are
+ux-designer's proposals for language-culture-en to finalise, marked
+*proposed*. `{identity}` is the identity's card name, or its route
 label without one (cards §5.7.6); `{path}` is the folder's full path
 as the platform shows it, isolated as a path, never translated;
 `{old}` is the replaced identity's name and `{new}` the new
@@ -671,15 +671,15 @@ identity's, each as `{identity}` is.
 | `KeyLostDevice` | This phone no longer allows InterWeave to use this identity's key. | Android, invalidated or gone; must not claim a cause the client cannot know |
 | `KeyBelowDevice` | This identity's key has weaker protection than this phone requires, so InterWeave does not use it. | a downgrade; must say it is refused on purpose, not broken |
 | `KeyOtherDevice` | This identity's key was saved on another device and works only there, not on this computer. | desktop, a sealed record |
-| `KeyNewerVersion` | *proposed:* This version of InterWeave cannot use this identity's key, because the key file has a format this version does not know. A newer version may be able to use it. To try to keep the key, update InterWeave. | must name the update as the way to keep the key, and say only that a newer version *may* read it (§3: the client cannot know); names no new key, which is not offered (until the Stage 22 release it ended: "If you make a new key, you lose this key.") |
+| `KeyNewerVersion` | This version of InterWeave cannot use this identity's key, because the key file has a format this version does not know. A newer version may be able to use it. To find out, update InterWeave. | must name the update as the way to keep the key, and say only that a newer version *may* read it (§3: the client cannot know); names no new key, which is not offered (until the Stage 22 release it ended: "If you make a new key, you lose this key.") |
 | `KeyDamaged` | This identity's key file is not valid, so the key cannot be used. | every damaged or foreign record |
 | `KeyNotNow` | InterWeave could not use this identity's key. The problem may be temporary. Try again. | a platform error; must suggest trying again, not a loss |
 | `KeyMissing` | This identity's key is missing from this device. | a lost file (§7); must not suggest the person deleted it |
-| `KeyCannotShare` | You can still send and receive messages. You cannot share this card until the key can be used. | after every reason; must say what is blocked and what is not |
+| `KeyCannotShare` | You can still send and receive messages, but you cannot share this card. | after every reason; must say what is blocked and what is not, and name no time when the key works again, since for most kinds it never does (until 2026-11-23: "...until the key can be used.") |
 | `KeyMakeNew` | *retired* Make a new key | §4.1 action |
 | `KeyStateRow` | Key cannot be used | §4.2 row line |
-| `KeyNoNewKey` | *proposed:* InterWeave cannot give this identity a new key. | §3, §4.1, after `KeyCannotShare`, for every kind but `KeyNotNow` and `KeyDirUnsafe`; must say no new key can be made for this identity, so the person does not look for one; must not promise a later version, blame the person, or name an implementation term (EndpointId, derived); never in the share sheet (§4.3) |
-| `KeyCannotShareHere` | You cannot share your card until this identity's key can be used. | §4.3 sheet |
+| `KeyNoNewKey` | InterWeave cannot give this identity a new key. | §3, §4.1, after `KeyCannotShare`, for every kind but `KeyNotNow` and `KeyDirUnsafe`; must say no new key can be made for this identity, so the person does not look for one; must not promise a later version, blame the person, or name an implementation term (EndpointId, derived); never in the share sheet (§4.3) |
+| `KeyCannotShareHere` | You cannot share your card without this identity's key. | §4.3 sheet; as `KeyCannotShare`, no time when the key works again |
 | `KeyOpenCard` | Open your card | §4.3 primary |
 | `KeyNewTitle` | *retired* Make a new key for {identity}? | §5.1 title |
 | `KeyNewBody` | *retired* The next time you share your card with a contact who has it, their app will show a warning that the card might be from someone else. Tell them it was you. Until then, nothing changes for them. | §5.1; must name the change, the warning they will see, and that nothing happens before a share |
