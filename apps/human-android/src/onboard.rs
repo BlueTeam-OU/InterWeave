@@ -877,7 +877,7 @@ static OWED: Mutex<Owed<Box<dyn FnOnce() + Send>>> = Mutex::new(Owed::new());
 /// the ended window's loop and be lost ([`Owed`] says why it is held), so
 /// the next window takes what is held once it holds the flow
 /// ([`start`]): a prompt's answer, an Unlock ask dropped unraised, a held
-/// start's refusal for the person.
+/// start's refusal for the person, a showing's start held.
 fn owe(task: impl FnOnce() + Send + 'static) {
     let dropped = OWED
         .lock()

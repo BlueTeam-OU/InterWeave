@@ -1,8 +1,8 @@
 # Identity flow across a window's end: the device cases
 
 This is a list of cases, not a run record. Each case is named by its number
-(D1 to D7). A comment in `apps/human-android` that says a claim is BLOCKED
-on a device run cites one of them; D2 and D6 check behaviour no comment
+(D1 to D7). A comment in `apps/human-android` that says a recreation claim is
+BLOCKED on a device run cites one of them; D2 and D6 check behaviour no comment
 claims, and are run with the rest. A run of these cases is recorded beside
 this file as a dated record, and that record names each case by its number.
 
@@ -18,8 +18,10 @@ The cases ask of the platform what no host test can see:
 - the order of `onDestroy`, `super.onDestroy()` and the end of the window's
   thread;
 - whether a new Activity instance after a recreation takes the flow the old
-  one parked;
-- that an answer sent to an ended window's loop is not lost.
+  one parked.
+
+Whether an answer sent to an ended window's loop is lost is not asked by
+any case yet (Status, below).
 
 The design identity note (`design/2026-10-19-android-identity.md`, sections
 6 and 7) says what each screen keeps across a recreation. Its own acceptance
@@ -94,7 +96,9 @@ items 10 to 12 do not hold these recreation cases.
 
 None of D1 to D7 has run yet. The owed queue's delivery across a window's
 end (`flow_park.rs`, `Owed`) has no case: an answer owed while no window
-holds the flow is not one a hook can time, and a case for it is to be
+holds the flow is not one today's hooks time (they time the service's
+start, not the gap between a window's end and the next window's start),
+and a case for it, with a hook of its own if it needs one, is to be
 designed at the first device run. On 2026-11-22 this host had no route to the
 phones' LAN, and the device slots were stood down. The first run of these
 cases is recorded beside this file.

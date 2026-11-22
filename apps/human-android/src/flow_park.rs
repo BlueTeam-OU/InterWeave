@@ -147,7 +147,8 @@ impl Attached {
 }
 
 /// The most answers [`Owed`] holds: far above the few a window's end can
-/// leave (a prompt's answer, a dropped Unlock ask, a refused start), so
+/// leave (a prompt's answer, a dropped Unlock ask, a refused start, a
+/// showing's start held), so
 /// reaching it is a fault, logged by the caller.
 pub(crate) const OWED_MAX: usize = 32;
 
@@ -155,8 +156,8 @@ pub(crate) const OWED_MAX: usize = 32;
 /// tell whether one does: `invoke_on_window` sent between two windows
 /// may reach the ended window's loop and be lost while it says it
 /// succeeded -- the risk this guards against, which no device case yet
-/// drives (an answer owed while no window holds the flow is not one a
-/// hook can time). Each answer is held here and the window told to take them; a window
+/// drives (today's hooks time the service's start, not the gap between
+/// a window's end and the next window's start). Each answer is held here and the window told to take them; a window
 /// that does not take them leaves them to the next, which takes them
 /// once it holds the flow (`owed_answers_are_taken_once_in_order`). At
 /// most [`OWED_MAX`]: past it the oldest is dropped and handed back
