@@ -75,12 +75,12 @@ fn an_android_profile_must_lease_an_enabled_configured_endpoint() {
         "and its start is refused: no identity is enabled"
     );
     let mut named = profile("embedded-android", true, "");
-    named.runtime.android.endpoint =
-        Some(interweave_transport_api::EndpointId::parse("pager").expect("valid"));
+    let pager = interweave_test_support::endpoint_keys::endpoint_id("pager");
+    named.runtime.android.endpoint = Some(pager.clone());
     assert_eq!(
         android_errors(&named),
         vec![ConfigError::AndroidEndpointNotEnabled {
-            endpoint: "pager".to_owned()
+            endpoint: pager.as_str().to_owned()
         }],
         "an endpoint that is not configured at all"
     );
