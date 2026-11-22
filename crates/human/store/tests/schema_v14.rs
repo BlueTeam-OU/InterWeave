@@ -601,41 +601,48 @@ fn the_shape_guard_refuses_a_v13_shape_and_an_index_without_its_identity() {
 
 /// The routes' foreign key is ONE key over two columns: split into two
 /// single-column keys it references no unique parent, and the guard
-/// refuses it. Mutation: `actual_foreign_keys` joining every row of a
-/// table into one key whatever its id.
+/// refuses it, whichever of the two is declared first (SQLite numbers a
+/// table's keys in its own order, and a guard reading the rows in that
+/// order must still tell two keys from one). Mutation:
+/// `actual_foreign_keys` joining every row of a table into one key
+/// whatever its id.
 #[test]
 fn a_composite_route_key_split_into_two_is_refused() {
-    let dir = common::private_tempdir();
-    let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, &me(), StoreOptions::default()).expect("v14"));
-    rusqlite::Connection::open(&path)
-        .expect("v14")
-        .execute_batch(
-            "PRAGMA foreign_keys = OFF;
-             CREATE TABLE contact_routes_split (
-                 contact_id         TEXT NOT NULL,
-                 local_endpoint_id  TEXT NOT NULL,
-                 peer_id            TEXT NOT NULL,
-                 endpoint_id        TEXT NOT NULL,
-                 device_label       TEXT,
-                 verification_note  TEXT,
-                 last_seen          INTEGER,
-                 identity_key       BLOB,
-                 UNIQUE(local_endpoint_id, peer_id, endpoint_id),
-                 UNIQUE(contact_id, peer_id),
-                 FOREIGN KEY (contact_id) REFERENCES contacts (contact_id) ON DELETE CASCADE,
-                 FOREIGN KEY (local_endpoint_id)
-                     REFERENCES contacts (local_endpoint_id) ON DELETE CASCADE
-             );
-             DROP TABLE contact_routes;
-             ALTER TABLE contact_routes_split RENAME TO contact_routes;
-             CREATE INDEX contact_routes_by_route ON contact_routes (peer_id, endpoint_id);
-             CREATE INDEX contact_routes_by_key ON contact_routes (identity_key);",
-        )
-        .expect("split");
-    match HumanStore::open(&path, &me(), StoreOptions::default()) {
-        Err(StoreError::Migration(why)) => assert!(why.contains("foreign keys"), "{why}"),
-        other => panic!("two keys are not the composite one: {other:?}"),
+    let by_contact = "FOREIGN KEY (contact_id) REFERENCES contacts (contact_id) ON DELETE CASCADE";
+    let by_identity = "FOREIGN KEY (local_endpoint_id)
+                     REFERENCES contacts (local_endpoint_id) ON DELETE CASCADE";
+    for (first, second) in [(by_contact, by_identity), (by_identity, by_contact)] {
+        let dir = common::private_tempdir();
+        let path = dir.path().join("state").join("human.sqlite3");
+        drop(HumanStore::open(&path, &me(), StoreOptions::default()).expect("v14"));
+        rusqlite::Connection::open(&path)
+            .expect("v14")
+            .execute_batch(&format!(
+                "PRAGMA foreign_keys = OFF;
+                 CREATE TABLE contact_routes_split (
+                     contact_id         TEXT NOT NULL,
+                     local_endpoint_id  TEXT NOT NULL,
+                     peer_id            TEXT NOT NULL,
+                     endpoint_id        TEXT NOT NULL,
+                     device_label       TEXT,
+                     verification_note  TEXT,
+                     last_seen          INTEGER,
+                     identity_key       BLOB,
+                     UNIQUE(local_endpoint_id, peer_id, endpoint_id),
+                     UNIQUE(contact_id, peer_id),
+                     {first},
+                     {second}
+                 );
+                 DROP TABLE contact_routes;
+                 ALTER TABLE contact_routes_split RENAME TO contact_routes;
+                 CREATE INDEX contact_routes_by_route ON contact_routes (peer_id, endpoint_id);
+                 CREATE INDEX contact_routes_by_key ON contact_routes (identity_key);"
+            ))
+            .expect("split");
+        match HumanStore::open(&path, &me(), StoreOptions::default()) {
+            Err(StoreError::Migration(why)) => assert!(why.contains("foreign keys"), "{why}"),
+            other => panic!("two keys are not the composite one ({first}): {other:?}"),
+        }
     }
 }
 
