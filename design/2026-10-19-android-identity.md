@@ -1457,14 +1457,18 @@ shows:
   bound, above): `IdStartBusy` as a session notice, in the place that section
   gives it, and focus does not move, since that start did not come from
   a press.
-  Whether the return's start can come before the stopping service
-  releases the lock was traced in the code, not run on a phone
-  (rust-ui-dev-01, REPLY 01a204d2): every start and stop of the
-  service runs in order, one at a time, so the return's start runs
-  after the stop has released the lock. The one exception is a stop
-  that ends its wait while the start's waiter still holds the runtime;
-  only then can the return's start meet the lock, and the refusal is
-  shown as this paragraph says. If
+  rust-ui-dev-01 traced one question in the code, and did not test it
+  on a phone (REPLY 01a204d2): can the return's start run before the
+  stopping service releases the lock? The service's starts and stops
+  run one at a time, in the order they were made, so the return's
+  start runs after the stop has released the lock. There is one
+  exception. The start that answered first leaves a thread that waits
+  for the runtime to end, and while that thread waits, the runtime
+  stays in use. The stop waits a limited time for the thread to
+  finish. If the thread has not finished when the stop's wait runs
+  out, the stop ends without waiting longer. Only in that case can the
+  return's start be refused with `LockHeld`, and that refusal is shown
+  as described above. If
   the start that answered first was refused with `LockHeld`, it has
   shown `IdStartBusy` with Try again enabled, so the return finds no
   start running and retries, as above. Any other answer shows its row.
