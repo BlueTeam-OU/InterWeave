@@ -15,7 +15,9 @@ its place that this identity cannot get a new key (`KeyNoNewKey`). A
 missing key file is always the "missing" state: the silent first key
 is withdrawn (§7). The key folder is `endpoint-keys/` (ADR-0067
 decision 3). **Part 2**, the replacement of such an identity by a new
-one (plan §30 steps 1–3), follows as its own revision and rewrites §5.
+one (plan §30 steps 1–3), is the new §5, a proposal with four
+questions open for architect-cto (§12); it is built once an identity
+can be created and removed, and until then part 1 stands.
 
 What part 1 adds, changes and retires (§10):
 
@@ -26,8 +28,17 @@ What part 1 adds, changes and retires (§10):
 - retired from the build, with §5 (withdrawn): `KeyMakeNew`,
   `KeyNewTitle`, `KeyNewBody`, `KeyNewOld`, `KeyNewOldNewer`,
   `KeyNewPending`, `KeyNewConfirm`, `KeyMaking`, `KeyMade`,
-  `KeyShareAgainTitle`, `KeyNewFailed`, `KeyNewFailedGone`. Part 2
-  names the ones it brings back for the replacement.
+  `KeyShareAgainTitle`, `KeyNewFailed`, `KeyNewFailedGone`.
+
+What part 2 adds and changes (§10): added `KeyReplace`,
+`KeyReplaceTitle`, `KeyReplaceBody`, `KeyReplaceRemoves`,
+`KeyReplaceTurnsOff`, `KeyReplaceOldNewer`, `KeyReplacePending`,
+`KeyReplaceConfirm`, `KeyReplacing`, `KeyReplaced`, `KeyReplacedBy`,
+`KeyReplaceFailed`, `KeyReplaceUnfinished`, `KeyReplaceFinish`,
+`KeyShareAgainDone`; brought back changed: `KeyShareAgainTitle`; reused
+unchanged from `design/2026-11-04-identities.md` §7: `IdentityRemoveLoses`,
+`IdentityRemoveKey`, `IdentityRemoveMayHaveReached`,
+`IdentityRemoveOthersKeep`. The other retired keys stay retired.
 
 Asked by rust-ui-dev-02 (REQUEST 01a16d84, job j51), for the two
 criteria of `human-client-ui.md` §13 that have no person-facing design:
@@ -81,8 +92,8 @@ different key is a different identity, which a contact sees as another
 identity of this person's device, never as a changed key. A key that
 cannot be used is therefore never replaced under the same identity.
 The way out is a new identity, whose card the person shares again
-(part 2); until that is built, the state offers nothing beyond Try
-again where Try again can help (§3).
+(§5, part 2); until that is built, the state offers nothing beyond
+Try again where Try again can help (§3).
 
 ## 2. The person's goal
 
@@ -125,13 +136,13 @@ A refusal that persists on every attempt is never "temporarily
 unusable", since Try again would repeat it for ever.
 
 `Random` is not an open refusal: it can only fail the making of a key
-(§5.3). `UnknownCustody` carries no byte, so the client cannot tell a
+(§5.4, failed). `UnknownCustody` carries no byte, so the client cannot tell a
 future custody from a damaged one; the "newer version" line says only
 that a newer version *may* read it, which is true of both. A version
 below this build's was never written by any release, so it is damage.
 "Not protected" offers no way to tighten the file's permissions: the
 key may already have been read, so it is not used again (architect-cto's,
-§12); from the Stage 22 release only a new identity (part 2) shares
+§12); from the Stage 22 release only a new identity (§5) shares
 a card again.
 
 Every reason line is followed by the same consequence line,
@@ -146,8 +157,8 @@ It promises no later version and names no implementation term (no
 "EndpointId", no "derived"). For "possibly a newer version's" the
 reason line has already named the one way the key may come back, an
 update; `KeyNoNewKey` follows it all the same, since nothing else
-here can help. Part 2 replaces `KeyNoNewKey` with the offer of a new
-identity.
+here can help. Part 2 adds the offer of a new identity after it
+(§5.1).
 
 ## 4. Where the state is shown
 
@@ -218,176 +229,185 @@ case it returns to the sheet in this state. The sheet does not show
 `KeyNoNewKey`: Open your card leads to the page that says it. The offer in an empty
 conversation (cards §5.3) stays: it opens this sheet.
 
-## 5. Make a new key (withdrawn from the Stage 22 release)
+## 5. Replace with a new identity (part 2)
 
-**Not built from the Stage 22 release** (ADR-0067 decision 5): no
-control in either client makes a new key for an identity that exists,
-and the store refuses one if asked. What follows is the Stage 21
-design, kept as its record until part 2 rewrites this section for the
-replacement by a new identity. Part 2 reuses, restated for the new
-identity, what of it still applies: the confirmation's shape, the
-pending own cards and the Cancel snackbar of §5.2, and the share-again
-list of §5.3 (plan §30 step 2 reads it over the old EndpointId's
-conversations). Nothing in §5.1–§5.3 is a requirement of the build
-from the Stage 22 release.
+Status: part 2, 2026-11-22, a proposal. Q-link, Q-list, Q-trust and
+Q-carry (§12) are architect-cto's to rule, and the sections that rest
+on them say so. It is built with plan §30 steps 1–3, once an identity
+can be created and removed through the administrative boundary (ADR-0061
+decisions 2 and 7). Until then, part 1's interim stands: `KeyNoNewKey`
+and no action (§3, §4.1). From the Stage 22 release this replaces the
+Stage 21 "Make a new key", which git history keeps (ADR-0067
+decision 5: a new key is a new identity).
 
-### 5.1 The confirmation
+The person's goal is unchanged (§2): to share a card again. Under
+ADR-0067 that means a new identity, which contacts see as a new
+contact, so the flow has to say three things before it is confirmed:
+who sees what, that messages to the old identity stop reaching them,
+and what happens to the old identity.
 
-**Make a new key** opens a dialog (Material's basic dialog; on Android
-`AlertDialog`'s placement):
+### 5.1 Where it is offered
 
-- title `KeyNewTitle`: "Make a new key for {identity}?";
-- `KeyNewBody`, one paragraph: your contacts who have your card will
-  see that your key changed the next time you share it with them, and
-  their app will tell them it might be someone else, so tell them it
-  was you; nothing changes for them before that;
-- `KeyNewOld`, only when a file is to be deleted (every kind but
-  "missing"): the old key is deleted and cannot be used again; for
-  "possibly a newer version's", `KeyNewOldNewer` instead: a newer
-  version may be able to use the old key, and once it is deleted,
-  updating will not bring it back (architect-cto, Q-file);
-- `KeyNewPending`, only when this identity has own-card rows not yet
-  Accepted by remote transport: those still held are cancelled, and one
-  already on its way may still arrive with the old key (§5.2);
-- actions **Cancel** (`Cancel`) and **Make a new key** (`KeyNewConfirm`),
-  filled, not in `error`: what is deleted could not be used here, and
-  the cost (contacts told of a change) is said above. For "possibly a
-  newer version's", the confirm is filled in `error`, since something the
-  person may still have is lost.
+On §4.1's block, after `KeyNoNewKey`: **Replace with a new identity**
+(`KeyReplace`), filled tonal (Save stays the page's one filled
+button), for every kind that shows `KeyNoNewKey`. For "temporarily
+unusable" it is a text button after Try again, and `KeyNoNewKey` is
+not shown: Try again comes first, as the Stage 21 design had it. It
+is never offered for "key folder not safe", where the person fixes the
+folder and the key can open again (§4.1).
 
-Focus opens on Cancel, so Enter alone never makes a key. Back, Escape
-and a tap on the scrim cancel.
+It is offered nowhere else: not in the share sheet (§4.3, whose Open
+your card leads here), not in the list of identities (§4.2's row opens
+this page). It replaces part 1's no-action state and changes nothing
+else in §3 or §4.
 
-### 5.2 Doing it
+### 5.2 The confirmation
 
-Confirm: the dialog closes and the block of §4.1 shows `KeyMaking`
-("Making a new key…") with an indeterminate progress indicator in place
-of its actions, for as long as it takes; it is not cancellable, since a
-half-made key is the one outcome the step must never leave. The rest of
-the page stays usable.
+**Replace with a new identity** opens a dialog (Material's basic
+dialog; on Android `AlertDialog`'s placement). In order:
 
-The step, in architect-cto's order (Q-order, §12), on both platforms:
-the person confirms; when `endpoint-keys/` is a real directory this
-user owns with a loose mode, the client makes it owner-only first
-(Q-dir, §12), since nothing can be removed or created in it otherwise
-(the folder is shared: another identity whose own file is private then
-opens at its next open, with no state, since only the folder was
-loose);
-the old file is removed (on Android the new seal
-would destroy the old wrapping key anyway, one alias per identity); the
-new key is created. **Every point the step can stop at resolves to a
-state the person already knows**: stopped before the removal, the
-identity is in this state as before; after the removal and before the
-new key is stored, the next open finds no file: for an identity whose
-card a conversation holds or may hold (§7), the share record or the
-pending row is still there and it is the "missing" state, never a
-silent new key, where the person confirms again; for any other, §7's
-silent first key applies at the next open, since no contact holds or
-can receive the old key; after, it has its new
-key.
-The client never shows "made" without a key it can open, and never
-shows a key it holds but cannot open. It never reports success before
-the new key is stored where the next start will open it.
+- title `KeyReplaceTitle`: "Replace {identity} with a new identity?";
+- `KeyReplaceBody`, one paragraph, every case: InterWeave makes a new
+  identity with this card's name and photo; to your contacts it is a
+  different identity, which they see only after you share its card
+  with them; messages they send to {identity} no longer reach you;
+- what happens to the old identity, one of:
+  - an added identity: `KeyReplaceRemoves` ("{identity} is then
+    removed:"), followed by identities §7's Remove list as it stands
+    there — `IdentityRemoveLoses`, `IdentityRemoveKey`,
+    `IdentityRemoveMayHaveReached` when its count is not zero, and
+    `IdentityRemoveOthersKeep` — so a removal by replacement says
+    exactly what a removal by Remove says;
+  - the first identity: `KeyReplaceTurnsOff`: it is turned off; its
+    conversations and contacts stay, to read; it cannot send or
+    receive (identities §7's Turn off);
+- `KeyReplaceOldNewer`, only for "possibly a newer version's": a newer
+  version may be able to use this identity's key; to keep this
+  identity, update InterWeave first;
+- `KeyReplacePending`, only when the old identity has own-card rows not
+  yet Accepted by remote transport: those still held are cancelled,
+  and one already on its way may still arrive, as the old identity's
+  card (§5.3, step 2);
+- actions **Cancel** (`Cancel`) and **Replace** (`KeyReplaceConfirm`).
+  Replace is filled in `error` for an added identity (its
+  conversations and contacts are deleted, with no Undo) and for
+  "possibly a newer version's" (the person may lose an identity an
+  update could keep); otherwise filled, not in `error`, since nothing
+  is deleted and the cost is said above.
 
-Its own pending cards go with the old key: every own-card row of this
-identity that has not reached Accepted by remote transport was signed
-with the old key. The step withdraws every such row the client still
-holds, Not sent ones and Sending ones not yet handed to the transport
-(where the client cannot tell a Sending row it holds from one the
-transport took, it treats every Sending row as taken),
-as cards §5.3's Cancel does for a Not sent row but with no Undo, since
-the card could only deliver a key the person no longer has. A Sending
-row already handed to the transport cannot be withdrawn and may still
-arrive; its conversation is in the share-again list either way, so
-the next share shows the counterparty the new key. The confirmation
-says so first (`KeyNewPending`), shown when any such row exists.
+Focus opens on Cancel, so Enter alone never replaces. Back, Escape
+and a tap on the scrim cancel. There is no Undo after Replace: the
+removal has none (identities §7), and a new identity whose card may
+already have been shared cannot be taken back.
 
-A card the person cancelled before the step cannot be restored with the
-old key either. **The step first closes a Cancel snackbar of any of
-this identity's card rows, if one is open, and its Undo with it**,
-before it withdraws anything; the Cancel stands, as when the snackbar
-times out (message-swipe §5). It is needed on one route and harmless
-on the other:
+### 5.3 Doing it
 
-- From the Chats ⋮ menu's Your card, the page leaves the conversation
-  (on a wide layout it takes the conversation pane's place, cards §4),
-  and leaving the conversation has already closed the snackbar
-  (message-swipe §5's closing list).
-- From the share sheet's Open your card (§4.3), the sheet and the
-  conversation under it stay open, since Back returns to the sheet;
-  nothing on message-swipe §5's list closes the snackbar there, and
-  without this rule its Undo would restore a card signed with the
-  key the step deletes.
+Confirm: the dialog closes, and the block shows `KeyReplacing`
+("Replacing {identity}…") with an indeterminate progress indicator in
+place of its actions, for as long as it takes. It is not cancellable:
+a half-done replacement is the one outcome the step must not leave
+unsaid. The rest of the page stays usable, but Remove and Turn off are
+not offered while it runs.
 
-The closing makes no announcement: the snackbar is under the sheet
-and the page, and the person returns to a conversation with no
-snackbar. A Cancel of one of this identity's card rows whose success
-arrives after the step has started is only announced, with message-swipe §8's words
-and no snackbar or Undo, by either route: on the sheet route the
-person is still in the conversation, where message-swipe §6 would
-otherwise show it with its Undo. That announcement waits for the
-step's own (`KeyMaking`, then `KeyMade` or the failure line, §8) and
-never interrupts it. The step's own withdrawals have no Undo either.
+The step, in this order:
 
-A row whose Cancel is still awaiting its answer when the step starts
-is judged by the test above like any other: the step withdraws it if
-the client still holds it, and leaves it if the transport took it (or
-under the fallback, which treats every Sending row as taken). A
-withdrawal that finds the row already cancelled, the Cancel having
-succeeded first, counts as done.
+1. **The new identity.** Created as plan §30 step 1 creates one (on
+   Android, step 3): a new key, a new EndpointId, a new alias chosen as
+   Add an identity chooses one, and a card with the old card's name
+   and photo, not yet shared with anyone. The client records that the
+   new identity replaces the old one (Q-link). Nothing of the old
+   identity is touched before this step has stored the new one, so a
+   failure here leaves the old identity exactly as it was.
+2. **The old identity's pending cards.** As in the Stage 21 design,
+   and for the same reason (a card of an identity about to go): the
+   step closes a Cancel snackbar of any of the old identity's card
+   rows, if one is open, and its Undo with it, then withdraws every
+   own-card row of the old identity that the client still holds (Not
+   sent, and Sending not yet handed to the transport; where the client
+   cannot tell the two Sending kinds apart, it treats every Sending row
+   as taken), with no Undo. A row the transport took may still arrive;
+   it carries the old identity's card, whose key still matches the old
+   identity, so the counterparty sees the old contact, and its
+   conversation is on the share-again list (§5.4). A Cancel of one of
+   these rows answered while the step runs follows the Stage 21 rule:
+   announced after the step's own announcement, never over it.
+3. **The default.** The new identity becomes the default when the old
+   one was the default, and always when the old one is the first
+   identity (ADR-0067 decision 5).
+4. **The old identity.** An added identity is removed, as identities
+   §7's Remove removes one. The first identity is turned off, as
+   identities §7's Turn off turns it off.
 
-- **The step withdrew it.** The withdrawal is the row's outcome, and
-  the Cancel's later answer adds nothing to the row: a success is
-  announced as above; a refusal (message-swipe §8's Cancel refused by
-  the store) is not announced and does not return the row, since the
-  row is already gone and "could not cancel" would be false.
-- **The step left it, or was not taken** (§7, where the store cannot
-  be written). The Cancel's answer applies as message-swipe §8 says:
-  a refusal returns the row in the state the facade reports, with the
-  storage notice and the refusal announcement. A row the step left is
-  one the transport took, and like any such row it may still arrive,
-  however the step ended (above); whether the key it carries is still
-  the identity's, and where its conversation is listed to share again,
-  is §5.3's, by how the step ended. Where the step was not taken, no
-  key changed and the old key still stands. Two things
-  differ from message-swipe §8: the announcement waits for the step's
-  own, as above, and focus stays where it is (on the card page, or on
-  the sheet after Back), as message-swipe §8 has it for a person who
-  has left the conversation.
+**Every point the step can stop at resolves to a state the person
+already knows**:
 
-### 5.3 The result
+- stopped before step 1 has stored the new identity: the old identity
+  is in this state as before, unchanged; after a failure (not a kill)
+  `KeyReplaceFailed` shows under its actions, and Replace is offered
+  again.
+- stopped after step 1, before step 4 is done: both identities exist.
+  The old identity's page shows `KeyReplaceUnfinished` ("{new}
+  replaces this identity, but the replacement did not finish.") and,
+  in place of Replace, **Finish replacing** (`KeyReplaceFinish`),
+  which runs steps 2 to 4 only, without a dialog (the person
+  confirmed them), and never creates another identity. This needs the
+  record of step 1 (Q-link). Without that record, a second Replace
+  would make a third identity, which this design does not accept.
+- after step 4: the result (§5.4).
 
-**Made.** The block is replaced by the fingerprint row with the new
-fingerprint, and under it `KeyMade`: "This identity has a new key.
-Your contacts have the new key only after you share your card with them again."
-Then, when any conversation of this identity holds or may hold the old
-key — `card_shared_at` set, an own-card row not yet Accepted by
-remote transport when the step ran (withdrawn or on its way), or a card
-of it that may have left this device, cancelled after an attempt
-whose outcome is unknown (ADR-0063 decision 1, A 2026-10-27):
-`KeyShareAgainTitle`
-("Share your card again in these conversations") and one row per such conversation, by
-the conversation's title, most recently shared first, each opening that
-conversation with the share sheet open (cards §5.3). The list is the
-answer to "who will see the change": those, and nobody else. It shows
-on this page until the person leaves it; it is not stored.
+The client never shows "replaced" before step 4 is done, and never
+shows the new identity before it is stored where the next start will
+open it.
 
-**Failed** (the key could not be made or stored — `Random`, a cipher or
-storage refusal): the client opens the key file again and the block
-shows the kind that open finds, with the failure line under the
-actions in `error` and **Make a new key** again:
+### 5.4 The result
 
-- the old file was already removed: the kind is "missing", and the
-  line is `KeyNewFailedGone` — the saved key is gone and a new one was
-  not made — so the person is not told less than happened. This holds
-  for this session for an identity §7 gives a silent key too, since the
-  person asked for a key and must learn it was not made; at its next
-  start §7's silent first key applies;
-- the old file is still there (the step stopped before removing it):
-  the kind as before, and the line is `KeyNewFailed`.
+**Replaced.** The client switches to the new identity visibly, as
+cards §5.7.5's transition does ("Opening as {identity}"), and shows
+the new identity's card page: its fingerprint row, and under it
+`KeyReplaced` ("{new} replaces {old}. Your contacts see {new} as a new
+identity after you share its card with them.").
 
-Pending cards cancelled by the step stay cancelled; they could only
-have delivered the old key.
+Then, when any conversation of the old identity holds or may hold its
+card — `card_shared_at` set, an own-card row not yet Accepted by remote
+transport when the step ran (withdrawn or on its way), or a card that
+may have left this device (ADR-0063 decision 1, A 2026-10-27), read
+over the old EndpointId's conversations (plan §30 step 2) —
+`KeyShareAgainTitle` ("Share your new card in these conversations")
+and one row per such conversation, by the conversation's title, most
+recently shared first. A row opens the new identity's conversation
+with that conversation's remote route (a new one if it has none) with
+the share sheet open (cards §5.3). The list answers "who should hear
+from me": those, and nobody else.
+
+The list is kept until each row has been shared from or the person
+closes it with **Done** (`KeyShareAgainDone`), and is shown on the new
+identity's card page until then (Q-list). It cannot be a list shown
+only until the page is left: for an added identity the conversations
+it is read from are deleted in step 4, so leaving the page would lose
+it for good.
+
+What the new identity trusts and whom it holds as contacts is Q-trust
+and Q-carry (§12). Until they are ruled, the new identity starts with
+no trusted peer and no contact, as Add an identity does, and a row of
+the list opens a conversation whose replies the new identity does not
+admit until the person trusts the peer. That is the case the questions
+ask about.
+
+**Failed** (step 1 refused — a key that cannot be minted or sealed, the
+add refused): `KeyReplaceFailed` ("InterWeave could not make the new
+identity. {identity} has not changed. Choose Replace with a new
+identity to try again."), in `error`, under the actions, and Replace
+offered again.
+
+The old identity, after a replacement:
+
+- an added identity: gone, from every list and every screen, as after
+  Remove;
+- the first identity: listed as off (identities §7), its conversations
+  and contacts readable under it, its page still showing this state's
+  block (§4.1) without Replace, since it has been replaced: its
+  `KeyReplaced` line reads from the old side as `KeyReplacedBy` ("{new}
+  replaces this identity.").
 
 ## 6. Try again ("temporarily unusable")
 
@@ -414,7 +434,7 @@ block, with `KeyNoNewKey` and no action where §3 gives it.
   holds when the whole `endpoint-keys/` directory is missing outside
   the recovery flow. Until the Stage 22 release a key was made
   silently for an identity whose card no conversation held or might
-  hold; §5.3's share-again predicate was the test.
+  hold; §5.4's share-again predicate was the test.
 - **Restore on fresh state** (identity note `IdR1NewKeys`): the person
   is told before the phrase that the words restore the PeerId, that
   each identity's key is gone, and that each identity is replaced by a
@@ -422,7 +442,7 @@ block, with `KeyNoNewKey` and no action where §3 gives it.
   identity's key is minted at Restore (ADR-0067 A 2026-11-21), so it
   is a new identity and shows no state here. On a desktop state root
   whose configuration still names the key files, each such identity is
-  in the "missing" state with `KeyNoNewKey` until part 2 replaces it
+  in the "missing" state with `KeyNoNewKey` until it is replaced (§5)
   (`human-client-ui.md` §13).
 - **Remove an identity** (cards §5.2) is unchanged and needs no key; its
   confirmation still names the key as going with it.
@@ -448,7 +468,20 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 |---|---|---|
 | §4.1 opened | the page title (focusable heading), as cards §9's table for Your card | keyboard |
 | the share sheet opens in this state | Open your card (cards §9's "Share, else Add your name" has neither here) | keyboard |
-| §4.1, a kind with no action | the page title, as above; `KeyNoNewKey` is text, read in order, not a stop of its own; Tab from the block goes to the page's next control | keyboard; desktop screen reader reads it once, after `KeyCannotShare` |
+| §4.1, a kind with `KeyNoNewKey` | the page title, as above; `KeyNoNewKey` is text, read in order, not a stop of its own; Tab from the block goes to Replace with a new identity (part 2), or, before part 2 is built, to the page's next control | keyboard; desktop screen reader reads it once, after `KeyCannotShare` |
+| Replace with a new identity pressed | the dialog's Cancel | keyboard; screen reader reads the title, then the body in §5.2's order |
+| the dialog cancelled (Cancel, Back, Escape, scrim) | Replace with a new identity | keyboard |
+| Replace confirmed, while `KeyReplacing` shows | the block's progress line (the button that held focus is gone) | keyboard; screen reader announces `KeyReplacing` once |
+| replaced | after the switch to the new identity (cards §5.7.5), the `KeyReplaced` line on its card page, which is announced by being focused, not again | keyboard; screen reader |
+| the replacement failed | `KeyReplaceFailed`, announced by being focused, not again | keyboard; screen reader |
+| the old identity's page with `KeyReplaceUnfinished` opened | the page title, as §4.1; Tab reaches Finish replacing after `KeyReplaceUnfinished` | keyboard |
+| Finish replacing pressed | the progress line, then as "replaced" or "failed" | keyboard; screen reader |
+| a row under `KeyShareAgainTitle` | the conversation's share sheet, as cards §5.3 opens it | keyboard |
+| back on the new identity's card page from a row's conversation, the card shared | the next row of the list, else Done | keyboard |
+| back on the new identity's card page from a row's conversation, not shared | the row that opened it | keyboard |
+| Done under the list | the new identity's fingerprint row (the list and Done are gone) | keyboard |
+| the page goes to the background during `KeyReplacing` | on return, as "replaced", "failed" or unfinished by what the step left; the announcement is made on return, once | keyboard; screen reader |
+| a card row's Cancel answered while the step runs (§5.3 step 2) | stays where it is; a success is announced once after the step's own announcement | keyboard; desktop screen reader |
 | Try again, opened | the fingerprint row | keyboard |
 | the `KeyDirUnsafePath` line ("key folder not safe"), on the page | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
 | the `KeyDirUnsafePath` line, in the share sheet | reached by keyboard in reading order before `KeyCannotShareHere` and the actions, so backwards from Open your card, where the sheet's focus opens; selectable and copyable, it opens nothing | keyboard; screen reader reads it once, with the reason line |
@@ -457,10 +490,9 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | Back from §4.1 to the sheet, Try again opened the key | the sheet's Share | keyboard |
 | Back from §4.1 to the sheet, no key | Open your card | keyboard |
 
-The rows for Make a new key, its dialog, `KeyMaking`, the made and
-failed results, the share-again rows, a card's Cancel answered during
-the step and the background during `KeyMaking` are withdrawn with §5;
-part 2 writes the replacement's.
+The Stage 21 rows for Make a new key, its dialog, `KeyMaking` and the
+made and failed results are withdrawn with it; the rows above for
+Replace take their place.
 
 On Android every screen-reader check is a blocked precondition while
 TalkBack does not reach the app (cards §8); the keyboard checks run.
@@ -471,11 +503,13 @@ state; `error` repeats them. The icon's colour and the heading in
 `surface` and, in the sheet, the sheet's container — in light and
 dark.
 
-**Targets**: Try again is at least 48 dp tall on Android and 24 px on
-the desktop.
+**Targets**: Try again, Replace with a new identity, Finish replacing,
+each row under `KeyShareAgainTitle` and Done are at least 48 dp tall
+on Android and 24 px on the desktop.
 
-**Motion**: none in this state from the Stage 22 release (the progress
-indicator went with §5.2).
+**Motion**: the progress indicator (§5.3) and the switch's transition
+(cards §5.7.5) are the platform's; with reduced motion each is the
+platform's reduced form.
 
 ## 9. Acceptance
 
@@ -506,10 +540,10 @@ On both clients unless said; Android's screen-reader checks blocked as
    folder not safe", the page shows `KeyNoNewKey` after
    `KeyCannotShare` and no control in the block, on both clients.
 7. Withdrawn (ADR-0067 decision 5): the counterparty's key change. A
-   different key is another identity; part 2 writes what the
+   different key is another identity; item 25 checks what the
    counterparty sees.
-8. Withdrawn with §5.2 (the step's cut points); part 2 writes the
-   replacement's.
+8. Withdrawn with the Stage 21 step (its cut points); item 24 checks
+   the replacement's.
 9. Withdrawn with §5.3 (a failed new key).
 10. A key that cannot be opened transiently (a test seam returning a
     platform cipher error once): `KeyNotNow` and Try again; Try again
@@ -522,8 +556,8 @@ On both clients unless said; Android's screen-reader checks blocked as
     no file appears in `endpoint-keys/`.
 12. Focus follows §8's table, row by row, by keyboard; on the desktop,
     the screen reader reads §8's order and each announcement once.
-13. Withdrawn with §5.2 (pending own cards and the Cancel snackbar at
-    a new key); part 2 writes the replacement's.
+13. Withdrawn with the Stage 21 step (pending own cards and the Cancel
+    snackbar at a new key); item 26 checks the replacement's.
 14. A key file of non-text bytes, and one of mode 0000, each show
     `KeyDamaged`, not `KeyNotNow`.
 15. Desktop: `endpoint-keys/` at mode 0755 shows `KeyExposed` and
@@ -549,16 +583,83 @@ On both clients unless said; Android's screen-reader checks blocked as
     §4.3 shows the reason line and `KeyCannotShareHere` and not
     `KeyNoNewKey`; Open your card opens the page, which shows it.
 
+Items 1, 6, 15 and 19's "no action" describe part 1's interim. With
+part 2 built, every kind that shows `KeyNoNewKey` also shows Replace
+with a new identity after it, and item 21 replaces "no action" there.
+Items 21–30 are part 2's; those that rest on Q-link, Q-list, Q-trust
+or Q-carry name it and wait for its ruling.
+
+21. With part 2 built: every kind that shows `KeyNoNewKey` shows
+    Replace with a new identity after it; "temporarily unusable"
+    shows Try again, then Replace as a text button, and no
+    `KeyNoNewKey`; "key folder not safe" shows Try again alone. Replace
+    is not in the share sheet or the list of identities.
+22. Replace opens the dialog with focus on Cancel, and Enter cancels.
+    For an added identity it shows `KeyReplaceBody`,
+    `KeyReplaceRemoves` and the Remove list of identities §7 with the
+    same counts that identity's Remove would show, and Replace in
+    `error`; for the first identity, `KeyReplaceBody` and
+    `KeyReplaceTurnsOff`, and Replace not in `error`; for "possibly a
+    newer version's", `KeyReplaceOldNewer` too and Replace in `error`.
+    With an own-card row Not sent, `KeyReplacePending` shows.
+23. Replace confirmed on an added identity that had shared its card in
+    conversations A and B: the client switches to a new identity with
+    the old card's name and photo, a fingerprint different from any
+    before and a new EndpointId; `KeyReplaced` is focused; the list
+    shows A and B and no other; the old identity is in no list, and
+    its conversations and contacts are gone. On the first identity:
+    the same, and the first identity is listed as off, its
+    conversations readable, its page showing `KeyReplacedBy` and no
+    Replace; the new identity is the default.
+24. Killed during `KeyReplacing`, at each point the step can be cut:
+    before the new identity is stored, the next start shows the old
+    identity in this state, unchanged (its card rows not withdrawn),
+    with no new identity; after it is stored
+    and before the old one is removed or turned off, the old
+    identity's page shows `KeyReplaceUnfinished` and Finish
+    replacing, which completes the replacement and makes no third
+    identity (Q-link); after, as item 23.
+25. After 23, A's row opens a conversation of the new identity with
+    A's route and the share sheet; Share sends the new card, and A's
+    counterparty's client shows it as a card of an identity it does
+    not hold (cards' proposal for a new route), not a key change and
+    not an update of the old contact. B's counterparty sees
+    nothing until B is shared from the list.
+26. The old identity has a card row Not sent in C and one Sending in D
+    that the transport has not taken (a test seam holding it), and a
+    Cancel snackbar open on a third row in E: after Replace, C's and
+    D's rows are withdrawn with no Undo and never sent (a restart
+    included), E's snackbar is closed with no Undo, and C, D and E's
+    conversations are on the list where the predicate (§5.4) holds
+    for them. With step 1 failed by item 28's seam, C's and D's rows
+    are not withdrawn and E's snackbar is still open.
+27. The list survives leaving the page and a restart, until every row
+    has been shared from or Done is pressed (Q-list); for an added
+    identity, it is still there after its conversations were deleted.
+28. Creating the new identity refused (a test seam): `KeyReplaceFailed`
+    under the actions, the old identity unchanged, Replace offered
+    again, and no second identity listed.
+29. Q-trust and Q-carry: what the new identity trusts and holds as
+    contacts after a replacement is checked as ruled; until ruled,
+    this item is blocked, not passed.
+30. A desktop restore whose configuration names two identities' key
+    files that are gone: each shows "missing" with `KeyNoNewKey` and
+    Replace, and is replaced from its own page; the first replacement
+    changes nothing on the other's page.
+
 ## 10. Strings
 
 The Text column is language-culture-en's final English (2026-10-24),
 except the two rows marked *proposed* (part 1, 2026-11-22), whose words
 are ux-designer's proposal for language-culture-en to finalise; the
 third column is what it must say. A row marked *retired* is not in the
-build from the Stage 22 release (§5); it stays here as the record
-until part 2 says which come back. `{identity}` is the identity's card name, or its route
+build from the Stage 22 release; it stays here as the record.
+Part 2's rows (§5) are ux-designer's proposals for
+language-culture-en to finalise, marked *proposed*. `{identity}` is the identity's card name, or its route
 label without one (cards §5.7.6); `{path}` is the folder's full path
-as the platform shows it, isolated as a path, never translated.
+as the platform shows it, isolated as a path, never translated;
+`{old}` is the replaced identity's name and `{new}` the new
+identity's, each as `{identity}` is.
 
 | Key | Text | Where; must say |
 |---|---|---|
@@ -583,7 +684,7 @@ as the platform shows it, isolated as a path, never translated.
 | `KeyNewConfirm` | *retired* Make a new key | §5.1 confirm |
 | `KeyMaking` | *retired* Making a new key… | §5.2 |
 | `KeyMade` | *retired* This identity has a new key. Your contacts have the new key only after you share your card with them again. | §5.3 |
-| `KeyShareAgainTitle` | *retired* Share your card again in these conversations | §5.3 list heading |
+| `KeyShareAgainTitle` | *proposed (brought back, changed):* Share your new card in these conversations | §5.4 list heading; must say the card to share is the new identity's (Stage 21: "Share your card again in these conversations") |
 | `KeyNewFailed` | *retired* InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed before the old file was removed; says nothing about what changed |
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
 | `KeyNewFailedGone` | *retired* The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
@@ -591,6 +692,21 @@ as the platform shows it, isolated as a path, never translated.
 | `KeyDirUnsafePath` | Folder location: {path} | §4.1 and §4.3, desktop only, the line under `KeyDirUnsafe` wherever it shows; a label and the path, `{path}` last so no punctuation touches it |
 | `KeyNewPending` | *retired* In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11) |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
+| `KeyReplace` | *proposed:* Replace with a new identity | §5.1 action; must name the result, a new identity, not a new key |
+| `KeyReplaceTitle` | *proposed:* Replace {identity} with a new identity? | §5.2 title |
+| `KeyReplaceBody` | *proposed:* InterWeave makes a new identity with this card's name and photo. To your contacts, it is a different identity, and they see it only after you share its card with them. Messages they send to {identity} no longer reach you. | §5.2, every case; must say: a new identity with the same name and photo; contacts see a different identity, and only after a share; messages to the old identity stop reaching the person. Never "key change" |
+| `KeyReplaceRemoves` | *proposed:* {identity} is then removed: | §5.2, an added identity, before identities §7's Remove list; must say the removal follows the new identity |
+| `KeyReplaceTurnsOff` | *proposed:* {identity} is then turned off. You can still read its conversations and contacts, but it cannot send or receive messages. | §5.2, the first identity; must say what stays (to read) and what stops (send and receive) |
+| `KeyReplaceOldNewer` | *proposed:* A newer version of InterWeave may be able to use this identity's key. To try to keep this identity, update InterWeave first. | §5.2, "possibly a newer version's"; must say the choice is the update or the replacement, and claim no more than *may* |
+| `KeyReplacePending` | *proposed:* In some conversations, this identity's card has not reached the contact yet. If InterWeave has not sent the card yet, replacing the identity cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it. | §5.2, only when the old identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make |
+| `KeyReplaceConfirm` | *proposed:* Replace | §5.2 confirm |
+| `KeyReplacing` | *proposed:* Replacing {identity}… | §5.3 |
+| `KeyReplaced` | *proposed:* {new} replaces {old}. Your contacts see {new} as a new identity after you share its card with them. | §5.4, the new identity's page; must name both identities and that contacts see the new one only after a share |
+| `KeyReplacedBy` | *proposed:* {new} replaces this identity. | §5.4, the first identity's page after it was replaced |
+| `KeyReplaceFailed` | *proposed:* InterWeave could not make the new identity. {identity} has not changed. Choose Replace with a new identity to try again. | §5.4, step 1 failed; true only because nothing of the old identity is touched before step 1 (§5.3) |
+| `KeyReplaceUnfinished` | *proposed:* {new} replaces this identity, but the replacement did not finish. | §5.3, the old identity's page after a stop between steps 1 and 4 |
+| `KeyReplaceFinish` | *proposed:* Finish replacing | §5.3 action, in place of Replace |
+| `KeyShareAgainDone` | *proposed:* Done | §5.4, closes the share-again list |
 
 `TryAgain` and `Cancel` are the existing keys.
 
@@ -602,9 +718,13 @@ as the platform shows it, isolated as a path, never translated.
   ADR-0064's.
 - **A notice on Chats or a notification** for this state: it blocks
   only Share, which leads here.
-- **The replacement by a new identity** (ADR-0067 decision 5): part 2,
-  with plan §30 steps 1–3. Until it lands, the state offers no way out
-  but Try again and an update, and says so (`KeyNoNewKey`).
+- **Replacing several identities at once** (a desktop restore whose
+  every identity is "missing", §7): each is replaced from its own page,
+  one at a time; a "replace all" would be one confirmation for several
+  deletions.
+- **Replacing an identity whose key opens**: a person who wants a new
+  identity adds one (identities note); Replace is offered only in this
+  state.
 - **Telling contacts automatically** after a replacement: a share is
   the person's act (ADR-0059), so part 2's list offers it and sends
   nothing.
@@ -686,3 +806,39 @@ replace was removed), as read here:
   identity's key is gone, and each identity is replaced by a new one;
   never that contacts will see each key change: they see a new
   identity (identity note §10).
+
+Asked of architect-cto with part 2 (2026-11-22). §5 is built on the
+reading given with each, marked where it applies, until ruled:
+
+- **Q-link**: the client records, when it creates the replacement,
+  which identity it replaces, so that a replacement cut between its
+  steps finishes (Finish replacing) and never makes a third identity,
+  and so that the share-again list and `KeyReplacedBy` can name the
+  other identity. Is that record the store's to keep (STATE.md), and
+  is a client allowed to keep it, given that the client keeps no
+  record of removals (ADR-0061 decision 7, A 2026-11-04)? Read here
+  as yes, kept until step 4 is done for an added identity and for
+  life for the first.
+- **Q-list**: the share-again list is kept, beyond the page, until
+  each row has been shared from or the person presses Done, because
+  for an added identity its source conversations are deleted in step
+  4. Read here as a stored list of {remote route, conversation title}
+  owned by the new identity. The person's reason: otherwise leaving
+  the page loses, for good, the only record of who should hear about
+  the new identity.
+- **Q-trust**: does the new identity take the old identity's trusted
+  peers? Trust is per endpoint (ADR-0067 decision 6), and Add an
+  identity starts with none. Without them, every reply to a card the
+  person shares from the list is refused until they trust that peer
+  again, one by one, for peers they already chose to trust. Proposed:
+  the replacement takes the old identity's trusted set; a replacement
+  is the same person's way out of a lost key, not a new acquaintance.
+  Not built until ruled (acceptance 29).
+- **Q-carry**: does the new identity take the old identity's
+  contacts (name, photo, routes) as its own? Your rule removes an
+  added identity's contacts with it; the question is only whether
+  the new identity gets a copy first. Proposed: yes, so that the list's
+  rows open a conversation with a named contact rather than a bare
+  route. The counterparty side is unchanged: they still see a new
+  identity, and hold their old contact until they accept the new
+  card. Not built until ruled (acceptance 29).
