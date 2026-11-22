@@ -932,6 +932,18 @@ pub(crate) fn window_ended() {
         Destroy::Kept
     };
     let Some(o) = ONBOARDING.with(|slot| slot.borrow_mut().take()) else {
+        // A window finished before it took a flow the last one parked --
+        // the task removed from Recents during a recreation: the finish
+        // ends that flow too, its words and lock with it (identity note
+        // section 7; device case D5, device-runs/identity-recreation-cases.md).
+        if matches!(destroy, Destroy::Finishing) {
+            let parked = PARKED.lock().unwrap_or_else(PoisonError::into_inner).take();
+            if parked.is_some() {
+                log("the window finished: the identity flow kept for it ends");
+                flow_shows(None);
+            }
+            drop(parked);
+        }
         return;
     };
     match at_window_end(o.over, o.finished, destroy) {
