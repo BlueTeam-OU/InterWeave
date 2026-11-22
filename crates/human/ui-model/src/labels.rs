@@ -568,8 +568,10 @@ ui_texts! {
     IdC1Title => "About your recovery phrase",
     /// ANDROID, identity screens: C1, first point.
     IdC1Point1 => "These 24 words are the key to your PeerId. With them, you can move your PeerId to a new phone.",
-    /// ANDROID, identity screens: C1, second point.
-    IdC1Point2 => "They are an InterWeave recovery phrase, not a cryptocurrency wallet seed.",
+    /// ANDROID, identity screens: C1, second point. Keeps the phrase's
+    /// name, "identity recovery phrase", until the identity note's Q16
+    /// (architect-cto's) decides whether "identity" goes from it.
+    IdC1Point2 => "They are an InterWeave identity recovery phrase, not a cryptocurrency wallet seed.",
     /// ANDROID, identity screens: C1, third point.
     IdC1Point3 => "Write them on paper, in order, with your PeerId. Store the paper in a safe place.",
     /// ANDROID, identity screens: C1, fourth point: "can be you", without
