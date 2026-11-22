@@ -505,8 +505,8 @@ mod tests {
     use interweave_local_client_api::LocalSessionEvent;
     use interweave_profile_identity::ProfileIdentity;
     use interweave_transport_api::{
-        ConnectivitySummary, DirectInboundState, DisconnectReason, EndpointId, Health,
-        PathReadiness, PeerPath, PreferredPathPolicy, TransportIdentity,
+        ConnectivitySummary, DirectInboundState, DisconnectReason, Health, PathReadiness, PeerPath,
+        PreferredPathPolicy, TransportIdentity,
     };
 
     fn peer() -> TransportIdentity {
@@ -678,7 +678,7 @@ mod tests {
             )
             .is_ready()
         };
-        let human = EndpointId::parse("human").expect("endpoint");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         let notices = SessionNotices::default();
         let a = notices.register("a", Some(human.clone()));
         let b = notices.register("b", None);
@@ -791,7 +791,7 @@ mod tests {
 
         // A message the session drained is a route too, and a delivery
         // report alone is not: it only wakes.
-        let human = EndpointId::parse("human").expect("endpoint");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         notices.register("reader", Some(human.clone()));
         let (q, r) = (peer(), peer());
         notices.delivered_to(&human);
@@ -930,7 +930,7 @@ mod tests {
     fn a_route_begin_is_owed_the_peers_path_with_no_previous() {
         use PeerPath::Relayed;
         let notices = SessionNotices::default();
-        let human = EndpointId::parse("human").expect("endpoint");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         notices.register("sender", None);
         notices.register("reader", Some(human));
         notices.register("stranger", None);
