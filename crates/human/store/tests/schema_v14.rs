@@ -722,13 +722,22 @@ fn one_identitys_reads_never_evict_anothers_pairs() {
     drop(second);
     // Mine fill my bound, planted in one transaction.
     {
+        // Derived once: a key's derivation per row is most of a debug
+        // build's minute.
+        let mine = me();
         let mut conn = rusqlite::Connection::open(&path).expect("plant");
         let tx = conn.transaction().expect("tx");
         for n in 0..READ_PAIR_CAP {
             tx.execute(
-                "INSERT INTO read_pairs (local_endpoint_id, app_message_id, source_peer, source_endpoint, at)
+                "INSERT INTO read_pairs
+                     (local_endpoint_id, app_message_id, source_peer, source_endpoint, at)
                  VALUES (?1, ?2, ?3, ?4, 2)",
-                rusqlite::params![me().as_str(), format!("{:032x}", 0xe000_u128 + n as u128), peer.as_str(), alice.as_str()],
+                rusqlite::params![
+                    mine.as_str(),
+                    format!("{:032x}", 0xe000_u128 + n as u128),
+                    peer.as_str(),
+                    alice.as_str()
+                ],
             )
             .expect("a pair");
         }
