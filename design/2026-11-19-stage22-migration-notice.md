@@ -19,6 +19,15 @@ notice showed first (§6), and §5 says what the dialog does when a session noti
 rises under it, which acceptance 9 now sets up. Before, two rows of §6
 both applied to a late banner, and acceptance 9 needed OK with a store
 degraded from the open, which hides the banner.
+Revised 2026-11-22, at #738's review (F1, F3-F6, F8). Only storage
+degraded refuses OK's delete; under another session notice OK deletes
+the row (§5, §6, acceptance 9's second run). The late-banner row of §6
+covers focus moved on Chats only. Acceptance 9's store hook is named as
+missing, so that run is blocked. The client deletes no all-zero row,
+and acceptance 1 checks that no banner shows. §1 counts each pending
+and card row whichever step took it, asked as Q3 (§11). Before, §5 said
+that any session notice refused the delete, and §3 had the client
+delete an all-zero row, which STATE.md's "on nothing else" forbids.
 
 Owner of the design: ux-designer. The words are language-culture's: §7
 names each string and what it must say. No new colour: the banner is
@@ -46,9 +55,12 @@ the desktop and on Android; the command-line client's form is left out
   have reached their counterparty, contacts
   ((c)'s: deleted with their last route), contacts combined ((d)'s: a
   route moved to another contact of the same identity, its own name and
-  notes gone), card proposals ((e)'s unread proposals). A second copy
-  under (d) is counted nowhere: the message is still held, or was read
-  and not kept.
+  notes gone), card proposals (unread contact card proposals). A second
+  copy under (d) is counted nowhere: the message is still held, or was
+  read and not kept. Each of the two pending counts and the card
+  proposals count holds every such row the migration discarded, whether
+  (c) or (e) took it; unread and kept messages hold no card (Q3 in §11,
+  asked of architect-cto, which STATE.md then states).
 - The pending rows are counted in two parts, "as Remove of an identity
   names them" (ADR-0061 decision 7): those never attempted were not
   sent; those with an attempt behind them "may have reached their
@@ -58,7 +70,10 @@ the desktop and on Android; the command-line client's form is left out
   client says once, at the first open, how many conversations, unread,
   kept and contacts went and how many pending messages, those never
   attempted as not sent and those attempted before the upgrade as
-  possibly received, never as not sent".
+  possibly received, never as not sent". Written before 530def301:
+  STATE.md's schema v14 now says when the notice shows (at each open
+  until acknowledged) and how many counts it holds (eight); bringing
+  §13 in line is architect-cto's, asked with Q3.
 - The row is content-free (RETENTION.md §7, the one exception): it holds
   counts and nothing else. The notice therefore cannot say which
   conversation, contact or message went, and it names no peer and no
@@ -102,8 +117,10 @@ someone for whom nothing was lost.
   tested with a person.)
 - **When.** At every open that finds the `settings` row with at least
   one count above zero, until the person presses **OK** in the dialog
-  (Q2 in §11, ruled). A row whose counts are all zero shows nothing, and the
-  client deletes it at that open.
+  (Q2 in §11, ruled). A row whose counts are all zero shows nothing,
+  and the client deletes no row it has not shown; architect-cto ruled
+  on 2026-11-22 that the migration writes no row when every count is
+  zero (STATE.md, 72434415a, not yet on main).
 - **Under what.** A session notice (authentication needed, storage
   degraded, the device offline) goes first, as for the discard's
   notice; the banner shows when no session notice is shown. An identity
@@ -153,12 +170,16 @@ dialog; OK stays reachable.
   banner goes for this session, with no further message; the row stays,
   so the banner comes back at the next open. Nothing is lost by that,
   and the degraded store already has its own session notice.
-- **A session notice rises while the dialog is open** (for example,
-  the store becomes degraded): the dialog stays open and keeps focus, and
-  under it the notice takes the slot from the banner, as at any time
-  (§3). A press on OK then has its delete refused, as above, and focus
-  goes to the session notice: it rose behind the dialog, so the person has not
-  seen it yet. (Heuristic: visibility of system status.)
+- **A session notice rises while the dialog is open** (authentication
+  needed, storage degraded, the device offline): the dialog stays open
+  and keeps focus, and under it the notice takes the slot from the
+  banner, as at any time (§3). A press on OK then closes the dialog and
+  focus goes to the session notice: it rose behind the dialog, so the
+  person has not seen it yet. (Heuristic: visibility of system status.)
+  Only storage degraded refuses the delete, as above, so the banner
+  comes back at the next open; under authentication needed or the
+  device offline the store is writable, OK deletes the row, and the
+  banner does not come back.
 - **The process ends before OK** (killed, a crash, a restart, an
   update of Android itself): the row is still there, so the next open
   shows the banner again. What the person was told matches what the
@@ -174,11 +195,11 @@ dialog; OK stays reachable.
 | Chats shows the banner at an open (no session notice, no screen over it) | the banner's Details | keyboard: open a store with the row; Tab order starts on Details; desktop screen reader reads the banner text then "Details, button" |
 | a session notice was shown first, and goes | Details, when the banner shows | keyboard: open with storage degraded, then healthy |
 | an identity screen or the reader was over Chats, and goes | Details, when the banner shows | keyboard, with K1 raised at the open |
-| the person moved focus before the banner showed (it showed late) | stays where it was; this row applies instead of the session-notice and identity-screen rows above, whatever showed first | keyboard: open with storage degraded, Tab into the list, then healthy |
+| the person moved focus on Chats before the banner showed (it showed late) | stays where it was; this row applies instead of the session-notice and identity-screen rows above, whichever showed first; focus moved on an identity screen or the reader is that row's | keyboard: open with storage degraded, Tab into the list, then healthy |
 | Details pressed | the dialog's title (screen reader), OK (keyboard) | keyboard: Enter on Details, then Enter presses OK; desktop screen reader reads title, the lines in order, the explanation, then OK |
 | dialog closed without OK (Back, Escape, outside) | Details | keyboard: Escape returns to Details |
 | OK | the Chats list heading, as when the locked notice leaves (unlock note F14) | keyboard |
-| OK with a session notice raised while the dialog was open (the delete refused, §5) | that session notice | keyboard: acceptance 9 |
+| OK with a session notice raised while the dialog was open (§5; the delete refused only under storage degraded) | that session notice | keyboard: acceptance 9 |
 | OK on a wide window with a conversation open | the Chats pane's heading | keyboard |
 | return from the background with the dialog open | OK | keyboard: Alt+Tab away and back (desktop) |
 
@@ -241,8 +262,9 @@ Each on the desktop and on Android unless it says otherwise, from a
 schema-v13 store written by the release before Stage 22 holding the
 cases named (the store's own migration tests build such stores).
 
-1. A store whose migration discarded nothing opens with no banner, and
-   the `settings` row is gone after that open (store query).
+1. A store whose migration discarded nothing opens with no banner, at
+   that open and at the next (no `MigratedBanner` drawn; store query:
+   no row with a count above zero).
 2. A store with one of each discard opens with `MigratedBanner` on Chats
    and focus on Details; nothing else on Chats moved below the slot's
    usual place.
@@ -270,12 +292,19 @@ cases named (the store's own migration tests build such stores).
    Details. In a second run, opened the same way, the tester moves
    focus into the list before the notice goes: when the banner shows,
    focus stays where the tester put it.
-9. With the dialog open, the store is made degraded (by a hook): the
-   dialog stays open with focus where it was, and storage degraded
-   takes the slot under it. OK then closes the dialog, the banner is
-   gone for the session, focus is on the storage-degraded notice, the
-   row stays (store query), and the next healthy open shows the
-   banner.
+9. With the dialog open, the open store is made to refuse writes, by
+   a debug or test hook on each platform: the dialog stays open with
+   focus where it was, and storage degraded takes the slot under it.
+   OK then closes the dialog, the banner is gone for the session,
+   focus is on the storage-degraded notice, the row stays (store
+   query), and the next healthy open shows the banner. No such hook
+   exists today (Android's `REFUSE_STORE`, `DebugHooks.kt`, refuses
+   the store at the next start; the view tests feed only the session
+   state, which refuses no write), so this run is blocked, not passed,
+   until rust-ui-dev adds one. A second run, on Android, raises the
+   device-offline notice under the open dialog (airplane mode on): OK
+   closes the dialog, focus is on that notice, the row is gone (store
+   query), and the next open shows no banner.
 10. With a second identity added and in front before OK, the banner
     still shows on Chats, and no string in the banner or the dialog
     names either identity (read the strings).
@@ -327,3 +356,17 @@ count; the text below is the question as asked.
   presses OK, so the banner returns at each open until then (§5).
   Proposal: STATE.md reads "shows at each open until the person
   acknowledges it, then deletes".
+- **Q3. Which step's rows each count holds** (asked 2026-11-22, at
+  #738's review, F3 and F8; open). STATE.md names the two pending counts
+  "(e)'s two parts" and the card proposals "the unread rows of kind
+  `card` that (e) discarded", while (c) also discards the pending and
+  unread rows of every conversation it removes, and fixes no order
+  between them. Read in the order (a) to (e), (c) takes first the sends
+  and cards of exactly the conversations a person is most likely to
+  have them in (no accepted card), and the notice would tell the person
+  fewer sends were lost than were. Proposal: each pending count and the
+  card proposals count hold every such row discarded, whichever of (c)
+  and (e) took it; unread and kept messages hold no card. With it:
+  `human-client-ui.md` §13's first Stage 22 criterion still says
+  "once, at the first open" and names six counts; §1 above follows
+  STATE.md, and §13 is architect-cto's to bring in line.
