@@ -86,13 +86,37 @@ pub(crate) const fn flow_check(asked: bool, shows: bool) -> FlowCheck {
     }
 }
 
-/// Whether the window that takes up a parked flow opened `over` a launch
-/// or a running window attaches its chats at once, the flow's page on
-/// top: where the window that parked it had them attached -- under a
-/// held C4 or R4 that `handed` them over, or under a K1 raised over a
-/// running window. Otherwise the flow's own hand-over attaches them.
-pub(crate) const fn attach_at_rebind(over: Over, handed: bool) -> bool {
-    handed || !matches!(over, Over::Launch)
+/// Whether the chats are attached under a flow's window: a fact the flow
+/// records of its window, never inferred from where it was opened -- a
+/// K1 opened at a window's start over a running process (`Over::Running`)
+/// has none attached until it hands over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Attached {
+    /// The flow's own hand-over attaches them.
+    No,
+    /// Attached under it: the flow was raised over attached chats (K1
+    /// raised over a running window, Show my phrase from Settings), or a
+    /// held C4 or R4 handed them over.
+    Yes,
+}
+
+impl Attached {
+    /// A flow raised over a window whose chats are attached, or not.
+    pub(crate) const fn opened(over_attached_chats: bool) -> Self {
+        if over_attached_chats {
+            Self::Yes
+        } else {
+            Self::No
+        }
+    }
+
+    /// The window that takes the parked flow up attaches its chats at
+    /// once, the flow's page on top, exactly where the window that parked
+    /// it had them; otherwise the flow's own hand-over attaches them, and
+    /// attached twice the window would make two roots.
+    pub(crate) const fn at_rebind(self) -> bool {
+        matches!(self, Self::Yes)
+    }
 }
 
 /// The most answers [`Owed`] holds: far above the few a window's end can
@@ -175,18 +199,22 @@ mod tests {
         assert_eq!(flow_check(false, true), FlowCheck::BeforeStart);
     }
 
-    /// The chats are attached at once under a held screen that handed
-    /// them over and under a K1 over a running window, never under a
-    /// launch's flow that has not: its hand-over attaches them, and
-    /// attached twice the window would make two roots. Mutation: dropping
-    /// `handed` fails the second assertion; attaching for every launch
-    /// fails the first.
+    /// The chats are attached at the next window exactly where the last
+    /// had them: under a flow raised over attached chats, and under one
+    /// whose held screen handed them over; never under a flow opened at
+    /// a window's start that has not -- a K1 kept in a running process
+    /// included, whose window had none attached -- since its hand-over
+    /// attaches them. Mutations: `opened` ignoring its argument either
+    /// way fails one of the first two assertions; `at_rebind` answering
+    /// true for every flow fails the first.
     #[test]
     fn the_next_window_attaches_its_chats_where_the_last_had_them() {
-        assert!(!attach_at_rebind(Over::Launch, false));
-        assert!(attach_at_rebind(Over::Launch, true));
-        assert!(attach_at_rebind(Over::Running, false));
-        assert!(attach_at_rebind(Over::Running, true));
+        // A launch's flow, or a kept K1 at a window's start.
+        assert!(!Attached::opened(false).at_rebind());
+        // K1 raised over a running window, Show my phrase.
+        assert!(Attached::opened(true).at_rebind());
+        // A held C4 or R4 that handed them over.
+        assert!(Attached::Yes.at_rebind());
     }
 
     /// Answers come back in the order they were held, once: a prompt's

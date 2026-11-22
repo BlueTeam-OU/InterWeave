@@ -32,7 +32,7 @@ use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 
 use crate::asks::Asks;
 use crate::flow_park::{
-    AtWindowEnd, Finish, FlowCheck, OWED_MAX, Owed, at_window_end, attach_at_rebind, flow_check,
+    AtWindowEnd, Attached, Finish, FlowCheck, OWED_MAX, Owed, at_window_end, flow_check,
 };
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
@@ -690,6 +690,10 @@ struct Onboarding {
     /// `done` was called: the chats are attached under a held C4 or R4,
     /// so the start's reads run while the screen holds.
     handed: bool,
+    /// Whether the chats are attached under the flow's window: raised
+    /// over attached chats, or handed over under a held screen. The next
+    /// window attaches them at once exactly when they were ([`rebind`]).
+    attached: Attached,
     /// Whether the flow finished the Activity (Back on a first screen):
     /// its window's end then ends it rather than keeping it
     /// ([`window_ended`]).
@@ -736,6 +740,7 @@ impl Onboarding {
             hold,
             asked_at,
             handed,
+            attached,
             finished,
         } = self;
         Parked {
@@ -751,6 +756,7 @@ impl Onboarding {
             hold,
             asked_at,
             handed,
+            attached,
             finished,
         }
     }
@@ -777,6 +783,7 @@ struct Parked {
     hold: Option<StartHold>,
     asked_at: StoreGeneration,
     handed: bool,
+    attached: Attached,
     finished: Finish,
 }
 
@@ -796,6 +803,7 @@ impl Parked {
             hold,
             asked_at,
             handed,
+            attached,
             finished,
         } = self;
         Onboarding {
@@ -812,6 +820,7 @@ impl Parked {
             hold,
             asked_at,
             handed,
+            attached,
             finished,
             done,
         }
@@ -920,12 +929,12 @@ fn parked() -> bool {
 
 /// `parked`, shown over the new window's `view` as it was, handing over
 /// through `done`: the chats attached at once where the last window had
-/// them ([`attach_at_rebind`]). The Activity's check set `FLAG_SECURE`
+/// them ([`Attached::at_rebind`]). The Activity's check set `FLAG_SECURE`
 /// for it before this window can draw ([`state::FLOW`],
 /// [`state::FLOW_STARTED`]); asked again for a window made with no check
 /// before it.
 fn rebind(view: &Rc<RefCell<View>>, parked: Parked, done: impl Fn() + 'static) {
-    let attach = attach_at_rebind(parked.over, parked.handed);
+    let attach = parked.attached.at_rebind();
     let done: Rc<dyn Fn()> = Rc::new(done);
     // Attached here, its hand-over attaches nothing again.
     let later: Rc<dyn Fn()> = if attach {
@@ -1009,6 +1018,9 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         hold: None,
         asked_at: StoreGeneration::default(),
         handed: false,
+        // A K1 kept for a window's start included: its window attaches
+        // the chats only at its hand-over.
+        attached: Attached::opened(false),
         finished: Finish::Open,
         done: Rc::new(done),
     };
@@ -1065,6 +1077,7 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         hold: None,
         asked_at: StoreGeneration::default(),
         handed: false,
+        attached: Attached::opened(true),
         finished: Finish::Open,
         done: Rc::new(|| {}),
     };
@@ -1105,6 +1118,7 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         hold: None,
         asked_at: StoreGeneration::default(),
         handed: false,
+        attached: Attached::opened(true),
         finished: Finish::Open,
         done: Rc::new(|| {}),
     };
@@ -1650,6 +1664,7 @@ fn render() {
             // first screen shown is the one they decide (§5.1).
             if o.flow.start_held() && o.service_asked && !o.handed {
                 o.handed = true;
+                o.attached = Attached::Yes;
                 return Some(Step::Attach(Rc::clone(&o.done)));
             }
             return None;
