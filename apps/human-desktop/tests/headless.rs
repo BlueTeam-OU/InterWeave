@@ -43,7 +43,11 @@ fn node() -> FakeConfig {
 fn facade(node: FakeNode) -> FacadeSide<FakeNode, FakeNode> {
     facade_over(
         node,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     )
 }
 
@@ -216,7 +220,12 @@ fn over_the_real_binding_with_no_daemon_the_window_says_so() {
         admin_socket: paths.admin_socket().expect("admin socket"),
         paths: paths.clone(),
     };
-    let store = HumanStore::open(&profile.store_path(), StoreOptions::default()).expect("store");
+    let store = HumanStore::open(
+        &profile.store_path(),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
 
     i_slint_backend_testing::init_no_event_loop();
     let view = View::new(RuntimeHost::Daemon).expect("a window");
@@ -713,7 +722,11 @@ fn a_path_change_reaches_the_route_indicator_and_nothing_else() {
 fn flooded(from: &interweave_transport_api::TransportIdentity, count: u32) -> HumanStore {
     use interweave_human_store::{AppMessageId, InboundKind, InboundOrigin, NewInbound};
     use interweave_transport_api::MediaType;
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     for n in 1..=count {
         let id = format!("{n:032x}");
         store

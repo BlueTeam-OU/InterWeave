@@ -228,11 +228,19 @@ async fn a_peer_relayed_from_its_first_message_shows_the_relay_and_again_on_its_
     );
     let mut a_side = facade(
         &a,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("a"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("a"),
     );
     let mut b_side = facade(
         &b,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("b"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("b"),
     );
     a_side.tick(0).await;
     b_side.tick(0).await;
@@ -558,12 +566,21 @@ async fn s13_7_pending_outbound_and_unread_inbound_survive_restart_and_read_unke
     );
     let mut b_side = facade(
         &b,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("b"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("b"),
     );
     b_side.tick(0).await;
     let mut a_side = facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("a"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("a"),
     );
     a_side.tick(0).await;
     let to_b = Destination::Direct {
@@ -611,7 +628,14 @@ async fn s13_7_pending_outbound_and_unread_inbound_survive_restart_and_read_unke
     a_side.close().await;
     drop(a_side);
 
-    let restarted = model_from(&HumanStore::open(&path, StoreOptions::default()).expect("reopen"));
+    let restarted = model_from(
+        &HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
+    );
     let texts: Vec<String> = restarted
         .conversations()
         .iter()
@@ -635,12 +659,21 @@ async fn a_message_received_while_unfocused_is_still_unread_after_a_restart() {
     );
     let mut a_side = facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("a"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("a"),
     );
     a_side.tick(0).await;
     let mut b_side = facade(
         &b,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("b"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("b"),
     );
     b_side.tick(0).await;
     b_side
@@ -668,7 +701,12 @@ async fn a_message_received_while_unfocused_is_still_unread_after_a_restart() {
     }
     a_side.close().await;
     drop(a_side);
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopen");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert_eq!(
         store.unread_inbound().expect("unread").len(),
         1,

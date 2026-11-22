@@ -179,9 +179,13 @@ mod tests {
     #[test]
     fn the_unread_ids_are_read_under_the_stores_key_and_never_the_read_ones() {
         let (dir, paths) = app_dir();
-        let mut store =
-            HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default())
-                .expect("an encrypted store");
+        let mut store = HumanStore::open_profile(
+            &paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("an encrypted store");
         for serial in [2, 1, 3] {
             unread(&mut store, &desktop_message_id(serial));
         }
@@ -217,9 +221,13 @@ mod tests {
     #[test]
     fn a_runtime_serving_refuses_the_read_of_a_store_that_opens() {
         let (dir, paths) = app_dir();
-        let mut store =
-            HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default())
-                .expect("an encrypted store");
+        let mut store = HumanStore::open_profile(
+            &paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("an encrypted store");
         unread(&mut store, &desktop_message_id(1));
         drop(store);
         let quiet = |peer| FakeConfig {

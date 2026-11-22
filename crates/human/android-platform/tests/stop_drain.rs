@@ -290,6 +290,7 @@ fn a_message_admitted_before_the_stop_is_unread_after_it() {
     let store = HumanStore::open_profile(
         &paths,
         &interweave_human_store::key_custody::FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("the store");

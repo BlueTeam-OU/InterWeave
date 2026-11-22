@@ -545,8 +545,13 @@ async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
 async fn an_encrypted_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
     let home = install(&previous_tree());
     drop(
-        HumanStore::open_profile(&home.paths, &FilesystemCustody, StoreOptions::default())
-            .expect("this build's first open rewrites it encrypted"),
+        HumanStore::open_profile(
+            &home.paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("this build's first open rewrites it encrypted"),
     );
     assert!(
         store_key::key_path(&home.paths).is_file(),
@@ -1059,7 +1064,12 @@ async fn write_the_previous_build_tree() {
     let path = app_store(&home);
     crate::common::private_dir(path.parent().expect("a store directory"));
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("a store");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("a store");
         let encoded = encode_outbound(&pending, MAX_PAYLOAD_BYTES).expect("it fits");
         store
             .commit_pending_outbound(&NewOutbound {

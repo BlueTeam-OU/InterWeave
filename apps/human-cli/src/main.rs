@@ -244,12 +244,26 @@ fn run(
         Ok(lock) => lock,
         Err(failure) => return failure.into(),
     };
-    match verb {
-        cli::Verb::StoreHealth => return store::health(&profile.paths, &FilesystemCustody, json),
-        cli::Verb::StoreDiscard(confirm) => {
-            return store::discard(&profile.paths, &FilesystemCustody, *confirm, json);
+    if matches!(verb, cli::Verb::StoreHealth | cli::Verb::StoreDiscard(_)) {
+        let identity = match startup::first_identity(&profile) {
+            Ok(identity) => identity,
+            Err(failure) => return failure.into(),
+        };
+        match verb {
+            cli::Verb::StoreHealth => {
+                return store::health(&profile.paths, identity, &FilesystemCustody, json);
+            }
+            cli::Verb::StoreDiscard(confirm) => {
+                return store::discard(
+                    &profile.paths,
+                    identity,
+                    &FilesystemCustody,
+                    *confirm,
+                    json,
+                );
+            }
+            _ => {}
         }
-        _ => {}
     }
     // Another identity than the one in front has no model: its key file
     // is read, under the lock, as the store's files are.

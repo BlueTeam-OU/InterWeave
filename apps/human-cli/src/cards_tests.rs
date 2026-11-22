@@ -77,7 +77,12 @@ fn private_dir() -> tempfile::TempDir {
 }
 
 fn store(dir: &Path) -> HumanStore {
-    HumanStore::open(&dir.join("human.sqlite3"), StoreOptions::default()).expect("store")
+    HumanStore::open(
+        &dir.join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store")
 }
 
 /// A side: its node, and its store directory, under which its identity's
@@ -924,14 +929,16 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
     b_run.close().await;
     // No flow makes a second route yet (moving one is Stage 22's): it is
-    // seeded as the store's writer inserts one.
+    // seeded as the store's writer inserts one, under bob's identity --
+    // his profile's first endpoint, `endpoint()` as the route's is.
     let other = ProfileIdentity::generate()
         .transport_identity()
         .expect("peer id");
     let conn = rusqlite::Connection::open(bob.dir.path().join("human.sqlite3")).expect("open");
     conn.execute(
-        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO contact_routes
+             (contact_id, local_endpoint_id, peer_id, endpoint_id, identity_key)
+         VALUES (?1, ?3, ?2, ?3, ?4)",
         rusqlite::params![
             contact,
             other.as_str(),

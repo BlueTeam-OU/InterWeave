@@ -51,7 +51,12 @@ fn private_dir() -> tempfile::TempDir {
 }
 
 fn store(dir: &Path) -> HumanStore {
-    HumanStore::open(&dir.join("human.sqlite3"), StoreOptions::default()).expect("store")
+    HumanStore::open(
+        &dir.join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store")
 }
 
 fn session(node: &FakeNode, store: HumanStore) -> Session<FakeNode, FakeNode> {

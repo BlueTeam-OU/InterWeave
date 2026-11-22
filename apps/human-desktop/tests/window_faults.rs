@@ -78,7 +78,11 @@ impl Opener for NoLinks {
 
 /// A store holding `count` unread text rows from `from`, the newest last.
 fn flooded(from: &TransportIdentity, count: u32) -> HumanStore {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     flood(&mut store, from, 1..=count);
     store
 }

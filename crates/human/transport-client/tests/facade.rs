@@ -87,7 +87,11 @@ fn wall() -> interweave_human_transport_client::WallClock {
 }
 
 fn memory() -> HumanStore {
-    HumanStore::open_in_memory(StoreOptions::default()).expect("store")
+    HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store")
 }
 
 fn envelope(text: &str) -> HumanChatV2 {
@@ -434,7 +438,12 @@ async fn after_a_restart_a_pending_row_is_reported_once_and_resent_under_its_id(
         let mut sender = client(
             &a,
             agent(),
-            HumanStore::open(&path, StoreOptions::default()).expect("store"),
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("store"),
         );
         ready(&mut sender, 0).await;
         a.inject_send(TransportError::Timeout);
@@ -450,7 +459,12 @@ async fn after_a_restart_a_pending_row_is_reported_once_and_resent_under_its_id(
     let mut restarted = client(
         &a,
         agent(),
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
     );
     let reported: Vec<_> = events(&mut restarted)
         .into_iter()
@@ -483,7 +497,12 @@ async fn a_pending_row_that_does_not_decode_is_resent_after_a_restart() {
     let held = raw(&b, Some(human())).await;
     let transport = MessageId::parse_hex(&format!("{:032x}", rand_id() + 7)).expect("an id");
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         store
             .commit_pending_outbound(&NewOutbound {
                 app_message_id: AppMessageId::parse(format!("{:032x}", rand_id())).expect("an id"),
@@ -500,7 +519,12 @@ async fn a_pending_row_that_does_not_decode_is_resent_after_a_restart() {
     let mut restarted = client(
         &a,
         agent(),
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
     );
     ready(&mut restarted, 10).await;
     assert_eq!(
@@ -890,10 +914,21 @@ async fn degraded_storage_refuses_a_send_and_releases_the_lease() {
     let (_a, b) = FakeNetwork::pair(node_config(), node_config());
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("create"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("create"),
+    );
     // A quota below the file's size opens degraded (StoreOptions docs).
-    let tight =
-        HumanStore::open(&path, StoreOptions { max_pages: Some(1) }).expect("opens degraded");
+    let tight = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions { max_pages: Some(1) },
+    )
+    .expect("opens degraded");
     let mut receiver = client(&b, human(), tight);
     receiver.tick(0).await;
     // Noticed on the tick, before anything was sent: no lease is taken
@@ -1008,7 +1043,12 @@ async fn a_restarted_row_the_config_no_longer_allows_needs_attention_and_keeps_t
         let mut before = client(
             &a,
             human(),
-            HumanStore::open(&path, StoreOptions::default()).expect("store"),
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("store"),
         );
         // Not ticked: committed, never attempted.
         before
@@ -1019,7 +1059,12 @@ async fn a_restarted_row_the_config_no_longer_allows_needs_attention_and_keeps_t
     let mut after = TransportClient::new(
         a.clone(),
         a.clone(),
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: vec![human()],
@@ -1109,13 +1154,21 @@ async fn a_lease_loss_hands_over_everything_already_accepted() {
 /// `SQLITE_FULL`, not an injected failure.
 fn store_with_room_for_one(dir: &std::path::Path) -> HumanStore {
     let path = dir.join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("create"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("create"),
+    );
     let pages: u32 = rusqlite::Connection::open(&path)
         .expect("raw")
         .query_row("PRAGMA page_count", [], |r| r.get(0))
         .expect("pages");
     HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(pages + 16),
         },
@@ -1414,7 +1467,12 @@ async fn a_pending_row_that_no_longer_reads_is_counted_not_silently_stalled() {
     let mut sender = client(
         &a,
         agent(),
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     );
     ready(&mut sender, 0).await;
     a.inject_send(TransportError::Overloaded);
@@ -2479,7 +2537,12 @@ fn store_at_the_bound(path: &std::path::Path, peer: &TransportIdentity) -> Human
     use interweave_human_store::{
         AcceptedCard, AppMessageId, InboundKind, InboundOrigin, NewInbound,
     };
-    let mut store = HumanStore::open(path, StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open(
+        path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     let names: Vec<EndpointId> = std::iter::once(agent())
         .chain((1..63).map(|n| EndpointId::parse(format!("e{n}")).expect("an endpoint")))
         .collect();
@@ -2561,7 +2624,12 @@ async fn a_65th_source_endpoint_of_a_peer_is_discarded_and_counted() {
     let mut reopened = client(
         &b,
         human(),
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
     );
     ready(&mut reopened, 3).await;
     from_new
@@ -2622,7 +2690,12 @@ async fn a_failed_read_behind_the_endpoint_check_stores_nothing() {
     let mut receiver = client(
         &b,
         human(),
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     );
     ready(&mut receiver, 0).await;
     rusqlite::Connection::open(&path)

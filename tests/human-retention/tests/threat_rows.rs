@@ -152,7 +152,12 @@ async fn tm_44_an_envelope_asking_to_be_kept_arrives_unread_and_is_gone_once_rea
     let mut receiver = TransportClient::new(
         b.clone(),
         b.clone(),
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
         config(human()),
         Box::new(|| WALL),
         0,
@@ -201,7 +206,12 @@ async fn tm_44_an_envelope_asking_to_be_kept_arrives_unread_and_is_gone_once_rea
 
     // Across a restart, the content is nowhere: not kept, not unread, and
     // in no other table of the file.
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert!(store.kept_inbound().expect("read").is_empty(), "not kept");
     assert!(
         store.unread_inbound().expect("read").is_empty(),
@@ -251,7 +261,12 @@ fn tm_45_a_trigger_view_or_search_index_shadowing_content_is_refused_at_open() {
         let dir = common::private_tempdir();
         let path = store_path(dir.path(), "state");
         {
-            let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+            let mut store = HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("opens");
             let mut new = interweave_human_retention_tests::unread_inbound();
             new.payload = BODY.to_vec();
             store.commit_unread_inbound(&new).expect("unread");
@@ -261,8 +276,12 @@ fn tm_45_a_trigger_view_or_search_index_shadowing_content_is_refused_at_open() {
             .execute_batch(sql)
             .expect("the shadow is added behind the store's back");
 
-        let refused = HumanStore::open(&path, StoreOptions::default())
-            .expect_err("a store carrying a shadow is not opened");
+        let refused = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect_err("a store carrying a shadow is not opened");
         assert!(
             matches!(&refused, StoreError::Migration(m) if m.contains("not part of this store's schema")),
             "{what}: {refused:?}"
@@ -272,7 +291,12 @@ fn tm_45_a_trigger_view_or_search_index_shadowing_content_is_refused_at_open() {
     // THE CONTROL: no shadow, and the body leaves every table with its read.
     let dir = common::private_tempdir();
     let path = store_path(dir.path(), "state");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let mut new = interweave_human_retention_tests::unread_inbound();
     new.payload = BODY.to_vec();
     let row = store.commit_unread_inbound(&new).expect("unread");
@@ -296,7 +320,12 @@ fn tm_45_a_trigger_view_or_search_index_shadowing_content_is_refused_at_open() {
 /// can be made from it: unread rows committed again, kept rows committed,
 /// read and kept again -- the store has no other way in.
 fn backup_of(path: &Path) -> Vec<StoredInbound> {
-    let store = HumanStore::open(path, StoreOptions::default()).expect("opens");
+    let store = HumanStore::open(
+        path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let mut out = Vec::new();
     let mut after: Option<BackupCursor> = None;
     loop {
@@ -313,7 +342,12 @@ fn backup_of(path: &Path) -> Vec<StoredInbound> {
 }
 
 fn restore_into(path: &Path, backup: &[StoredInbound]) {
-    let mut store = HumanStore::open(path, StoreOptions::default()).expect("a fresh device");
+    let mut store = HumanStore::open(
+        path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("a fresh device");
     for record in backup {
         let row = store
             .commit_unread_inbound(&NewInbound {
@@ -345,7 +379,12 @@ async fn tm_46_a_device_restored_from_backup_sends_nothing_the_original_had_pend
     // attempt met an unreachable peer), beside an unread and a kept
     // message, which a backup carries.
     {
-        let mut store = HumanStore::open(&original, StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open(
+            &original,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let mut unread = interweave_human_retention_tests::unread_inbound();
         unread.payload = b"unread, in the backup".to_vec();
         store.commit_unread_inbound(&unread).expect("unread");
@@ -413,7 +452,12 @@ async fn tm_46_a_device_restored_from_backup_sends_nothing_the_original_had_pend
     // THE RESTORED DEVICE: started on the backup, it sends nothing.
     let restored = store_path(dir.path(), "restored");
     restore_into(&restored, &backup);
-    let store = HumanStore::open(&restored, StoreOptions::default()).expect("restored store");
+    let store = HumanStore::open(
+        &restored,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("restored store");
     assert!(store.pending_outbound().expect("read").is_empty());
     assert_eq!(store.unread_inbound().expect("read").len(), 1);
     assert_eq!(store.kept_inbound().expect("read").len(), 1);
@@ -422,7 +466,12 @@ async fn tm_46_a_device_restored_from_backup_sends_nothing_the_original_had_pend
 
     // THE CONTROL: the original file restarted retries its pending send,
     // so the count above is a live measurement and not a dead receiver.
-    let store = HumanStore::open(&original, StoreOptions::default()).expect("original");
+    let store = HumanStore::open(
+        &original,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("original");
     let sent = run_client_on(&a, &b, store).await;
     assert_eq!(sent, 1, "the original retries what it had pending");
 }

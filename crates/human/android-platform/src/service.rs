@@ -275,7 +275,10 @@ impl ServiceHost {
             .unwrap_or_else(PoisonError::into_inner) = Some(refused);
     }
 
-    /// The profile's store for a start, or the refusal a start answers.
+    /// The profile's store for a start, opened as `identity` -- the
+    /// endpoint the service speaks as, whose derived id schema v14 gives
+    /// every row an older store holds (STATE.md §Migrations) -- or the
+    /// refusal a start answers.
     #[cfg_attr(
         not(feature = "dev-stand-ins"),
         expect(
@@ -286,6 +289,7 @@ impl ServiceHost {
     fn open_store(
         &self,
         paths: &ProfilePaths,
+        identity: &interweave_transport_api::EndpointId,
         cipher: &dyn KeyCipher,
     ) -> Result<HumanStore, StartRefused> {
         #[cfg(feature = "dev-stand-ins")]
@@ -297,7 +301,8 @@ impl ServiceHost {
         {
             return Err(refused);
         }
-        HumanStore::open_profile(paths, cipher, StoreOptions::default()).map_err(|e| classify(&e))
+        HumanStore::open_profile(paths, cipher, identity, StoreOptions::default())
+            .map_err(|e| classify(&e))
     }
 
     /// The process's host: one per process, because the profile lock is
@@ -707,7 +712,7 @@ impl ServiceHost {
         let Some(endpoint) = human_endpoint(&config) else {
             return refuse(host, StartRefused::NoHumanEndpoint);
         };
-        let store = match self.open_store(host.paths(), &*launch.store_cipher) {
+        let store = match self.open_store(host.paths(), &endpoint, &*launch.store_cipher) {
             Ok(store) => store,
             Err(why) => return refuse(host, why),
         };
@@ -784,7 +789,7 @@ impl ServiceHost {
             ProfilePaths::resolve_embedded(profile, boundary).map_err(|e| refused(e.into()))?;
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
-        let store = self.open_store(&paths, &*store_cipher)?;
+        let store = self.open_store(&paths, &endpoint, &*store_cipher)?;
         let executor = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("interweave-offline")

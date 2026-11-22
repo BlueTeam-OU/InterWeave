@@ -31,6 +31,9 @@ workspace = true
 # only way to ask "does this survive a crash" rather than "does this
 # survive a clean close" — and a binary is built from [dependencies].
 [dependencies]
+# TEST-ONLY: the derived EndpointId a test store opens as (ADR-0067); a
+# dependency, not a dev one, since `crash_writer` opens a store too.
+interweave-test-support = { path = "../support" }
 interweave-human-store = { path = "../../crates/human/store" }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
 
