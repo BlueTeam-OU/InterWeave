@@ -389,6 +389,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
                 UiText::IdC1Point3,
                 UiText::IdC1Point4,
                 UiText::IdC1Point5,
+                UiText::IdC1Point6,
             ],
             Some(UiText::IdShowWords),
         ),
