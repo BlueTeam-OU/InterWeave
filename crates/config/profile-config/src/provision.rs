@@ -161,24 +161,31 @@ fn is_retired_embedded_document(text: &str) -> bool {
 /// - ANYTHING ELSE -- form 1, form 2, a document without the marker, one
 ///   that is not private or past the size bound -- is
 ///   [`PersistError::AlreadyExists`] and is not touched
-///   (`a_document_without_the_marker_is_never_replaced`).
+///   (`a_document_without_the_marker_is_never_replaced`), with no write
+///   attempted, so a directory that takes none answers the same.
 ///
 /// # Errors
 /// [`PersistError::AlreadyExists`] as above; otherwise what the write or
 /// the read of the present document meets.
 pub fn provision_embedded(paths: &ProfilePaths) -> Result<(), PersistError> {
     let form_1 = embedded_document(paths.profile());
-    match create_private_exclusive_within(&paths.config_file(), form_1.as_bytes(), paths.boundary())
-    {
-        Err(PersistError::AlreadyExists) => {}
-        other => return other,
-    }
+    // The present document is read BEFORE anything is written: the
+    // exclusive create stages its temporary beside the target, so a
+    // directory that takes no write (read-only, full) would refuse a
+    // provisioned profile with an I/O error instead of AlreadyExists
+    // (`a_provisioned_profile_in_a_directory_that_takes_no_write_is_kept`).
     let present =
         match read_private_within(&paths.config_file(), paths.boundary(), MAX_PROFILE_BYTES) {
             Ok(Some(text)) => text,
-            // Removed since the exclusive create found it: the next start
-            // writes form 1.
-            Ok(None) => return Err(PersistError::AlreadyExists),
+            // A first run racing this one finds the create refused
+            // AlreadyExists, which is the answer.
+            Ok(None) => {
+                return create_private_exclusive_within(
+                    &paths.config_file(),
+                    form_1.as_bytes(),
+                    paths.boundary(),
+                );
+            }
             // Not the app's own owner-only document: not the app's to
             // replace, and its load refuses it by its own rule.
             Err(PrivateReadError::NotPrivate { .. } | PrivateReadError::TooLarge) => {

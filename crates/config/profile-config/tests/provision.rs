@@ -236,6 +236,31 @@ fn a_first_run_writes_form_1_and_a_second_is_refused() {
     assert_eq!(read(&paths), "edited by the person\n", "nothing replaced");
 }
 
+/// A provisioned profile whose configuration directory takes no write
+/// (read-only, or a full data partition) is still `AlreadyExists`, not
+/// an I/O error: the present document is read before anything is
+/// staged beside it. The control: the directory refuses a new file.
+#[test]
+fn a_provisioned_profile_in_a_directory_that_takes_no_write_is_kept() {
+    let (_root, app) = app();
+    let paths = paths_in(&app);
+    provision_embedded(&paths).expect("form 1");
+    let dir = paths.config_dir().to_path_buf();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+    let control = std::fs::File::create(dir.join("probe"));
+    let answer = provision_embedded(&paths);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+    assert!(
+        control.is_err(),
+        "the control: the directory takes no write"
+    );
+    assert!(
+        matches!(answer, Err(PersistError::AlreadyExists)),
+        "a provisioned profile is kept: {answer:?}"
+    );
+    assert_eq!(read(&paths), embedded_document("work"), "form 1 stands");
+}
+
 /// M2: an earlier release's document -- the marker and an entry by the
 /// retired `- id:` -- is replaced whole by form 1, owner-only, reading
 /// no key: `endpoint-keys/` is shut (mode 000) and the replace still
