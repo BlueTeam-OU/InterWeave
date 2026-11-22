@@ -13,7 +13,10 @@ use interweave_human_store::identity_key::{
 
 use interweave_human_store::HumanStore;
 use interweave_human_ui_model::KeyProblem;
-use interweave_profile_config::{ProfileConfig, ProfilePaths};
+use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
+use interweave_profile_config::{
+    EndpointSelector, ProfileConfig, ProfilePaths, ResolveEndpointError, resolve_endpoint,
+};
 use interweave_transport_api::EndpointId;
 
 /// The client kind a human client leases under. A profile's endpoint
@@ -37,6 +40,81 @@ pub fn leasable_endpoints(config: &ProfileConfig) -> Vec<EndpointId> {
         })
         .map(|e| e.id.clone())
         .collect()
+}
+
+/// Why [`resolve_identity`] named no endpoint: each a refused start, named
+/// for what the person typed, never a hello sent with it (ENDPOINTS.md,
+/// an alias is resolved by the client).
+#[derive(Debug)]
+pub enum IdentityRefused {
+    /// An alias was given and the endpoint overlay, which it resolves
+    /// over, did not read.
+    Overlay(EndpointOverlayError),
+    /// No configured endpoint has this alias or this id.
+    Unknown(ResolveEndpointError),
+    /// The endpoint it names is configured, and does not admit
+    /// [`CLIENT_KIND`]: another client's, `transportctl`'s to administer.
+    NotLeasable(EndpointId),
+}
+
+impl core::fmt::Display for IdentityRefused {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Overlay(e) => write!(f, "an alias needs the endpoint overlay: {e}"),
+            Self::Unknown(e) => e.fmt(f),
+            Self::NotLeasable(_) => {
+                f.write_str("that endpoint is not one a human client may use in this profile")
+            }
+        }
+    }
+}
+
+/// The `EndpointId` of the human endpoint `selector` names -- an alias or
+/// an id, as a person types it -- in `config`: the one place a human
+/// client turns what it was given into the id its session claims, called
+/// once per identity (ADR-0067 decision 3). Every wire field takes the
+/// id it returns, never the alias.
+///
+/// The endpoint overlay is read for an alias alone, read-only
+/// ([`EndpointOverlay::read_within`]): an alias resolves in the set the
+/// daemon composes, so an entry the overlay adds is found once overlays
+/// add entries, and a client leaves the overlay as it found it. An id is
+/// judged against `config.yaml`'s entries and never waits on the overlay
+/// (`an_id_resolves_without_reading_the_overlay`). No file under
+/// `endpoint-keys/` is read: an entry names its id in its `key` value.
+///
+/// # Errors
+/// [`IdentityRefused`]: the overlay unread for an alias, an alias or id
+/// no entry carries, an endpoint that does not admit [`CLIENT_KIND`].
+pub fn resolve_identity(
+    paths: &ProfilePaths,
+    config: &ProfileConfig,
+    selector: &EndpointSelector,
+) -> Result<EndpointId, IdentityRefused> {
+    let overlay = match selector {
+        EndpointSelector::Id(_) => EndpointOverlay::default(),
+        EndpointSelector::Alias(_) => EndpointOverlay::read_within(
+            &EndpointOverlay::path_for(paths),
+            &config.endpoints,
+            paths.boundary(),
+        )
+        .map(|(overlay, _normalised)| overlay)
+        .map_err(IdentityRefused::Overlay)?,
+    };
+    let id = resolve_endpoint(&config.endpoints, &overlay, &selector.to_string())
+        .map_err(IdentityRefused::Unknown)?;
+    let composed = overlay.apply(&config.endpoints);
+    let leasable = composed.entries.iter().any(|e| {
+        e.id == id
+            && e.allowed_client_kinds
+                .iter()
+                .any(|k| k.as_str() == CLIENT_KIND)
+    });
+    if leasable {
+        Ok(id)
+    } else {
+        Err(IdentityRefused::NotLeasable(id))
+    }
 }
 
 /// The own key of the identity in front (ADR-0063): the first leasable
@@ -180,9 +258,12 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn every_entry_naming_the_human_kind_in_file_order_disabled_too() {
-        let config = ProfileConfig::parse_yaml(
+    use interweave_test_support::endpoint_keys::endpoint_id;
+
+    /// A profile of three entries by key: `second` and `human` open to
+    /// the human client, `claude` the bridge's alone.
+    fn three() -> ProfileConfig {
+        let text = format!(
             "schema_version: 2
 profile:
   name: test
@@ -199,18 +280,144 @@ trust:
 endpoints:
   registration_policy: configured-only
   entries:
-    - { id: second, enabled: false, advertise: false, allowed_client_kinds: [human-client] }
-    - { id: claude, enabled: true, advertise: true, allowed_client_kinds: [claude-channel] }
-    - { id: human, enabled: true, advertise: true, allowed_client_kinds: [claude-channel, human-client] }
-channels: { desired: [] }
+    - {{ key: {second}.key, alias: second, enabled: false, advertise: false, allowed_client_kinds: [human-client] }}
+    - {{ key: {claude}.key, alias: claude, enabled: true, advertise: true, allowed_client_kinds: [claude-channel] }}
+    - {{ key: {human}.key, alias: human, enabled: true, advertise: true, allowed_client_kinds: [claude-channel, human-client] }}
+channels: {{ desired: [] }}
 ",
+            second = endpoint_id("second").as_str(),
+            claude = endpoint_id("claude").as_str(),
+            human = endpoint_id("human").as_str(),
+        );
+        ProfileConfig::parse_yaml(&text).expect("parses")
+    }
+
+    /// Paths whose state directory holds `overlay`, when given, as the
+    /// endpoint overlay; the directory is private, as a profile's is.
+    fn paths_with(dir: &std::path::Path, overlay: Option<&str>) -> ProfilePaths {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        let paths = ProfilePaths::resolve_embedded(
+            "default",
+            interweave_profile_config::TrustBoundary::new(dir).expect("a boundary"),
         )
-        .expect("parses");
-        let ids: Vec<String> = leasable_endpoints(&config)
-            .into_iter()
-            .map(|e| e.as_str().to_owned())
-            .collect();
-        assert_eq!(ids, ["second", "human"]);
+        .expect("paths");
+        if let Some(text) = overlay {
+            let file = EndpointOverlay::path_for(&paths);
+            let state = file.parent().expect("a state dir");
+            std::fs::create_dir_all(state).expect("mkdir");
+            std::fs::set_permissions(state, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+            std::fs::write(&file, text).expect("writes");
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+        }
+        paths
+    }
+
+    fn selector(text: &str) -> EndpointSelector {
+        EndpointSelector::parse(text).expect("a selector")
+    }
+
+    #[test]
+    fn every_entry_naming_the_human_kind_in_file_order_disabled_too() {
+        assert_eq!(
+            leasable_endpoints(&three()),
+            [endpoint_id("second"), endpoint_id("human")]
+        );
+    }
+
+    /// An alias and the id it stands for name the same endpoint; the id
+    /// returned is the entry's derived one, never the alias.
+    #[test]
+    fn an_alias_and_its_id_resolve_to_the_same_derived_id() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), None);
+        let config = three();
+        let human = endpoint_id("human");
+        assert_eq!(
+            resolve_identity(&paths, &config, &selector("human")).expect("resolves"),
+            human
+        );
+        assert_eq!(
+            resolve_identity(&paths, &config, &selector(human.as_str())).expect("resolves"),
+            human
+        );
+        // A disabled entry resolves: whether it may be leased is the
+        // daemon's to answer at open.
+        assert_eq!(
+            resolve_identity(&paths, &config, &selector("second")).expect("resolves"),
+            endpoint_id("second")
+        );
+    }
+
+    #[test]
+    fn an_unknown_alias_or_id_is_refused_by_name() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), None);
+        let config = three();
+        assert!(matches!(
+            resolve_identity(&paths, &config, &selector("nobody")),
+            Err(IdentityRefused::Unknown(
+                ResolveEndpointError::UnknownAlias(_)
+            ))
+        ));
+        assert!(matches!(
+            resolve_identity(&paths, &config, &selector(endpoint_id("nobody").as_str())),
+            Err(IdentityRefused::Unknown(ResolveEndpointError::UnknownId(_)))
+        ));
+    }
+
+    /// The bridge's endpoint is configured and resolves, and is not one a
+    /// human client may claim, by its alias or by its id.
+    #[test]
+    fn another_clients_endpoint_is_not_leasable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), None);
+        let config = three();
+        let claude = endpoint_id("claude");
+        for given in ["claude", claude.as_str()] {
+            match resolve_identity(&paths, &config, &selector(given)) {
+                Err(IdentityRefused::NotLeasable(id)) => assert_eq!(id, claude),
+                other => panic!("{given}: {other:?}"),
+            }
+        }
+    }
+
+    /// An overlay that does not read refuses an alias, which resolves over
+    /// it, and never an id, which is judged on `config.yaml` alone.
+    #[test]
+    fn an_id_resolves_without_reading_the_overlay() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), Some("not an overlay: ["));
+        let config = three();
+        assert!(matches!(
+            resolve_identity(&paths, &config, &selector("human")),
+            Err(IdentityRefused::Overlay(_))
+        ));
+        assert_eq!(
+            resolve_identity(&paths, &config, &selector(endpoint_id("human").as_str()))
+                .expect("an id needs no overlay"),
+            endpoint_id("human")
+        );
+    }
+
+    /// Resolving writes nothing in the profile: an overlay normalising
+    /// would change is left byte for byte as it was.
+    #[test]
+    fn resolving_an_alias_leaves_the_overlay_as_it_found_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // `enabled` naming an endpoint the profile lacks: normalising
+        // drops it, and a load would write that back.
+        let text = format!(
+            "{{\"enabled\": {{\"{}\": true}}}}",
+            endpoint_id("gone").as_str()
+        );
+        let paths = paths_with(dir.path(), Some(&text));
+        let before = std::fs::read(EndpointOverlay::path_for(&paths)).expect("reads");
+        resolve_identity(&paths, &three(), &selector("human")).expect("resolves");
+        assert_eq!(
+            std::fs::read(EndpointOverlay::path_for(&paths)).expect("reads"),
+            before
+        );
     }
 }
 
@@ -249,7 +456,7 @@ mod identity_tests {
     }
 
     fn human() -> Vec<EndpointId> {
-        vec![EndpointId::parse("human").expect("an endpoint")]
+        vec![interweave_test_support::endpoint_keys::endpoint_id("human")]
     }
 
     #[test]
