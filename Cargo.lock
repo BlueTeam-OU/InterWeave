@@ -3830,6 +3830,7 @@ dependencies = [
  "interweave-human-ui-model",
  "interweave-human-ui-slint",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "qrcode",
  "rfd",
