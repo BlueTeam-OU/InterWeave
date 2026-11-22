@@ -3,7 +3,7 @@
 //! Endpoint-directory validation, freshness, and the advisory cache
 //! (ADR-0031).
 //!
-//! The requester's half of `/interweave/endpoints/1.0.0`. What arrives is
+//! The requester's half of `/interweave/endpoints/2.0.0`. What arrives is
 //! hostile metadata from an authenticated peer: it says which routes that
 //! peer CLAIMS to advertise, and this module decides what a cache or a UI
 //! may be shown of it. Three rules, each with the test that holds it:
