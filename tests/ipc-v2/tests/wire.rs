@@ -1201,6 +1201,108 @@ async fn until_ok(
     }
 }
 
+/// The admin requests `every_method_is_answered_ok_and_held_to_its_schemas`
+/// sends, in order, each named by its request id. `b` is the peer the
+/// profile already trusts; `bootstrap` makes a fresh bootstrap line.
+fn admin_requests(
+    b: &interweave_transport_api::TransportIdentity,
+    bootstrap: impl Fn() -> interweave_ipc_protocol::AddressParams,
+) -> [(&'static str, interweave_ipc_protocol::Request); 18] {
+    use interweave_ipc_protocol::{
+        AddressesParams, EndpointParams, PeerListParams, Request, SetDefaultParams,
+        SetEnabledParams, ShutdownParams, TrustListParams, TrustSeedParams, TrustSetParams,
+    };
+    let endpoint = interweave_test_support::endpoint_keys::endpoint_id;
+    let added = bootstrap();
+    [
+        ("status", Request::AdminStatus),
+        ("list", Request::AdminEndpointsList),
+        ("trust", Request::AdminTrustList(TrustListParams::default())),
+        ("peers", Request::AdminPeersList(PeerListParams::default())),
+        // Allowing a peer already allowed: answered `ok`, changing
+        // nothing, so the exchange above stays undisturbed. The revocation
+        // has its own test.
+        (
+            "allow",
+            Request::AdminTrustSet(TrustSetParams {
+                peer: b.clone(),
+                allowed: true,
+                endpoint: None,
+            }),
+        ),
+        // The endpoint dimension (IPC 3.0, ADR-0067 decision 6): the
+        // agent endpoint's inherited set read, then its own set given
+        // B -- whom the operator's list already holds, so the connection
+        // above is undisturbed -- then the seed, `present` after it.
+        (
+            "endpoint_trust",
+            Request::AdminTrustList(
+                serde_json::from_value::<TrustListParams>(serde_json::json!({
+                    "endpoint": endpoint("agent").as_str(),
+                    "direction": "inbound",
+                }))
+                .expect("the endpoint form's params"),
+            ),
+        ),
+        (
+            "endpoint_allow",
+            Request::AdminTrustSet(TrustSetParams {
+                peer: b.clone(),
+                allowed: true,
+                endpoint: Some(endpoint("agent")),
+            }),
+        ),
+        (
+            "seed",
+            Request::AdminTrustSeed(TrustSeedParams {
+                endpoint: endpoint("agent"),
+            }),
+        ),
+        (
+            "disable",
+            Request::AdminEndpointsSetEnabled(SetEnabledParams {
+                endpoint: endpoint("agent"),
+                enabled: false,
+            }),
+        ),
+        (
+            "enable",
+            Request::AdminEndpointsSetEnabled(SetEnabledParams {
+                endpoint: endpoint("agent"),
+                enabled: true,
+            }),
+        ),
+        (
+            "default",
+            Request::AdminEndpointsSetDefault(SetDefaultParams {
+                endpoint: Some(endpoint("agent")),
+            }),
+        ),
+        (
+            "revoke",
+            Request::AdminEndpointsRevoke(EndpointParams {
+                endpoint: endpoint("agent"),
+            }),
+        ),
+        ("add", Request::AdminPeersAddAddress(added.clone())),
+        ("addresses", Request::AdminPeersListAddresses),
+        ("remove", Request::AdminPeersRemoveAddress(added)),
+        ("own", Request::AdminPeersOwnAddresses),
+        (
+            "adds",
+            Request::AdminPeersAddAddresses(AddressesParams {
+                addresses: vec![bootstrap().address, bootstrap().address],
+            }),
+        ),
+        (
+            "shutdown",
+            Request::AdminShutdown(ShutdownParams {
+                grace_ms: Some(1_000),
+            }),
+        ),
+    ]
+}
+
 /// Every method of the catalogue answered `ok: true` over the wire, so
 /// every result schema is held to a frame a running server wrote -- the
 /// ones no other test here reaches (`send-result`, `set-enabled-result`,
@@ -1210,9 +1312,7 @@ async fn until_ok(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     use interweave_ipc_protocol::{
-        AddressParams, AddressesParams, ChannelParams, EndpointParams, PeerListParams,
-        PublishParams, QueryParams, Request, SendParams, SetDefaultParams, SetEnabledParams,
-        ShutdownParams, TrustListParams, TrustSeedParams, TrustSetParams,
+        AddressParams, ChannelParams, PublishParams, QueryParams, Request, SendParams,
     };
     use interweave_transport_api::{ChannelId, MessageId, Payload};
     let ip = interweave_test_support::net::require_private_interface_v4();
@@ -1315,94 +1415,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
                 .as_str()
         ),
     };
-    let added = bootstrap();
-    let admin_requests: [(&str, Request); 18] = [
-        ("status", Request::AdminStatus),
-        ("list", Request::AdminEndpointsList),
-        ("trust", Request::AdminTrustList(TrustListParams::default())),
-        ("peers", Request::AdminPeersList(PeerListParams::default())),
-        // Allowing a peer already allowed: answered `ok`, changing
-        // nothing, so the exchange above stays undisturbed. The revocation
-        // has its own test.
-        (
-            "allow",
-            Request::AdminTrustSet(TrustSetParams {
-                peer: b.clone(),
-                allowed: true,
-                endpoint: None,
-            }),
-        ),
-        // The endpoint dimension (IPC 3.0, ADR-0067 decision 6): the
-        // agent endpoint's inherited set read, then its own set given
-        // B -- whom the operator's list already holds, so the connection
-        // above is undisturbed -- then the seed, `present` after it.
-        (
-            "endpoint_trust",
-            Request::AdminTrustList(
-                serde_json::from_value::<TrustListParams>(serde_json::json!({
-                    "endpoint": endpoint("agent").as_str(),
-                    "direction": "inbound",
-                }))
-                .expect("the endpoint form's params"),
-            ),
-        ),
-        (
-            "endpoint_allow",
-            Request::AdminTrustSet(TrustSetParams {
-                peer: b.clone(),
-                allowed: true,
-                endpoint: Some(endpoint("agent")),
-            }),
-        ),
-        (
-            "seed",
-            Request::AdminTrustSeed(TrustSeedParams {
-                endpoint: endpoint("agent"),
-            }),
-        ),
-        (
-            "disable",
-            Request::AdminEndpointsSetEnabled(SetEnabledParams {
-                endpoint: endpoint("agent"),
-                enabled: false,
-            }),
-        ),
-        (
-            "enable",
-            Request::AdminEndpointsSetEnabled(SetEnabledParams {
-                endpoint: endpoint("agent"),
-                enabled: true,
-            }),
-        ),
-        (
-            "default",
-            Request::AdminEndpointsSetDefault(SetDefaultParams {
-                endpoint: Some(endpoint("agent")),
-            }),
-        ),
-        (
-            "revoke",
-            Request::AdminEndpointsRevoke(EndpointParams {
-                endpoint: endpoint("agent"),
-            }),
-        ),
-        ("add", Request::AdminPeersAddAddress(added.clone())),
-        ("addresses", Request::AdminPeersListAddresses),
-        ("remove", Request::AdminPeersRemoveAddress(added)),
-        ("own", Request::AdminPeersOwnAddresses),
-        (
-            "adds",
-            Request::AdminPeersAddAddresses(AddressesParams {
-                addresses: vec![bootstrap().address, bootstrap().address],
-            }),
-        ),
-        (
-            "shutdown",
-            Request::AdminShutdown(ShutdownParams {
-                grace_ms: Some(1_000),
-            }),
-        ),
-    ];
+    let admin_requests = admin_requests(&b, bootstrap);
     for (id, request) in admin_requests {
         admin.send(&request_body(id, request)).await;
         let answer = admin.response().await;
