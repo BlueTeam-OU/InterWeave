@@ -13,7 +13,9 @@
 //! by its daemon, a store holding all three retention sets -- with
 //! `tree.json` saying what it holds and the README how it was made
 //! ([`write_the_previous_build_tree`]). Upgrade is this build reading that
-//! tree; rollback is this build meeting a NEWER format of each artefact
+//! tree once its operator has brought the retired endpoint entries over
+//! (ADR-0067; [`operated`], from which every case on the tree starts);
+//! rollback is this build meeting a NEWER format of each artefact
 //! and refusing it with nothing written and the `PeerId` kept, which is
 //! what an older build owes a tree a newer one wrote (ADR-0044's fail
 //! safe; `human-client-packaging.md` section 7). And the real older
@@ -46,9 +48,10 @@ use interweave_human_store::{
 };
 use interweave_human_store::{at_rest, store_key};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_profile_config::endpoint_key;
 use interweave_profile_config::profile_format::{self, PROFILE_FORMAT};
 use interweave_transport_api::{
-    DirectDestination, MAX_PAYLOAD_BYTES, MediaType, MessageId, TransportIdentity,
+    DirectDestination, EndpointId, MAX_PAYLOAD_BYTES, MediaType, MessageId, TransportIdentity,
 };
 
 use interweave_human_ui_model::{UiText, placeholder_en};
@@ -56,7 +59,7 @@ use interweave_human_ui_model::{UiText, placeholder_en};
 use crate::a11y::Bus;
 use crate::common::{Home, PATIENCE, example, human, stranger};
 use crate::display;
-use crate::harness::{self as app, human_lease, until_lease};
+use crate::harness::{self as app, lease_of, until_lease, until_lease_of};
 use crate::package::{self, Running};
 use crate::world::{app_store, envelope, wall_ms};
 
@@ -284,6 +287,187 @@ fn checkpoint(path: &Path) {
         .expect("checkpointed");
 }
 
+/// The aliases the previous build's `config.yaml` carried as its entries'
+/// retired `id` member, in its order.
+const RETIRED_IDS: [&str; 2] = ["human", "claude"];
+
+/// A previous build's tree brought over to this build by its operator
+/// (ADR-0067 decision 7; ENDPOINTS.md section Configured endpoint set,
+/// A 2026-11-19), the first two steps of architect-cto's ruling for
+/// these cases:
+///
+/// 1. The first start on the copied tree is refused,
+///    `EndpointIdNotDerived`, and the refusal names for each entry the
+///    one command that applies and the entry to write. Nothing is
+///    written: the tree after equals the tree before.
+/// 2. The test, AS THE OPERATOR, runs the commands the refusal named and
+///    writes the entries they print into `config.yaml`. That edit is the
+///    test's: no InterWeave program rewrites an authored `config.yaml`,
+///    so the person or the operator does, and this is that step.
+///
+/// The frozen tree holds no `identity-keys/` directory, so the refusal
+/// names `endpoint init` for both entries and never `endpoint adopt`,
+/// and `human` gets a NEW id. A LIMIT, by name: no committed tree holds
+/// `identity-keys/<label>.key`, so this proves the init path and not
+/// the adopt path; the adopt path is proved by `transportctl`'s own
+/// cases (`apps/transportctl/tests/endpoint.rs`, the `adopt_*` tests)
+/// and by the loader's
+/// `the_retired_id_names_adopt_or_init_by_the_old_files_presence`, not
+/// end to end.
+///
+/// The frozen endpoint overlay is `{"enabled": {"claude": false}}`,
+/// keyed by the LABEL. The operator does nothing to that file by hand:
+/// carrying `enabled.<label>` (and `default`) over to the id is asked of
+/// `endpoint adopt|init --alias <label>`, and refusing a key that is no
+/// id by name of the loader -- not of the operator -- so the file stays
+/// as the previous build wrote it. Until that lands, the daemon's
+/// normalising drops the label's key, and the upgrade case's DISABLED
+/// assertion and its no-rewrite assertion fail on it: the known defect,
+/// left showing rather than the assertions weakened.
+fn operated(tree: &Path) -> Operated {
+    brought_over(install(tree))
+}
+
+/// [`operated`] on `home`, a profile holding the previous build's
+/// `config.yaml` however it came there.
+fn brought_over(home: Home) -> Operated {
+    let frozen = snapshot(&home);
+
+    // Step 1: the refused start, writing nothing.
+    let mut daemon = package::start_daemon(&home);
+    let status = daemon.exit();
+    let refusal = daemon.log();
+    assert!(
+        !status.success(),
+        "a profile with the retired `id` does not start: {refusal}"
+    );
+    assert!(
+        refusal.contains("EndpointIdNotDerived"),
+        "the refusal is EndpointIdNotDerived: {refusal}"
+    );
+    assert!(
+        !refusal.contains("endpoint adopt"),
+        "the tree holds no identity-keys/, so nothing is adopted: {refusal}"
+    );
+    assert_eq!(
+        changed(&frozen, &snapshot(&home)),
+        Vec::<String>::new(),
+        "nothing written by the refused start"
+    );
+
+    // Step 2: the operator runs what the refusal named, one command per
+    // entry, and writes the entry each printed.
+    let config_path = home.paths.config_file();
+    let mut config = std::fs::read_to_string(&config_path).expect("the profile");
+    let mut ids = BTreeMap::new();
+    for alias in RETIRED_IDS {
+        let lead =
+            format!("the endpoint entry `id: {alias}` carries the retired `id` member; run `");
+        let at = refusal
+            .find(&lead)
+            .unwrap_or_else(|| panic!("the refusal names `id: {alias}`: {refusal}"))
+            + lead.len();
+        let command = &refusal[at..at + refusal[at..].find('`').expect("the command closes")];
+        assert_eq!(
+            command,
+            format!("transportctl endpoint init --profile {PROFILE} --alias {alias}"),
+            "the one command that applies to `{alias}`"
+        );
+        assert!(
+            refusal[at..].starts_with(&format!(
+                "{command}`, then write the entry as `key: <the EndpointId it prints>.key` \
+                 with `alias: {alias}`"
+            )),
+            "and the entry to write: {refusal}"
+        );
+        // The command as named, its `--profile` given by `transportctl`'s
+        // runner, which passes it for every command it runs.
+        let words: Vec<&str> = command.split_whitespace().collect();
+        let [
+            "transportctl",
+            verb @ ..,
+            "--profile",
+            profile,
+            "--alias",
+            named_alias,
+        ] = words.as_slice()
+        else {
+            panic!("{command}");
+        };
+        assert_eq!((*profile, *named_alias), (PROFILE, alias));
+        let mut args = verb.to_vec();
+        args.extend(["--alias", alias]);
+        let printed = package::transportctl_ok(&home, &args, "");
+        let lines: Vec<&str> = printed.lines().collect();
+        let [id, key, printed_alias] = lines.as_slice() else {
+            panic!("`{command}` prints the id, the key and the alias: {printed}");
+        };
+        let id = EndpointId::parse_derived(*id).expect("a derived id");
+        let key = key.strip_prefix("key: ").expect("the key member");
+        assert_eq!(key, endpoint_key::key_file_name(&id));
+        assert_eq!(*printed_alias, format!("alias: {alias}"));
+        let entry = format!("{{ id: {alias}, ");
+        assert_eq!(config.matches(&entry).count(), 1, "{config}");
+        config = config.replacen(&entry, &format!("{{ key: {key}, alias: {alias}, "), 1);
+        ids.insert(alias, id);
+    }
+    // The file's own mode is kept: a write over it, not a new file.
+    std::fs::write(&config_path, &config).expect("the operator's entries");
+    let operated = snapshot(&home);
+
+    // What the operator's step changed: `config.yaml`, by the entries
+    // alone (`config` is the frozen text with each `id:` replaced by the
+    // printed `key:` and `alias:`), and one new key file per command.
+    let name = |path: &Path| {
+        path.strip_prefix(home.root.path())
+            .expect("inside")
+            .display()
+            .to_string()
+    };
+    let mut expected: Vec<String> = ids
+        .values()
+        .map(|id| name(&endpoint_key::key_path(&home.paths, id)))
+        .chain([name(&config_path)])
+        .collect();
+    expected.sort();
+    assert_eq!(changed(&frozen, &operated), expected);
+    for id in ids.values() {
+        assert!(
+            !frozen.contains_key(Path::new(&name(&endpoint_key::key_path(&home.paths, id)))),
+            "the key file is new"
+        );
+    }
+    Operated {
+        home,
+        ids,
+        frozen,
+        config,
+        after_operator: operated,
+    }
+}
+
+/// What [`operated`] leaves.
+struct Operated {
+    home: Home,
+    /// The id `endpoint init` printed, by the alias it was given.
+    ids: BTreeMap<&'static str, EndpointId>,
+    /// The tree as installed, before any program ran on it.
+    frozen: BTreeMap<PathBuf, Vec<u8>>,
+    /// `config.yaml` as the operator wrote it.
+    config: String,
+    /// The tree once the operator's step was done.
+    after_operator: BTreeMap<PathBuf, Vec<u8>>,
+}
+
+impl Operated {
+    /// The id `endpoint init` printed for `alias`.
+    fn id(&self, alias: &str) -> &EndpointId {
+        self.ids
+            .get(alias)
+            .unwrap_or_else(|| panic!("{alias} was brought over"))
+    }
+}
+
 /// The daemon of `home`, from the package, ANSWERING: a socket accepts
 /// a connection once it is bound, before the daemon raises the
 /// profile-format marker and starts serving, so a snapshot taken on
@@ -363,12 +547,25 @@ async fn a_fresh_install_keeps_the_peer_id_init_printed() {
     );
 }
 
-/// Upgrade: this build over the previous build's tree reads every
-/// artefact it kept -- the key (same `PeerId`), the profile, the trust
-/// overlay (the added peer allowed, the revoked one not), the endpoint
-/// overlay (the disabled endpoint still disabled), the store with all
-/// three retention sets, migrated to this build's schema -- and rewrites
-/// none of the key, the profile or the overlays.
+/// Upgrade: this build over the previous build's tree, in architect-cto's
+/// three steps. The first two are [`operated`]'s: the start refused
+/// `EndpointIdNotDerived` with nothing written, and the operator running
+/// the `endpoint init` the refusal named for each entry and writing the
+/// entries it printed. Then the build starts and reads every artefact
+/// the previous one kept -- the key (same `PeerId`), the profile, the
+/// trust overlay (the added peer allowed, the revoked one not), the
+/// endpoint overlay (the disabled endpoint still disabled, under the id
+/// its alias now names), the store with all three retention sets,
+/// migrated to this build's schema -- and rewrites none of the key, the
+/// profile or the overlays: `config.yaml` differs from the frozen one by
+/// the operator's entries alone, and the only new files beside the
+/// store's, the cache's and the marker's are the endpoint keys the
+/// commands wrote.
+///
+/// The store half is not whole here: the rows a schema-7 store holds
+/// name their endpoint by the label `human`, and reading them under the
+/// derived id is completed by rust-ui-dev-02's store work (schema v14).
+/// This case asserts the rows are kept, not that their labels resolve.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_upgrade_reads_everything_the_previous_build_kept() {
     let tree = previous_tree();
@@ -385,12 +582,18 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
         manifest.made_by,
         manifest.store_schema
     );
-    let home = install(&tree);
-    let before = snapshot(&home);
+    let operated = operated(&tree);
+    let home = &operated.home;
+    let before = &operated.after_operator;
+    // `tree.json` names the disabled endpoint by its alias, as the
+    // previous build's `transportctl endpoints disable claude` did; it
+    // now names the id `endpoint init` printed for that alias.
+    let disabled = operated.id(&manifest.disabled_endpoint);
+    let human_id = operated.id("human");
 
-    let mut daemon = serving(&home).await;
-    assert_eq!(package::status_peer(&home).await.as_str(), manifest.peer);
-    let allowed = allowed(&home).await;
+    let mut daemon = serving(home).await;
+    assert_eq!(package::status_peer(home).await.as_str(), manifest.peer);
+    let allowed = allowed(home).await;
     assert!(allowed.contains(&manifest.added), "{allowed:?}");
     assert!(!allowed.contains(&manifest.revoked), "{allowed:?}");
     for peer in manifest
@@ -400,32 +603,59 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     {
         assert!(allowed.contains(peer), "{peer} in {allowed:?}");
     }
-    assert!(!endpoint_enabled(&home, &manifest.disabled_endpoint).await);
-    assert!(endpoint_enabled(&home, human().as_str()).await);
+    // What must hold whichever way the label-keyed overlay is carried
+    // over (the loader, or `endpoint init --alias`): the endpoint the
+    // previous build disabled reads DISABLED under the id its alias now
+    // names, as the daemon reports it.
+    assert!(
+        !endpoint_enabled(home, disabled.as_str()).await,
+        "the endpoint the previous build disabled ('{}', now {}) reads disabled",
+        manifest.disabled_endpoint,
+        disabled.as_str()
+    );
+    assert!(endpoint_enabled(home, human_id.as_str()).await);
 
-    let mut client = app::start(&home);
-    until_lease(&home.binding(), true, &client).await;
+    let mut client = app::start(home);
+    until_lease_of(&home.binding(), human_id, true, &client).await;
     assert!(client.terminate().success(), "{}", client.log());
-    assert_eq!(store_version(&home), SCHEMA_VERSION);
+    assert_eq!(store_version(home), SCHEMA_VERSION);
     assert_eq!(
-        ids(&home, "pending_outbound"),
+        ids(home, "pending_outbound"),
         std::slice::from_ref(&manifest.pending)
     );
     assert_eq!(
-        ids(&home, "unread_inbound"),
+        ids(home, "unread_inbound"),
         std::slice::from_ref(&manifest.unread)
     );
     assert_eq!(
-        ids(&home, "kept_inbound"),
+        ids(home, "kept_inbound"),
         std::slice::from_ref(&manifest.kept)
     );
     assert!(daemon.terminate().success(), "{}", daemon.log());
 
-    let after = snapshot(&home);
-    let rewritten: Vec<_> = changed(&before, &after)
+    let after = snapshot(home);
+    // Against the tree as the operator left it ([`operated`] proved that
+    // one differs from the frozen tree by `config.yaml`'s entries and the
+    // new endpoint keys alone), so what is rewritten below is this
+    // build's doing.
+    let rewritten: Vec<_> = changed(before, &after)
         .into_iter()
         .filter(|name| !name.contains("/human/") && !name.ends_with("/peers.json"))
         .collect();
+    assert_eq!(
+        std::fs::read_to_string(home.paths.config_file()).expect("the profile"),
+        operated.config,
+        "config.yaml is the operator's, as written"
+    );
+    for id in operated.ids.values() {
+        let key = endpoint_key::key_path(&home.paths, id);
+        let key = key.strip_prefix(home.root.path()).expect("inside");
+        assert!(
+            !operated.frozen.contains_key(key) && after.contains_key(key),
+            "{} is the command's new file, still there",
+            key.display()
+        );
+    }
     // The tree predates the profile-format marker (ADR-0028 A
     // 2026-10-20), so an upgrade is the marker's first write: this
     // build's format, and nothing else beside the store and the cache.
@@ -443,7 +673,7 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     // The previous build predates the identity key (ADR-0063), so the
     // upgrade's first start makes the identity's: a new file, owner-only,
     // an IDK1 record, and the one file beside the marker it may add.
-    let identity = identity_key::key_path(&home.paths, &human());
+    let identity = identity_key::key_path(&home.paths, human_id);
     let identity_name = identity
         .strip_prefix(home.root.path())
         .expect("inside")
@@ -462,7 +692,7 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
         0o600
     );
     assert!(
-        identity_key::open(&home.paths, &human(), &identity_key::FilesystemCustody)
+        identity_key::open(&home.paths, human_id, &identity_key::FilesystemCustody)
             .expect("an IDK1 record")
             .is_some()
     );
@@ -530,15 +760,16 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
 /// leaves every file as it was; the daemon's `PeerId` is untouched.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
-    let home = install(&previous_tree());
-    let store = app_store(&home);
+    let operated = operated(&previous_tree());
+    let home = &operated.home;
+    let store = app_store(home);
     checkpoint(&store);
     rusqlite::Connection::open(&store)
         .expect("the store opens")
         .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
         .expect("a newer header");
     checkpoint(&store);
-    refused_as_newer(&home).await;
+    refused_as_newer(home, operated.id("human")).await;
 }
 
 /// Rollback over the encrypted store (ADR-0060; plan section 29 step 3,
@@ -549,7 +780,8 @@ async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
 /// encrypted store and its key among them -- as it was.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_encrypted_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
-    let home = install(&previous_tree());
+    let operated = operated(&previous_tree());
+    let home = &operated.home;
     drop(
         HumanStore::open_profile(&home.paths, &FilesystemCustody, StoreOptions::default())
             .expect("this build's first open rewrites it encrypted"),
@@ -565,19 +797,19 @@ async fn an_encrypted_store_from_a_newer_build_stops_the_client_and_is_left_as_i
     conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
         .expect("checkpointed");
     drop(conn);
-    let bytes = std::fs::read(app_store(&home)).expect("the store's file");
+    let bytes = std::fs::read(app_store(home)).expect("the store's file");
     assert!(
         !bytes.starts_with(b"SQLite format 3\0"),
         "the control: the header the client meets is encrypted"
     );
-    refused_as_newer(&home).await;
+    refused_as_newer(home, operated.id("human")).await;
 }
 
 /// What a store a newer build wrote meets: the window stops before it
-/// takes the endpoint, names the store on the refusal screen, exits
-/// `EX_DATAERR` on Close, and nothing in the home is written; the
+/// takes `human`'s endpoint, names the store on the refusal screen,
+/// exits `EX_DATAERR` on Close, and nothing in the home is written; the
 /// daemon serves the same `PeerId` throughout.
-async fn refused_as_newer(home: &Home) {
+async fn refused_as_newer(home: &Home, human: &EndpointId) {
     let mut daemon = serving(home).await;
     let before = snapshot(home);
 
@@ -600,7 +832,10 @@ async fn refused_as_newer(home: &Home) {
             || client.log(),
         )
         .await;
-    assert!(human_lease(&home.binding()).await.is_none());
+    // The control: `human` is an endpoint the daemon lists, so its free
+    // lease is the window's not taking it rather than an id nobody has.
+    assert!(endpoint_enabled(home, human.as_str()).await);
+    assert!(lease_of(&home.binding(), human).await.is_none());
     screen.activate(&close, "click").await;
     let status = client.exit_within(PATIENCE);
     // `EX_DATAERR`: the file needs recovery (run.rs).
@@ -610,7 +845,7 @@ async fn refused_as_newer(home: &Home) {
         "{}",
         client.log()
     );
-    assert!(human_lease(&home.binding()).await.is_none());
+    assert!(lease_of(&home.binding(), human).await.is_none());
     assert_eq!(package::status_peer(home).await.as_str(), GOLDEN_PEER);
     assert!(daemon.terminate().success(), "{}", daemon.log());
     let after = snapshot(home);
@@ -628,7 +863,8 @@ async fn refused_as_newer(home: &Home) {
 /// the same `PeerId` is served.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_overlay_or_profile_from_a_newer_build_stops_the_daemon_and_is_left_as_it_was() {
-    let home = install(&previous_tree());
+    let operated = operated(&previous_tree());
+    let home = &operated.home;
     let newer_json = |path: &Path| {
         let mut value: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).expect("the overlay")).expect("json");
@@ -669,9 +905,9 @@ async fn an_overlay_or_profile_from_a_newer_build_stops_the_daemon_and_is_left_a
         let mode = std::fs::metadata(&path).expect("metadata").permissions();
         std::fs::write(&path, newer(&path)).expect("written");
         std::fs::set_permissions(&path, mode).expect("chmod");
-        let before = snapshot(&home);
+        let before = snapshot(home);
 
-        let mut daemon = package::start_daemon(&home);
+        let mut daemon = package::start_daemon(home);
         let status = daemon.exit();
         assert!(
             !status.success(),
@@ -681,8 +917,8 @@ async fn an_overlay_or_profile_from_a_newer_build_stops_the_daemon_and_is_left_a
         // The refusal is the artefact's, not any start-up failure: the log
         // names it, and once it is put back the same tree serves (below).
         assert!(
-            daemon.log().contains(named),
-            "the refusal names {named}: {}",
+            daemon.log().contains(named) && !daemon.log().contains("EndpointIdNotDerived"),
+            "the refusal names {named}, on the profile the operator brought over: {}",
             daemon.log()
         );
         assert!(
@@ -691,14 +927,14 @@ async fn an_overlay_or_profile_from_a_newer_build_stops_the_daemon_and_is_left_a
             "nothing served"
         );
         assert_eq!(
-            changed(&before, &snapshot(&home)),
+            changed(&before, &snapshot(home)),
             Vec::<String>::new(),
             "nothing written after a newer {what}"
         );
 
         std::fs::write(&path, &original).expect("put back");
-        let mut daemon = serving(&home).await;
-        assert_eq!(package::status_peer(&home).await.as_str(), GOLDEN_PEER);
+        let mut daemon = serving(home).await;
+        assert_eq!(package::status_peer(home).await.as_str(), GOLDEN_PEER);
         assert!(daemon.terminate().success(), "{}", daemon.log());
     }
 }
@@ -713,10 +949,11 @@ type NewerForm = dyn Fn(&Path) -> Vec<u8>;
 async fn the_recovery_drill_restores_the_same_peer_id_and_never_mints_one() {
     let tree = previous_tree();
     let manifest = Manifest::read(&tree);
-    let home = install(&tree);
+    let operated = operated(&tree);
+    let home = &operated.home;
     let record = home.root.path().join("record.json");
     package::transportctl_ok(
-        &home,
+        home,
         &[
             "identity",
             "backup",
@@ -727,10 +964,22 @@ async fn the_recovery_drill_restores_the_same_peer_id_and_never_mints_one() {
     );
 
     std::fs::remove_file(home.paths.identity_file()).expect("the key lost");
-    let mut daemon = package::start_daemon(&home);
+    let mut daemon = package::start_daemon(home);
     assert!(
         !daemon.exit().success(),
         "no key, no start: {}",
+        daemon.log()
+    );
+    // The missing key's own refusal, on the profile the operator brought
+    // over: never the retired-entry one a start on the frozen profile
+    // meets first.
+    let missing = format!(
+        "no identity key at {}",
+        home.paths.identity_file().display()
+    );
+    assert!(
+        daemon.log().contains(&missing) && !daemon.log().contains("EndpointIdNotDerived"),
+        "the refusal names the missing key: {}",
         daemon.log()
     );
     assert!(
@@ -739,7 +988,7 @@ async fn the_recovery_drill_restores_the_same_peer_id_and_never_mints_one() {
     );
 
     let restored = package::transportctl(
-        &home,
+        home,
         &[
             "identity",
             "restore",
@@ -754,9 +1003,9 @@ async fn the_recovery_drill_restores_the_same_peer_id_and_never_mints_one() {
         "{}",
         String::from_utf8_lossy(&restored.stderr)
     );
-    let mut daemon = serving(&home).await;
-    assert_eq!(package::status_peer(&home).await.as_str(), manifest.peer);
-    assert!(allowed(&home).await.contains(&manifest.added));
+    let mut daemon = serving(home).await;
+    assert_eq!(package::status_peer(home).await.as_str(), manifest.peer);
+    assert!(allowed(home).await.contains(&manifest.added));
     assert!(daemon.terminate().success(), "{}", daemon.log());
 }
 
@@ -775,15 +1024,16 @@ fn plant_marker(home: &Home, n: u32) {
 /// the same `PeerId` is served and the window takes the endpoint.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_profile_a_newer_build_marked_stops_every_program_and_is_left_as_it_was() {
-    let home = install(&previous_tree());
-    let mut daemon = serving(&home).await;
+    let operated = operated(&previous_tree());
+    let home = &operated.home;
+    let mut daemon = serving(home).await;
     assert!(daemon.terminate().success(), "{}", daemon.log());
-    plant_marker(&home, PROFILE_FORMAT + 1);
-    let before = snapshot(&home);
+    plant_marker(home, PROFILE_FORMAT + 1);
+    let before = snapshot(home);
 
     let _focus = display::exclusive().await;
     let bus = Bus::connect().await;
-    let mut client = app::start(&home);
+    let mut client = app::start(home);
     // The release page's "it shows which file stopped it": the screen
     // says why and names the marker, whole.
     let screen = bus.window_of(client.child.id(), || client.log()).await;
@@ -828,11 +1078,11 @@ async fn a_profile_a_newer_build_marked_stops_every_program_and_is_left_as_it_wa
         "the stderr line says which file stopped it: {}",
         client.log()
     );
-    let ctl = package::transportctl(&home, &["identity", "show"], "");
+    let ctl = package::transportctl(home, &["identity", "show"], "");
     let said = String::from_utf8_lossy(&ctl.stderr);
     assert!(!ctl.status.success(), "transportctl refuses: {said}");
     assert!(said.contains(profile_format::PROFILE_FORMAT_FILE), "{said}");
-    let mut daemon = package::start_daemon(&home);
+    let mut daemon = package::start_daemon(home);
     assert!(
         !daemon.exit().success(),
         "the daemon refuses: {}",
@@ -844,16 +1094,16 @@ async fn a_profile_a_newer_build_marked_stops_every_program_and_is_left_as_it_wa
         daemon.log()
     );
     assert_eq!(
-        changed(&before, &snapshot(&home)),
+        changed(&before, &snapshot(home)),
         Vec::<String>::new(),
         "nothing written by a refused program"
     );
 
-    plant_marker(&home, PROFILE_FORMAT);
-    let mut daemon = serving(&home).await;
-    assert_eq!(package::status_peer(&home).await.as_str(), GOLDEN_PEER);
-    let mut client = app::start(&home);
-    until_lease(&home.binding(), true, &client).await;
+    plant_marker(home, PROFILE_FORMAT);
+    let mut daemon = serving(home).await;
+    assert_eq!(package::status_peer(home).await.as_str(), GOLDEN_PEER);
+    let mut client = app::start(home);
+    until_lease_of(&home.binding(), operated.id("human"), true, &client).await;
     assert!(client.terminate().success(), "{}", client.log());
     assert!(daemon.terminate().success(), "{}", daemon.log());
 }
@@ -897,16 +1147,19 @@ fn axis() -> Vec<(String, PathBuf)> {
 /// old -> new, the `PeerId` the same at every step.
 ///
 /// - old -> new: the old `transportctl` restores the golden key into a
-///   fresh profile and the old daemon runs on it; this build's daemon
+///   fresh profile holding the previous build's `config.yaml` and the old
+///   daemon runs on it; this build refuses that profile's retired `id`
+///   entries until the operator brings it over ([`brought_over`]), and
 ///   then serves the same `PeerId` from what the old one left.
-/// - new -> old, RECORDED: on the tree this build leaves, the old daemon
-///   starts, serves the same `PeerId` and writes nothing -- and ignores
-///   the endpoint overlay, which postdates it: the endpoint this build
-///   disabled reads enabled under it. Every build before the profile-
-///   format marker is unprotected this way (ADR-0028's amendment, the
-///   ruling's B); when an entry from after the marker joins the axis,
-///   it must refuse the newer tree instead, and this row changes with
-///   it.
+/// - new -> old, RECORDED: on the tree this build leaves -- the profile
+///   the operator brought over, its entries by `key` and `alias` -- the
+///   old daemon refuses to start, as a build whose endpoint entry is
+///   `deny_unknown_fields` with a required `id` must, and writes
+///   nothing. No compatibility window back to a build before ADR-0067
+///   was promised (ENDPOINTS.md: the label grammar is retired without
+///   one), so the refusal is a recorded fact, not a failure: if the old
+///   build now starts on a keyed profile, the axis gained a build that
+///   reads one, and this row changes with it.
 /// - old -> new again: the trip through the old build lost nothing this
 ///   build reads: the overlays are still in effect.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -951,9 +1204,10 @@ async fn a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded() {
             "{label}"
         );
         assert!(daemon.terminate().success(), "{label}: {}", daemon.log());
-        let mut daemon = serving(&fresh).await;
+        let fresh = brought_over(fresh);
+        let mut daemon = serving(&fresh.home).await;
         assert_eq!(
-            package::status_peer(&fresh).await.as_str(),
+            package::status_peer(&fresh.home).await.as_str(),
             GOLDEN_PEER,
             "this build serves the PeerId {label} left"
         );
@@ -961,42 +1215,36 @@ async fn a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded() {
 
         // new -> old, on the tree this build leaves: run here first, so
         // the old build meets the profile-format marker this build wrote.
-        let home = install(&previous_tree());
-        let mut daemon = serving(&home).await;
+        let operated = operated(&previous_tree());
+        let home = &operated.home;
+        let disabled = operated.id(&manifest.disabled_endpoint);
+        let mut daemon = serving(home).await;
         assert!(daemon.terminate().success(), "{}", daemon.log());
         let marker = profile_format::path_for(&home.paths);
         assert_eq!(
             profile_format::read_file(&marker).expect("marked"),
             PROFILE_FORMAT
         );
-        let before = snapshot(&home);
-        let mut daemon = package::start_daemon_of(&old_daemon, &home);
-        daemon.serving(&home).await;
-        assert_eq!(
-            package::status_peer(&home).await.as_str(),
-            GOLDEN_PEER,
-            "{label}"
-        );
+        let before = snapshot(home);
+        let mut daemon = package::start_daemon_of(&old_daemon, home);
         assert!(
-            endpoint_enabled(&home, &manifest.disabled_endpoint).await,
-            "RECORDED: {label} predates the endpoint overlay and the profile-format \
-             marker, so it starts on a marked tree and does not read the overlay; if it \
-             now reads {} disabled, the axis gained a build that does, and this row \
-             changes with it",
-            manifest.disabled_endpoint
+            !daemon.exit().success() && daemon.log().contains("unknown field `key`"),
+            "RECORDED: {label} predates ADR-0067's keyed entry and refuses a profile \
+             whose entries carry `key` and `alias`, naming the field; if it now starts, \
+             the axis gained a build that reads one, and this row changes with it: {}",
+            daemon.log()
         );
-        assert!(daemon.terminate().success(), "{label}: {}", daemon.log());
         assert_eq!(
-            changed(&before, &snapshot(&home)),
+            changed(&before, &snapshot(home)),
             Vec::<String>::new(),
             "{label} wrote nothing into this build's tree"
         );
 
         // old -> new again: nothing this build reads was lost.
-        let mut daemon = serving(&home).await;
-        assert_eq!(package::status_peer(&home).await.as_str(), GOLDEN_PEER);
-        assert!(!endpoint_enabled(&home, &manifest.disabled_endpoint).await);
-        let allowed = allowed(&home).await;
+        let mut daemon = serving(home).await;
+        assert_eq!(package::status_peer(home).await.as_str(), GOLDEN_PEER);
+        assert!(!endpoint_enabled(home, disabled.as_str()).await);
+        let allowed = allowed(home).await;
         assert!(allowed.contains(&manifest.added), "{allowed:?}");
         assert!(!allowed.contains(&manifest.revoked), "{allowed:?}");
         assert!(daemon.terminate().success(), "{}", daemon.log());
