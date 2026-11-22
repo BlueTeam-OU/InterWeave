@@ -1097,7 +1097,7 @@ mod response_validation_tests {
     };
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn asked() -> MessageId {
@@ -1197,7 +1197,7 @@ mod waiter_tests {
     }
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn request() -> DirectMessageV2 {
@@ -1298,7 +1298,7 @@ mod admin_tests {
     };
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn session(name: &str) -> LocalSessionId {
@@ -1435,7 +1435,10 @@ mod admin_tests {
             .expect("claimed");
         let views = state.endpoint_views();
         let ids: Vec<_> = views.iter().map(|v| v.endpoint.as_str()).collect();
-        assert_eq!(ids, ["claude", "human"]);
+        assert_eq!(
+            ids,
+            [endpoint("claude").as_str(), endpoint("human").as_str()]
+        );
         assert!(views[0].lease.is_none() && !views[0].default && views[0].enabled);
         let held = views[1].lease.as_ref().expect("human is leased");
         assert!(views[1].default);
@@ -1457,12 +1460,12 @@ mod admin_tests {
         assert!(state.take_lease_notices(&session("a"), 0).is_empty());
         let first = state.take_lease_notices(&session("a"), 1);
         assert!(
-            matches!(&first[..], [LocalSessionEvent::EndpointLeaseChanged { endpoint, .. }] if endpoint.as_str() == "human"),
+            matches!(&first[..], [LocalSessionEvent::EndpointLeaseChanged { endpoint, .. }] if *endpoint == interweave_test_support::endpoint_keys::endpoint_id("human")),
             "{first:?}"
         );
         let rest = state.take_lease_notices(&session("a"), usize::MAX);
         assert!(
-            matches!(&rest[..], [LocalSessionEvent::EndpointLeaseChanged { endpoint, .. }] if endpoint.as_str() == "claude"),
+            matches!(&rest[..], [LocalSessionEvent::EndpointLeaseChanged { endpoint, .. }] if *endpoint == interweave_test_support::endpoint_keys::endpoint_id("claude")),
             "{rest:?}"
         );
         assert!(
