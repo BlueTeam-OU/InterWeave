@@ -59,7 +59,12 @@ fn paths_refusal(e: &PersistError) -> Failure {
 pub(crate) fn resolve(profile: &str) -> Result<Profile, Failure> {
     let roots =
         XdgRoots::from_env().map_err(|e| Failure::Refused(format!("the XDG directories: {e}")))?;
-    let paths = ProfilePaths::resolve(profile, &roots).map_err(|e| paths_refusal(&e))?;
+    resolve_in(profile, &roots)
+}
+
+/// [`resolve`] under `roots`.
+fn resolve_in(profile: &str, roots: &XdgRoots) -> Result<Profile, Failure> {
+    let paths = ProfilePaths::resolve(profile, roots).map_err(|e| paths_refusal(&e))?;
     if !paths.roles_are_distinct() {
         return Err(Failure::Refused(
             "the profile's configuration, state and runtime directories overlap".to_owned(),
@@ -211,4 +216,98 @@ pub(crate) fn open_store_at(
             )
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+
+    use interweave_profile_config::endpoint_key;
+    use interweave_test_support::endpoint_keys::endpoint_id;
+
+    use super::*;
+
+    const PROFILE: &str = "p";
+
+    /// A profile named [`PROFILE`] under private roots in `dir`, its one
+    /// entry `human` by key.
+    fn profile_in(dir: &std::path::Path) -> XdgRoots {
+        for sub in ["config", "data", "state", "cache", "run"] {
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(dir.join(sub))
+                .expect("an xdg dir");
+        }
+        let roots = XdgRoots {
+            config_home: dir.join("config"),
+            data_home: dir.join("data"),
+            state_home: dir.join("state"),
+            cache_home: dir.join("cache"),
+            runtime_dir: Some(dir.join("run")),
+        };
+        let paths = ProfilePaths::resolve(PROFILE, &roots).expect("paths");
+        let file = paths.config_file();
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(file.parent().expect("a parent"))
+            .expect("the config dir");
+        let text = format!(
+            "schema_version: 2
+runtime: {{ deployment: daemon-ipc }}
+profile: {{ name: {PROFILE} }}
+transport:
+  backend: libp2p
+  listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }}
+identity: {{ algorithm: ed25519 }}
+trust: {{ policy: static-allowlist, allowed_peers: [] }}
+endpoints:
+  registration_policy: configured-only
+  default_direct_endpoint: human
+  entries:
+    - {{ key: {human}.key, alias: human, enabled: true, advertise: false, allowed_client_kinds: [human-client], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}
+ipc: {{ enabled: true, socket_layout: split-data-admin }}
+channels: {{ desired: [] }}
+",
+            human = endpoint_id("human").as_str()
+        );
+        std::fs::write(&file, text).expect("config");
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).expect("a mode");
+        roots
+    }
+
+    /// The command line reads the profile document alone, nothing under
+    /// `endpoint-keys/` (ENDPOINTS.md, an alias is resolved by the client,
+    /// A 2026-11-21): a key file whose header derives another id, which the
+    /// daemon's load refuses, does not stop it, and the alias resolves to
+    /// the entry's id. The control: `load` refuses the same profile.
+    /// Mutation: `resolve_in` back on `ProfileConfig::load`.
+    #[test]
+    fn a_key_file_only_the_daemon_reads_does_not_stop_the_command_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("private");
+        let roots = profile_in(dir.path());
+        let paths = ProfilePaths::resolve(PROFILE, &roots).expect("paths");
+        let minted = endpoint_key::mint_filesystem(&paths).expect("minted");
+        std::fs::rename(
+            endpoint_key::key_path(&paths, &minted),
+            endpoint_key::key_path(&paths, &endpoint_id("human")),
+        )
+        .expect("the minted key under the entry's name");
+        let control = ProfileConfig::load(&paths).expect_err("the daemon's load refuses it");
+        assert!(
+            format!("{control:?}").contains("EndpointKeyMismatch"),
+            "the control: {control:?}"
+        );
+        let profile = resolve_in(PROFILE, &roots).expect("resolves");
+        assert_eq!(profile.endpoints, [endpoint_id("human")]);
+        let alias = EndpointSelector::parse("human").expect("an alias");
+        assert_eq!(
+            identity(&profile, &alias).expect("resolves"),
+            endpoint_id("human")
+        );
+    }
 }
