@@ -525,9 +525,9 @@ matters, in six short points:
   cryptocurrency wallet seed (`IDENTITY-RECOVERY.md`, Recovery format);
 - write them on paper and keep it safe;
 - anyone who has them can be you;
-- they restore the PeerId only, not the names and photos of the
-  identities, contacts, trust, settings or messages; on Android there is nothing else to back up
-  them from, so the point asks for nothing (`human-client-ui.md` §9 as
+- they restore only this app's PeerId, not the contacts, trust,
+  settings, messages or the name and photo of any identity; on Android
+  the rest cannot be exported, so the point asks for nothing (`human-client-ui.md` §9 as
   amended at 2f3b0587);
 - the PeerId is created only once creation is complete, after the
   check of two words.
@@ -618,9 +618,9 @@ words (a contact can hold one PeerId per device, `human-client-ui.md`
 §3). The
 network stays off until the restore is done. One line
 (`IdR1Settings`) states what `human-client-ui.md` §9 requires, as
-amended at 2f3b0587: the words restore the PeerId only, not the names
-and photos of the identities,
-contacts, trust, settings or messages. Android has no export of
+amended at 2f3b0587: the words restore only the PeerId, not the
+contacts, trust, settings, messages or the name and photo of any
+identity. Android has no export of
 those in standard v1, so the line asks for nothing (§11a Q5). Two
 more statements follow it, before the primary, because
 `human-client-ui.md` §9 requires both before the phrase is taken:
@@ -1978,13 +1978,13 @@ names are suggestions; rust-ui-dev names them.
 | `IdRestore` | Restore my PeerId | W's secondary |
 | `IdC1Title` | About your recovery phrase | C1's title |
 | `IdC1Point1` | These 24 words are the key to your PeerId. With them, you can move your PeerId to a new phone. | C1, first point: a move to a new phone, not a second phone in use at the same time |
-| `IdC1Point2` (changed 2026-11-23; words proposed, language-culture's pass owed) | They are an InterWeave recovery phrase, not a cryptocurrency wallet seed. | C1, second point, in the order of §3.2's list (`IDENTITY-RECOVERY.md`). No "identity": on screen it means a name and photo, which the phrase does not restore (§2; Q16, §11e) |
+| `IdC1Point2` (changed 2026-11-23) | They are an InterWeave recovery phrase, not a cryptocurrency wallet seed. | C1, second point, in the order of §3.2's list (`IDENTITY-RECOVERY.md`). No "identity": on screen it means a name and photo, which the phrase does not restore (§2; Q16, §11e) |
 | `IdC1Point3` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, third point. The PeerId is named here, because R1 asks for it later |
 | `IdC1Point4` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, fourth point: "can be you", without alarm |
-| `IdC1Point5` (meaning changed 2026-11-23; words proposed, language-culture's pass owed) | The words restore your PeerId only, not the names and photos of your identities, your contacts, trust, settings or messages. | C1, fifth point, and S1 under its body (§3.5): `human-client-ui.md` §9 as amended (2f3b0587). It names the fact and asks for nothing, since Android has no export of the rest. Plural: the phone may hold several identities (ADR-0061), and none of their names and photos comes back; the text must be true with one identity and with several |
+| `IdC1Point5` (meaning changed 2026-11-23) | Your words restore only this app's PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity. | C1, fifth point, and S1 under its body (§3.5): `human-client-ui.md` §9 as amended (2f3b0587). It names the fact and asks for nothing, since Android has no export of the rest. Plural: the phone may hold several identities (ADR-0061), and none of their names and photos comes back; the text must be true with one identity and with several |
 | `IdC1Point6` | Your PeerId is created only after you check two of the words. | C1, sixth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
-| `IdNotWalletSeed` (new; changed 2026-11-23; words proposed, language-culture's pass owed) | InterWeave recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen. The contract's label also says "transport" and "identity"; both are left out, "transport" as a word the person does not know and "identity" as `IdC1Point2` says |
+| `IdNotWalletSeed` (new; changed 2026-11-23) | InterWeave recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen. The contract's label also says "transport" and "identity"; both are left out, "transport" as a word the person does not know and "identity" as `IdC1Point2` says |
 | `IdFormatLine` (new) | Phrase format: | C2 and S2, before the untranslated format identifier (§3.2), one line. "Phrase format" says whose format it is; a bare "Format" could be read as the screen's layout. The label stands alone before a value, so a translation needs no template |
 | `AuthenticationNeeded` (the app's, #313, not yet on main) | InterWeave is offline because it is locked. To unlock it, tap Unlock and enter your phone's PIN, pattern or password. Your conversations are saved on this phone and appear again after you unlock InterWeave. | The locked notice: offline after a cancelled unlock at S2's Done, at a launch, or after C4's or R4's continue (§6) |
 | `Authenticate` (the app's, #313, not yet on main) | Unlock | The locked notice's action; it raises the prompt (§6) |
@@ -2020,7 +2020,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdActiveElsewhere` (new) | If another device still uses this PeerId, a restore here puts the same PeerId on two devices. One PeerId must never be on two devices, and this phone cannot check whether another device uses it. | R1, and K1 when it offers a restore, before the primary (§3.3, §3.4); `human-client-ui.md` §9, ADR-0043; must say the phone cannot check, and ask nothing |
 | `IdR1NewKeys` (changed 2026-11-22, final 2026-11-23) | Your words restore your PeerId, but not the keys of your identities. Each identity's key is gone, so each identity is replaced by a new one. Your contacts will see each replacement as a new identity. | R1 and K1, each when the state root has no `endpoint-keys/` (always on R1 after a fresh install), before the primary; `human-client-ui.md` §9, ADR-0067 decision 5; must say the phrase restores the PeerId, not the identities' keys, that each identity is replaced by a new one, and that contacts see a new identity; never that they see a key change (architect-cto, REQUEST 01a202c7). Until the Stage 22 release: "Your words restore your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see a new key for each identity." |
 | `IdCheckWords` | Check my words | R2's primary |
-| `IdR1Settings` (changed 2026-11-23; words proposed, language-culture's pass owed) | Your words restore your PeerId only. They do not restore the names and photos of your identities, your contacts, trust, settings or messages. | R1's line under the body, three lines at 100 %: the same statement as `IdC1Point5`, with nothing asked, plural for the same reason. "They do not restore", not "are not part of them", which could point to the list instead of the words (language-culture-en, j393) |
+| `IdR1Settings` (changed 2026-11-23) | Your words restore only your PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity. | R1's line under the body, three lines at 100 %: the same statement as `IdC1Point5`, with nothing asked, plural for the same reason. "They do not restore", not "are not part of them", which could point to the list instead of the words (language-culture-en, j393) |
 | `IdR3NoPeerId` | If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches. | R3, under the question: about three lines at 100 %, one over the space. A contact can hold one PeerId per device, so the text names which one |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
@@ -2029,10 +2029,10 @@ names are suggestions; rust-ui-dev names them.
 | `IdQReasonKey` | This phone's screen lock or security changed, so the app cannot use your PeerId. Restore it with your recovery phrase. | K1 for `KeyInvalidated` and `KeyMissing`. It names the likely cause in the person's terms, and the way back |
 | `IdQReasonRecord` (changed 2026-11-23) | The app cannot use the PeerId saved on this phone. Restore your PeerId with your recovery phrase. | K1 for `Record`, `Authentication` and `WrongIdentity` |
 | `IdEnterPhrase` | Enter my recovery phrase | K1's primary |
-| `IdQLost` (meaning changed 2026-11-23; words proposed, language-culture's pass owed) | If your words are lost, clear this app's data in the phone's settings. That deletes your identities, contacts and messages on this phone, and gives it a new PeerId, which each contact must trust again. | K1's plain text below its primary (§3.4), up to five lines at 100 %. It must say what clearing deletes before the person leaves for the phone's settings, where nothing in this app can warn them again: a way out that destroys the conversations is never offered without saying so |
+| `IdQLost` (meaning changed 2026-11-23) | If your words are lost, you can clear this app's data in the phone's settings. Clearing the data deletes the identities, contacts and messages on this phone. The app then gets a new PeerId, and each person you talk to must trust the new PeerId. | K1's plain text below its primary (§3.4), up to five lines at 100 %. It must say what clearing deletes before the person leaves for the phone's settings, where nothing in this app can warn them again: a way out that destroys the conversations is never offered without saying so |
 | `IdQTitleNoPath` (new) | The app cannot use your PeerId | K1's title when the record names no readable PeerId (§3.4). `IdQTitle` asks for the phrase, which cannot help there |
 | `IdQReasonNoPath` (new) | The app cannot use the PeerId saved on this phone, and it cannot be restored here. | K1's reason in the same case. Both other reasons end by asking for the recovery phrase, which cannot help there |
-| `IdQNoPath` (new; meaning changed 2026-11-23; words proposed, language-culture's pass owed) | To use the app again, clear this app's data in the phone's settings. That deletes your identities, contacts and messages on this phone, and gives it a new PeerId, which each contact must trust again. | K1's plain text in the same case, in place of `IdQLost`, whose "If your words are lost" suggests the words would help |
+| `IdQNoPath` (new; meaning changed 2026-11-23) | The only way to use the app again is to clear this app's data in the phone's settings. Clearing the data deletes the identities, contacts and messages on this phone. The app then gets a new PeerId, and each person you talk to must trust the new PeerId. | K1's plain text in the same case, in place of `IdQLost`, whose "If your words are lost" suggests the words would help |
 | `IdExpectedPeerId` (new) | PeerId this phone expects | The label of the expected PeerId, on K1 and in `IdOtherIdentity`'s banner |
 | `IdDerivedPeerId` (new) | PeerId from your words | The label of the derived PeerId in `IdOtherIdentity`'s banner |
 | `IdShowPhraseItem` | Show recovery phrase | The Settings item (§3.5) |
@@ -3246,12 +3246,12 @@ here; the first was already answered on this branch.
   They send the person to the phone's settings, where nothing of this
   app can warn them again, so the loss is said before they go (error
   prevention, Nielsen's fifth heuristic: a consequence the person
-  cannot undo is shown before they commit to it). Words proposed; language-culture's pass
-  owed.
+  cannot undo is shown before they commit to it). Words by
+  language-culture-en (j404).
 - **One name and photo, or several.** Plural in `IdC1Point5` and
   `IdR1Settings`, and in the §3.2 and §3.3 lists they state: a phone
   may hold several identities (ADR-0061), and none of their names and
-  photos comes back. Words proposed; language-culture's pass owed.
+  photos comes back. Words by language-culture-en (j404).
 - **Q16. Does the phrase keep "identity" in its name on screen?**
   Answered by architect-cto, REPLY 01a20581-237c: no. `IdC1Point2` and
   `IdNotWalletSeed` say "InterWeave recovery phrase", the client
