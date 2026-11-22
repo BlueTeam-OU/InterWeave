@@ -212,10 +212,3 @@ Request::params                                  call  Some(self.params())
 LocalDataSession::source_endpoint                call      self.source_endpoint()
 DedupKey::source_peer                            call      key.source_peer()
 InfrastructureSet::new                           call      InfrastructureSet::new(raw.allowed_peers).map_err(
-
-# --- IPC major 3 (j185): a 2.x connection, the only production caller of
-# --- the builder below (ipc-server's hello below 2.4), is refused, and the
-# --- IPC client refuses the option. The in-process binding honours it and the
-# --- conformance suites exercise it; whether it stays in the contract or
-# --- leaves with its field is architect-cto's at the s30 close.
-SessionRequest::without_route_notices            stage-22  no production caller at IPC major 3; kept for the in-process binding until s30 decides
