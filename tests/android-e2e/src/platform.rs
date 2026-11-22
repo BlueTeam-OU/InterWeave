@@ -499,6 +499,57 @@ pub fn keyguard_showing(dump: &str) -> Result<bool, String> {
     }
 }
 
+/// Whether the phone's user 0 has a screen lock, from `dumpsys
+/// lock_settings`'s `CredentialType:` line under `User 0`: `false` for
+/// none, `true` for a pattern, PIN or password. AOSP prints the type as
+/// its number up to API 30 (`-1` none; `1`, `2`, `3`, `4` the others,
+/// by `LockPatternUtils`' constants then) and by name from API 31
+/// (`credentialTypeToString`: `None`, `Pattern`, `Pin`, `Password`);
+/// the A40's record calls its lock `CredentialType Pin`. The fixtures
+/// below follow AOSP's source; the first device run captures the line
+/// as the phone prints it. A dump with
+/// only one user's block may print no `User 0` line, and then its one
+/// `CredentialType:` line is read.
+///
+/// # Errors
+/// No `CredentialType:` line where it is looked for, more than one with
+/// no `User 0` to choose by, or a value that is neither form: never
+/// read as no lock, since the case that asks waits for the lock to go.
+pub fn screen_lock_set(dump: &str) -> Result<bool, String> {
+    fn typed<'a>(l: &&'a str) -> Option<&'a str> {
+        l.strip_prefix("CredentialType:").map(str::trim)
+    }
+    let lines: Vec<&str> = dump.lines().map(str::trim).collect();
+    let value = if let Some(at) = lines.iter().position(|l| *l == "User 0") {
+        lines[at..].iter().find_map(typed)
+    } else {
+        let all: Vec<&str> = lines.iter().filter_map(typed).collect();
+        if all.len() > 1 {
+            return Err(format!(
+                "several CredentialType: lines and no User 0 in dumpsys lock_settings:\n{dump}"
+            ));
+        }
+        all.first().copied()
+    };
+    match value {
+        Some("None" | "-1") => Ok(false),
+        Some("Pattern" | "Pin" | "Password" | "1" | "2" | "3" | "4") => Ok(true),
+        other => Err(format!(
+            "no CredentialType: value read in dumpsys lock_settings ({other:?}):\n{dump}"
+        )),
+    }
+}
+
+/// [`screen_lock_set`] on the phone now.
+///
+/// # Panics
+/// As [`shell`], or on a dump [`dump_ended`] refuses or
+/// [`screen_lock_set`] cannot read.
+#[must_use]
+pub fn screen_lock_now() -> bool {
+    screen_lock_set(&dump(&["lock_settings"])).unwrap_or_else(|e| panic!("{e}"))
+}
+
 /// Who takes key events, from `dumpsys window`: the window named by
 /// `mCurrentFocus` and the activity named by `mFocusedApp`, each as the
 /// dump writes it (`NotificationShade`; `com.android.permissioncontroller/
@@ -1629,5 +1680,53 @@ channels:
             Ok(None)
         );
         assert!(dump_ended("x\nException occurred while dumping:\nIW_END=0").is_err());
+    }
+
+    // `LockSettingsService.dump`'s per-user block, by name (API 31 on).
+    const LOCK_BY_NAME: &str = "\
+Current lock settings service state:
+User State:
+  User 0
+    SID: 4f3a1c2b9d8e7f60
+    Quality: 131072
+    CredentialType: Pin
+    SeparateChallenge: false
+  User 10
+    SID: 0
+    Quality: 0
+    CredentialType: None
+";
+
+    #[test]
+    fn a_screen_lock_is_read_off_user_0s_block() {
+        assert_eq!(screen_lock_set(LOCK_BY_NAME), Ok(true));
+        // User 10's None, after it, is not user 0's.
+        let none = LOCK_BY_NAME.replacen("CredentialType: Pin", "CredentialType: None", 1);
+        assert_eq!(screen_lock_set(&none), Ok(false));
+    }
+
+    #[test]
+    fn a_screen_lock_is_read_by_number_up_to_api_30() {
+        let by_number = |v: &str| {
+            LOCK_BY_NAME.replacen("CredentialType: Pin", &format!("CredentialType: {v}"), 1)
+        };
+        assert_eq!(screen_lock_set(&by_number("-1")), Ok(false));
+        assert_eq!(screen_lock_set(&by_number("3")), Ok(true));
+    }
+
+    #[test]
+    fn one_users_block_without_its_header_is_read() {
+        assert_eq!(screen_lock_set("  CredentialType: None\n"), Ok(false));
+        assert!(screen_lock_set("CredentialType: None\nCredentialType: Pin\n").is_err());
+    }
+
+    #[test]
+    fn a_lock_dump_that_says_no_type_is_no_answer() {
+        assert!(screen_lock_set("User 0\n  SID: 0\n").is_err());
+        let odd = LOCK_BY_NAME.replacen("CredentialType: Pin", "CredentialType: Face", 1);
+        assert!(
+            screen_lock_set(&odd).is_err(),
+            "an unknown type is not read as none"
+        );
     }
 }
