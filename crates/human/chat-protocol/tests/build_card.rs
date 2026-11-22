@@ -24,7 +24,7 @@ fn peer(s: &str) -> TransportIdentity {
     TransportIdentity::parse(s).expect("a PeerId")
 }
 
-/// A derived EndpointId (ADR-0067) named by `name`: the name's bytes stand
+/// A derived `EndpointId` (ADR-0067) named by `name`: the name's bytes stand
 /// in for a public key, so distinct names give distinct ids. Only the text
 /// enters the card bytes, so no key need stand behind it here.
 fn endpoint(name: &str) -> EndpointId {
