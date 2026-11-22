@@ -2129,7 +2129,11 @@ mod tests {
             queue_bound: 4,
         };
         let (node, _) = FakeNetwork::pair(config(), config());
-        let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let media =
             MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("media");
         let text = br#"{"v":2,"kind":"text","app_message_id":"000000000000000000000000000000aa","text":"a"}"#;
@@ -2287,7 +2291,11 @@ mod tests {
             queue_bound: 4,
         };
         let (node, _) = FakeNetwork::pair(config(), config());
-        let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let media =
             MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("media");
         let held = br#"{"v":2,"kind":"text","app_message_id":"000000000000000000000000000000aa","text":"held back"}"#;
@@ -2347,7 +2355,11 @@ mod tests {
             queue_bound: 4,
         };
         let (node, _) = FakeNetwork::pair(config(), config());
-        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let client = TransportClient::new(
             node.clone(),
             node,

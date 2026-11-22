@@ -151,7 +151,12 @@ fn a_start_reads_a_row_per_conversation_never_the_backlog() {
     let path = dir.path().join("state").join("human.sqlite3");
     let peers: Vec<TransportIdentity> = (0..CONVERSATIONS).map(|_| peer()).collect();
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let mut n = 0;
         for (i, from) in peers.iter().enumerate() {
             for at in 0..PER_CONVERSATION {
@@ -173,7 +178,12 @@ fn a_start_reads_a_row_per_conversation_never_the_backlog() {
 
     let mut first = facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     );
     first.start().expect("started");
     assert!(
@@ -185,7 +195,12 @@ fn a_start_reads_a_row_per_conversation_never_the_backlog() {
 
     let mut side = facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     );
     let start = side.start().expect("started");
     assert_eq!(
@@ -320,7 +335,11 @@ fn direct(from: &TransportIdentity) -> ConversationKey {
 #[tokio::test]
 async fn an_opened_conversation_pages_its_rows_in_from_the_store() {
     let from = peer();
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     for n in 1..=100 {
         let mut row = message(n, &from, u64::from(n));
         row.kind = InboundKind::Text;
@@ -363,7 +382,11 @@ async fn an_opened_conversation_pages_its_rows_in_from_the_store() {
 async fn paging_past_the_read_proposal_bound_evicts_none_and_loses_no_copy() {
     let from = peer();
     let key = human_key();
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     let total = u32::try_from(READ_PROPOSAL_CAP).expect("small") + 44;
     for n in 1..=total {
         store
@@ -437,7 +460,11 @@ async fn a_photo_is_read_when_asked_and_only_as_it_stood() {
     let key = human_key();
     let png = png();
     let photo = interweave_human_app_core::card_photo::prepare_photo(&png).expect("prepared");
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     store
         .commit_unread_inbound(&card(1, &key, &from, 1, Some(&photo.bytes)))
         .expect("committed");
@@ -531,12 +558,20 @@ async fn a_card_the_drain_hands_over_counts_once_in_its_badge() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let mut alice = facade(
         &a,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     );
     alice.set_identity_key(human_key());
     let mut bob = Root::start(facade(
         &b,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     ));
     for now in 0..3 {
         alice.turn(now).await;
@@ -582,7 +617,11 @@ async fn a_card_the_drain_hands_over_counts_once_in_its_badge() {
 #[tokio::test]
 async fn the_turn_takes_the_views_window_reports_and_reads_the_page() {
     let from = peer();
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     for n in 1..=10 {
         let mut row = message(n, &from, u64::from(n));
         row.kind = InboundKind::Text;
@@ -608,7 +647,11 @@ async fn the_turn_takes_the_views_window_reports_and_reads_the_page() {
 #[tokio::test]
 async fn a_report_that_changes_what_is_drawn_draws_and_a_place_never_does() {
     let from = peer();
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     for n in 1..=100 {
         let mut row = message(n, &from, u64::from(n));
         row.kind = InboundKind::Text;
@@ -651,7 +694,11 @@ async fn a_report_that_changes_what_is_drawn_draws_and_a_place_never_does() {
 /// TEST BUILDS ONLY (`test-hooks`): a store of `count` unread text rows
 /// from `from`.
 fn texts(from: &TransportIdentity, count: u32) -> HumanStore {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     for n in 1..=count {
         let mut row = message(n, from, u64::from(n));
         row.kind = InboundKind::Text;
@@ -808,7 +855,11 @@ async fn a_slowed_or_unreadable_photo_is_read_as_the_hooks_say() {
     let from = peer();
     let key = human_key();
     let photo = interweave_human_app_core::card_photo::prepare_photo(&png()).expect("prepared");
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     store
         .commit_unread_inbound(&card(1, &key, &from, 1, Some(&photo.bytes)))
         .expect("committed");
@@ -906,7 +957,11 @@ fn reply_line(root: &Root, key: &ConversationKey, text: &str) -> Option<Reply> {
 async fn a_reply_target_beyond_the_window_reads_present_from_the_store() {
     let from = peer();
     let other = peer();
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     for n in 1..=77 {
         let mut row = message(n, &from, u64::from(n));
         row.kind = InboundKind::Text;

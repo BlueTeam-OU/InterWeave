@@ -240,6 +240,7 @@ mod identity_tests {
         std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).expect("chmod");
         HumanStore::open(
             &state.join("human.sqlite3"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             interweave_human_store::StoreOptions::default(),
         )
         .expect("opens")

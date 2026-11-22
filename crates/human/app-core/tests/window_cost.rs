@@ -281,7 +281,12 @@ async fn cost(rows: u32) -> Cost {
     let path = dir.path().join("state").join("human.sqlite3");
     let from = peer();
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         for n in 1..=rows {
             store
                 .commit_unread_inbound(&message(n, &from))
@@ -294,7 +299,12 @@ async fn cost(rows: u32) -> Cost {
     drop(
         facade(
             &a,
-            HumanStore::open(&path, StoreOptions::default()).expect("store"),
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("store"),
         )
         .start()
         .expect("started"),
@@ -302,7 +312,12 @@ async fn cost(rows: u32) -> Cost {
 
     let mut side = facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     );
     let mut model = ModelSide::new(Blind, NoOpener);
     let step = Peak::from_here();

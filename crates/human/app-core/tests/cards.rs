@@ -123,9 +123,13 @@ fn facade_with_wall(
     key: Option<IdentityKey>,
     wall: impl Fn() -> u64 + Send + Sync + 'static,
 ) -> FacadeSide<FakeNode, FakeNode> {
-    let store =
-        HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
-            .expect("store");
+    let store = HumanStore::open_profile(
+        &profile.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     let client = TransportClient::new(
         node.clone(),
         node.clone(),
@@ -360,8 +364,13 @@ async fn a_valid_card_accepted_creates_the_contact_and_names_the_conversation() 
         "Ada Lovelace",
         "the conversation takes the name"
     );
-    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
+    let store = HumanStore::open_profile(
+        &pb.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(
         store.unread_inbound().expect("read").is_empty(),
         "the card has no Keep"
@@ -382,8 +391,13 @@ async fn a_declined_card_leaves_nothing_in_the_store() {
     bob.will(Intent::DeclineCard(row));
     bob.pump(5).await;
     assert!(bob.model().proposals(&direct(a.peer())).is_empty());
-    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
+    let store = HumanStore::open_profile(
+        &pb.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(store.contacts().expect("read").is_empty(), "no contact");
     assert!(
         store.unread_inbound().expect("read").is_empty(),
@@ -449,8 +463,13 @@ async fn a_shown_card_left_undecided_is_gone_after_a_restart() {
     );
     Box::pin(bob.facade.close()).await;
     drop(bob);
-    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
+    let store = HumanStore::open_profile(
+        &pb.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(
         store.unread_inbound().expect("read").is_empty(),
         "no durable copy once shown"
@@ -558,8 +577,13 @@ async fn a_keep_of_a_shown_cards_copy_is_refused_and_the_card_stays_decidable() 
     );
     Box::pin(bob.facade.close()).await;
     drop(bob);
-    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
+    let store = HumanStore::open_profile(
+        &pb.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(
         store.kept_inbound().expect("read").is_empty(),
         "no card kept: nothing else was asked to be"
@@ -578,9 +602,13 @@ fn own_card_raw(profile: &Profile, name: &str, width: u32, height: u32) {
     image::DynamicImage::ImageRgb8(image::RgbImage::new(width, height))
         .write_to(&mut bytes, image::ImageFormat::Jpeg)
         .expect("encoded");
-    let mut store =
-        HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
-            .expect("store");
+    let mut store = HumanStore::open_profile(
+        &profile.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     store
         .set_own_card(
             &OwnCard {
@@ -632,8 +660,13 @@ async fn share_without_a_key_sends_nothing() {
         alice.failed(),
         vec![(Command::ShareCard(direct(b.peer())), Failure::NoIdentityKey)]
     );
-    let store = HumanStore::open_profile(&pa.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
+    let store = HumanStore::open_profile(
+        &pa.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(store.pending_outbound().expect("read").is_empty());
 }
 
@@ -858,9 +891,13 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let pb = profile();
     let row = {
-        let mut store =
-            HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
-                .expect("store");
+        let mut store = HumanStore::open_profile(
+            &pb.paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         store
             .commit_unread_inbound(&NewInbound {
                 app_message_id: AppMessageId::parse("0000000000000000000000000000000c".to_owned())
@@ -927,8 +964,13 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
     );
     Box::pin(bob.facade.close()).await;
     drop(bob);
-    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
+    let store = HumanStore::open_profile(
+        &pb.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(
         store.kept_inbound().expect("read").is_empty(),
         "nothing kept"
@@ -956,8 +998,13 @@ async fn a_received_cards_stored_kind_is_the_listings_own() {
     );
     Box::pin(bob.facade.close()).await;
     drop(bob);
-    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
+    let store = HumanStore::open_profile(
+        &pb.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     let rows = store.unread_inbound().expect("read");
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].kind, interweave_human_store::InboundKind::Card);
@@ -1409,8 +1456,13 @@ async fn undo_of_an_accept_deletes_the_contact_and_the_proposal_returns_to_accep
     assert!(bob.model().contacts().is_empty(), "the contact is gone");
     assert!(bob.model().card_answers(&from_alice).is_empty());
     assert_eq!(bob.model().proposals(&from_alice).len(), 1, "back");
-    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
+    let store = HumanStore::open_profile(
+        &pb.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(store.contacts().expect("read").is_empty(), "nothing stored");
     assert!(
         store.unread_inbound().expect("read").is_empty(),
@@ -1613,10 +1665,15 @@ fn queued(root: &Root) -> interweave_human_store::RowId {
 
 /// The share Details names, as the store holds it.
 fn stored_share(profile: &Profile, to: &FakeNode) -> Option<u64> {
-    HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen")
-        .card_shared_at(to.peer(), &human())
-        .expect("read")
+    HumanStore::open_profile(
+        &profile.paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen")
+    .card_shared_at(to.peer(), &human())
+    .expect("read")
 }
 
 /// Cards section 5.3, architect-cto's ruling of 2026-10-27: a
@@ -1844,9 +1901,13 @@ async fn a_pending_card_the_grammar_refuses_stays_undecodable() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let pa = profile();
     {
-        let mut store =
-            HumanStore::open_profile(&pa.paths, &FilesystemCustody, StoreOptions::default())
-                .expect("store");
+        let mut store = HumanStore::open_profile(
+            &pa.paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let card = format!(
             r#"{{"v":2,"kind":"contact_card","app_message_id":"{id}","card":{{"name":"{name}","identity_key":"{key}","signature":"{sig}"}}}}"#,
             id = "a".repeat(32),
@@ -2044,7 +2105,12 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
     let client = TransportClient::new(
         b.clone(),
         b.clone(),
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: vec![human()],
@@ -2069,13 +2135,15 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
         .expect("peer id");
     let conn = rusqlite::Connection::open(&path).expect("open");
     conn.execute(
-        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO contact_routes
+             (contact_id, local_endpoint_id, peer_id, endpoint_id, identity_key)
+         VALUES (?1, ?5, ?2, ?3, ?4)",
         rusqlite::params![
             contact_id,
             other.as_str(),
             human().as_str(),
-            [7_u8; 32].as_slice()
+            [7_u8; 32].as_slice(),
+            interweave_test_support::endpoint_keys::endpoint_id("human").as_str()
         ],
     )
     .expect("seeded");
