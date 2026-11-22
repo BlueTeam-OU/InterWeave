@@ -1041,9 +1041,10 @@ pass before it lands.
 ## 15. Deliberately left out
 
 - **Replacing an identity whose key is lost** (ADR-0067 d. 5: a new
-  identity, never a new key under the old name). It changes
-  `design/2026-10-24-identity-key.md` whole and is asked for as its own
-  revision; nothing here builds "make a new key".
+  identity, never a new key under the old name). It is
+  `design/2026-10-24-identity-key.md`'s own revision: part 1 (the
+  interim, no Make a new key) on 2026-11-22, part 2 (the replacement)
+  to follow; nothing here builds "make a new key".
 - **Per-conversation notifications** and any inline reply: the build
   has a count notification, and cards §5.7.5's rule (an inline reply
   names the identity it replies as) stands for later.
@@ -1060,10 +1061,10 @@ pass before it lands.
   (`labels.rs`) still call it "identity", which with two identities
   reads as one of them; `design/2026-10-19-android-identity.md` already
   says PeerId in all eight, so that gap is the build's, rust-ui-dev's.
-  `IdR1NewKeys` ("each identity gets a new key") contradicts ADR-0067
-  d. 5 in that note and in the build alike; it is that note's to
-  revise, with the identity-key revision above, the words
-  language-culture's.
+  `IdR1NewKeys` ("each identity gets a new key") contradicted ADR-0067
+  d. 5 in that note and in the build alike; that note revised it on
+  2026-11-22 with the identity-key note's part 1 (job j159), the words
+  language-culture's, and the build's string is rust-ui-dev's.
 
 ## 16. Questions
 

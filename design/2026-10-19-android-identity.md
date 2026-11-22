@@ -606,9 +606,13 @@ more statements follow it, before the primary, because
 `IdActiveElsewhere` (an identity still running on another device would
 be on two devices, which must not happen, and this phone cannot
 check: ADR-0043), and `IdR1NewKeys` (a fresh install has no identity
-keys, so each identity gets a new key and every contact will see a
-key change for it: ADR-0063 decision 1), shown whenever the state root
-has no `identity-keys/` directory, as on every fresh install, the one
+keys and the words do not bring them back, so each identity is
+replaced by a new one, which every contact sees as a new identity, not
+a changed key: ADR-0067 decision 5; until the Stage 22 release each
+identity got a new key under its old name and contacts saw a key
+change, ADR-0063 decision 1), shown whenever the state root has no
+`endpoint-keys/` directory (`identity-keys/` until the Stage 22
+release, ADR-0067 decision 3), as on every fresh install, the one
 condition K1 uses too. Both are statements, never
 gates: nothing is asked and nothing refuses. They are on R1 and not on
 R2, whose keypad, suggestions and primary must fit at 200 %
@@ -664,7 +668,7 @@ inputs: a record that opens (no K1), a record that names a PeerId
 (restore to it), and a record that names none (`IdQNoPath`). When the
 record names a PeerId, K1 shows it, and after its reason the same
 `IdActiveElsewhere` as R1 (§3.3), with `IdR1NewKeys` under it when the
-state root has no `identity-keys/` directory. K1 with no primary
+state root has no `endpoint-keys/` directory. K1 with no primary
 (below) takes no phrase and shows neither.
 Primary: enter my recovery phrase (→ R2, then straight to the check
 against that PeerId, with no R3). Back leaves the app. K1 shows again
@@ -1974,7 +1978,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdR1Body` | You need your 24 words, and the PeerId that goes with them: from your paper, or from a contact who has it. The app stays offline until the restore is done. | R1's body, three lines. "The PeerId that goes with them" is true whether the person moved phones or reinstalled on the same one |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdActiveElsewhere` (new) | If another device still uses this PeerId, a restore here puts the same PeerId on two devices. One PeerId must never be on two devices, and this phone cannot check whether another device uses it. | R1, and K1 when it offers a restore, before the primary (§3.3, §3.4); `human-client-ui.md` §9, ADR-0043; must say the phone cannot check, and ask nothing |
-| `IdR1NewKeys` (new) | Your words restore your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see a new key for each identity. | R1 and K1, each when the state root has no `identity-keys/` (always on R1 after a fresh install), before the primary; `human-client-ui.md` §9, ADR-0063 decision 1; must say the phrase restores the device, not the identities' keys, and that contacts see a key change |
+| `IdR1NewKeys` (changed 2026-11-22, *proposed*, for language-culture-en to finalise) | Your words restore your PeerId, but not the keys of your identities. Each identity's key is gone, and each identity is replaced by a new one. Your contacts will see a new identity. | R1 and K1, each when the state root has no `endpoint-keys/` (always on R1 after a fresh install), before the primary; `human-client-ui.md` §9, ADR-0067 decision 5; must say the phrase restores the PeerId, not the identities' keys, that each identity is replaced by a new one, and that contacts see a new identity; never that they see a key change (architect-cto, REQUEST 01a202c7). Until the Stage 22 release: "Your words restore your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see a new key for each identity." |
 | `IdCheckWords` | Check my words | R2's primary |
 | `IdR1Settings` | Your words restore your PeerId only. Your name and photo, contacts, trust, settings and messages are not part of them. | R1's line under the body, three lines: the same statement, with nothing asked |
 | `IdR3NoPeerId` | If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches. | R3, under the question: about three lines at 100 %, one over the space. A contact can hold one PeerId per device, so the text names which one |
@@ -2082,7 +2086,7 @@ landscape:
 9. Recovery required: with the record's key invalidated (rust-ui-dev's
    test hook), launch shows K1 with `IdQReasonKey` and the expected
    PeerId, and `IdActiveElsewhere` after its reason (with
-   `IdR1NewKeys` only when the hook also removes `identity-keys/`).
+   `IdR1NewKeys` only when the hook also removes `endpoint-keys/`).
    The right phrase restores with no R3. Another identity's
    phrase shows `IdOtherIdentity` with both PeerIds and restores
    nothing. With the record's PeerId field made unreadable (a test
