@@ -3642,6 +3642,7 @@ dependencies = [
  "brotli",
  "bs58",
  "ed25519-dalek",
+ "interweave-test-support",
  "interweave-transport-api",
  "pulldown-cmark",
  "serde",
