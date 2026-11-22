@@ -555,29 +555,32 @@ ui_texts! {
     TrustSuperseded => "The change for {peer} was not saved, because a change made at the same time in another app or window on this device was kept. The list shows what is in effect.",
     /// ANDROID, identity screens: W's title.
     IdWelcomeTitle => "Welcome to InterWeave",
-    /// ANDROID, identity screens: W's body, two lines.
-    IdWelcomeBody => "Exchange messages with the people you trust, directly from this phone. There is no account to create.",
+    /// ANDROID, identity screens: W's body, three lines.
+    IdWelcomeBody => "Exchange messages with the people you trust, from this phone. There is no account. Your contacts know this phone by its PeerId, a public code.",
     /// ANDROID, identity screens: W's notice while the void-paper marker
     /// is set (§3.1), three lines.
     IdVoidPaper => "The words shown last time were never used, so they do not restore this phone's PeerId. Do not use the paper where you wrote those words as your backup.",
     /// ANDROID, identity screens: W's primary.
-    IdCreate => "Create a new identity",
+    IdCreate => "Create a new PeerId",
     /// ANDROID, identity screens: W's secondary.
-    IdRestore => "Restore my identity",
+    IdRestore => "Restore my PeerId",
     /// ANDROID, identity screens: C1's title.
     IdC1Title => "About your recovery phrase",
     /// ANDROID, identity screens: C1, first point.
-    IdC1Point1 => "These 24 words are the key to your identity. With them, you can restore it on another phone.",
+    IdC1Point1 => "These 24 words are the key to your PeerId. With them, you can move your PeerId to a new phone.",
     /// ANDROID, identity screens: C1, second point.
-    IdC1Point2 => "Write them on paper, in order, with your PeerId. Store the paper in a safe place.",
-    /// ANDROID, identity screens: C1, third point: "can be you", without
+    IdC1Point2 => "They are an InterWeave recovery phrase, not a cryptocurrency wallet seed.",
+    /// ANDROID, identity screens: C1, third point.
+    IdC1Point3 => "Write them on paper, in order, with your PeerId. Store the paper in a safe place.",
+    /// ANDROID, identity screens: C1, fourth point: "can be you", without
     /// alarm.
-    IdC1Point3 => "Anyone who has these words can act as you in InterWeave. Do not show them to anyone.",
-    /// ANDROID, identity screens: C1, fourth point (human-client-ui.md
+    IdC1Point4 => "Anyone who has these words can act as you in InterWeave. Do not show them to anyone.",
+    /// ANDROID, identity screens: C1, fifth point (human-client-ui.md
     /// §9).
-    IdC1Point4 => "The words bring back your identity only, not your contacts or your settings.",
-    /// ANDROID, identity screens: C1, fifth point (§11 Q3).
-    IdC1Point5 => "Your identity exists only after you finish, by checking two of the words.",
+    IdC1Point5 => "The words restore your PeerId only, not your name and photo, contacts, trust, settings or messages.",
+    /// ANDROID, identity screens: C1, sixth point (§11 Q3).
+    // PLACEHOLDER (en)
+    IdC1Point6 => "Your PeerId is created only after you check two of the words.",
     /// ANDROID, identity screens: C1's primary.
     IdShowWords => "Show my words",
     /// ANDROID, identity screens: C2's and S2's title.
@@ -609,7 +612,7 @@ ui_texts! {
     /// ANDROID, identity screens: R4's title.
     IdRestoredTitle => "PeerId restored",
     /// ANDROID, identity screens: C4's and R4's body.
-    IdCreatedBody => "When you continue, the app connects to the network with this identity.",
+    IdCreatedBody => "When you continue, the app connects to the network with this PeerId.",
     /// ANDROID, identity screens: C4's and R4's primary.
     IdContinue => "Continue",
     /// ANDROID, identity screens: C4's title while `IdAlreadyCreated`
@@ -639,15 +642,15 @@ ui_texts! {
     /// the identity was not created or not restored: one is on record.
     IdStartBusy => "The app could not go online because this profile is busy. Wait a moment, then try again.",
     /// ANDROID, identity screens: R1's title.
-    IdR1Title => "Restore your identity",
+    IdR1Title => "Restore your PeerId",
     /// ANDROID, identity screens: R1's body, three lines.
-    IdR1Body => "You need your 24 words, and your PeerId from your paper or from a contact's app. The app stays offline until the restore is done.",
+    IdR1Body => "You need your 24 words, and the PeerId that goes with them: from your paper, or from a contact who has that PeerId. The app stays offline until the restore is done.",
     /// ANDROID, identity screens: R1's primary.
     IdEnterWords => "Enter my words",
     /// ANDROID, identity screens: R2's primary.
     IdCheckWords => "Check my words",
-    /// ANDROID, identity screens: R1's line under the body, two lines.
-    IdR1Settings => "The words bring back your identity only. Your contacts and settings are not part of them.",
+    /// ANDROID, identity screens: R1's line under the body, three lines.
+    IdR1Settings => "Your words restore your PeerId only. They do not restore your name and photo, contacts, trust, settings or messages.",
     /// ANDROID, identity screens: R1's and, when it offers a restore,
     /// K1's line before the phrase is taken: an identity still running
     /// on another device would be on two (`human-client-ui.md` section
@@ -662,7 +665,7 @@ ui_texts! {
     /// ADR-0063 decision 1). A statement, not a question.
     IdR1NewKeys => "Your words bring back your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see that each key changed.",
     /// ANDROID, identity screens: R3, two lines under the question.
-    IdR3NoPeerId => "If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches.",
+    IdR3NoPeerId => "If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches.",
     /// ANDROID, identity screens: R3's question, two lines.
     IdR3Question => "Is this the PeerId that you wrote down? If it is not, a word may be wrong.",
     /// ANDROID, identity screens: R3's primary.
@@ -672,15 +675,15 @@ ui_texts! {
     /// ANDROID, identity screens: K1's title.
     IdQTitle => "This phone needs your recovery phrase",
     /// ANDROID, identity screens: K1 for `KeyInvalidated` and `KeyMissing`.
-    IdQReasonKey => "This phone's screen lock or security changed, so the app cannot open your identity. Restore it with your recovery phrase.",
+    IdQReasonKey => "This phone's screen lock or security changed, so the app cannot use your PeerId. Restore it with your recovery phrase.",
     /// ANDROID, identity screens: K1 for Record, Authentication and
     /// `WrongIdentity`.
-    IdQReasonRecord => "The app cannot read your identity on this phone. Restore it with your recovery phrase.",
+    IdQReasonRecord => "The app cannot use the PeerId saved on this phone. Restore your PeerId with your recovery phrase.",
     /// ANDROID, identity screens: K1's primary.
     IdEnterPhrase => "Enter my recovery phrase",
     /// ANDROID, identity screens: K1's plain text below its primary
     /// (§3.4), three lines.
-    IdQLost => "If your words are lost, clear this app's data in the phone's settings. That starts a new identity, which each contact must trust again.",
+    IdQLost => "If your words are lost, clear this app's data in the phone's settings. That gives this phone a new PeerId, which each contact must trust again.",
     /// ANDROID, identity screens: The label of the expected `PeerId`, on K1
     /// and in `IdOtherIdentity`'s banner.
     IdExpectedPeerId => "PeerId this phone expects",
