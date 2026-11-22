@@ -18,7 +18,7 @@ use std::fmt::Write as _;
 use interweave_ipc_client::{IpcAdmin, IpcBinding, SocketPaths};
 use interweave_local_client_api::{
     AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, TrustChange,
-    TrustSource,
+    TrustDirection, TrustSource,
 };
 use interweave_profile_config::endpoint_overlay::EndpointOverlay;
 use interweave_profile_config::{
@@ -55,11 +55,17 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
     // Resolved before the connection: an alias that names nothing is
     // refused with nothing sent.
     let write = resolve_write(&paths, &action)?;
+    let trust_endpoint = match &action {
+        Admin::TrustList(Some(endpoint)) | Admin::SetTrust(_, _, Some(endpoint)) => {
+            Some(resolve(&paths, endpoint)?)
+        }
+        _ => None,
+    };
     let binding = IpcBinding::new(sockets.clone(), CLIENT_KIND);
     let capability = match action {
         Admin::Status | Admin::PeersList => AdminCapability::Status,
         Admin::Shutdown(_) => AdminCapability::Shutdown,
-        Admin::TrustList | Admin::SetTrust(..) => AdminCapability::Trust,
+        Admin::TrustList(_) | Admin::SetTrust(..) => AdminCapability::Trust,
         Admin::AddAddress(_)
         | Admin::RemoveAddress(_)
         | Admin::ListAddresses
@@ -110,8 +116,17 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
     // And so does a set refused as superseded: another admin
     // connection's later set for the peer stands (LOCAL-IPC.md
     // §Cancellation mapping and request concurrency).
-    if let Admin::SetTrust(peer, allowed) = &action {
-        return match port.set_trust(peer.clone(), *allowed).await.map_err(code)? {
+    if let Admin::SetTrust(peer, allowed, _) = &action {
+        // For an endpoint, both directions of its own set: the method has
+        // no way to write one alone (LOCAL-IPC.md, The endpoint dimension).
+        let change = match &trust_endpoint {
+            Some(endpoint) => {
+                port.set_endpoint_trust(endpoint.clone(), peer.clone(), *allowed)
+                    .await
+            }
+            None => port.set_trust(peer.clone(), *allowed).await,
+        };
+        return match change.map_err(code)? {
             TrustChange::Set => Ok(format!(
                 "{} {}\n",
                 if *allowed { "allowed" } else { "revoked" },
@@ -122,6 +137,11 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
                 reason.as_str()
             ))),
         };
+    }
+    if let Some(endpoint) = &trust_endpoint {
+        return endpoint_trust_list(&port, endpoint, json)
+            .await
+            .map_err(code);
     }
     let peers = action == Admin::PeersList;
     let show = action == Admin::ShowAddresses;
@@ -250,6 +270,64 @@ async fn endpoint_write(port: &IpcAdmin, write: EndpointWrite) -> Result<String,
     })
 }
 
+/// `trust list --endpoint`: both directions of the endpoint's effective
+/// set, the inbound pages and then the outbound ones. Text: the set the
+/// daemon names, then one row per peer and direction with its source.
+/// `--json`: every page as the daemon sent it, one `ipc/trust-list` a
+/// line, inbound first; a page without `next` ends a direction, since a
+/// page does not carry its direction.
+async fn endpoint_trust_list(
+    port: &IpcAdmin,
+    endpoint: &EndpointId,
+    json: bool,
+) -> Result<String, TransportError> {
+    let inbound = port
+        .endpoint_trust_pages(endpoint, TrustDirection::Inbound)
+        .await?;
+    let outbound = port
+        .endpoint_trust_pages(endpoint, TrustDirection::Outbound)
+        .await?;
+    let mut out = String::new();
+    if json {
+        for page in inbound.iter().chain(&outbound) {
+            out += &serde_json::to_string(page).unwrap_or_default();
+            out.push('\n');
+        }
+        return Ok(out);
+    }
+    // Each direction's pages carry one `set` (`endpoint_trust_pages`); the
+    // two are read in two calls, so a write between them may differ.
+    let inbound_set = inbound
+        .first()
+        .and_then(|page| page.set)
+        .map_or("", |set| set.as_str());
+    let outbound_set = outbound
+        .first()
+        .and_then(|page| page.set)
+        .map_or("", |set| set.as_str());
+    if inbound_set == outbound_set {
+        let _ = writeln!(out, "set       {inbound_set}");
+    } else {
+        let _ = writeln!(
+            out,
+            "set       inbound {inbound_set}, outbound {outbound_set}"
+        );
+    }
+    for (name, pages) in [("inbound", &inbound), ("outbound", &outbound)] {
+        for row in pages.iter().flat_map(|page| &page.allowed) {
+            let _ = write!(out, "{name:<9} {}", row.peer.as_str());
+            match row.source {
+                Some(TrustSource::Configured) => out += "  configured",
+                Some(TrustSource::Administered) => out += "  administered",
+                None => {}
+            }
+            out.push('\n');
+        }
+    }
+    out += "every other peer is denied\n";
+    Ok(out)
+}
+
 /// Tell "no daemon" from "a daemon whose socket is gone" by the lock: a
 /// `try_lock` released at once, which the daemon's own one-second retry
 /// absorbs, so a probe cannot fail a starting daemon (plan §16 (10)).
@@ -376,7 +454,7 @@ async fn call(
             port.request_shutdown(grace).await?;
             "shutdown requested\n".to_owned()
         }
-        Admin::TrustList => {
+        Admin::TrustList(None) => {
             let pages = port.trust_pages().await?;
             let mut out = String::new();
             if json {
@@ -504,6 +582,7 @@ async fn call(
         Admin::AddAddress(_)
         | Admin::RemoveAddress(_)
         | Admin::SetTrust(..)
+        | Admin::TrustList(Some(_))
         | Admin::Revoke(_)
         | Admin::SetEnabled(..)
         | Admin::SetDefault(_) => {

@@ -28,8 +28,8 @@ usage:
   transportctl --profile <name> endpoints list [--json]
   transportctl --profile <name> endpoints revoke|enable|disable <endpoint>
   transportctl --profile <name> endpoints default <endpoint>|--none
-  transportctl --profile <name> trust list [--json]
-  transportctl --profile <name> trust allow|revoke <peer>
+  transportctl --profile <name> trust list [--endpoint <endpoint>] [--json]
+  transportctl --profile <name> trust allow|revoke <peer> [--endpoint <endpoint>]
   transportctl --profile <name> peers list [--json]
   transportctl --profile <name> peers add|remove <multiaddr-with-peer-id>
   transportctl --profile <name> peers addresses [--json]
@@ -45,6 +45,9 @@ usage:
   transportctl --profile <name> identity restore --replace --replacing <peer> [--expected-peer-id <peer>]
 
 An <endpoint> is its EndpointId or its alias, resolved from config.yaml and the endpoint overlay.
+With --endpoint, trust reads or writes that endpoint's own set: list prints both directions
+(--json: the inbound pages, then the outbound ones, a page without `next` ending a direction), and
+allow|revoke writes both.
 The recovery phrase, or a recovery record, is read from stdin -- hidden on a terminal.";
 
 /// The workspace version with the commit as build metadata (ADR-0065
@@ -114,10 +117,13 @@ pub(crate) enum Admin {
     SetDefault(Option<EndpointSelector>),
     /// `admin.shutdown`, with the grace if one was given.
     Shutdown(Option<Duration>),
-    /// `admin.trust.list`, every page.
-    TrustList,
-    /// `admin.trust.set`: allow the peer, or revoke it.
-    SetTrust(TransportIdentity, bool),
+    /// `admin.trust.list`, every page: the operator's list, or with an
+    /// endpoint (resolved by `admin::run` before anything is sent) both
+    /// directions of that endpoint's set (3.0).
+    TrustList(Option<EndpointSelector>),
+    /// `admin.trust.set`: allow the peer, or revoke it; for an endpoint's
+    /// own set when one is given (3.0).
+    SetTrust(TransportIdentity, bool, Option<EndpointSelector>),
     /// `admin.peers.list`, every page (3.0; IPC 2.2 on major 2).
     PeersList,
     /// `admin.peers.add_address` (3.0; IPC 2.7 on major 2). The address is the daemon's
@@ -200,6 +206,7 @@ struct Flags {
     expected: Option<String>,
     replacing: Option<String>,
     alias: Option<String>,
+    endpoint: Option<String>,
     new: bool,
     replace: bool,
 }
@@ -239,6 +246,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             "--expected-peer-id" => value(&mut flags.expected, "--expected-peer-id")?,
             "--replacing" => value(&mut flags.replacing, "--replacing")?,
             "--alias" => value(&mut flags.alias, "--alias")?,
+            "--endpoint" => value(&mut flags.endpoint, "--endpoint")?,
             "--json" => flags.json = true,
             "--none" => flags.none = true,
             "--new" => flags.new = true,
@@ -265,6 +273,16 @@ fn admin(words: &[&str], mut flags: Flags) -> Result<Command, String> {
             .ok_or_else(|| "the endpoint: neither an EndpointId nor an alias".to_owned())
     };
     let peer = |id: &str| TransportIdentity::parse(id).map_err(|e| format!("the peer: {e}"));
+    // Only the trust commands take it; `refuse_leftovers` refuses it on the rest.
+    let trust_endpoint = if matches!(words, ["trust", ..]) {
+        flags
+            .endpoint
+            .take()
+            .map(|text| endpoint(&text))
+            .transpose()?
+    } else {
+        None
+    };
     let (action, json_allowed) = match words {
         ["status"] => (Admin::Status, true),
         ["endpoints", "list"] => (Admin::EndpointsList, true),
@@ -275,9 +293,9 @@ fn admin(words: &[&str], mut flags: Flags) -> Result<Command, String> {
             (Admin::SetDefault(None), false)
         }
         ["endpoints", "default", id] => (Admin::SetDefault(Some(endpoint(id)?)), false),
-        ["trust", "list"] => (Admin::TrustList, true),
-        ["trust", "allow", id] => (Admin::SetTrust(peer(id)?, true), false),
-        ["trust", "revoke", id] => (Admin::SetTrust(peer(id)?, false), false),
+        ["trust", "list"] => (Admin::TrustList(trust_endpoint), true),
+        ["trust", "allow", id] => (Admin::SetTrust(peer(id)?, true, trust_endpoint), false),
+        ["trust", "revoke", id] => (Admin::SetTrust(peer(id)?, false, trust_endpoint), false),
         ["peers", "list"] => (Admin::PeersList, true),
         ["peers", "add", address] => (Admin::AddAddress((*address).to_owned()), false),
         ["peers", "remove", address] => (Admin::RemoveAddress((*address).to_owned()), false),
@@ -413,6 +431,7 @@ fn refuse_leftovers(flags: &Flags) -> Result<(), String> {
         ("--expected-peer-id", flags.expected.is_some()),
         ("--replacing", flags.replacing.is_some()),
         ("--alias", flags.alias.is_some()),
+        ("--endpoint", flags.endpoint.is_some()),
         ("--new", flags.new),
         ("--replace", flags.replace),
     ];
@@ -569,7 +588,7 @@ mod tests {
         };
         assert_eq!(
             admin_of("--profile p trust list --json"),
-            (Admin::TrustList, true)
+            (Admin::TrustList(None), true)
         );
         assert_eq!(
             admin_of("--profile p peers list --json"),
@@ -610,14 +629,59 @@ mod tests {
             admin_of(
                 "--profile p trust allow 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
             ),
-            (Admin::SetTrust(peer(), true), false)
+            (Admin::SetTrust(peer(), true, None), false)
         );
         assert_eq!(
             admin_of(
                 "--profile p trust revoke 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
             ),
-            (Admin::SetTrust(peer(), false), false)
+            (Admin::SetTrust(peer(), false, None), false)
         );
+        // The endpoint dimension (IPC 3.0): `--endpoint` is an id or an
+        // alias on each trust command, the operator's form beside it.
+        let alias = || EndpointSelector::Alias(EndpointAlias::parse("human").expect("alias"));
+        assert_eq!(
+            admin_of(&format!("--profile p trust list --endpoint {HUMAN} --json")),
+            (Admin::TrustList(Some(human())), true)
+        );
+        assert_eq!(
+            admin_of("--profile p trust list --endpoint human"),
+            (Admin::TrustList(Some(alias())), false)
+        );
+        assert_eq!(
+            admin_of(&format!("--profile p trust allow {PEER} --endpoint human")),
+            (
+                Admin::SetTrust(
+                    TransportIdentity::parse(PEER).expect("peer"),
+                    true,
+                    Some(alias())
+                ),
+                false
+            )
+        );
+        assert_eq!(
+            admin_of(&format!(
+                "--endpoint {HUMAN} --profile p trust revoke {PEER}"
+            )),
+            (
+                Admin::SetTrust(
+                    TransportIdentity::parse(PEER).expect("peer"),
+                    false,
+                    Some(human())
+                ),
+                false
+            )
+        );
+        for bad in [
+            "--profile p trust list --endpoint",
+            "--profile p trust list --endpoint 1bad!",
+            "--profile p trust list --endpoint human --endpoint human",
+            "--profile p status --endpoint human",
+            "--profile p peers list --endpoint human",
+            "--profile p endpoints revoke human --endpoint human",
+        ] {
+            assert!(parse_str(bad).is_err(), "{bad}");
+        }
         assert_eq!(
             admin_of("--profile p shutdown"),
             (Admin::Shutdown(None), false)

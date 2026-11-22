@@ -914,6 +914,130 @@ fn an_unknown_alias_is_refused_with_nothing_sent() {
     assert_eq!(asked[0].1["endpoint"], human.as_str());
 }
 
+fn trust_answers(method: &str) -> Value {
+    match method {
+        "admin.trust.list" => json!({
+            "set": "own",
+            "allowed": [{"peer": PEER, "persisted": true, "source": "administered"}]
+        }),
+        "admin.trust.set" => json!({"outcome": "set"}),
+        _ => json!({}),
+    }
+}
+
+/// `trust list|allow|revoke --endpoint` (IPC 3.0, LOCAL-IPC.md The
+/// endpoint dimension): an alias and the id it names send the same
+/// requests, `list` asking each direction, and a command without the flag
+/// sends neither new member (the control).
+#[test]
+fn trust_endpoint_sends_the_same_requests_for_an_alias_and_its_id() {
+    let home = Home::new();
+    two_entries(&home);
+    let (human, _) = ids();
+    let run = |args: &[&str]| {
+        let script = scripted(&home, &["admin.trust"], trust_answers);
+        let out = home.run(args);
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{args:?}: {}",
+            text(&out.stderr)
+        );
+        (script.asked(), text(&out.stdout))
+    };
+    for endpoint in ["human", human.as_str()] {
+        let (asked, _) = run(&["trust", "allow", PEER, "--endpoint", endpoint]);
+        assert_eq!(
+            asked,
+            [(
+                "admin.trust.set".to_owned(),
+                json!({"peer": PEER, "allowed": true, "endpoint": human.as_str()})
+            )],
+            "{endpoint}"
+        );
+        let (asked, _) = run(&["trust", "revoke", PEER, "--endpoint", endpoint]);
+        assert_eq!(
+            asked,
+            [(
+                "admin.trust.set".to_owned(),
+                json!({"peer": PEER, "allowed": false, "endpoint": human.as_str()})
+            )],
+            "{endpoint}"
+        );
+        let (asked, shown) = run(&["trust", "list", "--endpoint", endpoint]);
+        assert_eq!(
+            asked,
+            [
+                (
+                    "admin.trust.list".to_owned(),
+                    json!({"endpoint": human.as_str(), "direction": "inbound"})
+                ),
+                (
+                    "admin.trust.list".to_owned(),
+                    json!({"endpoint": human.as_str(), "direction": "outbound"})
+                ),
+            ],
+            "{endpoint}"
+        );
+        // Both directions, the set named.
+        assert!(shown.contains("set       own"), "{shown}");
+        assert!(
+            shown.contains(&format!("inbound   {PEER}  administered")),
+            "{shown}"
+        );
+        assert!(
+            shown.contains(&format!("outbound  {PEER}  administered")),
+            "{shown}"
+        );
+    }
+    // --json: each direction's pages as the daemon sent them, inbound first.
+    let (_, shown) = run(&["trust", "list", "--endpoint", "human", "--json"]);
+    let pages: Vec<Value> = shown
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("a page a line"))
+        .collect();
+    assert_eq!(pages.len(), 2, "{shown}");
+    assert!(pages.iter().all(|page| page["set"] == "own"), "{shown}");
+    // The control: no flag, the operator's list, no endpoint member.
+    let (asked, _) = run(&["trust", "allow", PEER]);
+    assert_eq!(
+        asked,
+        [(
+            "admin.trust.set".to_owned(),
+            json!({"peer": PEER, "allowed": true})
+        )]
+    );
+}
+
+/// An alias no entry carries is refused before anything is sent, on each
+/// of the three commands; the id it would have been is the control that
+/// connects.
+#[test]
+fn trust_endpoint_with_an_unknown_alias_is_refused_with_nothing_sent() {
+    let home = Home::new();
+    two_entries(&home);
+    for args in [
+        vec!["trust", "list", "--endpoint", "claude"],
+        vec!["trust", "allow", PEER, "--endpoint", "claude"],
+        vec!["trust", "revoke", PEER, "--endpoint", "claude"],
+    ] {
+        let script = scripted(&home, &["admin.trust"], trust_answers);
+        let out = home.run(&args);
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert!(
+            text(&out.stderr).contains("no configured endpoint has the alias 'claude'"),
+            "{args:?}: {}",
+            text(&out.stderr)
+        );
+        assert!(script.asked().is_empty(), "{args:?}: connected");
+    }
+    let (human, _) = ids();
+    let script = scripted(&home, &["admin.trust"], trust_answers);
+    let out = home.run(&["trust", "list", "--endpoint", human.as_str()]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert_eq!(script.asked().len(), 2, "the control connects");
+}
+
 /// Resolving reads no file under `endpoint-keys/`: at mode 000 it does
 /// not stop an alias from resolving, and nothing in the profile is
 /// written.
