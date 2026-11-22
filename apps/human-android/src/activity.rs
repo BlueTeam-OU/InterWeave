@@ -906,7 +906,10 @@ fn android_main(app: AndroidApp) {
     // next window, whose thread is another, unless the Activity finished
     // (onboard.rs, window_ended):
     // done here, before the glue lets onDestroy return and the platform
-    // makes the next instance. Its link goes with it, and the hub detaches
+    // makes the next instance (BLOCKED on a device run: case D1 of
+    // apps/human-android/device-runs/identity-recreation-cases.md, whose
+    // new window shows Welcome if the flow is parked late). Its link goes
+    // with it, and the hub detaches
     // it on its next send. The session stays the Service's.
     crate::onboard::window_ended();
     ROOT.with(|root| root.borrow_mut().take());
