@@ -9,11 +9,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use interweave_human_app_core::leasable_endpoints;
+use interweave_human_app_core::{IdentityRefused, leasable_endpoints, resolve_identity};
 use interweave_human_store::key_custody::{FilesystemCustody, KeyCipher};
 use interweave_human_store::{HumanStore, STORE_FILE, StoreError, StoreOptions};
 use interweave_profile_config::{
-    HumanClientLock, PersistError, ProfileConfig, ProfilePaths, XdgRoots,
+    EndpointSelector, HumanClientLock, PersistError, ProfileConfig, ProfilePaths, XdgRoots,
 };
 use interweave_transport_api::{ChannelId, EndpointId};
 
@@ -38,6 +38,8 @@ pub(crate) struct Profile {
     pub(crate) data_socket: PathBuf,
     /// The daemon's admin socket.
     pub(crate) admin_socket: PathBuf,
+    /// The profile document, which an alias resolves over.
+    pub(crate) config: ProfileConfig,
 }
 
 /// An invalid profile NAME is said without the name: it is argv.
@@ -63,7 +65,10 @@ pub(crate) fn resolve(profile: &str) -> Result<Profile, Failure> {
             "the profile's configuration, state and runtime directories overlap".to_owned(),
         ));
     }
-    let config = ProfileConfig::load(&paths)
+    // The document alone: a client holds no endpoint key, so it reads
+    // nothing under `endpoint-keys/` (ENDPOINTS.md, an alias is resolved
+    // by the client, A 2026-11-21); a key's header is the daemon's load.
+    let config = ProfileConfig::load_document(&paths)
         .map_err(|e| Failure::Refused(format!("the profile's configuration: {e}")))?;
     let endpoints = leasable_endpoints(&config);
     if endpoints.is_empty() {
@@ -79,6 +84,31 @@ pub(crate) fn resolve(profile: &str) -> Result<Profile, Failure> {
         data_socket: paths.data_socket().map_err(socket)?,
         admin_socket: paths.admin_socket().map_err(socket)?,
         paths,
+        config,
+    })
+}
+
+/// The id of the human endpoint `selector` names in `profile`: what a
+/// session claims and an admin call carries, never the alias
+/// (`interweave_human_app_core::resolve_identity`).
+///
+/// # Errors
+/// [`Failure::Refused`] naming what was given and why it names no
+/// endpoint this client may use.
+pub(crate) fn identity(
+    profile: &Profile,
+    selector: &EndpointSelector,
+) -> Result<EndpointId, Failure> {
+    resolve_identity(&profile.paths, &profile.config, selector).map_err(|e| {
+        Failure::Refused(match e {
+            // The overlay's own text may carry a path: its class is enough
+            // to look at the file.
+            IdentityRefused::Overlay(_) => format!(
+                "{:?} is an alias, and the profile's endpoint overlay could not be read",
+                selector.to_string()
+            ),
+            other => other.to_string(),
+        })
     })
 }
 

@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use interweave_human_store::at_rest::DiscardScope;
 use interweave_human_ui_model::ConversationKey;
+use interweave_profile_config::EndpointSelector;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 
 /// The usage text, every verb and the exit codes.
@@ -96,8 +97,9 @@ pub(crate) enum Command {
         /// How long to wait for the session and for an answer.
         wait: Duration,
         /// The one of the profile's human endpoints to lease, in place of
-        /// the first (`--endpoint`, G2).
-        endpoint: Option<EndpointId>,
+        /// the first (`--endpoint`, G2): its alias or its id, resolved
+        /// once the profile is read (ADR-0067 decision 3).
+        endpoint: Option<EndpointSelector>,
     },
 }
 
@@ -232,13 +234,13 @@ pub(crate) enum Verb {
     /// The identities this client may hold: the profile's human
     /// endpoints, as the daemon reports them.
     IdentitiesList,
-    /// Enable or disable one.
-    SetEnabled(EndpointId, bool),
-    /// Set the default one, or clear it.
-    SetDefault(Option<EndpointId>),
+    /// Enable or disable one, by its alias or its id.
+    SetEnabled(EndpointSelector, bool),
+    /// Set the default one, by its alias or its id, or clear it.
+    SetDefault(Option<EndpointSelector>),
     /// An identity's fingerprint: the one in front, or the named human
-    /// endpoint's.
-    IdentityShow(Option<EndpointId>),
+    /// endpoint's, by its alias or its id.
+    IdentityShow(Option<EndpointSelector>),
     /// A new key for the identity in front, whose key cannot be used:
     /// made only when `confirm` (the person's `--confirm key-change`),
     /// else what it would do is said and nothing changes.
@@ -522,7 +524,12 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     }
     let profile = flags.profile.take().ok_or("--profile <name> is required")?;
     let wait = wait_of(flags.wait.take().as_deref())?;
-    let endpoint = |id: &str| EndpointId::parse(id).map_err(|e| format!("the endpoint: {e}"));
+    // One of this profile's own endpoints, as a person names it: its alias
+    // or its id. Which endpoint it is waits for the profile (main).
+    let endpoint = |text: &str| {
+        EndpointSelector::parse(text)
+            .ok_or_else(|| "the endpoint is neither an EndpointId nor an alias".to_owned())
+    };
     let peer = |id: &str| TransportIdentity::parse(id).map_err(|e| format!("the peer: {e}"));
     let (verb, json_allowed) = match words.as_slice() {
         ["status"] => (Verb::Status, true),
@@ -1172,13 +1179,16 @@ mod tests {
             Ok(Command::Run {
                 endpoint: Some(e),
                 ..
-            }) if e.as_str() == "fabric-control"
+            }) if e.to_string() == "fabric-control"
         ));
         for wrong in [
             vec!["--profile", "p", "status", "--input"],
             vec!["--profile", "p", "status", "--consume"],
             vec!["--profile", "p", "listen", "--no-pending"],
             vec!["--profile", "p", "status", "--endpoint", "human"],
+            // Neither an alias nor an id: a usage error, before any profile.
+            vec!["--profile", "p", "listen", "--endpoint", "Human"],
+            vec!["--profile", "p", "identities", "enable", "12D3KooWnot"],
         ] {
             assert!(run(&wrong).is_err(), "{wrong:?}");
         }
