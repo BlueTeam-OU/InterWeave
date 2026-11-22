@@ -463,20 +463,20 @@ fn endpoint_directory_rules_hold_beside_their_controls() {
         DirectoryResponseV1::decode(&directory(&names(33))).is_err(),
         "33 entries"
     );
-    // 2094 bounds the READ: the 32 × 64 frame of labels is exactly that
-    // long and passes the bound, to be refused by the grammar; one byte
-    // more is refused by the bound itself.
-    let labels: Vec<String> = (0..32)
-        .map(|i| format!("{}{:02}", "a".repeat(62), i))
-        .collect();
-    let at_bound = directory(&labels);
-    assert_eq!(at_bound.len(), MAX_RESPONSE_BYTES);
-    let err = DirectoryResponseV1::decode(&at_bound).unwrap_err();
-    assert!(err.0.contains("grammar"), "{err}");
-    let mut over = at_bound;
+    // The largest legal frame is the read ceiling: it passes the bound
+    // (the decode above), and one byte more is refused by the bound itself.
+    assert_eq!(largest.len(), MAX_RESPONSE_BYTES);
+    assert_eq!(MAX_RESPONSE_BYTES, 1710);
+    let mut over = largest;
     over.push(0);
     let err = DirectoryResponseV1::decode(&over).unwrap_err();
     assert!(err.0.contains("above"), "a byte past the bound: {err}");
+    // An entry of 51 or 53 bytes is malformed by its length, whatever it
+    // holds; the control is the 52-byte id the frames above carry.
+    for len in [51usize, 53] {
+        let err = DirectoryResponseV1::decode(&directory(&["a".repeat(len)])).unwrap_err();
+        assert!(err.0.contains("length"), "{len}: {err}");
+    }
 
     let mut unsorted = names(2);
     unsorted.sort();

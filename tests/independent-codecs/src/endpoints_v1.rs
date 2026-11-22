@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 
-//! `/interweave/endpoints/1.0.0`, from `transport/libp2p/ENDPOINTS.md`
+//! `/interweave/endpoints/2.0.0`, from `transport/libp2p/ENDPOINTS.md`
 //! §Endpoint directory protocol:
 //!
 //! ```text
 //! ListEndpointsV1:     tag:u8 = 0x01                         (exactly one byte)
 //! EndpointDirectoryV1: tag:u8 = 0x01 || generated_at_ms:u64be || ttl_ms:u32be
-//!                      || count:u8 (0..=32) || count × (len:u8 (1..=64) || endpoint)
+//!                      || count:u8 (0..=32) || count × (len:u8 = 52 || endpoint)
 //! DirectoryRefusedV1:  tag:u8 = 0x02 || reason:u8   (1 overloaded, 2 unauthorized, 3 unavailable)
 //! ```
 //!
 //! An endpoint is an `EndpointId`, and an `EndpointId` is the derived id of
 //! `contracts/ENDPOINTS.md` §`EndpointId` (ADR-0067): 52 bytes, so `len` is
-//! 52 in every frame that decodes, and 2094 bounds the read alone. More than
-//! 32 entries, an endpoint outside that grammar (a label of the retired one
+//! 52 in every frame that decodes (any other `len` is malformed), and 1710
+//! bounds the read. More than 32 entries, an endpoint outside that grammar (a label of the retired one
 //! among them), or a duplicate is a protocol violation, never something to
 //! truncate. `ttl_ms` is carried as
 //! sent, because clamping is the receiver's cache rule and not the codec's.
@@ -25,10 +25,10 @@
 //! for its own codes.
 
 use crate::wire::Reader;
-use crate::{DecodeError, is_derived_endpoint_id};
+use crate::{DERIVED_ENDPOINT_ID_BYTES, DecodeError, is_derived_endpoint_id};
 
 /// The protocol id.
-pub const PROTOCOL: &str = "/interweave/endpoints/1.0.0";
+pub const PROTOCOL: &str = "/interweave/endpoints/2.0.0";
 
 /// The one request, exactly one byte.
 pub const REQUEST: [u8; 1] = [0x01];
@@ -36,10 +36,9 @@ pub const REQUEST: [u8; 1] = [0x01];
 /// At most this many entries.
 pub const MAX_ENTRIES: usize = 32;
 
-/// The read bound of a response: 1 + 8 + 4 + 1 + 32 × 65, from the 64-byte
-/// ceiling `len` admits. The largest frame that decodes is 32 derived ids,
-/// 1 + 8 + 4 + 1 + 32 × 53 = 1710.
-pub const MAX_RESPONSE_BYTES: usize = 2094;
+/// The read bound of a response, and the largest frame that decodes: 32
+/// derived ids, 1 + 8 + 4 + 1 + 32 × 53 = 1710.
+pub const MAX_RESPONSE_BYTES: usize = 1710;
 
 /// The refusal reasons, hand-assigned: code = index + 1.
 pub const REASONS: [&str; 3] = ["overloaded", "unauthorized", "unavailable"];
@@ -104,8 +103,10 @@ impl DirectoryResponseV1 {
                 let mut endpoints: Vec<String> = Vec::with_capacity(count);
                 for _ in 0..count {
                     let len = usize::from(r.u8("len")?);
-                    if len == 0 {
-                        return Err(DecodeError("an entry of length 0".to_owned()));
+                    if len != DERIVED_ENDPOINT_ID_BYTES {
+                        return Err(DecodeError(format!(
+                            "an entry of length {len}, not {DERIVED_ENDPOINT_ID_BYTES}"
+                        )));
                     }
                     let label = core::str::from_utf8(r.take(len, "endpoint")?)
                         .ok()
