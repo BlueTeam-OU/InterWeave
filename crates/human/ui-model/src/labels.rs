@@ -687,6 +687,21 @@ ui_texts! {
     /// ANDROID, identity screens: K1's plain text below its primary
     /// (§3.4), three lines.
     IdQLost => "If your words are lost, clear this app's data in the phone's settings. That gives this phone a new PeerId, which each contact must trust again.",
+    /// ANDROID, identity screens: K1's title when the record names no
+    /// readable `PeerId` (§3.4): `IdQTitle` asks for the phrase, which
+    /// cannot help there.
+    // PLACEHOLDER (en)
+    IdQTitleNoPath => "The app cannot use your PeerId",
+    /// ANDROID, identity screens: K1's reason when the record names no
+    /// readable `PeerId`. Says nothing can be restored here: the other
+    /// reasons' "Restore it with your recovery phrase" is false there.
+    // PLACEHOLDER (en)
+    IdQReasonNoPath => "The app cannot use the PeerId saved on this phone, and it cannot be restored here.",
+    /// ANDROID, identity screens: K1's plain text when the record names no
+    /// readable `PeerId`, in `IdQLost`'s place, whose "If your words are
+    /// lost" suggests the words would help.
+    // PLACEHOLDER (en)
+    IdQNoPath => "To use the app again, clear this app's data in the phone's settings. That gives this phone a new PeerId, which each contact must trust again.",
     /// ANDROID, identity screens: The label of the expected `PeerId`, on K1
     /// and in `IdOtherIdentity`'s banner.
     IdExpectedPeerId => "PeerId this phone expects",
