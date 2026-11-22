@@ -32,6 +32,8 @@ use interweave_transport_embedded::custody::{
     SeedCipher,
 };
 
+mod common;
+
 const PROFILE: &str = "human";
 
 /// A stand-in for the Keystore: one key per alias, a keystream XOR for
@@ -135,7 +137,7 @@ struct App {
 
 fn app() -> App {
     let app = fresh_install();
-    provision_profile(&app.dir, PROFILE).expect("the profile");
+    common::provision_first_identity(&app.dir, PROFILE);
     app
 }
 

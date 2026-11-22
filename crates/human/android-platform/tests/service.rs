@@ -22,6 +22,8 @@ use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_transport_embedded::EmbeddedRefused;
 
+mod common;
+
 const PROFILE: &str = "human";
 const WAIT: Duration = Duration::from_secs(20);
 const GRACE: Duration = Duration::from_secs(1);
@@ -58,7 +60,7 @@ fn launch(app: &App) -> ServiceLaunch {
 }
 
 fn started(app: &App) -> ServiceHost {
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     service.start(launch(app)).expect("started");
     service
@@ -175,7 +177,7 @@ const PENDING: UnlockStatus = UnlockStatus {
 #[test]
 fn the_unlock_status_is_the_last_start_that_ran() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     assert_eq!(service.unlock_status(), None);
     assert_eq!(
@@ -255,7 +257,7 @@ fn the_unlock_status_is_the_last_start_that_ran() {
 fn say_unlock_hands_the_view_the_four_facts_by_start() {
     use interweave_human_ui_model::{KeyUnlock, ResealLeft, UnlockFacts, UnlockReason};
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     let mut link = service.hub().attach(std::sync::Arc::new(|| {}));
     let said = |link: &mut interweave_human_android_platform::ViewLink| {
@@ -315,7 +317,7 @@ fn say_unlock_hands_the_view_the_four_facts_by_start() {
 #[test]
 fn a_lock_at_the_activitys_check_gives_the_locked_view_its_status() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     service.locked_before_start(Some(PENDING));
     assert_eq!(service.unlock_status(), Some(PENDING), "no start ran");
@@ -515,7 +517,7 @@ fn a_facade_past_its_stop_publishes_nothing_and_holds_the_store_until_it_ends() 
 #[test]
 fn a_network_report_never_waits_on_a_start() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = Arc::new(ServiceHost::new());
     let _ = service.network_report(NetworkReport::Watching);
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -579,7 +581,7 @@ fn the_log_level_is_the_profiles_and_none_without_one() {
         None,
         "no profile yet"
     );
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let paths = ProfilePaths::resolve_embedded(
         PROFILE,
         TrustBoundary::new(&app.dir).expect("the boundary"),
@@ -608,7 +610,7 @@ fn the_log_level_is_the_profiles_and_none_without_one() {
 #[test]
 fn the_running_log_level_is_the_one_the_runtime_loaded() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     assert_eq!(service.log_level(), None, "nothing runs");
     service.start(launch(&app)).expect("started");
@@ -638,7 +640,7 @@ fn the_running_log_level_is_the_one_the_runtime_loaded() {
 #[test]
 fn a_profile_no_endpoint_admits_is_refused_and_leaves_nothing_running() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let human = common::provision_first_identity(&app.dir, PROFILE);
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
     let good = std::fs::read_to_string(paths.config_file()).expect("read");
@@ -658,7 +660,11 @@ fn a_profile_no_endpoint_admits_is_refused_and_leaves_nothing_running() {
     // The endpoint the Android profile names for its service decides,
     // not the first entry open to the kind; one that names no enabled
     // entry is refused by the profile's own validation, before the kind.
-    let elsewhere = good.replace("\n    endpoint: human\n", "\n    endpoint: phone\n");
+    let phone = interweave_test_support::endpoint_keys::endpoint_id("phone");
+    let elsewhere = good.replace(
+        &format!("\n    endpoint: {}\n", human.as_str()),
+        &format!("\n    endpoint: {}\n", phone.as_str()),
+    );
     assert_ne!(
         good, elsewhere,
         "the control: the document names the service's endpoint"
@@ -671,8 +677,11 @@ fn a_profile_no_endpoint_admits_is_refused_and_leaves_nothing_running() {
     // Nor does another entry open to the kind stand in for it.
     let other = bad.replace(
         "discovery:",
-        "    - id: other\n      enabled: true\n      advertise: false\n      \
-         allowed_client_kinds: [human-client]\ndiscovery:",
+        &format!(
+            "    - key: {}.key\n      alias: other\n      enabled: true\n      \
+             advertise: false\n      allowed_client_kinds: [human-client]\ndiscovery:",
+            interweave_test_support::endpoint_keys::endpoint_id("other").as_str()
+        ),
     );
     assert_ne!(bad, other, "the control: the second entry was added");
     std::fs::write(paths.config_file(), &other).expect("write");
@@ -841,7 +850,7 @@ fn the_first_run_profile_is_written_once_and_never_rewritten() {
 #[test]
 fn the_first_run_profile_advertises_no_endpoint() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
     let profile = ProfileConfig::load(&paths).expect("the first-run profile loads");
@@ -901,7 +910,7 @@ fn the_cases_provisioning_replaces_the_profile_where_the_apps_keeps_it() {
 #[test]
 fn without_network_the_store_opens_and_no_runtime_runs() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     service
         .start_without_network(
@@ -1001,7 +1010,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     use interweave_transport_api::MediaType;
 
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
     // A first posture start lays the profile's directories out; the store
@@ -1305,7 +1314,7 @@ impl interweave_human_store::key_custody::KeyCipher for StoreKeystore {
 fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() {
     use interweave_human_store::at_rest::DiscardScope;
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
     });
@@ -1504,7 +1513,7 @@ fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
         ]
     );
 
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     service
         .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started");
@@ -1527,7 +1536,7 @@ fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
 #[test]
 fn a_start_refused_for_the_person_answers_locked() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     let mut link = service.hub().attach(Arc::new(|| {}));
     service.refused_locked(Some(PENDING));
@@ -1587,7 +1596,7 @@ fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
         self, FilesystemCustody, IdentityKeyError, IdentityKeyFileError,
     };
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
     });
@@ -1623,7 +1632,7 @@ fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
 fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
     use interweave_human_store::identity_key;
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
     });
