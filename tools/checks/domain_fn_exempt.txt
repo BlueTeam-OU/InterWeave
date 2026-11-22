@@ -189,13 +189,14 @@ LocalDataSession::event_queue                    call  let lane = session.sessio
 Payload::at_ceiling                              call  Self::at_ceiling(raw.media_type, bytes)
 RequestedCapability::as_admin                    call  .any(|c| c.as_admin().is_some());
 RequestedCapability::as_data                     call  .filter_map(|c| c.as_data())
+RequestedCapability::since                       call  self.since().admits(version)
 Event::decode                                    call  Event::decode(&self.event_type, self.data.as_deref(), version)
 Event::event_type                                call  self.event_type().as_str()
 EventType::as_str                                call  self.event_type().as_str()
-EventType::available_at                          call  if !kind.available_at(version) {
-EventType::of_session                            call  let Some(kind) = EventType::of_session(event) else {
+EventType::available_at                          call  EventType::of_session(event).is_none_or(|kind| kind.available_at(version))
+EventType::of_session                            call  EventType::of_session(event).is_none_or(|kind| kind.available_at(version))
 EventType::parse                                 call  EventType::parse(event_type)
-EventType::since_minor                           call  version.minor >= self.since_minor()
+EventType::since                                 call  self.since().admits(version)
 Frame::to_body                                   call  encode_frame(&self.to_body())
 Request::method                                  call  self.method().as_str()
 Request::params                                  call  Some(self.params())
@@ -211,3 +212,10 @@ Request::params                                  call  Some(self.params())
 LocalDataSession::source_endpoint                call      self.source_endpoint()
 DedupKey::source_peer                            call      key.source_peer()
 InfrastructureSet::new                           call      InfrastructureSet::new(raw.allowed_peers).map_err(
+
+# --- IPC major 3 (j185): a 2.x connection, the only production caller of
+# --- the builder below (ipc-server's hello below 2.4), is refused, and the
+# --- IPC client refuses the option. The in-process binding honours it and the
+# --- conformance suites exercise it; whether it stays in the contract or
+# --- leaves with its field is architect-cto's at the s30 close.
+SessionRequest::without_route_notices            stage-22  no production caller at IPC major 3; kept for the in-process binding until s30 decides
