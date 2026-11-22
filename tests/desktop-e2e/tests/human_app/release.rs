@@ -440,9 +440,11 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
         PROFILE_FORMAT,
         "the upgrade raised the marker to this build's format"
     );
-    // The previous build predates the identity key (ADR-0063), so the
-    // upgrade's first start makes the identity's: a new file, owner-only,
-    // an IDK1 record, and the one file beside the marker it may add.
+    // The previous build predates the identity key (ADR-0063), and the
+    // client mints no key at start (ADR-0067 decision 5: the id derives
+    // from the key, so a key made here would name an id the configuration
+    // does not): the upgrade's start leaves the key-missing state, and no
+    // endpoint key file is added.
     let identity = identity_key::key_path(&home.paths, &human());
     let identity_name = identity
         .strip_prefix(home.root.path())
@@ -454,17 +456,9 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
         "the previous build made no identity key"
     );
     assert_eq!(
-        std::fs::metadata(&identity)
-            .expect("made at start")
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
-    assert!(
-        identity_key::open(&home.paths, &human(), &identity_key::FilesystemCustody)
-            .expect("an IDK1 record")
-            .is_some()
+        identity_key::sealed(&home.paths).expect("listed"),
+        Vec::new(),
+        "no key minted at start"
     );
     // The previous build's store was plaintext: this build's first open
     // rewrote it encrypted under a new store key (ADR-0060 decision 6),

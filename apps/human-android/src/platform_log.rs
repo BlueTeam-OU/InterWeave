@@ -274,11 +274,10 @@ mod tests {
         let paths = interweave_profile_config::TrustBoundary::new(&scratch)
             .and_then(|b| interweave_profile_config::ProfilePaths::resolve_embedded("test", b))
             .expect("paths");
-        let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
-        let key = identity_key::create(&paths, &human, &FilesystemCustody).expect("a key");
+        let key = identity_key::create(&paths, &FilesystemCustody).expect("a key");
         let record = base64::engine::general_purpose::STANDARD
             .decode(
-                std::fs::read_to_string(identity_key::key_path(&paths, &human))
+                std::fs::read_to_string(identity_key::key_path(&paths, key.endpoint()))
                     .expect("the key file")
                     .trim(),
             )
