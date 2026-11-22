@@ -151,8 +151,8 @@ dialog; OK stays reachable.
   banner goes for this session, with no further message; the row stays,
   so the banner comes back at the next open. Nothing is lost by that,
   and the degraded store already has its own session notice.
-- **A session notice rises while the dialog is open** (the store
-  turns degraded, say): the dialog stays open and keeps focus, and
+- **A session notice rises while the dialog is open** (for example,
+  the store becomes degraded): the dialog stays open and keeps focus, and
   under it the notice takes the slot from the banner, as at any time
   (§3). OK then meets the refused delete above, and focus goes to the
   session notice: it rose behind the dialog, so the person has not
@@ -172,7 +172,7 @@ dialog; OK stays reachable.
 | Chats shows the banner at an open (no session notice, no screen over it) | the banner's Details | keyboard: open a store with the row; Tab order starts on Details; desktop screen reader reads the banner text then "Details, button" |
 | a session notice was shown first, and goes | Details, once the banner shows | keyboard: open with storage degraded, then healthy |
 | an identity screen or the reader was over Chats, and goes | Details, once the banner shows | keyboard, with K1 raised at the open |
-| the person moved focus before the banner showed (it showed late) | stays where it was; this row wins over the two above, whatever showed first | keyboard: open with storage degraded, Tab into the list, then healthy |
+| the person moved focus before the banner showed (it showed late) | stays where it was; this row applies instead of the session-notice and identity-screen rows above, whatever showed first | keyboard: open with storage degraded, Tab into the list, then healthy |
 | Details pressed | the dialog's title (screen reader), OK (keyboard) | keyboard: Enter on Details, then Enter presses OK; desktop screen reader reads title, the lines in order, the explanation, then OK |
 | dialog closed without OK (Back, Escape, outside) | Details | keyboard: Escape returns to Details |
 | OK | the Chats list heading, as when the locked notice leaves (unlock note F14) | keyboard |
@@ -204,7 +204,7 @@ its number, never a number put before a fixed word.
 | `MigratedConversations` {n} | n conversations went, each with someone whose contact card the person had not accepted (unread or declined counts as not accepted) | "{n} conversations with no accepted contact card" |
 | `MigratedContacts` {n} | n contacts went, each with no accepted contact card | "{n} contacts with no accepted contact card" |
 | `MigratedCombined` {n} | n contacts were joined to another contact of the same person; that person's contact stays, the joined contact's own name and notes did not | "{n} contacts were combined with another contact of the same person. Their own names and notes were not kept." |
-| `MigratedWhy` | each contact is now reached by the key on the card the person accepted; what had no accepted card could not move; the app cannot show which items went | "Each contact is now reached by the key on their contact card, so what had no accepted card could not be kept. The app cannot show which items were removed." |
+| `MigratedWhy` | each contact is now reached by the key on the card the person accepted; what had no accepted card could not move; the app cannot show which items went | "Each contact is now reached by the key on the contact card you accepted, so what had no accepted card could not stay. The app cannot show which items were removed." |
 | `MigratedKeptWhat` | contacts with an accepted card, and their conversations, are still there | "Your contacts with an accepted contact card and their conversations are still here." |
 | `MigratedOk` | acknowledges, and the notice will not return; distinct from Close, which elsewhere dismisses with no effect | "OK" (new: no OK string exists) |
 
