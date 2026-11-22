@@ -176,7 +176,11 @@ internal object Native {
      * already running is asked nothing. When the person must authenticate,
      * the native side asks the prompt ([Ask.UNLOCK]) or focuses the locked
      * notice itself; a prompt it asked for a refused start in this showing,
-     * not yet answered, answers the check too.
+     * not yet answered, answers the check too. While an identity flow
+     * lives -- in the window, or kept from the window a recreation ended
+     * -- the record is not read and the flow answers: [IDENTITY_FLOW]
+     * (4) before its screen shows a service start, [IDENTITY_FLOW_STARTED]
+     * (5) while it does.
      */
     @JvmStatic external fun identityState(appDataDir: String, ready: Boolean): Int
 
@@ -193,12 +197,21 @@ internal object Native {
 
     /**
      * An identity flow shows -- in the window, or kept from the window a
+     * recreation ended, for this one -- and its screen shows no service
+     * start: set `FLAG_SECURE`, and bind or start nothing, as for the
+     * identity screens of a first run. The record is not read: the flow
+     * decides it.
+     */
+    const val IDENTITY_FLOW = 4
+
+    /**
+     * An identity flow shows -- in the window, or kept from the window a
      * recreation ended, for this one -- and asked its service start (a
      * held C4 or R4, or `IdStartBusy` there or on R3 or R2 after K1): set
      * `FLAG_SECURE`, then decide a start as for [IDENTITY_READY], a busy
      * or locked one retried and one running left alone (identity note
-     * section 6, A return to a screen showing `IdStartBusy`). A flow that
-     * has not asked it answers as a first run: the flag, and nothing bound.
+     * section 6, A return to a screen showing `IdStartBusy`). A flow whose
+     * screen shows no start answers [IDENTITY_FLOW].
      */
     const val IDENTITY_FLOW_STARTED = 5
 

@@ -152,13 +152,14 @@ class MainActivity : NativeActivity() {
         // chooses between the identity screens and the chats (onboard.rs).
         // After it, each would wait on the other (#309 review N1). A flow
         // kept from the window a recreation ended is shown again without
-        // the wait, and this answers for it unread (IDENTITY_FLOW_STARTED,
-        // or a first run's answer before its start). Asked at
-        // every start, a return's and a launch's in a running process
-        // included: a start refused for the screen lock is answered as in
-        // a fresh process (unlock note section 11). Shown first, so the
-        // answer's prompt is this showing's. Not while Show my phrase holds
-        // the service offline: nothing starts until its words are gone.
+        // the wait, and this answers for it unread (Native.IDENTITY_FLOW,
+        // or Native.IDENTITY_FLOW_STARTED while its screen shows a start).
+        // Asked at every start, a return's and a launch's in a running
+        // process included: a start refused for the screen lock is
+        // answered as in a fresh process (unlock note section 11). Shown
+        // first, so the answer's prompt is this showing's. Not while Show
+        // my phrase holds the service offline: nothing starts until its
+        // words are gone.
         Native.shown(true)
         val identity =
             if (phraseShown) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir, identityReady)
@@ -201,9 +202,11 @@ class MainActivity : NativeActivity() {
         if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) return
         // The identity screens come before the service: a profile with no
         // identity, or one the phone lost, binds nothing until the screens
-        // say the identity is ready (onboard.rs). A flow that asked its
-        // start -- shown again after a recreation, or on a return -- goes
-        // on to the start's decision below, its flag set above.
+        // say the identity is ready (onboard.rs), and a living flow whose
+        // screen shows no start (Native.IDENTITY_FLOW) binds nothing
+        // either. A flow that asked its start -- shown again after a
+        // recreation, or on a return -- goes on to the start's decision
+        // below, its flag set above.
         if (identity != Native.IDENTITY_READY && identity != Native.IDENTITY_FLOW_STARTED) return
         identityReady = true
         if (phraseShown) return

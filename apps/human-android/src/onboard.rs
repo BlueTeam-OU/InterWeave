@@ -60,14 +60,17 @@ pub(crate) mod state {
     /// 80594810; ADR-0042 A 2026-11-05).
     pub(crate) const AUTHENTICATION_NEEDED: jint = 3;
     /// An identity flow shows, in a window or kept for the next
-    /// ([`super::window_ended`]), and has not asked the service: Welcome's
-    /// answer, `FLAG_SECURE` on and nothing bound, its record unread.
+    /// ([`super::window_ended`]), and its screen shows no service start
+    /// -- any flow that has not asked its start, and one whose screen the
+    /// start went with: `FLAG_SECURE` on and nothing bound, its record
+    /// unread (`Native.IDENTITY_FLOW`).
     pub(crate) const FLOW: jint = 4;
     /// An identity flow shows with its start asked -- a held C4 or R4, or
     /// `IdStartBusy` on C4, R4, R3 or R2 after K1: `FLAG_SECURE` on, and
     /// the binding decides a start as for a ready identity, a busy or
     /// locked one retried and one running left alone (identity note
-    /// section 6, A return to a screen showing `IdStartBusy`).
+    /// section 6, A return to a screen showing `IdStartBusy`;
+    /// `Native.IDENTITY_FLOW_STARTED`).
     pub(crate) const FLOW_STARTED: jint = 5;
 }
 
@@ -174,7 +177,10 @@ const PLATFORM_WAIT: Duration = Duration::from_secs(10);
 /// starts. Any other refusal is the service's to report, as it does
 /// today, so it reads as ready. `ready`: this process found the identity
 /// ready before, so only whether a start now needs the person is asked
-/// ([`ready_state`]).
+/// ([`ready_state`]). While a flow lives -- shown, or [`PARKED`] -- the
+/// record is not read and the flow answers: [`state::FLOW`] (4) before its
+/// screen shows a service start, [`state::FLOW_STARTED`] (5) while it does
+/// (`Native.IDENTITY_FLOW`, `Native.IDENTITY_FLOW_STARTED`).
 pub(crate) fn identity_state(
     app_data_dir: PathBuf,
     cipher: KeystoreCipher,
