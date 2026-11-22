@@ -329,8 +329,12 @@ The step, in this order:
    it carries the old identity's card, whose key still matches the old
    identity, so the counterparty sees the old contact, and its
    conversation is on the share-again list (§5.4). A Cancel of one of
-   these rows answered while the step runs follows the Stage 21 rule:
-   announced after the step's own announcement, never over it.
+   these rows answered while the step runs is announced once, with
+   message-swipe §8's words and no snackbar or Undo, after the step's
+   own announcement and never over it; a refusal of a row the step
+   withdrew is not announced and does not return the row, since the
+   row is already gone. A refusal of a row the step left applies as
+   message-swipe §8 says, its announcement also after the step's own.
 3. **The default.** The new identity becomes the default when the old
    one was the default, and always when the old one is the first
    identity (ADR-0067 decision 5).
