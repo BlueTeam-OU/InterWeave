@@ -9,8 +9,10 @@ ux-designer's" (STATE.md §Migrations, schema v14). This note's two
 product questions (§11) were ruled by architect-cto as proposed (REPLY
 01a1f3c6, 2026-11-19): the row holds eight counts, and it is deleted
 on the person's acknowledgement and on nothing else. STATE.md's schema
-v14 says both since architect-cto's 530def301, folded into this note's
-PR (#738); the sentence quoted above is the text the design was handed.
+v14 has stated both rulings since architect-cto's commit 530def301,
+which is folded into this note's PR (#738); the sentence quoted above
+is the text as it stood before that commit, when this design was
+handed to ux-designer.
 Revised 2026-11-21, at #728's review (F29, F30): when the person moved
 focus before a late banner showed, focus stays where it is, whichever
 notice showed first (§6), and §5 says what the dialog does when a session notice
