@@ -435,13 +435,15 @@ mod tests {
         altered[w] = b'X';
         assert_eq!(decode_response(&altered), Err("entry outside the grammar"));
 
-        let label = EndpointId::parse("human").expect("a transitional label");
+        // A label cannot be built as an `EndpointId`: the bytes are the
+        // peer's.
+        let label = "human";
         let mut labelled = vec![TAG_DIRECTORY];
         labelled.extend_from_slice(&0u64.to_be_bytes());
         labelled.extend_from_slice(&0u32.to_be_bytes());
         labelled.push(1);
-        labelled.push(u8::try_from(label.as_str().len()).expect("short"));
-        labelled.extend_from_slice(label.as_str().as_bytes());
+        labelled.push(u8::try_from(label.len()).expect("short"));
+        labelled.extend_from_slice(label.as_bytes());
         // 5 bytes: refused by its length before the grammar is asked.
         assert_eq!(
             decode_response(&labelled),
