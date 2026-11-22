@@ -49,7 +49,7 @@ use interweave_human_chat_protocol::HumanChatV2;
 use interweave_local_client_api::{
     AddressChange, AdminBinding, AdminCapability, AdminPort as _, DataSessionBinding, TrustChange,
 };
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::TransportIdentity;
 use serde_json::{Map, Value};
 
 use crate::{AppClient, DEFAULT_DEADLINE, closing, keys};
@@ -321,7 +321,7 @@ pub(crate) fn admin_shaped_case<B: DataSessionBinding + AdminBinding>(
         return Err("the controls' changes were not put back".into());
     }
     // Last, since the facade has to lease `human` again after it.
-    let human = EndpointId::parse("human").map_err(|_| "`human` is an endpoint id".to_owned())?;
+    let human = crate::human();
     crate::block_on(port.revoke_endpoint(human))?
         .map_err(|_| "the control's revoke was refused".to_owned())?;
     let revoked = crate::block_on(state(&port))??;
