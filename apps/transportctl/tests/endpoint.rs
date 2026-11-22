@@ -247,10 +247,18 @@ fn init_mints_a_key_whose_entry_loads_present() {
             "alias: human".to_owned()
         ]
     );
-    assert!(text(&out.stderr).is_empty(), "{}", text(&out.stderr));
+    // Nothing on stderr but the id said before the publish.
+    let file = home.keys_dir().join(format!("{}.key", id.as_str()));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "transportctl: the key for 'human' is {}; publishing it as {}\n",
+            id.as_str(),
+            file.display()
+        )
+    );
     assert_eq!(home.minted(), [format!("{}.key", id.as_str())]);
 
-    let file = home.keys_dir().join(format!("{}.key", id.as_str()));
     let mode = |p: &Path| std::fs::metadata(p).expect("meta").permissions().mode() & 0o777;
     assert_eq!(mode(&file), 0o600);
     assert_eq!(mode(&home.keys_dir()), 0o700);
@@ -1215,6 +1223,30 @@ fn init_rerun_after_an_interruption_mints_nothing() {
             "{what}"
         );
     }
+}
+
+/// `init --alias` says the id on stderr before it gives the key file its
+/// id's name, so a run cut short after the rename still told the operator
+/// which id the overlay was carried to. The control: without `--alias`
+/// there is no pending file and nothing is said.
+#[test]
+fn init_reports_the_id_before_it_publishes() {
+    let home = Home::new();
+    let out = home.run(&["endpoint", "init", "--alias", "claude"]);
+    let (id, _) = printed(&out);
+    assert!(
+        text(&out.stderr).contains(&format!("the key for 'claude' is {}", id.as_str())),
+        "{}",
+        text(&out.stderr)
+    );
+    let bare = Home::new();
+    let out = bare.run(&["endpoint", "init"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert!(
+        !text(&out.stderr).contains("the key for"),
+        "{}",
+        text(&out.stderr)
+    );
 }
 
 /// The `link` fallback cut short between its link and its unlink leaves

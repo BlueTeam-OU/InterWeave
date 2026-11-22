@@ -206,6 +206,15 @@ fn init_with_alias(
         other @ Failure::Unreachable(_) => other,
     })?;
     let new = endpoint_key::key_path(paths, &id);
+    // Said BEFORE the rename: once the file has its id's name a rerun no
+    // longer finds it by the alias, and a run cut short after the rename
+    // would otherwise leave the overlay on an id nobody was told
+    // (`init_reports_the_id_before_it_publishes`).
+    eprintln!(
+        "transportctl: the key for '{alias}' is {}; publishing it as {}",
+        id.as_str(),
+        new.display()
+    );
     match interweave_profile_config::persist::rename_private_no_replace_within(
         &pending,
         &new,
