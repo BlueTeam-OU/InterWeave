@@ -2104,6 +2104,7 @@ fn contacts_now(store: &mut impl CardStore) -> Result<Update, StoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     use interweave_human_client_api::{ClientEvent, Connectivity, OutboundStatus};
     use interweave_human_store::{
@@ -2119,7 +2120,7 @@ mod tests {
     /// counts them. Mutation: `start` without the reclassification.
     #[test]
     fn the_start_classifies_the_stored_rows() {
-        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
+        let human = endpoint_id("human");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()
                 .transport_identity()
@@ -2277,7 +2278,7 @@ mod tests {
     /// A facade side whose store holds an unread message and an unread row
     /// it cannot show, as a facade that could not hand them over leaves it.
     fn held_back_side() -> FacadeSide<FakeNode, FakeNode> {
-        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
+        let human = endpoint_id("human");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()
                 .transport_identity()
@@ -2337,7 +2338,7 @@ mod tests {
 
     /// A facade over a fake network, its store empty.
     fn quiet_side() -> FacadeSide<FakeNode, FakeNode> {
-        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
+        let human = endpoint_id("human");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()
                 .transport_identity()
@@ -2513,7 +2514,7 @@ mod tests {
             row: RowId::from_stored(7),
             peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
                 .expect("a PeerId"),
-            endpoint: EndpointId::parse("human").expect("an endpoint"),
+            endpoint: endpoint_id("human"),
             card: Card {
                 app_message_id: "0".repeat(32),
                 name: "Ada".to_owned(),
@@ -2596,7 +2597,7 @@ mod tests {
             peer("12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5"),
         );
         let r = peer("12D3KooWETGXpqbjJk2qkXWxotXiunJn2y4iySRzyCkqKc6DuMdb");
-        let human = EndpointId::parse("human").expect("an endpoint");
+        let human = endpoint_id("human");
         let key = |p: &TransportIdentity| ConversationKey::Direct {
             peer: p.clone(),
             endpoint: Some(human.clone()),

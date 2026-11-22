@@ -27,6 +27,7 @@ use interweave_human_ui_model::{
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, MediaType, TransportIdentity};
 
 const WALL: u64 = 1_786_600_000_000;
@@ -38,7 +39,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn node() -> FakeConfig {

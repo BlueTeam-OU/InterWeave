@@ -13,6 +13,7 @@
 
 mod common;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::collections::VecDeque;
 
 use base64::Engine as _;
@@ -35,7 +36,7 @@ use interweave_transport_api::{EndpointId, TransportIdentity};
 const WALL: u64 = 1_786_600_000_000;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn node() -> FakeConfig {
@@ -2491,8 +2492,13 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
     let conn = rusqlite::Connection::open(&path).expect("open");
     conn.execute(
         "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
-         VALUES (?1, ?2, 'human', ?3)",
-        rusqlite::params![contact_id, other.as_str(), [7_u8; 32].as_slice()],
+         VALUES (?1, ?2, ?4, ?3)",
+        rusqlite::params![
+            contact_id,
+            other.as_str(),
+            [7_u8; 32].as_slice(),
+            human().as_str()
+        ],
     )
     .expect("seeded");
     drop(conn);
