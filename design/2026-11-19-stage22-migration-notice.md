@@ -8,10 +8,9 @@ the client shows once at the first open and then deletes; the words are
 ux-designer's" (STATE.md §Migrations, schema v14). This note's two
 product questions (§11) were ruled by architect-cto as proposed (REPLY
 01a1f3c6, 2026-11-19): the row holds eight counts, and it is deleted
-on the person's acknowledgement and on nothing else. STATE.md's text
-follows as architect-cto's for/ branch onto this PR; until it lands, the
-merged sentence still reads "shows once at the first open and then
-deletes", and this note follows the ruling.
+on the person's acknowledgement and on nothing else. STATE.md's schema
+v14 says both since architect-cto's 530def301, folded into this note's
+PR (#738); the sentence quoted above is the text the design was handed.
 Revised 2026-11-21, at #728's review (F29, F30): when the person moved
 focus before a late banner showed, focus stays where it is, whichever
 notice showed first (§6), and §5 says what the dialog does when a session notice
@@ -38,8 +37,8 @@ the desktop and on Android; the command-line client's form is left out
   contact when it holds no other route, and the second copy of a message
   where two copies meet; (e) every pending row and every unread contact
   card proposal. What (c), (d) and (e) discarded is counted into one
-  content-free `settings` row. As merged, STATE.md names six counts; as
-  ruled on 2026-11-19 (§11), the row holds eight, each one thing a person
+  content-free `settings` row. As ruled on 2026-11-19 (§11; STATE.md
+  530def301), the row holds eight counts, each one thing a person
   would call gone or changed: conversations, unread messages, kept
   messages, pending messages never attempted, pending messages that may
   have reached their counterparty, contacts
