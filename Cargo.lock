@@ -3972,6 +3972,7 @@ dependencies = [
 name = "interweave-local-client-api"
 version = "0.4.0"
 dependencies = [
+ "interweave-test-support",
  "interweave-transport-api",
  "serde",
  "serde_json",
@@ -4260,6 +4261,7 @@ dependencies = [
  "bs58",
  "interweave-discovery-api",
  "interweave-local-client-api",
+ "interweave-test-support",
  "interweave-transport-api",
  "interweave-trust-api",
  "proptest",
