@@ -296,9 +296,20 @@ mod unix {
             EndpointOverlayError::NotPrivate { .. } => "not_private",
             EndpointOverlayError::TooLarge => "too_large",
             EndpointOverlayError::Parse(_) | EndpointOverlayError::LabelMember { .. } => "parse",
+            // `too_large` stays the file's byte ceiling: a set or a row
+            // count past its bound is a file that parsed and is not a
+            // legal overlay, as an added entry that collides is.
             EndpointOverlayError::Unknown
             | EndpointOverlayError::Disabled
             | EndpointOverlayError::CarryConflict { .. }
+            | EndpointOverlayError::SetInOneMember { .. }
+            | EndpointOverlayError::DuplicatePeer { .. }
+            | EndpointOverlayError::SetTooLarge { .. }
+            | EndpointOverlayError::SetRowsExceeded { .. }
+            | EndpointOverlayError::AddedEntryCarriesTrust { .. }
+            | EndpointOverlayError::AddedIdCollides(_)
+            | EndpointOverlayError::AddedAliasCollides(_)
+            | EndpointOverlayError::TooManyEndpoints { .. }
             | EndpointOverlayError::Write(_) => "invalid",
         }
     }
@@ -667,6 +678,65 @@ mod unix {
             assert_eq!(refused.class, "endpoint_alias");
             assert!(refused.reason.contains("too_large"), "{}", refused.reason);
             assert!(!refused.reason.contains("claude"), "{}", refused.reason);
+        }
+
+        /// Each refusal the overlay's sets and added entries bring
+        /// (ADR-0028 A 2026-11-22) is classed `invalid`, and an alias
+        /// start refused on one carries the class and none of the
+        /// identifiers the error holds.
+        #[test]
+        fn the_overlay_set_and_added_refusals_are_invalid_and_name_nothing() {
+            use interweave_profile_config::endpoint_overlay::OverlayMember;
+            use interweave_transport_api::TransportIdentity;
+            let loaded = profile(&endpoints());
+            let claude = endpoint_id("claude");
+            let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+            let refusals: Vec<fn(EndpointId) -> EndpointOverlayError> = vec![
+                |endpoint| EndpointOverlayError::SetInOneMember {
+                    endpoint,
+                    only_in: OverlayMember::Inbound,
+                },
+                |endpoint| EndpointOverlayError::DuplicatePeer {
+                    member: OverlayMember::Outbound,
+                    endpoint,
+                    peer: TransportIdentity::parse(
+                        "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+                    )
+                    .expect("peer"),
+                },
+                |endpoint| EndpointOverlayError::SetTooLarge {
+                    member: OverlayMember::Inbound,
+                    endpoint,
+                    got: 1_000_000,
+                },
+                |_| EndpointOverlayError::SetRowsExceeded { got: 1_000_000 },
+                |_| EndpointOverlayError::AddedEntryCarriesTrust {
+                    member: OverlayMember::Outbound,
+                },
+                EndpointOverlayError::AddedIdCollides,
+                |_| {
+                    EndpointOverlayError::AddedAliasCollides(
+                        EndpointAlias::parse("claude").expect("alias"),
+                    )
+                },
+                |_| EndpointOverlayError::TooManyEndpoints { got: 1_000_000 },
+            ];
+            for make in refusals {
+                let e = make(claude.clone());
+                let display = e.to_string();
+                assert_eq!(overlay_error_class(&e), "invalid", "{display}");
+                let refused = local_endpoint(
+                    EndpointSelector::Alias(EndpointAlias::parse("claude").expect("alias")),
+                    Ok(&loaded),
+                    |_| Err(make(claude.clone())),
+                )
+                .expect_err("refused");
+                assert_eq!(refused.class, "endpoint_alias", "{display}");
+                assert!(refused.reason.contains("(invalid)"), "{}", refused.reason);
+                for held in [claude.as_str(), "claude", peer, "1000000"] {
+                    assert!(!refused.reason.contains(held), "{held}: {}", refused.reason);
+                }
+            }
         }
     }
 }
