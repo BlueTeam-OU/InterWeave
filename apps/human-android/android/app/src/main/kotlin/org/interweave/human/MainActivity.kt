@@ -58,7 +58,10 @@ class MainActivity : NativeActivity() {
     @Volatile private var shown = false
     // Show my phrase took the service offline and its words are this
     // instance's to show: nothing binds or starts the service until they
-    // are gone, a return from Home included (design section 7).
+    // are gone, a return from Home included (design section 7). The
+    // instance's, not the process's: unlike the identity flows, which
+    // outlive a recreation, Show my phrase ends with its window
+    // (onboard.rs, window_ended), so no later instance shows its words.
     @Volatile private var phraseShown = false
     /** Scan a code's camera, opened for the viewfinder and closed with it (add-a-peer 5.5). */
     private var camera: CodeCamera? = null
@@ -290,13 +293,18 @@ class MainActivity : NativeActivity() {
         // The editor goes with the window: its photo's open is not wanted.
         cancelPhotoOpen()
         photoRequest = -1L
-        // The words go with this instance; the service must not stay
-        // offline for a window that no longer shows them.
-        if (phraseShown) {
-            phraseShown = false
-            local?.online()
-        }
+        // The words go with this instance -- a new one is a new display,
+        // behind the prompt (identity note section 7), so Show my phrase
+        // ends with its window rather than being kept for the next
+        // (onboard.rs, window_ended) -- and the service must not stay
+        // offline for a window that no longer shows them. Brought back
+        // after super.onDestroy(), which returns only once the window's
+        // thread ended and the flow let go of the profile's lock: before
+        // it, the start could find the lock still held and be refused busy.
+        val phrase = phraseShown
+        phraseShown = false
         super.onDestroy()
+        if (phrase) local?.online()
     }
 
     override fun onStop() {
