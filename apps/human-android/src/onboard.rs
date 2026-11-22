@@ -912,8 +912,25 @@ static FINISHING: AtomicBool = AtomicBool::new(false);
 /// not changing configurations). Stored before the window's event loop
 /// can return: the glue's destroy, which ends that loop, is sent by
 /// `super.onDestroy()`.
+///
+/// A finishing destroy also ends a flow still [`PARKED`]: one the last
+/// window kept that this one did not take, because its `android_main`
+/// returned before [`start`] (no views' platform, or no window). A window
+/// that reached `start` took the flow before its event loop ran, and
+/// [`window_ended`] ends it there; this covers the windows that never
+/// get that far (identity note section 7: a finish drops the words).
+/// Neither failure can be caused on a phone, so no device case drives it.
 pub(crate) fn window_ending(finishing: bool) {
     FINISHING.store(finishing, Ordering::SeqCst);
+    if finishing {
+        let parked = PARKED.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if parked.is_some() {
+            log("the Activity finished: the identity flow kept for it ends");
+            flow_shows(None);
+        }
+        // Dropped here, its lock with it.
+        drop(parked);
+    }
 }
 
 /// The window of this thread ended (`android_main`, once its event loop
@@ -932,18 +949,6 @@ pub(crate) fn window_ended() {
         Destroy::Kept
     };
     let Some(o) = ONBOARDING.with(|slot| slot.borrow_mut().take()) else {
-        // A window finished before it took a flow the last one parked --
-        // the task removed from Recents during a recreation: the finish
-        // ends that flow too, its words and lock with it (identity note
-        // section 7; device case D5, device-runs/identity-recreation-cases.md).
-        if matches!(destroy, Destroy::Finishing) {
-            let parked = PARKED.lock().unwrap_or_else(PoisonError::into_inner).take();
-            if parked.is_some() {
-                log("the window finished: the identity flow kept for it ends");
-                flow_shows(None);
-            }
-            drop(parked);
-        }
         return;
     };
     match at_window_end(o.over, o.finished, destroy) {
