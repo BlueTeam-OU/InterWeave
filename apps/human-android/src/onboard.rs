@@ -913,24 +913,34 @@ static FINISHING: AtomicBool = AtomicBool::new(false);
 /// can return: the glue's destroy, which ends that loop, is sent by
 /// `super.onDestroy()`.
 ///
-/// A finishing destroy also ends a flow still [`PARKED`]: one the last
-/// window kept that this one did not take, because its `android_main`
-/// returned before [`start`] (no views' platform, or no window). A window
-/// that reached `start` took the flow before its event loop ran, and
-/// [`window_ended`] ends it there; this covers the windows that never
-/// get that far (identity note section 7: a finish drops the words).
-/// Neither failure can be caused on a phone, so no device case drives it.
+/// A finishing destroy also decides a flow still [`PARKED`]: one the
+/// last window kept that this one did not take, because its
+/// `android_main` returned before [`start`] (no views' platform, or no
+/// window). A window that reached `start` took the flow before its event
+/// loop ran, and [`window_ended`] decides it there. Both ask the same
+/// rule, [`at_window_end`], whose test holds that a finish ends every
+/// flow (`a_window_end_parks_only_an_open_flow_past_a_destroy_that_is_not_a_finish`).
+/// The early returns are failures a device run has no hook to cause.
 pub(crate) fn window_ending(finishing: bool) {
     FINISHING.store(finishing, Ordering::SeqCst);
-    if finishing {
-        let parked = PARKED.lock().unwrap_or_else(PoisonError::into_inner).take();
-        if parked.is_some() {
-            log("the Activity finished: the identity flow kept for it ends");
-            flow_shows(None);
-        }
-        // Dropped here, its lock with it.
-        drop(parked);
+    if !finishing {
+        return;
     }
+    let mut slot = PARKED.lock().unwrap_or_else(PoisonError::into_inner);
+    let ends = slot.as_ref().is_some_and(|p| {
+        matches!(
+            at_window_end(p.over, p.finished, Destroy::Finishing),
+            AtWindowEnd::End
+        )
+    });
+    let parked = if ends { slot.take() } else { None };
+    drop(slot);
+    if parked.is_some() {
+        log("the Activity finished: the identity flow kept for it ends");
+        flow_shows(None);
+    }
+    // Dropped here, its lock with it.
+    drop(parked);
 }
 
 /// The window of this thread ended (`android_main`, once its event loop
