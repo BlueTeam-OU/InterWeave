@@ -39,8 +39,7 @@ fn every_resolve_failure_is_no_route_on_the_wire() {
 /// The endpoint id the frame carries is the one the registry keys on: on
 /// `/interweave/direct/3.0.0` a derived id (ADR-0067), 52 bytes, which the
 /// wire's strict parser and the registry's id both accept, while a label of
-/// the retired grammar, still constructible through the transitional
-/// `EndpointId::parse`, is refused by the strict one the codec uses.
+/// the retired grammar is refused by the strict one the codec uses.
 #[test]
 fn endpoint_ids_share_one_grammar_between_wire_and_registry() {
     let id = interweave_test_support::endpoint_keys::endpoint_id("human");
@@ -49,7 +48,6 @@ fn endpoint_ids_share_one_grammar_between_wire_and_registry() {
         interweave_transport_api::ENDPOINT_FIELD_BYTES
     );
     assert_eq!(EndpointId::parse_derived(id.as_str()), Ok(id.clone()));
-    assert_eq!(EndpointId::parse(id.as_str()), Ok(id));
     assert!(EndpointId::parse_derived("human").is_err());
     assert!(EndpointId::parse_derived("a".repeat(52)).is_err());
 }
