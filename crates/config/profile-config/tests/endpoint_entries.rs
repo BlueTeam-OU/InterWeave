@@ -654,20 +654,36 @@ fn a_minted_key_is_new_owner_only_and_derives_its_id() {
     );
 }
 
-/// An entry built in code with a label is refused by `validate`: ids are
-/// derived, never chosen.
+/// A label offered as an entry's identity is refused as the document
+/// writes it: as the retired `id` member, and as a `key` naming a label.
+/// A label can no longer be built as an `EndpointId`, so the refusal is
+/// held at the text the caller actually holds.
 #[test]
-fn a_label_id_built_in_code_is_refused() {
-    let doc = document(&entry(&key_of(&endpoint_id("human")), ""), "");
-    let mut c = ProfileConfig::parse_yaml(&doc).expect("parses");
+fn a_label_id_in_the_document_is_refused() {
+    let control = document(&entry(&key_of(&endpoint_id("human")), ""), "");
+    let c = ProfileConfig::parse_yaml(&control).expect("parses");
     assert!(c.validate().is_empty(), "the control");
-    c.endpoints.entries[0].id = EndpointId::parse("human").expect("a label still parses");
-    assert!(c.validate().iter().any(|e| matches!(
-        e,
-        ConfigError::EndpointIdNotDerived {
-            found: NotDerivedEntry::Label { .. }
-        }
-    )));
+
+    let retired = document(
+        "    - id: human\n      enabled: true\n      advertise: false\n",
+        "",
+    );
+    match ProfileConfig::parse_yaml(&retired) {
+        Err(LoadError::Invalid(errors)) => assert!(matches!(
+            not_derived(&errors).as_slice(),
+            [NotDerivedEntry::RetiredId { id, .. }] if id == "human"
+        )),
+        other => panic!("expected Invalid, got {other:?}"),
+    }
+
+    let keyed = document(&entry("human.key", ""), "");
+    match ProfileConfig::parse_yaml(&keyed) {
+        Err(LoadError::Invalid(errors)) => assert!(matches!(
+            not_derived(&errors).as_slice(),
+            [NotDerivedEntry::KeyName { key, .. }] if key == "human.key"
+        )),
+        other => panic!("expected Invalid, got {other:?}"),
+    }
 }
 
 /// Written back, an entry is the file's shape: `key` and `alias`, no
