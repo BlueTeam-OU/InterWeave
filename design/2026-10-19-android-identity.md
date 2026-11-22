@@ -1264,7 +1264,9 @@ this notice wherever it shows also keeps the app predictable
   mode, leaving the app stops the service, and a start that has not
   answered by then ends with the service (`design/2026-10-22-add-a-peer.md`
   §5.1, Interruptions), so a return after Home finds no start running
-  and retries; a recreation keeps the service in either mode, so a
+  and retries, except after a start that answered as started before
+  the stop, where the return makes a new launch's start instead
+  (Foreground-only Home and a start's answer, below); a recreation keeps the service in either mode, so a
   start that runs through it goes on. Home does not cancel the start:
   a start that answers before the service stops has answered, and
   the return shows that answer, as with Stay reachable on (Foreground-only
@@ -1363,7 +1365,9 @@ Q12).
   app stops the service, and a start that has not answered by then
   ends when the service stops (`design/2026-10-22-add-a-peer.md` §5.1,
   Interruptions), so a return after Home finds no start running and
-  retries; a recreation keeps the service in either mode, so a start
+  retries, except after a start that answered as started before the
+  stop, where the return makes a new launch's start instead
+  (Foreground-only Home and a start's answer, below); a recreation keeps the service in either mode, so a start
   that runs through it goes on. Home does not cancel the start: one
   that answers before the service stops has answered (Foreground-only
   Home and a start's answer, below). The notice stays while the retried
@@ -1421,7 +1425,15 @@ shows:
   has removed the notice. The service stopped at Home all the same, so
   the return then makes one start, as a new launch does (add-a-peer
   §5.1: the return is a new launch, counted as one for Connect), never
-  a retry, and no `IdStartBusy` shows for it. A `LockHeld` again has
+  a retry, and no `IdStartBusy` holds the screen while it runs. That
+  start takes the same lock, and while the stopping service still
+  holds it, that start is refused with `LockHeld` (§11c, Q11). The
+  refusal then shows as for a start refused with the profile in use
+  after the bound: `IdStartBusy` as a session notice, in the place
+  that section gives it, moving no focus, since no press made that start (A
+  start refused with the profile in use after the bound). Not
+  verified: whether the return's start can come before the stopping
+  service lets go of the lock (asked of rust-ui-dev-01). A `LockHeld` again has
   shown `IdStartBusy` with Try again enabled, so the return finds no
   start running and retries, as above. Any other answer shows its row.
 - **The stop came first.** The start ended unanswered, and nothing it
