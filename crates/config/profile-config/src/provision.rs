@@ -51,6 +51,8 @@
 
 use interweave_transport_api::EndpointId;
 
+use crate::endpoint_alias::EndpointAlias;
+use crate::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
 use crate::paths::ProfilePaths;
 use crate::persist::{create_private_exclusive_within, write_private_atomic_within};
 use crate::private_read::{PrivateReadError, read_private_within};
@@ -224,6 +226,9 @@ pub enum ProvisionIdentityError {
     /// Form 2 could not be written; a failure before the rename leaves
     /// form 1 in place.
     Write(PersistError),
+    /// The endpoint overlay's members for [`FIRST_IDENTITY_ALIAS`] could
+    /// not be moved to the id; a second call finishes the move.
+    Carry(EndpointOverlayError),
 }
 
 impl core::fmt::Display for ProvisionIdentityError {
@@ -243,6 +248,7 @@ impl core::fmt::Display for ProvisionIdentityError {
             ),
             Self::Read(e) => write!(f, "config.yaml {e}"),
             Self::Write(e) => write!(f, "config.yaml cannot be written: {e}"),
+            Self::Carry(e) => write!(f, "the endpoint overlay could not be carried: {e}"),
         }
     }
 }
@@ -252,6 +258,7 @@ impl core::error::Error for ProvisionIdentityError {
         match self {
             Self::Read(e) => Some(e),
             Self::Write(e) => Some(e),
+            Self::Carry(e) => Some(e),
             _ => None,
         }
     }
@@ -268,6 +275,20 @@ impl core::error::Error for ProvisionIdentityError {
 /// profile, so a document changed since it was written is refused
 /// rather than overwritten.
 ///
+/// THE OVERLAY MOVES WITH IT. An overlay a release before Stage 22
+/// wrote names the first identity by its label, `human`
+/// ([`FIRST_IDENTITY_ALIAS`]); the loader refuses such a member once an
+/// entry carries that alias, so the same move carries it to `endpoint`
+/// ([`EndpointOverlay::carry_label_within`]) -- FIRST, then the form-2
+/// write, and also when the document is already form 2 for `endpoint`,
+/// so that a start which finds either half done finishes the other (the
+/// carry is idempotent). No shipped release's Android code calls an
+/// overlay setter (v0.1.0 to v0.4.0: no non-test caller of
+/// `set_endpoint_enabled` or `set_endpoint_default` under `crates/human`
+/// or `apps/human-android`, and the embedded host refuses disabling the
+/// service endpoint), so on a phone the carry finds nothing in practice;
+/// it is there so that the strict rule never strands one.
+///
 /// # Errors
 /// [`ProvisionIdentityError`], nothing written.
 pub fn provision_identity(
@@ -282,7 +303,7 @@ pub fn provision_identity(
     }
     let form_2 = embedded_identity_document(paths.profile(), endpoint);
     if text == form_2 {
-        return Ok(());
+        return carry_first_identity(paths, endpoint);
     }
     if text != embedded_document(paths.profile()) {
         return Err(
@@ -297,6 +318,24 @@ pub fn provision_identity(
             },
         );
     }
+    carry_first_identity(paths, endpoint)?;
     write_private_atomic_within(&paths.config_file(), form_2.as_bytes(), paths.boundary())
         .map_err(ProvisionIdentityError::Write)
+}
+
+/// The overlay's members for [`FIRST_IDENTITY_ALIAS`], moved to `endpoint`.
+fn carry_first_identity(
+    paths: &ProfilePaths,
+    endpoint: &EndpointId,
+) -> Result<(), ProvisionIdentityError> {
+    let label = EndpointAlias::parse(FIRST_IDENTITY_ALIAS)
+        .map_err(|_| ProvisionIdentityError::Unrecognised)?;
+    EndpointOverlay::carry_label_within(
+        &EndpointOverlay::path_for(paths),
+        paths.boundary(),
+        &label,
+        endpoint,
+    )
+    .map(|_| ())
+    .map_err(ProvisionIdentityError::Carry)
 }

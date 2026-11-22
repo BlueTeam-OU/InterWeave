@@ -514,6 +514,36 @@ impl core::error::Error for MintError {
 /// # Errors
 /// [`MintError`].
 pub fn mint_filesystem(paths: &ProfilePaths) -> Result<EndpointId, MintError> {
+    mint_filesystem_at(paths, |endpoint| key_path(paths, endpoint))
+}
+
+/// The file a key is minted into under `alias` before its id has a name
+/// anyone reads: `<state_dir>/endpoint-keys/.pending-<alias>.key`.
+///
+/// Nothing enumerates `endpoint-keys/` -- the daemon opens the one file
+/// an entry names, by [`key_path`] -- and an alias has no leading dot, so
+/// this is no key's name; `transportctl endpoint init --alias` finds a
+/// run it interrupted by this name, and publishes the file under its id
+/// ([`crate::persist::rename_private_no_replace_within`]).
+#[must_use]
+pub fn pending_key_path(paths: &ProfilePaths, alias: &crate::EndpointAlias) -> PathBuf {
+    paths
+        .state_dir()
+        .join(ENDPOINT_KEYS_DIR)
+        .join(format!(".pending-{alias}{KEY_FILE_SUFFIX}"))
+}
+
+/// [`mint_filesystem`] into the path `target` names for the id the new
+/// key derives: [`pending_key_path`]'s file for `init --alias`, where the
+/// id is known only once the key exists.
+///
+/// # Errors
+/// [`MintError`]; a file already at the target is
+/// `Persist(AlreadyExists)`, never replaced.
+pub fn mint_filesystem_at(
+    paths: &ProfilePaths,
+    target: impl FnOnce(&EndpointId) -> PathBuf,
+) -> Result<EndpointId, MintError> {
     use rand::TryRng as _;
     let mut secret = Zeroizing::new([0_u8; 32]);
     rand::rngs::SysRng
@@ -531,12 +561,8 @@ pub fn mint_filesystem(paths: &ProfilePaths) -> Result<EndpointId, MintError> {
     // The filesystem custody's seal is the identity: the file is the only
     // protection, so the body is the secret itself.
     let line = encode_record(&header, secret.as_slice());
-    crate::create_private_exclusive_within(
-        &key_path(paths, &endpoint),
-        line.as_bytes(),
-        paths.boundary(),
-    )
-    .map_err(MintError::Persist)?;
+    crate::create_private_exclusive_within(&target(&endpoint), line.as_bytes(), paths.boundary())
+        .map_err(MintError::Persist)?;
     Ok(endpoint)
 }
 

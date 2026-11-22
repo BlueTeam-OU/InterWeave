@@ -416,6 +416,80 @@ fn provision_identity_moves_form_1_to_form_2_once() {
     );
 }
 
+/// M3 carries the overlay in the same move: an overlay a release before
+/// Stage 22 keyed by the label `human` names the id after it, the state
+/// it recorded kept; a second M3 is a no-op; and the interrupted shape
+/// finishes -- form 2 there and the carry not done. The control: an
+/// overlay with no `human` member is not written.
+#[test]
+fn provision_identity_carries_the_overlay_of_the_first_identity() {
+    use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+    let (_root, app) = app();
+    let paths = paths_in(&app);
+    let overlay_path = EndpointOverlay::path_for(&paths);
+    let put = |text: &str| {
+        interweave_profile_config::write_private_atomic_within(
+            &overlay_path,
+            text.as_bytes(),
+            paths.boundary(),
+        )
+        .expect("overlay planted");
+    };
+    let overlay = || -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(&overlay_path).expect("read")).expect("json")
+    };
+    provision_embedded(&paths).expect("form 1");
+    let id = mint_filesystem(&paths).expect("a key minted");
+    put(r#"{"enabled":{"human":false},"default":"human"}"#);
+
+    provision_identity(&paths, &id).expect("form 2");
+    assert_eq!(read(&paths), embedded_identity_document("work", &id));
+    assert_eq!(
+        overlay(),
+        serde_json::json!({"enabled": {id.as_str(): false}, "default": id.as_str()})
+    );
+    let ino = std::fs::metadata(&overlay_path).expect("meta").ino();
+    provision_identity(&paths, &id).expect("again");
+    assert_eq!(
+        std::fs::metadata(&overlay_path).expect("meta").ino(),
+        ino,
+        "a second M3 writes nothing"
+    );
+
+    // Form 2 is there and the overlay still names the label (the write
+    // landed, the carry did not): the rerun finishes the carry.
+    put(r#"{"enabled":{"human":false}}"#);
+    provision_identity(&paths, &id).expect("finishes");
+    assert_eq!(
+        overlay(),
+        serde_json::json!({"enabled": {id.as_str(): false}})
+    );
+
+    // The control: an overlay with no `human` member is left alone.
+    put(r#"{"enabled":{"other":false}}"#);
+    let before = std::fs::read(&overlay_path).expect("read");
+    provision_identity(&paths, &id).expect("again");
+    assert_eq!(std::fs::read(&overlay_path).expect("read"), before);
+
+    // A carry that cannot finish refuses by its own variant and, with
+    // form 1 beside it, leaves form 1: the rerun is the retry.
+    let (_root2, app2) = self::app();
+    let paths2 = paths_in(&app2);
+    provision_embedded(&paths2).expect("form 1");
+    let id2 = mint_filesystem(&paths2).expect("a key");
+    interweave_profile_config::write_private_atomic_within(
+        &EndpointOverlay::path_for(&paths2),
+        format!(r#"{{"enabled":{{"human":false,"{}":true}}}}"#, id2.as_str()).as_bytes(),
+        paths2.boundary(),
+    )
+    .expect("planted");
+    assert!(matches!(
+        provision_identity(&paths2, &id2),
+        Err(ProvisionIdentityError::Carry(_))
+    ));
+    assert_eq!(read(&paths2), embedded_document("work"), "form 1 kept");
+}
+
 /// M3 replaces only the app's own form 1: a document without the marker
 /// is the person's, and an earlier release's is M1's to replace first.
 #[test]

@@ -382,6 +382,48 @@ fn a_start_on_form_1_is_refused_no_identity() {
     host.stop(Duration::from_secs(1)).expect("stops");
 }
 
+/// An overlay a release before Stage 22 keyed by the label `human` does
+/// not turn the form-1 refusal into an overlay one: form 1 has no entry,
+/// so no alias matches and the member is dropped in memory (the start
+/// only READS the overlay), and the start is refused `AndroidNoIdentity`
+/// as without it. The overlay file is left as it was, for
+/// `provision_identity`'s carry. Control: the same overlay beside an
+/// entry aliased `human` -- form 2 -- is refused for the label.
+#[test]
+fn a_label_overlay_beside_form_1_is_still_no_identity() {
+    use interweave_profile_config::ConfigError;
+    use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+    use interweave_profile_config::provision::{provision_embedded, provision_identity};
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let overlay = EndpointOverlay::path_for(&paths);
+    let text = br#"{"enabled":{"human":false}}"#;
+    interweave_profile_config::write_private_atomic_within(&overlay, text, paths.boundary())
+        .expect("planted");
+    assert_eq!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::NoIdentity(ConfigError::AndroidNoIdentity)),
+        "form 1 beside a label overlay: no identity, not an overlay refusal"
+    );
+    assert_eq!(std::fs::read(&overlay).expect("kept"), text);
+
+    // The control: with an entry aliased `human` the same overlay is
+    // refused for its label. A hand-written form 2, with no carry run.
+    let id = interweave_profile_config::endpoint_key::mint_filesystem(&paths).expect("a key");
+    std::fs::remove_file(&overlay).expect("removed");
+    provision_identity(&paths, &id).expect("form 2");
+    interweave_profile_config::write_private_atomic_within(&overlay, text, paths.boundary())
+        .expect("planted");
+    let refused = EmbeddedHost::start(launch(&app.dir)).map(|_| ());
+    assert!(
+        matches!(&refused, Err(EmbeddedRefused::Internal(m)) if m.contains("'human'")),
+        "{refused:?}"
+    );
+}
+
 /// A second start in the same process while a host holds the profile is
 /// refused `LockHeld`, and the first keeps serving; once the first has
 /// stopped, a start succeeds -- the lock went with it.
