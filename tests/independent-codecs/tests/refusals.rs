@@ -449,37 +449,55 @@ fn endpoint_directory_rules_hold_beside_their_controls() {
         }
         f
     };
-    let names = |n: usize| -> Vec<String> { (0..n).map(|i| format!("e{i}")).collect() };
-    assert!(DirectoryResponseV1::decode(&directory(&names(32))).is_ok());
+    // Derived ids (ADR-0067), from the keys [1; 32], [2; 32], ...
+    let names =
+        |n: usize| -> Vec<String> { (1..=n).map(|i| id(u8::try_from(i).unwrap())).collect() };
+    let largest = directory(&names(32));
+    assert_eq!(
+        largest.len(),
+        1 + 8 + 4 + 1 + 32 * 53,
+        "the largest legal frame"
+    );
+    assert!(DirectoryResponseV1::decode(&largest).is_ok());
     assert!(
         DirectoryResponseV1::decode(&directory(&names(33))).is_err(),
         "33 entries"
     );
-    // The 33-entry frame of 64-byte names is past the byte ceiling too, so
-    // the ceiling is checked on its own: the 32 × 64 frame is exactly it.
-    let max: Vec<String> = (0..32)
+    // 2094 bounds the READ: the 32 × 64 frame of labels is exactly that
+    // long and passes the bound, to be refused by the grammar; one byte
+    // more is refused by the bound itself.
+    let labels: Vec<String> = (0..32)
         .map(|i| format!("{}{:02}", "a".repeat(62), i))
         .collect();
-    assert_eq!(directory(&max).len(), MAX_RESPONSE_BYTES);
-    assert!(DirectoryResponseV1::decode(&directory(&max)).is_ok());
-    let mut over = directory(&max);
+    let at_bound = directory(&labels);
+    assert_eq!(at_bound.len(), MAX_RESPONSE_BYTES);
+    let err = DirectoryResponseV1::decode(&at_bound).unwrap_err();
+    assert!(err.0.contains("grammar"), "{err}");
+    let mut over = at_bound;
     over.push(0);
-    assert!(
-        DirectoryResponseV1::decode(&over).is_err(),
-        "a byte past the ceiling"
-    );
+    let err = DirectoryResponseV1::decode(&over).unwrap_err();
+    assert!(err.0.contains("above"), "a byte past the bound: {err}");
 
-    let unsorted = vec!["zeta".to_owned(), "alpha".to_owned()];
+    let mut unsorted = names(2);
+    unsorted.sort();
+    unsorted.reverse();
     match DirectoryResponseV1::decode(&directory(&unsorted)).unwrap() {
         DirectoryResponseV1::Directory { endpoints, .. } => assert_eq!(endpoints, unsorted),
         other @ DirectoryResponseV1::Refused { .. } => panic!("{other:?}"),
     }
-    let dup = vec!["human".to_owned(), "human".to_owned()];
-    assert!(
-        DirectoryResponseV1::decode(&directory(&dup)).is_err(),
-        "a duplicate"
-    );
-    assert!(DirectoryResponseV1::decode(&directory(&["Human".to_owned()])).is_err());
+    let dup = vec![id(7), id(7)];
+    let err = DirectoryResponseV1::decode(&directory(&dup)).unwrap_err();
+    assert!(err.0.contains("duplicate"), "a duplicate: {err}");
+    // A label of the retired grammar, and a derived id whose `12D3KooW`
+    // reads `12D3KooX`: 52 characters still, and the prefix bytes no
+    // longer an Ed25519 key's (a change in the key's own characters would
+    // name another key, as legal as the first).
+    assert!(DirectoryResponseV1::decode(&directory(&["human".to_owned()])).is_err());
+    let seven = id(7);
+    let off = seven.replacen("12D3KooW", "12D3KooX", 1);
+    assert_eq!(off.len(), 52);
+    assert!(DirectoryResponseV1::decode(&directory(std::slice::from_ref(&seven))).is_ok());
+    assert!(DirectoryResponseV1::decode(&directory(&[off])).is_err());
     let mut zero_len = directory(&[]);
     zero_len[13] = 1;
     zero_len.push(0);

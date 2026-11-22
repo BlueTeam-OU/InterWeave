@@ -63,8 +63,9 @@ pub const MAX_PAYLOAD_BYTES: usize = 49_152;
 pub const MAX_MEDIA_TYPE_BYTES: usize = 128;
 
 /// `ENDPOINTS.md`, the retired label grammar: `^[a-z][a-z0-9._-]{0,63}$`.
-/// The direct codecs no longer use it (they take [`is_derived_endpoint_id`]);
-/// the shapes that still do follow their own contract's major.
+/// The direct codecs and the endpoint directory's no longer use it (they take
+/// [`is_derived_endpoint_id`]); the shapes that still do follow their own
+/// contract's major.
 #[must_use]
 pub fn is_endpoint_id(s: &str) -> bool {
     let b = s.as_bytes();
