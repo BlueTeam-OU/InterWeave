@@ -111,8 +111,10 @@ fn lines() -> Vec<String> {
     LINES.with(|lines| lines.borrow().clone())
 }
 
+/// The endpoint the lease is on: the id the TEST-ONLY key planted as
+/// `ENDPOINT` derives (ADR-0067), so the key may sign as it.
 fn human() -> EndpointId {
-    EndpointId::parse(ENDPOINT).expect("endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id(ENDPOINT)
 }
 
 fn peer() -> TransportIdentity {
@@ -326,8 +328,9 @@ fn until_line(app: &mut Desktop, class: &str) -> String {
         .expect("the line")
 }
 
-/// No line of the log holds any planted word.
+/// No line of the log holds any planted word, nor the endpoint's id.
 fn assert_content_free() {
+    let id = human().as_str().to_lowercase();
     for line in lines() {
         for word in PLANTED {
             assert!(
@@ -335,6 +338,10 @@ fn assert_content_free() {
                 "planted {word:?} in the log line {line:?}"
             );
         }
+        assert!(
+            !line.to_lowercase().contains(&id),
+            "the endpoint's id in the log line {line:?}"
+        );
     }
 }
 
@@ -610,7 +617,25 @@ fn keyed_profile() -> (tempfile::TempDir, IdentityKey) {
         TrustBoundary::new(dir.path()).expect("boundary"),
     )
     .expect("paths");
-    let key = identity_key::create(&paths, &human(), &FilesystemCustody).expect("a key");
+    // The TEST-ONLY key for `ENDPOINT`, written as `transportctl endpoint
+    // init` would mint one, then opened as the client opens it.
+    let signing = interweave_test_support::endpoint_keys::signing_key(ENDPOINT);
+    let header = interweave_profile_config::endpoint_key::header_bytes(
+        interweave_profile_config::endpoint_key::Custody::FilesystemOnly,
+        human().as_str().as_bytes(),
+        &signing.verifying_key().to_bytes(),
+    )
+    .expect("a header");
+    let line = interweave_profile_config::endpoint_key::encode_record(&header, &signing.to_bytes());
+    interweave_profile_config::create_private_exclusive_within(
+        &identity_key::key_path(&paths, &human()),
+        line.as_bytes(),
+        paths.boundary(),
+    )
+    .expect("installed");
+    let key = identity_key::open(&paths, &human(), &FilesystemCustody)
+        .expect("opens")
+        .expect("a key");
     (dir, key)
 }
 
