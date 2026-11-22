@@ -2,10 +2,10 @@
 
 Status: proposal, 2026-11-04. **This note opened no stage.** Stage 22
 (plan §30, several user identities in one client) was roadmap only when
-it was written, to open on the owner's word alone, and the design was
-the one part of the stage that could go first. The owner opened the
-stage on 2026-11-19 (plan §30's opening record), so what follows is now
-built in the stage's steps.
+this note was written, and only the owner's word could open it; the
+design was the one part of the stage that could go first. The owner opened the
+stage on 2026-11-19 (plan §30's opening record), so the stage's steps
+now build what follows.
 
 Asked by architect-cto (REQUEST 01a1a689, job j89), read against
 `origin/main` b563dd00c, for four things: how every acting screen names
@@ -247,8 +247,8 @@ front, and only that identity admits the peer at the route. So:
 - **Peers rows** (add-a-peer §5.2): the trust state is that of the identity
   in front. `PeerStateTrusted` stays with one identity ("this device
   tries to connect to this address": true, since the device dials every
-  peer in its admission set, which every identity's set and the
-  device's own list feed; ADR-0067 d. 6), and with two or more reads
+  peer in its admission set, the union of every identity's set and
+  the device's own list; ADR-0067 d. 6), and with two or more reads
   `PeerStateTrustedAs`, the same claim after "Trusted by {identity}". `PeerStateNeedsTrust` today adds "this device does not
   connect to this address", which is false when another identity trusts
   that peer and would tell the person so. With two or more identities
