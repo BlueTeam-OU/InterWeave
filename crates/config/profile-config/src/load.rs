@@ -282,6 +282,42 @@ impl core::error::Error for LoadError {
     }
 }
 
+/// One entry's key state, read as [`ProfileConfig::read_endpoint_keys`]
+/// reads every authored entry's, and the refusal when the header does not
+/// derive the entry's id (the state is then left
+/// [`EndpointKeyState::NotRead`]). The one statement of the rule, also
+/// applied to the entries the endpoint overlay adds
+/// ([`crate::endpoint_overlay::EndpointOverlay::read_added_keys`]).
+pub(crate) fn read_entry_key(
+    paths: &ProfilePaths,
+    entry: &mut crate::EndpointConfig,
+) -> Option<ConfigError> {
+    use crate::endpoint_key::{self, KeyFileError, RecordError};
+    let mut refusal = None;
+    entry.key_state = match endpoint_key::read_header(paths, &entry.id) {
+        Ok(Some(header)) if header.endpoint() == &entry.id => EndpointKeyState::Present {
+            custody: header.custody(),
+        },
+        Ok(Some(header)) => {
+            refusal = Some(ConfigError::EndpointKeyMismatch {
+                endpoint: entry.id.clone(),
+                header_derives: Some(header.endpoint().clone()),
+            });
+            EndpointKeyState::NotRead
+        }
+        Err(KeyFileError::Record(RecordError::HeaderNotDerived)) => {
+            refusal = Some(ConfigError::EndpointKeyMismatch {
+                endpoint: entry.id.clone(),
+                header_derives: None,
+            });
+            EndpointKeyState::NotRead
+        }
+        Ok(None) => EndpointKeyState::Missing(KeyMissing::Absent),
+        Err(e) => EndpointKeyState::Missing(KeyMissing::Unreadable(e)),
+    };
+    refusal
+}
+
 impl ProfileConfig {
     /// Parse a profile document. Nothing is validated beyond the shape --
     /// and the endpoint entries' names, which are shape too but have
@@ -322,32 +358,11 @@ impl ProfileConfig {
     /// left [`EndpointKeyState::NotRead`].
     #[must_use]
     pub fn read_endpoint_keys(&mut self, paths: &ProfilePaths) -> Vec<ConfigError> {
-        use crate::endpoint_key::{self, KeyFileError, RecordError};
-        let mut errors = Vec::new();
-        for entry in &mut self.endpoints.entries {
-            entry.key_state = match endpoint_key::read_header(paths, &entry.id) {
-                Ok(Some(header)) if header.endpoint() == &entry.id => EndpointKeyState::Present {
-                    custody: header.custody(),
-                },
-                Ok(Some(header)) => {
-                    errors.push(ConfigError::EndpointKeyMismatch {
-                        endpoint: entry.id.clone(),
-                        header_derives: Some(header.endpoint().clone()),
-                    });
-                    EndpointKeyState::NotRead
-                }
-                Err(KeyFileError::Record(RecordError::HeaderNotDerived)) => {
-                    errors.push(ConfigError::EndpointKeyMismatch {
-                        endpoint: entry.id.clone(),
-                        header_derives: None,
-                    });
-                    EndpointKeyState::NotRead
-                }
-                Ok(None) => EndpointKeyState::Missing(KeyMissing::Absent),
-                Err(e) => EndpointKeyState::Missing(KeyMissing::Unreadable(e)),
-            };
-        }
-        errors
+        self.endpoints
+            .entries
+            .iter_mut()
+            .filter_map(|entry| read_entry_key(paths, entry))
+            .collect()
     }
 
     /// Load `paths`' profile document: refuse it when a newer build
