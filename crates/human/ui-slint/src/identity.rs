@@ -335,6 +335,28 @@ fn notice(flow: &IdentityFlow, screen: ScreenId, page: &mut IdentityPage) -> boo
     }
     takes_peer
 }
+/// K1's title, reason and primary. With no `PeerId` on the record there is
+/// nothing to restore against: no primary, and a title and reason that
+/// ask for no phrase (section 3.4).
+fn k1_texts(flow: &IdentityFlow) -> (Option<UiText>, Vec<UiText>, Option<UiText>) {
+    if !flow.can_restore() {
+        return (
+            Some(UiText::IdQTitleNoPath),
+            vec![UiText::IdQReasonNoPath],
+            None,
+        );
+    }
+    let reason = match flow.recovery().map(|(reason, _)| reason) {
+        Some(RecoveryReason::Record) => UiText::IdQReasonRecord,
+        _ => UiText::IdQReasonKey,
+    };
+    (
+        Some(UiText::IdQTitle),
+        vec![reason],
+        Some(UiText::IdEnterPhrase),
+    )
+}
+
 /// C4's and R4's primary: Try again in Continue's place while a notice
 /// it answers shows (section 6).
 const fn continue_or_try_again(again: bool) -> UiText {
@@ -431,16 +453,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
             vec![UiText::IdCreatedBody],
             Some(continue_or_try_again(start_busy)),
         ),
-        ScreenId::K1 => {
-            let reason = match flow.recovery().map(|(reason, _)| reason) {
-                Some(RecoveryReason::Record) => UiText::IdQReasonRecord,
-                _ => UiText::IdQReasonKey,
-            };
-            // With no PeerId on the record there is nothing to restore
-            // against: the reason and the way out only (section 3.4).
-            let primary = flow.can_restore().then_some(UiText::IdEnterPhrase);
-            (Some(UiText::IdQTitle), vec![reason], primary)
-        }
+        ScreenId::K1 => k1_texts(flow),
         ScreenId::S1 => (
             Some(UiText::IdS1Title),
             vec![UiText::IdS1Body],
@@ -555,7 +568,12 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::C4 => page.heading_key = C4_HEADING.into(),
         ScreenId::K1 => {
             page.heading_key = K1_HEADING.into();
-            page.footnote = text(UiText::IdQLost).into();
+            let way_out = if flow.can_restore() {
+                UiText::IdQLost
+            } else {
+                UiText::IdQNoPath
+            };
+            page.footnote = text(way_out).into();
         }
         ScreenId::S1 if flow.waiting() => page.waiting = text(UiText::IdGoingOffline).into(),
         _ => {}
@@ -672,6 +690,41 @@ mod tests {
         );
         assert!(shows(&with_restore));
         assert!(!shows(&k1(None)), "no restore, no phrase taken");
+    }
+
+    /// K1 over a record that names no readable `PeerId` offers no restore,
+    /// so nothing on it asks for the phrase or suggests the words would
+    /// help: its own title, reason and way out, and no primary (section
+    /// 3.4), whatever the cause.
+    #[test]
+    fn k1_with_no_path_asks_for_no_phrase() {
+        for reason in [RecoveryReason::Key, RecoveryReason::Record] {
+            let k1 = |expected| {
+                page(&IdentityFlow::new(
+                    LIST,
+                    Start::Recovery {
+                        reason,
+                        expected,
+                        new_keys: false,
+                    },
+                ))
+            };
+            let none = k1(None);
+            assert_eq!(none.title, en(UiText::IdQTitleNoPath), "{reason:?}");
+            assert_eq!(none.paragraphs.row_count(), 1, "{reason:?}");
+            assert_eq!(
+                none.paragraphs.row_data(0),
+                Some(en(UiText::IdQReasonNoPath)),
+                "{reason:?}"
+            );
+            assert_eq!(none.footnote, en(UiText::IdQNoPath), "{reason:?}");
+            assert!(none.primary.is_empty(), "{reason:?}");
+
+            let some = k1(Some(mine()));
+            assert_eq!(some.title, en(UiText::IdQTitle), "{reason:?}");
+            assert_eq!(some.footnote, en(UiText::IdQLost), "{reason:?}");
+            assert_eq!(some.primary, en(UiText::IdEnterPhrase), "{reason:?}");
+        }
     }
 
     /// The page binds item 12's line right after the ADR-0043 warning,
