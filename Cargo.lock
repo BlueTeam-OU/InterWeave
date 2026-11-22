@@ -3803,6 +3803,7 @@ dependencies = [
  "interweave-human-ui-model",
  "interweave-local-client-fake",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "tempfile",
  "tokio",

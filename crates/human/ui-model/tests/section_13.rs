@@ -25,6 +25,7 @@ use interweave_human_ui_model::{
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, PeerPath, TransportError, TransportIdentity};
 
 fn peer() -> TransportIdentity {
@@ -34,7 +35,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid")
+    endpoint_id(name)
 }
 
 fn envelope(id: u32, text: &str) -> HumanChatV2 {
@@ -143,7 +144,7 @@ fn s13_1_no_label_promotes_an_endpoint_id_or_display_name_to_authenticated_ident
         item.route_label
             .as_ref()
             .map(interweave_human_ui_model::RouteLabel::as_str),
-        Some("alice"),
+        Some(endpoint("alice").as_str()),
         "the endpoint is a route label beside it, never the author"
     );
     assert_eq!(model.trust(&p), Trust::NotVerifiedByThisClient);

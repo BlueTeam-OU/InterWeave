@@ -157,7 +157,8 @@ fn smallest_route(c: &ContactView) -> Option<(&str, &str)> {
 mod tests {
     use super::*;
     use crate::RouteView;
-    use interweave_transport_api::{EndpointId, TransportIdentity};
+    use interweave_test_support::endpoint_keys::endpoint_id;
+    use interweave_transport_api::TransportIdentity;
 
     // Two PeerIds, P before Q by code point ('D' < 'K' at the ninth).
     const P: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -176,7 +177,7 @@ mod tests {
                 .iter()
                 .map(|(p, e)| RouteView {
                     peer: TransportIdentity::parse(*p).expect("a PeerId"),
-                    endpoint: EndpointId::parse(*e).expect("a label"),
+                    endpoint: endpoint_id(e),
                     fingerprint: None,
                 })
                 .collect(),
@@ -222,23 +223,31 @@ mod tests {
     fn names_that_collate_equal_go_by_the_smaller_route_peer_id_first() {
         // "Åke" composed and decomposed are one name to the collator, so
         // the routes decide. Mutations: the largest route instead of the
-        // smallest (c3 first: c2's largest is Q too, and "a" < "work"); the
-        // label before the PeerId (c3's "a" would win over c2's P); the store's id in place
-        // of the route (c1 < c2 < c3 by id, here reversed on purpose).
+        // smallest (c3 first: c2's largest is Q too, and "zed"'s derived id
+        // < "work"'s); the endpoint before the PeerId (c3's "zed" would win
+        // over c2's P); the store's id in place of the route (c1 < c2 < c3
+        // by id, here reversed on purpose). The endpoint ids are derived,
+        // so the order of the labels is not the order of the ids: the
+        // precondition is asserted below.
         let composed = "\u{c5}ke";
         let decomposed = "A\u{30a}ke";
         assert_eq!(compare_names(composed, decomposed), Ordering::Equal);
+        assert!(
+            endpoint_id("zed").as_str() < endpoint_id("a").as_str()
+                && endpoint_id("zed").as_str() < endpoint_id("work").as_str(),
+            "the derived ids order the labels as this test needs"
+        );
         let mut list = [
-            contact("c1", composed, &[(Q, "zed")]),
+            contact("c1", composed, &[(Q, "a")]),
             contact("c2", decomposed, &[(Q, "work"), (P, "work")]),
-            contact("c3", composed, &[(Q, "a")]),
+            contact("c3", composed, &[(Q, "zed")]),
         ];
         list.sort_by(contact_order);
         let ids: Vec<&str> = list.iter().map(|c| c.contact_id.as_str()).collect();
         assert_eq!(
             ids,
             ["c2", "c3", "c1"],
-            "P before Q; then label 'a' before 'zed'"
+            "P before Q; then the smaller endpoint id (\"zed\"'s) before \"a\"'s"
         );
     }
 
