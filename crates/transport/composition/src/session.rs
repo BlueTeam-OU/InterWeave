@@ -902,6 +902,43 @@ impl AdminPort for InProcessAdmin {
         .await?
     }
 
+    async fn endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        direction: interweave_local_client_api::TrustDirection,
+    ) -> Result<interweave_local_client_api::EndpointTrustView, TransportError> {
+        self.require(AdminCapability::Trust)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::EndpointTrust(endpoint, direction, reply)
+        })
+        .await?
+    }
+
+    async fn set_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<TrustChange, TransportError> {
+        let by = self.writer(AdminCapability::Trust)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::SetEndpointTrust(by, endpoint, peer, allowed, reply)
+        })
+        .await?
+    }
+
+    async fn seed_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+    ) -> Result<interweave_local_client_api::TrustSeed, TransportError> {
+        // A write: it takes the port's write admission, as a set does.
+        let _by = self.writer(AdminCapability::Trust)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::SeedEndpointTrust(endpoint, reply)
+        })
+        .await?
+    }
+
     /// Signals the runtime's owner, which stops it: this port does not own
     /// the runtime. The FIRST request stands; a later one changes nothing,
     /// so a second port cannot shorten a grace already granted.
