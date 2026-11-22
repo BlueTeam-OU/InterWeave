@@ -506,7 +506,7 @@ mod tests {
     const P2: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
 
     fn ep(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
     fn peer(s: &str) -> TransportIdentity {
         TransportIdentity::parse(s).expect("valid identity")
@@ -518,21 +518,29 @@ mod tests {
             endpoints: names.iter().map(|n| ep(n)).collect(),
         }
     }
-    fn names(list: &[EndpointId]) -> Vec<&str> {
-        list.iter().map(EndpointId::as_str).collect()
+    /// The listed ids as the lists carry them: derived ids sort by their
+    /// text, not by the names the tests give their keys.
+    fn names(list: &[EndpointId]) -> Vec<EndpointId> {
+        list.to_vec()
+    }
+    /// The ids of `names`, in the order a canonical list carries them.
+    fn sorted_ids(names: &[&str]) -> Vec<EndpointId> {
+        let mut ids: Vec<EndpointId> = names.iter().map(|n| ep(n)).collect();
+        ids.sort();
+        ids
     }
 
     #[test]
     fn a_sorted_unique_list_is_canonical() {
         let v = validate_response(&raw(&["alpha", "beta"])).expect("valid");
-        assert_eq!(names(&v.endpoints), ["alpha", "beta"]);
+        assert_eq!(names(&v.endpoints), sorted_ids(&["alpha", "beta"]));
         assert!(!v.noncanonical);
     }
 
     #[test]
     fn an_unsorted_unique_list_is_sorted_and_flagged() {
         let v = validate_response(&raw(&["beta", "alpha"])).expect("valid, not refused");
-        assert_eq!(names(&v.endpoints), ["alpha", "beta"]);
+        assert_eq!(names(&v.endpoints), sorted_ids(&["alpha", "beta"]));
         assert!(
             v.noncanonical,
             "the remote sent it unsorted and that is recorded"
@@ -657,7 +665,7 @@ mod tests {
         assert_eq!(cache.len(), 1);
         assert_eq!(
             names(&cache.get(&peer(P1), 5).expect("fresh").endpoints),
-            ["b"]
+            sorted_ids(&["b"])
         );
     }
 

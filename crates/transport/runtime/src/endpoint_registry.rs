@@ -454,7 +454,7 @@ mod tests {
     const P2: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
 
     fn ep(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
     fn peer(s: &str) -> TransportIdentity {
         TransportIdentity::parse(s).expect("valid identity")
@@ -505,7 +505,7 @@ mod tests {
         let listed: Vec<&str> = r.endpoints().map(|(id, _)| id.as_str()).collect();
         assert_eq!(
             listed,
-            ["claude", "human"],
+            [ep("claude").as_str(), ep("human").as_str()],
             "every endpoint, leased or not, in id order"
         );
     }
@@ -781,8 +781,16 @@ mod tests {
         PeerTrustPolicy::new(peers.iter().map(|p| peer(p)).collect::<Vec<_>>())
             .expect("valid policy")
     }
-    fn names(list: &[EndpointId]) -> Vec<&str> {
-        list.iter().map(EndpointId::as_str).collect()
+    /// The listed ids as the lists carry them: derived ids sort by their
+    /// text, not by the names the tests give their keys.
+    fn names(list: &[EndpointId]) -> Vec<EndpointId> {
+        list.to_vec()
+    }
+    /// The ids of `names`, in the order a canonical list carries them.
+    fn sorted_ids(names: &[&str]) -> Vec<EndpointId> {
+        let mut ids: Vec<EndpointId> = names.iter().map(|n| ep(n)).collect();
+        ids.sort();
+        ids
     }
 
     #[test]
@@ -794,7 +802,7 @@ mod tests {
             .expect("claims");
         assert_eq!(
             names(&r.advertised_for(&peer(P1), &trusting(&[P1]), 32)),
-            ["human"]
+            sorted_ids(&["human"])
         );
     }
 
@@ -811,7 +819,7 @@ mod tests {
             .expect("claims");
         assert_eq!(
             names(&r.advertised_for(&peer(P1), &trusting(&[P1]), 32)),
-            ["human"]
+            sorted_ids(&["human"])
         );
         // And releasing it removes it: the snapshot follows the lease.
         r.release_session(&session("a"));
@@ -849,10 +857,13 @@ mod tests {
         r.claim(&ep("claude"), session("b"), "claude-channel", epoch("e2"))
             .expect("claims");
         let profile = trusting(&[P1, P2]);
-        assert_eq!(names(&r.advertised_for(&peer(P1), &profile, 32)), ["human"]);
+        assert_eq!(
+            names(&r.advertised_for(&peer(P1), &profile, 32)),
+            sorted_ids(&["human"])
+        );
         assert_eq!(
             names(&r.advertised_for(&peer(P2), &profile, 32)),
-            ["claude", "human"]
+            sorted_ids(&["claude", "human"])
         );
     }
 
@@ -886,7 +897,7 @@ mod tests {
         }
         assert_eq!(
             names(&r.advertised_for(&peer(P1), &trusting(&[P1]), 32)),
-            ["alpha", "mid", "zeta"]
+            sorted_ids(&["alpha", "mid", "zeta"])
         );
     }
 
@@ -908,7 +919,7 @@ mod tests {
         }
         assert_eq!(
             names(&r.advertised_for(&peer(P1), &trusting(&[P1]), 3)),
-            ["e0", "e1", "e2"]
+            sorted_ids(&["e0", "e1", "e2", "e3", "e4"])[..3]
         );
     }
 

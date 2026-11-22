@@ -487,7 +487,7 @@ mod tests {
     }
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     /// A registry with `human` and `claude`, `human` the default, both
