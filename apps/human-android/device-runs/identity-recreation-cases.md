@@ -1,7 +1,7 @@
 # Identity flow across a window's end: the device cases
 
 This is a list of cases, not a run record. Each case is named by its number
-(D1 to D6). It is what a comment in `apps/human-android` cites when it says
+(D1 to D7). It is what a comment in `apps/human-android` cites when it says
 a claim is BLOCKED on a device run. A run of these cases is recorded beside
 this file as a dated record, and that record names each case by its number.
 
@@ -49,9 +49,10 @@ items 10 to 12 do not hold these recreation cases.
 | D4 | Show my phrase's S2 with the service taken offline for it | a recreation | the new instance shows no phrase: it shows the chats, and S2 is reached again only through Show recovery phrase and its prompt (section 7, a new instance is a new display); after the old window ends, the service is back online and not refused busy |
 | D5 | any identity flow screen (C4 or R2), with Stay reachable on so the process outlives the task (the run's record says the mode) | the task removed from Recents, then a launch | the launch shows the start a fresh record gives, not the flow's last screen or its words; logcat has "its identity flow ends with it" at the removal |
 | D6 | a held C4 whose start's refusal arrives while the window is recreated | a recreation timed inside the hold | the refusal shows as `IdStartBusy` on the new window's C4 (the owed answer taken once), never lost and never shown twice |
+| D7 | a K1 raised over a running window (the chats attached under it) | a recreation, then End on K1 | logcat has one "the chats attach to the window" right after the recreation and none between it and End, as the first window had them attached |
 
 ## Status
 
-None of D1 to D6 has run yet. On 2026-11-22 this host had no route to the
+None of D1 to D7 has run yet. On 2026-11-22 this host had no route to the
 phones' LAN, and the device slots were stood down. The first run of these
 cases is recorded beside this file.

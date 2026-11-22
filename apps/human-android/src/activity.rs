@@ -547,14 +547,15 @@ impl Root {
     /// from it counts against an owed Connect (add-a-peer §5.1), together
     /// with what an earlier window of this start opened.
     fn new_window(view: Rc<RefCell<View>>) -> Self {
+        // The line the recreation device cases read (D1, D3 and D7 of
+        // device-runs/identity-recreation-cases.md): here, not in
+        // `attach`, so a lost link's reattach is not counted with it.
+        log("the chats attach to the window");
         rules().new_window(view.borrow().opened_from_chats());
         Self::attach(view)
     }
 
     fn attach(view: Rc<RefCell<View>>) -> Self {
-        // The line the recreation device cases read (D1, D3 of
-        // device-runs/identity-recreation-cases.md).
-        log("the chats attach to the window");
         let link = ServiceHost::global().hub().attach(Arc::new(|| {
             invoke_on_window(turn);
         }));

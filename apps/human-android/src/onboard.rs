@@ -703,8 +703,8 @@ struct Onboarding {
     /// window attaches them at once exactly when they were ([`rebind`];
     /// the rule held by [`Attached::at_rebind`]'s test
     /// `the_next_window_attaches_its_chats_where_the_last_had_them`, and
-    /// where each flow sets it is BLOCKED on a device run: cases D1 and
-    /// D3 of `device-runs/identity-recreation-cases.md`).
+    /// where each flow sets it is BLOCKED on a device run: cases D1, D3
+    /// and D7 of `device-runs/identity-recreation-cases.md`).
     attached: Attached,
     /// Whether the flow finished the Activity (Back on a first screen):
     /// its window's end then ends it rather than keeping it
