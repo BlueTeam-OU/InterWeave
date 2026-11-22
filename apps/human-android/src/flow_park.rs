@@ -154,7 +154,7 @@ pub(crate) const OWED_MAX: usize = 32;
 /// Answers for the window that holds the flow, from threads that cannot
 /// tell whether one does: `invoke_on_window` between two windows queues
 /// into the ended window's loop, which never runs it, and says it
-/// succeeded (BLOCKED on a device run: case D6 of
+/// succeeded (BLOCKED on a device run: case D8 of
 /// `device-runs/identity-recreation-cases.md`). Each answer is
 /// held here and the window told to take them; a window
 /// that does not take them leaves them to the next, which takes them

@@ -875,7 +875,7 @@ static OWED: Mutex<Owed<Box<dyn FnOnce() + Send>>> = Mutex::new(Owed::new());
 /// Run `task` on the window that holds the flow: held in [`OWED`], and
 /// that window told to take it. Between two windows the tell reaches the
 /// ended window's loop, which never runs it (BLOCKED on a device run:
-/// case D6 of `device-runs/identity-recreation-cases.md`), and the next
+/// case D8 of `device-runs/identity-recreation-cases.md`), and the next
 /// window takes what is held once
 /// it holds the flow ([`start`]) -- a prompt's answer,
 /// an Unlock ask dropped unraised, a held start's refusal for the person
