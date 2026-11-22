@@ -30,7 +30,9 @@ use interweave_local_client_api::Generation;
 use interweave_transport_api::{
     DirectRejectReason, EndpointId, MAX_DIRECTORY_ENTRIES, TransportError, TransportIdentity,
 };
-use interweave_trust_api::{EndpointTrustPolicy, PeerTrustPolicy, TrustDecision};
+use interweave_trust_api::{
+    EndpointSet, EndpointTrust, EndpointTrustPolicy, PeerTrustPolicy, TrustDecision,
+};
 
 /// Identifies one local data-plane session.
 ///
@@ -56,10 +58,23 @@ pub struct RegisteredEndpoint {
     /// A misbinding guard, not authentication: `client_kind` is a label a
     /// local client chooses, so this stops an accident, not an attacker.
     pub allowed_client_kinds: Vec<String>,
-    /// Inbound narrowing filter over profile trust.
+    /// The authored inbound filter over the operator's list, in force
+    /// while the endpoint has no own set ([`EndpointRegistry::set_own`]).
     pub inbound: EndpointTrustPolicy,
-    /// Outbound narrowing filter over profile trust.
+    /// The authored outbound filter over the operator's list, likewise.
     pub outbound: EndpointTrustPolicy,
+}
+
+/// An endpoint's own trusted sets, one per direction, from the endpoint
+/// overlay (ADR-0067 decision 6). While an endpoint has them they are the
+/// whole of what it trusts: its authored `inbound`/`outbound` and the
+/// operator's list no longer reach it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OwnTrust {
+    /// Who may reach the endpoint.
+    pub inbound: EndpointSet,
+    /// Whom the endpoint may address.
+    pub outbound: EndpointSet,
 }
 
 impl Default for RegisteredEndpoint {
@@ -179,6 +194,8 @@ pub struct EndpointRegistry {
     endpoints: BTreeMap<EndpointId, RegisteredEndpoint>,
     leases: BTreeMap<EndpointId, ActiveLease>,
     default_direct_endpoint: Option<EndpointId>,
+    /// Own sets, keyed by configured endpoints only (`set_own`).
+    own: BTreeMap<EndpointId, OwnTrust>,
 }
 
 impl EndpointRegistry {
@@ -192,7 +209,36 @@ impl EndpointRegistry {
             endpoints,
             leases: BTreeMap::new(),
             default_direct_endpoint,
+            own: BTreeMap::new(),
         }
+    }
+
+    /// Give a configured endpoint its own sets, or take them away (`None`:
+    /// the authored policy over the operator's list again). Answers whether
+    /// the endpoint is configured; an unconfigured one is left without
+    /// sets, so a set can never outlive or precede its endpoint.
+    pub fn set_own(&mut self, endpoint: &EndpointId, own: Option<OwnTrust>) -> bool {
+        if !self.endpoints.contains_key(endpoint) {
+            return false;
+        }
+        match own {
+            Some(own) => self.own.insert(endpoint.clone(), own),
+            None => self.own.remove(endpoint),
+        };
+        true
+    }
+
+    /// What `endpoint` trusts inbound: its own set, else its authored one.
+    fn inbound_trust<'a>(
+        &'a self,
+        endpoint: &EndpointId,
+        configured: &'a RegisteredEndpoint,
+    ) -> EndpointTrust<'a> {
+        self.own
+            .get(endpoint)
+            .map_or(EndpointTrust::Authored(&configured.inbound), |own| {
+                EndpointTrust::Own(&own.inbound)
+            })
     }
 
     /// Claim an endpoint exclusively for one session.
@@ -349,7 +395,7 @@ impl EndpointRegistry {
     pub fn resolve_inbound(
         &self,
         requested: Option<&EndpointId>,
-        source_peer_allowed: impl Fn(&EndpointTrustPolicy) -> bool,
+        source_peer_allowed: impl Fn(EndpointTrust<'_>) -> bool,
     ) -> Result<(EndpointId, &ActiveLease), ResolveFailure> {
         let target = match requested {
             Some(e) => e.clone(),
@@ -364,10 +410,11 @@ impl EndpointRegistry {
         if !configured.enabled {
             return Err(ResolveFailure::EndpointDisabled);
         }
-        // Endpoint inbound policy is a NARROWING filter applied after
-        // profile trust, which the caller has already applied. The closure
-        // shape is what keeps that ordering out of this module's hands.
-        if !source_peer_allowed(&configured.inbound) {
+        // The endpoint's inbound trust -- its own set, else its authored
+        // filter over the operator's list (ADR-0067 decision 6). The
+        // closure shape keeps the decision itself out of this module's
+        // hands: it is trust-api's `decide_at_endpoint`.
+        if !source_peer_allowed(self.inbound_trust(&target, configured)) {
             return Err(ResolveFailure::EndpointPolicyDenied);
         }
         let Some(lease) = self.leases.get(&target) else {
@@ -409,9 +456,9 @@ impl EndpointRegistry {
             .iter()
             .filter(|(_, configured)| configured.enabled && configured.advertise)
             .filter(|(endpoint, _)| self.leases.contains_key(*endpoint))
-            .filter(|(_, configured)| {
+            .filter(|(endpoint, configured)| {
                 profile
-                    .decide_for_endpoint(peer, &configured.inbound)
+                    .decide_at_endpoint(peer, self.inbound_trust(endpoint, configured))
                     .is_allowed()
             })
             .map(|(endpoint, _)| endpoint.clone())
@@ -441,7 +488,13 @@ impl EndpointRegistry {
                 },
             );
         };
-        profile.decide_for_endpoint(peer, &configured.outbound)
+        let trust = self
+            .own
+            .get(from)
+            .map_or(EndpointTrust::Authored(&configured.outbound), |own| {
+                EndpointTrust::Own(&own.outbound)
+            });
+        profile.decide_at_endpoint(peer, trust)
     }
 }
 
@@ -465,7 +518,7 @@ mod tests {
     fn epoch(seed: &str) -> Generation {
         Generation::parse(format!("{seed:_<16}")).expect("valid generation")
     }
-    fn allow_all(_: &EndpointTrustPolicy) -> bool {
+    fn allow_all(_: EndpointTrust<'_>) -> bool {
         true
     }
 
@@ -944,5 +997,99 @@ mod tests {
             r.advertised_for(&peer(P1), &trusting(&[P1]), 1000).len(),
             MAX_DIRECTORY_ENTRIES
         );
+    }
+
+    // --- own sets (ADR-0067 decision 6) ------------------------------------
+
+    fn own(inbound: &[&str], outbound: &[&str]) -> OwnTrust {
+        OwnTrust {
+            inbound: EndpointSet::new(inbound.iter().map(|p| peer(p))).expect("bounded"),
+            outbound: EndpointSet::new(outbound.iter().map(|p| peer(p))).expect("bounded"),
+        }
+    }
+
+    /// Resolve `to` for `from` under the real decision, as
+    /// `direct_inbound` asks it, against the operator's list.
+    fn routed(r: &EndpointRegistry, operator: &PeerTrustPolicy, from: &str, to: &str) -> bool {
+        let source = peer(from);
+        !matches!(
+            r.resolve_inbound(Some(&ep(to)), |t| operator
+                .decide_at_endpoint(&source, t)
+                .is_allowed()),
+            Err(ResolveFailure::EndpointPolicyDenied)
+        )
+    }
+
+    #[test]
+    fn an_own_set_is_the_whole_of_what_its_endpoint_trusts_inbound() {
+        let operator = trusting(&[P1]);
+        let mut r = registry();
+        assert!(r.set_own(&ep("human"), Some(own(&[P2], &[]))));
+        // The identity's peer reaches it, the operator's does not ...
+        assert!(routed(&r, &operator, P2, "human"));
+        assert!(!routed(&r, &operator, P1, "human"));
+        // ... and the inheriting endpoint beside it trusts the operator's
+        // peer and not the identity's: the control both ways.
+        assert!(routed(&r, &operator, P1, "claude"));
+        assert!(!routed(&r, &operator, P2, "claude"));
+    }
+
+    #[test]
+    fn taking_an_own_set_away_restores_the_authored_trust() {
+        let operator = trusting(&[P1]);
+        let mut r = registry();
+        r.set_own(&ep("human"), Some(own(&[], &[])));
+        assert!(
+            !routed(&r, &operator, P1, "human"),
+            "own and empty trusts nobody"
+        );
+        assert!(r.set_own(&ep("human"), None));
+        assert!(routed(&r, &operator, P1, "human"));
+    }
+
+    #[test]
+    fn an_unconfigured_endpoint_takes_no_own_set() {
+        let mut r = registry();
+        assert!(!r.set_own(&ep("ghost"), Some(own(&[P1], &[P1]))));
+        assert!(
+            r.set_own(&ep("human"), Some(own(&[P1], &[P1]))),
+            "the control"
+        );
+    }
+
+    #[test]
+    fn outbound_follows_the_own_set_and_not_the_operators_list() {
+        let operator = trusting(&[P1]);
+        let mut r = registry();
+        r.set_own(&ep("human"), Some(own(&[P1], &[P2])));
+        assert!(
+            r.authorize_outbound(&ep("human"), &peer(P2), &operator)
+                .is_allowed()
+        );
+        assert!(
+            !r.authorize_outbound(&ep("human"), &peer(P1), &operator)
+                .is_allowed()
+        );
+        assert!(
+            r.authorize_outbound(&ep("claude"), &peer(P1), &operator)
+                .is_allowed()
+        );
+        assert!(
+            !r.authorize_outbound(&ep("claude"), &peer(P2), &operator)
+                .is_allowed()
+        );
+    }
+
+    #[test]
+    fn the_directory_lists_an_own_set_endpoint_to_its_own_peers_only() {
+        let mut endpoints = BTreeMap::new();
+        endpoints.insert(ep("human"), advertised());
+        let mut r = EndpointRegistry::new(endpoints, None);
+        r.claim(&ep("human"), session("a"), "k", epoch("e1"))
+            .expect("claimed");
+        r.set_own(&ep("human"), Some(own(&[P2], &[P2])));
+        let operator = trusting(&[P1]);
+        assert_eq!(r.advertised_for(&peer(P2), &operator, 8), vec![ep("human")]);
+        assert!(r.advertised_for(&peer(P1), &operator, 8).is_empty());
     }
 }

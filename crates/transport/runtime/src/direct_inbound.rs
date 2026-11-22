@@ -65,7 +65,7 @@
 use interweave_transport_api::{
     DirectMessageV2, DirectRejectReason, EndpointId, TransportIdentity,
 };
-use interweave_trust_api::{EndpointTrustPolicy, PeerTrustPolicy, TrustDecision};
+use interweave_trust_api::{EndpointTrust, PeerTrustPolicy, TrustDecision};
 
 use crate::dedup::{
     Admission, DedupCache, DedupKey, DestinationSelector, RecordedRoute, Reservation,
@@ -381,12 +381,13 @@ pub fn admit_structured(
     // leaks and this peer's allowance decays under its own retries.
     let resolved = match ctx.registry.resolve_inbound(
         frame.destination_endpoint.as_ref(),
-        // 6-7. Endpoint policy NARROWS profile trust. The intersection
-        //      lives in trust-api so no call site can invert the order
-        //      and widen it.
-        |policy: &EndpointTrustPolicy| {
+        // 6-7. The endpoint's inbound trust, decided by trust-api: its own
+        //      set, else its authored filter narrowing the operator's list
+        //      (`ctx.prefix.trust`, never the admission set), so no call
+        //      site can order it to widen.
+        |trust: EndpointTrust<'_>| {
             matches!(
-                ctx.prefix.trust.decide_for_endpoint(source_peer, policy),
+                ctx.prefix.trust.decide_at_endpoint(source_peer, trust),
                 TrustDecision::Allowed
             )
         },
