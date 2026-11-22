@@ -295,9 +295,10 @@ mod unix {
             EndpointOverlayError::Read(_) => "unreadable",
             EndpointOverlayError::NotPrivate { .. } => "not_private",
             EndpointOverlayError::TooLarge => "too_large",
-            EndpointOverlayError::Parse(_) => "parse",
+            EndpointOverlayError::Parse(_) | EndpointOverlayError::LabelMember { .. } => "parse",
             EndpointOverlayError::Unknown
             | EndpointOverlayError::Disabled
+            | EndpointOverlayError::CarryConflict { .. }
             | EndpointOverlayError::Write(_) => "invalid",
         }
     }

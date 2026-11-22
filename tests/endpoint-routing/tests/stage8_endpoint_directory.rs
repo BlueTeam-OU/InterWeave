@@ -508,16 +508,19 @@ impl libp2p::request_response::Codec for RawResponder {
 
 /// A hostile directory response is a local `ProtocolViolation` across all
 /// three forms the clause names — a duplicate entry (caught by
-/// `validate_response`), an over-32 count and an invalid-grammar label
-/// (both caught in the codec's decoder, which fails as
+/// `validate_response`), an over-32 count and an entry outside the
+/// derived grammar (both caught in the codec's decoder, which fails as
 /// `Io(InvalidData)` -> `outbound_error` -> `ProtocolViolation`). Driving
 /// only the duplicate would leave a regression on the codec path — one
 /// mapping those decode failures to `PeerUnreachable` — undetected.
 ///
 /// The responder writes RAW BYTES rather than encoding through
-/// `EndpointsCodec`, whose encoder cannot produce an over-32 count or an
-/// out-of-grammar label; the querier decodes with the real codec and is
-/// what refuses them.
+/// `EndpointsCodec`, whose encoder cannot produce an over-32 count; the
+/// querier decodes with the real codec and is what refuses them. The
+/// duplicate is of a DERIVED id, so the codec passes it and the runtime's
+/// duplicate rule is what refuses it; the out-of-grammar entry is the
+/// label `human`, which the transitional `EndpointId::parse` still
+/// accepts and the wire's `parse_derived` does not (ADR-0067).
 ///
 /// Proves ENDPOINTS.md ">32 entries, invalid `EndpointId` grammar, or
 /// duplicates are `ProtocolViolation`", and, with an empty frame queued
@@ -541,11 +544,12 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
         v
     }
     let duplicate = {
+        let id = endpoint("claude");
         let mut v = directory_header();
         v.push(2); // count
         for _ in 0..2 {
-            v.push(5);
-            v.extend_from_slice(b"human");
+            v.push(u8::try_from(id.as_str().len()).expect("52"));
+            v.extend_from_slice(id.as_str().as_bytes());
         }
         v
     };
@@ -562,7 +566,8 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
         let mut v = directory_header();
         v.push(1);
         v.push(5);
-        v.extend_from_slice(b"Human"); // uppercase: outside the grammar
+        // A label of the retired grammar: no derived id.
+        v.extend_from_slice(b"human");
         v
     };
     let outbox = Arc::new(Mutex::new(std::collections::VecDeque::from([

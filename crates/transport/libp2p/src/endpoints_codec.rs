@@ -16,11 +16,14 @@
 //!
 //! # Grammar is refused here, not later
 //!
-//! An [`EndpointId`] cannot be constructed without passing its grammar,
-//! so a response carrying a bad label fails to DECODE, and request-
-//! response reports that to the requester as an `Io(InvalidData)` the
-//! runtime reads as `ProtocolViolation`. The count and duplicate rules
-//! are the runtime's (`transport-runtime::directory`) because they are
+//! Each entry is decoded by [`EndpointId::parse_derived`], never the
+//! transitional `parse`: on the wire an entry is a derived id (ADR-0067),
+//! 52 bytes, and a label of the retired grammar is malformed metadata. So
+//! a response carrying a label, or an entry of any other length, fails to
+//! DECODE, and request-response reports that to the requester as an
+//! `Io(InvalidData)` the runtime reads as `ProtocolViolation`
+//! (`an_entry_that_is_not_a_derived_id_does_not_decode`). The count and
+//! duplicate rules are the runtime's (`transport-runtime::directory`) because they are
 //! about the list, not the bytes — and the codec refuses a count above
 //! 32 only because such a frame cannot fit the response ceiling.
 
@@ -43,9 +46,12 @@ pub const ENDPOINTS_PROTOCOL: StreamProtocol = StreamProtocol::new("/interweave/
 /// is indistinguishable from a closed stream.
 pub const MAX_REQUEST_BYTES: usize = 1;
 
-/// The largest response: tag, `generated_at_ms`, `ttl_ms`, count, and
-/// 32 entries each at the 64-byte label ceiling. 2094, and the spec
-/// quotes that number from these same widths.
+/// The read bound of a response: tag, `generated_at_ms`, `ttl_ms`, count,
+/// and 32 entries each at the 64-byte `EndpointId` ceiling. 2094, and the
+/// spec quotes that number from these same widths. It bounds what is
+/// READ, not the largest frame that decodes: every entry is a derived id
+/// of 52 bytes, so that is `1 + 8 + 4 + 1 + 32 * 53` = 1710, the
+/// fixture's `largest-32-entries`.
 pub const MAX_RESPONSE_BYTES: usize =
     1 + 8 + 4 + 1 + MAX_DIRECTORY_ENTRIES * (1 + EndpointId::MAX_BYTES);
 
@@ -144,8 +150,8 @@ pub fn encode_response(response: &DirectoryResponse) -> Vec<u8> {
 ///
 /// # Errors
 /// A static description of the first thing wrong: unknown tag, short
-/// frame, a label outside the `EndpointId` grammar, more than 32 entries,
-/// or trailing bytes.
+/// frame, an entry that is not a derived `EndpointId` (a label of the
+/// retired grammar among them), more than 32 entries, or trailing bytes.
 pub fn decode_response(bytes: &[u8]) -> Result<DirectoryResponse, &'static str> {
     let (&tag, rest) = bytes.split_first().ok_or("empty response")?;
     match tag {
@@ -168,7 +174,9 @@ pub fn decode_response(bytes: &[u8]) -> Result<DirectoryResponse, &'static str> 
                     .split_at_checked(usize::from(len))
                     .ok_or("short entry")?;
                 let label = std::str::from_utf8(label).map_err(|_| "entry is not ASCII")?;
-                endpoints.push(EndpointId::parse(label).map_err(|_| "entry outside the grammar")?);
+                endpoints.push(
+                    EndpointId::parse_derived(label).map_err(|_| "entry outside the grammar")?,
+                );
                 rest = tail;
             }
             if !rest.is_empty() {
@@ -269,9 +277,7 @@ impl Codec for EndpointsCodec {
 mod tests {
     use super::*;
 
-    fn ep(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid")
-    }
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     fn unhex(text: &str) -> Vec<u8> {
         (0..text.len())
@@ -317,6 +323,18 @@ mod tests {
                         .map(|e| e.as_str().expect("str"))
                         .collect();
                     assert_eq!(names, expected);
+                    // Each entry is the TEST-ONLY id its named key derives,
+                    // so the fixture, the Python verifier and this crate's
+                    // key rule agree on one id per name.
+                    let keys: Vec<EndpointId> = v["endpoints_test_keys"]
+                        .as_array()
+                        .map(|keys| {
+                            keys.iter()
+                                .map(|k| endpoint_id(k.as_str().expect("a key name")))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    assert_eq!(d.endpoints, keys, "{}", v["name"]);
                     assert_eq!(encode_response(&decoded), frame);
                     assert!(frame.len() <= MAX_RESPONSE_BYTES);
                 }
@@ -327,33 +345,69 @@ mod tests {
         assert_eq!(seen, 5, "every vector in the file was exercised");
     }
 
+    /// The largest frame that decodes is 32 derived entries, 1710 bytes,
+    /// under the 2094-byte read bound; the 2094-byte frame of 64-byte
+    /// labels the bound was computed from is refused by the grammar.
     #[test]
-    fn the_ceiling_frame_is_exactly_the_response_bound() {
+    fn the_largest_legal_frame_is_32_derived_entries_under_the_read_bound() {
         let doc = fixture();
-        let ceiling = doc["vectors"]
+        let largest = doc["vectors"]
             .as_array()
             .expect("vectors")
             .iter()
-            .find(|v| v["name"] == "ceiling-32-by-64")
-            .expect("the ceiling vector");
-        assert_eq!(
-            ceiling["frame_len"].as_u64(),
-            Some(MAX_RESPONSE_BYTES as u64)
-        );
+            .find(|v| v["name"] == "largest-32-entries")
+            .expect("the largest vector");
+        assert_eq!(largest["frame_len"].as_u64(), Some(1 + 8 + 4 + 1 + 32 * 53));
+        assert_eq!(MAX_RESPONSE_BYTES, 2094);
+
+        let mut at_bound = vec![TAG_DIRECTORY];
+        at_bound.extend_from_slice(&0u64.to_be_bytes());
+        at_bound.extend_from_slice(&0u32.to_be_bytes());
+        at_bound.push(32);
+        for i in 0..32u8 {
+            at_bound.push(64);
+            at_bound.extend_from_slice(format!("{}{i:02}", "a".repeat(62)).as_bytes());
+        }
+        assert_eq!(at_bound.len(), MAX_RESPONSE_BYTES);
+        assert_eq!(decode_response(&at_bound), Err("entry outside the grammar"));
     }
 
+    /// A derived id one character off, and a label the transitional
+    /// `EndpointId::parse` still accepts, both fail to decode.
     #[test]
-    fn a_label_outside_the_grammar_does_not_decode() {
-        let mut frame = encode_response(&DirectoryResponse::Directory(EndpointDirectoryV1 {
+    fn an_entry_that_is_not_a_derived_id_does_not_decode() {
+        let id = endpoint_id("claude");
+        let frame = encode_response(&DirectoryResponse::Directory(EndpointDirectoryV1 {
             generated_at_ms: 0,
             ttl_ms: 0,
-            endpoints: vec![ep("human")],
+            endpoints: vec![id.clone()],
         }));
-        // Uppercase the first byte of the label: `Human` is outside
-        // `^[a-z][a-z0-9._-]{0,63}$`.
-        let label_at = 1 + 8 + 4 + 1 + 1;
-        frame[label_at] = b'H';
-        assert_eq!(decode_response(&frame), Err("entry outside the grammar"));
+        assert_eq!(
+            decode_response(&frame),
+            Ok(DirectoryResponse::Directory(EndpointDirectoryV1 {
+                generated_at_ms: 0,
+                ttl_ms: 0,
+                endpoints: vec![id],
+            })),
+            "the control decodes"
+        );
+        // `12D3KooW` read as `12D3KooX`: 52 characters still, and the
+        // prefix bytes no longer an Ed25519 key's. (A change in the key's
+        // own characters would name another key, as legal as the first.)
+        let mut altered = frame;
+        let w = 1 + 8 + 4 + 1 + 1 + 7;
+        assert_eq!(altered[w], b'W');
+        altered[w] = b'X';
+        assert_eq!(decode_response(&altered), Err("entry outside the grammar"));
+
+        let label = EndpointId::parse("human").expect("a transitional label");
+        let mut labelled = vec![TAG_DIRECTORY];
+        labelled.extend_from_slice(&0u64.to_be_bytes());
+        labelled.extend_from_slice(&0u32.to_be_bytes());
+        labelled.push(1);
+        labelled.push(u8::try_from(label.as_str().len()).expect("short"));
+        labelled.extend_from_slice(label.as_str().as_bytes());
+        assert_eq!(decode_response(&labelled), Err("entry outside the grammar"));
     }
 
     #[test]

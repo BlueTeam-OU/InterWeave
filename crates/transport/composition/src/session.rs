@@ -320,15 +320,10 @@ impl DataSessionBinding for InProcessBinding {
         // Owed the runtime's notices from now, and woken by what is
         // queued for it, if it reads events.
         let wake = session.holds(DataCapability::Events).then(|| {
-            let wake = self.notices.register(
+            self.notices.register(
                 session.session_id().as_str(),
                 session.endpoint_lease().map(|lease| lease.endpoint.clone()),
-            );
-            if !request.route_notices() {
-                self.notices
-                    .decline_route_notices(session.session_id().as_str());
-            }
-            wake
+            )
         });
         Ok(InProcessSession {
             session,

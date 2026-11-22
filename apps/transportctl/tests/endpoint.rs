@@ -35,8 +35,13 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use ed25519_dalek::SigningKey;
 use interweave_ipc_protocol::{DecodedFrame, FrameError, decode_frame, encode_frame};
-use interweave_profile_config::endpoint_key::{Custody, ENDPOINT_KEYS_DIR, KeyHeader};
-use interweave_profile_config::{EndpointKeyState, ProfileConfig, ProfilePaths, XdgRoots};
+use interweave_profile_config::endpoint_key::{
+    Custody, ENDPOINT_KEYS_DIR, KeyHeader, mint_filesystem_at, pending_key_path,
+};
+use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+use interweave_profile_config::{
+    EndpointAlias, EndpointKeyState, ProfileConfig, ProfilePaths, XdgRoots,
+};
 use interweave_transport_api::EndpointId;
 use serde_json::{Value, json};
 
@@ -242,10 +247,18 @@ fn init_mints_a_key_whose_entry_loads_present() {
             "alias: human".to_owned()
         ]
     );
-    assert!(text(&out.stderr).is_empty(), "{}", text(&out.stderr));
+    // Nothing on stderr but the id said before the publish.
+    let file = home.keys_dir().join(format!("{}.key", id.as_str()));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "transportctl: the key for 'human' is {}; publishing it as {}\n",
+            id.as_str(),
+            file.display()
+        )
+    );
     assert_eq!(home.minted(), [format!("{}.key", id.as_str())]);
 
-    let file = home.keys_dir().join(format!("{}.key", id.as_str()));
     let mode = |p: &Path| std::fs::metadata(p).expect("meta").permissions().mode() & 0o777;
     assert_eq!(mode(&file), 0o600);
     assert_eq!(mode(&home.keys_dir()), 0o700);
@@ -974,4 +987,401 @@ fn snapshot(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
         }
     }
     out
+}
+
+// ------------------------------------------- the overlay's label members
+
+/// What a release before Stage 22 wrote for an operator who disabled the
+/// `claude` endpoint (`test-data/upgrade/d3a193e9`'s shape).
+const FROZEN_OVERLAY: &str = r#"{"enabled":{"claude":false}}"#;
+
+impl Home {
+    fn overlay_path(&self) -> PathBuf {
+        EndpointOverlay::path_for(&self.paths)
+    }
+
+    /// Plant the overlay, owner-only, replacing one that is there.
+    fn plant_overlay(&self, text: &str) {
+        let path = self.overlay_path();
+        let _ = std::fs::remove_file(&path);
+        write_private(&path, text.as_bytes());
+    }
+
+    fn overlay_json(&self) -> Value {
+        serde_json::from_str(&std::fs::read_to_string(self.overlay_path()).expect("overlay"))
+            .expect("json")
+    }
+
+    /// The composed endpoints with the overlay read as the daemon's load
+    /// reads it: what `claude`'s state is once the entry is written.
+    fn claude_enabled_as_loaded(&self, id: &EndpointId) -> bool {
+        let config = ProfileConfig::load_document(&self.paths).expect("the document");
+        let (overlay, _) = EndpointOverlay::read_within(
+            &self.overlay_path(),
+            &config.endpoints,
+            self.paths.boundary(),
+        )
+        .expect("the overlay loads");
+        overlay.effective(&config.endpoints).enabled[id]
+    }
+
+    fn claude_entry(&self, id: &EndpointId) {
+        self.write_config(&format!(
+            "    - {{ key: {}.key, alias: claude, enabled: true, advertise: false }}",
+            id.as_str()
+        ));
+    }
+
+    fn plant_pending(&self) -> EndpointId {
+        let alias = EndpointAlias::parse("claude").expect("an alias");
+        let pending = pending_key_path(&self.paths, &alias);
+        mint_filesystem_at(&self.paths, |_| pending.clone()).expect("a pending key")
+    }
+}
+
+/// `adopt --alias claude` carries the frozen overlay's `claude` member to
+/// the adopted id, and the entry it prints then LOADS with the endpoint
+/// disabled. The control: before the adopt, the same entry beside the
+/// same overlay is refused for its label.
+#[test]
+fn adopt_carries_the_label_overlay_to_the_id() {
+    let home = Home::new();
+    let (secret, public) = test_key(30);
+    let id = EndpointId::from_ed25519_public(&public);
+    home.plant_legacy("claude", &record(1, b"claude", &public, &secret));
+    home.plant_overlay(FROZEN_OVERLAY);
+
+    home.claude_entry(&id);
+    let config = ProfileConfig::load_document(&home.paths).expect("the document");
+    let refused = EndpointOverlay::read_within(
+        &home.overlay_path(),
+        &config.endpoints,
+        home.paths.boundary(),
+    )
+    .expect_err("the control: refused for its label");
+    assert!(refused.to_string().contains("'claude'"), "{refused}");
+    std::fs::remove_file(home.paths.config_file()).expect("config removed");
+
+    let (printed_id, lines) = printed(&home.run(&["endpoint", "adopt", "--alias", "claude"]));
+    assert_eq!(printed_id, id);
+    assert_eq!(
+        home.overlay_json(),
+        json!({"enabled": {id.as_str(): false}})
+    );
+    home.write_config(&entry_from(&lines));
+    assert!(!home.claude_enabled_as_loaded(&id), "the disable survived");
+}
+
+/// A carry that fails (the overlay names the label AND the id, with
+/// different states) refuses, keeps the old file and the written new
+/// one, and changes nothing else; once the operator has settled the
+/// overlay, a second run finishes. Nothing is minted.
+#[test]
+fn adopt_whose_carry_fails_keeps_the_old_file_and_a_second_run_finishes() {
+    let home = Home::new();
+    let (secret, public) = test_key(31);
+    let id = EndpointId::from_ed25519_public(&public);
+    let old = home.plant_legacy("claude", &record(1, b"claude", &public, &secret));
+    let conflicting = format!(r#"{{"enabled":{{"claude":false,"{}":true}}}}"#, id.as_str());
+    home.plant_overlay(&conflicting);
+
+    let out = home.run(&["endpoint", "adopt", "--alias", "claude"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert!(
+        text(&out.stderr).contains("a second run finishes"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(old.exists(), "the old file is what a rerun needs");
+    assert_eq!(home.minted(), [format!("{}.key", id.as_str())]);
+    assert_eq!(
+        std::fs::read_to_string(home.overlay_path()).expect("overlay"),
+        conflicting,
+        "the overlay is as it was"
+    );
+
+    home.plant_overlay(FROZEN_OVERLAY);
+    let (again, _) = printed(&home.run(&["endpoint", "adopt", "--alias", "claude"]));
+    assert_eq!(again, id);
+    assert!(!old.exists());
+    assert_eq!(
+        home.overlay_json(),
+        json!({"enabled": {id.as_str(): false}})
+    );
+}
+
+/// Interrupted AFTER the carry, before the old file's removal: the new
+/// file is there and the overlay already names the id. The second run
+/// finishes, and the overlay is left byte for byte as the carry wrote
+/// it -- a carry that found nothing writes nothing.
+#[test]
+fn adopt_interrupted_after_the_carry_finishes_and_leaves_the_overlay() {
+    let home = Home::new();
+    let (secret, public) = test_key(32);
+    let id = EndpointId::from_ed25519_public(&public);
+    let old = home.plant_legacy("claude", &record(1, b"claude", &public, &secret));
+    private_dir(&home.keys_dir());
+    write_private(
+        &home.keys_dir().join(format!("{}.key", id.as_str())),
+        record(1, id.as_str().as_bytes(), &public, &secret).as_bytes(),
+    );
+    let carried = format!(r#"{{"enabled":{{"{}":false}}}}"#, id.as_str());
+    home.plant_overlay(&carried);
+
+    printed(&home.run(&["endpoint", "adopt", "--alias", "claude"]));
+    assert!(!old.exists());
+    assert_eq!(
+        std::fs::read_to_string(home.overlay_path()).expect("overlay"),
+        carried
+    );
+}
+
+/// The entry was written by hand without the carry and no old file is
+/// left: `adopt` carries the overlay to that entry's id and succeeds,
+/// the refusal the loader gave now ended by the command it named. The
+/// control, an overlay with no `claude` member, is the refusal as before.
+#[test]
+fn adopt_for_a_hand_written_entry_carries_the_overlay() {
+    let home = Home::new();
+    let id = EndpointId::from_ed25519_public(&test_key(33).1);
+    home.claude_entry(&id);
+
+    home.plant_overlay(r#"{"enabled":{"other":false}}"#);
+    let out = home.run(&["endpoint", "adopt", "--alias", "claude"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        text(&out.stderr).contains(&format!("already names key {}.key", id.as_str())),
+        "{}",
+        text(&out.stderr)
+    );
+
+    home.plant_overlay(FROZEN_OVERLAY);
+    let (printed_id, lines) = printed(&home.run(&["endpoint", "adopt", "--alias", "claude"]));
+    assert_eq!(printed_id, id);
+    assert_eq!(lines.last().map(String::as_str), Some("alias: claude"));
+    assert_eq!(
+        home.overlay_json(),
+        json!({"enabled": {id.as_str(): false}})
+    );
+    assert!(!home.claude_enabled_as_loaded(&id));
+    assert!(home.minted().is_empty(), "nothing minted");
+}
+
+/// `init --alias claude` carries the frozen overlay to the minted id: one
+/// key file, named by its id, no pending file left, and the entry it
+/// prints loads with the endpoint disabled.
+#[test]
+fn init_carries_the_label_overlay_to_the_minted_id() {
+    let home = Home::new();
+    home.plant_overlay(FROZEN_OVERLAY);
+    let (id, lines) = printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+    assert_eq!(home.minted(), [format!("{}.key", id.as_str())]);
+    assert_eq!(
+        home.overlay_json(),
+        json!({"enabled": {id.as_str(): false}})
+    );
+    home.write_config(&entry_from(&lines));
+    assert!(!home.claude_enabled_as_loaded(&id));
+}
+
+/// THE CONSTRAINT: an `init --alias` cut short after minting and run
+/// again mints nothing and ends with the overlay on the ONE key file's
+/// id. The interruption is simulated by the pending file a cut-short run
+/// leaves, planted by the mint that run makes; the overlay is as it was
+/// (cut before the carry) or already carried (cut before the rename).
+#[test]
+fn init_rerun_after_an_interruption_mints_nothing() {
+    for (what, overlay_names_id) in [("before the carry", false), ("after the carry", true)] {
+        let home = Home::new();
+        let id = home.plant_pending();
+        assert_eq!(home.minted(), [".pending-claude.key".to_owned()]);
+        let pending_line =
+            std::fs::read_to_string(home.keys_dir().join(".pending-claude.key")).expect("pending");
+        home.plant_overlay(&if overlay_names_id {
+            format!(r#"{{"enabled":{{"{}":false}}}}"#, id.as_str())
+        } else {
+            FROZEN_OVERLAY.to_owned()
+        });
+
+        let (printed_id, lines) = printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+        assert_eq!(printed_id, id, "{what}: the pending key's id");
+        assert_eq!(lines.last().map(String::as_str), Some("alias: claude"));
+        assert_eq!(
+            home.minted(),
+            [format!("{}.key", id.as_str())],
+            "{what}: one key file, nothing minted, no pending file"
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.keys_dir().join(format!("{}.key", id.as_str())))
+                .expect("published"),
+            pending_line,
+            "{what}: the pending key itself"
+        );
+        assert_eq!(
+            home.overlay_json(),
+            json!({"enabled": {id.as_str(): false}}),
+            "{what}"
+        );
+    }
+}
+
+/// `init --alias` says the id on stderr before it gives the key file its
+/// id's name, so a run cut short after the rename still told the operator
+/// which id the overlay was carried to. The control: without `--alias`
+/// there is no pending file and nothing is said.
+#[test]
+fn init_reports_the_id_before_it_publishes() {
+    let home = Home::new();
+    let out = home.run(&["endpoint", "init", "--alias", "claude"]);
+    let (id, _) = printed(&out);
+    assert!(
+        text(&out.stderr).contains(&format!("the key for 'claude' is {}", id.as_str())),
+        "{}",
+        text(&out.stderr)
+    );
+    let bare = Home::new();
+    let out = bare.run(&["endpoint", "init"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert!(
+        !text(&out.stderr).contains("the key for"),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
+/// The `link` fallback cut short between its link and its unlink leaves
+/// the pending key under its id's name as well: the rerun finds the same
+/// bytes there, removes the pending name and prints the entry. The
+/// control: another key under the id's name is refused, both kept.
+#[test]
+fn init_finishes_when_the_key_is_under_both_names() {
+    let home = Home::new();
+    let id = home.plant_pending();
+    let pending = home.keys_dir().join(".pending-claude.key");
+    let named = home.keys_dir().join(format!("{}.key", id.as_str()));
+    let line = std::fs::read_to_string(&pending).expect("pending");
+    std::fs::hard_link(&pending, &named).expect("a second name");
+    let (printed_id, _) = printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+    assert_eq!(printed_id, id);
+    assert_eq!(home.minted(), [format!("{}.key", id.as_str())]);
+    assert_eq!(std::fs::read_to_string(&named).expect("named"), line);
+
+    // The control: the id's name holds other bytes.
+    let other = Home::new();
+    let id = other.plant_pending();
+    let named = other.keys_dir().join(format!("{}.key", id.as_str()));
+    std::fs::write(&named, "not the pending key\n").expect("planted");
+    std::fs::set_permissions(&named, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    let out = other.run(&["endpoint", "init", "--alias", "claude"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert!(
+        text(&out.stderr).contains("holds another key"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert_eq!(other.minted().len(), 2, "both kept");
+}
+
+/// A carry that fails in `init` leaves the pending file, so the rerun
+/// finds the same key; the control is the rerun finishing once the
+/// overlay is settled.
+#[test]
+fn init_whose_carry_fails_keeps_the_pending_key() {
+    let home = Home::new();
+    let id = home.plant_pending();
+    let conflicting = format!(r#"{{"enabled":{{"claude":false,"{}":true}}}}"#, id.as_str());
+    home.plant_overlay(&conflicting);
+    let out = home.run(&["endpoint", "init", "--alias", "claude"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert!(
+        text(&out.stderr).contains("a second run finishes"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert_eq!(home.minted(), [".pending-claude.key".to_owned()]);
+    assert_eq!(
+        std::fs::read_to_string(home.overlay_path()).expect("overlay"),
+        conflicting
+    );
+
+    home.plant_overlay(FROZEN_OVERLAY);
+    let (again, _) = printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+    assert_eq!(again, id);
+    assert_eq!(home.minted(), [format!("{}.key", id.as_str())]);
+}
+
+/// A pending file that is not a record of its own key is refused and
+/// left, and nothing is minted over it.
+#[test]
+fn init_refuses_a_pending_file_that_is_not_a_key_record() {
+    let home = Home::new();
+    private_dir(&home.keys_dir());
+    let pending = home.keys_dir().join(".pending-claude.key");
+    write_private(&pending, b"not a record\n");
+    let out = home.run(&["endpoint", "init", "--alias", "claude"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert_eq!(home.minted(), [".pending-claude.key".to_owned()]);
+    assert_eq!(std::fs::read(&pending).expect("kept"), b"not a record\n");
+
+    // The control: a record of its own key is taken.
+    std::fs::remove_file(&pending).expect("removed");
+    home.plant_pending();
+    printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+}
+
+/// An entry with the alias already written by hand, the overlay still
+/// naming the label: `init` carries and succeeds, minting nothing -- the
+/// alias-taken refusal it gave before would have been a dead end. The
+/// control, an overlay with no such member, still refuses it as taken.
+#[test]
+fn init_for_a_hand_written_entry_carries_the_overlay() {
+    let home = Home::new();
+    let id = EndpointId::from_ed25519_public(&test_key(34).1);
+    home.claude_entry(&id);
+
+    home.plant_overlay(r#"{"enabled":{"other":false}}"#);
+    let out = home.run(&["endpoint", "init", "--alias", "claude"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        text(&out.stderr).contains("'claude' is taken"),
+        "{}",
+        text(&out.stderr)
+    );
+
+    home.plant_overlay(FROZEN_OVERLAY);
+    let (printed_id, _) = printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+    assert_eq!(printed_id, id);
+    assert_eq!(
+        home.overlay_json(),
+        json!({"enabled": {id.as_str(): false}})
+    );
+    assert!(!home.claude_enabled_as_loaded(&id));
+    assert!(home.minted().is_empty(), "nothing minted");
+}
+
+/// With no alias there is no label to carry: the overlay is left byte
+/// for byte, and the control -- the same overlay with an alias -- is
+/// carried (`init_carries_the_label_overlay_to_the_minted_id`).
+#[test]
+fn init_without_an_alias_leaves_the_overlay_alone() {
+    let home = Home::new();
+    home.plant_overlay(FROZEN_OVERLAY);
+    let (id, _) = printed(&home.run(&["endpoint", "init"]));
+    assert_eq!(home.minted(), [format!("{}.key", id.as_str())]);
+    assert_eq!(
+        std::fs::read_to_string(home.overlay_path()).expect("overlay"),
+        FROZEN_OVERLAY
+    );
+}
+
+/// No overlay at all: both commands do what they did, and no overlay is
+/// created.
+#[test]
+fn no_overlay_is_created_by_either_command() {
+    let home = Home::new();
+    printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+    let (secret, public) = test_key(35);
+    home.plant_legacy("human", &record(1, b"human", &public, &secret));
+    printed(&home.run(&["endpoint", "adopt", "--alias", "human"]));
+    assert!(!home.overlay_path().exists());
 }

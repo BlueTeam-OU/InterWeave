@@ -7,6 +7,14 @@
 //! never a write to `config.yaml`: each prints the entry, and the person,
 //! the operator or the deployment's renderer writes it.
 //!
+//! A release before Stage 22 keyed `endpoint-overlay.json` by the label,
+//! and the loader refuses such a member once an entry carries that alias
+//! (`EndpointOverlayError::LabelMember`). So each command given an alias
+//! also moves that label's overlay members to the id
+//! (`EndpointOverlay::carry_label_within`), and does it BEFORE the step
+//! that tells a rerun it has nothing left to do, so that a run cut short
+//! anywhere is finished by running the same command again.
+//!
 //! Neither takes the profile lock, unlike `identity init`. The node key
 //! that command writes is the one the running daemon holds; an endpoint
 //! key is read by the daemon only at its load, through the entry naming
@@ -26,10 +34,10 @@ use ed25519_dalek::SigningKey;
 use interweave_profile_config::endpoint_key::{
     self, Custody, KeyHeader, LEGACY_IDENTITY_KEYS_DIR, MAX_RECORD_BYTES, RawRecord,
 };
-use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+use interweave_profile_config::endpoint_overlay::{Carried, EndpointOverlay};
 use interweave_profile_config::{
-    EndpointAlias, LoadError, PersistError, ProfileConfig, ProfilePaths, XdgRoots,
-    read_private_within, resolve_endpoint,
+    EndpointAlias, EndpointConfig, LoadError, PersistError, ProfileConfig, ProfilePaths, XdgRoots,
+    read_private_within,
 };
 use interweave_transport_api::EndpointId;
 use zeroize::Zeroizing;
@@ -86,43 +94,204 @@ fn entry(id: &EndpointId, alias: Option<&EndpointAlias>, json: bool) -> String {
     out
 }
 
+/// The overlay's members for `alias` moved to `id`, for an entry already
+/// in `config.yaml` that something other than this command wrote (by
+/// hand, or by a run that stopped after writing it). `Nothing` found to
+/// move is the caller's own refusal, `otherwise`.
+fn carry_for_entry(
+    paths: &ProfilePaths,
+    alias: &EndpointAlias,
+    id: &EndpointId,
+    json: bool,
+    otherwise: Failure,
+) -> Result<String, Failure> {
+    match carry(paths, alias, id)? {
+        Carried::Moved => Ok(entry(id, Some(alias), json)),
+        Carried::Nothing => Err(otherwise),
+    }
+}
+
+fn carry(paths: &ProfilePaths, alias: &EndpointAlias, id: &EndpointId) -> Result<Carried, Failure> {
+    EndpointOverlay::carry_label_within(
+        &EndpointOverlay::path_for(paths),
+        paths.boundary(),
+        alias,
+        id,
+    )
+    .map_err(|e| refused("carrying the endpoint overlay", &e))
+}
+
+/// The entry of `config` carrying `alias`.
+fn entry_with_alias<'a>(
+    config: &'a ProfileConfig,
+    alias: &EndpointAlias,
+) -> Option<&'a EndpointConfig> {
+    config
+        .endpoints
+        .entries
+        .iter()
+        .find(|e| e.alias.as_ref() == Some(alias))
+}
+
 /// Mint a new endpoint key at filesystem custody and print its id and
 /// the entry naming it (ADR-0067 decision 4).
 ///
 /// An alias an entry of the composed configuration already carries is
 /// refused before anything is minted -- when `config.yaml` is there and
-/// loads without its keys. One that does not load is the case a
-/// deployment migrating from labels is in (its entries still carry `id`),
-/// so the mint goes on and stderr says the alias was not checked; the
-/// daemon's load refuses a duplicate alias by name.
+/// loads without its keys -- unless the overlay still holds members under
+/// that label, in which case the entry was written without the carry and
+/// this run carries them to the entry's id. A `config.yaml` that does not
+/// load is the case a deployment migrating from labels is in (its entries
+/// still carry `id`), so the mint goes on and stderr says the alias was
+/// not checked; the daemon's load refuses a duplicate alias by name.
+///
+/// With an alias, the key is minted into `endpoint-keys/.pending-<alias>.key`
+/// and published as `<id>.key` only after the overlay's members for the
+/// alias are on the id ([`init_with_alias`]); without one it is minted
+/// straight to `<id>.key`.
 fn init(name: &str, alias: Option<&EndpointAlias>, json: bool) -> Result<String, Failure> {
     let paths = paths(name)?;
-    if let Some(alias) = alias {
-        match ProfileConfig::load_document(&paths) {
-            Ok(config) => {
-                let (overlay, _) = EndpointOverlay::read_within(
-                    &EndpointOverlay::path_for(&paths),
-                    &config.endpoints,
-                    paths.boundary(),
-                )
-                .map_err(|e| refused("the endpoint overlay", &e))?;
-                if let Ok(taken) = resolve_endpoint(&config.endpoints, &overlay, alias.as_str()) {
+    let Some(alias) = alias else {
+        let id = endpoint_key::mint_filesystem(&paths)
+            .map_err(|e| refused("minting the endpoint key", &e))?;
+        return Ok(entry(&id, None, json));
+    };
+    match ProfileConfig::load_document(&paths) {
+        Ok(config) => {
+            if let Some(taken) = entry_with_alias(&config, alias) {
+                let refusal = Failure::Refused(format!(
+                    "the alias '{alias}' is taken: the entry with key {} carries it",
+                    taken.key_file_name()
+                ));
+                return carry_for_entry(&paths, alias, &taken.id, json, refusal);
+            }
+        }
+        Err(LoadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => eprintln!(
+            "transportctl: note: the alias was not checked against {}, which does not load: {e}",
+            paths.config_file().display()
+        ),
+    }
+    init_with_alias(&paths, alias, json)
+}
+
+/// `init --alias`: the key, then the carry, then the key's name.
+///
+/// IN THIS ORDER, so that a run cut short anywhere ends, when run again,
+/// with the overlay's members on the id of the ONE key file and nothing
+/// else minted: the key is read from the pending file when a run left
+/// one (and minted into it when none), the members are carried to its
+/// id, and only then is the file renamed to `<id>.key` -- by a rename
+/// that never replaces. The carry precedes the rename because once the
+/// file has its id's name nothing finds it by the alias.
+/// `tests/endpoint.rs` `init_rerun_after_an_interruption_mints_nothing`.
+fn init_with_alias(
+    paths: &ProfilePaths,
+    alias: &EndpointAlias,
+    json: bool,
+) -> Result<String, Failure> {
+    let pending = endpoint_key::pending_key_path(paths, alias);
+    let shown = pending.display().to_string();
+    let id = match read_private_within(&pending, paths.boundary(), MAX_RECORD_BYTES)
+        .map_err(|e| refused(&shown, &e))?
+    {
+        Some(line) => pending_id(&Zeroizing::new(line), &shown)?,
+        None => endpoint_key::mint_filesystem_at(paths, |_| pending.clone())
+            .map_err(|e| refused("minting the endpoint key", &e))?,
+    };
+    carry(paths, alias, &id).map_err(|f| match f {
+        Failure::Refused(m) => Failure::Refused(format!(
+            "{m}; the key is kept in {shown}, and a second run finishes"
+        )),
+        other @ Failure::Unreachable(_) => other,
+    })?;
+    let new = endpoint_key::key_path(paths, &id);
+    // Said BEFORE the rename: once the file has its id's name a rerun no
+    // longer finds it by the alias, and a run cut short after the rename
+    // would otherwise leave the overlay on an id nobody was told
+    // (`init_reports_the_id_before_it_publishes`).
+    eprintln!(
+        "transportctl: the key for '{alias}' is {}; publishing it as {}",
+        id.as_str(),
+        new.display()
+    );
+    match interweave_profile_config::persist::rename_private_no_replace_within(
+        &pending,
+        &new,
+        paths.boundary(),
+    ) {
+        Ok(()) => {}
+        // Published; only its name's durability is in doubt.
+        Err(PersistError::Unsynced(e)) => eprintln!(
+            "transportctl: warning: {} is written, but its directory could not be synced: {e}",
+            new.display()
+        ),
+        // The `link` fallback (a filesystem without RENAME_NOREPLACE)
+        // cut short between its link and its unlink leaves the key under
+        // both names: the same bytes there finish the run, anything else
+        // is refused and both are kept
+        // (`init_finishes_when_the_key_is_under_both_names`).
+        Err(PersistError::AlreadyExists) => {
+            let same = |p: &Path| {
+                read_private_within(p, paths.boundary(), MAX_RECORD_BYTES)
+                    .ok()
+                    .flatten()
+                    .map(Zeroizing::new)
+            };
+            match (same(&pending), same(&new)) {
+                (Some(a), Some(b)) if a == b => {
+                    if let Err(e) = interweave_profile_config::persist::remove_private_within(
+                        &pending,
+                        paths.boundary(),
+                    ) {
+                        eprintln!(
+                            "transportctl: warning: {shown} is a second name of {}, and could \
+                             not be removed: {e}",
+                            new.display()
+                        );
+                    }
+                }
+                _ => {
                     return Err(Failure::Refused(format!(
-                        "the alias '{alias}' is taken: the entry with key {} carries it",
-                        endpoint_key::key_file_name(&taken)
+                        "{} is there already and holds another key: {shown} is kept, and \
+                         nothing was replaced",
+                        new.display()
                     )));
                 }
             }
-            Err(LoadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => eprintln!(
-                "transportctl: note: the alias was not checked against {}, which does not load: {e}",
-                paths.config_file().display()
-            ),
+        }
+        Err(e) => {
+            return Err(Failure::Refused(format!(
+                "publishing {}: {e}; the key is kept in {shown}, and a second run finishes",
+                new.display()
+            )));
         }
     }
-    let id = endpoint_key::mint_filesystem(&paths)
-        .map_err(|e| refused("minting the endpoint key", &e))?;
-    Ok(entry(&id, alias, json))
+    Ok(entry(&id, Some(alias), json))
+}
+
+/// The id of the key in a pending file a run left: a filesystem-custody
+/// record whose header names the id its public key derives and whose body
+/// is the secret of that key. Anything else is not a key this command
+/// minted, and is left where it is.
+fn pending_id(line: &Zeroizing<String>, shown: &str) -> Result<EndpointId, Failure> {
+    let header = KeyHeader::from_line(line).map_err(|e| refused(shown, &e))?;
+    let bytes = endpoint_key::decode_line(line).map_err(|e| refused(shown, &e))?;
+    let raw = RawRecord::parse(&bytes).map_err(|e| refused(shown, &e))?;
+    let secret: Option<[u8; 32]> = raw.body.try_into().ok();
+    let genuine = secret.is_some_and(|secret| {
+        SigningKey::from_bytes(&Zeroizing::new(secret))
+            .verifying_key()
+            .to_bytes()
+            == *header.public_key()
+    });
+    if header.custody() != Custody::FilesystemOnly || !genuine {
+        return Err(Failure::Refused(format!(
+            "{shown} is not a filesystem-custody key record of its own public key; it is \
+             kept, and nothing was minted"
+        )));
+    }
+    Ok(header.endpoint().clone())
 }
 
 /// `<state_dir>/identity-keys/<label>.key`: the file a release before
@@ -142,9 +311,9 @@ fn legacy_path(paths: &ProfilePaths, alias: &EndpointAlias) -> PathBuf {
 /// IN THIS ORDER, and the order is the point: the old record is read and
 /// judged; the new file is written by the exclusive create, which syncs
 /// the file and its directory; the new file is read back and must hold
-/// the same key; only then is the old file removed, and its directory
-/// synced. Interrupted anywhere, both files or the old one alone are
-/// left, and a second run finishes from either: a new file already there
+/// the same key; the overlay's members for the label are carried to the
+/// id; only then is the old file removed, and its directory synced.
+/// Interrupted anywhere, both files or the old one alone are left, and a second run finishes from either: a new file already there
 /// is checked, never replaced, and nothing is minted.
 /// `tests/endpoint.rs`
 /// `a_failed_write_leaves_the_old_file` fails if the removal comes first.
@@ -155,7 +324,7 @@ fn adopt(name: &str, alias: &EndpointAlias, json: bool) -> Result<String, Failur
     let Some(line) = read_private_within(&old, paths.boundary(), MAX_RECORD_BYTES)
         .map_err(|e| refused(&shown, &e))?
     else {
-        return Err(nothing_to_adopt(&paths, alias, &shown));
+        return nothing_to_adopt(&paths, alias, &shown, json);
     };
     let line = Zeroizing::new(line);
     let bytes = endpoint_key::decode_line(&line).map_err(|e| refused(&shown, &e))?;
@@ -212,6 +381,16 @@ fn adopt(name: &str, alias: &EndpointAlias, json: bool) -> Result<String, Failur
         }
     }
     same_key(&paths, &new, &id, &raw.public_key, &secret)?;
+    // BEFORE the old file goes: the old file is what tells a rerun it has
+    // work left, so a carry that fails leaves it, and a second run
+    // finishes.
+    carry(&paths, alias, &id).map_err(|f| match f {
+        Failure::Refused(m) => Failure::Refused(format!(
+            "{m}; {shown} is kept and {} is written, and a second run finishes",
+            new.display()
+        )),
+        other @ Failure::Unreachable(_) => other,
+    })?;
     match interweave_profile_config::persist::remove_private_within(&old, paths.boundary()) {
         Ok(_) => {}
         // The old file is gone and its absence may not survive a crash;
@@ -269,27 +448,37 @@ fn same_key(
 /// No `identity-keys/<label>.key`: nothing to adopt, and never a mint in
 /// its place, so that a mistyped alias cannot make a new identity where
 /// an old one was meant. When `config.yaml` loads and an entry carries
-/// the alias, the refusal names that entry's key -- an adopt that
-/// finished, or a key minted for it -- instead of sending the operator to
-/// mint another one, which `endpoint init` would refuse for the alias.
-fn nothing_to_adopt(paths: &ProfilePaths, alias: &EndpointAlias, shown: &str) -> Failure {
+/// the alias, it is an adopt that finished, or a key minted or an entry
+/// written by hand for it: the overlay's members for the label are
+/// carried to that entry's id when there are any (an entry written
+/// without the carry, which the loader refuses until it is done), and
+/// otherwise the refusal names that entry's key instead of sending the
+/// operator to mint another one, which `endpoint init` would refuse for
+/// the alias.
+fn nothing_to_adopt(
+    paths: &ProfilePaths,
+    alias: &EndpointAlias,
+    shown: &str,
+    json: bool,
+) -> Result<String, Failure> {
     let configured = ProfileConfig::load_document(paths).ok().and_then(|config| {
-        config
-            .endpoints
-            .entries
-            .iter()
-            .find(|e| e.alias.as_ref() == Some(alias))
-            .map(interweave_profile_config::EndpointConfig::key_file_name)
+        entry_with_alias(&config, alias).map(|e| (e.id.clone(), e.key_file_name()))
     });
     match configured {
-        Some(key) => Failure::Refused(format!(
-            "nothing to adopt: {shown} is not there, and config.yaml's entry with the alias \
-             '{alias}' already names key {key}"
-        )),
-        None => Failure::Refused(format!(
+        Some((id, key)) => carry_for_entry(
+            paths,
+            alias,
+            &id,
+            json,
+            Failure::Refused(format!(
+                "nothing to adopt: {shown} is not there, and config.yaml's entry with the alias \
+                 '{alias}' already names key {key}"
+            )),
+        ),
+        None => Err(Failure::Refused(format!(
             "nothing to adopt: {shown} is not there. An endpoint with no sealed key gets a new \
              key, and a new id, from `transportctl endpoint init --profile {} --alias {alias}`",
             paths.profile()
-        )),
+        ))),
     }
 }

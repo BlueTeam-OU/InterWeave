@@ -669,12 +669,10 @@ async fn a_routed_peer_connecting_again_is_owed_its_path_with_no_previous() {
     );
 }
 
-/// The fake honours a session that declines route notices: no notice
-/// without `previous` at its route's begin, and a change after it owed
-/// with its `previous`; the control, a session that takes them, is owed
-/// the begin (#245 re-review N3).
+/// The fake owes a session its route's begin with no `previous`, and a
+/// change after it with its `previous` (#245 re-review N3).
 #[tokio::test]
-async fn a_session_declining_route_notices_is_owed_changes_with_their_previous() {
+async fn a_session_is_owed_its_route_begin_and_then_changes_with_their_previous() {
     use interweave_local_client_api::{
         DataSessionBinding as _, DataSessionPort as _, LocalSessionEvent, SessionEvent,
     };
@@ -692,47 +690,34 @@ async fn a_session_declining_route_notices_is_owed_changes_with_their_previous()
             })
             .collect()
     };
-    for (n, declines) in [(1_u8, true), (2, false)] {
-        let p = pair();
-        let from = p.a.open(suite::full(Some(&agent()))).await.expect("leases");
-        let request = if declines {
-            suite::full(Some(&human())).without_route_notices()
-        } else {
-            suite::full(Some(&human()))
-        };
-        let to = p.b.open(request).await.expect("leases");
-        from.send_direct(
-            DirectDestination {
-                peer: p.b_peer.clone(),
-                endpoint: Some(human()),
-            },
-            MessageId::from_bytes([n; 16]),
-            suite::text("a route"),
-        )
-        .await
-        .expect("accepted");
-        let begun = paths(to.events(usize::MAX).await.expect("events"));
-        if declines {
-            assert!(
-                begun.is_empty(),
-                "no begin for a declining session: {begun:?}"
-            );
-        } else {
-            assert_eq!(begun, [(None, PeerPath::Direct)], "the control's begin");
-        }
-        p.b.path_changed(
-            &p.a_peer,
-            PeerPath::Direct,
-            PeerPath::Relayed,
-            "direct_lost",
-            3,
-        );
-        assert_eq!(
-            paths(to.events(usize::MAX).await.expect("events")),
-            [(Some(PeerPath::Direct), PeerPath::Relayed)],
-            "the change, previous included (declines: {declines})"
-        );
-    }
+    let n = 1_u8;
+    let p = pair();
+    let from = p.a.open(suite::full(Some(&agent()))).await.expect("leases");
+    let to = p.b.open(suite::full(Some(&human()))).await.expect("leases");
+    from.send_direct(
+        DirectDestination {
+            peer: p.b_peer.clone(),
+            endpoint: Some(human()),
+        },
+        MessageId::from_bytes([n; 16]),
+        suite::text("a route"),
+    )
+    .await
+    .expect("accepted");
+    let begun = paths(to.events(usize::MAX).await.expect("events"));
+    assert_eq!(begun, [(None, PeerPath::Direct)], "the begin");
+    p.b.path_changed(
+        &p.a_peer,
+        PeerPath::Direct,
+        PeerPath::Relayed,
+        "direct_lost",
+        3,
+    );
+    assert_eq!(
+        paths(to.events(usize::MAX).await.expect("events")),
+        [(Some(PeerPath::Direct), PeerPath::Relayed)],
+        "the change, previous included"
+    );
 }
 
 /// A route begun while the fake's pair is disconnected is announced at

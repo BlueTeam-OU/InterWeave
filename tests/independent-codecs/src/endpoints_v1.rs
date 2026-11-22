@@ -11,8 +11,12 @@
 //! DirectoryRefusedV1:  tag:u8 = 0x02 || reason:u8   (1 overloaded, 2 unauthorized, 3 unavailable)
 //! ```
 //!
-//! More than 32 entries, an endpoint outside the grammar, or a duplicate is a
-//! protocol violation, never something to truncate. `ttl_ms` is carried as
+//! An endpoint is an `EndpointId`, and an `EndpointId` is the derived id of
+//! `contracts/ENDPOINTS.md` §`EndpointId` (ADR-0067): 52 bytes, so `len` is
+//! 52 in every frame that decodes, and 2094 bounds the read alone. More than
+//! 32 entries, an endpoint outside that grammar (a label of the retired one
+//! among them), or a duplicate is a protocol violation, never something to
+//! truncate. `ttl_ms` is carried as
 //! sent, because clamping is the receiver's cache rule and not the codec's.
 //! An unsorted unique list decodes as sent: sorting it is also the
 //! receiver's. A refusal reason outside 1..=3 is refused. The text lists
@@ -21,7 +25,7 @@
 //! for its own codes.
 
 use crate::wire::Reader;
-use crate::{DecodeError, is_endpoint_id};
+use crate::{DecodeError, is_derived_endpoint_id};
 
 /// The protocol id.
 pub const PROTOCOL: &str = "/interweave/endpoints/1.0.0";
@@ -32,7 +36,9 @@ pub const REQUEST: [u8; 1] = [0x01];
 /// At most this many entries.
 pub const MAX_ENTRIES: usize = 32;
 
-/// The largest response: 1 + 8 + 4 + 1 + 32 × 65.
+/// The read bound of a response: 1 + 8 + 4 + 1 + 32 × 65, from the 64-byte
+/// ceiling `len` admits. The largest frame that decodes is 32 derived ids,
+/// 1 + 8 + 4 + 1 + 32 × 53 = 1710.
 pub const MAX_RESPONSE_BYTES: usize = 2094;
 
 /// The refusal reasons, hand-assigned: code = index + 1.
@@ -103,7 +109,7 @@ impl DirectoryResponseV1 {
                     }
                     let label = core::str::from_utf8(r.take(len, "endpoint")?)
                         .ok()
-                        .filter(|t| is_endpoint_id(t))
+                        .filter(|t| is_derived_endpoint_id(t))
                         .ok_or_else(|| {
                             DecodeError("an entry outside the EndpointId grammar".to_owned())
                         })?;
@@ -153,7 +159,7 @@ impl DirectoryResponseV1 {
                 out.extend_from_slice(&ttl_ms.to_be_bytes());
                 out.push(u8::try_from(endpoints.len()).unwrap_or(u8::MAX));
                 for (n, e) in endpoints.iter().enumerate() {
-                    if !is_endpoint_id(e) || endpoints[..n].contains(e) {
+                    if !is_derived_endpoint_id(e) || endpoints[..n].contains(e) {
                         return Err(DecodeError(format!("entry {e:?} illegal or repeated")));
                     }
                     out.push(u8::try_from(e.len()).unwrap_or(u8::MAX));

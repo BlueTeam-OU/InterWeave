@@ -48,27 +48,10 @@ impl Rng {
     }
 }
 
-const ENDPOINT_HEAD: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
-const ENDPOINT_TAIL: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789._-";
-
-fn endpoint(r: &mut Rng) -> String {
-    // The edges: one character, 64, and in between.
-    let len = match r.below(4) {
-        0 => 1,
-        1 => 64,
-        _ => 1 + r.below(64),
-    };
-    let mut s = String::from(char::from(r.pick(ENDPOINT_HEAD)));
-    while s.len() < len {
-        s.push(char::from(r.pick(ENDPOINT_TAIL)));
-    }
-    s
-}
-
 /// A derived `EndpointId` of a random key: the only value a direct
-/// endpoint field carries on `/interweave/direct/3.0.0`, so the direct
-/// shapes draw from this and the endpoint directory, still on the label
-/// grammar, from [`endpoint`].
+/// endpoint field carries on `/interweave/direct/3.0.0` and an endpoint
+/// directory entry on `/interweave/endpoints/1.0.0` (ADR-0067), so every
+/// shape here that carries an endpoint draws from this.
 fn derived_endpoint(r: &mut Rng) -> String {
     let mut key = [0_u8; 32];
     for chunk in key.chunks_mut(8) {
@@ -501,7 +484,7 @@ fn endpoint_directories_agree_in_both_directions_and_under_mutation() {
         };
         let mut endpoints: Vec<String> = Vec::new();
         while endpoints.len() < n {
-            let e = endpoint(&mut rng);
+            let e = derived_endpoint(&mut rng);
             if !endpoints.contains(&e) {
                 endpoints.push(e);
             }
@@ -522,7 +505,7 @@ fn endpoint_directories_agree_in_both_directions_and_under_mutation() {
             ttl_ms: *ttl_ms,
             endpoints: endpoints
                 .iter()
-                .map(|e| EndpointId::parse(e.clone()).expect("legal"))
+                .map(|e| EndpointId::parse_derived(e.clone()).expect("legal"))
                 .collect(),
         }),
         DirectoryResponseV1::Refused { reason } => DirectoryResponse::Refused(match *reason {
@@ -540,7 +523,9 @@ fn endpoint_directories_agree_in_both_directions_and_under_mutation() {
             Ok(case),
             "case {n}"
         );
-        if ours.len() > 40 {
+        // Every byte of a one-entry directory is mutated too, so the two
+        // decoders meet a derived id altered in each of its 52 places.
+        if ours.len() > 1 + 8 + 4 + 1 + 1 + 52 {
             continue;
         }
         for at in 0..ours.len() {

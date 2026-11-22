@@ -6,6 +6,7 @@
 //!
 //! `<state>/endpoint-overlay.json` holds exactly
 //! `{"enabled": {<endpoint-id>: <bool>, ...}, "default": <endpoint-id> | null}`,
+//! each `<endpoint-id>` a DERIVED id (`EndpointId::parse_derived`),
 //! both deltas against `config.yaml`'s `endpoints`: `enabled` is always
 //! present and holds only the endpoints whose state differs from the
 //! configuration; `default` is present only when the default differs
@@ -27,6 +28,20 @@
 //! ([`EndpointOverlay::load_within`]). A reader that must write nothing
 //! takes the same normalisation in memory
 //! ([`EndpointOverlay::read_within`]).
+//!
+//! # A release before Stage 22's overlay
+//!
+//! Releases before Stage 22 keyed the file by endpoint LABEL
+//! (`{"enabled": {"claude": false}}`). A member that is not a derived id
+//! but is in the alias grammar is a LABEL MEMBER, and the loader maps
+//! nothing: a label equal to the alias of a configured entry is REFUSED
+//! ([`EndpointOverlayError::LabelMember`]) naming the command that ends
+//! it, `transportctl endpoint adopt` or `endpoint init`, which move the
+//! members to the id ([`EndpointOverlay::carry_label_within`]); one equal
+//! to no configured alias is the retired endpoint's and is dropped as an
+//! unconfigured id is ([`Normalised::LabelWithoutAliasDropped`]). Dropping
+//! it silently when an entry DID carry the alias would lose the
+//! operator's disable.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -35,7 +50,7 @@ use interweave_transport_api::EndpointId;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::private_read::{self, PrivateReadError};
-use crate::{EndpointsConfig, PersistError, ProfilePaths, TrustBoundary, persist};
+use crate::{EndpointAlias, EndpointsConfig, PersistError, ProfilePaths, TrustBoundary, persist};
 
 /// The overlay's file name in the profile's state directory.
 pub const ENDPOINT_OVERLAY_FILE: &str = "endpoint-overlay.json";
@@ -50,11 +65,9 @@ pub const MAX_ENDPOINT_OVERLAY_BYTES: u64 = 16 * 1024;
 
 /// The overlay's two deltas, normalised or not;
 /// [`EndpointOverlay::load_within`] hands out only a normalised one.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct EndpointOverlay {
     /// The endpoints whose enabled state differs from `config.yaml`'s.
-    #[serde(deserialize_with = "unique_entries")]
     enabled: BTreeMap<EndpointId, bool>,
     /// `None`: absent, the configured default applies. `Some(None)`:
     /// `null`, no default. `Some(Some(id))`: that endpoint.
@@ -62,31 +75,85 @@ pub struct EndpointOverlay {
         clippy::option_option,
         reason = "the member's three states are serde's: absent, null, an id"
     )]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default: Option<Option<EndpointId>>,
+}
+
+/// The file as it is written, members still TEXT: what a derived id and a
+/// label both are until [`EndpointOverlay::resolve`] judges them against
+/// the configuration. Read and written by the carry untouched.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Raw {
+    #[serde(deserialize_with = "unique_entries")]
+    enabled: BTreeMap<String, bool>,
+    #[expect(
+        clippy::option_option,
+        reason = "the member's three states are serde's: absent, null, a text"
+    )]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "present"
     )]
-    default: Option<Option<EndpointId>>,
+    default: Option<Option<String>>,
+}
+
+/// Which member of the overlay a label was found in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayMember {
+    /// A key of `enabled`.
+    Enabled,
+    /// The `default` value.
+    Default,
+}
+
+impl core::fmt::Display for OverlayMember {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Enabled => "enabled",
+            Self::Default => "default",
+        })
+    }
+}
+
+/// What one member's text is, by the DERIVED grammar and never the
+/// transitional label path of `EndpointId::parse`.
+enum Member {
+    Id(EndpointId),
+    /// Not a derived id, but in the alias grammar.
+    Label(EndpointAlias),
+}
+
+/// A text that is neither grammar is a parse refusal.
+fn classify(text: &str) -> Result<Member, EndpointOverlayError> {
+    if let Ok(id) = EndpointId::parse_derived(text) {
+        return Ok(Member::Id(id));
+    }
+    EndpointAlias::parse(text).map(Member::Label).map_err(|_| {
+        EndpointOverlayError::Parse(format!(
+            "{text:?} is neither a derived endpoint id nor an endpoint label"
+        ))
+    })
 }
 
 /// A `default` member that is present, as `null` or an id: absence is
 /// `#[serde(default)]`'s, so the two never read alike.
 #[expect(
     clippy::option_option,
-    reason = "the member's three states are serde's: absent, null, an id"
+    reason = "the member's three states are serde's: absent, null, a text"
 )]
-fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<EndpointId>>, D::Error> {
-    Option::<EndpointId>::deserialize(d).map(Some)
+fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
 }
 
 /// `enabled`'s entries, an endpoint named twice refused: a map keeps the
 /// last of a key named twice, which would read the operator's first
 /// state of it as never written (ADR-0028 A 2026-10-11).
-fn unique_entries<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<EndpointId, bool>, D::Error> {
+fn unique_entries<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, bool>, D::Error> {
     struct Entries;
     impl<'de> serde::de::Visitor<'de> for Entries {
-        type Value = BTreeMap<EndpointId, bool>;
+        type Value = BTreeMap<String, bool>;
         fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.write_str("an object of endpoint ids to booleans")
         }
@@ -95,11 +162,10 @@ fn unique_entries<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<EndpointId
             mut map: A,
         ) -> Result<Self::Value, A::Error> {
             let mut out = BTreeMap::new();
-            while let Some((id, on)) = map.next_entry::<EndpointId, bool>()? {
+            while let Some((id, on)) = map.next_entry::<String, bool>()? {
                 if out.contains_key(&id) {
                     return Err(serde::de::Error::custom(format!(
-                        "endpoint {} named twice",
-                        id.as_str()
+                        "endpoint {id} named twice"
                     )));
                 }
                 out.insert(id, on);
@@ -120,12 +186,29 @@ pub struct EffectiveEndpoints {
     pub default: Option<EndpointId>,
 }
 
+/// What [`EndpointOverlay::carry_label_within`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Carried {
+    /// No file, or no member for the label: nothing was written.
+    Nothing,
+    /// The label's members now name the id.
+    Moved,
+}
+
 /// What normalising an overlay at load changed, one entry each: what the
 /// caller warns about, naming the entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Normalised {
     /// An `enabled` entry naming an endpoint `config.yaml` no longer has.
     UnknownEndpointDropped(EndpointId),
+    /// A label member (an `enabled` key or the `default`) equal to the
+    /// alias of no configured entry: the retired endpoint's.
+    LabelWithoutAliasDropped {
+        /// The label.
+        label: String,
+        /// Where it stood.
+        member: OverlayMember,
+    },
     /// An `enabled` entry equal to `config.yaml`'s state.
     EnabledEqualsConfig(EndpointId),
     /// A `default` naming an endpoint `config.yaml` no longer has.
@@ -147,6 +230,10 @@ impl core::fmt::Display for Normalised {
                 f,
                 "dropped enabled.{}: config.yaml configures no such endpoint",
                 id.as_str()
+            ),
+            Self::LabelWithoutAliasDropped { label, member } => write!(
+                f,
+                "dropped {member} label {label}: a label, and no configured endpoint has that alias"
             ),
             Self::EnabledEqualsConfig(id) => write!(
                 f,
@@ -196,6 +283,25 @@ pub enum EndpointOverlayError {
     TooLarge,
     /// The file is not the overlay's shape.
     Parse(String),
+    /// A label member equal to the alias of a configured entry: the
+    /// operator's choice for that endpoint was written under its label
+    /// by a release before Stage 22, and dropping it would lose it. The
+    /// loader maps nothing; the command in the text moves it.
+    LabelMember {
+        /// The label.
+        label: String,
+        /// Where it stands.
+        member: OverlayMember,
+    },
+    /// The carry found `enabled` naming both the label and the id, with
+    /// different states: which is the operator's is not for a tool to
+    /// pick.
+    CarryConflict {
+        /// The label.
+        label: String,
+        /// The id the label was to move to.
+        id: EndpointId,
+    },
     /// A set named an endpoint `config.yaml` does not configure.
     Unknown,
     /// A default was set to a disabled endpoint.
@@ -217,6 +323,20 @@ impl core::fmt::Display for EndpointOverlayError {
                 "the endpoint overlay is larger than {MAX_ENDPOINT_OVERLAY_BYTES} bytes"
             ),
             Self::Parse(e) => write!(f, "the endpoint overlay does not parse: {e}"),
+            Self::LabelMember { label, member } => write!(
+                f,
+                "the endpoint overlay names an endpoint by its label '{label}' in `{member}`, \
+                 and config.yaml has an entry with that alias; a release before Stage 22 wrote \
+                 it, and the overlay is read by id. Run `transportctl endpoint adopt --profile \
+                 <profile> --alias {label}` (or `transportctl endpoint init --profile <profile> \
+                 --alias {label}` for an endpoint that had no sealed key), which moves it"
+            ),
+            Self::CarryConflict { label, id } => write!(
+                f,
+                "the endpoint overlay's `enabled` names both '{label}' and {} with different \
+                 states; remove the one that is not meant by hand, then run the command again",
+                id.as_str()
+            ),
             Self::Unknown => write!(f, "no such endpoint is configured"),
             Self::Disabled => write!(f, "the endpoint is disabled"),
             Self::Write(e) => write!(f, "the endpoint overlay cannot be written: {e}"),
@@ -276,7 +396,10 @@ impl EndpointOverlay {
     /// normalising changed. An absent file is the empty overlay and is
     /// not created. The state directory's walk stops at `boundary`.
     ///
-    /// Normalising, in order: an `enabled` entry naming an endpoint
+    /// Normalising, in order: a label member (not a derived id) equal to
+    /// a configured entry's alias refuses the load
+    /// ([`EndpointOverlayError::LabelMember`]) and one equal to none
+    /// leaves; an `enabled` entry naming an endpoint
     /// `config` lacks, or equal to its state, leaves; a `default` naming
     /// an endpoint `config` lacks, or equal to the configured default,
     /// leaves. Then THE EFFECTIVE DEFAULT IS ENABLED OR THERE IS NONE,
@@ -285,7 +408,8 @@ impl EndpointOverlay {
     /// configured default the overlay disables becomes `default: null`.
     ///
     /// # Errors
-    /// Every [`EndpointOverlayError`] but `Unknown` and `Disabled`, none
+    /// Every [`EndpointOverlayError`] but `Unknown`, `Disabled` and
+    /// `CarryConflict`, none
     /// of them recoverable: each is a reason not to start (ADR-0028 A
     /// 2026-10-11), a failed rewrite included -- the stale entry left on
     /// disk could undo the operator's next `config.yaml` edit.
@@ -321,10 +445,123 @@ impl EndpointOverlay {
         else {
             return Ok((Self::default(), Vec::new()));
         };
-        let mut overlay: Self =
-            private_read::object_only(&text).map_err(EndpointOverlayError::Parse)?;
-        let changes = overlay.normalise(config);
+        let raw: Raw = private_read::object_only(&text).map_err(EndpointOverlayError::Parse)?;
+        let (mut overlay, mut changes) = Self::resolve(raw, config)?;
+        changes.extend(overlay.normalise(config));
         Ok((overlay, changes))
+    }
+
+    /// Judge each member's text by the derived grammar: an id stays, a
+    /// label equal to a configured entry's alias refuses the load, one
+    /// equal to none leaves (the first step of the normalisation).
+    fn resolve(
+        raw: Raw,
+        config: &EndpointsConfig,
+    ) -> Result<(Self, Vec<Normalised>), EndpointOverlayError> {
+        let aliased = |label: &EndpointAlias| {
+            config
+                .entries
+                .iter()
+                .any(|e| e.alias.as_ref() == Some(label))
+        };
+        let mut changes = Vec::new();
+        let mut overlay = Self::default();
+        let mut label_member = |label: EndpointAlias, member| {
+            if aliased(&label) {
+                return Err(EndpointOverlayError::LabelMember {
+                    label: label.to_string(),
+                    member,
+                });
+            }
+            changes.push(Normalised::LabelWithoutAliasDropped {
+                label: label.to_string(),
+                member,
+            });
+            Ok(())
+        };
+        for (text, on) in raw.enabled {
+            match classify(&text)? {
+                Member::Id(id) => {
+                    overlay.enabled.insert(id, on);
+                }
+                Member::Label(label) => label_member(label, OverlayMember::Enabled)?,
+            }
+        }
+        overlay.default = match raw.default {
+            None => None,
+            Some(None) => Some(None),
+            Some(Some(text)) => match classify(&text)? {
+                Member::Id(id) => Some(Some(id)),
+                Member::Label(label) => {
+                    label_member(label, OverlayMember::Default)?;
+                    None
+                }
+            },
+        };
+        Ok((overlay, changes))
+    }
+
+    /// Move a pre-Stage-22 overlay's members for `label` to `id`, in the
+    /// file at `path`, and say whether there was anything to move
+    /// (`transportctl endpoint adopt` and `init`, and
+    /// `provision_identity` for the Android first identity).
+    ///
+    /// The file is read RAW -- by the same private read, size bound and
+    /// object-only check as [`Self::read_within`], members as text, no
+    /// configuration, no normalisation -- so what stands in it besides
+    /// the label is written back as it was. `enabled.<label>` becomes
+    /// `enabled.<id>`, and a `default` of `<label>` becomes `<id>`; an
+    /// `enabled` naming both with the SAME state drops the label
+    /// (a second call finds nothing), with DIFFERENT
+    /// states it is refused ([`EndpointOverlayError::CarryConflict`]).
+    /// Written whole, as [`Self::write_within`] writes. `config.yaml` is
+    /// never read or written. An absent file, or one with no member for
+    /// `label`, is [`Carried::Nothing`] and is not written.
+    ///
+    /// # Errors
+    /// The read's, [`EndpointOverlayError::CarryConflict`], and
+    /// [`EndpointOverlayError::Write`] (nothing changed unless
+    /// [`EndpointOverlayError::installed`]).
+    pub fn carry_label_within(
+        path: &Path,
+        boundary: &TrustBoundary,
+        label: &EndpointAlias,
+        id: &EndpointId,
+    ) -> Result<Carried, EndpointOverlayError> {
+        let Some(text) =
+            private_read::read_private_within(path, boundary, MAX_ENDPOINT_OVERLAY_BYTES)?
+        else {
+            return Ok(Carried::Nothing);
+        };
+        let mut raw: Raw = private_read::object_only(&text).map_err(EndpointOverlayError::Parse)?;
+        let mut moved = false;
+        if let Some(on) = raw.enabled.remove(label.as_str()) {
+            match raw.enabled.get(id.as_str()) {
+                Some(&there) if there != on => {
+                    return Err(EndpointOverlayError::CarryConflict {
+                        label: label.to_string(),
+                        id: id.clone(),
+                    });
+                }
+                Some(_) => {}
+                None => {
+                    raw.enabled.insert(id.as_str().to_owned(), on);
+                }
+            }
+            moved = true;
+        }
+        if raw.default == Some(Some(label.to_string())) {
+            raw.default = Some(Some(id.as_str().to_owned()));
+            moved = true;
+        }
+        if !moved {
+            return Ok(Carried::Nothing);
+        }
+        let out = serde_json::to_vec_pretty(&raw)
+            .map_err(|e| EndpointOverlayError::Write(PersistError::Io(std::io::Error::other(e))))?;
+        persist::write_private_atomic_within(path, &out, boundary)
+            .map_err(EndpointOverlayError::Write)?;
+        Ok(Carried::Moved)
     }
 
     /// Drop what the configuration already says, then move the default
