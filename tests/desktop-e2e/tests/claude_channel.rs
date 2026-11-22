@@ -74,8 +74,12 @@ const META_KEYS: [&str; 16] = [
     "card_identity_key",
 ];
 
+/// The derived id of the endpoint the shipped examples configure with the
+/// alias `claude`, the one the bridge leases (a TEST-ONLY key,
+/// `endpoint_keys`). The bridge's `--endpoint claude` stays an alias: it
+/// resolves through the daemon to this id.
 fn claude() -> EndpointId {
-    EndpointId::parse("claude").expect("endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id("claude")
 }
 
 fn general() -> ChannelId {
