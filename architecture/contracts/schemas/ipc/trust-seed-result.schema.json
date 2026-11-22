@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:trust-seed-result",
+  "title": "IPC admin.trust.seed result",
+  "description": "What a seed did (IPC 3.0, ADR-0067 decision 6, LOCAL-IPC.md §The endpoint dimension). `seeded`: the endpoint had no set in the endpoint overlay and now holds a copy of what it admitted. `present`: the overlay already carried a set for the endpoint, an empty one included, and nothing was written. `outcome` is closed at those two values, and there is no third: a refusal is the error `InvalidArgument` (the copy would cross the row bound, audited `refused`, nothing written), `EndpointUnknown` or `Internal`, never an outcome.",
+  "type": "object",
+  "required": [
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "enum": [
+        "seeded",
+        "present"
+      ]
+    }
+  },
+  "x-contract": {
+    "name": "ipc.trust-seed-result",
+    "status": "approved",
+    "version": "1.0.0",
+    "adr": [
+      "0017",
+      "0028",
+      "0032",
+      "0067"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}
