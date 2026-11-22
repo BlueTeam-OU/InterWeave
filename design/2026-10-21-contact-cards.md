@@ -1199,12 +1199,13 @@ the **identity switch**, a control showing the identity in front's
 front; §5.7.3 lists the other acts of the person's that change it as a
 consequence. Its accessible name is `IdentitySwitch` ("Identity: {identity}.
 Switch identity"); its target is at least 48 dp high; its name takes
-what width is left after "Chats" and the ⋮ and ellipsises at the end,
+what width is left on its row and ellipsises at the end,
 never below the avatar and three graphemes, the full name in the
 accessible name. On the desktop it is in the list pane's bar, where the
-same menu is. Where the title, the switch at that minimum and the ⋮ do
-not fit on one row, `design/2026-11-04-identities.md` §12 ("The Chats
-bar when the switch does not fit") gives the bar's two rows.
+same menu is. When the title, the switch at that minimum and the ⋮ do
+not fit on one row, the bar has two rows, as
+`design/2026-11-04-identities.md` §12 ("The Chats bar when the switch
+does not fit") sets out.
 
 When another identity has unread items or a message that was not sent,
 the switch carries a badge: a dot with the count of unread items in the
