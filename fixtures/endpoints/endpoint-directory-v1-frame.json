@@ -1,5 +1,5 @@
 {
-  "fixture": "Endpoint directory v1 framing",
+  "fixture": "Endpoint directory framing, protocol /interweave/endpoints/2.0.0 (frame names stay V1)",
   "specification": "architecture/transport/libp2p/ENDPOINTS.md",
   "adr": [
     "0031",
@@ -12,6 +12,7 @@
     "layout": "request: tag:u8=0x01 || directory: tag:u8=0x01 || generated_at_ms:u64be || ttl_ms:u32be || count:u8 || count × (len:u8 || endpoint) || refused: tag:u8=0x02 || reason:u8",
     "notes": [
       "The request is exactly one byte; an empty request is a closed stream, not a query.",
+      "Protocol /interweave/endpoints/2.0.0: the layout is that of 1.0.0, with the entry rule that len is exactly 52. The maximum response is 1 + 8 + 4 + 1 + 32 × 53 = 1710 bytes, the largest-32-entries vector, and the codecs' read ceiling.",
       "count is 0..=32 and every entry is a derived EndpointId, len 52 (contracts/ENDPOINTS.md §EndpointId); the receiver treats more entries, an entry outside that grammar, or a duplicate as a protocol violation, never as something to truncate.",
       "ttl_ms is carried as sent; the RECEIVER clamps it to min(remote, local, 300000) and never refuses a frame for it.",
       "generated_at_ms is diagnostic: it never extends freshness, which starts at local receipt.",
@@ -55,7 +56,7 @@
     },
     {
       "name": "largest-32-entries",
-      "description": "The largest legal response: 32 entries, each a derived EndpointId of 52 bytes, sorted. 1710 bytes. The read bound stays 2094 (32 × 65, ENDPOINTS.md), so this is the largest frame that DECODES, not the read ceiling: an entry of any other length is outside the derived grammar.",
+      "description": "The largest legal response: 32 entries, each a derived EndpointId of 52 bytes, sorted. 1710 bytes. This is also the read ceiling of both codecs: an entry whose len is not 52 is malformed, so no legal frame is longer.",
       "kind": "directory",
       "generated_at_ms": 1786600000000,
       "ttl_ms": 300000,

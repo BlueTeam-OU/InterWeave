@@ -228,7 +228,7 @@ def direct_response_v2_frame(vector: dict) -> str:
 
 
 def endpoint_directory_v1_frame(vector: dict) -> str:
-    """Encode one /interweave/endpoints/1.0.0 frame, returning hex.
+    """Encode one /interweave/endpoints/2.0.0 frame, returning hex.
 
     From architecture/transport/libp2p/ENDPOINTS.md §Endpoint directory
     protocol. One algorithm covers the request and both response shapes
@@ -274,6 +274,8 @@ def endpoint_directory_v1_frame(vector: dict) -> str:
         for n, endpoint in enumerate(endpoints):
             field = f"endpoints[{n}]"
             b = _direct_endpoint({field: endpoint, f"{field}_test_key": keys[n]}, field)
+            if len(b) != 52:
+                raise ValueError(f"{field} is {len(b)} bytes; a 2.0.0 entry is exactly 52")
             out += bytes([len(b)]) + b
     else:
         raise ValueError(f"unknown frame kind {kind!r}")
