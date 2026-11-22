@@ -385,7 +385,8 @@ mod tests {
     use interweave_human_store::{
         AppMessageId, HumanStore, InboundKind, InboundOrigin, NewInbound, StoreOptions,
     };
-    use interweave_transport_api::{EndpointId, MediaType, TransportIdentity};
+    use interweave_test_support::endpoint_keys::endpoint_id;
+    use interweave_transport_api::{MediaType, TransportIdentity};
 
     fn row(n: u8, payload: &[u8]) -> NewInbound {
         NewInbound {
@@ -395,7 +396,7 @@ mod tests {
                     "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
                 )
                 .expect("a PeerId"),
-                endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+                endpoint: Some(endpoint_id("human")),
                 channel: None,
             },
             media_type: Some(

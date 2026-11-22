@@ -23,6 +23,7 @@ use interweave_human_ui_model::{
     placeholder_en,
 };
 use interweave_human_ui_slint::{PhotoPick, PhotoRequest, View, ViewEvent};
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 use slint::{ComponentHandle as _, Model as _};
 
@@ -37,7 +38,7 @@ fn peer(s: &str) -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("an endpoint")
+    endpoint_id("human")
 }
 
 fn direct(p: &str) -> ConversationKey {
@@ -1136,9 +1137,11 @@ fn the_photo_buttons_and_the_unusable_line_stand_under_the_circle() {
 /// `PeerId`, teal while it is unknown.
 #[test]
 fn the_own_initials_keep_the_identitys_hue() {
-    let work = EndpointId::parse("work").expect("an endpoint");
+    // The derived id of "human" is one that picks amber (measured; the
+    // derived id of "work" picks teal, which would not tell the two apart).
+    let own = endpoint_id("human");
     let identity = |peer_known: bool| IdentityView {
-        endpoint: work.clone(),
+        endpoint: own.clone(),
         peer: peer_known.then(|| peer(Q)),
         ..ada(
             false,
@@ -1157,8 +1160,8 @@ fn the_own_initials_keep_the_identitys_hue() {
         before,
         "unchanged once the PeerId is known"
     );
-    // "work" picks amber by section 5.1's rule; teal is what an unknown
-    // PeerId gave.
+    // "human"'s derived id picks amber by section 5.1's rule; teal is what
+    // an unknown PeerId gave.
     assert_ne!(
         before, 0,
         "the identity's own hue, not teal for want of a PeerId"
@@ -2028,7 +2031,7 @@ fn contacts_with_none_say_how_one_is_made_and_each_row_opens_its_contact() {
             .map(|(i, n)| {
                 // A route of its own for each contact, as the store keeps them.
                 let mut c = contact(&format!("c{i}"), n, P);
-                c.routes[0].endpoint = EndpointId::parse(format!("e{i}")).expect("an endpoint");
+                c.routes[0].endpoint = endpoint_id(&format!("e{i}"));
                 c
             })
             .collect(),
@@ -2057,7 +2060,7 @@ fn a_contact_page_names_the_other_contacts_on_its_device_and_no_other() {
     let mut view = view();
     let mut model = UiModel::new();
     let mut work = contact("c2", "Ada at work", P);
-    work.routes[0].endpoint = EndpointId::parse("work").expect("an endpoint");
+    work.routes[0].endpoint = endpoint_id("work");
     model.contacts_listed(vec![contact("c1", "Ada", P), work, contact("c3", "Bob", Q)]);
     view.render(&model);
     open_contact(&mut view, &mut model, "Ada");

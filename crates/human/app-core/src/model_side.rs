@@ -988,6 +988,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     use interweave_human_store::RowId;
 
@@ -1163,10 +1164,10 @@ mod tests {
         use interweave_human_ui_model::{
             CardOutcome, ContactView, KeyView, Proposal, ProposalContext,
         };
-        use interweave_transport_api::{EndpointId, TransportIdentity};
+        use interweave_transport_api::TransportIdentity;
         let peer = TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
             .expect("a PeerId");
-        let endpoint = EndpointId::parse("human").expect("an endpoint");
+        let endpoint = endpoint_id("human");
         let row = RowId::from_stored(3);
         let key = ConversationKey::Direct {
             peer: peer.clone(),

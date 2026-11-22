@@ -69,6 +69,8 @@ image = { workspace = true }
 interweave-human-app-core = { path = "../../crates/human/app-core", features = ["test-hooks"] }
 interweave-local-client-fake = { path = "../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
+# TEST-ONLY derived endpoint ids (ADR-0067).
+interweave-test-support = { path = "../../tests/support" }
 tempfile = { workspace = true }
 
 [target.'cfg(unix)'.dev-dependencies]
