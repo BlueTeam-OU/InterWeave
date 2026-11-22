@@ -1,8 +1,9 @@
 # Identity flow across a window's end: the device cases
 
 This is a list of cases, not a run record. Each case is named by its number
-(D1 to D8). It is what a comment in `apps/human-android` cites when it says
-a claim is BLOCKED on a device run. A run of these cases is recorded beside
+(D1 to D7). A comment in `apps/human-android` that says a claim is BLOCKED
+on a device run cites one of them; D2 and D6 check behaviour no comment
+claims, and are run with the rest. A run of these cases is recorded beside
 this file as a dated record, and that record names each case by its number.
 
 These cases check the native and Kotlin wiring of
@@ -87,11 +88,13 @@ items 10 to 12 do not hold these recreation cases.
 | D4 | Show my phrase's S2 with the service taken offline for it | a recreation | the new instance shows no phrase: it shows the chats, and S2 is reached again only through Show recovery phrase and its prompt (section 7, a new instance is a new display); after the old window ends, the service is back online and not refused busy |
 | D5 | any identity flow screen (C4 or R2), with Stay reachable on so the process outlives the task (the run's record says the mode) | the task removed from Recents, then a launch | the launch shows the start a fresh record gives, not the flow's last screen or its words; logcat has "its identity flow ends with it" at the removal |
 | D6 | a held C4 whose start is still running: a launch with `busyStarts 1` and `holdStartMs 5000`, a new identity made to C4, then Continue | a recreation timed from the log line `start hook: the start waits 5000 ms`, about 1 s after it | the start's busy refusal, carried by the hub, shows as `IdStartBusy` on the new window's C4 once, and no second start runs at the recreation |
-| D8 | a held C4 or R4 whose start is refused for the person (the key's presence prompt), so the refusal is owed to the window that holds the flow | a recreation before the window takes the refusal: timed from the log line of the locked start's answer | the refusal's prompt or notice shows on the new window once, not lost with the old window and not shown twice. Not drivable yet: it needs a profile whose key asks for presence (`key_unlock_policy` user-presence), which no device here holds |
 | D7 | a K1 raised over a running window (the chats attached under it) | a recreation, then the restore from K1 to R4's Continue | logcat has exactly one "the chats attach to the window" between the recreation and End, and none after End, as the first window had them attached and its End attached nothing |
 
 ## Status
 
-None of D1 to D8 has run yet, and D8 cannot run until a profile whose key asks for presence is on a phone. On 2026-11-22 this host had no route to the
+None of D1 to D7 has run yet. The owed queue's delivery across a window's
+end (`flow_park.rs`, `Owed`) has no case: an answer owed while no window
+holds the flow is not one a hook can time, and a case for it is to be
+designed at the first device run. On 2026-11-22 this host had no route to the
 phones' LAN, and the device slots were stood down. The first run of these
 cases is recorded beside this file.
