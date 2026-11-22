@@ -1107,6 +1107,7 @@ async fn a_trust_revocation_over_the_admin_socket_reaches_the_data_socket_as_pol
             Request::AdminTrustSet(TrustSetParams {
                 peer: b.clone(),
                 allowed: false,
+                endpoint: None,
             }),
         ))
         .await;
@@ -1328,6 +1329,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
             Request::AdminTrustSet(TrustSetParams {
                 peer: b.clone(),
                 allowed: true,
+                endpoint: None,
             }),
         ),
         (
