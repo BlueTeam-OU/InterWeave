@@ -34,35 +34,79 @@ use interweave_transport_api::{EndpointId, TransportIdentity};
 
 const WALL: u64 = 1_786_600_000_000;
 
+/// The identity every side leases: the id its TEST-ONLY key derives
+/// (ADR-0067), so a facade holding that key may sign as it.
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("human")
+}
+
+/// Write the TEST-ONLY key named `name` at filesystem custody, as
+/// `transportctl endpoint init` would mint a key: the record laid out by
+/// profile-config, its body the secret. The id it derives.
+fn install_test_key(paths: &ProfilePaths, name: &str) -> EndpointId {
+    use interweave_profile_config::endpoint_key;
+    let (signing, id) = interweave_test_support::endpoint_keys::endpoint_keys(name);
+    let public = signing.verifying_key().to_bytes();
+    let header = endpoint_key::header_bytes(
+        endpoint_key::Custody::FilesystemOnly,
+        id.as_str().as_bytes(),
+        &public,
+    )
+    .expect("a header");
+    let line = endpoint_key::encode_record(&header, &signing.to_bytes());
+    interweave_profile_config::create_private_exclusive_within(
+        &identity_key::key_path(paths, &id),
+        line.as_bytes(),
+        paths.boundary(),
+    )
+    .expect("installed");
+    id
 }
 
 fn node() -> FakeConfig {
+    node_as("human")
+}
+
+/// A node whose one endpoint is the id the TEST-ONLY key `name` derives.
+fn node_as(name: &str) -> FakeConfig {
+    let id = interweave_test_support::endpoint_keys::endpoint_id(name);
     FakeConfig {
         peer: ProfileIdentity::generate()
             .transport_identity()
             .expect("peer id"),
-        endpoints: vec![FakeEndpoint::open(human(), false)],
-        default_endpoint: Some(human()),
+        endpoints: vec![FakeEndpoint::open(id.clone(), false)],
+        default_endpoint: Some(id),
         queue_bound: 16,
     }
 }
 
-/// One profile on disk: its paths and its directory.
+/// One profile on disk: its paths, its directory, and the id of the key
+/// minted with it, as `transportctl endpoint init` would (no client mints
+/// one, ADR-0067 decision 5): what its key source opens.
 struct Profile {
     _dir: tempfile::TempDir,
     paths: ProfilePaths,
+    key_id: EndpointId,
 }
 
 fn profile() -> Profile {
+    profile_as("human")
+}
+
+/// A profile holding the TEST-ONLY key `name`, leasing the id it derives.
+fn profile_as(name: &str) -> Profile {
     let dir = common::private_tempdir();
     let paths = ProfilePaths::resolve_embedded(
         "default",
         TrustBoundary::new(dir.path()).expect("boundary"),
     )
     .expect("paths");
-    Profile { _dir: dir, paths }
+    let key_id = install_test_key(&paths, name);
+    Profile {
+        _dir: dir,
+        paths,
+        key_id,
+    }
 }
 
 fn facade(
@@ -88,7 +132,7 @@ fn facade_with_wall(
         store,
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoints: vec![human()],
+            endpoints: vec![profile.key_id.clone()],
             channels: vec![],
             max_payload_bytes: 49_152,
         },
@@ -103,12 +147,23 @@ fn facade_with_wall(
     side
 }
 
+/// The profile's key: the one minted with it, else the one its key
+/// directory holds, else a new one.
 fn key_of(profile: &Profile) -> IdentityKey {
-    identity_key::open(&profile.paths, &human(), &FilesystemCustody)
-        .expect("opens")
-        .unwrap_or_else(|| {
-            identity_key::create(&profile.paths, &human(), &FilesystemCustody).expect("created")
-        })
+    let id = if identity_key::key_path(&profile.paths, &profile.key_id).exists() {
+        Some(profile.key_id.clone())
+    } else {
+        identity_key::sealed(&profile.paths)
+            .expect("listed")
+            .first()
+            .cloned()
+    };
+    match id {
+        Some(id) => identity_key::open(&profile.paths, &id, &FilesystemCustody)
+            .expect("opens")
+            .expect("a key"),
+        None => identity_key::create(&profile.paths, &FilesystemCustody).expect("created"),
+    }
 }
 
 #[derive(Default)]
@@ -436,95 +491,6 @@ async fn a_shown_card_is_still_accepted_from_the_sessions_copy() {
 }
 
 #[tokio::test]
-async fn two_cards_on_one_route_before_any_accept_never_take_the_second_key_unseen() {
-    let (a, b) = FakeNetwork::pair(node(), node());
-    let (pa, pb) = (profile(), profile());
-    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
-    let mut bob = Root::new(facade(&b, &pb, None));
-    alice.pump(0).await;
-    bob.pump(0).await;
-    bob.open(&direct(a.peer()), 0).await;
-    let first_key = key_of(&pa).fingerprint().to_string();
-    alice.will(Intent::ShareCard(direct(b.peer())));
-    alice.pump(1).await;
-    alice.pump(2).await;
-    // A new key on Alice's side, and a second card, before Bob acts.
-    identity_key::remove(&pa.paths, &human(), &FilesystemCustody).expect("removed");
-    let second = key_of(&pa);
-    let second_key = second.fingerprint().to_string();
-    alice.facade.set_identity_key(second);
-    alice.will(Intent::ShareCard(direct(b.peer())));
-    alice.pump(3).await;
-    alice.pump(4).await;
-    bob.pump(5).await;
-    let from_alice = direct(a.peer());
-    let both = bob.model().proposals(&from_alice);
-    assert_eq!(both.len(), 2, "{:?}", bob.updates);
-    assert!(
-        both.iter().all(|p| p.key == KeyView::New),
-        "both shown against an empty route"
-    );
-    let (one, two) = if both[0].fingerprint == first_key {
-        (both[0].row, both[1].row)
-    } else {
-        (both[1].row, both[0].row)
-    };
-    // Both accepted before the facade has run: the second goes as it was
-    // shown, new, which the first's Accept made untrue; it is refused and
-    // given again.
-    bob.will(Intent::AcceptCard(one));
-    bob.will(Intent::AcceptCard(two));
-    bob.pump(7).await;
-    assert!(
-        bob.failed()
-            .iter()
-            .any(|(_, why)| *why == Failure::ProposalChanged),
-        "{:?}",
-        bob.failed()
-    );
-    assert_eq!(
-        bob.model().contacts()[0].routes[0].fingerprint.as_deref(),
-        Some(first_key.as_str()),
-        "nothing written: the route keeps the first key"
-    );
-    let again = bob.model().proposals(&from_alice);
-    assert_eq!(again.len(), 1);
-    assert_eq!(
-        again[0].key,
-        KeyView::Changed {
-            recorded: first_key.clone()
-        },
-        "given again as the key change it now is"
-    );
-    // Given again as judged, never as a card received anew, so a row the
-    // model has let go is not brought back. Mutation: the refusal handing
-    // it over as ReceivedCard.
-    assert!(
-        bob.updates
-            .iter()
-            .any(|u| matches!(u, Update::ProposalJudged(p) if p.row == two)),
-        "{:?}",
-        bob.updates
-    );
-    assert_eq!(
-        bob.updates
-            .iter()
-            .filter(|u| matches!(u, Update::ReceivedCard(p) if p.row == two))
-            .count(),
-        1,
-        "received once, when it arrived"
-    );
-    // Accepted as shown now, it writes: the copy was put back.
-    bob.will(Intent::AcceptCard(two));
-    bob.pump(8).await;
-    assert_eq!(
-        bob.model().contacts()[0].routes[0].fingerprint.as_deref(),
-        Some(second_key.as_str())
-    );
-    assert!(bob.model().proposals(&from_alice).is_empty());
-}
-
-#[tokio::test]
 async fn a_keep_of_a_shown_cards_copy_is_refused_and_the_card_stays_decidable() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let (pa, pb) = (profile(), profile());
@@ -682,8 +648,8 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     // one node of each pair in turn; a card is verified on its sender's
     // route, which is all either receipt depends on.
     let (a, b1) = FakeNetwork::pair(node(), node());
-    let (c, b2) = FakeNetwork::pair(node(), node());
-    let (pa, pc, pb) = (profile(), profile(), profile());
+    let (c, b2) = FakeNetwork::pair(node_as("carol"), node());
+    let (pa, pc, pb) = (profile(), profile_as("carol"), profile());
     let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
     let mut bob = Root::new(facade(&b1, &pb, None));
     alice.pump(0).await;
@@ -715,7 +681,11 @@ async fn two_same_name_cards_from_two_peer_ids_are_two_proposals() {
     carol.pump(3).await;
     bob.pump(4).await;
 
-    let (from_alice, from_carol) = (direct(a.peer()), direct(c.peer()));
+    let from_alice = direct(a.peer());
+    let from_carol = ConversationKey::Direct {
+        peer: c.peer().clone(),
+        endpoint: Some(pc.key_id.clone()),
+    };
     // Opening one conversation closes the other, so each is read as it is
     // opened, from the store.
     bob.open(&from_alice, 4).await;
@@ -807,64 +777,6 @@ async fn the_card_shared_to_two_conversations_is_the_identitys_each_time() {
 }
 
 #[tokio::test]
-async fn a_changed_key_on_a_known_route_is_a_key_change_and_a_local_edit_stands() {
-    let (a, b) = FakeNetwork::pair(node(), node());
-    let (pa, pb) = (profile(), profile());
-    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
-    let mut bob = Root::new(facade(&b, &pb, None));
-    alice.pump(0).await;
-    bob.pump(0).await;
-    bob.open(&direct(a.peer()), 0).await;
-    shared(&mut alice, &mut bob, &b).await;
-    let row = bob.model().proposals(&direct(a.peer()))[0].row;
-    bob.will(Intent::AcceptCard(row));
-    bob.pump(5).await;
-    let contact_id = bob.model().contacts()[0].contact_id.clone();
-    bob.will(Intent::RenameContact {
-        contact_id: contact_id.clone(),
-        name: "Countess".to_owned(),
-    });
-    bob.pump(6).await;
-    let old = key_of(&pa).fingerprint().to_string();
-
-    // Alice's identity gets a new key (a reinstall, say) and shares again.
-    identity_key::remove(&pa.paths, &human(), &FilesystemCustody).expect("removed");
-    let new_key = key_of(&pa);
-    let new = new_key.fingerprint().to_string();
-    alice.facade.set_identity_key(new_key);
-    alice.will(Intent::ShareCard(direct(b.peer())));
-    alice.pump(7).await;
-    alice.pump(8).await;
-    bob.pump(9).await;
-    let proposal = bob.model().proposals(&direct(a.peer()))[0].clone();
-    assert_eq!(
-        proposal.key,
-        KeyView::Changed { recorded: old },
-        "shown as a key change"
-    );
-    assert_eq!(proposal.fingerprint, new);
-    assert_eq!(proposal.accept, AcceptLine::Updates("Countess".to_owned()));
-    // Accepted only by the person: until then the route keeps the old key.
-    assert_ne!(
-        bob.model().contacts()[0].routes[0].fingerprint.as_deref(),
-        Some(new.as_str())
-    );
-    bob.will(Intent::AcceptCard(proposal.row));
-    bob.pump(10).await;
-    let contact = &bob.model().contacts()[0];
-    assert_eq!(
-        contact.routes[0].fingerprint.as_deref(),
-        Some(new.as_str()),
-        "the accepted key"
-    );
-    assert_eq!(contact.name, "Countess", "the local edit stands");
-    assert!(
-        !contact.name_from_card,
-        "and the page says it is the person's"
-    );
-}
-
-#[tokio::test]
 async fn the_identity_key_never_enters_the_store() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let (pa, pb) = (profile(), profile());
@@ -884,7 +796,7 @@ async fn the_identity_key_never_enters_the_store() {
 
     for p in [&pa, &pb] {
         // The record's last 32 bytes are the secret at the filesystem floor.
-        let line = std::fs::read_to_string(identity_key::key_path(&p.paths, &human()))
+        let line = std::fs::read_to_string(identity_key::key_path(&p.paths, &p.key_id))
             .expect("the key file");
         let record = base64::engine::general_purpose::STANDARD
             .decode(line.trim())
@@ -1563,7 +1475,7 @@ fn facade_with_source(
     let mut side = facade(node, profile, None);
     side.set_key_source(interweave_human_app_core::KeySource::new(
         profile.paths.clone(),
-        human(),
+        profile.key_id.clone(),
         cipher,
     ));
     side
@@ -1573,13 +1485,13 @@ fn own_key(root: &Root) -> interweave_human_ui_model::OwnKey {
     root.model().identity().expect("the identity").key.clone()
 }
 
-/// Design sections 3, 4.1 and 5, acceptance items 2, 5, 6 and 7 at the
-/// facade: a damaged key file leaves the identity keyless and named so,
-/// its card still saves, Share is refused, and a confirmed new key gives a
-/// new fingerprint and lists the conversation the card was shared in --
-/// whose counterpart then sees the next card as a key change.
+/// Design sections 3 and 4.1, acceptance items 2, 5 and 6 at the facade:
+/// a damaged key file leaves the identity keyless and named so, its card
+/// still saves, and Share is refused. A confirmed new key is NOT made
+/// (ADR-0067 decision 5: the id derives from the key, so a new key is a
+/// new identity, never this one's): the step fails with the file left.
 #[tokio::test]
-async fn a_damaged_key_is_named_the_card_still_saves_and_a_new_key_lists_where_to_share_again() {
+async fn a_damaged_key_is_named_the_card_still_saves_and_no_new_key_is_made_under_its_id() {
     use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
     let (a, b) = FakeNetwork::pair(node(), node());
     let (pa, pb) = (profile(), profile());
@@ -1588,7 +1500,7 @@ async fn a_damaged_key_is_named_the_card_still_saves_and_a_new_key_lists_where_t
     alice.pump(0).await;
     bob.pump(0).await;
     bob.open(&direct(a.peer()), 0).await;
-    let OwnKey::Ready { fingerprint: old } = own_key(&alice) else {
+    let OwnKey::Ready { .. } = own_key(&alice) else {
         panic!("a first key: {:?}", own_key(&alice))
     };
     shared(&mut alice, &mut bob, &b).await;
@@ -1599,7 +1511,7 @@ async fn a_damaged_key_is_named_the_card_still_saves_and_a_new_key_lists_where_t
     drop(alice);
 
     // Alice's key file is damaged; she starts again.
-    let file = identity_key::key_path(&pa.paths, &human());
+    let file = identity_key::key_path(&pa.paths, &pa.key_id);
     std::fs::write(&file, "not a record\n").expect("damage");
     let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
     alice.pump(6).await;
@@ -1635,37 +1547,24 @@ async fn a_damaged_key_is_named_the_card_still_saves_and_a_new_key_lists_where_t
     );
     alice.will(Intent::MakeNewKey);
     alice.pump(10).await;
-    let OwnKey::Ready { fingerprint: new } = own_key(&alice) else {
-        panic!("made: {:?}", own_key(&alice))
-    };
-    assert_ne!(new, old, "a new key");
     assert_eq!(
         alice.model().key_step(),
-        Some(&KeyStep::Made {
-            share_again: vec![to_bob.clone()]
-        }),
-        "the conversation the card went to, and no other"
+        Some(&KeyStep::Failed { gone: false })
     );
-
-    // Bob's client shows the next card as a key change.
-    alice.will(alice.model().share_card(&to_bob).expect("offered"));
-    alice.pump(11).await;
-    alice.pump(12).await;
-    bob.pump(13).await;
-    let proposals = bob.model().proposals(&from_alice);
-    assert!(
-        proposals
-            .iter()
-            .any(|p| matches!(&p.key, KeyView::Changed { recorded } if *recorded == old)),
-        "a key change, the old fingerprint named: {proposals:?}"
+    assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Damaged));
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("read"),
+        "not a record\n",
+        "the refused file is left as it is"
     );
 }
 
 /// Acceptance items 9 and 11 at the facade: a key file gone after a
-/// share is missing and nothing makes one by itself; a new key that
-/// cannot be stored after the old file went says the saved key is gone.
+/// share is missing and nothing makes one by itself; and a confirmed new
+/// key removes nothing and makes nothing (ADR-0067 decision 5: a new key
+/// is a new identity), so the file found at the step is left as it is.
 #[tokio::test]
-async fn a_missing_key_after_a_share_is_named_and_a_new_key_not_stored_says_the_old_one_went() {
+async fn a_missing_key_after_a_share_is_named_and_a_new_key_is_never_made_under_its_id() {
     use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
     let (a, b) = FakeNetwork::pair(node(), node());
     let (pa, pb) = (profile(), profile());
@@ -1675,7 +1574,7 @@ async fn a_missing_key_after_a_share_is_named_and_a_new_key_not_stored_says_the_
     bob.pump(0).await;
     shared(&mut alice, &mut bob, &b).await;
     drop(alice);
-    let file = identity_key::key_path(&pa.paths, &human());
+    let file = identity_key::key_path(&pa.paths, &pa.key_id);
     std::fs::remove_file(&file).expect("lost");
     let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(NoSeal)));
     alice.pump(5).await;
@@ -1691,206 +1590,13 @@ async fn a_missing_key_after_a_share_is_named_and_a_new_key_not_stored_says_the_
     alice.pump(7).await;
     assert_eq!(
         alice.model().key_step(),
-        Some(&KeyStep::Failed { gone: true })
+        Some(&KeyStep::Failed { gone: false })
     );
-    assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Missing));
-    assert!(!file.exists(), "the old file went first");
-}
-
-/// Acceptance item 13 at the facade, in the build's fallback (design
-/// section 5.2): the client cannot tell a Sending row it holds from one
-/// the transport took, so it withdraws the Not sent row (C, to Bob, whom
-/// the node refused) with no Undo and leaves the Sending one (D, to a peer
-/// with no address yet) to arrive. The key becomes unusable at a start,
-/// as only a start opens it, and C is Not sent again by its retry. Both conversations are listed for a share again,
-/// and C is never sent, a restart included. Mutations: the facade
-/// withdrawing nothing, or withdrawing every pending row.
-#[tokio::test]
-async fn a_new_key_withdraws_the_not_sent_card_and_lists_both_pending_conversations() {
-    use interweave_human_store::OutboundDestination;
-    use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
-    use interweave_transport_api::TransportError;
-    let (a, b) = FakeNetwork::pair(node(), node());
-    let (pa, pb) = (profile(), profile());
-    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
-    let mut bob = Root::new(facade(&b, &pb, None));
-    alice.pump(0).await;
-    bob.pump(0).await;
-    alice.will(Intent::SetOwnCard {
-        name: "Ada".to_owned(),
-        surname: None,
-        photo: PhotoEdit::Keep,
-    });
-    alice.pump(1).await;
-    let to_bob = direct(b.peer());
-    let stranger = ProfileIdentity::generate()
-        .transport_identity()
-        .expect("peer id");
-    let to_stranger = direct(&stranger);
-    a.inject_send(TransportError::UnauthorizedPeer);
-    alice.will(Intent::ShareCard(to_bob.clone()));
-    alice.pump(2).await;
-    alice.will(Intent::ShareCard(to_stranger.clone()));
-    alice.pump(3).await;
-    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
-
-    // The key file is damaged and Alice starts again: her pending rows
-    // are retried, C refused again by the node, D still with no address.
-    drop(alice);
-    std::fs::write(
-        identity_key::key_path(&pa.paths, &human()),
-        "not a record\n",
-    )
-    .expect("damage");
-    a.inject_send(TransportError::UnauthorizedPeer);
-    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
-    alice.pump(4).await;
     assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Damaged));
-    alice.will(Intent::AskNewKey);
-    alice.pump(5).await;
     assert_eq!(
-        alice.model().key_step(),
-        Some(&KeyStep::Confirming { pending: true }),
-        "KeyNewPending is shown"
-    );
-    alice.updates.clear();
-    alice.will(Intent::MakeNewKey);
-    alice.pump(6).await;
-    let Some(KeyStep::Made { share_again }) = alice.model().key_step() else {
-        panic!("made: {:?}", alice.model().key_step())
-    };
-    let mut listed = share_again.clone();
-    listed.sort_by_key(|k| format!("{k:?}"));
-    let mut both = vec![to_bob.clone(), to_stranger.clone()];
-    both.sort_by_key(|k| format!("{k:?}"));
-    assert_eq!(listed, both, "C and D are in the share-again list");
-    let withdrawn: Vec<bool> = alice
-        .updates
-        .iter()
-        .filter_map(|u| match u {
-            Update::Cancelled { restorable, .. } => Some(*restorable),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(withdrawn, vec![false], "one row withdrawn, with no Undo");
-    // The withdrawn row leaves the conversation; the one left to arrive
-    // stays, as its own card row (#471 R1 F4).
-    assert!(
-        alice.model().messages(&to_bob).is_empty(),
-        "C's row is gone"
-    );
-    assert_eq!(
-        alice.model().messages(&to_stranger).len(),
-        1,
-        "D's row stays"
-    );
-
-    // A restart: C is not in the store to be sent, and Bob never sees it;
-    // D is still pending, left to arrive.
-    drop(alice);
-    a.restart();
-    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
-    for at in 7..10 {
-        alice.pump(at * 60_000).await;
-        bob.pump(at * 60_000).await;
-    }
-    assert!(
-        bob.model().proposals(&direct(a.peer())).is_empty(),
-        "the withdrawn card never arrives"
-    );
-    drop(alice);
-    let store = HumanStore::open_profile(&pa.paths, &FilesystemCustody, StoreOptions::default())
-        .expect("reopen");
-    let pending: Vec<_> = store
-        .pending_outbound()
-        .expect("read")
-        .into_iter()
-        .map(|row| match row.destination {
-            OutboundDestination::Direct(d) => d.peer,
-            OutboundDestination::Broadcast(c) => panic!("a broadcast: {c:?}"),
-        })
-        .collect();
-    assert_eq!(pending, vec![stranger], "only D is left, to arrive");
-}
-
-/// Acceptance item 8 at the facade: the app killed during `KeyMaking`,
-/// at each point the step can be cut, leaves on disk what the step had
-/// done by then, built here with the store's own calls, and the next
-/// start shows: before the removal, the state as before; after it and
-/// before the new key is stored -- a half-written temporary beside the
-/// file included, as a kill inside the write leaves it -- "missing" with
-/// no key made for an identity whose card a conversation holds or may
-/// hold, and a key with no state for any other; after, the new key's
-/// fingerprint.
-#[tokio::test]
-async fn a_new_key_cut_at_each_point_starts_as_far_as_the_step_got() {
-    use interweave_human_ui_model::{KeyProblem, OwnKey};
-    let (a, b) = FakeNetwork::pair(node(), node());
-    let (pa, pb) = (profile(), profile());
-    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
-    let mut bob = Root::new(facade(&b, &pb, None));
-    alice.pump(0).await;
-    bob.pump(0).await;
-    shared(&mut alice, &mut bob, &b).await;
-    drop(alice);
-    let file = identity_key::key_path(&pa.paths, &human());
-    std::fs::write(&file, "not a record\n").expect("damage");
-    let start = |at: &'static str| {
-        let side = facade_with_source(&a, &pa, Box::new(FilesystemCustody));
-        async move {
-            let mut root = Root::new(side);
-            root.pump(1).await;
-            let key = own_key(&root);
-            drop(root);
-            (at, key)
-        }
-    };
-
-    // Cut before the removal.
-    assert_eq!(
-        start("before").await,
-        ("before", OwnKey::Unusable(KeyProblem::Damaged))
-    );
-
-    // Cut after the removal, inside the new key's write.
-    identity_key::remove(&pa.paths, &human(), &FilesystemCustody).expect("removed");
-    let mut temp = file.clone().into_os_string();
-    temp.push(".4242.0.00000000deadbeef.tmp");
-    std::fs::write(&temp, "IDK1 half").expect("a half-written temporary");
-    assert_eq!(
-        start("between").await,
-        ("between", OwnKey::Unusable(KeyProblem::Missing))
-    );
-    assert!(!file.exists(), "no key made by itself");
-
-    // Cut after the new key is stored.
-    let made = identity_key::create(&pa.paths, &human(), &FilesystemCustody).expect("stored");
-    assert_eq!(
-        start("after").await,
-        (
-            "after",
-            OwnKey::Ready {
-                fingerprint: made.fingerprint().to_string()
-            }
-        )
-    );
-
-    // An identity no conversation holds a card of, cut between: a key, no
-    // state.
-    let pc = profile();
-    let mut carol = Root::new(facade_with_source(&a, &pc, Box::new(FilesystemCustody)));
-    carol.pump(0).await;
-    drop(carol);
-    identity_key::remove(&pc.paths, &human(), &FilesystemCustody).expect("removed");
-    let mut carol = Root::new(facade_with_source(&a, &pc, Box::new(FilesystemCustody)));
-    carol.pump(1).await;
-    let OwnKey::Ready { fingerprint } = own_key(&carol) else {
-        panic!("a key with no state: {:?}", own_key(&carol))
-    };
-    assert_eq!(
-        fingerprint,
-        key_of(&pc).fingerprint().to_string(),
-        "the key shown is the one stored"
+        std::fs::read_to_string(&file).expect("read"),
+        "not a record\n",
+        "nothing removed"
     );
 }
 
@@ -2060,133 +1766,6 @@ async fn a_share_the_store_refuses_at_accepted_is_written_at_the_next_turn() {
         alice.model().card_shared_at(&to_bob),
         Some(WALL),
         "written at the next turn"
-    );
-}
-
-/// #467 F6 and R3 F9: a share owed when Make a new key runs -- accepted
-/// with the old key, refused by the store -- is written by the step before
-/// the key changes when the store takes it then, and is in the share-again
-/// list either way; one still refused is never written afterwards with a
-/// date after the key changed. Mutations: the owed shares not read by the
-/// step; the step not writing them first.
-#[tokio::test]
-async fn a_share_owed_when_a_new_key_is_made_is_listed_to_share_again() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    for store_takes_it_at_the_step in [false, true] {
-        let case = if store_takes_it_at_the_step {
-            "written by the step"
-        } else {
-            "still refused"
-        };
-        let (a, b) = FakeNetwork::pair(node(), node());
-        let (pa, pb) = (profile(), profile());
-        let clock = Arc::new(AtomicU64::new(WALL));
-        let wall = Arc::clone(&clock);
-        let mut side = facade_with_wall(&a, &pa, None, move || wall.load(Ordering::Relaxed));
-        side.set_key_source(interweave_human_app_core::KeySource::new(
-            pa.paths.clone(),
-            human(),
-            Box::new(FilesystemCustody),
-        ));
-        let mut alice = Root::new(side);
-        let mut bob = Root::new(facade(&b, &pb, None));
-        alice.pump(0).await;
-        bob.pump(0).await;
-        let to_bob = direct(b.peer());
-        a.inject_send(interweave_transport_api::TransportError::Overloaded);
-        alice.will(Intent::ShareCard(to_bob.clone()));
-        alice.pump(1).await;
-        clock.store(u64::MAX, Ordering::Relaxed);
-        for at in 2..4 {
-            alice.pump(at * 60_000).await;
-        }
-        assert!(
-            alice
-                .updates
-                .iter()
-                .any(|u| matches!(u, Update::ShareNotRecorded(_))),
-            "{case}: owed"
-        );
-        if store_takes_it_at_the_step {
-            clock.store(WALL, Ordering::Relaxed);
-        }
-        alice.updates.clear();
-        alice.run(Command::MakeNewKey, 5 * 60_000).await;
-        let shared_at = alice
-            .updates
-            .iter()
-            .position(|u| matches!(u, Update::CardShared { .. }));
-        let made_at = alice
-            .updates
-            .iter()
-            .position(|u| matches!(u, Update::KeyMade { .. }));
-        let made = alice.updates.iter().find_map(|u| match u {
-            Update::KeyMade { share_again, .. } => Some(share_again.clone()),
-            _ => None,
-        });
-        assert_eq!(
-            made,
-            Some(vec![to_bob.clone()]),
-            "{case}: {:?}",
-            alice.failed()
-        );
-        if store_takes_it_at_the_step {
-            assert!(
-                shared_at.is_some() && shared_at < made_at,
-                "{case}: written before the key changed: {:?}",
-                alice.updates
-            );
-            assert_eq!(alice.model().card_shared_at(&to_bob), Some(WALL), "{case}");
-        } else {
-            assert_eq!(shared_at, None, "{case}");
-            clock.store(WALL, Ordering::Relaxed);
-            alice.pump(6 * 60_000).await;
-            assert_eq!(
-                alice.model().card_shared_at(&to_bob),
-                None,
-                "{case}: not written after the key changed"
-            );
-        }
-    }
-}
-
-/// #467 R3: an own card row still on its way when a new key is made was
-/// signed with the old key; its Accepted after the change records no share,
-/// whose date would read as a share of the new key -- its conversation is
-/// in the share-again list instead. Mutation: the old key's rows kept in
-/// `card_rows`.
-#[tokio::test]
-async fn a_card_accepted_after_a_new_key_records_no_share() {
-    let (a, b) = FakeNetwork::pair(node(), node());
-    let (pa, pb) = (profile(), profile());
-    let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
-    let mut bob = Root::new(facade(&b, &pb, None));
-    alice.pump(0).await;
-    bob.pump(0).await;
-    bob.open(&direct(a.peer()), 0).await;
-    let to_bob = direct(b.peer());
-    a.inject_send(interweave_transport_api::TransportError::Overloaded);
-    alice.will(Intent::ShareCard(to_bob.clone()));
-    alice.pump(1).await;
-    alice.run(Command::MakeNewKey, 2).await;
-    let made = alice.updates.iter().find_map(|u| match u {
-        Update::KeyMade { share_again, .. } => Some(share_again.clone()),
-        _ => None,
-    });
-    assert_eq!(made, Some(vec![to_bob.clone()]), "{:?}", alice.failed());
-    for at in 3..7 {
-        alice.pump(at * 60_000).await;
-        bob.pump(at * 60_000).await;
-    }
-    assert!(
-        !bob.model().proposals(&direct(a.peer())).is_empty(),
-        "the old key's card arrived"
-    );
-    assert_eq!(
-        alice.model().card_shared_at(&to_bob),
-        None,
-        "no share recorded"
     );
 }
 
@@ -2372,7 +1951,7 @@ async fn a_key_file_gone_while_a_card_is_pending_is_missing() {
         alice.pump(1).await;
         assert!(alice.failed().is_empty(), "{case}: {:?}", alice.failed());
         drop(alice);
-        let file = identity_key::key_path(&pa.paths, &human());
+        let file = identity_key::key_path(&pa.paths, &pa.key_id);
         std::fs::remove_file(&file).expect("lost");
         let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
         alice.pump(2).await;
@@ -2491,8 +2070,13 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
     let conn = rusqlite::Connection::open(&path).expect("open");
     conn.execute(
         "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
-         VALUES (?1, ?2, 'human', ?3)",
-        rusqlite::params![contact_id, other.as_str(), [7_u8; 32].as_slice()],
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            contact_id,
+            other.as_str(),
+            human().as_str(),
+            [7_u8; 32].as_slice()
+        ],
     )
     .expect("seeded");
     drop(conn);

@@ -3625,6 +3625,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "rusqlite",

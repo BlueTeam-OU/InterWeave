@@ -37,8 +37,27 @@ fn peer() -> TransportIdentity {
         .expect("peer id")
 }
 
+/// The identity every side leases: the id its TEST-ONLY key derives
+/// (ADR-0067), so a facade holding [`human_key`] may sign as it.
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("human")
+}
+
+/// `human()`'s TEST-ONLY key, read from a filesystem-custody record laid
+/// out by profile-config: the store makes a key only from a record or the
+/// CSPRNG, and a CSPRNG key names another id.
+fn human_key() -> IdentityKey {
+    use interweave_human_store::identity_key::FilesystemCustody;
+    use interweave_profile_config::endpoint_key;
+    let signing = interweave_test_support::endpoint_keys::signing_key("human");
+    let header = endpoint_key::header_bytes(
+        endpoint_key::Custody::FilesystemOnly,
+        human().as_str().as_bytes(),
+        &signing.verifying_key().to_bytes(),
+    )
+    .expect("a header");
+    let line = endpoint_key::encode_record(&header, &signing.to_bytes());
+    IdentityKey::from_record(&line, "default", &human(), &FilesystemCustody).expect("opens")
 }
 
 fn node() -> FakeConfig {
@@ -343,7 +362,7 @@ async fn an_opened_conversation_pages_its_rows_in_from_the_store() {
 #[tokio::test]
 async fn paging_past_the_read_proposal_bound_evicts_none_and_loses_no_copy() {
     let from = peer();
-    let key = IdentityKey::generate(human()).expect("a key");
+    let key = human_key();
     let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
     let total = u32::try_from(READ_PROPOSAL_CAP).expect("small") + 44;
     for n in 1..=total {
@@ -415,7 +434,7 @@ async fn paging_past_the_read_proposal_bound_evicts_none_and_loses_no_copy() {
 #[tokio::test]
 async fn a_photo_is_read_when_asked_and_only_as_it_stood() {
     let from = peer();
-    let key = IdentityKey::generate(human()).expect("a key");
+    let key = human_key();
     let png = png();
     let photo = interweave_human_app_core::card_photo::prepare_photo(&png).expect("prepared");
     let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
@@ -514,7 +533,7 @@ async fn a_card_the_drain_hands_over_counts_once_in_its_badge() {
         &a,
         HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
     );
-    alice.set_identity_key(IdentityKey::generate(human()).expect("a key"));
+    alice.set_identity_key(human_key());
     let mut bob = Root::start(facade(
         &b,
         HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
@@ -787,7 +806,7 @@ async fn contacts_failed_at_start_are_the_starts_contacts_error() {
 async fn a_slowed_or_unreadable_photo_is_read_as_the_hooks_say() {
     use interweave_human_app_core::test_hooks::StoreFaults;
     let from = peer();
-    let key = IdentityKey::generate(human()).expect("a key");
+    let key = human_key();
     let photo = interweave_human_app_core::card_photo::prepare_photo(&png()).expect("prepared");
     let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
     store
