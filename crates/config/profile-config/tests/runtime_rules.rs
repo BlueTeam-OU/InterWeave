@@ -162,9 +162,9 @@ fn an_android_profile_listens_on_wildcard_addresses_only() {
     }
 }
 
-/// The field takes an id, NEVER AN ALIAS: `human` is the entry's alias,
-/// and no entry's id equals it, so it is refused as naming no enabled
-/// endpoint -- beside the same entry named by its id, accepted.
+/// The field takes an id, NEVER AN ALIAS: `human` is the entry's alias
+/// and not a derived id, so the document is refused as it parses, naming
+/// the field -- beside the same entry named by its id, accepted.
 #[test]
 fn an_android_endpoint_named_by_alias_is_refused() {
     let doc = format!(
@@ -184,12 +184,12 @@ endpoints:
       advertise: false
 "
     );
-    let by_alias: ProfileConfig = serde_norway::from_str(&doc).expect("parses");
-    assert_eq!(
-        android_errors(&by_alias),
-        vec![ConfigError::AndroidEndpointNotEnabled {
-            endpoint: "human".to_owned()
-        }]
+    let by_alias = serde_norway::from_str::<ProfileConfig>(&doc)
+        .expect_err("an alias is not an EndpointId")
+        .to_string();
+    assert!(
+        by_alias.contains("runtime.android") && by_alias.contains("exactly 52"),
+        "{by_alias}"
     );
     let by_id: ProfileConfig =
         serde_norway::from_str(&doc.replace("endpoint: human", &format!("endpoint: {LEASED}")))
