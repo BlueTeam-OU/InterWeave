@@ -559,7 +559,7 @@ ui_texts! {
     IdWelcomeBody => "Exchange messages with the people you trust, directly from this phone. There is no account to create.",
     /// ANDROID, identity screens: W's notice while the void-paper marker
     /// is set (§3.1), three lines.
-    IdVoidPaper => "The words shown last time were never used. They are not your identity, so do not use that paper as your backup.",
+    IdVoidPaper => "The words shown last time were never used, so they do not restore this phone's PeerId. Do not use the paper where you wrote those words as your backup.",
     /// ANDROID, identity screens: W's primary.
     IdCreate => "Create a new identity",
     /// ANDROID, identity screens: W's secondary.
@@ -605,9 +605,9 @@ ui_texts! {
     /// ANDROID, identity screens: C3's action after an error.
     IdShowAgain => "Show my words again",
     /// ANDROID, identity screens: C4's title.
-    IdCreatedTitle => "Identity created",
+    IdCreatedTitle => "PeerId created",
     /// ANDROID, identity screens: R4's title.
-    IdRestoredTitle => "Identity restored",
+    IdRestoredTitle => "PeerId restored",
     /// ANDROID, identity screens: C4's and R4's body.
     IdCreatedBody => "When you continue, the app connects to the network with this identity.",
     /// ANDROID, identity screens: C4's and R4's primary.
@@ -704,11 +704,11 @@ ui_texts! {
     IdChecksumFailed => "These words do not form a recovery phrase. A word may be wrong or in the wrong place. Check them against your paper.",
     /// ANDROID, identity screens: §6's other-identity banner, above the
     /// two labelled `PeerIds`.
-    IdOtherIdentity => "These words open a different identity, so nothing on this phone was changed. Compare the two PeerIds below with your paper.",
+    IdOtherIdentity => "These words belong to a different PeerId, so nothing on this phone was changed. Compare the two PeerIds below with your paper.",
     /// ANDROID, identity screens: §6's busy notice, with `TryAgain`.
     IdBusy => "The app could not go offline. Wait a moment, then try again.",
     /// ANDROID, identity screens: §6's storage notice, with `TryAgain`.
-    IdStorageFailed => "The app could not save your identity on this phone. Nothing was changed.",
+    IdStorageFailed => "The app could not save your PeerId on this phone. Nothing was changed.",
     /// ANDROID, identity screens: §7's dialog title.
     IdDiscardTitle => "Delete the words you entered?",
     /// ANDROID, identity screens: §7's dialog: the action that drops the
