@@ -373,6 +373,16 @@ of that case expect it. Before, they expected no start at the return, which a
 build that follows §5.1 cannot give. §6's sentence on the order of
 answer and stop names the second device run.
 
+Revised 2026-11-22 again, at rust-ui-dev-01's INFO 01a1fde3. The
+build does not yet keep a flow screen through a recreation: a change
+of the system language recreates the window, and the identity flow
+then starts again at its first screen (their job j311). §6's rule
+that a recreation moves no focus stands for the flow screens, and
+the dependency is now written beside it (§6, The hold). Acceptance
+15's sixth return run and acceptance 15's R2 recreation run are
+blocked until j311 lands. The Chats and conversation recreation runs
+are not blocked.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -1219,7 +1229,13 @@ this notice wherever it shows also keeps the app predictable
   was at the return: the retry moves no focus. A recreation moves
   none either: the recreated window puts focus on the control that
   had it before, as on Chats (A return or a recreation, under A
-  start refused with the profile in use after the bound). The 1 s before
+  start refused with the profile in use after the bound). The build
+  cannot do this yet. A recreation starts the identity flow again at
+  its first screen, so C4, R4, R3 and R2 after K1 are not kept, and
+  neither is the focus on them (rust-ui-dev-01's INFO 01a1fde3, their
+  job j311). This sentence is the target, and the acceptance runs
+  that check it on these screens are blocked until j311 lands
+  (acceptance 15). The 1 s before
   `ConnectStarting` and add-a-peer §5.1's 10 s bound count from the
   return, never from when `IdStartBusy` first showed. Why: the
   bound limits how long the person waits on a held screen, and while
@@ -2152,7 +2168,9 @@ landscape:
     custody records one more read-back and no restore. In a second
     run, a recreation of the window, as a change of the system language makes it, takes the rotation's place, and in a third
     run, the app sent to the background and back. Each is blocked on
-    the same count. Removing the notice first is what makes each run
+    the same count, and the second run also waits for the build to
+    keep R2 through a recreation (rust-ui-dev-01's j311; §6, The
+    hold). Removing the notice first is what makes each run
     check the read-back owed and not the notice: with the notice
     shown, `IdCheckWords` reads back by the notice's rule alone. A read-back that keeps
     failing, in host tests: on R2 after K1, Back, `IdDiscard`, K1's
@@ -2367,7 +2385,9 @@ scale would also be a finding of the Android review
       notice. In a sixth run, the test recreates the window as a
       change of the system language does: the hook records one start,
       answered as in the second run. A rotation instead records no
-      start. In a seventh run, made with Stay reachable on only, the
+      start. The sixth run is blocked, not passed, until the build
+      keeps a flow screen through a recreation (rust-ui-dev-01's
+      j311; §6, The hold). In a seventh run, made with Stay reachable on only, the
       test presses Enter on Try again, the hook leaves that start
       unanswered, and the test then sends the app to the background
       and back: the hook records that one start and none at the
