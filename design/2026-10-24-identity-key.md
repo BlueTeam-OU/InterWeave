@@ -22,7 +22,9 @@ can be created and removed, and until then part 1 stands.
 What part 1 adds, changes and retires (§10):
 
 - added: `KeyNoNewKey`;
-- changed: `KeyNewerVersion` (no "if you make a new key"), and, in
+- changed: `KeyNewerVersion` (no "if you make a new key"),
+  `KeyCannotShare` and `KeyCannotShareHere` (no time when the key
+  works again; language-culture-en's pass, 6257df7c8), and, in
   `design/2026-10-19-android-identity.md`, `IdR1NewKeys` (a new
   identity, not a changed key);
 - retired from the build, with §5 (withdrawn): `KeyMakeNew`,
@@ -146,8 +148,9 @@ key may already have been read, so it is not used again (architect-cto's,
 a card again.
 
 Every reason line is followed by the same consequence line,
-`KeyCannotShare`: until this identity has a key, its card cannot be
-shared; messages are not affected.
+`KeyCannotShare`: messages are not affected, and its card cannot be
+shared; it names no time when the key works again, since for most
+kinds it never does.
 
 For every kind but "temporarily unusable" and "key folder not safe",
 whose Try again can still open the key, `KeyNoNewKey` follows
