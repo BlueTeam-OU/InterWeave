@@ -14,8 +14,9 @@ which is folded into this note's PR (#738); the sentence quoted above
 is the text as it stood before that commit, when this design was
 handed to ux-designer.
 The third, Q3, was ruled as proposed too (REPLY 01a204c2,
-2026-11-22): each pending count and the card proposals count holds
-every such row, whichever step discarded it.
+2026-11-22): each of the two pending counts, and the card proposals
+count, holds every row of its kind that the migration discarded,
+whichever step discarded it.
 Revised 2026-11-21, at #728's review (F29, F30): when the person moved
 focus before a late banner showed, focus stays where it is, whichever
 notice showed first (§6), and §5 says what the dialog does when a session notice
@@ -29,8 +30,8 @@ the row (§5, §6, acceptance 9's second run). The late-banner row of §6
 covers focus moved on Chats only. Acceptance 9's store hook is named as
 missing, so its first run is blocked. The client deletes no all-zero
 row, and acceptance 1 checks that no banner shows. §1 counts each
-pending and card row whichever step took it, as architect-cto ruled
-on Q3 (§11). Before, §5 said that any session notice refused the delete,
+pending row and each card row, whichever step took it, as architect-cto
+ruled on Q3 (§11). Before, §5 said that any session notice refused the delete,
 and §3 had the client delete an all-zero row, which STATE.md's "on
 nothing else" forbids.
 
@@ -63,11 +64,11 @@ the desktop and on Android; the command-line client's form is left out
   notes gone), card proposals (unread contact card proposals). A second
   copy under (d) is counted nowhere: the message is still held, or was
   read and not kept. The two pending counts and the card proposals
-  count each hold every such row the migration discarded, whether (c)
-  or (e) took it; the unread and kept counts hold no card row (Q3 in
+  count each hold every row of their kind that the migration
+  discarded, whether (c) or (e) took it; the unread and kept counts hold no card row (Q3 in
   §11, ruled as proposed by architect-cto's REPLY 01a204c2, 2026-11-22;
-  STATE.md states it in architect-cto's commit 840747b85, which
-  reaches main with the human store's schema v14 change).
+  STATE.md states it in architect-cto's commit 840747b85, which is
+  to reach main together with the human store's schema v14 change).
 - The pending rows are counted in two parts, "as Remove of an identity
   names them" (ADR-0061 decision 7): those never attempted were not
   sent; those with an attempt behind them "may have reached their
@@ -80,9 +81,10 @@ the desktop and on Android; the command-line client's form is left out
   possibly received, never as not sent". Written before 530def301:
   STATE.md's schema v14 now says when the notice shows (at each open
   until acknowledged) and how many counts it holds (eight); bringing
-  §13 in line is architect-cto's, done in 840747b85 with Q3's
-  ruling: at each open until acknowledged, each of the eight counts
-  that is not zero.
+  §13 in line is architect-cto's. architect-cto does so in 840747b85,
+  together with Q3's ruling, and §13 there has the client say, "at
+  each open until the person acknowledges it and never after, each of
+  the eight counts that is not zero".
 - The row is content-free (RETENTION.md §7, the one exception): it holds
   counts and nothing else. The notice therefore cannot say which
   conversation, contact or message went, and it names no peer and no
