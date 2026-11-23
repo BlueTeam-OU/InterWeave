@@ -10,6 +10,7 @@
 
 mod common;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
@@ -34,11 +35,11 @@ use interweave_transport_api::{
 const LIMIT: usize = 49_152;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("valid")
+    endpoint_id("agent")
 }
 
 fn room() -> ChannelId {
@@ -738,8 +739,12 @@ async fn an_endpoint_in_use_is_refused_and_not_retried_until_the_person_asks() {
 }
 
 fn spare() -> EndpointId {
-    // Sorts before `human`, so a preference order lost to sorting shows.
-    EndpointId::parse("backup").expect("valid")
+    // Its derived id sorts before `human`'s (asserted: the ids are derived,
+    // so the labels' order says nothing), so a preference order lost to
+    // sorting shows.
+    let spare = endpoint_id("backup");
+    assert!(spare.as_str() < human().as_str());
+    spare
 }
 
 /// A node with a second endpoint this client may lease, and a client
@@ -2544,7 +2549,7 @@ fn store_at_the_bound(path: &std::path::Path, peer: &TransportIdentity) -> Human
     )
     .expect("store");
     let names: Vec<EndpointId> = std::iter::once(agent())
-        .chain((1..63).map(|n| EndpointId::parse(format!("e{n}")).expect("an endpoint")))
+        .chain((1..63).map(|n| endpoint_id(&format!("e{n}"))))
         .collect();
     for (n, endpoint) in names.iter().enumerate() {
         store
@@ -2566,7 +2571,7 @@ fn store_at_the_bound(path: &std::path::Path, peer: &TransportIdentity) -> Human
         .accept_card(
             &AcceptedCard {
                 peer,
-                endpoint: &EndpointId::parse("e63").expect("an endpoint"),
+                endpoint: &endpoint_id("e63"),
                 name: "Ada",
                 surname: None,
                 identity_key: [1; 32],

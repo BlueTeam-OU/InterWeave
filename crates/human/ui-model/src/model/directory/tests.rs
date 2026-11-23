@@ -5,7 +5,8 @@
 
 use interweave_human_chat_protocol::Card;
 use interweave_human_core::RowId;
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_test_support::endpoint_keys::endpoint_id;
+use interweave_transport_api::TransportIdentity;
 
 use super::{DirectoryContact, PHOTO_CAP, PhotoAsk, PhotoState};
 use crate::model::cards::{ContactView, KeyView, Photo, Proposal, ProposalContext, ValueChanges};
@@ -41,7 +42,7 @@ fn proposal(row: i64) -> Proposal {
     Proposal {
         row: RowId::from_stored(row),
         peer: TransportIdentity::parse(P).expect("a PeerId"),
-        endpoint: EndpointId::parse("human").expect("an endpoint"),
+        endpoint: endpoint_id("human"),
         card: Card {
             app_message_id: "0".repeat(32),
             name: "Ada".to_owned(),
@@ -68,7 +69,7 @@ fn proposal(row: i64) -> Proposal {
 fn conversation() -> ConversationKey {
     ConversationKey::Direct {
         peer: TransportIdentity::parse(P).expect("a PeerId"),
-        endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+        endpoint: Some(endpoint_id("human")),
     }
 }
 

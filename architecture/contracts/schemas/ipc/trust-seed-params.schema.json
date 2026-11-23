@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:trust-seed-params",
+  "title": "IPC admin.trust.seed params",
+  "description": "Give one configured endpoint its own trust set from what it admits now, if it has none (IPC 3.0, ADR-0067 decision 6, LOCAL-IPC.md §The endpoint dimension): the copy `admin.trust.set {endpoint}` makes at a first write, per direction, with no change after it. `endpoint` is the EndpointId of a configured endpoint, authored or added, enabled or not; a value outside the grammar is `InvalidArgument`, an id no entry holds `EndpointUnknown`, and the alias is not accepted (a client resolves it). Required, and nothing else is accepted.",
+  "type": "object",
+  "required": [
+    "endpoint"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "endpoint": {
+      "$ref": "urn:interweave:schemas:endpoints:endpoint-id"
+    }
+  },
+  "x-contract": {
+    "name": "ipc.trust-seed-params",
+    "status": "approved",
+    "version": "1.0.0",
+    "adr": [
+      "0017",
+      "0028",
+      "0032",
+      "0067"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

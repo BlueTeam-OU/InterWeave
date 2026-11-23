@@ -1033,12 +1033,13 @@ async fn paths(binding: &impl DataSessionBinding, args: &PathsArgs) -> Result<Pe
 
 /// The `human` endpoint, which the profiles of both sides lease.
 ///
-/// # Panics
-/// Never: the literal is a valid endpoint id.
+/// A derived id (ADR-0067) over a fixed, public, test-only key: the
+/// crate may not depend on `interweave-test-support` (the graph test),
+/// and a case that names the endpoint needs a stable, well-formed one.
+/// No secret stands behind it.
 #[must_use]
 pub fn human() -> EndpointId {
-    #[allow(clippy::expect_used, reason = "a literal checked by every case")]
-    EndpointId::parse("human").expect("endpoint")
+    EndpointId::from_ed25519_public(&[0x68; 32])
 }
 
 /// A human client's session on the `human` endpoint, with events and
@@ -1477,6 +1478,17 @@ mod tests {
         "interweave-transport-composition",
         "interweave-transport-embedded",
     ];
+
+    /// The endpoint the cases name is one every boundary accepts: a
+    /// derived id, read back by the strict parser.
+    #[test]
+    fn the_human_endpoint_is_a_derived_id() {
+        let id = human();
+        assert_eq!(
+            interweave_transport_api::EndpointId::parse_derived(id.as_str()),
+            Ok(id)
+        );
+    }
 
     #[test]
     fn the_crate_reaches_no_libp2p_harness_daemon_or_runtime() {

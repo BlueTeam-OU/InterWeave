@@ -130,8 +130,9 @@ touch "$R/architecture/adr/0031-x.md"
 python3 -c "
 import json,sys
 p=sys.argv[1]
-ok={'name':'one','kind':'directory','generated_at_ms':1786600000000,'ttl_ms':60000,'endpoints':['human'],
-    'frame_hex':'010000019ff9a88a000000ea60010568756d616e','frame_len':20}
+ok={'name':'one','kind':'directory','generated_at_ms':1786600000000,'ttl_ms':60000,
+    'endpoints_test_keys':['claude'],'endpoints':['12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd'],
+    'frame_hex':'010000019ff9a88a000000ea600134313244334b6f6f5745784d54775842544e735a4b77707658744158646551434a75315939576d4367723665735353666659366664','frame_len':67}
 too={'name':'too-many','kind':'directory','generated_at_ms':0,'ttl_ms':0,
      'endpoints':['e%02d'%i for i in range(33)],'frame_hex':'00'}
 json.dump({'algorithm':{'id':'endpoint-directory-v1-frame'},'adr':['0031'],'vectors':[ok,too]}, open(p,'w'))
@@ -436,6 +437,55 @@ R="$TMP/direct-label"; make_direct "$R"; mutate_direct "$R" "v['destination_endp
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not a derived EndpointId"* ]] \
     && ok "a 52-byte label is refused as not derived" || bad "a label should be refused: $out"
+
+# ── the endpoint directory: every entry a derived id its test key derives ─
+# A copy of the real frame file, so the control is the frozen file itself
+# and each mutation is one entry of the 32-entry vector.
+make_directory() {
+    local r="$1"
+    mkdir -p "$r/fixtures/endpoints" "$r/architecture/adr"
+    for a in 0031 0067; do : > "$r/architecture/adr/$a-x.md"; done
+    cp "$SCRIPT_DIR/../../fixtures/endpoints/endpoint-directory-v1-frame.json" "$r/fixtures/endpoints/f.json"
+}
+mutate_directory() {
+    python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v=[x for x in d['vectors'] if x['name']=='largest-32-entries'][0]
+exec(sys.argv[2])
+json.dump(d, open(p,'w'))" "$1/fixtures/endpoints/f.json" "$2"
+}
+R="$TMP/dir-ok"; make_directory "$R"
+[ "$(run_code "$R")" = "0" ] && ok "the directory vectors recompute in a sandbox" || bad "directory copy should pass: $(run "$R")"
+
+R="$TMP/dir-key"; make_directory "$R"; mutate_directory "$R" "v['endpoints_test_keys'][3]='someone-else'"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"endpoints[3] disagrees with its test key"* ]] \
+    && ok "a directory entry its test key does not derive is caught" || bad "a wrong entry key should fail: $out"
+
+R="$TMP/dir-nokeys"; make_directory "$R"; mutate_directory "$R" "v['endpoints_test_keys'].pop()"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"one TEST-ONLY key per entry"* ]] \
+    && ok "a directory vector naming fewer keys than entries is caught" || bad "a short key list should fail: $out"
+
+R="$TMP/dir-label"; make_directory "$R"; mutate_directory "$R" "v['endpoints'][-1]='z'*52"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not a derived EndpointId"* ]] \
+    && ok "a 52-byte label entry is refused as not derived" || bad "a label entry should be refused: $out"
+
+R="$TMP/dir-64"; make_directory "$R"; mutate_directory "$R" "v['endpoints'][-1]='z'*64"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"exactly 52"* ]] \
+    && ok "a 64-byte entry, legal under the label grammar, is refused" || bad "64 bytes should be refused: $out"
+
+R="$TMP/dir-dup"; make_directory "$R"; mutate_directory "$R" "v['endpoints'][1]=v['endpoints'][0]; v['endpoints_test_keys'][1]=v['endpoints_test_keys'][0]"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"duplicate entry"* ]] \
+    && ok "a duplicate directory entry is refused" || bad "a duplicate should be refused: $out"
+
+R="$TMP/dir-unsorted"; make_directory "$R"; mutate_directory "$R" "v['endpoints'].reverse(); v['endpoints_test_keys'].reverse()"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not sorted"* ]] \
+    && ok "an unsorted directory vector is refused" || bad "an unsorted list should be refused: $out"
 
 # ── the real fixtures verify ─────────────────────────────────────────────
 REAL="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"

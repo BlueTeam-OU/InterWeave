@@ -1422,6 +1422,7 @@ impl UiModel {
 mod tests {
     use super::*;
     use crate::labels::{UiText, placeholder_en};
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     const P: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
     const Q: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
@@ -1431,7 +1432,7 @@ mod tests {
     }
 
     fn endpoint(s: &str) -> EndpointId {
-        EndpointId::parse(s).expect("an endpoint")
+        endpoint_id(s)
     }
 
     fn direct(p: &str, e: &str) -> ConversationKey {
@@ -2598,7 +2599,7 @@ mod tests {
             rgba: vec![1; 16],
         };
         let identity = |has_photo: bool| IdentityView {
-            endpoint: EndpointId::parse("human").expect("an endpoint"),
+            endpoint: endpoint_id("human"),
             name: "Ada".to_owned(),
             given: "Ada".to_owned(),
             surname: None,

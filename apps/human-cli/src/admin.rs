@@ -43,11 +43,23 @@ fn refused(e: TransportError) -> Failure {
     Failure::Refused(format!("the daemon refused: {e:?}"))
 }
 
+/// An `identities` verb with its endpoint resolved to the id the admin
+/// call carries (`startup::identity`): the alias stays on this side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Identities {
+    /// `identities list`.
+    List,
+    /// `identities enable|disable`.
+    SetEnabled(EndpointId, bool),
+    /// `identities default`, or `--none`.
+    SetDefault(Option<EndpointId>),
+}
+
 /// Refuse a change to an endpoint that is not one of `ours`, before any
 /// socket: it is `transportctl`'s to administer.
-fn narrowed(ours: &[EndpointId], verb: &Verb) -> Result<(), Failure> {
+fn narrowed(ours: &[EndpointId], verb: &Identities) -> Result<(), Failure> {
     match verb {
-        Verb::SetEnabled(endpoint, _) | Verb::SetDefault(Some(endpoint))
+        Identities::SetEnabled(endpoint, _) | Identities::SetDefault(Some(endpoint))
             if !ours.contains(endpoint) =>
         {
             Err(Failure::Refused(
@@ -362,7 +374,7 @@ pub(crate) fn peer_states(rows: &[PeerGateView], json: bool) -> String {
 /// when it refuses or the endpoint is not one of this client's.
 pub(crate) async fn identities(
     profile: &Profile,
-    verb: &Verb,
+    verb: &Identities,
     json: bool,
     out: &mut String,
 ) -> Result<(), Failure> {
@@ -385,7 +397,7 @@ pub(crate) async fn identities(
         ));
     }
     match verb {
-        Verb::IdentitiesList => {
+        Identities::List => {
             let list = port.endpoints_result().await.map_err(refused)?;
             for endpoint in &profile.endpoints {
                 let Some(row) = list.endpoints.iter().find(|row| &row.id == endpoint) else {
@@ -414,7 +426,7 @@ pub(crate) async fn identities(
                 }
             }
         }
-        Verb::SetEnabled(endpoint, enabled) => {
+        Identities::SetEnabled(endpoint, enabled) => {
             let revoked = port
                 .set_endpoint_enabled(endpoint.clone(), *enabled)
                 .await
@@ -431,7 +443,7 @@ pub(crate) async fn identities(
                 }
             );
         }
-        Verb::SetDefault(endpoint) => {
+        Identities::SetDefault(endpoint) => {
             if endpoint.is_none() {
                 // Clearing names no endpoint, so whose default it clears is
                 // read first: one that is not a human endpoint is another
@@ -447,9 +459,6 @@ pub(crate) async fn identities(
                 Some(endpoint) => writeln!(out, "default {}", endpoint.as_str()),
                 None => writeln!(out, "no default"),
             };
-        }
-        _ => {
-            return Err(Failure::Refused("not an identities verb".to_owned()));
         }
     }
     Ok(())
@@ -698,11 +707,11 @@ mod tests {
 
     #[test]
     fn a_change_to_an_endpoint_not_the_human_clients_is_refused() {
-        let id = |s: &str| EndpointId::parse(s).expect("valid");
+        let id = interweave_test_support::endpoint_keys::endpoint_id;
         let ours = [id("human")];
         for verb in [
-            Verb::SetEnabled(id("agent"), false),
-            Verb::SetDefault(Some(id("agent"))),
+            Identities::SetEnabled(id("agent"), false),
+            Identities::SetDefault(Some(id("agent"))),
         ] {
             assert!(
                 matches!(narrowed(&ours, &verb), Err(Failure::Refused(_))),
@@ -716,10 +725,10 @@ mod tests {
         assert!(may_clear(Some(&id("human")), &ours).is_ok());
         assert!(may_clear(None, &ours).is_ok());
         for verb in [
-            Verb::SetEnabled(id("human"), false),
-            Verb::SetDefault(Some(id("human"))),
-            Verb::SetDefault(None),
-            Verb::IdentitiesList,
+            Identities::SetEnabled(id("human"), false),
+            Identities::SetDefault(Some(id("human"))),
+            Identities::SetDefault(None),
+            Identities::List,
         ] {
             assert!(narrowed(&ours, &verb).is_ok(), "{verb:?}");
         }

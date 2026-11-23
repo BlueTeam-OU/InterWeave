@@ -39,7 +39,7 @@ mod common;
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use interweave_human_app_core::test_hooks::{Fault, StoreFaults};
 use interweave_human_app_core::{Command, FacadeSide, Opener, Surface};
@@ -56,6 +56,7 @@ use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNo
 use interweave_profile_config::TrustBoundary;
 use interweave_profile_config::paths::ProfilePaths;
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::ComponentHandle as _;
 
@@ -93,9 +94,11 @@ impl Surface for Injecting {
 const BODY: &str = "tm45logbodyquokka";
 const NAME: &str = "Tm45Lognameaxolotl";
 const SURNAME: &str = "Tm45Logsurnamepangolin";
-const ENDPOINT: &str = "tm45logendpointcapybara";
+/// The name the endpoint's test-only key is seeded from; the planted word
+/// is the id it derives, [`human`].
+const ENDPOINT_SEED: &str = "tm45logendpointcapybara";
 
-const PLANTED: [&str; 4] = [BODY, NAME, SURNAME, ENDPOINT];
+const PLANTED: [&str; 3] = [BODY, NAME, SURNAME];
 
 thread_local! {
     /// The lines this test's thread wrote: the pump runs on it, and each
@@ -112,9 +115,9 @@ fn lines() -> Vec<String> {
 }
 
 /// The endpoint the lease is on: the id the TEST-ONLY key planted as
-/// `ENDPOINT` derives (ADR-0067), so the key may sign as it.
+/// `ENDPOINT_SEED` derives (ADR-0067), so the key may sign as it.
 fn human() -> EndpointId {
-    interweave_test_support::endpoint_keys::endpoint_id(ENDPOINT)
+    endpoint_id(ENDPOINT_SEED)
 }
 
 fn peer() -> TransportIdentity {
@@ -255,6 +258,7 @@ fn desktop_on(
 ) -> Desktop {
     let faults = Arc::clone(faults);
     let make_fails = build.make_fails;
+    let ended = Arc::clone(&die);
     i_slint_backend_testing::init_no_event_loop();
     let view = View::new(RuntimeHost::Daemon).expect("a window");
     view.window()
@@ -290,7 +294,11 @@ fn desktop_on(
             assert!(!die.load(Ordering::SeqCst), "the facade thread dies here");
             Ok(true)
         },
-        Arc::new(|| {}),
+        // Holds the flag too, so a test sees the thread gone by its count
+        // ([`until_ended`]).
+        Arc::new(move || {
+            let _: &Arc<AtomicBool> = &ended;
+        }),
         |_| {},
     )
     .expect("the facade thread");
@@ -322,6 +330,17 @@ fn until(app: &mut Desktop, what: &str, done: impl Fn(&Desktop) -> bool) {
     }
 }
 
+/// Turn until the facade thread has ended, `die` being the flag its
+/// probe and its `notify` hold ([`desktop_on`]). The `notify` closure is
+/// the thread's own, dropped as the thread's closure is, after the future
+/// that owns the command receiver: once only the test holds the flag, a
+/// command can no longer be handed over. The probe runs once a second.
+fn until_ended(app: &mut Desktop, die: &Arc<AtomicBool>) {
+    until(app, "the facade thread to end", |_| {
+        Arc::strong_count(die) == 1
+    });
+}
+
 /// Turn until a line starting with `class` is written, and return it: the
 /// control that the path ran.
 fn until_line(app: &mut Desktop, class: &str) -> String {
@@ -334,18 +353,14 @@ fn until_line(app: &mut Desktop, class: &str) -> String {
 
 /// No line of the log holds any planted word, nor the endpoint's id.
 fn assert_content_free() {
-    let id = human().as_str().to_lowercase();
+    let endpoint = human();
     for line in lines() {
-        for word in PLANTED {
+        for word in PLANTED.into_iter().chain([endpoint.as_str()]) {
             assert!(
                 !line.to_lowercase().contains(&word.to_lowercase()),
                 "planted {word:?} in the log line {line:?}"
             );
         }
-        assert!(
-            !line.to_lowercase().contains(&id),
-            "the endpoint's id in the log line {line:?}"
-        );
     }
 }
 
@@ -363,7 +378,7 @@ fn select(app: &mut Desktop, from: &TransportIdentity) {
 }
 
 /// A session leased: the line names the class and the time, and never
-/// the endpoint the lease is on (planted as `ENDPOINT`). Mutation:
+/// the endpoint the lease is on (planted as [`human`]). Mutation:
 /// `session_class` (`app.rs`) naming the state with `{state:?}`, whose
 /// `Ready` carries the endpoint -- the exact-line assertion and the
 /// planted-word scan both fail.
@@ -532,12 +547,7 @@ fn a_command_for_a_stopped_facade_is_logged_as_that_class_alone() {
             .any(|c| c.key == key)
     });
     die.store(true, Ordering::SeqCst);
-    // The probe runs once a second: turn past it, the thread ended.
-    let end = Instant::now() + Duration::from_millis(2_500);
-    while Instant::now() < end {
-        turn(&mut app);
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    until_ended(&mut app, &die);
     app.side_mut().surface_mut().0.0.select(key);
     let line = until_line(&mut app, "the transport side has stopped");
     assert_eq!(line, "the transport side has stopped");
@@ -617,7 +627,7 @@ fn cards_that_cannot_be_read_are_logged_by_the_class() {
     assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
 }
 
-/// A profile on disk with an identity key for `ENDPOINT`: what signs a
+/// A profile on disk with an identity key for [`human`]: what signs a
 /// card.
 fn keyed_profile() -> (tempfile::TempDir, IdentityKey) {
     use std::os::unix::fs::PermissionsExt as _;
@@ -630,9 +640,9 @@ fn keyed_profile() -> (tempfile::TempDir, IdentityKey) {
         TrustBoundary::new(dir.path()).expect("boundary"),
     )
     .expect("paths");
-    // The TEST-ONLY key for `ENDPOINT`, written as `transportctl endpoint
+    // The TEST-ONLY key for `ENDPOINT_SEED`, written as `transportctl endpoint
     // init` would mint one, then opened as the client opens it.
-    let signing = interweave_test_support::endpoint_keys::signing_key(ENDPOINT);
+    let signing = interweave_test_support::endpoint_keys::signing_key(ENDPOINT_SEED);
     let header = interweave_profile_config::endpoint_key::header_bytes(
         interweave_profile_config::endpoint_key::Custody::FilesystemOnly,
         human().as_str().as_bytes(),

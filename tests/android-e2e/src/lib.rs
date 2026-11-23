@@ -513,12 +513,17 @@ impl Device for HostStandIn {
         }
     }
 
-    /// The host is dropped without `stop`: its tasks are cancelled and
-    /// its lock released, as the kernel releases a dead process's.
+    /// The host ends without `stop`: its tasks are cancelled with no
+    /// shutdown path run, and its lock released, as the kernel releases
+    /// a dead process's -- and nothing of the runtime runs once this
+    /// returns. A drop was not that: it ran the driver's shutdown, whose
+    /// peer-cache flush could land after a row removed the file (j128).
     /// Destructors still run here, which a killed process's do not --
     /// the stand-in's limit for process death.
     fn kill(&mut self) {
-        drop(self.host.take());
+        if let Some(host) = self.host.take() {
+            off_runtime(|| host.kill_for_test());
+        }
     }
 
     /// The capture's lines since the last [`fresh_log`](Device::fresh_log),

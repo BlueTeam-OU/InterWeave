@@ -23,6 +23,7 @@ use interweave_human_ui_model::{
     ViewEvent, fill, placeholder_en, preview::Preview,
 };
 use interweave_human_ui_slint::{Palette, View};
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::{Color, ComponentHandle as _, Model as _};
 
@@ -332,7 +333,7 @@ fn alice() -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("an endpoint")
+    endpoint_id("human")
 }
 
 fn direct() -> ConversationKey {

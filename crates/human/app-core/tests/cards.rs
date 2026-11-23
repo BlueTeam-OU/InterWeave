@@ -13,6 +13,7 @@
 
 mod common;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::collections::VecDeque;
 
 use base64::Engine as _;
@@ -37,7 +38,7 @@ const WALL: u64 = 1_786_600_000_000;
 /// The identity every side leases: the id its TEST-ONLY key derives
 /// (ADR-0067), so a facade holding that key may sign as it.
 fn human() -> EndpointId {
-    interweave_test_support::endpoint_keys::endpoint_id("human")
+    endpoint_id("human")
 }
 
 /// Write the TEST-ONLY key named `name` at filesystem custody, as
@@ -2078,7 +2079,7 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
             other.as_str(),
             human().as_str(),
             [7_u8; 32].as_slice(),
-            interweave_test_support::endpoint_keys::endpoint_id("human").as_str()
+            human().as_str()
         ],
     )
     .expect("seeded");

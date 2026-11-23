@@ -16,7 +16,7 @@ use crate::common::{Home, PATIENCE, example, free_port, human, stranger};
 use crate::harness as human_app;
 
 fn spare() -> EndpointId {
-    EndpointId::parse("human-spare").expect("an endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id("human-spare")
 }
 
 /// The shipped example with a second endpoint open to the human client,
@@ -26,13 +26,19 @@ fn home() -> Home {
     home.write_key();
     let listen = format!("/ip4/127.0.0.1/tcp/{}", free_port(Ipv4Addr::LOCALHOST));
     let shipped = example("human-desktop.yaml", &stranger(), &listen, None);
-    let claude = "    - { id: claude,";
-    assert_eq!(shipped.matches(claude).count(), 1, "the example's shape");
+    let claude = format!(
+        "    - {{ key: {}.key,",
+        interweave_test_support::endpoint_keys::endpoint_id("claude").as_str()
+    );
+    assert_eq!(shipped.matches(&claude).count(), 1, "the example's shape");
     let with_spare = shipped.replace(
-        claude,
-        "    - { id: human-spare, enabled: true, advertise: true, \
-         allowed_client_kinds: [human-client], inbound: inherit_profile_trust, \
-         outbound: inherit_profile_trust }\n    - { id: claude,",
+        &claude,
+        &format!(
+            "    - {{ key: {}.key, alias: human-spare, enabled: true, advertise: true, \
+             allowed_client_kinds: [human-client], inbound: inherit_profile_trust, \
+             outbound: inherit_profile_trust }}\n{claude}",
+            spare().as_str()
+        ),
     );
     home.write_config(&with_spare);
     home
@@ -87,7 +93,7 @@ async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_end
     assert!(
         std::fs::read_to_string(home.paths.config_file())
             .expect("config")
-            .contains("{ id: human, enabled: true,"),
+            .contains("alias: human, enabled: true,"),
         "the file still says enabled"
     );
 

@@ -252,6 +252,15 @@ impl Gesture {
     /// a direction it withdrew is cancelled, back at rest and never a swipe
     /// for the rest of the touch, which is `true`; a direction offered
     /// anew is not taken up, since the touch began without it.
+    ///
+    /// Each held by its test: the cancel and the rest of the touch by
+    /// `a_direction_withdrawn_under_a_drag_toward_it_cancels_the_touch`, a
+    /// drag the other way going on by
+    /// `a_direction_withdrawn_under_a_drag_the_other_way_leaves_it`, a
+    /// direction withdrawn before the drag decides by
+    /// `a_direction_withdrawn_before_the_drag_decides_is_never_taken`, and
+    /// one offered anew by
+    /// `a_direction_offered_anew_under_a_touch_is_not_taken_up`.
     pub(crate) fn withdraw(&mut self, left: bool, right: bool) -> bool {
         self.left &= left;
         self.right &= right;

@@ -52,3 +52,7 @@ two origins rather than moving both.
 same defect one origin over) into the predicate, which it renamed
 `names_application_destination` in the same commit because the old name
 described traffic while the rule decides this amendment's WITH/FOR question.
+
+### Amendment 2026-11-22 — The matrix names the direct and directory protocols by their Stage 22 ids
+
+The protocol-admission matrix named its two application request-response rows `/direct/2.0.0` and `/endpoints/1.0.0`. ADR-0067 decision 7 gives both a major in the Stage 22 release (the directory's by its amendment of this date), and neither earlier id is spoken from that release, so the rows now read `/direct/3.0.0` and `/endpoints/2.0.0`. Nothing this record decided changes: an infrastructure-only peer is refused both, as it was.

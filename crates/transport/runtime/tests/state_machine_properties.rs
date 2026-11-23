@@ -56,7 +56,7 @@ fn peer(i: usize) -> TransportIdentity {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("a valid endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(name)
 }
 
 fn event(destination: &EndpointId, id: u8, body: &[u8]) -> DirectEvent {

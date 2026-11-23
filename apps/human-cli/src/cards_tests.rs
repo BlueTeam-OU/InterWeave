@@ -8,6 +8,7 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -34,7 +35,7 @@ const WALL: u64 = 1_792_652_603_000;
 /// The identity every side leases: the id its TEST-ONLY key derives
 /// (ADR-0067), so a side holding that key may sign as it.
 fn endpoint() -> EndpointId {
-    interweave_test_support::endpoint_keys::endpoint_id("human")
+    endpoint_id("human")
 }
 
 /// Write `endpoint()`'s TEST-ONLY key at filesystem custody, as
@@ -919,11 +920,11 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     let delete = |peer: &TransportIdentity, endpoint: &str| Verb::RouteDelete {
         contact: contact.clone(),
         peer: peer.clone(),
-        endpoint: EndpointId::parse(endpoint).expect("valid"),
+        endpoint: endpoint_id(endpoint),
     };
     let (_, unknown) = run(&mut s, delete(&other, "other"), false).await;
     assert!(matches!(unknown, Err(Failure::Refused(_))), "{unknown:?}");
-    let (out, deleted) = run(&mut s, delete(&other, endpoint().as_str()), false).await;
+    let (out, deleted) = run(&mut s, delete(&other, "human"), false).await;
     deleted.expect("deleted");
     assert_eq!(
         out,
@@ -938,12 +939,7 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     assert_eq!(routes.as_array().expect("routes").len(), 1, "{out}");
     assert_eq!(routes[0]["peer"], alice.node.peer().as_str());
 
-    let (out, last) = run(
-        &mut s,
-        delete(alice.node.peer(), endpoint().as_str()),
-        false,
-    )
-    .await;
+    let (out, last) = run(&mut s, delete(alice.node.peer(), "human"), false).await;
     match &last {
         Err(Failure::Refused(why)) => {
             assert!(why.contains(&format!("contacts delete {contact}")), "{why}");
@@ -1265,7 +1261,7 @@ async fn contacts_are_printed_in_the_collated_order() {
     {
         let mut held = store(bob.dir.path());
         for (i, name) in fixture.iter().enumerate() {
-            let at = EndpointId::parse(format!("e{i}")).expect("a label");
+            let at = endpoint_id(&format!("e{i}"));
             held.accept_card(
                 &interweave_human_store::AcceptedCard {
                     peer: alice.node.peer(),

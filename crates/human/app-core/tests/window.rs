@@ -27,6 +27,7 @@ use interweave_human_ui_model::{
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, MediaType, TransportIdentity};
 
 const WALL: u64 = 1_786_600_000_000;
@@ -40,7 +41,7 @@ fn peer() -> TransportIdentity {
 /// The identity every side leases: the id its TEST-ONLY key derives
 /// (ADR-0067), so a facade holding [`human_key`] may sign as it.
 fn human() -> EndpointId {
-    interweave_test_support::endpoint_keys::endpoint_id("human")
+    endpoint_id("human")
 }
 
 /// `human()`'s TEST-ONLY key, read from a filesystem-custody record laid

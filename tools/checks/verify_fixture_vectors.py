@@ -124,6 +124,9 @@ def _test_only_endpoint_id(name: str) -> str:
 def _direct_endpoint(vector: dict, field: str) -> bytes:
     """One endpoint field of a direct vector, checked, as its wire bytes.
 
+    The directory frame's entries are judged by this too, each as a field
+    `endpoints[<n>]` naming its key in `endpoints_test_keys`.
+
     The id must be a derived one of exactly 52 bytes, and when the vector
     names the test-only key it came from (`<field>_test_key`) it must be
     the id that key derives: so a vector's id is recomputed, never only
@@ -225,13 +228,20 @@ def direct_response_v2_frame(vector: dict) -> str:
 
 
 def endpoint_directory_v1_frame(vector: dict) -> str:
-    """Encode one /interweave/endpoints/1.0.0 frame, returning hex.
+    """Encode one /interweave/endpoints/2.0.0 frame, returning hex.
 
     From architecture/transport/libp2p/ENDPOINTS.md §Endpoint directory
     protocol. One algorithm covers the request and both response shapes
     because they share a wire and a byte order, and `kind` says which.
     The layout was conceptual — field names and widths, no bytes — until
     this fixture forced the pin, exactly as the direct frame did.
+
+    Every entry is a derived EndpointId of 52 bytes (ADR-0067), named by
+    the TEST-ONLY key it came from in `endpoints_test_keys`, one name per
+    entry in the entries' order, and recomputed from it as a direct
+    vector's `<field>_test_key` is. The list is sorted and unique: the
+    sender sorts it (ENDPOINTS.md), so a vector of what a sender writes is
+    sorted, and a duplicate is a frame no receiver accepts.
     """
     kind = vector["kind"]
     if kind == "request":
@@ -247,11 +257,25 @@ def endpoint_directory_v1_frame(vector: dict) -> str:
         endpoints = vector["endpoints"]
         if len(endpoints) > 32:
             raise ValueError(f"{len(endpoints)} entries; the frame carries at most 32")
+        keys = vector.get("endpoints_test_keys")
+        if endpoints and (
+            not isinstance(keys, list)
+            or len(keys) != len(endpoints)
+            or not all(isinstance(k, str) for k in keys)
+        ):
+            raise ValueError(
+                "endpoints_test_keys names one TEST-ONLY key per entry, in the entries' order"
+            )
+        if len(set(endpoints)) != len(endpoints):
+            raise ValueError("a duplicate entry; no receiver accepts the frame")
+        if [e.encode("ascii") for e in endpoints] != sorted(e.encode("ascii") for e in endpoints):
+            raise ValueError("the entries are not sorted; the sender sorts them (ENDPOINTS.md)")
         out += bytes([len(endpoints)])
-        for endpoint in endpoints:
-            b = endpoint.encode("ascii")
-            if not 1 <= len(b) <= 64:
-                raise ValueError(f"endpoint {endpoint!r} is {len(b)} bytes; 1..64")
+        for n, endpoint in enumerate(endpoints):
+            field = f"endpoints[{n}]"
+            b = _direct_endpoint({field: endpoint, f"{field}_test_key": keys[n]}, field)
+            if len(b) != 52:
+                raise ValueError(f"{field} is {len(b)} bytes; a 2.0.0 entry is exactly 52")
             out += bytes([len(b)]) + b
     else:
         raise ValueError(f"unknown frame kind {kind!r}")

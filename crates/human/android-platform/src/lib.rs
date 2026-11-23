@@ -34,9 +34,9 @@ pub use hub::{
 };
 pub use identity::{
     Expected, FirstRun, IdentityRefused, ResealFailure, Resealed, RestoreRefused, Started,
-    UnlockStatus, locked_status, opening_needs_presence, phrase_peer, reseal_identity,
-    reseal_needs_presence, restart_requires_user_authentication_at_rest, restore_identity,
-    start_identity, start_resealed, unlock_facts,
+    UnlockStatus, locked_status, phrase_peer, reseal_identity, reseal_needs_presence,
+    restart_requires_user_authentication_at_rest, restore_identity, start_identity, start_resealed,
+    unlock_facts,
 };
 pub use interweave_profile_config::runtime::KeyUnlockPolicy;
 /// The embedded custody path, for the app's Keystore adapter of its

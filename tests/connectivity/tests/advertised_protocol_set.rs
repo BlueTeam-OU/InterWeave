@@ -172,7 +172,7 @@ const IDLE_FAR_BEYOND_PATIENCE: Duration = Duration::from_secs(600);
 /// restriction is the gap that invariant names.
 const ADVERTISED: &[&str] = &[
     "/interweave/direct/3.0.0",
-    "/interweave/endpoints/1.0.0",
+    "/interweave/endpoints/2.0.0",
     "/ipfs/id/1.0.0",
     "/ipfs/id/push/1.0.0",
     "/meshsub/1.0.0",

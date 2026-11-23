@@ -907,3 +907,312 @@ async fn a_request_wins_over_the_runtime_ending() {
     }
     let _ = both.stop().await;
 }
+
+/// An identity's own set admits a peer the operator's list does not
+/// (ADR-0067 decision 6), over real sockets: the endpoint dimension of
+/// the trust methods writes it, the peer connects on it alone, and the
+/// endpoint lists it as its own; a revoke for the endpoint while the
+/// operator's list holds the peer closes nothing, and the revoke that
+/// removes it from the last set that held it closes it as `policy`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_identitys_set_admits_a_peer_and_only_its_last_revoke_closes_it() {
+    use interweave_local_client_api::{EndpointSetKind, TrustDirection, TrustSeed};
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let listen = CompositionOptions {
+        listen: vec![format!("/ip4/{ip}/tcp/0")],
+        ..CompositionOptions::default()
+    };
+    let (b_id, b) = id();
+    let (a_id, a) = id();
+    let target = ComposedRuntime::start(&b_id, &profile(&[&a], &[]), listen.clone())
+        .await
+        .expect("b composes");
+    let b_addr = format!("{}/p2p/{}", target.listening()[0], b.as_str());
+    let mut subject = ComposedRuntime::start(&a_id, &profile(&[], &[b_addr]), listen)
+        .await
+        .expect("a composes");
+    let human = interweave_transport_api::EndpointId::parse_derived(
+        "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+    )
+    .expect("the profile's endpoint");
+    let admin = subject
+        .sessions()
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("a port");
+    let own_peers = |view: interweave_local_client_api::EndpointTrustView| {
+        (
+            view.set,
+            view.allowed
+                .into_iter()
+                .map(|row| row.peer)
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    // Before: the endpoint inherits the operator's empty list, and an id
+    // no entry holds is unknown.
+    assert_eq!(
+        own_peers(
+            admin
+                .endpoint_trust(human.clone(), TrustDirection::Inbound)
+                .await
+                .expect("the endpoint's set")
+        ),
+        (EndpointSetKind::Inherited, vec![])
+    );
+    assert_eq!(
+        admin
+            .endpoint_trust(
+                interweave_test_support::endpoint_keys::endpoint_id("claude"),
+                TrustDirection::Inbound
+            )
+            .await,
+        Err(TransportError::EndpointUnknown)
+    );
+
+    // The identity trusts B: both directions, its own set; the operator's
+    // list still trusts nobody, and B connects.
+    assert_eq!(
+        admin
+            .set_endpoint_trust(human.clone(), b.clone(), true)
+            .await,
+        Ok(TrustChange::Set)
+    );
+    for direction in TrustDirection::ALL {
+        assert_eq!(
+            own_peers(
+                admin
+                    .endpoint_trust(human.clone(), direction)
+                    .await
+                    .expect("the endpoint's set")
+            ),
+            (EndpointSetKind::Own, vec![b.clone()]),
+            "{direction:?}"
+        );
+    }
+    assert!(
+        admin
+            .trust()
+            .await
+            .expect("the operator's list")
+            .allowed
+            .is_empty()
+    );
+    let connected = |event: &TransportEvent| matches!(event, TransportEvent::PeerConnected { peer, .. } if *peer == b);
+    while !connected(&next_within(&mut subject).await) {}
+    assert_eq!(
+        admin.seed_endpoint_trust(human.clone()).await,
+        Ok(TrustSeed::Present),
+        "the endpoint holds its own set"
+    );
+
+    // The operator trusts B too; the identity's revoke leaves B in the
+    // operator's list, so nothing closes.
+    assert_eq!(admin.set_trust(b.clone(), true).await, Ok(TrustChange::Set));
+    assert_eq!(
+        admin
+            .set_endpoint_trust(human.clone(), b.clone(), false)
+            .await,
+        Ok(TrustChange::Set)
+    );
+    assert_eq!(
+        own_peers(
+            admin
+                .endpoint_trust(human.clone(), TrustDirection::Inbound)
+                .await
+                .expect("the endpoint's set")
+        ),
+        (EndpointSetKind::Own, vec![]),
+        "own and empty, not inherited"
+    );
+    let quiet = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let Some(TransportEvent::PeerDisconnected { peer, .. }) = subject.next_event().await
+                && peer == b
+            {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(quiet.is_err(), "the operator's list still holds B");
+
+    // The operator's revoke removes B from the last set: closed, policy.
+    assert_eq!(
+        admin.set_trust(b.clone(), false).await,
+        Ok(TrustChange::Set)
+    );
+    let reason = loop {
+        if let TransportEvent::PeerDisconnected {
+            peer, reason_class, ..
+        } = next_within(&mut subject).await
+            && peer == b
+        {
+            break reason_class;
+        }
+    };
+    assert_eq!(reason, DisconnectReason::Policy);
+    drop(target);
+}
+
+/// `profile` with a second configured endpoint, `agent`, beside `human`.
+fn two_endpoint_profile(trusted: &[&TransportIdentity], statics: &[String]) -> ProfileConfig {
+    let one = serde_norway::to_string(&profile(trusted, statics)).expect("serialises");
+    let mut doc: serde_norway::Value = serde_norway::from_str(&one).expect("reparses");
+    let entries = doc["endpoints"]["entries"]
+        .as_sequence_mut()
+        .expect("entries");
+    let mut agent = entries[0].clone();
+    agent["key"] = "12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key".into();
+    agent["alias"] = "agent".into();
+    entries.push(agent);
+    serde_norway::from_value(doc).expect("the profile parses")
+}
+
+/// An identity's own inbound set routes a direct message to it alone
+/// (ADR-0067 decision 6), over real sockets: S is admitted to R only
+/// because E1's set holds it, so a direct message to E1 is accepted and
+/// read by E1's session, the same message to E2 (no set of its own, the
+/// operator's list empty) is answered `no_route` -- the sender sees
+/// `RemoteEndpointUnavailable`, never a policy reason -- and reaches
+/// nothing, and once S leaves E1's set the connection closes as `policy`
+/// and no further message is accepted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_identitys_inbound_set_routes_a_direct_message_to_it_alone() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let listen = CompositionOptions {
+        listen: vec![format!("/ip4/{ip}/tcp/0")],
+        ..CompositionOptions::default()
+    };
+    let e1 = interweave_test_support::endpoint_keys::endpoint_id("human");
+    let e2 = interweave_test_support::endpoint_keys::endpoint_id("agent");
+    let (r_id, r) = id();
+    let (s_id, s) = id();
+    let mut receiver =
+        ComposedRuntime::start(&r_id, &two_endpoint_profile(&[], &[]), listen.clone())
+            .await
+            .expect("r composes");
+    let admin = receiver
+        .sessions()
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("a port");
+    // E1's own set holds S; the operator's list holds nobody.
+    assert_eq!(
+        admin.set_endpoint_trust(e1.clone(), s.clone(), true).await,
+        Ok(TrustChange::Set)
+    );
+    assert!(
+        admin
+            .trust()
+            .await
+            .expect("the operator's list")
+            .allowed
+            .is_empty()
+    );
+    let reading = |endpoint: &interweave_transport_api::EndpointId| {
+        SessionRequest::new(
+            "human-client",
+            Some(endpoint.clone()),
+            [DataCapability::Events],
+        )
+        .expect("in bounds")
+    };
+    let at_e1 = receiver
+        .sessions()
+        .open(reading(&e1))
+        .await
+        .expect("leases e1");
+    let at_e2 = receiver
+        .sessions()
+        .open(reading(&e2))
+        .await
+        .expect("leases e2");
+
+    let r_addr = format!("{}/p2p/{}", receiver.listening()[0], r.as_str());
+    let mut sender = ComposedRuntime::start(&s_id, &profile(&[&r], &[r_addr]), listen)
+        .await
+        .expect("s composes");
+    let connected = |event: &TransportEvent, who: &TransportIdentity| matches!(event, TransportEvent::PeerConnected { peer, .. } if peer == who);
+    while !connected(&next_within(&mut receiver).await, &s) {}
+    while !connected(&next_within(&mut sender).await, &r) {}
+    let sending = sender
+        .sessions()
+        .open(
+            SessionRequest::new("human-client", Some(e1.clone()), [DataCapability::Commands])
+                .expect("in bounds"),
+        )
+        .await
+        .expect("s leases");
+    let send = |to: &interweave_transport_api::EndpointId, tag: u8| {
+        sending.send_direct(
+            DirectDestination {
+                peer: r.clone(),
+                endpoint: Some(to.clone()),
+            },
+            MessageId::from_bytes([tag; 16]),
+            Payload::at_ceiling(None, vec![tag]).expect("within the ceiling"),
+        )
+    };
+
+    // Positive: E1's set admits S at the route.
+    assert_eq!(
+        tokio::time::timeout(PATIENCE, send(&e1, 1))
+            .await
+            .expect("answered"),
+        Ok(e1.clone())
+    );
+    tokio::time::timeout(PATIENCE, at_e1.ready())
+        .await
+        .expect("e1 is owed something")
+        .expect("ready");
+    let got = at_e1.events(16).await.expect("reads");
+    assert!(
+        got.iter().any(|e| matches!(
+            e,
+            SessionEvent::Direct(d) if d.source_peer == s && d.destination_endpoint == e1
+        )),
+        "e1 read S's message: {got:?}"
+    );
+
+    // Negative: E2 has no set, and the operator's list lacks S.
+    assert_eq!(
+        tokio::time::timeout(PATIENCE, send(&e2, 2))
+            .await
+            .expect("answered"),
+        Err(TransportError::RemoteEndpointUnavailable),
+        "the wire's no_route class"
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        at_e2
+            .events(16)
+            .await
+            .expect("reads")
+            .iter()
+            .all(|e| !matches!(e, SessionEvent::Direct(_))),
+        "nothing reached e2"
+    );
+
+    // Revoke S from E1's set: closed as policy, and nothing more accepted.
+    assert_eq!(
+        admin.set_endpoint_trust(e1.clone(), s.clone(), false).await,
+        Ok(TrustChange::Set)
+    );
+    let reason = loop {
+        if let TransportEvent::PeerDisconnected {
+            peer, reason_class, ..
+        } = next_within(&mut receiver).await
+            && peer == s
+        {
+            break reason_class;
+        }
+    };
+    assert_eq!(reason, DisconnectReason::Policy);
+    let after = tokio::time::timeout(PATIENCE, send(&e1, 3))
+        .await
+        .expect("answered");
+    assert!(after.is_err(), "no longer accepted: {after:?}");
+    drop((at_e1, at_e2, sending));
+}

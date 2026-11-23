@@ -8,6 +8,7 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -29,7 +30,7 @@ use crate::verbs::{self, Run};
 const WALL: u64 = 1_792_652_603_000;
 
 fn endpoint() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn node() -> FakeConfig {
@@ -465,7 +466,7 @@ async fn status_says_the_session_and_the_endpoint_it_holds() {
     status.expect("status");
     let status = &lines(&out)[0];
     assert_eq!(status["session"], "ready");
-    assert_eq!(status["endpoint"], "human");
+    assert_eq!(status["endpoint"], endpoint().as_str());
     assert_eq!(status["unread"], 0);
 }
 
@@ -546,7 +547,8 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     assert_eq!(message["status"], "unread");
     assert!(message["conversation"].is_string());
     assert_eq!(
-        message["local_endpoint"], "human",
+        message["local_endpoint"],
+        endpoint().as_str(),
         "G6: the endpoint it reached"
     );
 }
@@ -567,7 +569,7 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     // As stdin hands them over: a line that is not UTF-8 among them, and
     // two sends, answered in the order read.
@@ -683,7 +685,7 @@ async fn an_input_line_is_answered_by_one_outbound_line() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     let stdin = format!(
         "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"once\",\"ref\":\"r\"}}}}\n"
@@ -744,7 +746,7 @@ async fn an_input_sends_outbound_event_names_its_problem() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     b.inject_send(TransportError::UnauthorizedPeer);
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     lines_in
@@ -813,7 +815,7 @@ async fn a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     // A JSON string serialises with its two quotes.
     let at_cap = "a".repeat(verbs::MAX_INPUT_REF_BYTES - 2);
     let over = "b".repeat(verbs::MAX_INPUT_REF_BYTES - 1);
@@ -1083,6 +1085,97 @@ async fn a_send_with_no_pending_that_needs_attention_is_cancelled() {
     assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
 }
 
+/// G4: a cancel the store refuses prints no line for the item and ends the
+/// verb with that refusal (the store's failure, exit 5), never "cancelled":
+/// the row stays pending, and a later run sends it, so saying otherwise
+/// would be false.
+/// Mutation: the line printed before `problems(s)?` after the cancel, or
+/// the refusal swallowed.
+#[tokio::test]
+async fn a_send_with_no_pending_whose_cancel_the_store_refuses_prints_nothing() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let mut alice = session(&a, store(dir.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    // A store that cannot delete a pending row, as one that cannot be
+    // written cannot: the insert goes through, the cancel's delete aborts.
+    rusqlite::Connection::open(dir.path().join("human.sqlite3"))
+        .expect("open")
+        .execute_batch(
+            "CREATE TRIGGER refuse_cancel BEFORE DELETE ON pending_outbound \
+             BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+        )
+        .expect("trigger");
+    let nobody = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer");
+    let verb = Verb::Send {
+        conversation: to(&nobody),
+        text: Some("stays".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Store(_))), "{sent:?}");
+    assert!(out.is_empty(), "no line for the item: {out}");
+    alice.close().await;
+    // Read raw: the store refuses to open over the planted trigger.
+    let pending: i64 = rusqlite::Connection::open(dir.path().join("human.sqlite3"))
+        .expect("open")
+        .query_row("SELECT count(*) FROM pending_outbound", [], |r| r.get(0))
+        .expect("count");
+    assert_eq!(pending, 1, "still pending for a later run");
+}
+
+/// G4: a `--no-pending` send the transport accepts while its cancel is
+/// asked is said as accepted, `"pending": false`, and the verb ends with
+/// success. The first attempt fails and its retry comes due only after the
+/// wait is over: the session's clock is moved past the retry between the
+/// deadline check and the cancel's step, so the accept is applied by that
+/// step's first turn, the model no longer offers the Cancel, and none is
+/// carried out (no refusal, no `Cancelled`).
+/// Mutation: `cancel_unaccepted` reading an Accepted status as cancelled.
+#[tokio::test]
+async fn a_send_with_no_pending_accepted_while_its_cancel_is_asked_is_accepted() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    a.inject_send(TransportError::PeerUnknown);
+    let verb = Verb::Send {
+        conversation: to(b.peer()),
+        text: Some("just in time".to_owned()),
+        pending: false,
+    };
+    // The send's own step is the first with scripted input; the cancel's is
+    // the second, and the clock jumps there.
+    crate::session::test_clock::jump_at_scripted_step(1, 5_000);
+    let mut out = String::new();
+    let r = Run {
+        profile: "test",
+        json: true,
+        until: Instant::now() + Duration::from_millis(100),
+    };
+    let sent = verbs::run(&mut alice, &verb, &r, &mut out).await;
+    sent.expect("an accepted send ends with success");
+    let shown = lines(&out);
+    assert_eq!(shown.len(), 1, "{out}");
+    assert_eq!(shown[0]["status"], "accepted", "{out}");
+    // Only `cancel_unaccepted` says `pending`: the premise that the accept
+    // came during the cancel and not before the wait ended.
+    assert_eq!(shown[0]["pending"], false, "from the cancel's line: {out}");
+    alice.close().await;
+    let pending = store(dir_a.path()).pending_outbound().expect("read");
+    assert!(pending.is_empty(), "nothing left pending: {pending:?}");
+}
+
 /// Bob's store holding `texts` unread from alice, committed by a run that
 /// reads nothing, and bob's session opened afresh over it.
 async fn unread_at_open(
@@ -1333,7 +1426,7 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     // Past the payload bound however it is encoded: text that does not
     // compress.
@@ -1671,7 +1764,7 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     // The first attempt times out, so the answer is not the row's last
     // status: the retry's `accepted` is a later event (j288: an answer's
     // own status is printed once).

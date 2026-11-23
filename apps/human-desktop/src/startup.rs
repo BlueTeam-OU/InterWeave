@@ -183,7 +183,10 @@ pub fn resolve(launch: &Launch, roots: &XdgRoots) -> Result<Profile, StartError>
     if !paths.roles_are_distinct() {
         return Err(StartError::RolesOverlap);
     }
-    let config = ProfileConfig::load(&paths).map_err(|error| StartError::Config {
+    // The document alone: the window holds no endpoint key, so it reads
+    // nothing under `endpoint-keys/` (ENDPOINTS.md, an alias is resolved
+    // by the client, A 2026-11-21); a key's header is the daemon's load.
+    let config = ProfileConfig::load_document(&paths).map_err(|error| StartError::Config {
         error,
         paths: Box::new(paths.clone()),
     })?;

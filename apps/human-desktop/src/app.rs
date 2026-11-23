@@ -306,14 +306,14 @@ fn session_class(state: &SessionState) -> String {
 #[cfg(test)]
 mod tests {
     use interweave_human_transport_client::{SessionProblem, SessionState};
-    use interweave_transport_api::EndpointId;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     use super::session_class;
 
     /// The log names a state's class and attempt, and no endpoint.
     #[test]
     fn a_session_state_is_logged_as_its_class() {
-        let endpoint = EndpointId::parse("human-secret-label").expect("an endpoint");
+        let endpoint = endpoint_id("human-secret-label");
         let ready = session_class(&SessionState::Ready {
             endpoint: Some(endpoint),
         });

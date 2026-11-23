@@ -29,6 +29,7 @@
 #![cfg(feature = "desktop")]
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::time::{Duration, Instant};
 
 use i_slint_backend_testing::{AccessibleRole, ElementHandle, ElementQuery};
@@ -45,7 +46,7 @@ use slint::{ComponentHandle as _, Model as _};
 use unicode_segmentation::UnicodeSegmentation as _;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn received(row: i64, from: &TransportIdentity, text: &str) -> Received {

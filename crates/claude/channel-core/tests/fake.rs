@@ -15,6 +15,7 @@ use interweave_local_client_api::{
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode, FakeSession};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MAX_PAYLOAD_BYTES, MessageId,
     Payload, TransportError,
@@ -23,7 +24,7 @@ use interweave_transport_api::{
 const NOW: u64 = 1_791_227_222_497;
 
 fn endpoint(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("endpoint")
+    endpoint_id(s)
 }
 
 fn general() -> ChannelId {
@@ -129,8 +130,14 @@ async fn a_direct_message_is_notified_and_a_reply_takes_its_exact_route() {
     let n = notified(&claude, &mut bridge, 1).await;
     assert_eq!(n.content, "hello claude");
     assert_eq!(meta(&n, "source_peer").as_deref(), Some(b.peer().as_str()));
-    assert_eq!(meta(&n, "source_endpoint").as_deref(), Some("human"));
-    assert_eq!(meta(&n, "destination_endpoint").as_deref(), Some("claude"));
+    assert_eq!(
+        meta(&n, "source_endpoint").as_deref(),
+        Some(endpoint_id("human").as_str())
+    );
+    assert_eq!(
+        meta(&n, "destination_endpoint").as_deref(),
+        Some(endpoint_id("claude").as_str())
+    );
 
     let token = meta(&n, "reply_token").expect("a token");
     let token = token.as_str();

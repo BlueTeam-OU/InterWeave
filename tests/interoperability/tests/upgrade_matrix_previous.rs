@@ -50,8 +50,7 @@ use interweave_profile_config::{ProfilePaths, XdgRoots};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_test_support::net::free_port;
 use interweave_transport_api::{
-    BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MessageId, Payload,
-    TransportIdentity,
+    BroadcastMessageV1, ChannelId, DirectDestination, MessageId, Payload, TransportIdentity,
 };
 
 const VARIABLE: &str = "INTERWEAVE_PREVIOUS_BUILDS";
@@ -430,7 +429,7 @@ discovery:
 fn human_session() -> SessionRequest {
     SessionRequest::new(
         "human-client",
-        Some(EndpointId::parse("human").expect("valid")),
+        Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
         [DataCapability::Commands, DataCapability::Events],
     )
     .expect("in bounds")
@@ -611,7 +610,7 @@ async fn each_previous_daemon_exchanges_with_head_both_ways() {
             .within("a leased session", old_home.client().open(human_session()))
             .await
             .expect("leases");
-        let human = EndpointId::parse("human").expect("valid");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         let payload = |s: &str| Payload::at_ceiling(None, s.as_bytes().to_vec()).expect("fits");
         let logs = || format!("{}\n--- HEAD ---\n{}", old.log(), head.log());
 

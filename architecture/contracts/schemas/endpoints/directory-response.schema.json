@@ -42,6 +42,6 @@
       "0067"
     ],
     "specification": "architecture/contracts/ENDPOINTS.md",
-    "wire-protocol": "/interweave/endpoints/1.0.0"
+    "wire-protocol": "/interweave/endpoints/2.0.0"
   }
 }

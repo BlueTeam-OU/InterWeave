@@ -87,9 +87,9 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
                 flow.try_again();
                 Vec::new()
             }
-            // R2's Try again is its notice's own action, C4's its
-            // primary (section 6): neither has a secondary.
-            ScreenId::R2 | ScreenId::C4 => Vec::new(),
+            // R2's Try again is its notice's own action, C4's and R4's
+            // their primary (section 6): none has a secondary.
+            ScreenId::R2 | ScreenId::C4 | ScreenId::R4 => Vec::new(),
             // Section 6's "Try again" retries the step that failed.
             _ if failed => flow.primary(),
             _ => Vec::new(),
@@ -303,6 +303,18 @@ fn notice(flow: &IdentityFlow, screen: ScreenId, page: &mut IdentityPage) -> boo
             page.notice_peer = grouped(recorded).into();
             page.notice_action = text(UiText::IdContinue).into();
         }
+        // In the notice place `IdRestoreOther` left on R2 and R3, its
+        // PeerId kept under it and Try again in its Continue's place; on
+        // C4 and R4 Try again is the primary, in Continue's (section 6).
+        Some(Notice::StartBusy { recorded, .. }) => {
+            page.notice = text(UiText::IdStartBusy).into();
+            if let Some(recorded) = recorded {
+                page.notice_peer = grouped(recorded).into();
+            }
+            if matches!(screen, ScreenId::R2 | ScreenId::R3) {
+                page.notice_action = text(UiText::TryAgain).into();
+            }
+        }
         Some(failed @ (Notice::Busy | Notice::StorageFailed | Notice::StorageUnknown)) => {
             page.notice = text(match failed {
                 Notice::Busy => UiText::IdBusy,
@@ -323,6 +335,16 @@ fn notice(flow: &IdentityFlow, screen: ScreenId, page: &mut IdentityPage) -> boo
     }
     takes_peer
 }
+/// C4's and R4's primary: Try again in Continue's place while a notice
+/// it answers shows (section 6).
+const fn continue_or_try_again(again: bool) -> UiText {
+    if again {
+        UiText::TryAgain
+    } else {
+        UiText::IdContinue
+    }
+}
+
 /// The page for the flow's current screen.
 #[must_use]
 pub fn page(flow: &IdentityFlow) -> IdentityPage {
@@ -342,7 +364,16 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         back_label: text(UiText::AddClose).into(),
         ..IdentityPage::default()
     };
-    let already_created = screen == ScreenId::C4 && flow.notice() == Some(&Notice::AlreadyCreated);
+    // `IdStartBusy` after `IdAlreadyCreated`'s Continue leaves C4 as that
+    // notice left it: the words shown were still not used (section 6).
+    let already_created = screen == ScreenId::C4
+        && matches!(
+            flow.notice(),
+            Some(Notice::AlreadyCreated | Notice::StartBusy { already: true, .. })
+        );
+    // Try again in Continue's place: C4's and R4's primary makes one
+    // service start under `IdStartBusy` (section 6).
+    let start_busy = matches!(flow.notice(), Some(Notice::StartBusy { .. }));
     // R3 alone has no title (section 3.3): its question is what it asks.
     let (title, paragraphs, primary): (Option<UiText>, Vec<UiText>, Option<UiText>) = match screen {
         ScreenId::W => (
@@ -374,16 +405,14 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::C4 if already_created => (
             Some(UiText::IdAlreadyTitle),
             Vec::new(),
-            Some(UiText::IdContinue),
+            Some(continue_or_try_again(start_busy)),
         ),
         ScreenId::C4 => (
             Some(UiText::IdCreatedTitle),
             vec![UiText::IdCreatedBody],
-            Some(if flow.notice().is_some_and(Notice::retries) {
-                UiText::TryAgain
-            } else {
-                UiText::IdContinue
-            }),
+            Some(continue_or_try_again(
+                start_busy || flow.notice().is_some_and(Notice::retries),
+            )),
         ),
         ScreenId::R1 => (
             Some(UiText::IdR1Title),
@@ -399,7 +428,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::R4 => (
             Some(UiText::IdRestoredTitle),
             vec![UiText::IdCreatedBody],
-            Some(UiText::IdContinue),
+            Some(continue_or_try_again(start_busy)),
         ),
         ScreenId::K1 => {
             let reason = match flow.recovery().map(|(reason, _)| reason) {
@@ -1248,5 +1277,127 @@ mod tests {
         apply(&mut flow, IdentityInput::Primary);
         assert_eq!(flow.screen(), ScreenId::C2, "control: C2");
         assert_eq!(page(&flow).copy_label, "", "C2 shows words");
+    }
+
+    /// R3, its restore refused `IdRestoreOther` and that notice's
+    /// Continue pressed: its start asked.
+    fn r3_continued() -> IdentityFlow {
+        let mut r3 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut r3, IdentityInput::Secondary);
+        apply(&mut r3, IdentityInput::Primary);
+        type_all(&mut r3);
+        apply(&mut r3, IdentityInput::Primary);
+        r3.checked(Some(mine()));
+        apply(&mut r3, IdentityInput::Primary);
+        r3.restored(Err(StepFailed::RestoreOther(other())));
+        apply(&mut r3, IdentityInput::NoticeAction);
+        r3
+    }
+
+    /// Acceptance 12's `IdStartBusy` places, as far as a page says them
+    /// (design section 6, the row for a service start refused with the
+    /// profile in use): on C4 after a seal and on R4, the notice in C4's
+    /// notice place with Try again in Continue's and the `PeerId` with its
+    /// Copy; on C4 under `IdAlreadyCreated`, `IdAlreadyTitle` kept, Try
+    /// again in Continue's place, and the `PeerId`, its label, Copy and
+    /// `IdCreatedBody` hidden; on R3 and on R2 after K1, Try again in
+    /// `IdRestoreOther`'s Continue's place under the notice, with the
+    /// `PeerId` that notice showed kept under it. Pressing Try again
+    /// starts the service and nothing else, and holds the page. Where each
+    /// place is on screen and in the accessibility tree is the tester's to
+    /// look at on the phone: BLOCKED, not passed, here.
+    ///
+    /// Mutations: C4's or R4's primary left `IdContinue` under the notice,
+    /// the title back to `IdCreatedTitle` under `already`, or
+    /// `notice_peer` left unset under `IdStartBusy`, fails here.
+    #[test]
+    fn start_busy_shows_in_each_screens_notice_place_with_try_again() {
+        // C4 after a seal.
+        let mut c4 = at_c4();
+        apply(&mut c4, IdentityInput::Primary);
+        c4.sealed(Ok(()));
+        c4.start_busy();
+        let shown = page(&c4);
+        assert_eq!(shown.notice, en(UiText::IdStartBusy));
+        assert_eq!(shown.title, en(UiText::IdCreatedTitle));
+        assert_eq!(shown.primary, en(UiText::TryAgain));
+        assert!(shown.primary_enabled, "the hold ended");
+        assert_eq!(shown.notice_action, "", "no action of its own on C4");
+        assert_eq!(shown.peer_groups, grouped(&mine()), "the PeerId shows");
+        assert_eq!(shown.copy_label, en(UiText::CopyPeerId));
+        assert_eq!(shown.starting, "", "no progress under Try again");
+        assert_eq!(
+            apply(&mut c4, IdentityInput::Primary),
+            [Effect::StartService],
+            "one start, no seal"
+        );
+        assert!(!page(&c4).primary_enabled, "held from the press");
+        assert_eq!(page(&c4).notice, en(UiText::IdStartBusy), "stays");
+
+        // C4 under `IdAlreadyCreated`.
+        let mut already = at_c4();
+        apply(&mut already, IdentityInput::Primary);
+        already.sealed(Err(StepFailed::AlreadyProvisioned));
+        apply(&mut already, IdentityInput::Primary);
+        already.start_busy();
+        let shown = page(&already);
+        assert_eq!(shown.notice, en(UiText::IdStartBusy));
+        assert_eq!(shown.title, en(UiText::IdAlreadyTitle), "title kept");
+        assert_eq!(shown.primary, en(UiText::TryAgain));
+        assert_eq!(
+            (shown.peer_label.as_str(), shown.peer_groups.as_str()),
+            ("", "")
+        );
+        assert_eq!(shown.copy_label, "");
+        assert!(
+            !shown
+                .paragraphs
+                .iter()
+                .any(|p| p == en(UiText::IdCreatedBody)),
+            "no IdCreatedBody"
+        );
+
+        // R4.
+        let mut r4 = r2_after_k1_restoring();
+        r4.restored(Ok(()));
+        assert_eq!(r4.screen(), ScreenId::R4, "control: R4");
+        apply(&mut r4, IdentityInput::Primary);
+        r4.start_busy();
+        let shown = page(&r4);
+        assert_eq!(shown.notice, en(UiText::IdStartBusy));
+        assert_eq!(shown.title, en(UiText::IdRestoredTitle));
+        assert_eq!(shown.primary, en(UiText::TryAgain));
+        assert_eq!(shown.peer_groups, grouped(&mine()));
+        assert_eq!(apply(&mut r4, IdentityInput::Secondary), [], "no secondary");
+        assert_eq!(
+            apply(&mut r4, IdentityInput::Primary),
+            [Effect::StartService]
+        );
+
+        // R2 after K1, and R3.
+        let mut r2 = r2_after_k1_restoring();
+        r2.restored(Err(StepFailed::RestoreOther(other())));
+        apply(&mut r2, IdentityInput::NoticeAction);
+        r2.start_busy();
+        let mut r3 = r3_continued();
+        r3.start_busy();
+        for (place, flow) in [("R2", &mut r2), ("R3", &mut r3)] {
+            let shown = page(flow);
+            assert_eq!(shown.notice, en(UiText::IdStartBusy), "{place}");
+            assert_eq!(shown.notice_peer, grouped(&other()), "{place}: kept");
+            assert_eq!(shown.notice_action, en(UiText::TryAgain), "{place}");
+            assert!(!shown.notice_action_held, "{place}: the hold ended");
+            assert_eq!(
+                apply(flow, IdentityInput::NoticeAction),
+                [Effect::StartService],
+                "{place}: one start"
+            );
+            let held = page(flow);
+            assert!(held.notice_action_held, "{place}: Try again disabled");
+            assert!(!held.back_active, "{place}: Back does nothing");
+            assert_eq!(held.notice_peer, grouped(&other()), "{place}: stays");
+        }
+        assert!(page(&r2).held, "R2: every held control disabled");
+        assert!(page(&r3).secondary_held, "R3: No held");
     }
 }

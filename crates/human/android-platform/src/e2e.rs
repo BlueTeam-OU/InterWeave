@@ -79,10 +79,15 @@ impl AppClient for HubClient {
                 // What the person's Trust page says of the unlock policy:
                 // nothing a case exchanges.
                 | ToView::Unlock(_)
+                // A refused start's notice: the service not running says it.
+                | ToView::StartBusy(_)
                 // An answer that calls for no store screen: a start refused
                 // elsewhere leaves the service not running, which the case waits on.
                 | ToView::Store(
-                    StoreAnswer::Opened | StoreAnswer::OtherRefusal | StoreAnswer::Locked,
+                    StoreAnswer::Opened
+                    | StoreAnswer::OtherRefusal
+                    | StoreAnswer::ProfileBusy
+                    | StoreAnswer::Locked,
                     _,
                 ) => {}
                 // The store refused the start: the case cannot run.

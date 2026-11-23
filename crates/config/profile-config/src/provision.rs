@@ -51,6 +51,8 @@
 
 use interweave_transport_api::EndpointId;
 
+use crate::endpoint_alias::EndpointAlias;
+use crate::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
 use crate::paths::ProfilePaths;
 use crate::persist::{create_private_exclusive_within, write_private_atomic_within};
 use crate::private_read::{PrivateReadError, read_private_within};
@@ -161,24 +163,31 @@ fn is_retired_embedded_document(text: &str) -> bool {
 /// - ANYTHING ELSE -- form 1, form 2, a document without the marker, one
 ///   that is not private or past the size bound -- is
 ///   [`PersistError::AlreadyExists`] and is not touched
-///   (`a_document_without_the_marker_is_never_replaced`).
+///   (`a_document_without_the_marker_is_never_replaced`), with no write
+///   attempted, so a directory that takes none answers the same.
 ///
 /// # Errors
 /// [`PersistError::AlreadyExists`] as above; otherwise what the write or
 /// the read of the present document meets.
 pub fn provision_embedded(paths: &ProfilePaths) -> Result<(), PersistError> {
     let form_1 = embedded_document(paths.profile());
-    match create_private_exclusive_within(&paths.config_file(), form_1.as_bytes(), paths.boundary())
-    {
-        Err(PersistError::AlreadyExists) => {}
-        other => return other,
-    }
+    // The present document is read BEFORE anything is written: the
+    // exclusive create stages its temporary beside the target, so a
+    // directory that takes no write (read-only, full) would refuse a
+    // provisioned profile with an I/O error instead of AlreadyExists
+    // (`a_provisioned_profile_in_a_directory_that_takes_no_write_is_kept`).
     let present =
         match read_private_within(&paths.config_file(), paths.boundary(), MAX_PROFILE_BYTES) {
             Ok(Some(text)) => text,
-            // Removed since the exclusive create found it: the next start
-            // writes form 1.
-            Ok(None) => return Err(PersistError::AlreadyExists),
+            // A first run racing this one finds the create refused
+            // AlreadyExists, which is the answer.
+            Ok(None) => {
+                return create_private_exclusive_within(
+                    &paths.config_file(),
+                    form_1.as_bytes(),
+                    paths.boundary(),
+                );
+            }
             // Not the app's own owner-only document: not the app's to
             // replace, and its load refuses it by its own rule.
             Err(PrivateReadError::NotPrivate { .. } | PrivateReadError::TooLarge) => {
@@ -217,6 +226,9 @@ pub enum ProvisionIdentityError {
     /// Form 2 could not be written; a failure before the rename leaves
     /// form 1 in place.
     Write(PersistError),
+    /// The endpoint overlay's members for [`FIRST_IDENTITY_ALIAS`] could
+    /// not be moved to the id; a second call finishes the move.
+    Carry(EndpointOverlayError),
 }
 
 impl core::fmt::Display for ProvisionIdentityError {
@@ -236,6 +248,7 @@ impl core::fmt::Display for ProvisionIdentityError {
             ),
             Self::Read(e) => write!(f, "config.yaml {e}"),
             Self::Write(e) => write!(f, "config.yaml cannot be written: {e}"),
+            Self::Carry(e) => write!(f, "the endpoint overlay could not be carried: {e}"),
         }
     }
 }
@@ -245,6 +258,7 @@ impl core::error::Error for ProvisionIdentityError {
         match self {
             Self::Read(e) => Some(e),
             Self::Write(e) => Some(e),
+            Self::Carry(e) => Some(e),
             _ => None,
         }
     }
@@ -261,6 +275,20 @@ impl core::error::Error for ProvisionIdentityError {
 /// profile, so a document changed since it was written is refused
 /// rather than overwritten.
 ///
+/// THE OVERLAY MOVES WITH IT. An overlay a release before Stage 22
+/// wrote names the first identity by its label, `human`
+/// ([`FIRST_IDENTITY_ALIAS`]); the loader refuses such a member once an
+/// entry carries that alias, so the same move carries it to `endpoint`
+/// ([`EndpointOverlay::carry_label_within`]) -- FIRST, then the form-2
+/// write, and also when the document is already form 2 for `endpoint`,
+/// so that a start which finds either half done finishes the other (the
+/// carry is idempotent). No shipped release's Android code calls an
+/// overlay setter (v0.1.0 to v0.4.0: no non-test caller of
+/// `set_endpoint_enabled` or `set_endpoint_default` under `crates/human`
+/// or `apps/human-android`, and the embedded host refuses disabling the
+/// service endpoint), so on a phone the carry finds nothing in practice;
+/// it is there so that the strict rule never strands one.
+///
 /// # Errors
 /// [`ProvisionIdentityError`], nothing written.
 pub fn provision_identity(
@@ -275,7 +303,7 @@ pub fn provision_identity(
     }
     let form_2 = embedded_identity_document(paths.profile(), endpoint);
     if text == form_2 {
-        return Ok(());
+        return carry_first_identity(paths, endpoint);
     }
     if text != embedded_document(paths.profile()) {
         return Err(
@@ -290,6 +318,24 @@ pub fn provision_identity(
             },
         );
     }
+    carry_first_identity(paths, endpoint)?;
     write_private_atomic_within(&paths.config_file(), form_2.as_bytes(), paths.boundary())
         .map_err(ProvisionIdentityError::Write)
+}
+
+/// The overlay's members for [`FIRST_IDENTITY_ALIAS`], moved to `endpoint`.
+fn carry_first_identity(
+    paths: &ProfilePaths,
+    endpoint: &EndpointId,
+) -> Result<(), ProvisionIdentityError> {
+    let label = EndpointAlias::parse(FIRST_IDENTITY_ALIAS)
+        .map_err(|_| ProvisionIdentityError::Unrecognised)?;
+    EndpointOverlay::carry_label_within(
+        &EndpointOverlay::path_for(paths),
+        paths.boundary(),
+        &label,
+        endpoint,
+    )
+    .map(|_| ())
+    .map_err(ProvisionIdentityError::Carry)
 }

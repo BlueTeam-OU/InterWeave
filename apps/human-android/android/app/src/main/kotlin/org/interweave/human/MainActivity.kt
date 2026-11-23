@@ -200,9 +200,23 @@ class MainActivity : NativeActivity() {
         identityReady = true
         if (phraseShown) return
         // A binding kept across a recreation, whose service's last start
-        // was refused for the lock, starts again now the key opens.
+        // was refused for the lock, starts again now the key opens; one
+        // refused with the profile in use starts again too, as a return
+        // that binds anew does (identity note section 6). With no binding,
+        // connect binds, which creates the service and starts it: Home let
+        // go of the last one, a start refused busy or locked having ended
+        // its started state (NetworkService.startClient). A binding whose
+        // service runs, or one still being bound, starts nothing.
+        // Decided here alone, and told to the window just before the
+        // start, so what waits on a retried start -- IdStartBusy, on Chats
+        // or a held identity screen -- waits only when one runs
+        // (onboard.rs, showing_starts; BLOCKED on a device run, ui-slint's
+        // views.rs, the IdStartBusy after the bound block).
         val service = local
-        if (service != null && service.locked()) service.restart() else connect()
+        val starts = if (service != null) service.locked() || service.busy() else !bound
+        if (!starts) return
+        Native.showingStarts()
+        if (service != null) service.restart() else connect()
     }
 
     /**
@@ -854,9 +868,12 @@ class MainActivity : NativeActivity() {
     }
 
     /**
-     * A camera went away under the scan. Told to the window from the main
-     * thread, and only for the camera this Activity holds now: one closed
-     * since, whose failure arrives late, ends no newer scan.
+     * A camera went away under the scan: told to the window from the main
+     * thread when `lost` is still the camera held. closeCamera drops the
+     * object it closes, so a later scan opens a new one and a failure of
+     * the old, arriving late, is passed over (#418). Unheld by a
+     * test: nothing under androidTest makes a camera fail under a scan;
+     * BLOCKED on a device case that does.
      */
     private fun cameraLost(lost: CodeCamera) {
         runOnUiThread {

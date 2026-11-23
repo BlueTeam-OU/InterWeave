@@ -14,7 +14,7 @@ use interweave_human_retention_tests::{INBOUND_BODY, PEER, unread_inbound};
 use interweave_human_store::{
     AppMessageId, HumanStore, InboundOrigin, NewInbound, READ_PAIR_CAP, StoreError, StoreOptions,
 };
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::TransportIdentity;
 
 fn open(path: &std::path::Path) -> HumanStore {
     HumanStore::open(
@@ -76,7 +76,7 @@ fn the_pair_is_the_origin_so_another_peer_or_endpoint_reusing_the_id_is_admitted
 
     let another_endpoint = NewInbound {
         origin: InboundOrigin {
-            endpoint: Some(EndpointId::parse("phone").expect("endpoint")),
+            endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("phone")),
             ..unread_inbound().origin
         },
         ..unread_inbound()

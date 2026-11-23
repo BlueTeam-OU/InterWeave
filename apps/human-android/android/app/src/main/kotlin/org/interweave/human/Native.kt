@@ -43,6 +43,13 @@ internal object Native {
      */
     const val REFUSED_USER_NOT_AUTHENTICATED = -10
 
+    /**
+     * start's refusal with the profile in use (the runtime's `LockHeld`):
+     * a return or a recreation retries it (identity note section 6), and
+     * the window shows `IdStartBusy` with Try again.
+     */
+    const val REFUSED_LOCK_HELD = -14
+
     /** startWithoutNetwork's answer: the posture runs. */
     const val NETWORK_DENIED = 2
 
@@ -261,6 +268,9 @@ internal object Native {
 
     /** The Activity was created anew -- a launch -- not recreated in this process. */
     @JvmStatic external fun launched()
+
+    /** The showing onStart began starts the service again, right after this call (onStart decides it). */
+    @JvmStatic external fun showingStarts()
 
     /** The person's network grant restarts the service: a lock then prompts. */
     @JvmStatic external fun restartAsked()

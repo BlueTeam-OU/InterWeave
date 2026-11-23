@@ -391,7 +391,7 @@ impl HumanChatV2 {
             (None, _) => None,
             (Some(v), FromEndpoint::Strict) => Some(
                 v.as_str()
-                    .and_then(|s| EndpointId::parse(s).ok())
+                    .and_then(|s| EndpointId::parse_derived(s).ok())
                     .ok_or(EnvelopeError::MalformedFromEndpoint)?,
             ),
             (Some(v), FromEndpoint::Stored) => {
@@ -526,33 +526,29 @@ mod tests {
     /// STATE.md schema v14: a row the previous release committed names its
     /// sender's label in `from_endpoint`; the store's read takes any value
     /// that is not a derived id as absent and keeps the text, while a value
-    /// the wire's read refuses stays malformed off the wire. (A label still
-    /// parses off the wire while `EndpointId::parse` takes the retired
-    /// grammar transitionally, so it is not asserted there.) A derived id
-    /// reads back in both. Mutation: the stored arm answering
-    /// `MalformedFromEndpoint` as the strict one does.
+    /// the wire's read refuses stays malformed off the wire, a label
+    /// included. A derived id reads back in both. Mutation: the stored arm
+    /// answering `MalformedFromEndpoint` as the strict one does.
     #[test]
     fn a_stored_label_reads_as_absent_and_off_the_wire_is_malformed() {
         let derived = interweave_test_support::endpoint_keys::endpoint_id("sender");
-        for (value, wire_refuses) in [
-            (r#""human""#, false),
-            (r#""a""#, false),
-            (r#""Not An Id""#, true),
-            ("7", true),
-            (r#""""#, true),
-            ("null", true),
+        for value in [
+            r#""human""#,
+            r#""a""#,
+            r#""Not An Id""#,
+            "7",
+            r#""""#,
+            "null",
         ] {
             let json = envelope(&format!(r#","from_endpoint":{value}"#));
             let stored = HumanChatV2::parse_stored(&json).expect("a stored row parses");
             assert_eq!(stored.from_endpoint, None, "{value}");
             assert_eq!(stored.text, "hi");
-            if wire_refuses {
-                assert_eq!(
-                    HumanChatV2::parse(&json),
-                    Err(EnvelopeError::MalformedFromEndpoint),
-                    "{value} off the wire"
-                );
-            }
+            assert_eq!(
+                HumanChatV2::parse(&json),
+                Err(EnvelopeError::MalformedFromEndpoint),
+                "{value} off the wire"
+            );
         }
         let json = envelope(&format!(r#","from_endpoint":"{}""#, derived.as_str()));
         assert_eq!(

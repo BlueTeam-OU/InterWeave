@@ -20,6 +20,7 @@
 
 mod common;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -170,7 +171,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn node() -> FakeConfig {

@@ -576,16 +576,33 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
-    /// A label still constructs through the transitional `EndpointId::parse`,
-    /// and an acceptance naming one is malformed metadata on 3.0.0.
+    /// An acceptance whose endpoint field is a label is malformed metadata
+    /// on 3.0.0. A label cannot be built as an `EndpointId`, so the frame
+    /// is written as the peer would write it, byte by byte; the control is
+    /// the same frame carrying a derived id.
     #[test]
     fn an_acceptance_naming_a_label_is_refused() {
-        for label in ["claude", &"a".repeat(52)] {
-            let bytes = encode_response(&DirectResponse::Accepted {
+        let frame = |field: &[u8]| {
+            let mut bytes = vec![TAG_ACCEPTED];
+            bytes.extend_from_slice(message_id().as_bytes());
+            bytes.push(u8::try_from(field.len()).expect("short"));
+            bytes.extend_from_slice(field);
+            bytes
+        };
+        let derived = endpoint("claude");
+        assert_eq!(
+            decode_response(&frame(derived.as_str().as_bytes())),
+            Ok(DirectResponse::Accepted {
                 message_id: message_id(),
-                resolved_endpoint: EndpointId::parse(label).expect("a transitional label"),
-            });
-            assert!(decode_response(&bytes).is_err(), "{label}");
+                resolved_endpoint: derived,
+            }),
+            "the control decodes"
+        );
+        for label in ["claude", &"a".repeat(52)] {
+            assert!(
+                decode_response(&frame(label.as_bytes())).is_err(),
+                "{label}"
+            );
         }
     }
 

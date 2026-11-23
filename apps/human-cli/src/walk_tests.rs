@@ -9,6 +9,7 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -33,7 +34,7 @@ use crate::walk::{Progress, Walk};
 const WALL: u64 = 1_792_652_603_000;
 
 fn endpoint() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn node() -> FakeConfig {

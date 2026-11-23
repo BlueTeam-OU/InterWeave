@@ -126,7 +126,9 @@ pub enum CardFault {
     PhotoMediaType,
     /// `photo.data` was not RFC 4648 §4 standard base64, padded.
     PhotoEncoding,
-    /// The photo decoded to more than [`MAX_CARD_PHOTO_BYTES`].
+    /// The photo decoded to more than [`MAX_CARD_PHOTO_BYTES`], or its
+    /// text is longer than any that decodes to at most that, which is
+    /// then not decoded.
     PhotoTooLarge,
     /// `identity_key` was missing or not RFC 4648 §4 standard base64.
     IdentityKeyEncoding,
@@ -595,7 +597,7 @@ fn parse_fields(text: &str) -> Result<(ParsedFields, [u8; 64]), CardFault> {
         None => None,
         Some(v) => Some(
             v.as_str()
-                .and_then(|s| EndpointId::parse(s).ok())
+                .and_then(|s| EndpointId::parse_derived(s).ok())
                 .ok_or(CardFault::FromEndpoint)?,
         ),
     };
@@ -677,12 +679,27 @@ fn card_photo(value: &serde_json::Value) -> Result<CardPhoto, CardFault> {
         .and_then(serde_json::Value::as_str)
         .and_then(|m| CARD_PHOTO_MEDIA_TYPES.into_iter().find(|t| *t == m))
         .ok_or(CardFault::PhotoMediaType)?;
-    let bytes = strict_base64(photo.get("data")).ok_or(CardFault::PhotoEncoding)?;
+    // The bound is checked on the text before it is decoded, so no photo
+    // over it is ever decoded: padded base64 is 4 characters for 3 bytes,
+    // so a longer text decodes past the bound if it decodes at all. Such
+    // a text is too large whatever its alphabet, and said so
+    // (`a_photo_text_past_the_bound_is_too_large_undecoded`).
+    let data = photo.get("data");
+    if data
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|text| text.len() > MAX_CARD_PHOTO_TEXT)
+    {
+        return Err(CardFault::PhotoTooLarge);
+    }
+    let bytes = strict_base64(data).ok_or(CardFault::PhotoEncoding)?;
     if bytes.len() > MAX_CARD_PHOTO_BYTES {
         return Err(CardFault::PhotoTooLarge);
     }
     Ok(CardPhoto { media_type, bytes })
 }
+
+/// The longest padded base64 text of a photo at [`MAX_CARD_PHOTO_BYTES`].
+const MAX_CARD_PHOTO_TEXT: usize = MAX_CARD_PHOTO_BYTES.div_ceil(3) * 4;
 
 /// RFC 4648 §4 standard base64, padded, no whitespace, no other alphabet,
 /// no stray bits in the last character; `None` for anything else, a
@@ -726,6 +743,42 @@ mod tests {
         assert_eq!(bounded_name(&serde_json::Value::from("a".repeat(65))), None);
         // An astral scalar is one, whatever its UTF-16 length.
         assert!(bounded_name(&serde_json::Value::from("\u{1D49C}".repeat(64))).is_some());
+    }
+
+    /// The photo's bound is held before its text is decoded: a text one
+    /// group past the longest a photo at the bound has is too large
+    /// though it is no base64 at all, and one at that length is decoded,
+    /// and refused for its alphabet.
+    /// Mutation: the length check after the decode, or one group later.
+    #[test]
+    fn a_photo_text_past_the_bound_is_too_large_undecoded() {
+        assert_eq!(MAX_CARD_PHOTO_TEXT, 32_768);
+        let photo =
+            |len: usize| serde_json::json!({ "media_type": "image/png", "data": "!".repeat(len) });
+        assert_eq!(
+            card_photo(&photo(MAX_CARD_PHOTO_TEXT + 4)).map(|_| ()),
+            Err(CardFault::PhotoTooLarge)
+        );
+        // One byte past the bound is already past it: a check looser by
+        // up to one base64 quantum would let this through to the decoder.
+        assert_eq!(
+            card_photo(&photo(MAX_CARD_PHOTO_TEXT + 1)).map(|_| ()),
+            Err(CardFault::PhotoTooLarge)
+        );
+        assert_eq!(
+            card_photo(&photo(MAX_CARD_PHOTO_TEXT)).map(|_| ()),
+            Err(CardFault::PhotoEncoding)
+        );
+        // The bound is UTF-8 bytes, not characters: 16,385 copies of "é"
+        // are 16,385 characters, under it, and 32,770 bytes, past it.
+        let accented = "é".repeat(MAX_CARD_PHOTO_TEXT / 2 + 1);
+        assert_eq!(accented.chars().count(), 16_385);
+        assert_eq!(accented.len(), 32_770);
+        assert_eq!(
+            card_photo(&serde_json::json!({ "media_type": "image/png", "data": accented }))
+                .map(|_| ()),
+            Err(CardFault::PhotoTooLarge)
+        );
     }
 
     #[test]

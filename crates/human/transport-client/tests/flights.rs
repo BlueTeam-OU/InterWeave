@@ -19,6 +19,7 @@
 
 mod common;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -44,11 +45,11 @@ use interweave_transport_api::{
 const FLIGHT_CAP: usize = 32;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("valid")
+    endpoint_id("agent")
 }
 
 fn room() -> ChannelId {

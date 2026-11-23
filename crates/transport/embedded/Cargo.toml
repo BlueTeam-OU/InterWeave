@@ -42,10 +42,12 @@ tracing = { workspace = true }
 
 [features]
 # TEST-ONLY: end the runtime's driver from a test, through the
-# composition's own hook (`EmbeddedHost::end_runtime_for_test`). Enabled
-# by this crate's tests as a dev-dependency feature, which builds that
-# compile dev targets unify in; no normal dependency names it, as
-# `cargo tree -e normal,features` showed on 2026-10-10.
+# composition's own hooks -- as if its substrate had gone
+# (`EmbeddedHost::end_runtime_for_test`), or as a process death
+# (`EmbeddedHost::kill_for_test`). Enabled by this crate's tests as a
+# dev-dependency feature, and by the test crate tests/android-e2e in its
+# [dependencies], for its host stand-in's kill. No shipped build resolves
+# it: `tools/checks/check_shipped_test_hooks.sh`.
 test-hooks = ["interweave-transport-composition/test-hooks"]
 
 [dev-dependencies]

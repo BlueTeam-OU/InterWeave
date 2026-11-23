@@ -27,7 +27,8 @@ use interweave_human_core::RowId;
 use interweave_human_ui_model::{RuntimeHost, UiModel};
 use interweave_human_ui_slint::View;
 use interweave_profile_identity::ProfileIdentity;
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_test_support::endpoint_keys::endpoint_id;
+use interweave_transport_api::TransportIdentity;
 use slint::ComponentHandle as _;
 
 fn received(row: i64, from: &TransportIdentity, text: &str) -> Received {
@@ -35,7 +36,7 @@ fn received(row: i64, from: &TransportIdentity, text: &str) -> Received {
         row: RowId::from_stored(row),
         origin: Origin::Direct {
             peer: from.clone(),
-            endpoint: EndpointId::parse("human").expect("valid"),
+            endpoint: endpoint_id("human"),
         },
         envelope: HumanChatV2 {
             v: 2,

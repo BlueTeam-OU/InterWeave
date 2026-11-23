@@ -38,11 +38,11 @@ use interweave_transport_api::{
 const LIMIT: usize = 49_152;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("human")
 }
 
 fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("agent")
 }
 
 fn node() -> FakeConfig {

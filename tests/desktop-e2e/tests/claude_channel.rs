@@ -74,8 +74,21 @@ const META_KEYS: [&str; 16] = [
     "card_identity_key",
 ];
 
+/// The derived id of the endpoint the shipped examples configure with the
+/// alias `claude`, the one the bridge leases (a TEST-ONLY key,
+/// `endpoint_keys`). The bridge's `--endpoint claude` stays an alias: it
+/// resolves through the daemon to this id.
 fn claude() -> EndpointId {
-    EndpointId::parse("claude").expect("endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id("claude")
+}
+
+/// A direct send's answer, written out here rather than read from the
+/// bridge's crate. It names the endpoint by its derived id (ADR-0067).
+fn accepted_at(endpoint: &EndpointId) -> String {
+    format!(
+        "remote transport accepted at endpoint {}",
+        endpoint.as_str()
+    )
 }
 
 fn general() -> ChannelId {
@@ -547,8 +560,8 @@ async fn a_direct_message_is_notified_and_replied_to_across_two_daemons() {
     let meta = &n["meta"];
     assert_eq!(meta["delivery_mode"], json!("direct"));
     assert_eq!(meta["source_peer"], json!(b_peer.as_str()));
-    assert_eq!(meta["source_endpoint"], json!("claude"));
-    assert_eq!(meta["destination_endpoint"], json!("claude"));
+    assert_eq!(meta["source_endpoint"], json!(claude().as_str()));
+    assert_eq!(meta["destination_endpoint"], json!(claude().as_str()));
     assert_eq!(meta["payload_encoding"], json!("utf8"));
     let token = meta["reply_token"].as_str().expect("a token").to_owned();
 
@@ -559,7 +572,7 @@ async fn a_direct_message_is_notified_and_replied_to_across_two_daemons() {
         )
         .await;
     assert!(!error, "{answer}\n{}", logs(&daemons));
-    assert_eq!(answer, "remote transport accepted at endpoint claude");
+    assert_eq!(answer, accepted_at(&claude()));
     let deadline = tokio::time::Instant::now() + PATIENCE;
     while !direct_from(&b_claude, b"hello human").await {
         assert!(
@@ -578,11 +591,11 @@ async fn a_direct_message_is_notified_and_replied_to_across_two_daemons() {
     let (answer, error) = bridge
         .tool(
             "send",
-            json!({"peer": b_peer.as_str(), "endpoint": "claude", "content": "named"}),
+            json!({"peer": b_peer.as_str(), "endpoint": claude().as_str(), "content": "named"}),
         )
         .await;
     assert!(!error, "{answer}");
-    assert_eq!(answer, "remote transport accepted at endpoint claude");
+    assert_eq!(answer, accepted_at(&claude()));
     let deadline = tokio::time::Instant::now() + PATIENCE;
     while !direct_from(&b_claude, b"named").await {
         assert!(
@@ -1458,8 +1471,8 @@ async fn exchange_with_the_facade(
         let meta = &n["meta"];
         assert_eq!(meta["delivery_mode"], json!("direct"));
         assert_eq!(meta["source_peer"], json!(facade_peer.as_str()));
-        assert_eq!(meta["source_endpoint"], json!("human"));
-        assert_eq!(meta["destination_endpoint"], json!("claude"));
+        assert_eq!(meta["source_endpoint"], json!(human().as_str()));
+        assert_eq!(meta["destination_endpoint"], json!(claude().as_str()));
         assert_eq!(meta["payload_encoding"], json!("utf8"));
         assert_eq!(meta["content_type"], json!(MEDIA_TYPE_V2));
         token = Some(meta["reply_token"].as_str().expect("a token").to_owned());
@@ -1478,7 +1491,7 @@ async fn exchange_with_the_facade(
         )
         .await;
     assert!(!error, "{answer}\n{}", logs(daemons));
-    assert_eq!(answer, "remote transport accepted at endpoint human");
+    assert_eq!(answer, accepted_at(&human()));
     let (answer, error) = bridge
         .tool(
             "reply",
@@ -1618,7 +1631,10 @@ async fn a_plain_mcp_host_receives_by_pull_across_two_daemons() {
     assert_eq!(direct["content"], json!("pull one"));
     assert_eq!(direct["meta"]["delivery_mode"], json!("direct"));
     assert_eq!(direct["meta"]["source_peer"], json!(b_peer.as_str()));
-    assert_eq!(direct["meta"]["destination_endpoint"], json!("claude"));
+    assert_eq!(
+        direct["meta"]["destination_endpoint"],
+        json!(claude().as_str())
+    );
     let broadcast = received
         .iter()
         .find(|e| e["content"] == json!("pull all"))

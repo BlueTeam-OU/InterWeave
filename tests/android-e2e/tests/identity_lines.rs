@@ -42,17 +42,22 @@
 //! read after the trace line (the trace line comes after the Activity's
 //! flag, as rust-ui-dev's onboard.rs orders it, but the read cannot see
 //! the frames between); the Recents thumbnail; a biometric rather than
-//! a PIN; and Keystore invalidation on a lock-screen change, which needs
-//! the person's lock settings and leaves the profile in recovery.
+//! a PIN. Keystore invalidation on a lock-screen change is
+//! `an_invalidated_user_presence_key_opens_on_k1_and_mints_nothing`,
+//! S21-12's case: it needs the person's lock settings and leaves the
+//! profile in recovery. It passed on the Samsung A40, API 30, at
+//! `4ef7723fc`, before its `QUIET` wait on K1 was added
+//! (`runs/2026-11-23-samsung-a40-s21-12-invalidated-key.md`).
 
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
 
+use std::io::Write as _;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use interweave_android_e2e_cases::keys;
-use interweave_android_e2e_tests::adb::PACKAGE;
+use interweave_android_e2e_tests::adb::{self, PACKAGE};
 use interweave_android_e2e_tests::platform::{
     self, CONFIG, ScreenAwake, network_service, prompt_shown,
 };
@@ -212,6 +217,95 @@ fn k1_warns_that_the_phrase_may_be_live_elsewhere() {
     );
 }
 
+/// S21-12's case: a `user-presence` seed key invalidated on a
+/// phone, and what the app shows for it. The person removes the screen
+/// lock and sets it again, which the platform answers by invalidating
+/// (or deleting) every key bound to the person's authentication; the
+/// app then opens on K1, the recovery page, with the warning, no prompt
+/// and no service; and the identity record is the one found, so nothing was
+/// minted over it (the custody seam's
+/// `an_invalidated_or_missing_key_requires_recovery_and_mints_nothing`,
+/// on the phone).
+///
+/// The controls, before the change: the profile is `user-presence`, the
+/// phone has a lock, the seed's key is bound to authentication (on the
+/// A40 a lock change invalidated nothing, no key being bound then:
+/// TM-54's record), and a locked launch opens the identity, offline,
+/// with the prompt up — the state the change takes away. `key-info`'s
+/// reading after the change says which the platform did, invalidated
+/// (the alias kept, refused) or deleted (the alias gone): both open on
+/// K1 (`RecoveryReason::Key`), so the case prints it and asserts neither.
+///
+/// It leaves the phone on K1 with its identity unusable: putting the
+/// app back is a discard or `pm clear`, on the owner's word, which this
+/// case does not do. Needs the androidTest APK
+/// (`INTERWEAVE_ANDROID_INSTRUMENTATION`) for `key-info`.
+#[test]
+#[ignore = "a phone with the debug APK and its androidTest APK, a user-presence identity a person made, ANDROID_SERIAL naming it, and a person who may remove and set the screen lock: INTERWEAVE_ANDROID_PERSON set"]
+fn an_invalidated_user_presence_key_opens_on_k1_and_mints_nothing() {
+    person();
+    user_presence();
+    assert!(
+        platform::screen_lock_now(),
+        "control: the phone has a screen lock to remove"
+    );
+    let alias = format!("interweave.iwk1.{PROFILE}.user-presence");
+    let before = seed_key(&alias).unwrap_or_else(|| panic!("control: no key at {alias}"));
+    assert_eq!(
+        before
+            .get("user_authentication_required")
+            .and_then(serde_json::Value::as_bool),
+        Some(true),
+        "control: the seed's key is bound to the person's authentication: {before}"
+    );
+    let record = identity_record();
+
+    let mut s = screens();
+    {
+        let _awake = locked_launch(&mut s);
+        passed(&s.leave_by_recents(PATIENCE), &s);
+    }
+    let _ = Command::new("adb")
+        .args(["shell", "am", "force-stop", PACKAGE])
+        .output();
+
+    let lock = LockPutBack;
+    ask_person("open Settings > Lock screen > Screen lock type, choose None, and confirm");
+    until_within("the screen lock removed", PERSON, || {
+        !platform::screen_lock_now()
+    });
+    eprintln!("key-info, the lock removed: {:?}", seed_key(&alias));
+    ask_person("set the same screen lock again");
+    until_within(
+        "the screen lock set again",
+        PERSON,
+        platform::screen_lock_now,
+    );
+    drop(lock);
+    let after = seed_key(&alias);
+    eprintln!("key-info, the lock set again: {after:?}");
+
+    passed(&s.launch_to_identity("k1", PATIENCE), &s);
+    passed(&s.lines_after(0, &["warns=active-elsewhere"], PATIENCE), &s);
+    // A prompt or a service may come after the page's trace line, so the
+    // app's own `prompt=` line is waited out first. Its positive control
+    // is the prompt the locked launch above raised, read the same way.
+    passed(&s.none_after(0, "prompt=", QUIET), &s);
+    assert!(!prompt_shown(), "no prompt raised on K1");
+    // No run of this case sees the service running, so this "no" leans on
+    // `platform::service_record`, which refuses a dump it does not
+    // recognise rather than reading it as not running.
+    assert!(
+        network_service().is_none(),
+        "no service on K1: {:?}",
+        network_service()
+    );
+    assert!(
+        identity_record() == record,
+        "the identity record is the one found: nothing minted over it"
+    );
+}
+
 /// Past the key's validity, then a cold launch: locked, the prompt up.
 /// The person unlocks the phone before the wait starts, since an unlock
 /// after it opens the key's window again; the screen is then held on so
@@ -262,6 +356,93 @@ fn user_presence() {
         "the app's profile is not user-presence (gate-b's setup): {}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// The embedded profile's name, as the app's paths and aliases carry it.
+const PROFILE: &str = "human-android";
+
+/// The identity record under the app's data directory, as `run-as`
+/// opens it (`ProfilePaths::resolve_embedded`'s `data` role and
+/// `custody::CUSTODY_FILE`).
+const RECORD: &str = "interweave/data/profiles/human-android/identity.iwk1";
+
+/// `E2eCase`'s reading of the app's Keystore aliases
+/// (`E2eCase.kt` `KEY_INFO`): Kotlin's, so no Rust case names it.
+const KEY_INFO: &str = "key-info";
+
+/// The identity record's bytes now.
+fn identity_record() -> Vec<u8> {
+    let out = platform::adb()
+        .args(["exec-out", "run-as", PACKAGE, "cat", RECORD])
+        .output()
+        .expect("adb");
+    assert!(
+        out.status.success() && !out.stdout.is_empty(),
+        "the identity record at {RECORD}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out.stdout
+}
+
+/// `key-info`'s entry for `alias`, `None` when the Keystore lists no
+/// such alias.
+fn seed_key(alias: &str) -> Option<serde_json::Value> {
+    let instrumentation = std::env::var(adb::INSTRUMENTATION_ENV)
+        .unwrap_or_else(|_| panic!("{} names the androidTest APK", adb::INSTRUMENTATION_ENV));
+    let argv = adb::instrument_argv(
+        &instrumentation,
+        KEY_INFO,
+        &serde_json::Value::Object(serde_json::Map::new()),
+    );
+    let out = platform::adb().args(&argv).output().expect("adb");
+    let read = adb::parse(&String::from_utf8_lossy(&out.stdout));
+    assert_eq!(
+        read.get(keys::RESULT).and_then(serde_json::Value::as_str),
+        Some(keys::PASS),
+        "key-info: {read:?}"
+    );
+    let listed = read
+        .get("keys")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(t).ok())
+        .unwrap_or_else(|| panic!("key-info listed no keys array: {read:?}"));
+    listed
+        .into_iter()
+        .find(|k| k.get("alias").and_then(serde_json::Value::as_str) == Some(alias))
+}
+
+/// Says, if the case ends with the phone's lock removed, that the
+/// person sets it again: the case removes nothing itself, so it can put
+/// nothing back.
+struct LockPutBack;
+
+impl Drop for LockPutBack {
+    fn drop(&mut self) {
+        // Read without panicking: this runs in a failing case's unwind.
+        let lock_set = platform::adb()
+            .arg("shell")
+            .args(platform::dump_command(&["lock_settings"]))
+            .output()
+            .ok()
+            .and_then(|o| platform::dump_ended(&String::from_utf8_lossy(&o.stdout)).ok())
+            .and_then(|d| platform::screen_lock_set(&d).ok());
+        if lock_set == Some(false) {
+            // `eprintln!` panics when stderr is gone, and a panic here
+            // would abort the unwind.
+            let _ = writeln!(
+                std::io::stderr(),
+                "PERSON: the phone has no screen lock now: set it again"
+            );
+        }
+    }
+}
+
+fn until_within(what: &str, patience: Duration, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + patience;
+    while !done() {
+        assert!(Instant::now() < deadline, "{what}: not within {patience:?}");
+        std::thread::sleep(Duration::from_secs(1));
+    }
 }
 
 fn passed(step: &Step, s: &Screens) {

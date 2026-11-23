@@ -21,6 +21,7 @@ use interweave_human_ui_model::{
 };
 use interweave_human_ui_slint::{View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::TransportIdentity;
 use slint::{ComponentHandle as _, Model as _};
 
@@ -838,7 +839,7 @@ fn a_rows_contact_names_are_drawn_one_per_line() {
         photo: None,
         routes: vec![RouteView {
             peer: p.clone(),
-            endpoint: interweave_transport_api::EndpointId::parse(endpoint).expect("valid"),
+            endpoint: endpoint_id(endpoint),
             fingerprint: None,
         }],
     };

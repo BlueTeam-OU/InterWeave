@@ -291,9 +291,8 @@ fn identifiers_validate_against_their_common_schemas() {
     assert_valid(&message, &serde_json::json!(id.to_hex()), "message id");
 
     let endpoint = validator_for("endpoints/endpoint-id.schema.json");
-    // ADR-0067: the schema is the derived grammar. `parse` still takes a
-    // label (transitional), which the schema refuses; the control is the
-    // derived id it accepts.
+    // ADR-0067: the schema is the derived grammar. It refuses a label of
+    // the retired grammar; the control is the derived id it accepts.
     for key in [[0_u8; 32], [0x7f; 32], [0xff; 32]] {
         let derived = EndpointId::from_ed25519_public(&key);
         assert_valid(
@@ -302,16 +301,14 @@ fn identifiers_validate_against_their_common_schemas() {
             derived.as_str(),
         );
     }
-    // A label of the retired grammar, which `parse` still takes on its
-    // transitional path: the derived id of the same name above would be
-    // accepted, so it is no control for the refusal.
-    let label = EndpointId::parse("human").expect("a label, transitional");
+    // A label of the retired grammar cannot be built as an `EndpointId`, so
+    // it is offered as the JSON text a peer would send.
     assert!(
-        EndpointId::parse_derived(label.as_str()).is_err(),
+        EndpointId::parse_derived("human").is_err(),
         "it is not a derived id"
     );
     assert!(
-        !endpoint.is_valid(&serde_json::to_value(&label).expect("ser")),
+        !endpoint.is_valid(&serde_json::json!("human")),
         "the schema must refuse a label"
     );
 

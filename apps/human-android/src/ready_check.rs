@@ -70,6 +70,16 @@ pub(crate) enum AtFlowEnd {
     Raise,
 }
 
+/// Whether a flow's end asks the service to start, with it `asked`
+/// before or not and Show my phrase having taken it `offline` or not: a
+/// launch's or a K1's end asks it, Show my phrase's only after its stop
+/// (the service is bound and runs otherwise, #309 F2); a service asked
+/// once is not asked again here. Its answer, or `asked`, is what
+/// [`at_flow_end`] reads as `start_asked`.
+pub(crate) const fn asks_start_at_end(over: Over, asked: bool, offline: bool) -> bool {
+    !asked && (over.opened_from_start() || offline)
+}
+
 /// The end of a flow opened `over` a launch, Settings (Show my phrase) or
 /// a running window (K1), with a K1 `kept` or not, and the service asked
 /// to start at its end or not (Show my phrase left before it stopped it).
@@ -120,6 +130,27 @@ mod tests {
             assert_eq!(at_flow_end(over, true, true), AtFlowEnd::Drop);
             assert_eq!(at_flow_end(over, true, false), AtFlowEnd::Drop);
             assert_eq!(at_flow_end(over, false, true), AtFlowEnd::Drop);
+        }
+    }
+
+    /// Show my phrase's end asks the start back only once it took the
+    /// service offline, and that start is what keeps a kept K1 owed
+    /// rather than raised: the two decisions in onboard.rs's order, so a
+    /// flow end that dropped `offline` from its ask would raise K1 over a
+    /// start it asked (the Keep path `kept_recovery.rs` does not prove).
+    #[test]
+    fn show_my_phrase_ending_after_its_stop_keeps_k1_for_the_start() {
+        use Over::{Launch, Running, Settings};
+        let end = |over, asked, offline| {
+            let asks = asks_start_at_end(over, asked, offline);
+            (asks, at_flow_end(over, true, asked || asks))
+        };
+        assert_eq!(end(Settings, false, true), (true, AtFlowEnd::Keep));
+        assert_eq!(end(Settings, false, false), (false, AtFlowEnd::Raise));
+        assert_eq!(end(Settings, true, true), (false, AtFlowEnd::Keep));
+        for over in [Launch, Running] {
+            assert!(asks_start_at_end(over, false, false), "{over:?}");
+            assert!(!asks_start_at_end(over, true, false), "{over:?}");
         }
     }
 

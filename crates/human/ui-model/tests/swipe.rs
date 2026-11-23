@@ -16,6 +16,7 @@ use interweave_human_ui_model::{
     RowAction, SESSION_ITEM_CAP, SwipeOffer, Table, UiModel, UndoClosed,
 };
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
 fn peer() -> TransportIdentity {
@@ -25,7 +26,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid")
+    endpoint_id(name)
 }
 
 fn envelope(id: u32, text: &str) -> HumanChatV2 {

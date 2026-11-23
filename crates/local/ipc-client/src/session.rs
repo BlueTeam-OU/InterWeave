@@ -122,18 +122,7 @@ fn events_buffer(response: &HelloResponse) -> Option<usize> {
 impl DataSessionBinding for IpcBinding {
     type Session = IpcSession;
 
-    /// A request that declines route notices is refused
-    /// `ProtocolUnsupported`, nothing sent: on major 3 every session takes
-    /// them (2.4 brought them, and 3.0 holds all of 2.13), so no hello can
-    /// ask for a session without them -- major 2 asked by offering a minor
-    /// below 2.4, which no daemon of major 3 serves. Honoured in process
-    /// (the composition), never dropped here: a session handed notices it
-    /// declined would meet the shape it said it cannot read (#245
-    /// re-review N5).
     async fn open(&self, request: SessionRequest) -> Result<IpcSession, TransportError> {
-        if !request.route_notices() {
-            return Err(TransportError::ProtocolUnsupported);
-        }
         let hello = hello(
             request.client_kind(),
             request.endpoint(),
