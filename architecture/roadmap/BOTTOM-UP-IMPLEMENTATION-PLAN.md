@@ -5773,7 +5773,8 @@ profile's invalidated-key case (the A40 run of
 2026-11-04, `device-runs/2026-11-04-samsung-a40.md`, showed a PIN change
 and a fingerprint enrolment invalidate none of the app's keys, none
 being bound to authentication, and the six cases of 2026-11-05 do not
-reach it); the Recents
+reach it; passed since, 2026-11-23, on the same A40, with the limits
+§30's dated note names); the Recents
 thumbnail's content; notification arrival at API 33+ (measured since,
 2026-10-31, `device-runs/2026-10-31-pixel-9a.md`, 3 runs of 3 under
 the person's grant, with that record's bounds); device transfer
@@ -6398,8 +6399,8 @@ none is the status value's, which stays on this stage.
   a `user-presence` seed key invalidated on a device, which needs the
   owner's hand and their word to wipe the phone and is carried at the
   close if that window does not come (A 2026-11-23: it was carried to
-  §30, the case passed on the A40 that day and the step cell reads `—`
-  since #745; §30's carried paragraph has the dated note and its
+  §30 on 2026-11-21, the case passed on the A40 on 2026-11-23 and the
+  step cell reads `—` since #745; §30's carried paragraph has the dated note and its
   limits).
 - **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
   notification content and the clients' own logs as a shadow archive
@@ -8364,7 +8365,9 @@ not a biometric enrolment or removal. No phone at API 31 or later ran
 it, where the alias may be deleted instead of kept; the app opens K1
 for a missing key and an invalidated one alike, and the run did not
 read which of the two the app itself saw. No restore from the recovery
-phrase followed K1.
+phrase followed K1. What the person sees on K1 is not shown: the window
+is `FLAG_SECURE`, so K1 and its warning were read from the app's trace
+and not from the frame.
 
 ### Record
 
