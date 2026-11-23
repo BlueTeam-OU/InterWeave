@@ -568,30 +568,28 @@ ui_texts! {
     IdC1Title => "About your recovery phrase",
     /// ANDROID, identity screens: C1, first point.
     IdC1Point1 => "These 24 words are the key to your PeerId. With them, you can move your PeerId to a new phone.",
-    /// ANDROID, identity screens: C1, second point. Keeps the phrase's
-    /// name, "identity recovery phrase", until the identity note's Q16
-    /// (architect-cto's) decides whether "identity" goes from it.
-    IdC1Point2 => "They are an InterWeave identity recovery phrase, not a cryptocurrency wallet seed.",
+    /// ANDROID, identity screens: C1, second point. No "identity": on
+    /// screen it means a name and photo, which the phrase does not
+    /// restore (the identity note's Q16, answered).
+    IdC1Point2 => "They are an InterWeave recovery phrase, not a cryptocurrency wallet seed.",
     /// ANDROID, identity screens: C1, third point.
     IdC1Point3 => "Write them on paper, in order, with your PeerId. Store the paper in a safe place.",
     /// ANDROID, identity screens: C1, fourth point: "can be you", without
     /// alarm.
     IdC1Point4 => "Anyone who has these words can act as you in InterWeave. Do not show them to anyone.",
-    /// ANDROID, identity screens: C1, fifth point (human-client-ui.md
-    /// §9).
-    IdC1Point5 => "The words restore your PeerId only, not your name and photo, contacts, trust, settings or messages.",
+    /// ANDROID, identity screens: C1, fifth point, and S1 under its body
+    /// (human-client-ui.md §9). Plural: the phone may hold several
+    /// identities, and none of their names and photos comes back.
+    IdC1Point5 => "Your words restore only your PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity.",
     /// ANDROID, identity screens: C1, sixth point (§11 Q3).
-    // PLACEHOLDER (en)
     IdC1Point6 => "Your PeerId is created only after you check two of the words.",
     /// ANDROID, identity screens: C1's primary.
     IdShowWords => "Show my words",
     /// ANDROID, identity screens: C2's and S2's title.
     IdWordsTitle => "Your 24 words",
     /// ANDROID, identity screens: C2's and S2's words page, one line above
-    /// the words (§3.2). Keeps the phrase's name, "identity recovery
-    /// phrase", as `IdC1Point2` does, until Q16 decides it for both.
-    // PLACEHOLDER (en)
-    IdNotWalletSeed => "InterWeave identity recovery phrase, not a cryptocurrency wallet seed",
+    /// the words (§3.2). No "identity", as in `IdC1Point2`.
+    IdNotWalletSeed => "InterWeave recovery phrase, not a cryptocurrency wallet seed",
     /// ANDROID, identity screens: C2's and S2's words page, under
     /// `IdNotWalletSeed`: the label before the phrase's untranslated
     /// format identifier, which stands alone after it (§3.2).
@@ -681,8 +679,9 @@ ui_texts! {
     IdEnterWords => "Enter my words",
     /// ANDROID, identity screens: R2's primary.
     IdCheckWords => "Check my words",
-    /// ANDROID, identity screens: R1's line under the body, three lines.
-    IdR1Settings => "Your words restore your PeerId only. They do not restore your name and photo, contacts, trust, settings or messages.",
+    /// ANDROID, identity screens: R1's line under the body, three lines:
+    /// the same statement as `IdC1Point5`.
+    IdR1Settings => "Your words restore only your PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity.",
     /// ANDROID, identity screens: R1's and, when it offers a restore,
     /// K1's line before the phrase is taken: an identity still running
     /// on another device would be on two (`human-client-ui.md` section
@@ -714,8 +713,10 @@ ui_texts! {
     /// ANDROID, identity screens: K1's primary.
     IdEnterPhrase => "Enter my recovery phrase",
     /// ANDROID, identity screens: K1's plain text below its primary
-    /// (§3.4), three lines.
-    IdQLost => "If your words are lost, clear this app's data in the phone's settings. That gives this phone a new PeerId, which each contact must trust again.",
+    /// (§3.4), up to five lines. Says what clearing deletes before the
+    /// person leaves for the phone's settings, where nothing in this app
+    /// can warn them again.
+    IdQLost => "If your words are lost, you can clear this app's data in the phone's settings. Clearing the data deletes the identities, contacts and messages on this phone. The app then gets a new PeerId, and each person you talk to must trust the new PeerId.",
     /// ANDROID, identity screens: K1's title when the record names no
     /// readable `PeerId` (§3.4): `IdQTitle` asks for the phrase, which
     /// cannot help there.
@@ -728,9 +729,9 @@ ui_texts! {
     IdQReasonNoPath => "The app cannot use the PeerId saved on this phone, and it cannot be restored here.",
     /// ANDROID, identity screens: K1's plain text when the record names no
     /// readable `PeerId`, in `IdQLost`'s place, whose "If your words are
-    /// lost" suggests the words would help.
-    // PLACEHOLDER (en)
-    IdQNoPath => "To use the app again, clear this app's data in the phone's settings. That gives this phone a new PeerId, which each contact must trust again.",
+    /// lost" suggests the words would help. Says what clearing deletes, as
+    /// `IdQLost` does.
+    IdQNoPath => "The only way to use the app again is to clear this app's data in the phone's settings. Clearing the data deletes the identities, contacts and messages on this phone. The app then gets a new PeerId, and each person you talk to must trust the new PeerId.",
     /// ANDROID, identity screens: The label of the expected `PeerId`, on K1
     /// and in `IdOtherIdentity`'s banner.
     IdExpectedPeerId => "PeerId this phone expects",
@@ -2411,6 +2412,10 @@ mod tests {
         // A conversation's details panel; the P-up notice's action, which
         // opens the Trust page's line (unlock note section 7).
         (UiText::Details, UiText::UnlockPendingDetails),
+        // What the words do not restore: one statement with one meaning
+        // on C1, S1 and R1 (the identity note's section 9 rows;
+        // language-culture-en, REPLY 01a2058a).
+        (UiText::IdC1Point5, UiText::IdR1Settings),
     ];
 
     #[test]
