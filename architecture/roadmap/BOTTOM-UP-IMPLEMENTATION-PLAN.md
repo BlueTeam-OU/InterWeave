@@ -8398,6 +8398,25 @@ log and `dumpsys`, and what else the person saw after the update was
 not read. The runtime stopped shortly after each start, cleanly, and
 the record does not say why.
 
+**2026-11-24, owed before this stage closes: the key-change flow's
+removal.** ADR-0067 decision 5 withdrew the key change, and since
+rust-ui-dev-02's supply `7b641aa38` a card whose key does not derive
+the `source_endpoint` it arrived on is malformed
+(`KeyNotSourceEndpoint`), so no card reaches the proposal. The flow's
+code and its tests were still in the tree at that commit, and
+`tests/SECURITY-MATRIX.md`'s TM-52 and TM-55 rows name them as guarding
+nothing. Their removal is rust-ui-dev-02's own pull request after the
+Stage 22 batch merges. With it goes the second half of
+`a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons`
+(`tests/desktop-e2e/tests/human_cli.rs`), which makes a new key under
+the same endpoint and shares the card again: the check refuses that
+send, so the half fails by construction once the case's earlier
+failure, a missing key file at the batch's base (rust-ui-dev-02's
+report, REPLY 01a20abb; not run for this note), is fixed. The cut is
+made no later than the change that fixes that key path. The test's
+name in §29's record above and in `apps/human-cli/README.md` changes
+with it, as a dated note there.
+
 ### Record
 
 The closing record lands here when the owner closes the stage.
