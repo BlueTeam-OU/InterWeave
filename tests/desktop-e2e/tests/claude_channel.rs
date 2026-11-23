@@ -978,7 +978,9 @@ async fn the_widest_legal_card_name_reaches_the_model_whole_and_one_byte_more_is
     // U+1D49C, four bytes in UTF-8, unchanged by NFC.
     let widest = "\u{1D49C}".repeat(MAX_CARD_NAME_SCALARS);
     assert_eq!(widest.len(), 256, "64 scalars of four bytes");
-    let key = ed25519_dalek::SigningKey::from_bytes(&[69; 32]);
+    // `human`'s TEST-ONLY key, the one its id derives from: a card's key is
+    // its endpoint's own (ADR-0067 decision 5).
+    let key = interweave_test_support::endpoint_keys::signing_key("human");
     let route = CardRoute {
         source_peer: &b_peer,
         source_endpoint: &human(),
