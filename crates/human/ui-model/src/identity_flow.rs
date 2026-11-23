@@ -354,9 +354,9 @@ pub enum ScreenId {
     C2,
     /// Check two words.
     C3,
-    /// PeerId created.
+    /// `PeerId` created.
     C4,
-    /// Restore your PeerId.
+    /// Restore your `PeerId`.
     R1,
     /// Enter your 24 words.
     R2,
