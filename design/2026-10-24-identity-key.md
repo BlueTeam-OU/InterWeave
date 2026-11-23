@@ -349,6 +349,11 @@ The step, in this order:
    the key, so it knows the new EndpointId first, and a kill between
    the add and a later write would leave an added identity with no
    record, which the next Replace would turn into a third identity.
+   When `endpoint-keys/` is a real directory this user owns with a
+   loose mode (the "not protected" row's directory case), the client
+   first makes it owner-only, asking nothing, as Q-dir's answer has it
+   (§12, REPLY 01a16d9b); the key is minted into it only after that.
+   A tightening the platform refuses is `KeyReplaceFailed`.
    Nothing of the old identity is touched before this step has stored
    the new one, so a failure here leaves the old identity exactly as
    it was.
@@ -466,8 +471,8 @@ named contact, and the counterparty's reply to the shared card is
 admitted. The counterparty still sees a new identity, and still has
 their contact for the old identity until they accept the new card.
 
-**Failed** (step 1 refused — a key that cannot be minted or sealed, the
-add refused): `KeyReplaceFailed` ("InterWeave could not make the new
+**Failed** (step 1 refused — a key folder that cannot be made
+owner-only, a key that cannot be minted or sealed, the add refused): `KeyReplaceFailed` ("InterWeave could not make the new
 identity. {identity} has not changed. Choose Replace with a new
 identity to try again."), in `error`, under the actions, and Replace
 offered again.
@@ -506,7 +511,8 @@ block, with `KeyNoNewKey` and no action where §3 gives it.
   silent first key (Q-missing, architect-cto's; ADR-0063 A 2026-10-24,
   2026-10-27) is withdrawn. An identity's key is made only where the
   identity is created: the desktop's by `transportctl endpoint init`
-  or `adopt`, Android's at onboarding (ADR-0067 decision 4). The same
+  or `adopt`, Android's at onboarding (ADR-0067 decision 4 as amended
+  on architect-cto's branch, 840747b85, not yet on main). The same
   holds when the whole `endpoint-keys/` directory is missing outside
   the recovery flow. Until the Stage 22 release a key was made
   silently for an identity whose card no conversation held or might
@@ -515,7 +521,8 @@ block, with `KeyNoNewKey` and no action where §3 gives it.
   is told before the phrase that the words restore the PeerId, that
   each identity's key is gone, and that each identity is replaced by a
   new one, which contacts see as a new identity. On Android the first
-  identity's key is minted at Restore (ADR-0067 A 2026-11-21), so it
+  identity's key is minted at Restore (ADR-0067 A 2026-11-21, on
+  architect-cto's branch, 840747b85, not yet on main), so it
   is a new identity and shows no state here. On a desktop state root
   whose configuration still names the key files, each such identity is
   in the "missing" state with `KeyNoNewKey` until it is replaced (§5)
@@ -640,6 +647,9 @@ On both clients unless said; Android's screen-reader checks blocked as
     `KeyDamaged`, not `KeyNotNow`.
 15. Desktop: `endpoint-keys/` at mode 0755 shows `KeyExposed` and
     `KeyNoNewKey`, and no action; the directory's mode is not changed.
+    Under part 2 the same state also offers Replace (§5.1), and its
+    step 1 makes the directory owner-only before the new key is
+    minted; the mode changes only then.
 16. Desktop: `endpoint-keys/` replaced by a link to a private directory
     shows `KeyDirUnsafe` with the path and Try again, and no
     `KeyNoNewKey`; the link is not followed, changed or replaced; after
@@ -861,7 +871,8 @@ identity's, each as `{identity}` is.
 
 Q-file, Q-missing, Q-order and Q-dir's tightening describe the new key
 and the silent first key of Stage 21, withdrawn from the Stage 22
-release (§5, §7); they stay as the record. The answers on refusals and
+release (§5, §7); they stay as the record. Q-dir's tightening still
+holds for the replacement's new key (§5.3, step 1). The answers on refusals and
 on "key folder not safe" still hold.
 
 For architect-cto (QUESTION 01a16d88), answered by DECISION 01a16d8a

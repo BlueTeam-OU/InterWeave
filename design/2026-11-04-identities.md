@@ -1043,8 +1043,10 @@ pass before it lands.
 - **Replacing an identity whose key is lost** (ADR-0067 d. 5: a new
   identity, never a new key under the old name). It is
   `design/2026-10-24-identity-key.md`'s own revision: part 1 (the
-  interim, no Make a new key) on 2026-11-22, part 2 (the replacement)
-  to follow; nothing here builds "make a new key".
+  interim, no Make a new key) on 2026-11-22, and part 2 (the
+  replacement, its §5, a proposal) the same day, built once an
+  identity can be created and removed; nothing here builds "make a new
+  key".
 - **Per-conversation notifications** and any inline reply: the build
   has a count notification, and cards §5.7.5's rule (an inline reply
   names the identity it replies as) stands for later.

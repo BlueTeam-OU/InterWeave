@@ -380,8 +380,10 @@ then starts again at its first screen (rust-ui-dev-01's job j311).
 §6's rule that a recreation moves no focus remains the rule for the
 flow screens, and §6 (The hold) now says what that rule depends on.
 Acceptance 15's sixth return run and acceptance 12's R2 recreation
-run are blocked until j311 lands. The Chats and conversation recreation runs
-are not blocked.
+run are blocked until j311 lands. The Chats recreation runs are not
+blocked. No run yet recreates the window in a conversation, so the
+conversation part of §6's rule has no check here; that run is carried
+to the next revision (review F17 on #738).
 
 Revised 2026-11-22 a third time, at rust-ui-dev-01's REQUEST
 01a202aa. §9's rows for `IdAlreadyCreated`, `IdStorageUnknown`,
@@ -437,10 +439,15 @@ From the contracts; listed so a reviewer can check each screen:
   identity recovery phrase", stays the contract's own wording, which
   binds its meaning and not its words (`IDENTITY-RECOVERY.md`,
   Recovery format; architect-cto-01's REPLY 01a20581-237c, Q16, which
-  supersedes REPLYs 01a16736 and 01a1673d on this point). Every screen
-  that names or shows the phrase still says that it restores the
-  PeerId, by that word, and that it is not a cryptocurrency wallet
-  seed (REPLY 01a20588-c2bc). Where
+  supersedes REPLYs 01a16736 and 01a1673d on this point). Each flow
+  that shows the phrase still says, before or with it, that it
+  restores the PeerId, by that word, and that it is not a
+  cryptocurrency wallet seed: creation on C1 (`IdC1Point5`,
+  `IdC1Point2`) and C2 (`IdNotWalletSeed`), Settings on S1
+  (`IdC1Point5`) and S2 (`IdNotWalletSeed`). The screens that take
+  the phrase, R1 and K1, say that it restores the PeerId
+  (`IdR1Settings`, `IdQReasonKey`, `IdQReasonRecord`) (REPLY
+  01a20588-c2bc). Where
   this note's own prose says "identity" for what the phrase holds, it
   is the PeerId in that sense.
 
@@ -690,7 +697,8 @@ inputs: a record that opens (no K1), a record that names a PeerId
 (restore to it), and a record that names none (`IdQNoPath`). When the
 record names a PeerId, K1 shows it, and after its reason the same
 `IdActiveElsewhere` as R1 (§3.3), with `IdR1NewKeys` under it when the
-state root has no `endpoint-keys/` directory. K1 with no primary
+state root has no `endpoint-keys/` directory (`identity-keys/` until
+the Stage 22 release, §3.3). K1 with no primary
 (below) takes no phrase and shows neither.
 Primary: enter my recovery phrase (→ R2, then straight to the check
 against that PeerId, with no R3). Back leaves the app. K1 shows again
@@ -2019,7 +2027,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdR1Body` (changed 2026-11-23) | You need your 24 words, and the PeerId that goes with them: from your paper, or from a contact who has that PeerId. The app stays offline until the restore is done. | R1's body, three lines. "The PeerId that goes with them" is true whether the person moved phones or reinstalled on the same one |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdActiveElsewhere` (new) | If another device still uses this PeerId, a restore here puts the same PeerId on two devices. One PeerId must never be on two devices, and this phone cannot check whether another device uses it. | R1, and K1 when it offers a restore, before the primary (§3.3, §3.4); `human-client-ui.md` §9, ADR-0043; must say the phone cannot check, and ask nothing |
-| `IdR1NewKeys` (changed 2026-11-22, final 2026-11-23) | Your words restore your PeerId, but not the keys of your identities. Each identity's key is gone, so each identity is replaced by a new one. Your contacts will see each replacement as a new identity. | R1 and K1, each when the state root has no `endpoint-keys/` (always on R1 after a fresh install), before the primary; `human-client-ui.md` §9, ADR-0067 decision 5; must say the phrase restores the PeerId, not the identities' keys, that each identity is replaced by a new one, and that contacts see a new identity; never that they see a key change (architect-cto, REQUEST 01a202c7). Until the Stage 22 release: "Your words restore your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see a new key for each identity." |
+| `IdR1NewKeys` (changed 2026-11-22, final 2026-11-23) | Your words restore your PeerId, but not the keys of your identities. Each identity's key is gone, so each identity is replaced by a new one. Your contacts will see each replacement as a new identity. | R1 and K1, each when the state root has no `endpoint-keys/` (`identity-keys/` until the Stage 22 release, §3.3; always on R1 after a fresh install), before the primary; `human-client-ui.md` §9, ADR-0067 decision 5; must say the phrase restores the PeerId, not the identities' keys, that each identity is replaced by a new one, and that contacts see a new identity; never that they see a key change (architect-cto, REQUEST 01a202c7). Until the Stage 22 release: "Your words restore your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see a new key for each identity." |
 | `IdCheckWords` | Check my words | R2's primary |
 | `IdR1Settings` (changed 2026-11-23) | Your words restore only your PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity. | R1's line under the body, three lines at 100 %: the same statement as `IdC1Point5`, with nothing asked, plural for the same reason. "They do not restore", not "are not part of them", which could point to the list instead of the words (language-culture-en, j393) |
 | `IdR3NoPeerId` | If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches. | R3, under the question: about three lines at 100 %, one over the space. A contact can hold one PeerId per device, so the text names which one |
@@ -2127,7 +2135,8 @@ landscape:
 9. Recovery required: with the record's key invalidated (rust-ui-dev's
    test hook), launch shows K1 with `IdQReasonKey` and the expected
    PeerId, and `IdActiveElsewhere` after its reason (with
-   `IdR1NewKeys` only when the hook also removes `endpoint-keys/`).
+   `IdR1NewKeys` only when the hook also removes `endpoint-keys/`,
+   `identity-keys/` until the Stage 22 release).
    The right phrase restores with no R3. Another identity's
    phrase shows `IdOtherIdentity` with both PeerIds and restores
    nothing. With the record's PeerId field made unreadable (a test
@@ -2598,7 +2607,10 @@ scale would also be a finding of the Android review
         order requires (§6, Foreground-only Home and a start's
         answer): after an answer of started, the next screen, no
         `IdStartBusy`, and one start at the return, as at a new
-        launch; after the stop, `IdStartBusy` and a second start,
+        launch (if that start is refused with `LockHeld` because
+        the stop's wait ran out, §6, `IdStartBusy` shows as a
+        session notice with focus unmoved, and the run records it
+        and still passes); after the stop, `IdStartBusy` and a second start,
         with Try again disabled until it answers. This run needs no
         new hook.
       - Connect: with no address recorded, after R4's Continue (so
@@ -3256,9 +3268,11 @@ here; the first was already answered on this branch.
 - **Q16. Does the phrase keep "identity" in its name on screen?**
   Answered by architect-cto, REPLY 01a20581-237c: no. `IdC1Point2` and
   `IdNotWalletSeed` say "InterWeave recovery phrase", the client
-  glossary's term, and §2 says so. Still binding on every screen that
-  names or shows the phrase: it restores the PeerId, named by that
-  word and never "identity" or "account", and it is not a wallet seed.
+  glossary's term, and §2 says so. Still binding, per flow as §2 lists
+  the screens: the flows that show the phrase say it restores the
+  PeerId, named by that word and never "identity" or "account", and
+  that it is not a wallet seed; the screens that take it say it
+  restores the PeerId.
   S2 shows the phrase outside C1, so S1 now carries `IdC1Point5`
   (§3.5). It says "your PeerId", as every other identity screen does
   (architect-cto, REPLY 01a20588-c2bc: "this app's PeerId" read as a
