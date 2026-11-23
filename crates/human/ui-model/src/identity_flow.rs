@@ -47,8 +47,9 @@ pub enum Start {
         /// The `PeerId` the record names, when it still names one.
         expected: Option<TransportIdentity>,
         /// The state root holds no `identity-keys/` directory, so a
-        /// restore gives every identity a new key (IDENTITY-RECOVERY.md
-        /// section Restore semantics item 12; ADR-0063 decision 1).
+        /// restore brings back no identity's key and each identity is
+        /// replaced by a new one (IDENTITY-RECOVERY.md section Restore
+        /// semantics item 12; ADR-0063 decision 1, ADR-0067 decision 5).
         new_keys: bool,
     },
     /// Settings asked to show the phrase (§3.5).
@@ -393,7 +394,7 @@ pub struct IdentityFlow {
     /// Why Welcome, R1 or K1 shows a notice: the lock refused, or a new
     /// identity that could not be made.
     start_notice: Option<Notice>,
-    /// K1's restore gives every identity a new key: the root found no
+    /// K1's restore replaces every identity by a new one: the root found no
     /// `identity-keys/` (item 12). Kept for the flow, since K1 is rebuilt
     /// when Back leaves R2.
     new_keys: bool,
@@ -511,9 +512,10 @@ impl IdentityFlow {
     }
 
     /// The screen says that the phrase restores the node and not the
-    /// identities' keys, so every identity gets a new key and contacts see
-    /// it change (`human-client-ui.md` section 9; IDENTITY-RECOVERY.md
-    /// section Restore semantics item 12; ADR-0063 decision 1). R1
+    /// identities' keys, so each identity is replaced by a new one
+    /// (`human-client-ui.md` section 9; IDENTITY-RECOVERY.md section
+    /// Restore semantics item 12; ADR-0063 decision 1, ADR-0067 decision
+    /// 5). R1
     /// always: it follows Welcome, which shows only where no identity was
     /// ever sealed here. K1 only when it offers a restore and the root
     /// found no `identity-keys/`: a lost seed key leaves the identities'
@@ -2428,7 +2430,7 @@ mod tests {
     }
 
     /// Item 12 on R1: every fresh-install path into R2 is told that the
-    /// identities get new keys, after the ADR-0043 warning and before R2,
+    /// identities' keys are not brought back, after the ADR-0043 warning and before R2,
     /// as a statement. Mutation: without `matches!(self.screen,
     /// Screen::R1)` in `says_new_keys`, R1 is silent and this fails.
     #[test]

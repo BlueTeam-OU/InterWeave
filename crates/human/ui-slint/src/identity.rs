@@ -450,8 +450,9 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
     };
     page.title = title.map(text).unwrap_or_default().into();
     // Last, after what the screen is for: the statements the flow owes
-    // before R2 takes a word -- ADR-0043's warning (item 11), then the
-    // identities' new keys (item 12) -- on whichever screen the model
+    // before R2 takes a word -- ADR-0043's warning (item 11), then that
+    // the identities' keys do not come back (item 12) -- on whichever
+    // screen the model
     // says carries each.
     let warning = flow
         .warns_active_elsewhere()

@@ -23,12 +23,13 @@
 //! added a general `messages` table would fail that check on the next
 //! open rather than quietly becoming the archive ADR-0044 forbids.
 
-use rusqlite::{Connection, OptionalExtension as _, Transaction};
+use interweave_transport_api::EndpointId;
+use rusqlite::{Connection, OptionalExtension as _, Transaction, params};
 
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 
 /// The three tables ADR-0044 lets hold content.
 const RETENTION_TABLES: &[&str] = &["pending_outbound", "unread_inbound", "kept_inbound"];
@@ -99,12 +100,17 @@ fn migration_error(e: rusqlite::Error) -> StoreError {
 
 /// Apply every migration needed to bring `conn` to [`SCHEMA_VERSION`].
 ///
+/// `first_identity` is the first identity's derived `EndpointId`, which
+/// schema v14 gives every existing row as its local identity
+/// ([`migration_14`]); the client hands it over, since the store reads no
+/// configuration.
+///
 /// # Errors
 /// Returns [`StoreError::Migration`] if a migration fails, or if the
 /// database was written by a NEWER build — downgrading by running old
 /// migrations over a newer schema is how data gets destroyed, so it
 /// refuses instead.
-pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
+pub fn migrate(conn: &mut Connection, first_identity: &EndpointId) -> Result<(), StoreError> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
 
     if current > SCHEMA_VERSION {
@@ -117,6 +123,26 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
         return Ok(());
     }
 
+    // v14 rebuilds `contacts` beneath its routes, which SQLite allows only
+    // with foreign keys off, and the pragma is a no-op inside a
+    // transaction: off before it begins, checked inside it before the
+    // commit (`foreign_keys_hold`), and back as it was however it ends.
+    let enforced: bool = conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
+    if current < 14 {
+        conn.pragma_update(None, "foreign_keys", false)?;
+    }
+    let result = run_migrations(conn, current, first_identity);
+    if current < 14 {
+        conn.pragma_update(None, "foreign_keys", enforced)?;
+    }
+    result
+}
+
+fn run_migrations(
+    conn: &mut Connection,
+    current: i64,
+    first_identity: &EndpointId,
+) -> Result<(), StoreError> {
     let tx = conn.transaction()?;
     if current < 1 {
         migration_1(&tx)?;
@@ -157,11 +183,658 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     if current < 13 {
         migration_13(&tx)?;
     }
+    if current < 14 {
+        migration_14(&tx, first_identity, current > 0)?;
+        foreign_keys_hold(&tx)?;
+    }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
     // store misreads on the next open.
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
+    Ok(())
+}
+
+/// The `settings` key of what schema v14 discarded (STATE.md §Migrations):
+/// one content-free row, written only when a count is not zero, which the
+/// client shows at each open until the person acknowledges it and deletes
+/// it then ([`crate::HumanStore::discarded_at_v14`]).
+pub(crate) const V14_DISCARDED: &str = "v14_discarded";
+
+/// The scratch table v14 maps each keyed route's `{peer, label}` to the
+/// id its key derives in. A table of the store's own file, not a TEMP one,
+/// so the map is written under the store's key and its pages under
+/// `secure_delete`; created and dropped inside the migration's
+/// transaction, so no open ever finds it ([`verify_shape`] would refuse
+/// it by name).
+const ROUTE_MAP: &str = "v14_route_map";
+
+/// v14 — ADR-0067's clean break reaches the store (STATE.md's v14
+/// paragraph and §Migrations, A 2026-11-19; architect-cto's rulings to
+/// rust-ui-dev-02's j125). After it no table holds a label, every row
+/// holds its local identity, and nothing marks a row as from before.
+///
+/// - (a) Every row takes `first`, the first identity's derived id, as its
+///   `local_endpoint_id`, and the `own_cards` row keyed by a label is
+///   rekeyed to it ([`rekey_own_card`]).
+/// - (b) A route with an `identity_key` is rebound to the id the key
+///   derives, and every row keyed by its `{peer, label}` follows: the
+///   index row, the inbound rows' `source_endpoint`, the read pairs.
+/// - (c) A `{peer, label}` that no keyed route names is discarded with its
+///   index row, its unread, kept and pending rows, its read pairs and
+///   every route without a key; a contact the migration leaves with no
+///   route is deleted.
+/// - (d) Two routes of one peer whose keys derive one id are one: the
+///   route under the contact created first stays (`created_at`, then
+///   `contact_id`) and the other goes, its contact with it when it holds
+///   no other; the two index rows become one carrying the later
+///   `card_shared_at`; of two inbound rows of one table that then meet on
+///   the key the one received earlier stays, an unread row meeting a kept
+///   row or a read pair of the same message from the other route is
+///   discarded, and of two read pairs the earlier stays. Rows that held
+///   one key together before the migration are not a meeting: an unread
+///   copy beside its kept row in one conversation stays as it was.
+/// - (e) Every pending row is discarded, and every unread row of kind
+///   `card`.
+///
+/// What (c) and (e) discarded is counted into the content-free
+/// [`V14_DISCARDED`] row when an existing store is upgraded and a count is
+/// not zero, with the contacts (d) combined; what (d) discarded of a
+/// message held twice is counted nowhere ([`crate::DiscardedAtV14`]). Stored
+/// payloads are not rewritten: the client reads a stored row's
+/// `from_endpoint` that does not parse as absent (chat-protocol's
+/// `parse_stored`). Runs with foreign keys off, checked before the commit
+/// by [`foreign_keys_hold`] in the same transaction ([`migrate`]).
+fn migration_14(
+    tx: &Transaction<'_>,
+    first: &EndpointId,
+    existing: bool,
+) -> Result<(), StoreError> {
+    let local = first.as_str();
+    route_map(tx)?;
+
+    let (never_attempted, may_have_reached): (i64, i64) = tx
+        .query_row(
+            "SELECT COUNT(*) FILTER (WHERE attempts = 0), COUNT(*) FILTER (WHERE attempts > 0)
+               FROM pending_outbound",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(migration_error)?;
+    let routed: Vec<String> = tx
+        .prepare("SELECT DISTINCT contact_id FROM contact_routes")
+        .and_then(|mut s| s.query_map([], |r| r.get(0))?.collect())
+        .map_err(migration_error)?;
+
+    // (c): what no keyed route names. A conversation is a direct
+    // `{peer, endpoint}` the store holds anything of.
+    let conversations = count(
+        tx,
+        &format!(
+            "SELECT COUNT(*) FROM (
+                 SELECT peer_id AS p, endpoint_id AS e FROM conversation_index
+                  WHERE endpoint_id IS NOT NULL
+                 UNION SELECT source_peer, source_endpoint FROM unread_inbound
+                  WHERE channel_id IS NULL AND source_endpoint IS NOT NULL
+                 UNION SELECT source_peer, source_endpoint FROM kept_inbound
+                  WHERE channel_id IS NULL AND source_endpoint IS NOT NULL
+                 UNION SELECT destination_peer, destination_endpoint FROM pending_outbound
+                  WHERE channel_id IS NULL AND destination_endpoint IS NOT NULL)
+              WHERE NOT EXISTS (SELECT 1 FROM {ROUTE_MAP} m WHERE m.peer_id = p AND m.old = e)"
+        ),
+    )?;
+
+    // (e)'s card proposals first, so that (c)'s unread count below is of
+    // messages alone: a card is no message, and every unread card goes
+    // whatever its pair, counted here by the row. The pending rows were
+    // counted above, before (c) or (e) took any of them.
+    let card_proposals = i64::try_from(
+        tx.execute("DELETE FROM unread_inbound WHERE kind = 'card'", [])
+            .map_err(migration_error)?,
+    )
+    .unwrap_or(i64::MAX);
+
+    let (mut unread, mut kept) = (0_i64, 0_i64);
+    for (table, peer, endpoint) in [
+        ("unread_inbound", "source_peer", "source_endpoint"),
+        ("kept_inbound", "source_peer", "source_endpoint"),
+        ("read_pairs", "source_peer", "source_endpoint"),
+        ("conversation_index", "peer_id", "endpoint_id"),
+    ] {
+        let gone = tx
+            .execute(
+                &format!(
+                    "DELETE FROM {table}
+                      WHERE channel_id IS NULL AND {endpoint} IS NOT NULL
+                        AND NOT EXISTS (SELECT 1 FROM {ROUTE_MAP} m
+                                         WHERE m.peer_id = {table}.{peer}
+                                           AND m.old = {table}.{endpoint})"
+                ),
+                [],
+            )
+            .map_err(migration_error)?;
+        let gone = i64::try_from(gone).unwrap_or(i64::MAX);
+        match table {
+            "unread_inbound" => unread = gone,
+            "kept_inbound" => kept = gone,
+            _ => {}
+        }
+    }
+    // A route without a key derives no id, whatever pair it names; a
+    // contact that held a route and now holds none went with its last
+    // route, while one that held none before lost none here.
+    tx.execute("DELETE FROM contact_routes WHERE identity_key IS NULL", [])
+        .map_err(migration_error)?;
+    let contacts = delete_routeless(tx, &routed)?;
+
+    // (e): the bytes were encoded over a label and the store holds no key
+    // to encode them again.
+    tx.execute("DELETE FROM pending_outbound", [])
+        .map_err(migration_error)?;
+
+    // (d): the routes. The one under the contact created first stays; a
+    // route of a contact this store does not hold sorts nowhere and is
+    // left for the foreign-key check to refuse.
+    tx.execute(
+        &format!(
+            "DELETE FROM contact_routes WHERE rowid IN (
+                 SELECT r.rowid FROM contact_routes r
+                   JOIN {ROUTE_MAP} m ON m.peer_id = r.peer_id AND m.old = r.endpoint_id
+                   LEFT JOIN contacts c ON c.contact_id = r.contact_id
+                  WHERE EXISTS (
+                        SELECT 1 FROM contact_routes o
+                          JOIN {ROUTE_MAP} mo ON mo.peer_id = o.peer_id AND mo.old = o.endpoint_id
+                          LEFT JOIN contacts co ON co.contact_id = o.contact_id
+                         WHERE o.peer_id = r.peer_id AND mo.new = m.new AND o.rowid <> r.rowid
+                           AND (co.created_at, o.contact_id) < (c.created_at, r.contact_id)))"
+        ),
+        [],
+    )
+    .map_err(migration_error)?;
+    let contacts_combined = delete_routeless(tx, &routed)?;
+
+    // (d): the rows. Within one table two rows meet only through two
+    // routes, since the table's key kept them apart before; across tables
+    // a meeting is counted only between rows of two routes.
+    for (table, order) in [
+        ("unread_inbound", "received_at, row_id"),
+        ("kept_inbound", "received_at, row_id"),
+        ("read_pairs", "at, pair_id"),
+    ] {
+        let id = if table == "read_pairs" {
+            "pair_id"
+        } else {
+            "row_id"
+        };
+        tx.execute(
+            &format!(
+                "DELETE FROM {table} WHERE {id} IN (
+                     SELECT u.{id} FROM {table} u
+                       JOIN {ROUTE_MAP} mu ON mu.peer_id = u.source_peer AND mu.old = u.source_endpoint
+                      WHERE u.channel_id IS NULL AND EXISTS (
+                            SELECT 1 FROM {table} w
+                              JOIN {ROUTE_MAP} mw
+                                ON mw.peer_id = w.source_peer AND mw.old = w.source_endpoint
+                             WHERE w.channel_id IS NULL AND w.source_peer = u.source_peer
+                               AND mw.new = mu.new AND w.app_message_id = u.app_message_id
+                               AND w.{id} <> u.{id}
+                               AND ({order_w}) < ({order_u})))",
+                order_w = prefixed("w", order),
+                order_u = prefixed("u", order),
+            ),
+            [],
+        )
+        .map_err(migration_error)?;
+    }
+    for other in ["kept_inbound", "read_pairs"] {
+        tx.execute(
+            &format!(
+                "DELETE FROM unread_inbound WHERE row_id IN (
+                     SELECT u.row_id FROM unread_inbound u
+                       JOIN {ROUTE_MAP} mu ON mu.peer_id = u.source_peer AND mu.old = u.source_endpoint
+                      WHERE u.channel_id IS NULL AND EXISTS (
+                            SELECT 1 FROM {other} k
+                              JOIN {ROUTE_MAP} mk
+                                ON mk.peer_id = k.source_peer AND mk.old = k.source_endpoint
+                             WHERE k.channel_id IS NULL AND k.source_peer = u.source_peer
+                               AND mk.new = mu.new AND k.app_message_id = u.app_message_id
+                               AND k.source_endpoint <> u.source_endpoint))"
+            ),
+            [],
+        )
+        .map_err(migration_error)?;
+    }
+
+    rebuild_v14(tx, local)?;
+    rekey_own_card(tx, local)?;
+    tx.execute_batch(&format!("DROP TABLE {ROUTE_MAP};"))
+        .map_err(migration_error)?;
+
+    let counts = crate::store::DiscardedAtV14 {
+        conversations: as_count(conversations),
+        unread: as_count(unread),
+        kept: as_count(kept),
+        pending_never_attempted: as_count(never_attempted),
+        pending_may_have_reached: as_count(may_have_reached),
+        contacts: as_count(contacts),
+        contacts_combined: as_count(contacts_combined),
+        card_proposals: as_count(card_proposals),
+    };
+    // The row exists to be acknowledged: a migration that discarded
+    // nothing asks nothing of the person (A 2026-11-22).
+    if existing && !counts.is_empty() {
+        tx.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![V14_DISCARDED, counts.to_setting()],
+        )
+        .map_err(migration_error)?;
+    }
+    Ok(())
+}
+
+/// Delete each of `routed` -- the contacts that held a route before the
+/// migration -- that now holds none; how many went.
+fn delete_routeless(tx: &Transaction<'_>, routed: &[String]) -> Result<i64, StoreError> {
+    let mut deleted = 0_i64;
+    for contact_id in routed {
+        deleted += i64::try_from(
+            tx.execute(
+                "DELETE FROM contacts WHERE contact_id = ?1
+                   AND NOT EXISTS (SELECT 1 FROM contact_routes WHERE contact_id = ?1)",
+                params![contact_id],
+            )
+            .map_err(migration_error)?,
+        )
+        .unwrap_or(i64::MAX);
+    }
+    Ok(deleted)
+}
+
+/// `order`'s columns, each prefixed by `alias`.
+fn prefixed(alias: &str, order: &str) -> String {
+    order
+        .split(", ")
+        .map(|c| format!("{alias}.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn count(tx: &Transaction<'_>, sql: &str) -> Result<i64, StoreError> {
+    tx.query_row(sql, [], |r| r.get(0)).map_err(migration_error)
+}
+
+fn as_count(n: i64) -> u64 {
+    u64::try_from(n).unwrap_or(0)
+}
+
+/// [`ROUTE_MAP`], one row per keyed route's `{peer, label}`: the id its
+/// key derives. One pair under two contacts whose keys differ would map to
+/// two ids, which no writer of this store makes (one contact per route,
+/// plan §29 step 2): the migration refuses it rather than choose.
+fn route_map(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(&format!(
+        "CREATE TABLE {ROUTE_MAP} (
+             peer_id TEXT NOT NULL,
+             old     TEXT NOT NULL,
+             new     TEXT NOT NULL,
+             PRIMARY KEY (peer_id, old)
+         ) WITHOUT ROWID;"
+    ))
+    .map_err(migration_error)?;
+    let keyed: Vec<(String, String, Vec<u8>)> = tx
+        .prepare(
+            "SELECT peer_id, endpoint_id, identity_key FROM contact_routes
+              WHERE identity_key IS NOT NULL",
+        )
+        .and_then(|mut s| {
+            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect()
+        })
+        .map_err(migration_error)?;
+    for (peer, old, key) in keyed {
+        let key = <[u8; 32]>::try_from(key.as_slice()).map_err(|_| {
+            StoreError::Migration("a route's identity key is not 32 bytes".to_owned())
+        })?;
+        let new = EndpointId::from_ed25519_public(&key);
+        tx.execute(
+            &format!(
+                "INSERT INTO {ROUTE_MAP} (peer_id, old, new) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (peer_id, old) DO NOTHING"
+            ),
+            params![peer, old, new.as_str()],
+        )
+        .map_err(migration_error)?;
+        let mapped: String = tx
+            .query_row(
+                &format!("SELECT new FROM {ROUTE_MAP} WHERE peer_id = ?1 AND old = ?2"),
+                params![peer, old],
+                |r| r.get(0),
+            )
+            .map_err(migration_error)?;
+        if mapped != new.as_str() {
+            return Err(StoreError::Migration(
+                "one route is held under two contacts with two identity keys".to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// v14's seven tables, built beside the ones they replace ([`rebuild_v14`]).
+const V14_TABLES: &str = "
+        CREATE TABLE pending_outbound_v14 (
+            row_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id     TEXT    NOT NULL,
+            app_message_id        TEXT    NOT NULL UNIQUE,
+            transport_message_id  BLOB    NOT NULL UNIQUE
+                                  CHECK (length(transport_message_id) = 16),
+            destination_peer      TEXT    NOT NULL,
+            destination_endpoint  TEXT,
+            channel_id            TEXT,
+            media_type            TEXT,
+            payload               BLOB    NOT NULL,
+            created_at            INTEGER NOT NULL,
+            last_attempt_at       INTEGER,
+            attempts              INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE unread_inbound_v14 (
+            row_id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id TEXT    NOT NULL,
+            app_message_id    TEXT    NOT NULL,
+            source_peer       TEXT    NOT NULL,
+            source_endpoint   TEXT,
+            channel_id        TEXT,
+            media_type        TEXT,
+            payload           BLOB    NOT NULL,
+            received_at       INTEGER NOT NULL,
+            kind              TEXT    NOT NULL DEFAULT 'other',
+            source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL,
+            channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
+            UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
+        );
+        CREATE TABLE kept_inbound_v14 (
+            row_id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id TEXT    NOT NULL,
+            app_message_id    TEXT    NOT NULL,
+            source_peer       TEXT    NOT NULL,
+            source_endpoint   TEXT,
+            channel_id        TEXT,
+            media_type        TEXT,
+            payload           BLOB    NOT NULL,
+            received_at       INTEGER NOT NULL,
+            read_at           INTEGER NOT NULL,
+            kept_at           INTEGER NOT NULL,
+            kind              TEXT    NOT NULL DEFAULT 'other',
+            source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL,
+            channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
+            UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
+        );
+        CREATE TABLE read_pairs_v14 (
+            pair_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id TEXT    NOT NULL,
+            app_message_id    TEXT    NOT NULL,
+            source_peer       TEXT    NOT NULL,
+            source_endpoint   TEXT,
+            channel_id        TEXT,
+            at                INTEGER NOT NULL,
+            source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL,
+            channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
+            UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
+        );
+        CREATE TABLE contacts_v14 (
+            contact_id        TEXT    NOT NULL PRIMARY KEY,
+            local_endpoint_id TEXT    NOT NULL,
+            display_name      TEXT    NOT NULL,
+            notes             TEXT,
+            created_at        INTEGER NOT NULL,
+            updated_at        INTEGER NOT NULL,
+            name_source       TEXT,
+            name_at           INTEGER,
+            photo_source      TEXT,
+            photo_at          INTEGER,
+            photo             BLOB,
+            name_key          TEXT    NOT NULL DEFAULT '',
+            shape_key         TEXT    NOT NULL DEFAULT '',
+            compat_shape_key  TEXT    NOT NULL DEFAULT '',
+            UNIQUE(contact_id, local_endpoint_id)
+        );
+        CREATE TABLE contact_routes_v14 (
+            contact_id         TEXT NOT NULL,
+            local_endpoint_id  TEXT NOT NULL,
+            peer_id            TEXT NOT NULL,
+            endpoint_id        TEXT NOT NULL,
+            device_label       TEXT,
+            verification_note  TEXT,
+            last_seen          INTEGER,
+            identity_key       BLOB,
+            UNIQUE(local_endpoint_id, peer_id, endpoint_id),
+            UNIQUE(contact_id, peer_id),
+            FOREIGN KEY (contact_id, local_endpoint_id)
+                REFERENCES contacts (contact_id, local_endpoint_id) ON DELETE CASCADE
+        );
+        CREATE TABLE conversation_index_v14 (
+            conversation_id   TEXT    NOT NULL,
+            local_endpoint_id TEXT    NOT NULL,
+            peer_id           TEXT    NOT NULL,
+            endpoint_id       TEXT,
+            channel_id        TEXT,
+            title             TEXT,
+            last_activity     INTEGER,
+            card_shared_at    INTEGER,
+            PRIMARY KEY (local_endpoint_id, conversation_id)
+        );
+";
+
+/// The swap of v14's tables for the ones they replace, and their indexes
+/// ([`rebuild_v14`]): each index as STATE.md's v14 paragraph leads it.
+const V14_SWAP: &str = "
+        DROP TABLE pending_outbound;
+        ALTER TABLE pending_outbound_v14 RENAME TO pending_outbound;
+        DROP TABLE unread_inbound;
+        ALTER TABLE unread_inbound_v14 RENAME TO unread_inbound;
+        DROP TABLE kept_inbound;
+        ALTER TABLE kept_inbound_v14 RENAME TO kept_inbound;
+        DROP TABLE read_pairs;
+        ALTER TABLE read_pairs_v14 RENAME TO read_pairs;
+        DROP TABLE contact_routes;
+        DROP TABLE contacts;
+        ALTER TABLE contacts_v14 RENAME TO contacts;
+        ALTER TABLE contact_routes_v14 RENAME TO contact_routes;
+        DROP TABLE conversation_index;
+        ALTER TABLE conversation_index_v14 RENAME TO conversation_index;
+
+        CREATE INDEX pending_outbound_by_identity
+            ON pending_outbound (local_endpoint_id, created_at, row_id);
+        CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at, row_id);
+        CREATE INDEX unread_inbound_by_conversation
+            ON unread_inbound (local_endpoint_id, source_peer, source_endpoint_key, received_at, row_id);
+        CREATE INDEX unread_inbound_by_channel
+            ON unread_inbound (local_endpoint_id, channel_key, received_at, row_id);
+        CREATE INDEX unread_inbound_by_kind
+            ON unread_inbound (local_endpoint_id, kind, source_peer, source_endpoint, channel_id,
+                               app_message_id);
+        CREATE INDEX unread_inbound_by_message
+            ON unread_inbound (local_endpoint_id, app_message_id, channel_id, source_peer,
+                               source_endpoint, kind);
+        CREATE INDEX kept_inbound_by_received ON kept_inbound (received_at, row_id);
+        CREATE INDEX kept_inbound_by_conversation
+            ON kept_inbound (local_endpoint_id, source_peer, source_endpoint_key, received_at, row_id);
+        CREATE INDEX kept_inbound_by_channel
+            ON kept_inbound (local_endpoint_id, channel_key, received_at, row_id);
+        CREATE INDEX kept_inbound_by_kind
+            ON kept_inbound (local_endpoint_id, kind, source_peer, source_endpoint, channel_id);
+        CREATE INDEX kept_inbound_by_message
+            ON kept_inbound (local_endpoint_id, app_message_id, channel_id, source_peer,
+                             source_endpoint, kind);
+        CREATE INDEX contacts_by_name_key ON contacts (local_endpoint_id, name_key);
+        CREATE INDEX contacts_by_shape_key ON contacts (local_endpoint_id, shape_key);
+        CREATE INDEX contacts_by_compat_shape_key ON contacts (local_endpoint_id, compat_shape_key);
+        CREATE INDEX contact_routes_by_route ON contact_routes (peer_id, endpoint_id);
+        CREATE INDEX contact_routes_by_key ON contact_routes (identity_key);
+        CREATE INDEX conversation_index_by_peer
+            ON conversation_index (local_endpoint_id, peer_id, endpoint_id);
+";
+
+/// Every table that gains `local_endpoint_id`, rebuilt in v14's shape with
+/// `local` as every row's identity and each keyed route's pair rebound
+/// through [`ROUTE_MAP`]; the AUTOINCREMENT high-water marks carried, as
+/// every rebuild here carries them ([`migration_4`]).
+fn rebuild_v14(tx: &Transaction<'_>, local: &str) -> Result<(), StoreError> {
+    let seqs = [
+        ("pending_outbound", sequence_of(tx, "pending_outbound")?),
+        ("unread_inbound", sequence_of(tx, "unread_inbound")?),
+        ("kept_inbound", sequence_of(tx, "kept_inbound")?),
+        ("read_pairs", sequence_of(tx, "read_pairs")?),
+    ];
+    let routes_before = count(tx, "SELECT COUNT(*) FROM contact_routes")?;
+
+    tx.execute_batch(V14_TABLES).map_err(migration_error)?;
+
+    // The copies. Pending is empty by (e); every route left is keyed by
+    // (c), so each is in the map; a direct inbound row, a read pair and an
+    // index row of a keyed pair take its id, and a channel row keeps its
+    // NULL endpoint.
+    for copy in [
+        format!(
+            "INSERT INTO unread_inbound_v14
+                 (row_id, local_endpoint_id, app_message_id, source_peer, source_endpoint,
+                  channel_id, media_type, payload, received_at, kind)
+             SELECT u.row_id, ?1, u.app_message_id, u.source_peer,
+                    IFNULL(m.new, u.source_endpoint), u.channel_id, u.media_type, u.payload,
+                    u.received_at, u.kind
+               FROM unread_inbound u LEFT JOIN {ROUTE_MAP} m
+                 ON u.channel_id IS NULL AND m.peer_id = u.source_peer AND m.old = u.source_endpoint"
+        ),
+        format!(
+            "INSERT INTO kept_inbound_v14
+                 (row_id, local_endpoint_id, app_message_id, source_peer, source_endpoint,
+                  channel_id, media_type, payload, received_at, read_at, kept_at, kind)
+             SELECT k.row_id, ?1, k.app_message_id, k.source_peer,
+                    IFNULL(m.new, k.source_endpoint), k.channel_id, k.media_type, k.payload,
+                    k.received_at, k.read_at, k.kept_at, k.kind
+               FROM kept_inbound k LEFT JOIN {ROUTE_MAP} m
+                 ON k.channel_id IS NULL AND m.peer_id = k.source_peer AND m.old = k.source_endpoint"
+        ),
+        format!(
+            "INSERT INTO read_pairs_v14
+                 (pair_id, local_endpoint_id, app_message_id, source_peer, source_endpoint,
+                  channel_id, at)
+             SELECT p.pair_id, ?1, p.app_message_id, p.source_peer,
+                    IFNULL(m.new, p.source_endpoint), p.channel_id, p.at
+               FROM read_pairs p LEFT JOIN {ROUTE_MAP} m
+                 ON p.channel_id IS NULL AND m.peer_id = p.source_peer AND m.old = p.source_endpoint"
+        ),
+        "INSERT INTO contacts_v14
+             (contact_id, local_endpoint_id, display_name, notes, created_at, updated_at,
+              name_source, name_at, photo_source, photo_at, photo, name_key, shape_key,
+              compat_shape_key)
+         SELECT contact_id, ?1, display_name, notes, created_at, updated_at, name_source,
+                name_at, photo_source, photo_at, photo, name_key, shape_key, compat_shape_key
+           FROM contacts"
+            .to_owned(),
+        format!(
+            "INSERT INTO contact_routes_v14
+                 (contact_id, local_endpoint_id, peer_id, endpoint_id, device_label,
+                  verification_note, last_seen, identity_key)
+             SELECT r.contact_id, ?1, r.peer_id, m.new, r.device_label, r.verification_note,
+                    r.last_seen, r.identity_key
+               FROM contact_routes r JOIN {ROUTE_MAP} m
+                 ON m.peer_id = r.peer_id AND m.old = r.endpoint_id"
+        ),
+        // One index row per conversation, the two of a merge become one
+        // with the later share; `direct/<peer>/<endpoint>` as
+        // `direct_conversation_id` writes it.
+        format!(
+            "INSERT INTO conversation_index_v14
+                 (conversation_id, local_endpoint_id, peer_id, endpoint_id, channel_id, title,
+                  last_activity, card_shared_at)
+             SELECT CASE WHEN e IS NULL THEN conversation_id
+                         ELSE 'direct/' || peer_id || '/' || e END AS cid,
+                    ?1, peer_id, e, channel_id, MAX(title), MAX(last_activity),
+                    MAX(card_shared_at)
+               FROM (SELECT c.conversation_id, c.peer_id, c.channel_id, c.title,
+                            c.last_activity, c.card_shared_at,
+                            IFNULL(m.new, c.endpoint_id) AS e
+                       FROM conversation_index c LEFT JOIN {ROUTE_MAP} m
+                         ON m.peer_id = c.peer_id AND m.old = c.endpoint_id)
+              GROUP BY cid"
+        ),
+    ] {
+        tx.execute(&copy, params![local]).map_err(migration_error)?;
+    }
+    if count(tx, "SELECT COUNT(*) FROM contact_routes_v14")? != routes_before {
+        return Err(StoreError::Migration(
+            "a route was not rebound to the id its key derives".to_owned(),
+        ));
+    }
+
+    tx.execute_batch(V14_SWAP).map_err(migration_error)?;
+
+    for (table, seq) in seqs {
+        let id = if table == "read_pairs" {
+            "pair_id"
+        } else {
+            "row_id"
+        };
+        carry_sequence_of(tx, table, id, seq)?;
+    }
+    Ok(())
+}
+
+/// (a)'s `own_cards` half: the card keyed by a label -- the first
+/// identity's, the only one a build before v14 wrote -- rekeyed to
+/// `local`. A row already keyed by `local` stays, and a row keyed by a
+/// derived id is another identity's and stays. Of several label rows, which
+/// no build wrote, the most recently updated is the one rekeyed; every
+/// other label row goes, since no table holds a label after v14.
+fn rekey_own_card(tx: &Transaction<'_>, local: &str) -> Result<(), StoreError> {
+    let rows: Vec<(String, i64)> = tx
+        .prepare("SELECT endpoint_id, updated_at FROM own_cards")
+        .and_then(|mut s| s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
+        .map_err(migration_error)?;
+    let has_first = rows.iter().any(|(id, _)| id == local);
+    let mut labels: Vec<(String, i64)> = rows
+        .into_iter()
+        .filter(|(id, _)| EndpointId::parse_derived(id.as_str()).is_err())
+        .collect();
+    labels.sort_by(|(a, at), (b, bt)| bt.cmp(at).then_with(|| b.cmp(a)));
+    let mut labels = labels.into_iter();
+    if !has_first && let Some((newest, _)) = labels.next() {
+        tx.execute(
+            "UPDATE own_cards SET endpoint_id = ?2 WHERE endpoint_id = ?1",
+            params![newest, local],
+        )
+        .map_err(migration_error)?;
+    }
+    for (label, _) in labels {
+        tx.execute(
+            "DELETE FROM own_cards WHERE endpoint_id = ?1",
+            params![label],
+        )
+        .map_err(migration_error)?;
+    }
+    Ok(())
+}
+
+/// Every foreign key holds, read before the commit of a migration that ran
+/// with them off: a row naming a parent the store does not hold fails the
+/// migration, and the transaction is rolled back with the version it
+/// started from (STATE.md §Migrations;
+/// `an_orphan_route_fails_the_migration_and_leaves_v13`).
+fn foreign_keys_hold(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let orphans = tx
+        .prepare("PRAGMA foreign_key_check")
+        .and_then(|mut s| {
+            s.query_map([], |_| Ok(()))?
+                .collect::<Result<Vec<()>, _>>()
+                .map(|rows| rows.len())
+        })
+        .map_err(migration_error)?;
+    if orphans != 0 {
+        return Err(StoreError::Migration(format!(
+            "{orphans} rows name a parent row the store does not hold; nothing was migrated"
+        )));
+    }
     Ok(())
 }
 
@@ -304,8 +977,8 @@ fn migration_10(tx: &Transaction<'_>) -> Result<(), StoreError> {
 ///   what the person writes about themselves, outside ADR-0044's three
 ///   states, and nobody else's content.
 ///
-/// `local_endpoint_id` and the composite foreign key are Stage 22's
-/// (ADR-0061), not this migration's. No content table changes, and the
+/// `local_endpoint_id` and the composite foreign key are schema v14's
+/// ([`migration_14`], ADR-0061), not this migration's. No content table changes, and the
 /// identity's private key is in a file beside the store and never here.
 fn migration_9(tx: &Transaction<'_>) -> Result<(), StoreError> {
     tx.execute_batch(
@@ -604,9 +1277,19 @@ fn carry_sequence(
     table: &str,
     previous: Option<i64>,
 ) -> Result<(), StoreError> {
+    carry_sequence_of(tx, table, "row_id", previous)
+}
+
+/// [`carry_sequence`] for a table whose rowid is the column `id`.
+fn carry_sequence_of(
+    tx: &Transaction<'_>,
+    table: &str,
+    id: &str,
+    previous: Option<i64>,
+) -> Result<(), StoreError> {
     let copied: i64 = tx
         .query_row(
-            &format!("SELECT IFNULL(MAX(row_id), 0) FROM {table}"),
+            &format!("SELECT IFNULL(MAX({id}), 0) FROM {table}"),
             [],
             |r| r.get(0),
         )
@@ -880,7 +1563,11 @@ struct Column {
     primary_key: bool,
 }
 
-/// `(column, parent table, parent column, ON UPDATE, ON DELETE)`.
+/// `(columns, parent table, parent columns, ON UPDATE, ON DELETE)`, the
+/// columns of a composite key in its order and joined by `,`: one key over
+/// two columns is not two keys over one each, which reference no unique
+/// parent and fail every write
+/// (`a_composite_route_key_split_into_two_is_refused`).
 type ForeignKey = (
     &'static str,
     &'static str,
@@ -1249,6 +1936,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         name: "pending_outbound",
         columns: &[
             pk("row_id", "INTEGER"),
+            col("local_endpoint_id", "TEXT", true),
             col("app_message_id", "TEXT", true),
             col("transport_message_id", "BLOB", true),
             col("destination_peer", "TEXT", true),
@@ -1260,16 +1948,22 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("last_attempt_at", "INTEGER", false),
             col("attempts", "INTEGER", true),
         ],
+        // UNSCOPED, both (schema v14): this node's own mint, and a
+        // transport id scoped by identity could be written twice.
         unique_keys: &[&["app_message_id"], &["transport_message_id"]],
         generated: &[],
         autoincrement: true,
-        indexes: &[],
+        indexes: &[(
+            "pending_outbound_by_identity",
+            &["local_endpoint_id", "created_at", "row_id"],
+        )],
         foreign_keys: &[],
     },
     TableShape {
         name: "unread_inbound",
         columns: &[
             pk("row_id", "INTEGER"),
+            col("local_endpoint_id", "TEXT", true),
             col("app_message_id", "TEXT", true),
             col("source_peer", "TEXT", true),
             col("source_endpoint", "TEXT", false),
@@ -1279,13 +1973,16 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("received_at", "INTEGER", true),
             col("kind", "TEXT", true),
         ],
-        // SCOPED TO THE PEER, THE ENDPOINT *AND THE CHANNEL*. A bare
-        // UNIQUE on the id alone let one peer collide with another's
-        // message (`migration_2`); scoping only to the peer let one
-        // peer's two endpoints collide with each other (`migration_3`);
-        // scoping without the channel let one publisher's envelope on
-        // two channels collide (`migration_4`).
+        // SCOPED TO THE IDENTITY, THE PEER, THE ENDPOINT *AND THE
+        // CHANNEL*. A bare UNIQUE on the id alone let one peer collide
+        // with another's message (`migration_2`); scoping only to the peer
+        // let one peer's two endpoints collide with each other
+        // (`migration_3`); scoping without the channel let one publisher's
+        // envelope on two channels collide (`migration_4`); scoping
+        // without the identity made one message that reached two of this
+        // node's identities one row (`migration_14`).
         unique_keys: &[&[
+            "local_endpoint_id",
             "source_peer",
             "source_endpoint_key",
             "channel_key",
@@ -1298,6 +1995,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             (
                 "unread_inbound_by_conversation",
                 &[
+                    "local_endpoint_id",
                     "source_peer",
                     "source_endpoint_key",
                     "received_at",
@@ -1307,6 +2005,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             (
                 "unread_inbound_by_kind",
                 &[
+                    "local_endpoint_id",
                     "kind",
                     "source_peer",
                     "source_endpoint",
@@ -1316,11 +2015,12 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             ),
             (
                 "unread_inbound_by_channel",
-                &["channel_key", "received_at", "row_id"],
+                &["local_endpoint_id", "channel_key", "received_at", "row_id"],
             ),
             (
                 "unread_inbound_by_message",
                 &[
+                    "local_endpoint_id",
                     "app_message_id",
                     "channel_id",
                     "source_peer",
@@ -1335,6 +2035,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         name: "kept_inbound",
         columns: &[
             pk("row_id", "INTEGER"),
+            col("local_endpoint_id", "TEXT", true),
             col("app_message_id", "TEXT", true),
             col("source_peer", "TEXT", true),
             col("source_endpoint", "TEXT", false),
@@ -1347,6 +2048,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("kind", "TEXT", true),
         ],
         unique_keys: &[&[
+            "local_endpoint_id",
             "source_peer",
             "source_endpoint_key",
             "channel_key",
@@ -1359,6 +2061,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             (
                 "kept_inbound_by_conversation",
                 &[
+                    "local_endpoint_id",
                     "source_peer",
                     "source_endpoint_key",
                     "received_at",
@@ -1367,15 +2070,22 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             ),
             (
                 "kept_inbound_by_kind",
-                &["kind", "source_peer", "source_endpoint", "channel_id"],
+                &[
+                    "local_endpoint_id",
+                    "kind",
+                    "source_peer",
+                    "source_endpoint",
+                    "channel_id",
+                ],
             ),
             (
                 "kept_inbound_by_channel",
-                &["channel_key", "received_at", "row_id"],
+                &["local_endpoint_id", "channel_key", "received_at", "row_id"],
             ),
             (
                 "kept_inbound_by_message",
                 &[
+                    "local_endpoint_id",
                     "app_message_id",
                     "channel_id",
                     "source_peer",
@@ -1404,6 +2114,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             // NOT NULL declared: SQLite lets a non-INTEGER primary key
             // hold any number of NULLs otherwise.
             ("contact_id", "TEXT", true, true),
+            col("local_endpoint_id", "TEXT", true),
             col("display_name", "TEXT", true),
             col("notes", "TEXT", false),
             col("created_at", "INTEGER", true),
@@ -1417,13 +2128,19 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("shape_key", "TEXT", true),
             col("compat_shape_key", "TEXT", true),
         ],
-        unique_keys: &[&["contact_id"]],
+        // The second is the parent key the routes' composite foreign key
+        // needs (STATE.md `contact_routes`): a route cannot sit under
+        // another identity's contact.
+        unique_keys: &[&["contact_id"], &["contact_id", "local_endpoint_id"]],
         generated: &[],
         autoincrement: false,
         indexes: &[
-            ("contacts_by_name_key", &["name_key"]),
-            ("contacts_by_shape_key", &["shape_key"]),
-            ("contacts_by_compat_shape_key", &["compat_shape_key"]),
+            ("contacts_by_name_key", &["local_endpoint_id", "name_key"]),
+            ("contacts_by_shape_key", &["local_endpoint_id", "shape_key"]),
+            (
+                "contacts_by_compat_shape_key",
+                &["local_endpoint_id", "compat_shape_key"],
+            ),
         ],
         foreign_keys: &[],
     },
@@ -1431,6 +2148,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         name: "contact_routes",
         columns: &[
             col("contact_id", "TEXT", true),
+            col("local_endpoint_id", "TEXT", true),
             col("peer_id", "TEXT", true),
             col("endpoint_id", "TEXT", true),
             col("device_label", "TEXT", false),
@@ -1438,8 +2156,10 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("last_seen", "INTEGER", false),
             col("identity_key", "BLOB", false),
         ],
+        // One contact per route of an identity, and one route per PeerId
+        // under a contact (STATE.md `contact_routes`, schema v14).
         unique_keys: &[
-            &["contact_id", "peer_id", "endpoint_id"],
+            &["local_endpoint_id", "peer_id", "endpoint_id"],
             &["contact_id", "peer_id"],
         ],
         generated: &[],
@@ -1449,9 +2169,9 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             ("contact_routes_by_key", &["identity_key"]),
         ],
         foreign_keys: &[(
-            "contact_id",
+            "contact_id,local_endpoint_id",
             "contacts",
-            "contact_id",
+            "contact_id,local_endpoint_id",
             "NO ACTION",
             "CASCADE",
         )],
@@ -1460,6 +2180,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         name: "conversation_index",
         columns: &[
             ("conversation_id", "TEXT", true, true),
+            ("local_endpoint_id", "TEXT", true, true),
             col("peer_id", "TEXT", true),
             col("endpoint_id", "TEXT", false),
             col("channel_id", "TEXT", false),
@@ -1467,10 +2188,16 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("last_activity", "INTEGER", false),
             col("card_shared_at", "INTEGER", false),
         ],
-        unique_keys: &[&["conversation_id"]],
+        // Keyed by the identity with the conversation (schema v14): two
+        // identities each hold their own conversation with one route.
+        unique_keys: &[&["local_endpoint_id", "conversation_id"]],
         generated: &[],
         autoincrement: false,
-        indexes: &[],
+        // The per-peer bound, counted per identity (STATE.md v14).
+        indexes: &[(
+            "conversation_index_by_peer",
+            &["local_endpoint_id", "peer_id", "endpoint_id"],
+        )],
         foreign_keys: &[],
     },
     TableShape {
@@ -1496,6 +2223,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         // say what a deleted message was (RETENTION.md §5).
         columns: &[
             pk("pair_id", "INTEGER"),
+            col("local_endpoint_id", "TEXT", true),
             col("app_message_id", "TEXT", true),
             col("source_peer", "TEXT", true),
             col("source_endpoint", "TEXT", false),
@@ -1503,6 +2231,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("at", "INTEGER", true),
         ],
         unique_keys: &[&[
+            "local_endpoint_id",
             "source_peer",
             "source_endpoint_key",
             "channel_key",
@@ -1640,17 +2369,37 @@ fn index_key_columns(conn: &Connection, index: &str) -> Result<Vec<String>, Stor
 /// column, ON UPDATE action, ON DELETE action]`.
 fn actual_foreign_keys(conn: &Connection, table: &str) -> Result<Vec<[String; 5]>, StoreError> {
     let mut stmt = conn.prepare(&format!("PRAGMA foreign_key_list({table})"))?;
-    let mut keys: Vec<[String; 5]> = stmt
+    // (id, seq, [from, table, to, on update, on delete]): one row per
+    // column, a composite key's columns sharing its id.
+    let mut rows: Vec<(i64, i64, [String; 5])> = stmt
         .query_map([], |r| {
-            Ok([
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                r.get::<_, String>(5)?,
-                r.get::<_, String>(6)?,
-            ])
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                [
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(6)?,
+                ],
+            ))
         })?
         .collect::<Result<_, _>>()?;
+    rows.sort_by_key(|(id, seq, _)| (*id, *seq));
+    let mut keys: Vec<(i64, [String; 5])> = Vec::new();
+    for (id, _, row) in rows {
+        match keys.last_mut() {
+            Some((last, key)) if *last == id => {
+                key[0].push(',');
+                key[0].push_str(&row[0]);
+                key[2].push(',');
+                key[2].push_str(&row[2]);
+            }
+            _ => keys.push((id, row)),
+        }
+    }
+    let mut keys: Vec<[String; 5]> = keys.into_iter().map(|(_, key)| key).collect();
     keys.sort();
     Ok(keys)
 }

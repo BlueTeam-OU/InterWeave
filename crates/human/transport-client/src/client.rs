@@ -534,7 +534,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// Whether a direct conversation with `peer`'s `endpoint` may be held:
     /// it is held already, or the peer has fewer than a profile's most
     /// endpoints (`MAX_ENDPOINTS`) in the store's conversations and its
-    /// contacts' routes together.
+    /// contacts' routes together -- the store's identity's alone, each
+    /// identity counted apart (STATE.md schema v14).
     fn admits_endpoint(
         &self,
         peer: &TransportIdentity,

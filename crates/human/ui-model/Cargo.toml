@@ -48,13 +48,13 @@ icu_properties = { workspace = true }
 test-hooks = []
 
 [dev-dependencies]
+# TEST-ONLY: the derived EndpointId a test store opens as (ADR-0067).
+interweave-test-support = { path = "../../../tests/support" }
 # TEST-ONLY: this crate with its own `test-hooks` on, for its own tests.
 interweave-human-ui-model = { path = ".", features = ["test-hooks"] }
 interweave-human-store = { path = "../store" }
 interweave-human-transport-client = { path = "../transport-client" }
 interweave-local-client-fake = { path = "../../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
-# TEST-ONLY derived endpoint ids (ADR-0067).
-interweave-test-support = { path = "../../../tests/support" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

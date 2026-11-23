@@ -59,7 +59,12 @@ fn maximal() -> Vec<u8> {
 /// The half that runs under the limit: the medium refuses the commit,
 /// the store degrades, and the probe must not say otherwise.
 fn under_the_fault(path: &Path) {
-    let mut store = HumanStore::open(path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     assert_eq!(store.health(), StorageHealth::Healthy);
     let err = store
         .commit_unread_inbound(&inbound(1, maximal()))
@@ -96,7 +101,12 @@ fn recheck_health_stays_degraded_while_durable_writes_fail() {
     // THE CONTROL: with no fault, a maximal message commits, and the
     // store is closed so the child starts with an empty WAL.
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens");
         store
             .commit_unread_inbound(&inbound(0, maximal()))
             .expect("a healthy medium commits");
@@ -127,7 +137,12 @@ fn recheck_health_stays_degraded_while_durable_writes_fail() {
     // THE RECOVERY: no fault here, and the medium holds what the child
     // was refused: a real committed probe says healthy and a maximal
     // message commits.
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert_eq!(
         store.recheck_health().expect("the medium is fine"),
         StorageHealth::Healthy

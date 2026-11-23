@@ -36,7 +36,7 @@ use interweave_human_store::{
 use interweave_profile_config::TrustBoundary;
 use interweave_profile_config::paths::ProfilePaths;
 use interweave_profile_config::profile_format;
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::TransportIdentity;
 use keystore::SoftKeystore;
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -102,7 +102,7 @@ fn fill(store: &mut HumanStore) {
         store.keep(&read, 3_001).expect("kept");
     }
     let p = TransportIdentity::parse(PEER).unwrap();
-    let human = EndpointId::parse("human").unwrap();
+    let human = interweave_test_support::endpoint_keys::endpoint_id("human");
     store
         .accept_card(
             &AcceptedCard {
@@ -120,7 +120,12 @@ fn fill(store: &mut HumanStore) {
 
 /// A plaintext store as a build before ADR-0060 left it, closed cleanly.
 fn plaintext_store(paths: &ProfilePaths) {
-    let mut store = HumanStore::open(&db(paths), StoreOptions::default()).expect("plaintext");
+    let mut store = HumanStore::open(
+        &db(paths),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("plaintext");
     fill(&mut store);
     drop(store);
     for needle in [KEPT, NAME.as_bytes(), PEER.as_bytes()] {
@@ -212,7 +217,12 @@ fn child_opens_the_profile() {
         return;
     };
     let paths = paths_at(Path::new(&dir));
-    let _ = HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default());
+    let _ = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     panic!("the crash point was not reached");
 }
 
@@ -245,14 +255,24 @@ const STEPS: [RewriteStep; 8] = [
 #[test]
 fn a_new_store_is_encrypted_from_its_first_page_under_a_new_key() {
     let (_dir, paths) = profile();
-    let mut store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let mut store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     fill(&mut store);
     drop(store);
     assert!(store_key::exists(&paths).unwrap());
     assert_no_plaintext(&paths);
-    let store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     assert_all_rows(&store);
 }
 
@@ -260,8 +280,13 @@ fn a_new_store_is_encrypted_from_its_first_page_under_a_new_key() {
 fn a_plaintext_store_is_rewritten_encrypted_at_its_first_open_with_every_row() {
     let (_dir, paths) = profile();
     plaintext_store(&paths);
-    let store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     assert_all_rows(&store);
     drop(store);
     assert_no_plaintext(&paths);
@@ -280,8 +305,13 @@ fn the_rewrite_killed_after_each_step_loses_no_row_at_the_next_open() {
         let (dir, paths) = profile();
         plaintext_store(&paths);
         crash_after(dir.path(), step);
-        let store = HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default())
-            .unwrap_or_else(|e| panic!("after {step:?}: {e}"));
+        let store = HumanStore::open_profile(
+            &paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap_or_else(|e| panic!("after {step:?}: {e}"));
         assert_all_rows(&store);
         drop(store);
         assert_eq!(names_in(&paths.human_dir()), [STORE_FILE], "after {step:?}");
@@ -316,7 +346,12 @@ fn a_crash_leaves_the_files_by_name_as_decision_6_lists_them() {
 #[test]
 fn a_store_whose_every_session_ended_before_a_checkpoint_is_rewritten_too() {
     let (_dir, paths) = profile();
-    let mut store = HumanStore::open(&db(&paths), StoreOptions::default()).unwrap();
+    let mut store = HumanStore::open(
+        &db(&paths),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     fill(&mut store);
     // Killed: no close, no checkpoint; the content is in the log alone.
     std::mem::forget(store);
@@ -324,8 +359,13 @@ fn a_store_whose_every_session_ended_before_a_checkpoint_is_rewritten_too() {
         at_rest::inspect(&paths, &FilesystemCustody).unwrap().files,
         StoreFiles::Plaintext
     );
-    let store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     assert_all_rows(&store);
     drop(store);
     assert_no_plaintext(&paths);
@@ -334,8 +374,13 @@ fn a_store_whose_every_session_ended_before_a_checkpoint_is_rewritten_too() {
 #[test]
 fn no_plaintext_after_an_unclean_close_of_the_encrypted_store() {
     let (_dir, paths) = profile();
-    let mut store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let mut store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     fill(&mut store);
     std::mem::forget(store);
     assert!(
@@ -344,8 +389,13 @@ fn no_plaintext_after_an_unclean_close_of_the_encrypted_store() {
         "the setup: the content is in the log"
     );
     assert_no_plaintext(&paths);
-    let store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     assert_all_rows(&store);
 }
 
@@ -354,14 +404,24 @@ fn no_plaintext_after_an_unclean_close_of_the_encrypted_store() {
 #[test]
 fn a_store_whose_key_is_missing_opens_nothing_and_reaches_recovery_mode() {
     let (_dir, paths) = profile();
-    let mut store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let mut store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     fill(&mut store);
     drop(store);
     std::fs::remove_file(store_key::key_path(&paths)).unwrap();
     let before = snapshot(&paths.human_dir());
-    let err =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    let err = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap_err();
     assert!(
         matches!(err, StoreError::AtRest(AtRestRecovery::KeyMissing)),
         "{err:?}"
@@ -377,12 +437,25 @@ fn a_store_whose_key_is_missing_opens_nothing_and_reaches_recovery_mode() {
 #[test]
 fn a_key_that_does_not_open_the_store_reaches_recovery_mode() {
     let (_dir, paths) = profile();
-    drop(HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap());
+    drop(
+        HumanStore::open_profile(
+            &paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap(),
+    );
     store_key::remove(&paths, &FilesystemCustody).unwrap();
     store_key::create(&paths, &FilesystemCustody).unwrap();
     let before = snapshot(&paths.human_dir());
-    let err =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    let err = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap_err();
     assert!(err.needs_recovery(), "{err:?}");
     assert_eq!(snapshot(&paths.human_dir()), before);
 }
@@ -391,9 +464,23 @@ fn a_key_that_does_not_open_the_store_reaches_recovery_mode() {
 fn an_invalidated_key_is_its_own_condition_not_recovery_mode() {
     let (_dir, paths) = profile();
     let keystore = SoftKeystore::default();
-    drop(HumanStore::open_profile(&paths, &keystore, StoreOptions::default()).unwrap());
+    drop(
+        HumanStore::open_profile(
+            &paths,
+            &keystore,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap(),
+    );
     keystore.invalidate(&store_key::alias("default"));
-    let err = HumanStore::open_profile(&paths, &keystore, StoreOptions::default()).unwrap_err();
+    let err = HumanStore::open_profile(
+        &paths,
+        &keystore,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap_err();
     assert!(matches!(err, StoreError::KeyInvalidated), "{err:?}");
     assert!(!err.needs_recovery());
     assert_eq!(
@@ -411,8 +498,13 @@ fn a_plaintext_store_with_a_damaged_header_reaches_recovery_mode_not_discard() {
     bytes[..16].copy_from_slice(&[0xA5; 16]);
     std::fs::write(&path, &bytes).unwrap();
     let before = snapshot(&paths.human_dir());
-    let err =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    let err = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap_err();
     assert!(err.needs_recovery(), "{err:?}");
     assert_eq!(
         snapshot(&paths.human_dir()),
@@ -424,11 +516,24 @@ fn a_plaintext_store_with_a_damaged_header_reaches_recovery_mode_not_discard() {
 #[test]
 fn names_decision_6_does_not_list_reach_recovery_mode() {
     let (_dir, paths) = profile();
-    drop(HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap());
+    drop(
+        HumanStore::open_profile(
+            &paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap(),
+    );
     // A complete copy beside a store that is not plaintext.
     std::fs::copy(db(&paths), paths.human_dir().join(at_rest::ENCRYPTED)).unwrap();
-    let err =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    let err = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap_err();
     assert!(
         matches!(err, StoreError::AtRest(AtRestRecovery::UnlistedFiles(_))),
         "{err:?}"
@@ -443,8 +548,13 @@ fn a_copy_that_does_not_open_leaves_the_plaintext_beside_it_unscrubbed() {
     // The key that sealed the copy is lost and another is in its place.
     store_key::remove(&paths, &FilesystemCustody).unwrap();
     store_key::create(&paths, &FilesystemCustody).unwrap();
-    let err =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    let err = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap_err();
     assert!(
         matches!(err, StoreError::AtRest(AtRestRecovery::CopyUnopenable)),
         "{err:?}"
@@ -457,8 +567,13 @@ fn a_copy_that_does_not_open_leaves_the_plaintext_beside_it_unscrubbed() {
 #[test]
 fn a_discard_removes_everything_and_the_key_and_the_next_open_recreates_an_empty_store() {
     let (_dir, paths) = profile();
-    let mut store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let mut store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     fill(&mut store);
     drop(store);
     std::fs::remove_file(store_key::key_path(&paths)).unwrap();
@@ -468,8 +583,13 @@ fn a_discard_removes_everything_and_the_key_and_the_next_open_recreates_an_empty
     assert!(plan.files().contains(&db(&paths)));
     at_rest::discard(&paths, &FilesystemCustody, plan.confirm()).unwrap();
     assert!(names_in(&paths.human_dir()).is_empty());
-    let store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     assert!(store.unread_inbound().unwrap().is_empty());
     assert!(store.contacts().unwrap().is_empty());
     assert!(store_key::exists(&paths).unwrap(), "a new key");
@@ -478,9 +598,19 @@ fn a_discard_removes_everything_and_the_key_and_the_next_open_recreates_an_empty
 #[test]
 fn a_discard_leaves_every_identity_key_and_the_profiles_other_state() {
     let (_dir, paths) = profile();
-    drop(HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap());
-    let human = EndpointId::parse("human").unwrap();
-    interweave_human_store::identity_key::create(&paths, &human, &FilesystemCustody).unwrap();
+    drop(
+        HumanStore::open_profile(
+            &paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap(),
+    );
+    let human = interweave_human_store::identity_key::create(&paths, &FilesystemCustody)
+        .unwrap()
+        .endpoint()
+        .clone();
     let identity = std::fs::read(interweave_human_store::identity_key::key_path(
         &paths, &human,
     ))
@@ -519,8 +649,13 @@ fn a_discard_during_a_stalled_rewrite_removes_the_plaintext_and_keeps_the_key_an
     assert!(store_key::exists(&paths).unwrap());
     // The next open promotes the complete copy: nothing the person had is
     // lost.
-    let store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    let store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
     assert_all_rows(&store);
 }
 
@@ -611,7 +746,15 @@ fn the_health_report_names_the_protection_the_key_and_the_files() {
     assert_eq!(report.key, KeyPresence::Absent);
     assert_eq!(report.files, StoreFiles::None);
     let keystore = SoftKeystore::default();
-    drop(HumanStore::open_profile(&paths, &keystore, StoreOptions::default()).unwrap());
+    drop(
+        HumanStore::open_profile(
+            &paths,
+            &keystore,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap(),
+    );
     let report = at_rest::inspect(&paths, &keystore).unwrap();
     assert_eq!(report.protection, Custody::Keystore);
     assert_eq!(report.key, KeyPresence::Present);
@@ -641,8 +784,13 @@ fn a_plaintext_store_from_a_newer_build_is_refused_with_every_file_as_it_was() {
     }
     let state = paths.state_dir();
     let before = (snapshot(&paths.human_dir()), snapshot(state));
-    let err =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    let err = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap_err();
     assert!(err.needs_recovery(), "{err:?}");
     assert_eq!(
         (snapshot(&paths.human_dir()), snapshot(state)),
@@ -672,11 +820,37 @@ fn older_store(paths: &ProfilePaths) {
     );
 }
 
+/// Every row of the upgrade tree's store reached schema v14: its one
+/// pending, unread and kept row are all of one `{peer, label}` that no
+/// keyed route names, so v14 discards them (STATE.md §Migrations (c), (e))
+/// and its counts row says each -- a row the rewrite lost before the
+/// migration would be missing from the counts.
+fn every_row_reached_the_migration(store: &HumanStore, when: &str) {
+    assert_eq!(
+        store.discarded_at_v14().unwrap(),
+        Some(interweave_human_store::DiscardedAtV14 {
+            conversations: 1,
+            unread: 1,
+            kept: 1,
+            pending_never_attempted: 1,
+            pending_may_have_reached: 0,
+            contacts: 0,
+            contacts_combined: 0,
+            card_proposals: 0,
+        }),
+        "{when}"
+    );
+    assert!(store.pending_outbound().unwrap().is_empty(), "{when}");
+    assert!(store.unread_inbound().unwrap().is_empty(), "{when}");
+    assert!(store.kept_inbound().unwrap().is_empty(), "{when}");
+}
+
 /// The rewrite of a store an older build wrote, killed after each step
 /// that leaves a complete copy beside the plaintext: the open migrates
 /// the plaintext before it exports it, so the copy is at this build's
 /// schema, opens under its key, and the next open promotes it with every
-/// row, and a discard planned meanwhile removes
+/// row -- each reaching schema v14, which counts what it discards
+/// ([`every_row_reached_the_migration`]) -- and a discard planned meanwhile removes
 /// the unfinished plaintext alone (ADR-0060 decision 6; review F1 of #377).
 #[test]
 fn an_older_stores_rewrite_killed_beside_its_copy_loses_no_row_and_keeps_the_copy() {
@@ -695,11 +869,14 @@ fn an_older_stores_rewrite_killed_beside_its_copy_loses_no_row_and_keeps_the_cop
             DiscardScope::UnfinishedPlaintext,
             "after {step:?}: the complete copy opens and is kept"
         );
-        let store = HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default())
-            .unwrap_or_else(|e| panic!("after {step:?}: {e}"));
-        assert_eq!(store.pending_outbound().unwrap().len(), 1, "after {step:?}");
-        assert_eq!(store.unread_inbound().unwrap().len(), 1, "after {step:?}");
-        assert_eq!(store.kept_inbound().unwrap().len(), 1, "after {step:?}");
+        let store = HumanStore::open_profile(
+            &paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap_or_else(|e| panic!("after {step:?}: {e}"));
+        every_row_reached_the_migration(&store, &format!("after {step:?}"));
         drop(store);
         assert_eq!(names_in(&paths.human_dir()), [STORE_FILE], "after {step:?}");
     }
@@ -757,11 +934,14 @@ fn a_copy_an_earlier_build_left_at_its_schema_is_kept_and_migrated() {
             .scope(),
         DiscardScope::UnfinishedPlaintext
     );
-    let store =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
-    assert_eq!(store.pending_outbound().unwrap().len(), 1);
-    assert_eq!(store.unread_inbound().unwrap().len(), 1);
-    assert_eq!(store.kept_inbound().unwrap().len(), 1);
+    let store = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap();
+    every_row_reached_the_migration(&store, "promoted");
     drop(store);
     assert_eq!(names_in(&paths.human_dir()), [STORE_FILE]);
     assert_no_plaintext_header(&paths);
@@ -778,7 +958,14 @@ fn assert_no_plaintext_header(paths: &ProfilePaths) {
 #[test]
 fn a_newer_plaintext_known_only_from_its_log_is_refused_before_any_write() {
     let (_dir, paths) = profile();
-    std::mem::forget(HumanStore::open(&db(&paths), StoreOptions::default()).unwrap());
+    std::mem::forget(
+        HumanStore::open(
+            &db(&paths),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap(),
+    );
     let raw = rusqlite::Connection::open(db(&paths)).unwrap();
     raw.pragma_update(
         None,
@@ -794,8 +981,13 @@ fn a_newer_plaintext_known_only_from_its_log_is_refused_before_any_write() {
         "the setup: a plaintext store"
     );
     let marker = profile_format::path_for(&paths);
-    let err =
-        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    let err = HumanStore::open_profile(
+        &paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .unwrap_err();
     assert!(err.needs_recovery(), "{err:?}");
     assert!(!marker.exists(), "no marker raised");
     assert!(!store_key::exists(&paths).unwrap(), "no key made");

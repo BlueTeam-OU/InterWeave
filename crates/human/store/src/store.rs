@@ -80,6 +80,12 @@ pub struct StoreOptions {
 #[derive(Debug)]
 pub struct HumanStore {
     conn: Connection,
+    /// The local identity this handle speaks as (STATE.md schema v14):
+    /// every row it writes carries it as `local_endpoint_id`, and every
+    /// read, count, probe and bound is of its rows alone -- another
+    /// identity's rows are never consulted (ADR-0061 decision 9). The id
+    /// the open was handed, derived from the identity's key.
+    identity: EndpointId,
     health: StorageHealth,
     /// The page ceiling asked for (`StoreOptions::max_pages`), kept
     /// because SQLite may be enforcing a LOOSER one: a ceiling below the
@@ -102,11 +108,13 @@ const SCRUBBED: &str = "released_content_scrubbed";
 /// where the page before it ended. Each is served by its table's
 /// `<table>_by_received` index (schema v8) rather than a sort of the
 /// whole table on every page; `the_inbound_walk_reads_its_index_not_a_sort`
-/// pins the plan.
+/// pins the plan. `?4` is the identity whose rows are walked (schema v14),
+/// or NULL for every identity's: the reclassification alone, since a
+/// row's kind is not an identity's.
 const WALK_UNREAD: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
         media_type, payload, received_at, NULL, NULL, kind
-   FROM unread_inbound
-  WHERE (received_at, row_id) > (?1, ?2)
+   FROM unread_inbound INDEXED BY unread_inbound_by_received
+  WHERE (?4 IS NULL OR local_endpoint_id = ?4) AND (received_at, row_id) > (?1, ?2)
   ORDER BY received_at, row_id
   LIMIT ?3";
 /// The unread rows stored as cards, from the kind index: a store holds a
@@ -117,13 +125,13 @@ const WALK_UNREAD_CARDS: &str =
     "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
         media_type, payload, received_at, NULL, NULL, kind
    FROM unread_inbound INDEXED BY unread_inbound_by_kind
-  WHERE kind = 'card' AND (received_at, row_id) > (?1, ?2)
+  WHERE local_endpoint_id = ?4 AND kind = 'card' AND (received_at, row_id) > (?1, ?2)
   ORDER BY received_at, row_id
   LIMIT ?3";
 const WALK_KEPT: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
         media_type, payload, received_at, read_at, kept_at, kind
-   FROM kept_inbound
-  WHERE (received_at, row_id) > (?1, ?2)
+   FROM kept_inbound INDEXED BY kept_inbound_by_received
+  WHERE (?4 IS NULL OR local_endpoint_id = ?4) AND (received_at, row_id) > (?1, ?2)
   ORDER BY received_at, row_id
   LIMIT ?3";
 
@@ -166,6 +174,118 @@ fn sql_timestamp(field: &'static str, value: u64) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::TimestampOutOfRange { field, got: value })
 }
 
+/// What schema v14 discarded (STATE.md §Migrations): counts, and nothing
+/// that says what any row held, each count one thing a person would call
+/// gone or changed. The second copy of a message under (d), an unread row
+/// that met a kept row or a read pair there, and the later of two read
+/// pairs are counted nowhere: the message is still held, or was read and
+/// not kept. The words that show it are ux-designer's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DiscardedAtV14 {
+    /// Conversations: the distinct direct `{peer, endpoint}` pairs (c)
+    /// discarded, each one the store held an index row, an inbound or a
+    /// pending row of. A merge under (d) loses none.
+    pub conversations: u64,
+    /// Unread messages: the unread rows (c) discarded, an unread row of
+    /// kind `card` not among them ([`Self::card_proposals`]).
+    pub unread: u64,
+    /// Kept messages: the kept rows (c) discarded.
+    pub kept: u64,
+    /// Pending rows with no attempt behind them, which were not sent:
+    /// every one the migration discarded, whichever of (c) and (e) took it
+    /// (the count is by the row, A 2026-11-22 (ii)).
+    pub pending_never_attempted: u64,
+    /// Pending rows with an attempt behind them, which may have reached
+    /// their counterparty under the previous release (RETENTION.md §2's
+    /// `attempts > 0`): never said as not sent. By the row, as above.
+    pub pending_may_have_reached: u64,
+    /// Contacts (c) deleted with their last route.
+    pub contacts: u64,
+    /// Contacts combined: those (d) deleted because their route went to
+    /// another contact of the same identity, whose own name and notes went
+    /// with them while the person's contact stays.
+    pub contacts_combined: u64,
+    /// Card proposals: every unread row of kind `card` the migration
+    /// discarded, whichever of (c) and (e) took it (by the row, A
+    /// 2026-11-22 (ii)), which are no messages and which the counterparty's
+    /// card, shared again, replaces.
+    pub card_proposals: u64,
+}
+
+impl DiscardedAtV14 {
+    const FIELDS: [&'static str; 8] = [
+        "conversations",
+        "unread",
+        "kept",
+        "pending_never_attempted",
+        "pending_may_have_reached",
+        "contacts",
+        "contacts_combined",
+        "card_proposals",
+    ];
+
+    const fn values(self) -> [u64; 8] {
+        [
+            self.conversations,
+            self.unread,
+            self.kept,
+            self.pending_never_attempted,
+            self.pending_may_have_reached,
+            self.contacts,
+            self.contacts_combined,
+            self.card_proposals,
+        ]
+    }
+
+    /// Whether every count is zero: a migration that discarded nothing,
+    /// which writes no row (STATE.md §Migrations, A 2026-11-22).
+    pub(crate) fn is_empty(self) -> bool {
+        self.values().iter().all(|n| *n == 0)
+    }
+
+    /// The `settings` value: `name=count` for each field, `;`-separated.
+    pub(crate) fn to_setting(self) -> String {
+        Self::FIELDS
+            .iter()
+            .zip(self.values())
+            .map(|(name, n)| format!("{name}={n}"))
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
+    /// The value [`Self::to_setting`] writes, and nothing else.
+    fn from_setting(value: &str) -> Option<Self> {
+        let mut counts = [0_u64; 8];
+        let parts: Vec<&str> = value.split(';').collect();
+        if parts.len() != Self::FIELDS.len() {
+            return None;
+        }
+        for ((part, name), count) in parts.iter().zip(Self::FIELDS).zip(&mut counts) {
+            *count = part.strip_prefix(name)?.strip_prefix('=')?.parse().ok()?;
+        }
+        let [
+            conversations,
+            unread,
+            kept,
+            never,
+            reached,
+            contacts,
+            contacts_combined,
+            card_proposals,
+        ] = counts;
+        Some(Self {
+            conversations,
+            unread,
+            kept,
+            pending_never_attempted: never,
+            pending_may_have_reached: reached,
+            contacts,
+            contacts_combined,
+            card_proposals,
+        })
+    }
+}
+
 /// The store's file name in the profile's human directory
 /// ([`ProfilePaths::human_dir`](profile_config::ProfilePaths::human_dir)).
 pub const STORE_FILE: &str = "human.sqlite";
@@ -188,15 +308,23 @@ impl HumanStore {
     /// step of that rewrite is resumed by the next open
     /// ([`crate::at_rest`], ADR-0060 decision 6).
     ///
+    /// `identity` is the first identity's `EndpointId`, derived from its key
+    /// (ADR-0067): the handle speaks as it ([`Self::identity`]), and schema
+    /// v14 gives it to every row an older store holds (STATE.md
+    /// §Migrations). The client hands it over because the store reads no
+    /// configuration, so a profile the client refuses at load leaves the
+    /// store unopened at the version it had.
+    ///
     /// # Errors
     /// As [`open`](Self::open), and [`StoreError::KeyInvalidated`] and
     /// [`StoreError::AtRest`] for the key and the files decision 6 names.
     pub fn open_profile(
         paths: &profile_config::ProfilePaths,
         cipher: &dyn crate::key_custody::KeyCipher,
+        identity: &EndpointId,
         options: StoreOptions,
     ) -> Result<Self, StoreError> {
-        crate::at_rest::open(paths, cipher, options)
+        crate::at_rest::open(paths, cipher, identity, options)
     }
 
     /// Open (creating if needed) the store at `path`, judged up to `/`,
@@ -204,17 +332,29 @@ impl HumanStore {
     /// own logic over a real file, and for the rewrite's read of a
     /// plaintext store; a client opens through
     /// [`open_profile`](Self::open_profile), which keys every page.
+    /// `identity` as there.
     ///
     /// # Errors
     /// Returns [`StoreError`] if the file cannot be opened, a migration
     /// fails, or the database contains a table ADR-0044 forbids.
-    pub fn open(path: &Path, options: StoreOptions) -> Result<Self, StoreError> {
-        Self::open_within(path, &profile_config::TrustBoundary::root(), options, None)
+    pub fn open(
+        path: &Path,
+        identity: &EndpointId,
+        options: StoreOptions,
+    ) -> Result<Self, StoreError> {
+        Self::open_within(
+            path,
+            &profile_config::TrustBoundary::root(),
+            identity,
+            options,
+            None,
+        )
     }
 
     pub(crate) fn open_within(
         path: &Path,
         boundary: &profile_config::TrustBoundary,
+        identity: &EndpointId,
         options: StoreOptions,
         key: Option<&crate::store_key::StoreKey>,
     ) -> Result<Self, StoreError> {
@@ -380,9 +520,62 @@ impl HumanStore {
         // checkpoints and deletes the WAL as it closes -- the refusal
         // destroying what it refused (#214's re-review).
         let existing: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        let mut store = Self::from_connection(conn, options)?;
+        let mut store = Self::from_connection(conn, identity, options)?;
         store.scrub_at_open(existing > 0)?;
         Ok(store)
+    }
+
+    /// The local identity this handle speaks as: the id its open was
+    /// handed.
+    #[must_use]
+    pub const fn identity(&self) -> &EndpointId {
+        &self.identity
+    }
+
+    /// What schema v14 discarded when it upgraded this store (STATE.md
+    /// §Migrations: the eight counts of [`DiscardedAtV14`]), until the
+    /// person acknowledges it and the client deletes it with
+    /// [`Self::forget_discarded_at_v14`]: the client shows it at each open
+    /// until then. `None` on a store created at v14 or later, on one whose
+    /// migration discarded nothing (the row is written only when a count
+    /// is not zero), and after the delete.
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for a row this build
+    /// did not write.
+    pub fn discarded_at_v14(&self) -> Result<Option<DiscardedAtV14>, StoreError> {
+        let value: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![crate::schema::V14_DISCARDED],
+                |r| r.get(0),
+            )
+            .optional()?;
+        value
+            .map(|v| {
+                DiscardedAtV14::from_setting(&v).ok_or_else(|| {
+                    StoreError::Corrupt("the v14 discard counts do not parse".to_owned())
+                })
+            })
+            .transpose()
+    }
+
+    /// Delete the row [`Self::discarded_at_v14`] reads: the client's, on the
+    /// person's acknowledgement of it and on nothing else -- not at the
+    /// open that first shows it, so a process that ends there loses no
+    /// notice (STATE.md §Migrations). Deleting it again is not an error.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn forget_discarded_at_v14(&mut self) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "DELETE FROM settings WHERE key = ?1",
+                params![crate::schema::V14_DISCARDED],
+            )
+            .map_err(|e| self.note_failure(e))?;
+        Ok(())
     }
 
     /// Open a store that exists only for this process.
@@ -394,12 +587,19 @@ impl HumanStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] if the schema cannot be created.
-    pub fn open_in_memory(options: StoreOptions) -> Result<Self, StoreError> {
+    pub fn open_in_memory(
+        identity: &EndpointId,
+        options: StoreOptions,
+    ) -> Result<Self, StoreError> {
         let conn = crate::engine::open_in_memory()?;
-        Self::from_connection(conn, options)
+        Self::from_connection(conn, identity, options)
     }
 
-    fn from_connection(mut conn: Connection, options: StoreOptions) -> Result<Self, StoreError> {
+    fn from_connection(
+        mut conn: Connection,
+        identity: &EndpointId,
+        options: StoreOptions,
+    ) -> Result<Self, StoreError> {
         // WAL so a reader never blocks the commit of an inbound message,
         // and synchronous=FULL because this store's whole purpose is
         // surviving an abrupt end. NORMAL survives a process crash but
@@ -453,7 +653,18 @@ impl HumanStore {
         // The quota is applied once they are done; a store over it then
         // opens degraded, below; one exactly at it is healthy
         // (`a_store_exactly_at_its_quota_opens_healthy`).
-        migrate(&mut conn)?;
+        let created: bool =
+            conn.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))? == 0;
+        migrate(&mut conn, identity)?;
+        // A NEW STORE IS COMPACTED ONCE: its migrations build every earlier
+        // shape before v14 replaces six tables with their identity-keyed
+        // forms, and the replaced tables' pages would stay free in the file
+        // for good, counted against a quota like content. The file holds no
+        // row yet, so this is cheap; a failure leaves a correct store with
+        // free pages, and is not one to refuse the open over.
+        if created {
+            let _ = conn.execute_batch("VACUUM");
+        }
         verify_shape(&conn)?;
         // Before anything can read a key: a store whose keys another build
         // made, or the v10 migration left empty, has them all again here.
@@ -478,6 +689,7 @@ impl HumanStore {
 
         Ok(Self {
             conn,
+            identity: identity.clone(),
             health,
             quota: options.max_pages,
             #[cfg(test)]
@@ -778,14 +990,15 @@ impl HumanStore {
             OutboundDestination::Direct(d) => d.endpoint.as_ref().map(|e| (&d.peer, e)),
             OutboundDestination::Broadcast(_) => None,
         };
+        let local = self.identity.as_str();
         let result = (|| -> rusqlite::Result<i64> {
             let tx = self.conn.unchecked_transaction()?;
             tx.execute(
                 "INSERT INTO pending_outbound
                  (app_message_id, transport_message_id, destination_peer,
                   destination_endpoint, channel_id, media_type, payload, created_at,
-                  last_attempt_at, attempts)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                  last_attempt_at, attempts, local_endpoint_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     new.app_message_id.as_str(),
                     new.transport_message_id.as_bytes().as_slice(),
@@ -801,11 +1014,12 @@ impl HumanStore {
                     created_at,
                     last_attempt_at,
                     attempts,
+                    local,
                 ],
             )?;
             let row = tx.last_insert_rowid();
             if let Some((peer, endpoint)) = indexed {
-                window::index_direct(&tx, peer, endpoint)?;
+                window::index_direct(&tx, local, peer, endpoint)?;
             }
             tx.commit()?;
             Ok(row)
@@ -829,8 +1043,12 @@ impl HumanStore {
         let result = self.conn.execute(
             "UPDATE pending_outbound
                 SET last_attempt_at = ?2, attempts = attempts + 1
-              WHERE row_id = ?1",
-            params![row_id.get(), sql_timestamp("at_ms", at_ms)?],
+              WHERE row_id = ?1 AND local_endpoint_id = ?3",
+            params![
+                row_id.get(),
+                sql_timestamp("at_ms", at_ms)?,
+                self.identity.as_str()
+            ],
         );
         match result {
             Ok(_) => Ok(()),
@@ -872,8 +1090,8 @@ impl HumanStore {
             Durability::Durable => Ok(()),
             Durability::Remove => {
                 let result = self.conn.execute(
-                    "DELETE FROM pending_outbound WHERE row_id = ?1",
-                    params![row_id.get()],
+                    "DELETE FROM pending_outbound WHERE row_id = ?1 AND local_endpoint_id = ?2",
+                    params![row_id.get(), self.identity.as_str()],
                 );
                 match result {
                     Ok(_) => {
@@ -921,8 +1139,8 @@ impl HumanStore {
                         channel_id, media_type, payload, created_at, last_attempt_at,
                         attempts, transport_message_id
                    FROM pending_outbound
-                  WHERE row_id = ?1",
-                [row_id.get()],
+                  WHERE row_id = ?1 AND local_endpoint_id = ?2",
+                params![row_id.get(), self.identity.as_str()],
                 read_raw_pending,
             )
             .optional()?
@@ -950,12 +1168,15 @@ impl HumanStore {
             "SELECT row_id, app_message_id, destination_peer, destination_endpoint, channel_id,
                     media_type, payload, created_at, last_attempt_at, attempts,
                     transport_message_id
-               FROM pending_outbound
-              WHERE (created_at, row_id) > (?1, ?2)
+               FROM pending_outbound INDEXED BY pending_outbound_by_identity
+              WHERE local_endpoint_id = ?4 AND (created_at, row_id) > (?1, ?2)
               ORDER BY created_at, row_id
               LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![sort_key, row_id, fetch], read_raw_pending)?;
+        let rows = stmt.query_map(
+            params![sort_key, row_id, fetch, self.identity.as_str()],
+            read_raw_pending,
+        )?;
 
         let mut out = Vec::new();
         let mut bytes = 0usize;
@@ -1016,16 +1237,20 @@ impl HumanStore {
             (Some(endpoint), None) => Some((&new.origin.peer, endpoint)),
             _ => None,
         };
+        // The identity's rows alone: a copy that reached another identity is
+        // its own row, and a read there suppresses nothing here (schema v14).
+        let local = self.identity.as_str();
         let result = (|| -> rusqlite::Result<Option<i64>> {
             let tx = self.conn.unchecked_transaction()?;
             let inserted = tx.execute(
                 "INSERT INTO unread_inbound
                  (app_message_id, source_peer, source_endpoint, channel_id,
-                  media_type, payload, received_at, kind)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+                  media_type, payload, received_at, kind, local_endpoint_id)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
               WHERE NOT EXISTS (
                     SELECT 1 FROM read_pairs
-                     WHERE source_peer = ?2
+                     WHERE local_endpoint_id = ?9
+                       AND source_peer = ?2
                        AND source_endpoint_key = IFNULL(?3, '')
                        AND channel_key = IFNULL(?4, '')
                        AND app_message_id = ?1)",
@@ -1044,6 +1269,7 @@ impl HumanStore {
                     new.payload,
                     received_at,
                     new.kind.as_sql(),
+                    local,
                 ],
             )?;
             if inserted == 0 {
@@ -1051,7 +1277,7 @@ impl HumanStore {
             }
             let row = tx.last_insert_rowid();
             if let Some((peer, endpoint)) = indexed {
-                window::index_direct(&tx, peer, endpoint)?;
+                window::index_direct(&tx, local, peer, endpoint)?;
             }
             tx.commit()?;
             Ok(Some(row))
@@ -1100,14 +1326,15 @@ impl HumanStore {
         // the row is PARSED BEFORE IT IS DELETED. Parsing afterwards would
         // mean a row this build cannot decode is destroyed on the way to
         // reporting that it could not be decoded.
+        let local = self.identity.as_str();
         let result = (|| -> Result<Option<ReadEphemeral>, StoreError> {
             let tx = self.conn.transaction()?;
             let row = tx
                 .query_row(
                     "SELECT app_message_id, source_peer, source_endpoint, channel_id,
                             media_type, payload, received_at, kind
-                       FROM unread_inbound WHERE row_id = ?1",
-                    params![row_id.get()],
+                       FROM unread_inbound WHERE row_id = ?1 AND local_endpoint_id = ?2",
+                    params![row_id.get(), local],
                     |r| {
                         Ok(InboundColumns {
                             app_message_id: r.get(0)?,
@@ -1135,7 +1362,7 @@ impl HumanStore {
                     "DELETE FROM unread_inbound WHERE row_id = ?1",
                     params![row_id.get()],
                 )?;
-                record_pair(&tx, &held, at_ms)?;
+                record_pair(&tx, local, &held, at_ms)?;
             }
             tx.commit()?;
             Ok(Some(held))
@@ -1224,9 +1451,10 @@ impl HumanStore {
         let result = self.conn.query_row(
             "INSERT INTO kept_inbound
                  (app_message_id, source_peer, source_endpoint, channel_id,
-                  media_type, payload, received_at, read_at, kept_at, kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-             ON CONFLICT(source_peer, source_endpoint_key, channel_key, app_message_id)
+                  media_type, payload, received_at, read_at, kept_at, kind, local_endpoint_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(local_endpoint_id, source_peer, source_endpoint_key, channel_key,
+                         app_message_id)
              DO UPDATE SET
                  read_at = excluded.read_at,
                  kept_at = excluded.kept_at
@@ -1253,6 +1481,7 @@ impl HumanStore {
                 sql_timestamp("read_at", held.read_at)?,
                 sql_timestamp("at_ms", at_ms)?,
                 held.kind.as_sql(),
+                self.identity.as_str(),
             ],
             |r| r.get::<_, i64>(0),
         );
@@ -1294,14 +1523,15 @@ impl HumanStore {
         // Parsed before the delete, in one transaction, for the reason
         // `mark_read` gives: a row this build cannot decode must not be
         // destroyed on the way to reporting that.
+        let local = self.identity.as_str();
         let result = (|| -> Result<Option<ReadEphemeral>, StoreError> {
             let tx = self.conn.transaction()?;
             let row = tx
                 .query_row(
                     "SELECT app_message_id, source_peer, source_endpoint, channel_id,
                             media_type, payload, received_at, read_at, kind
-                       FROM kept_inbound WHERE row_id = ?1",
-                    params![row_id.get()],
+                       FROM kept_inbound WHERE row_id = ?1 AND local_endpoint_id = ?2",
+                    params![row_id.get(), local],
                     |r| {
                         Ok((
                             InboundColumns {
@@ -1331,7 +1561,7 @@ impl HumanStore {
                     "DELETE FROM kept_inbound WHERE row_id = ?1",
                     params![row_id.get()],
                 )?;
-                record_pair(&tx, &held, at_ms)?;
+                record_pair(&tx, local, &held, at_ms)?;
             }
             tx.commit()?;
             Ok(Some(held))
@@ -1379,7 +1609,12 @@ impl HumanStore {
         after: Option<Cursor>,
         limits: PageLimits,
     ) -> Result<Page<StoredInbound>, StoreError> {
-        self.read_inbound_page(WALK_UNREAD_CARDS, after, limits)
+        self.read_inbound_page(
+            WALK_UNREAD_CARDS,
+            after,
+            limits,
+            Some(self.identity.as_str()),
+        )
     }
 
     /// Every inbound message the receiver kept, oldest first.
@@ -1441,6 +1676,8 @@ impl HumanStore {
     /// when [`Self::inbound_kind_version`] is not its own, before any
     /// count is read (STATE.md schema v10). Rows are read a page at a
     /// time, never all at once, and only a kind that changes is written.
+    /// Every identity's rows, not only this handle's: the version is the
+    /// store's, and a row's kind is its envelope's, whoever it reached.
     /// A failure leaves every kind and the old version as they were, and
     /// the next open runs it again.
     ///
@@ -1467,7 +1704,16 @@ impl HumanStore {
                 )?;
                 let mut after = None;
                 loop {
-                    let page = self.read_inbound_table(table, after, PageLimits::default())?;
+                    let page = self.read_inbound_page(
+                        if table == "kept_inbound" {
+                            WALK_KEPT
+                        } else {
+                            WALK_UNREAD
+                        },
+                        after,
+                        PageLimits::default(),
+                        None,
+                    )?;
                     for row in &page.items {
                         let kind = classify(row);
                         if kind != row.kind {
@@ -1503,21 +1749,29 @@ impl HumanStore {
         // `table` is one of two literals chosen by this module, never
         // caller input; SQLite does not bind identifiers.
         let kept = table == "kept_inbound";
-        self.read_inbound_page(if kept { WALK_KEPT } else { WALK_UNREAD }, after, limits)
+        self.read_inbound_page(
+            if kept { WALK_KEPT } else { WALK_UNREAD },
+            after,
+            limits,
+            Some(self.identity.as_str()),
+        )
     }
 
     /// One page of `sql`, one of this module's walks, each taking the
-    /// cursor's two bounds and a row limit.
+    /// cursor's two bounds, a row limit and the identity whose rows it
+    /// walks (`None`: every identity's, which only a walk taking NULL
+    /// there reads).
     fn read_inbound_page(
         &self,
         sql: &str,
         after: Option<Cursor>,
         limits: PageLimits,
+        identity: Option<&str>,
     ) -> Result<Page<StoredInbound>, StoreError> {
         let (sort_key, row_id) = cursor_bounds(after)?;
         let fetch = i64::try_from(limits.max_records().saturating_add(1)).unwrap_or(i64::MAX);
         let mut stmt = self.conn.prepare(sql)?;
-        let rows = stmt.query_map(params![sort_key, row_id, fetch], InboundRow::read)?;
+        let rows = stmt.query_map(params![sort_key, row_id, fetch, identity], InboundRow::read)?;
 
         let mut out = Vec::new();
         let mut bytes = 0usize;
@@ -1786,17 +2040,20 @@ pub(crate) fn header_user_version(path: &Path) -> Result<Option<i64>, StoreError
     ]))))
 }
 
-/// How many read pairs the store holds, at most: past it the oldest goes,
-/// inside the transaction that records the newest (architect-cto's Q5
-/// ruling, relay seq 11163).
+/// How many read pairs the store holds for one identity, at most: past it
+/// that identity's oldest goes, inside the transaction that records its
+/// newest (architect-cto's Q5 ruling, relay seq 11163; per identity from
+/// schema v14, so one identity's reads never evict another's pairs).
 pub const READ_PAIR_CAP: usize = 4096;
 
-/// Record that `held` was read here and not kept, at `at_ms`: its origin
-/// and application id, and nothing of its content. A pair already held
-/// for the message is replaced, so it counts as the newest; then the
-/// oldest past [`READ_PAIR_CAP`] are evicted, in the caller's transaction.
+/// Record that `held` was read here, by `local`, and not kept, at `at_ms`:
+/// its origin and application id, and nothing of its content. A pair
+/// already held for the message is replaced, so it counts as the newest;
+/// then `local`'s oldest past [`READ_PAIR_CAP`] are evicted, in the
+/// caller's transaction (`one_identitys_reads_never_evict_anothers_pairs`).
 fn record_pair(
     tx: &rusqlite::Transaction<'_>,
+    local: &str,
     held: &ReadEphemeral,
     at_ms: u64,
 ) -> Result<(), StoreError> {
@@ -1814,26 +2071,40 @@ fn record_pair(
     let id = held.app_message_id.as_str();
     tx.execute(
         "DELETE FROM read_pairs
-          WHERE source_peer = ?2
+          WHERE local_endpoint_id = ?5
+            AND source_peer = ?2
             AND source_endpoint_key = IFNULL(?3, '')
             AND channel_key = IFNULL(?4, '')
             AND app_message_id = ?1",
-        params![id, peer, endpoint, channel],
+        params![id, peer, endpoint, channel, local],
     )?;
     tx.execute(
-        "INSERT INTO read_pairs (app_message_id, source_peer, source_endpoint, channel_id, at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, peer, endpoint, channel, sql_timestamp("at", at_ms)?],
+        "INSERT INTO read_pairs
+             (app_message_id, source_peer, source_endpoint, channel_id, at, local_endpoint_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            id,
+            peer,
+            endpoint,
+            channel,
+            sql_timestamp("at", at_ms)?,
+            local
+        ],
     )?;
-    // Only the overflow is deleted, oldest first by `pair_id`: one row in
-    // the steady state, found through the primary key.
-    let held_pairs: i64 = tx.query_row("SELECT COUNT(*) FROM read_pairs", [], |r| r.get(0))?;
+    // Only `local`'s overflow is deleted, its oldest first by `pair_id`:
+    // one row in the steady state.
+    let held_pairs: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM read_pairs WHERE local_endpoint_id = ?1",
+        params![local],
+        |r| r.get(0),
+    )?;
     let over = held_pairs - i64::try_from(READ_PAIR_CAP).unwrap_or(i64::MAX);
     if over > 0 {
         tx.execute(
             "DELETE FROM read_pairs
-              WHERE pair_id IN (SELECT pair_id FROM read_pairs ORDER BY pair_id LIMIT ?1)",
-            params![over],
+              WHERE pair_id IN (SELECT pair_id FROM read_pairs WHERE local_endpoint_id = ?2
+                                 ORDER BY pair_id LIMIT ?1)",
+            params![over, local],
         )?;
     }
     Ok(())
@@ -2173,7 +2444,11 @@ mod walk_plan_tests {
     #[test]
     fn the_inbound_walk_reads_its_index_not_a_sort() {
         let mut conn = crate::engine::open_in_memory().expect("in-memory database");
-        crate::schema::migrate(&mut conn).expect("a fresh database migrates");
+        crate::schema::migrate(
+            &mut conn,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        )
+        .expect("a fresh database migrates");
         for (sql, index) in [
             (WALK_UNREAD, "unread_inbound_by_received"),
             (WALK_KEPT, "kept_inbound_by_received"),
@@ -2182,7 +2457,7 @@ mod walk_plan_tests {
                 .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
                 .expect("plan the walk");
             let plan: Vec<String> = stmt
-                .query_map(rusqlite::params![0_i64, 0_i64, 101_i64], |r| r.get(3))
+                .query_map(rusqlite::params![0_i64, 0_i64, 101_i64, "me"], |r| r.get(3))
                 .expect("plan rows")
                 .collect::<Result<_, _>>()
                 .expect("plan text");

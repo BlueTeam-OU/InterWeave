@@ -64,6 +64,9 @@ test-support = []
 # This crate with its crash points, for tests/at_rest.rs.
 interweave-human-store = { path = ".", features = ["crash-points"] }
 tempfile = { workspace = true }
+# TEST-ONLY: deterministic keys and the EndpointIds they derive (ADR-0067),
+# for the identity a store opens as and for every key a route records.
+interweave-test-support = { path = "../../../tests/support" }
 # A software stand-in for the Keystore's AES-256-GCM key in
 # tests/identity_key.rs; the version the embedded host's tests use.
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }

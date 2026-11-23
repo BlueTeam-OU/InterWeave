@@ -274,9 +274,18 @@ impl fmt::Display for Blocked {
 /// classifying a failure by what a person can do about it.
 #[must_use]
 pub fn open_store(profile: &Profile, options: StoreOptions) -> Opened {
+    // The store opens as the first identity, the first endpoint the
+    // client may lease, whose derived id schema v14 gives every row an
+    // older store holds (STATE.md §Migrations); `resolve` refuses a
+    // profile with none.
+    let Some(identity) = profile.endpoints.first() else {
+        return Opened::Blocked(Blocked::Unavailable {
+            path: profile.store_path(),
+        });
+    };
     // The v1 desktop seals the store key at ADR-0038's `filesystem-only`
     // (ADR-0060 decision 3), until SPIKE-007's envelope lands.
-    match HumanStore::open_profile(&profile.paths, &FilesystemCustody, options) {
+    match HumanStore::open_profile(&profile.paths, &FilesystemCustody, identity, options) {
         Ok(store) => Opened::Ready(store),
         Err(error) => Opened::Blocked(classify(&profile.store_path(), &error)),
     }

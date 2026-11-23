@@ -3321,6 +3321,7 @@ dependencies = [
  "interweave-local-client-api",
  "interweave-local-client-fake",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "serde_json",
  "tempfile",
@@ -3617,6 +3618,7 @@ name = "interweave-human-app-core"
 version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
+ "ed25519-dalek",
  "image",
  "interweave-human-app-core",
  "interweave-human-chat-protocol",
@@ -3645,6 +3647,7 @@ dependencies = [
  "brotli",
  "bs58",
  "ed25519-dalek",
+ "interweave-test-support",
  "interweave-transport-api",
  "pulldown-cmark",
  "serde",
@@ -3759,6 +3762,7 @@ dependencies = [
  "interweave-human-core",
  "interweave-human-store",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "rusqlite",
@@ -4016,6 +4020,7 @@ dependencies = [
  "interweave-human-core",
  "interweave-human-store",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "tempfile",
 ]

@@ -231,6 +231,7 @@ impl Side {
         let store_dir = private_dir();
         let store = HumanStore::open(
             &store_dir.path().join("human.sqlite"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             StoreOptions::default(),
         )
         .expect("a store");

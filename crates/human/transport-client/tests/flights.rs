@@ -208,7 +208,11 @@ fn client(node: &FakeNode, gate: &Arc<Gate>) -> Client {
             gate: Arc::clone(gate),
         },
         node.clone(),
-        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: vec![human()],

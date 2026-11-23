@@ -1028,6 +1028,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
         let mut store = HumanStore::open_profile(
             &paths,
             &interweave_human_store::key_custody::FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             StoreOptions::default(),
         )
         .expect("the store");
@@ -1162,6 +1163,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     let store = HumanStore::open_profile(
         &paths,
         &interweave_human_store::key_custody::FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("the store");

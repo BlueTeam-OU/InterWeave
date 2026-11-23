@@ -163,6 +163,16 @@ pub struct HumanChatV2 {
     pub from_endpoint: Option<EndpointId>,
 }
 
+/// How [`HumanChatV2`]'s parse reads `from_endpoint`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FromEndpoint {
+    /// Off the wire: a value that does not parse is malformed.
+    Strict,
+    /// From the client's own store: a value that is not a derived id is
+    /// absent ([`HumanChatV2::parse_stored`]).
+    Stored,
+}
+
 pub(crate) fn is_canonical_id(value: &str) -> bool {
     value.len() == 32
         && value
@@ -297,6 +307,28 @@ impl HumanChatV2 {
     /// kind, a non-canonical id, missing text, an out-of-range timestamp,
     /// or a malformed `from_endpoint`.
     pub fn parse(text: &str) -> Result<Self, EnvelopeError> {
+        Self::parse_with(text, FromEndpoint::Strict)
+    }
+
+    /// Parse an envelope the client's own store holds, as [`Self::parse`]
+    /// does but for one member: a `from_endpoint` that is not a derived
+    /// `EndpointId` reads as absent rather than malformed (STATE.md
+    /// schema v14, §Migrations). A row committed before the store's v14
+    /// carries its sender's label there, which no reader after ADR-0067's
+    /// break parses; on a direct row the member never had authority
+    /// (HUMAN-CHAT.md) and on a channel row it was a display hint, so
+    /// dropping it changes nothing the row means. Only a stored row is read
+    /// this way: an envelope off the wire takes [`Self::parse`], whose rule
+    /// this does not relax, and a value it refuses stays malformed there
+    /// (`a_stored_label_reads_as_absent_and_off_the_wire_is_malformed`).
+    ///
+    /// # Errors
+    /// As [`Self::parse`], except for `from_endpoint`.
+    pub fn parse_stored(text: &str) -> Result<Self, EnvelopeError> {
+        Self::parse_with(text, FromEndpoint::Stored)
+    }
+
+    fn parse_with(text: &str, from: FromEndpoint) -> Result<Self, EnvelopeError> {
         let StrictValue(raw) = serde_json::from_str::<StrictValue>(text).map_err(|e| {
             duplicate_member(&e).map_or_else(
                 || EnvelopeError::NotJson {
@@ -355,13 +387,16 @@ impl HumanChatV2 {
             }
         };
 
-        let from_endpoint = match raw.get("from_endpoint") {
-            None => None,
-            Some(v) => Some(
+        let from_endpoint = match (raw.get("from_endpoint"), from) {
+            (None, _) => None,
+            (Some(v), FromEndpoint::Strict) => Some(
                 v.as_str()
                     .and_then(|s| EndpointId::parse_derived(s).ok())
                     .ok_or(EnvelopeError::MalformedFromEndpoint)?,
             ),
+            (Some(v), FromEndpoint::Stored) => {
+                v.as_str().and_then(|s| EndpointId::parse_derived(s).ok())
+            }
         };
 
         Ok(Self {
@@ -486,6 +521,52 @@ mod tests {
         assert!(e.reply_to.is_none());
         assert!(e.sent_at_ms.is_none());
         assert!(e.from_endpoint.is_none());
+    }
+
+    /// STATE.md schema v14: a row the previous release committed names its
+    /// sender's label in `from_endpoint`; the store's read takes any value
+    /// that is not a derived id as absent and keeps the text, while a value
+    /// the wire's read refuses stays malformed off the wire, a label
+    /// included. A derived id reads back in both. Mutation: the stored arm
+    /// answering `MalformedFromEndpoint` as the strict one does.
+    #[test]
+    fn a_stored_label_reads_as_absent_and_off_the_wire_is_malformed() {
+        let derived = interweave_test_support::endpoint_keys::endpoint_id("sender");
+        for value in [
+            r#""human""#,
+            r#""a""#,
+            r#""Not An Id""#,
+            "7",
+            r#""""#,
+            "null",
+        ] {
+            let json = envelope(&format!(r#","from_endpoint":{value}"#));
+            let stored = HumanChatV2::parse_stored(&json).expect("a stored row parses");
+            assert_eq!(stored.from_endpoint, None, "{value}");
+            assert_eq!(stored.text, "hi");
+            assert_eq!(
+                HumanChatV2::parse(&json),
+                Err(EnvelopeError::MalformedFromEndpoint),
+                "{value} off the wire"
+            );
+        }
+        let json = envelope(&format!(r#","from_endpoint":"{}""#, derived.as_str()));
+        assert_eq!(
+            HumanChatV2::parse_stored(&json)
+                .expect("parses")
+                .from_endpoint,
+            Some(derived.clone())
+        );
+        assert_eq!(
+            HumanChatV2::parse(&json).expect("parses").from_endpoint,
+            Some(derived)
+        );
+        // Every other member is read as strictly as off the wire.
+        let bad = format!(r#"{{"v":2,"kind":"text","app_message_id":"{ID}"}}"#);
+        assert_eq!(
+            HumanChatV2::parse_stored(&bad),
+            Err(EnvelopeError::MissingText)
+        );
     }
 
     #[test]

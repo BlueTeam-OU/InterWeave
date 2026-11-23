@@ -1637,72 +1637,6 @@ fn continue_editing_after_the_no_reach_notice_refocuses_its_action() {
     let _ = intents(&mut view, &mut model);
 }
 
-/// #463, the review's pre-existing item: a share-again row leaves the
-/// editor for its conversation and the share sheet there, so with a
-/// change it asks first; Continue editing keeps the editor, focus on the
-/// row, and Close without saving goes on to the sheet. Mutation: the row
-/// leaving without asking.
-#[test]
-fn a_share_again_row_with_a_change_asks_first() {
-    let ready = || interweave_human_ui_model::OwnKey::Ready {
-        fingerprint: "fedcba9876543210".to_owned(),
-    };
-    let (mut view, mut model) = own_editor(ada(false, ready()));
-    model.key_made(
-        Some(ada(false, ready())),
-        "fedcba9876543210".to_owned(),
-        vec![direct(P)],
-    );
-    view.render(&model);
-    settle();
-    view.window().set_own_given("Grace".into());
-    let on_row = |view: &View| {
-        let window = view.window();
-        window.set_focus_target("share-again:0".into());
-        window.set_focus_seq(window.get_focus_seq() + 1);
-        settle();
-        assert_eq!(
-            view.window().get_focus_id(),
-            "share-again:0",
-            "control: on the row"
-        );
-        key(view, slint::platform::Key::Return);
-        settle();
-    };
-    on_row(&view);
-    assert!(view.window().get_own_discard_open(), "the row asks");
-    press(&view, text(UiText::KeepEditing));
-    settle();
-    assert_eq!(
-        view.window().get_focus_id(),
-        "share-again:0",
-        "focus back on it"
-    );
-    assert_eq!(
-        view.window().get_cards_page(),
-        interweave_human_ui_slint::CardsPage::OwnCard
-    );
-
-    on_row(&view);
-    press(&view, text(UiText::DiscardChanges));
-    let _ = intents(&mut view, &mut model);
-    settle();
-    assert_eq!(
-        view.window().get_cards_page(),
-        interweave_human_ui_slint::CardsPage::None,
-        "the editor left"
-    );
-    assert!(
-        view.window().get_share_open(),
-        "the share sheet, as the row asked"
-    );
-    // On a phone, over its conversation, not the list (#463 F5).
-    assert!(
-        view.window().get_pane_shown(),
-        "the conversation's pane shown"
-    );
-}
-
 /// Close without saving goes on to the page asked: Trust from the app
 /// options opens Trust. Mutation: the Trust branch dropped or swapped.
 #[test]
@@ -2311,15 +2245,42 @@ fn press_last(view: &View, label: &str) {
     slint::platform::update_timers_and_animations();
 }
 
-/// design/2026-10-24-identity-key.md sections 4.1, 5 and 8, acceptance
-/// items 1, 6 and 12 (keyboard), drawn: the key block in the fingerprint's
-/// place says what happened and what it stops; Make a new key opens the
-/// confirmation with focus on Cancel, Cancel returns focus to Make a new
-/// key, a confirmed one shows the step and then the new fingerprint with
-/// where to share the card again, focus following each.
+/// The words the removed control and its confirmation showed: drawn
+/// nowhere since ADR-0067 decision 5 (a new key is a new identity), so a
+/// search for them must find nothing on the card page.
+const NEW_KEY_WORDS: &[&str] = &["Make a new key", "Make a new key for Ada?"];
+
+/// Tab from the card page's first field until focus comes back round:
+/// every focus id met, in order.
+fn tab_round(view: &View) -> Vec<String> {
+    let window = view.window();
+    window.set_focus_target("own-given".into());
+    window.set_focus_seq(window.get_focus_seq() + 1);
+    settle();
+    let mut met = vec![view.window().get_focus_id().to_string()];
+    for _ in 0..40 {
+        key(view, slint::platform::Key::Tab);
+        settle();
+        let at = view.window().get_focus_id().to_string();
+        if met.contains(&at) {
+            break;
+        }
+        met.push(at);
+    }
+    met
+}
+
+/// design/2026-10-24-identity-key.md sections 4.1 and 8 under ADR-0067
+/// decision 5, drawn: the key block in the fingerprint's place says what
+/// happened and what it stops, and offers no new key -- no control and
+/// no confirmation, and no focus stop for one -- for any kind; Try again
+/// stays where the kind may pass, reached by Tab, and a kind with nothing
+/// to press leaves no gap where a button row would stand. Mutations: the
+/// Make a new key button back in the block; the button row drawn with no
+/// button in it.
 #[test]
-fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
-    use interweave_human_ui_model::{KeyProblem, OwnKey};
+fn the_key_block_offers_no_new_key_and_try_again_where_it_may_pass() {
+    use interweave_human_ui_model::KeyProblem;
     let mut view = view();
     // Tall enough for the whole page: the search finds what is on screen.
     view.window()
@@ -2331,11 +2292,12 @@ fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
     press(&view, text(UiText::AppOptions));
     press(&view, text(UiText::OwnCardTitle));
     let _ = intents(&mut view, &mut model);
+    settle();
     for line in [
         UiText::KeyStateTitle,
         UiText::KeyDamaged,
         UiText::KeyCannotShare,
-        UiText::KeyMakeNew,
+        UiText::KeyNoNewKey,
     ] {
         assert!(shows(&view, text(line)), "{line:?}");
     }
@@ -2347,101 +2309,69 @@ fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
         !shows(&view, text(UiText::TryAgain)),
         "damage: no Try again"
     );
+    // A kind with nothing to press: the block's last line, then the
+    // PeerId's label at the page's spacing, as below Try again.
+    let below = |view: &View, last: &str| {
+        let (_, _, _, bottom) = bounds(view, last);
+        let (_, top, _, _) = bounds(view, text(UiText::DetailsPeerId));
+        top - bottom
+    };
+    let nothing_to_press = below(&view, text(UiText::KeyNoNewKey));
 
-    press(&view, text(UiText::KeyMakeNew));
-    assert_eq!(intents(&mut view, &mut model), vec![Intent::AskNewKey]);
-    assert_eq!(
-        model.ask_new_key(),
-        Some(Intent::AskNewKey),
-        "as the root does"
-    );
-    model.new_key_asked(true);
-    view.render(&model);
-    settle();
-    assert!(shows(
-        &view,
-        &fill(text(UiText::KeyNewTitle), &[("identity", &isolated("Ada"))])
-    ));
-    for line in [UiText::KeyNewBody, UiText::KeyNewOld, UiText::KeyNewPending] {
-        assert!(shows(&view, text(line)), "{line:?}");
+    let kinds = [
+        KeyProblem::LostOnDevice,
+        KeyProblem::BelowDevice,
+        KeyProblem::OtherDevice,
+        KeyProblem::NewerVersion,
+        KeyProblem::Damaged,
+        KeyProblem::Exposed,
+        KeyProblem::DirUnsafe {
+            folder: "/home/ada/.local/state/interweave/default/endpoint-keys".to_owned(),
+        },
+        KeyProblem::NotNow,
+        KeyProblem::Missing,
+    ];
+    for problem in kinds {
+        model.identity_shown(keyless(problem.clone()));
+        view.render(&model);
+        settle();
+        assert!(shows(&view, text(UiText::KeyStateTitle)), "{problem:?}");
+        for words in NEW_KEY_WORDS {
+            assert!(!shows(&view, words), "{problem:?}: {words:?} drawn");
+        }
+        let met = tab_round(&view);
+        assert!(
+            !met.iter().any(|at| at.contains("new")),
+            "{problem:?}: a focus stop for a new key: {met:?}"
+        );
+        let offers = problem.offers_try_again();
+        assert_eq!(shows(&view, text(UiText::TryAgain)), offers, "{problem:?}");
+        assert_eq!(
+            shows(&view, text(UiText::KeyNoNewKey)),
+            !offers,
+            "{problem:?}: KeyNoNewKey exactly where Try again is not offered"
+        );
+        assert_eq!(
+            met.iter().any(|at| at == "own-key-try"),
+            offers,
+            "{problem:?}: Tab reaches Try again where it is offered: {met:?}"
+        );
+        if matches!(problem, KeyProblem::DirUnsafe { .. }) {
+            assert!(met.iter().any(|at| at == "own-key-path"), "{met:?}");
+        }
+        assert!(
+            met.iter().any(|at| at == "own-save"),
+            "{problem:?}: Save still reached: {met:?}"
+        );
+        if problem == KeyProblem::NotNow {
+            let under_try_again = below(&view, text(UiText::TryAgain));
+            assert!(
+                (nothing_to_press - under_try_again).abs() < 0.5,
+                "no gap where the button row was: {nothing_to_press} below the \
+                 last line, {under_try_again} below Try again"
+            );
+        }
     }
-    assert_eq!(
-        view.window().get_focus_id(),
-        "new-key-cancel",
-        "Cancel first"
-    );
-    let to = common::modal_tab(
-        view.window(),
-        view.window().window(),
-        || view.window().get_focus_id().to_string(),
-        settle,
-    );
-    assert_eq!(to, "new-key-confirm");
-
-    press_last(&view, text(UiText::Cancel));
-    assert_eq!(intents(&mut view, &mut model), vec![Intent::CloseKeyStep]);
-    model.key_step_closed();
-    view.render(&model);
-    settle();
-    assert!(!view.window().get_new_key_open());
-    assert_eq!(view.window().get_focus_target(), "own-key-new");
-
-    // Back is the dialog's Cancel (identity-key design 5.1): the dialog
-    // closes and the card page it stood over stays.
-    press(&view, text(UiText::KeyMakeNew));
-    let _ = intents(&mut view, &mut model);
-    let _ = model.ask_new_key();
-    model.new_key_asked(true);
-    view.render(&model);
-    settle();
-    assert!(view.window().get_new_key_open());
-    assert!(view.window().invoke_handle_back(), "Back is taken");
-    assert_eq!(intents(&mut view, &mut model), vec![Intent::CloseKeyStep]);
-    model.key_step_closed();
-    view.render(&model);
-    settle();
-    assert!(!view.window().get_new_key_open());
-    assert!(
-        shows(&view, text(UiText::KeyMakeNew)),
-        "the card page is still open"
-    );
-    assert_eq!(view.window().get_focus_target(), "own-key-new");
-
-    press(&view, text(UiText::KeyMakeNew));
-    let _ = intents(&mut view, &mut model);
-    let _ = model.ask_new_key();
-    model.new_key_asked(false);
-    view.render(&model);
-    settle();
-    assert!(
-        !shows(&view, text(UiText::KeyNewPending)),
-        "no card on its way"
-    );
-    press_last(&view, text(UiText::KeyNewConfirm));
-    assert_eq!(intents(&mut view, &mut model), vec![Intent::MakeNewKey]);
-    assert_eq!(model.confirm_new_key(), Some(Intent::MakeNewKey));
-    view.render(&model);
-    settle();
-    assert!(shows(&view, text(UiText::KeyMaking)));
-    assert_eq!(view.window().get_focus_target(), "own-key-making");
-
-    model.key_made(
-        Some(IdentityView {
-            key: OwnKey::Ready {
-                fingerprint: "fedcba9876543210".to_owned(),
-            },
-            ..keyless(KeyProblem::Damaged)
-        }),
-        "fedcba9876543210".to_owned(),
-        vec![direct(P)],
-    );
-    view.render(&model);
-    settle();
-    assert!(shows(&view, "fedcba9876543210"), "the new fingerprint");
-    assert!(shows(&view, text(UiText::KeyMade)));
-    assert!(shows(&view, text(UiText::KeyShareAgainTitle)));
-    assert_eq!(view.window().get_focus_target(), "own-key-fingerprint");
-    assert!(!shows(&view, text(UiText::KeyStateTitle)), "the block went");
 }
 
 /// Sections 4.3 and 8, acceptance items 4 and 18, drawn: the share sheet
@@ -2475,11 +2405,17 @@ fn the_share_sheet_says_the_key_cannot_be_used_and_opens_the_card_page() {
         !shows(&view, text(UiText::ShareCardAction)),
         "no Share, never shown disabled"
     );
+    assert!(
+        !shows(&view, text(UiText::KeyNoNewKey)),
+        "never in the share sheet"
+    );
     assert_eq!(view.window().get_focus_target(), "share-open-card");
     press(&view, text(UiText::KeyOpenCard));
     let _ = intents(&mut view, &mut model);
     assert!(shows(&view, text(UiText::KeyStateTitle)), "the card page");
-    assert!(!shows(&view, text(UiText::KeyMakeNew)), "no new key there");
+    for words in NEW_KEY_WORDS {
+        assert!(!shows(&view, words), "no new key there: {words:?}");
+    }
     assert!(shows(&view, text(UiText::TryAgain)));
 }
 
@@ -3527,27 +3463,6 @@ fn continue_editing_from_beside_the_editor_goes_to_its_first_field() {
     press(&view, text(UiText::KeepEditing));
     settle();
     assert_eq!(view.window().get_focus_id(), "own-given", "from {outside}");
-}
-
-/// The same with a new key made and a conversation to share the card
-/// with again: its row is the editor's too. Mutation: the row's key left
-/// out of the return.
-#[test]
-fn continue_editing_gives_focus_back_to_a_share_again_row() {
-    let ready = || interweave_human_ui_model::OwnKey::Ready {
-        fingerprint: "fedcba9876543210".to_owned(),
-    };
-    focus_comes_back_everywhere(
-        ready(),
-        |model| {
-            model.key_made(
-                Some(ada(true, ready())),
-                "fedcba9876543210".to_owned(),
-                vec![direct(P)],
-            );
-        },
-        &["share-again:"],
-    );
 }
 
 /// The same with the key's folder shown, a field of its own.
@@ -4635,16 +4550,16 @@ fn a_render_that_changes_nothing_leaves_every_contact_row_equal() {
 
 /// The card page scrolls to its last line at a phone's sizes. On the
 /// Galaxy A40 (about 411 x 891 logical pixels, either way up) a damaged
-/// key's Make a new key lay below the page's scroll extent and could not be
+/// key's last control lay below the page's scroll extent and could not be
 /// reached by touch or by Tab, and in landscape the fingerprint was cut in
 /// half (j54's device run, 2026-11-03): the page took its height from its
 /// column's measured height, and a wrapped Text under a conditional layout
 /// is measured a line short. The other tests here open the page in a window
 /// tall enough for all of it, which is why none saw it. Both cases check
-/// the page's last line, the `PeerId`, and the damaged case also its last
-/// control. Mutation: the height taken off a wrapped Text these two states
-/// draw (the key-problem block, the `PeerId`); a Text drawn only after a key
-/// is made is the compile test's to hold.
+/// the page's last line, the `PeerId`, and the damaged case also its
+/// block's last line, since it offers nothing to press. Mutation: the
+/// height taken off a wrapped Text these two states draw (the key-problem
+/// block, the `PeerId`).
 #[test]
 fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
     use interweave_human_ui_model::{KeyProblem, OwnKey};
@@ -4664,7 +4579,7 @@ fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
                 (
                     "damaged",
                     keyless(KeyProblem::Damaged),
-                    vec![text(UiText::KeyMakeNew), Q],
+                    vec![text(UiText::KeyNoNewKey), Q],
                 ),
                 ("ready", ada(true, ready()), vec![Q]),
             ] {
@@ -4725,10 +4640,9 @@ fn own_card(view: &mut View, model: &mut UiModel) {
 }
 
 /// A focus ring draws over no neighbour on the own card page, in each
-/// state of its key -- the fingerprint under its label, the line and
-/// the share-again rows a new key adds, the key folder's path under its
-/// label, the making line, the failure line -- and the name fields under
-/// their labels (A40 2026-11-03: the ring over the fingerprint's label).
+/// state of its key -- the fingerprint under its label, the key folder's
+/// path under its label, Try again's failure line -- and the name fields
+/// under their labels (A40 2026-11-03: the ring over the fingerprint's label).
 /// Mutations: the fingerprint's 2 px spacing back; the name field's 4 px.
 #[test]
 fn no_focus_ring_on_the_own_card_page_covers_a_neighbour() {
@@ -4750,45 +4664,8 @@ fn no_focus_ring_on_the_own_card_page_covers_a_neighbour() {
         assert!(ready.contains(stop), "{stop}: {ready:?}");
     }
 
-    model.identity_shown(keyless(KeyProblem::Damaged));
-    view.render(&model);
-    press(&view, text(UiText::KeyMakeNew));
-    let _ = intents(&mut view, &mut model);
-    let _ = model.ask_new_key();
-    model.new_key_asked(false);
-    view.render(&model);
-    settle();
-    press_last(&view, text(UiText::KeyNewConfirm));
-    let _ = intents(&mut view, &mut model);
-    let _ = model.confirm_new_key();
-    view.render(&model);
-    settle();
-    let making = tab_each_ring_covers_nothing(&view, 20);
-    assert!(making.contains("own-key-making"), "{making:?}");
-
-    model.key_made(
-        Some(IdentityView {
-            key: OwnKey::Ready {
-                fingerprint: "fedcba9876543210".to_owned(),
-            },
-            ..keyless(KeyProblem::Damaged)
-        }),
-        "fedcba9876543210".to_owned(),
-        vec![direct(P), direct(Q)],
-    );
-    view.render(&model);
-    settle();
-    let made = tab_each_ring_covers_nothing(&view, 20);
-    assert!(made.contains("own-key-fingerprint"), "{made:?}");
-    assert!(
-        made.iter()
-            .filter(|on| on.starts_with("share-again:"))
-            .count()
-            == 2,
-        "{made:?}"
-    );
-
-    model.key_not_made(None, KeyProblem::Damaged, false);
+    model.identity_shown(keyless(KeyProblem::NotNow));
+    model.key_retried(keyless(KeyProblem::NotNow));
     view.render(&model);
     settle();
     let failed = tab_each_ring_covers_nothing(&view, 20);

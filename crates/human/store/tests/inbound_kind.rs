@@ -13,14 +13,19 @@ use interweave_human_store::{
     AppMessageId, HumanStore, InboundCounts, InboundKind, InboundOrigin, NewInbound, PageLimits,
     StoreConversation, StoreOptions,
 };
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::TransportIdentity;
 
 const P: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
 fn store() -> (tempfile::TempDir, std::path::PathBuf, HumanStore) {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     (dir, path, store)
 }
 
@@ -29,7 +34,7 @@ fn inbound(n: u8, kind: InboundKind) -> NewInbound {
         app_message_id: AppMessageId::parse(format!("{n:032x}")).expect("an id"),
         origin: InboundOrigin {
             peer: TransportIdentity::parse(P).expect("a PeerId"),
-            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+            endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             channel: None,
         },
         media_type: None,
@@ -175,7 +180,12 @@ fn a_reclassification_rewrites_every_row_and_records_its_version() {
     drop(store);
 
     // Durable: a reopened store reads the new kinds and the version.
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert_eq!(
         store.inbound_kind_version().expect("version").as_deref(),
         Some("2")
@@ -256,7 +266,7 @@ fn a_kind_this_build_does_not_know_is_hidden_and_reset_by_reclassification() {
     );
     let conversation = StoreConversation::Direct {
         peer: TransportIdentity::parse(P).expect("a PeerId"),
-        endpoint: EndpointId::parse("human").expect("an endpoint"),
+        endpoint: interweave_test_support::endpoint_keys::endpoint_id("human"),
     };
     let page = store
         .conversation_page(&conversation, None, PageLimits::default())

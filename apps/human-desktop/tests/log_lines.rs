@@ -114,6 +114,8 @@ fn lines() -> Vec<String> {
     LINES.with(|lines| lines.borrow().clone())
 }
 
+/// The endpoint the lease is on: the id the TEST-ONLY key planted as
+/// `ENDPOINT_SEED` derives (ADR-0067), so the key may sign as it.
 fn human() -> EndpointId {
     endpoint_id(ENDPOINT_SEED)
 }
@@ -162,7 +164,11 @@ impl Opener for NoLinks {
 /// the planted body word, and a contact on that route with the planted
 /// name and surname.
 fn planted(from: &TransportIdentity, count: u32) -> HumanStore {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     plant(&mut store, from, count);
     store
 }
@@ -345,7 +351,7 @@ fn until_line(app: &mut Desktop, class: &str) -> String {
         .expect("the line")
 }
 
-/// No line of the log holds any planted word.
+/// No line of the log holds any planted word, nor the endpoint's id.
 fn assert_content_free() {
     let endpoint = human();
     for line in lines() {
@@ -476,11 +482,20 @@ fn a_degraded_store_is_logged_as_storage_degraded_alone() {
     let faults = Arc::new(StoreFaults::default());
     let dir = tempfile::tempdir().expect("a directory");
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("a store");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("a store");
     plant(&mut store, &from, 1);
     drop(store);
-    let tight =
-        HumanStore::open(&path, StoreOptions { max_pages: Some(1) }).expect("opens degraded");
+    let tight = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions { max_pages: Some(1) },
+    )
+    .expect("opens degraded");
     let mut app = desktop(tight, &faults, &WORKING);
     let line = until_line(&mut app, "session ");
     assert!(
@@ -625,7 +640,25 @@ fn keyed_profile() -> (tempfile::TempDir, IdentityKey) {
         TrustBoundary::new(dir.path()).expect("boundary"),
     )
     .expect("paths");
-    let key = identity_key::create(&paths, &human(), &FilesystemCustody).expect("a key");
+    // The TEST-ONLY key for `ENDPOINT_SEED`, written as `transportctl endpoint
+    // init` would mint one, then opened as the client opens it.
+    let signing = interweave_test_support::endpoint_keys::signing_key(ENDPOINT_SEED);
+    let header = interweave_profile_config::endpoint_key::header_bytes(
+        interweave_profile_config::endpoint_key::Custody::FilesystemOnly,
+        human().as_str().as_bytes(),
+        &signing.verifying_key().to_bytes(),
+    )
+    .expect("a header");
+    let line = interweave_profile_config::endpoint_key::encode_record(&header, &signing.to_bytes());
+    interweave_profile_config::create_private_exclusive_within(
+        &identity_key::key_path(&paths, &human()),
+        line.as_bytes(),
+        paths.boundary(),
+    )
+    .expect("installed");
+    let key = identity_key::open(&paths, &human(), &FilesystemCustody)
+        .expect("opens")
+        .expect("a key");
     (dir, key)
 }
 
@@ -644,7 +677,11 @@ impl Remote {
         let client = TransportClient::new(
             node.clone(),
             node.clone(),
-            HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+            HumanStore::open_in_memory(
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("store"),
             ClientConfig {
                 client_kind: "human-client".to_owned(),
                 endpoints: vec![human()],

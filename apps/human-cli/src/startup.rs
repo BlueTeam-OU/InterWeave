@@ -168,19 +168,37 @@ impl Blocked {
 pub(crate) fn open_store(profile: &Profile) -> Result<HumanStore, Failure> {
     // The store key at the v1 desktop's custody (ADR-0060 decision 3), as
     // the desktop's: a filesystem custody reports no invalidation.
-    open_store_at(&profile.paths, &FilesystemCustody).map_err(|(_, failure)| failure)
+    open_store_at(&profile.paths, first_identity(profile)?, &FilesystemCustody)
+        .map_err(|(_, failure)| failure)
 }
 
-/// [`open_store`] under `cipher`, with the class it was refused by.
+/// The identity the store opens as: the first endpoint a human client may
+/// lease, whose derived id schema v14 gives every row an older store holds
+/// (STATE.md §Migrations). [`resolve`] refuses a profile with none.
+///
+/// # Errors
+/// [`Failure::Refused`] for a profile with no such endpoint.
+pub(crate) fn first_identity(profile: &Profile) -> Result<&EndpointId, Failure> {
+    profile.endpoints.first().ok_or_else(|| {
+        Failure::Refused(format!(
+            "profile {:?} configures no endpoint a human client may use",
+            profile.paths.profile()
+        ))
+    })
+}
+
+/// [`open_store`] under `cipher`, as `identity`, with the class it was
+/// refused by.
 ///
 /// # Errors
 /// The class, and [`Failure::Store`] saying it.
 pub(crate) fn open_store_at(
     paths: &ProfilePaths,
+    identity: &EndpointId,
     cipher: &dyn KeyCipher,
 ) -> Result<HumanStore, (Blocked, Failure)> {
     let path = paths.human_dir().join(STORE_FILE);
-    HumanStore::open_profile(paths, cipher, StoreOptions::default()).map_err(|error| {
+    HumanStore::open_profile(paths, cipher, identity, StoreOptions::default()).map_err(|error| {
         if error.needs_recovery() || matches!(error, StoreError::KeyInvalidated) {
             (
                 Blocked::Recovery,

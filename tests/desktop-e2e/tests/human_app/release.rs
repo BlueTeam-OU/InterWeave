@@ -678,9 +678,11 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
         PROFILE_FORMAT,
         "the upgrade raised the marker to this build's format"
     );
-    // The previous build predates the identity key (ADR-0063), so the
-    // upgrade's first start makes the identity's: a new file, owner-only,
-    // an IDK1 record, and the one file beside the marker it may add.
+    // The previous build predates the identity key (ADR-0063), and the
+    // client mints no key at start (ADR-0067 decision 5: the id derives
+    // from the key, so a key made here would name an id the configuration
+    // does not): the identity's key is the IDK1 record `endpoint init`
+    // made for its alias, and no endpoint key file is added.
     let identity = identity_key::key_path(&home.paths, human_id);
     let identity_name = identity
         .strip_prefix(home.root.path())
@@ -688,12 +690,12 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
         .display()
         .to_string();
     assert!(
-        !before.contains_key(Path::new(&identity_name)),
+        !operated.frozen.contains_key(Path::new(&identity_name)),
         "the previous build made no identity key"
     );
     assert_eq!(
         std::fs::metadata(&identity)
-            .expect("made at start")
+            .expect("made by endpoint init")
             .permissions()
             .mode()
             & 0o777,
@@ -703,6 +705,13 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
         identity_key::open(&home.paths, human_id, &identity_key::FilesystemCustody)
             .expect("an IDK1 record")
             .is_some()
+    );
+    let mut made: Vec<EndpointId> = operated.ids.values().cloned().collect();
+    made.sort();
+    assert_eq!(
+        identity_key::sealed(&home.paths).expect("listed"),
+        made,
+        "no key minted at start: endpoint init's files alone"
     );
     // The previous build's store was plaintext: this build's first open
     // rewrote it encrypted under a new store key (ADR-0060 decision 6),
@@ -755,7 +764,7 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     }
     let rewritten: Vec<_> = rewritten
         .into_iter()
-        .filter(|name| *name != marker_name && *name != identity_name && *name != store_key_name)
+        .filter(|name| *name != marker_name && *name != store_key_name)
         .collect();
     assert!(
         rewritten.is_empty(),
@@ -791,8 +800,13 @@ async fn an_encrypted_store_from_a_newer_build_stops_the_client_and_is_left_as_i
     let operated = operated(&previous_tree());
     let home = &operated.home;
     drop(
-        HumanStore::open_profile(&home.paths, &FilesystemCustody, StoreOptions::default())
-            .expect("this build's first open rewrites it encrypted"),
+        HumanStore::open_profile(
+            &home.paths,
+            &FilesystemCustody,
+            operated.id("human"),
+            StoreOptions::default(),
+        )
+        .expect("this build's first open rewrites it encrypted"),
     );
     assert!(
         store_key::key_path(&home.paths).is_file(),
@@ -1321,7 +1335,12 @@ async fn write_the_previous_build_tree() {
     let path = app_store(&home);
     crate::common::private_dir(path.parent().expect("a store directory"));
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("a store");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("a store");
         let encoded = encode_outbound(&pending, MAX_PAYLOAD_BYTES).expect("it fits");
         store
             .commit_pending_outbound(&NewOutbound {

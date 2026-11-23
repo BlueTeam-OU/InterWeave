@@ -171,7 +171,7 @@ fn text(bytes: &[u8]) -> String {
 }
 
 /// An IDK1 record's line, laid out byte by byte as the human store's
-/// `identity_key::header` and `to_record` wrote it.
+/// `identity_key::to_record` writes it (profile-config's `header_bytes`).
 fn record(custody: u8, name: &[u8], public_key: &[u8; 32], body: &[u8]) -> String {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"IDK1");
