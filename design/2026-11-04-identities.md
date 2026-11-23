@@ -94,7 +94,14 @@ acceptance case in §14 that needs one says so:
   committed before the daemon answers any later call, or never commits;
   and a refusal means no add of that key will commit. Without it, a key
   deleted on a list that answered could belong to an endpoint created
-  afterwards.
+  afterwards. §7's Remove relies on the same property for the remove:
+  a remove the client stopped waiting for is either committed before
+  the daemon answers any later call, or never commits. Without it, a
+  list read back after a lost answer could show the id present for an
+  identity that is removed a moment later, and the snackbar would say
+  it is still here. And the remove takes the identity's trusted set
+  (its `inbound` and `outbound` members, ADR-0028) out of the endpoint
+  overlay with the endpoint.
 - **D2** the endpoint dimension of `admin.trust.set` and
   `admin.trust.list` (p2p-network-dev's IPC minor, contract text
   architect-cto's; ADR-0067 d. 6).
@@ -509,13 +516,19 @@ where focus lands — with its dialog changed for ADR-0067:
   decision 7 and ADR-0063 decision 2, as ruled on #751): Remove takes
   its key path first, then the platform key (the Keystore alias, on
   Android only), then the identity's rows in the store (its
-  conversations, contacts, trusted set and card), and asks the device
-  to remove the endpoint last. A failure at any step after the key
+  conversations, contacts and card), and asks the device to remove the
+  endpoint last. Its trusted set is the device's, kept in the endpoint
+  overlay (ADR-0028), and goes with the endpoint at the device's remove
+  (D1); a Remove that did not finish leaves it unchanged. A failure at any step after the key
   path, before the device has removed the endpoint, is a Remove that
   did not finish. The first four items below say what follows such a
   failure; the last says how the client reads a lost answer:
-  - The snackbar is `IdentityRemoveUnfinished`, never
-    `IdentityChangeFailed`, and has no Undo. It names the identity by
+  - The snackbar is `IdentityRemoveUnfinishedRows` when the
+    identity's rows were deleted before the failure, and
+    `IdentityRemoveUnfinished` when they were not (a failure at the
+    Keystore alias), so that it says what was removed (ADR-0061
+    decision 7). Neither is ever `IdentityChangeFailed`, and neither
+    has an Undo. It names the identity by
     the name the Remove dialog showed. The dialog has closed and focus
     is on the overflow button of the identity's page, as after a refused
     Remove (cards §5.2).
@@ -898,7 +911,8 @@ front.
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
 | `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
-| `IdentityRemoveUnfinished` | Could not finish removing {identity}. Its key was removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken and before the device removed the endpoint (§7) | the key is gone, the identity is still there; Remove chosen again finishes it |
+| `IdentityRemoveUnfinished` | Could not finish removing {identity}. Its key was removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken and before its rows were deleted (§7) | the key is gone, the identity is still there; Remove chosen again finishes it |
+| `IdentityRemoveUnfinishedRows` | Could not finish removing {identity}. Its key, conversations, contacts and card were removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its rows were deleted and before the device removed the endpoint (§7) | the key, conversations, contacts and card are gone, the identity is still there; Remove chosen again finishes it |
 | `IdentityRemoveOthersKeep` | People who saved {identity} as a contact still have its name and photo. Their messages to it reach no one. To them, an identity that you add later is a different one. | Remove dialog | others keep its name and photo, their messages reach no one, a new identity is a different one to them |
 | `MessagesWaitingLocked` | New messages | lock screen | new messages, no count, no name; the same text as `MessagesChannel`, so the key may be that one |
 | `NotificationIdentityLine` | {identity}: 1 new message / {identity}: {count} new messages | the group summary's lines (§9), one an identity; the first for a count of one, the second for any other | the identity and its count; plural forms language-culture's |
@@ -1047,20 +1061,23 @@ pass before it lands.
     `IdentityChangeFailed`. With a seam that fails Remove after the key
     file is unlinked, in one run on each client at the device's
     administrative remove (a refusal) and, on Android only, in one more
-    run at the Keystore alias's retirement: in each run the snackbar is
-    `IdentityRemoveUnfinished`, never `IdentityChangeFailed`; focus is
+    run at the Keystore alias's retirement: the snackbar is
+    `IdentityRemoveUnfinishedRows` in the run at the administrative
+    remove and `IdentityRemoveUnfinished` in the run at the alias,
+    never `IdentityChangeFailed`; in each run focus is
     on the overflow button; the key file is gone; the identity is still
     listed, and its page shows `KeyMissing`, and still does after the
     app is restarted; in the run at the administrative remove, its
     conversations, contacts and card are gone and it is named by its
-    alias, and a message sent to it before the restart is not shown;
+    alias, its trusted set is unchanged (D2), and a message sent to it
+    before the restart is not shown;
     Remove chosen again completes as above, with no snackbar of
     failure. With a seam that drops the connection after the device has
     removed the endpoint and before the device's answer arrives: the
     list is read back, and Remove ends as done, with no snackbar of
     failure. With a seam that drops the connection before the device
-    applies the remove: the snackbar is `IdentityRemoveUnfinished`, as
-    in the refusal run. Needs D1. *(`human-client-ui.md` §13 bullets 17,
+    applies the remove: the snackbar is `IdentityRemoveUnfinishedRows`,
+    as in the refusal run. Needs D1. *(`human-client-ui.md` §13 bullets 17,
     36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
