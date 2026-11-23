@@ -17,8 +17,8 @@
 //!
 //! # Grammar is refused here, not later
 //!
-//! Each entry is decoded by [`EndpointId::parse_derived`], never the
-//! transitional `parse`: on the wire an entry is a derived id (ADR-0067),
+//! Each entry is decoded by [`EndpointId::parse_derived`]: on the wire an
+//! entry is a derived id (ADR-0067),
 //! 52 bytes (`ENDPOINT_FIELD_BYTES`), and a label of the retired grammar is
 //! malformed metadata. So a response carrying a label, or an entry whose
 //! length byte is not 52, fails to DECODE, and request-response reports that to the requester as an
@@ -407,8 +407,8 @@ mod tests {
         );
     }
 
-    /// A derived id one character off, and a label the transitional
-    /// `EndpointId::parse` still accepts, both fail to decode.
+    /// A derived id one character off, and a label of the retired grammar,
+    /// both fail to decode.
     #[test]
     fn an_entry_that_is_not_a_derived_id_does_not_decode() {
         let id = endpoint_id("claude");
