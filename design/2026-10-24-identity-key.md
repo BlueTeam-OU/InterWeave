@@ -429,8 +429,10 @@ The step, in this order:
    removed identity's key path is treated as Remove treats it (ADR-0063
    decision 2, ruled on #748): one unlink, or one removal of an empty
    directory, takes it; a directory that holds anything is left where
-   it is. The step completes in both of those cases, so Finish replacing is
-   never offered because of a directory left there (§11 says why the person is told nothing
+   it is; and a path that holds nothing (the key file already missing)
+   has nothing to take. The step completes in each of those cases, so
+   Finish replacing is never offered because of a directory left there
+   or a key file already missing (§11 says why the person is told nothing
    of an entry left behind). If that unlink or removal fails for any
    reason other than a directory that holds anything, the step stops,
    whatever the entry is (a key file included), as any refusal in
@@ -693,8 +695,8 @@ On both clients unless said; Android's screen-reader checks blocked as
     the screen reader reads §8's order and each announcement once.
 13. Withdrawn with the Stage 21 step (pending own cards and the Cancel
     snackbar at a new key); item 26 checks the replacement's.
-14. A key file of non-text bytes, and one of mode 0000, each show
-    `KeyDamaged`, not `KeyNotNow`. Desktop: in a private
+14. A key file of non-text bytes, and one of mode 0000 owned by this
+    user, each show `KeyDamaged`, not `KeyNotNow`. Desktop: in a private
     `endpoint-keys/`, a directory of mode 0700 in the key file's place,
     a FIFO of mode 0600 in the same place, and a Unix socket of mode
     0600 there, each owned by this user, each show `KeyDamaged`, not
