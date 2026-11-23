@@ -26,10 +26,10 @@ What part 1 adds, changes and retires (§10):
 - changed: `KeyNewerVersion` (no "if you make a new key"),
   `KeyCannotShare` and `KeyCannotShareHere` (no time when the key
   works again; language-culture-en's pass, 6257df7c8), `KeyDirUnsafe`
-  (it asks for a folder that no other user account can open, and it
-  says InterWeave does not use any key kept there, not "the key",
-  since the folder may hold none; 2026-11-23), `KeyNotNowAgain`
-  (proposed, not "the key", for the same reason; 2026-11-23), and, in
+  (it asks for a folder that gives no permissions at all to any group
+  or any other user, and it says InterWeave does not use any key kept there,
+  not "the key", since the folder may hold none; 2026-11-23), `KeyNotNowAgain`
+  (not "the key", for the same reason; 2026-11-23), and, in
   `design/2026-10-19-android-identity.md`, `IdR1NewKeys` (a new
   identity, not a changed key);
 - retired from the build, with §5 (withdrawn): `KeyMakeNew`,
@@ -133,7 +133,7 @@ mapped here, and nothing else refuses at open:
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | none; `KeyNoNewKey` (the reason line names the update) |
 | damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `endpoint-keys/` is a directory this user owns (a file its owner cannot read) | both | `KeyDamaged` | none; `KeyNoNewKey` |
 | not protected | the read's `NotPrivate` for the file (readable or writable by another user, a link, another user's file), and the read reaches the file only after `endpoint-keys/` is private; while the folder is loose, the kind is "key folder not safe" (below) | both (in practice the desktop) | `KeyExposed` | none; `KeyNoNewKey` |
-| key folder not safe | the read's `NotPrivate` for an `endpoint-keys/` that is a link or not a directory at all; and any read refusal while `endpoint-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal); and the read's `NotPrivate` for an `endpoint-keys/` directory that this user owns and whose mode is loose (any permission for its group or for other users, 0711 and 0701 among them, though no other user can list those), whatever files it holds. The read stops at the directory and never reaches the file, so the person fixes the folder first. Try again then shows the file's own state: the key opens, or the page shows the file's kind ("not protected", "missing" or any other) (Q-loose, REPLY 01a207c7: a private key opens again once the folder is private, and nothing outlasts the fix) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder |
+| key folder not safe | the read's `NotPrivate` for an `endpoint-keys/` that is a link or not a directory at all; and any read refusal while `endpoint-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal); and the read's `NotPrivate` for an `endpoint-keys/` directory that this user owns and whose mode is loose (any permission for its group or for other users, 0711 and 0701 among them, though no other user can list a folder at either mode), whatever files it holds. The read stops at the directory and never reaches the file, so the person fixes the folder first. Try again then shows the file's own state: the key opens, or the page shows the file's kind ("not protected", "missing" or any other) (Q-loose, REPLY 01a207c7: a private key opens again once the folder is private, and nothing outlasts the fix) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder |
 | temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again |
 | missing | no file (§7) | both | `KeyMissing` | none; `KeyNoNewKey` |
 
@@ -507,12 +507,12 @@ The old identity, after a replacement:
   record goes with it, and the first identity's page shows this
   state's block with Replace again and no `KeyReplacedBy`.
 
-## 6. Try again ("temporarily unusable")
+## 6. Try again ("temporarily unusable", "key folder not safe")
 
 Try again opens the key once more. Opened: the block is replaced by the
 fingerprint row, nothing announced beyond §8. Refused again with the
 same kind: `KeyNotNowAgain` ("InterWeave still could not use this identity's
-key.", proposed, §10) under the
+key.", §10) under the
 actions, Try again still the only one; with another kind: that kind's
 block, with `KeyNoNewKey` and Replace where §3 and §5.1 give them, and
 focus on its reason line (§8, "Try again, refused with another kind").
@@ -591,7 +591,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | the `KeyDirUnsafePath` line ("key folder not safe"), on the page | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
 | the `KeyDirUnsafePath` line, in the share sheet | reached by keyboard in reading order before `KeyCannotShareHere` and the actions, so backwards from Open your card, where the sheet's focus opens; selectable and copyable, it opens nothing | keyboard; screen reader reads it once, with the reason line |
 | Try again, refused again | `KeyNotNowAgain` | keyboard; screen reader |
-| Try again, refused with another kind (§6; the Try again button may be gone) | the new kind's reason line (for "key folder not safe", `KeyDirUnsafe`, with `KeyDirUnsafePath` next in reading order), announced by being focused, not again; Tab then reaches the kind's action: Try again where §3 keeps it, else Replace with a new identity where §5.1 offers it, else the page's next control | keyboard; screen reader |
+| Try again, refused with another kind (§6; the Try again button may be gone) | the new kind's reason line (for "key folder not safe", `KeyDirUnsafe`, with `KeyDirUnsafePath` next in reading order), announced by being focused, not again; Tab then reaches the kind's action (for "key folder not safe", after the `KeyDirUnsafePath` line): Try again where §3 keeps it, else Replace with a new identity where §5.1 offers it, else the page's next control | keyboard; screen reader |
 | Open your card from the sheet | as cards §5.2 | keyboard |
 | Back from §4.1 to the sheet, Try again opened the key | the sheet's Share | keyboard |
 | Back from §4.1 to the sheet, no key | Open your card | keyboard |
@@ -851,10 +851,10 @@ identity's, each as `{identity}` is.
 | `KeyNewFailed` | *retired* InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed before the old file was removed; says nothing about what changed |
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
 | `KeyNewFailedGone` | *retired* The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
-| `KeyDirUnsafe` (changed 2026-11-23) | This identity's key must be kept in a regular folder that your user account owns and no other user account can open. The location shown is not a folder like that, so InterWeave does not use any key kept there. Make the location shown a regular folder that your user account owns and no other user account can open, then choose Try again. | §3, desktop only; must be true for a symbolic link, a folder owned by another user account, a file where the folder should be, and (Q-loose, 2026-11-23) a folder that this user owns and other users can open, for which "owns" alone was already true, so the text also says who may open it. Not "only your user account owns and can open": "only" may be read as covering the owner alone, and then the second sentence is false for that last folder (language-culture-en, j409); must be true whatever files the folder holds, no key file included, so it says "any key kept there" and not "the key" (language-culture-en, j410); must be true of a folder at 0711 or 0701, which the read refuses (any permission for another user) though no other user can list it, so "open" must not read as "list" to a person who checks their folder (review 6019805428; the words are language-culture-en's); must say what to make of it, since the client never changes what it does not own |
+| `KeyDirUnsafe` (changed 2026-11-23) | This identity's key must be kept in a regular folder that your user account owns and that gives no permissions at all to any group or any other user. The location shown is not a folder like that, so InterWeave does not use any key kept there. Make the location shown a regular folder that your user account owns and that gives no permissions at all to any group or any other user, then choose Try again. | §3, desktop only; must be true for a symbolic link, a folder owned by another user account, a file where the folder should be, and (Q-loose, 2026-11-23) a folder that this user owns and other users can open, for which "owns" alone was already true, so the text also says who may open it. Not "only your user account owns and can open": "only" may be read as covering the owner alone, and then the second sentence is false for that last folder (language-culture-en, j409); must be true whatever files the folder holds, no key file included, so it says "any key kept there" and not "the key" (language-culture-en, j410); must be true of a folder at 0711 or 0701, which the read refuses (any permission for another user) though no other user can list it, so "open" must not read as "list" to a person who checks their folder (review 6019805428; the words are language-culture-en's): it says "gives no permissions at all to any group or any other user", which the person can check against the folder's permissions, and not "can open" (language-culture-en, j411); must say what to make of it, since the client never changes what it does not own |
 | `KeyDirUnsafePath` | Folder location: {path} | §4.1 and §4.3, desktop only, the line under `KeyDirUnsafe` wherever it shows; a label and the path, `{path}` last so no punctuation touches it |
 | `KeyNewPending` | *retired* In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11) |
-| `KeyNotNowAgain` (changed 2026-11-23) | *proposed:* InterWeave still could not use this identity's key. | §6, after Try again under "temporarily unusable" or "key folder not safe" refused with the same kind; must be true when no key file is there (a loose folder that holds none, a file where the folder should be), so not "the key", as if one were found; must not repeat the folder's state, which the reason line above says |
+| `KeyNotNowAgain` (changed 2026-11-23) | InterWeave still could not use this identity's key. | §6, after Try again under "temporarily unusable" or "key folder not safe" refused with the same kind; must be true when no key file is there (a loose folder that holds none, a file where the folder should be), so not "the key", as if one were found; must not repeat the folder's state, which the reason line above says |
 | `KeyReplace` | *proposed:* Replace with a new identity | §5.1 action; must name the result, a new identity, not a new key |
 | `KeyReplaceTitle` | *proposed:* Replace {identity} with a new identity? | §5.2 title |
 | `KeyReplaceBody` | InterWeave makes a new identity with this card's name and photo. To your contacts, the new identity is a different identity from {identity}, and they get the new identity's card only when you share that card with them. Messages they send to {identity} will no longer reach you. | §5.2, every case; must say: a new identity with the same name and photo; contacts see a different identity, and get its card only after a share; messages to the old identity stop reaching the person. Never "key change"; never that contacts cannot see the new identity before a share, since a trusted peer's directory shows it once advertised (REPLY 01a20525) |
@@ -1046,9 +1046,9 @@ Try again then shows the file's own state, so the rule for the file
 applies from the first open that reaches the file (review F23, F24
 on #738); §5.1 and
 acceptance 15 follow. ADR-0063 records the ruling (A 2026-11-23,
-decision 2): exposed is the file's own state, and the directory is
-judged first, a file's own state only once the directory is private,
-which is this mapping. The question, as asked:
+decision 2): exposed is the file's own state; the directory is judged
+first, and a file's own state is judged only once the directory is
+private. The mapping in §3 follows that ruling. The question, as asked:
 
 - **Q-loose**: on the desktop, "not protected" can come from the
   `endpoint-keys/` directory alone (this user's, loose mode, each key
