@@ -791,9 +791,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
   held there is no switch, and the bar is one row as today.
   **Alternatives named:**
   - (a) Wrap the title beside the switch. Rejected: "Conversations" is
-    one word, so at the default text size every desktop with two
-    identities would show the title broken inside the word, on two
-    lines in a third of the bar's width. The two-row bar breaks a word
+    one word, so at the default text size every desktop with two or
+    more identities would show the title broken inside the word, on
+    two lines in a third of the bar's width. The two-row bar breaks a word
     only when the word is wider than the whole row, which can happen,
     for example, at 200 % text on the 280 px pane.
   - (b) Drop the switch to the avatar alone. Rejected: §5 names the
@@ -801,7 +801,8 @@ can, and the TalkBack rows of §14 are blocked until it does.
     same placeholder, so the bar would no longer say who acts.
   - (c) Let the title ellipsise, as first built. Rejected: the desktop's
     list pane is 280 px at every wide width, so every desktop with two
-    identities would show a cut heading at the default text size.
+    or more identities would show a cut heading at the default text
+    size.
   - Material's medium top app bar (the controls on the first row, the
     title under them). Rejected: it puts the heading after the switch
     and the ⋮ in reading order, and §11's order and every focus return
