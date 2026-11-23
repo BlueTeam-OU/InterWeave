@@ -23,10 +23,11 @@ use interweave_human_ui_model::{ConversationKey, RuntimeHost, SessionNotice};
 use interweave_human_ui_slint::View;
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::EndpointId;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("endpoint")
+    endpoint_id("human")
 }
 
 fn node() -> FakeConfig {

@@ -56,6 +56,7 @@ use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNo
 use interweave_profile_config::TrustBoundary;
 use interweave_profile_config::paths::ProfilePaths;
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::ComponentHandle as _;
 
@@ -93,9 +94,11 @@ impl Surface for Injecting {
 const BODY: &str = "tm45logbodyquokka";
 const NAME: &str = "Tm45Lognameaxolotl";
 const SURNAME: &str = "Tm45Logsurnamepangolin";
-const ENDPOINT: &str = "tm45logendpointcapybara";
+/// The name the endpoint's test-only key is seeded from; the planted word
+/// is the id it derives, [`human`].
+const ENDPOINT_SEED: &str = "tm45logendpointcapybara";
 
-const PLANTED: [&str; 4] = [BODY, NAME, SURNAME, ENDPOINT];
+const PLANTED: [&str; 3] = [BODY, NAME, SURNAME];
 
 thread_local! {
     /// The lines this test's thread wrote: the pump runs on it, and each
@@ -112,7 +115,7 @@ fn lines() -> Vec<String> {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse(ENDPOINT).expect("endpoint")
+    endpoint_id(ENDPOINT_SEED)
 }
 
 fn peer() -> TransportIdentity {
@@ -344,8 +347,9 @@ fn until_line(app: &mut Desktop, class: &str) -> String {
 
 /// No line of the log holds any planted word.
 fn assert_content_free() {
+    let endpoint = human();
     for line in lines() {
-        for word in PLANTED {
+        for word in PLANTED.into_iter().chain([endpoint.as_str()]) {
             assert!(
                 !line.to_lowercase().contains(&word.to_lowercase()),
                 "planted {word:?} in the log line {line:?}"
@@ -368,7 +372,7 @@ fn select(app: &mut Desktop, from: &TransportIdentity) {
 }
 
 /// A session leased: the line names the class and the time, and never
-/// the endpoint the lease is on (planted as `ENDPOINT`). Mutation:
+/// the endpoint the lease is on (planted as [`human`]). Mutation:
 /// `session_class` (`app.rs`) naming the state with `{state:?}`, whose
 /// `Ready` carries the endpoint -- the exact-line assertion and the
 /// planted-word scan both fail.
@@ -608,7 +612,7 @@ fn cards_that_cannot_be_read_are_logged_by_the_class() {
     assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
 }
 
-/// A profile on disk with an identity key for `ENDPOINT`: what signs a
+/// A profile on disk with an identity key for [`human`]: what signs a
 /// card.
 fn keyed_profile() -> (tempfile::TempDir, IdentityKey) {
     use std::os::unix::fs::PermissionsExt as _;
