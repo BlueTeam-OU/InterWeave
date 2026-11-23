@@ -512,17 +512,34 @@ pub fn keyguard_showing(dump: &str) -> Result<bool, String> {
 /// `CredentialType:` line is read.
 ///
 /// # Errors
-/// No `CredentialType:` line where it is looked for, more than one with
-/// no `User 0` to choose by, or a value that is neither form: never
+/// No `CredentialType:` line in user 0's block, another user's block
+/// with no `User 0`, more than one line with no `User 0` to choose by,
+/// or a value that is neither form: never
 /// read as no lock, since the case that asks waits for the lock to go.
 pub fn screen_lock_set(dump: &str) -> Result<bool, String> {
     fn typed<'a>(l: &&'a str) -> Option<&'a str> {
         l.strip_prefix("CredentialType:").map(str::trim)
     }
+    // A user's block runs from its `User <n>` line to the next line
+    // naming a user, the storage section's `User 0 [<path>]:` among them,
+    // so a value is never borrowed from another user's block.
+    fn names_a_user(l: &str) -> bool {
+        l.strip_prefix("User ")
+            .and_then(|r| r.split([' ', ':']).next())
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
+    }
     let lines: Vec<&str> = dump.lines().map(str::trim).collect();
     let value = if let Some(at) = lines.iter().position(|l| *l == "User 0") {
-        lines[at..].iter().find_map(typed)
+        lines[at + 1..]
+            .iter()
+            .take_while(|l| !names_a_user(l))
+            .find_map(typed)
     } else {
+        if let Some(other) = lines.iter().find(|l| names_a_user(l)) {
+            return Err(format!(
+                "dumpsys lock_settings names {other:?} and no User 0:\n{dump}"
+            ));
+        }
         let all: Vec<&str> = lines.iter().filter_map(typed).collect();
         if all.len() > 1 {
             return Err(format!(
@@ -1682,8 +1699,9 @@ channels:
         assert!(dump_ended("x\nException occurred while dumping:\nIW_END=0").is_err());
     }
 
-    // `LockSettingsService.dump`'s per-user block, by name, as the A40
-    // (API 30) prints its `User 0` and `CredentialType:` lines.
+    // A per-user block in `LockSettingsService.dump`'s layout. Only its
+    // `User 0` and `CredentialType: Pin` lines are as the A40 (API 30)
+    // printed them; the rest, and the `User 10` block, are made up.
     const LOCK_BY_NAME: &str = "\
 Current lock settings service state:
 User State:
@@ -1707,7 +1725,7 @@ User State:
     }
 
     #[test]
-    fn a_screen_lock_is_read_by_number_up_to_api_30() {
+    fn a_screen_lock_is_read_by_number() {
         let by_number = |v: &str| {
             LOCK_BY_NAME.replacen("CredentialType: Pin", &format!("CredentialType: {v}"), 1)
         };
@@ -1724,6 +1742,15 @@ User State:
     #[test]
     fn a_lock_dump_that_says_no_type_is_no_answer() {
         assert!(screen_lock_set("User 0\n  SID: 0\n").is_err());
+        // Another user's None is never user 0's: after user 0's block,
+        // and with no User 0 at all.
+        assert!(screen_lock_set("User 0\n  SID: 0\nUser 10\n  CredentialType: None\n").is_err());
+        assert!(screen_lock_set("User 10\n  CredentialType: None\n").is_err());
+        // The A40's storage section names user 0 again: it ends the block.
+        assert!(
+            screen_lock_set("User 0\n  SID: 0\nStorage:\n  User 0 [/data/system_de/0/spblob]:\n  CredentialType: None\n")
+                .is_err()
+        );
         let odd = LOCK_BY_NAME.replacen("CredentialType: Pin", "CredentialType: Face", 1);
         assert!(
             screen_lock_set(&odd).is_err(),

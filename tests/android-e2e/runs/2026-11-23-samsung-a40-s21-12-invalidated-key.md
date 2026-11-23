@@ -48,7 +48,7 @@ A40's app data"), relayed by architect-cto's REPLY 01a20747-d1aa:
 | controls, before the change | the profile is `user-presence`; the lock is set; `key-info` lists `interweave.iwk1.human-android.user-presence` with `user_authentication_required` true; past the key's 60 s validity, a cold launch opens Conversations offline with the authentication notice and the credential prompt up, cancelled by Recents. All asserted by the case. |
 | the lock removed (the owner: Settings > Lock screen > Screen lock type > None) | read off `dumpsys lock_settings`; `key-info` then: the alias kept, `refused: java.security.UnrecoverableKeyException` |
 | the same PIN set again (the owner) | read off `dumpsys lock_settings`; `key-info`: the same refusal |
-| a cold launch | `ui-trace identity=k1`, `ui-trace warns=active-elsewhere`, `ui-trace focus=k1-heading` (10:44:11 phone time); no credential prompt; no `NetworkService` record |
+| a cold launch | `ui-trace identity=k1`, `ui-trace warns=active-elsewhere`, `ui-trace focus=k1-heading` (10:44:11 phone time); no credential prompt and no `NetworkService` record, each read once by the case right after the trace line. The case at `4ef7723fc` did not wait a quiet window first (it does since; see below). The phone's own log, read at 09:44:53 UTC, about 42 s after the launch, held no `ui-trace prompt=` line, and `dumpsys activity services` named no `NetworkService` then. |
 | the identity record | byte-equal to the one read before the change, so nothing was minted over it (sha256 `ff8fc78f14cad549…`, the file still dated 10:40) |
 
 `key-info` after the run, before the wipe: the identity's key
@@ -62,7 +62,9 @@ So on this phone, removing the screen lock invalidates a key made with
 again does not bring it back. The app then opens on K1, the recovery page
 with ADR-0043's warning, starts no service and mints nothing. A40, API
 30: One UI surfaces the invalidation as `UnrecoverableKeyException` from
-`getKey`, which the cipher maps to `KEY_INVALIDATED` (SPIKE-009 D6a).
+`getKey`, as the test APK's `key-info` read it. `KeystoreCipher.kt` maps
+that exception to `KEY_INVALIDATED` (SPIKE-009 D6a); the run did not
+read the app's own failure code, and a missing key opens K1 too.
 
 ## What the run leaves on the phone
 
@@ -71,6 +73,14 @@ owner's word for this run (DECISION 01a20039). InterWeave is installed
 (the `4ef7723fc` pair above) and opens on Welcome with no identity. The
 lock is the owner's PIN, as found. This login's adb pairing stays on the
 phone.
+
+## Since the run
+
+The review of the PR found the case's K1 reads were single snapshots
+taken right after the trace line. The case now waits out the app's
+`prompt=` line for `QUIET` before them, and the lock reader stops at the
+end of user 0's block. Neither change has run on a phone; the run above
+is the case at `4ef7723fc`.
 
 ## What this does not show
 

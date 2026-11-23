@@ -51,6 +51,7 @@
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
 
+use std::io::Write as _;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -285,8 +286,14 @@ fn an_invalidated_user_presence_key_opens_on_k1_and_mints_nothing() {
 
     passed(&s.launch_to_identity("k1", PATIENCE), &s);
     passed(&s.lines_after(0, &["warns=active-elsewhere"], PATIENCE), &s);
-    // The positive control is the prompt the locked launch above raised.
+    // A prompt or a service may come after the page's trace line, so the
+    // app's own `prompt=` line is waited out first. Its positive control
+    // is the prompt the locked launch above raised, read the same way.
+    passed(&s.none_after(0, "prompt=", QUIET), &s);
     assert!(!prompt_shown(), "no prompt raised on K1");
+    // No run of this case sees the service running, so this "no" leans on
+    // `platform::service_record`, which refuses a dump it does not
+    // recognise rather than reading it as not running.
     assert!(
         network_service().is_none(),
         "no service on K1: {:?}",
@@ -419,7 +426,12 @@ impl Drop for LockPutBack {
             .and_then(|o| platform::dump_ended(&String::from_utf8_lossy(&o.stdout)).ok())
             .and_then(|d| platform::screen_lock_set(&d).ok());
         if lock_set == Some(false) {
-            eprintln!("PERSON: the phone has no screen lock now: set it again");
+            // `eprintln!` panics when stderr is gone, and a panic here
+            // would abort the unwind.
+            let _ = writeln!(
+                std::io::stderr(),
+                "PERSON: the phone has no screen lock now: set it again"
+            );
         }
     }
 }
