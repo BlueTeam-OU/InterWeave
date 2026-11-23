@@ -992,11 +992,11 @@ ui_texts! {
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3 "not protected"; must say why it is refused, and not suggest fixing the file
     KeyExposed => "Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own
-    KeyDirUnsafe => "This identity's key must be kept in a regular folder that your user account owns and no other user account can open. The location shown is not a folder like that, so InterWeave does not use the key. Make the location shown a regular folder that your user account owns and no other user account can open, then choose Try again.",
+    KeyDirUnsafe => "This identity's key must be kept in a regular folder that your user account owns and that gives no permissions at all to any group or any other user. The location shown is not a folder like that, so InterWeave does not use any key kept there. Make the location shown a regular folder that your user account owns and that gives no permissions at all to any group or any other user, then choose Try again.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 and §4.3, desktop only, the line under `KeyDirUnsafe` wherever it shows; a label and the path, '{path}' last so no punctuation touches it
     KeyDirUnsafePath => "Folder location: {path}",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §6
-    KeyNotNowAgain => "InterWeave still could not use the key.",
+    KeyNotNowAgain => "InterWeave still could not use this identity's key.",
     /// A conversation's action: send this identity's own card to the
     /// counterparty. Offered in a direct conversation only, never sent
     /// on its own.
