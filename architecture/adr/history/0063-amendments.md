@@ -124,3 +124,44 @@ under the old name. Propagation: the Status line; decisions 1, 2, 4, 5,
 6, the Security and Operational implications (each with a tombstone
 in place); this note; the log row; the digest entry; STATE.md's
 `contact_routes` and key-file sentences; the README row.
+
+### Amendment 2026-11-23 — A refusal for the key directory's mode alone ends when the directory is private
+
+Decision 2 said a new identity follows "a refused, exposed or
+invalidated record" without saying what exposed covers. The desktop
+read refused two different things under one name: a key file that is
+itself not private, and a key file that is private inside an
+`endpoint-keys/` directory this user owns at a loose mode. The design
+note for the refusals treated both as "the key may already have been
+read, so it is not used again", and then found that the second case
+could not be resolved at all: a new key cannot be written into a
+non-private directory, and making the directory private lets every key
+in it open again (ux-designer's question of 2026-11-23, review of the
+identity-key note).
+
+Ruled: exposed is the file's own state. A directory this user owns at
+a loose mode shows other users at most the file names (where it gives
+them the read bit; a search bit alone lists nothing), which are
+EndpointIds and public; it gives no other user a read of an owner-only file, and no
+other user can change the mode of a file they do not own. Where the
+loose mode is a write bit, another user could have removed or swapped a
+file, and each such swap is refused at open on its own: another owner's
+file and a link by the file's rule, this user's other key file by the
+envelope's EndpointId against the file's name; a removal is the
+key-missing state. So the directory's refusal needs no memory: no key
+opens while the directory is loose, each opens once it is private, and
+nothing is stored to outlast the fix. This is how the node's own key
+already behaves under ADR-0028's directory rule. The directory is
+judged first, because the read stops at it and never sees the file: a
+file that is itself not private, or missing, inside a loose directory
+shows as the directory's refusal until the directory is private, and as
+its own state after.
+
+Rejected: a stored mark that keeps the refusal after the directory is
+fixed. It records a state no other user could have used, and costs the
+store a record whose only reader is this case.
+
+Propagation: decision 2 (the sentence after the ADR-0067 one); this
+note; the log row; the digest entry. The identity-key design note's
+section 3 and its criterion for a directory at mode 0755 follow in the
+note's own pull request.
