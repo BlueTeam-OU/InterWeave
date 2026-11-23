@@ -89,8 +89,10 @@ pub fn identity_key_under(
 }
 
 /// Where the identity in front's key lives and under whose custody: what
-/// lets the facade open it again and make a new one
-/// (design/2026-10-24-identity-key.md sections 5 and 6).
+/// lets the facade open it again (design/2026-10-24-identity-key.md
+/// section 6). Nothing here makes a key in the identity's place: its id
+/// derives from the key, so a new key is a new identity (ADR-0067
+/// decision 5).
 pub struct KeySource {
     paths: ProfilePaths,
     endpoint: EndpointId,
@@ -130,19 +132,6 @@ impl KeySource {
             store,
         )?
         .ok_or(IdentityKeyFileError::Missing)
-    }
-
-    /// A new key in the identity's place: never made (ADR-0067 decision
-    /// 5). The id derives from the key, so a new key is a new identity,
-    /// never this one's; the identity is left as it was.
-    ///
-    /// # Errors
-    /// Always [`identity_key::NewKeyFailed::Kept`] with
-    /// [`IdentityKeyFileError::KeyIsTheIdentity`].
-    pub fn replace(&self) -> Result<IdentityKey, identity_key::NewKeyFailed> {
-        Err(identity_key::NewKeyFailed::Kept(
-            IdentityKeyFileError::KeyIsTheIdentity,
-        ))
     }
 
     /// The person's terms for a refusal: its kind, the key folder named
@@ -390,29 +379,6 @@ mod identity_tests {
             before,
             "neither re-sealed nor replaced at open"
         );
-    }
-
-    /// ADR-0067 decision 5: a new key is a new identity, so the source
-    /// never replaces one, and the identity's file is left as it was.
-    #[test]
-    fn a_key_source_never_replaces_the_identitys_key() {
-        let dir = private_dir();
-        let paths = paths(dir.path());
-        let (_, endpoints) = minted(&paths, &FilesystemCustody);
-        let file = identity_key::key_path(&paths, &endpoints[0]);
-        let before = std::fs::read(&file).expect("read");
-        let source = KeySource::new(
-            paths.clone(),
-            endpoints[0].clone(),
-            Box::new(FilesystemCustody),
-        );
-        assert_eq!(
-            source.replace().map(|k| k.public_key()),
-            Err(identity_key::NewKeyFailed::Kept(
-                IdentityKeyFileError::KeyIsTheIdentity
-            ))
-        );
-        assert_eq!(std::fs::read(&file).expect("read"), before, "unchanged");
     }
 
     /// The key folder a `DirUnsafe` refusal names is `endpoint-keys/`, the

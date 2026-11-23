@@ -31,7 +31,6 @@ usage:
   interweave-human --profile <name> identities enable|disable <endpoint>
   interweave-human --profile <name> identities default <endpoint>|--none
   interweave-human --profile <name> identity show [<endpoint>] [--json]
-  interweave-human --profile <name> identity new-key [--confirm key-change] [--json]
   interweave-human --profile <name> store health [--json]
   interweave-human --profile <name> store discard
                    [--confirm everything|unfinished-plaintext] [--json]
@@ -63,8 +62,6 @@ pending, u<row> unread, k<row> kept; a proposal's is its card's u<row>,
 as proposals prints it. A <contact> is its id, as contacts prints it. `send ... -` reads the text from
 stdin. `--` ends the flags. `store discard` without --confirm lists what
 it would remove and removes nothing; --confirm names what it listed.
-`identity new-key` without --confirm key-change says what a new key would
-do and changes nothing.
 
 Exit codes:
   0  done
@@ -239,13 +236,6 @@ pub(crate) enum Verb {
     /// An identity's fingerprint: the one in front, or the named human
     /// endpoint's.
     IdentityShow(Option<EndpointId>),
-    /// A new key for the identity in front, whose key cannot be used:
-    /// made only when `confirm` (the person's `--confirm key-change`),
-    /// else what it would do is said and nothing changes.
-    IdentityNewKey {
-        /// The key change confirmed.
-        confirm: bool,
-    },
     /// The store's health, and its key and files at rest.
     StoreHealth,
     /// Discard and recreate a store that needs recovery (ADR-0060
@@ -577,12 +567,6 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ["identities", "default", id] => (Verb::SetDefault(Some(endpoint(id)?)), false),
         ["identity", "show"] => (Verb::IdentityShow(None), true),
         ["identity", "show", id] => (Verb::IdentityShow(Some(endpoint(id)?)), true),
-        ["identity", "new-key"] => (
-            Verb::IdentityNewKey {
-                confirm: key_change_confirmed(flags.confirm.take().as_deref())?,
-            },
-            true,
-        ),
         ["store", "health"] => (Verb::StoreHealth, true),
         ["store", "discard"] => (
             Verb::StoreDiscard(discard_scope(flags.confirm.take().as_deref())?),
@@ -670,7 +654,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     };
     if json && !json_allowed {
         return Err(
-            "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
+            "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share and store discard"
                 .to_owned(),
         );
     }
@@ -714,15 +698,6 @@ fn discard_scope(confirm: Option<&str>) -> Result<Option<DiscardScope>, String> 
     }
 }
 
-/// `identity new-key`'s `--confirm`: whether it names the key change.
-fn key_change_confirmed(confirm: Option<&str>) -> Result<bool, String> {
-    match confirm {
-        None => Ok(false),
-        Some("key-change") => Ok(true),
-        Some(_) => Err("identity new-key's --confirm takes key-change".to_owned()),
-    }
-}
-
 /// A flag given to a verb that does not take it: a usage error naming
 /// the verbs it applies to.
 fn unused(flags: &Flags) -> Result<(), String> {
@@ -739,7 +714,7 @@ fn unused(flags: &Flags) -> Result<(), String> {
         );
     }
     if flags.confirm.is_some() {
-        return Err("--confirm applies to store discard and identity new-key only".to_owned());
+        return Err("--confirm applies to store discard only".to_owned());
     }
     if flags.photo.is_some() || flags.no_photo {
         return Err("--photo and --no-photo apply to card set only".to_owned());
@@ -805,15 +780,6 @@ mod tests {
             &["--profile", "p", "store", "health", "--json"],
             &["--profile", "p", "identity", "show"],
             &["--profile", "p", "identity", "show", "second", "--json"],
-            &["--profile", "p", "identity", "new-key", "--json"],
-            &[
-                "--profile",
-                "p",
-                "identity",
-                "new-key",
-                "--confirm",
-                "key-change",
-            ],
             &["--profile", "p", "store", "discard", "--json"],
             &["--profile", "p", "peers", "show", "--json"],
             &["--profile", "p", "peers", "state", "--json"],
@@ -901,7 +867,6 @@ mod tests {
             "identities default",
             "store health",
             "identity show",
-            "identity new-key",
             "card show",
             "card set",
             "card share",
@@ -1029,7 +994,7 @@ mod tests {
         assert_eq!(
             run(&["--profile", "p", "trust", "allow", PEER, "--json"]),
             Err(
-                "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
+                "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share and store discard"
                     .to_owned()
             )
         );
@@ -1065,27 +1030,6 @@ mod tests {
         ));
         assert!(discard(&["--confirm", "yes"]).is_err());
         assert!(discard(&["--confirm", "key-change"]).is_err());
-        let new_key = |extra: &[&str]| {
-            let mut args = vec!["--profile", "p", "identity", "new-key"];
-            args.extend_from_slice(extra);
-            run(&args)
-        };
-        assert!(matches!(
-            new_key(&[]),
-            Ok(Command::Run {
-                verb: Verb::IdentityNewKey { confirm: false },
-                ..
-            })
-        ));
-        assert!(matches!(
-            new_key(&["--confirm", "key-change"]),
-            Ok(Command::Run {
-                verb: Verb::IdentityNewKey { confirm: true },
-                ..
-            })
-        ));
-        assert!(new_key(&["--confirm", "everything"]).is_err());
-        assert!(new_key(&["--confirm", "yes"]).is_err());
         assert!(discard(&["--confirm"]).is_err());
         assert!(discard(&["--confirm", "everything", "--confirm", "everything"]).is_err());
         assert!(
@@ -1099,6 +1043,25 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    /// ADR-0067 decision 5: a new key is a new identity, so no verb makes
+    /// one under an identity's name -- `identity new-key` is no command,
+    /// with or without its old flag, and the usage names it nowhere.
+    /// Mutation: the verb's parse arm put back.
+    #[test]
+    fn no_verb_makes_a_new_key_for_an_identity() {
+        for extra in [&[][..], &["--confirm", "key-change"], &["--json"]] {
+            let mut args = vec!["--profile", "p", "identity", "new-key"];
+            args.extend_from_slice(extra);
+            assert_eq!(
+                run(&args),
+                Err("an unknown command (see --help)".to_owned()),
+                "{args:?}"
+            );
+        }
+        assert!(!USAGE.contains("new-key"), "the usage names no new key");
+        assert!(!USAGE.contains("--confirm key-change"), "nor its flag");
     }
 
     #[test]

@@ -87,10 +87,8 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::UndoCard(_)
         | Intent::ShareCard(_)
         // An identity's own key signs its card and grants no trust
-        // (ADR-0063 decision 5): a new one, or opening it again, changes
-        // no trust and no route policy.
-        | Intent::AskNewKey
-        | Intent::MakeNewKey
+        // (ADR-0063 decision 5): opening it again changes no trust and no
+        // route policy.
         | Intent::RetryKey
         | Intent::CloseKeyStep
         // A chosen photo is prepared for the identity's own card, which

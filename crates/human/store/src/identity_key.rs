@@ -575,18 +575,6 @@ fn keys_dir_is_safe(paths: &ProfilePaths, dir: &str) -> Result<(), IdentityKeyFi
     Ok(())
 }
 
-/// Why a new key was not made in an identity's place, and whether the
-/// old file is still there: the shape app-core's `KeySource::replace`
-/// answers in. Under ADR-0067 decision 5 no key is ever replaced, so it
-/// is [`NewKeyFailed::Kept`] with [`IdentityKeyFileError::KeyIsTheIdentity`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NewKeyFailed {
-    /// Stopped before the old file was removed: the identity is as it was.
-    Kept(IdentityKeyFileError),
-    /// Stopped after: the saved key is gone, and no new one was made.
-    Gone(IdentityKeyFileError),
-}
-
 /// Whether a file, a link or anything else stands at `path`.
 fn file_present(path: &std::path::Path) -> Result<bool, IdentityKeyFileError> {
     match std::fs::symlink_metadata(path) {

@@ -827,21 +827,14 @@ fn damage(path: &Path) {
     std::fs::write(path, "not a record\n").expect("damaged");
 }
 
+/// `identity show` of a damaged key: named by its kind, no fingerprint,
+/// exit 1, and the file left as it is -- no verb makes a key in its place
+/// (ADR-0067 decision 5).
 #[tokio::test]
-async fn a_new_key_is_made_only_when_confirmed_and_offered() {
+async fn a_damaged_key_is_shown_by_its_kind_and_left_as_it_is() {
     let (a, _b) = FakeNetwork::pair(node(), node());
     let alice = Side::new(a);
-    let old = alice.key().fingerprint().to_string();
     let file = interweave_human_store::identity_key::key_path(&alice.paths(), &alice.key_id());
-
-    // A usable key is never replaced, confirmed or not.
-    let mut s = alice.session_from_file();
-    let (out, refused) = run(&mut s, Verb::IdentityNewKey { confirm: true }, false).await;
-    assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
-    assert!(out.is_empty(), "{out}");
-    s.close().await;
-    assert_eq!(alice.key().fingerprint().to_string(), old, "the key stays");
-
     damage(&file);
     let damaged = std::fs::read(&file).expect("read");
     let mut s = alice.session_from_file();
@@ -849,33 +842,6 @@ async fn a_new_key_is_made_only_when_confirmed_and_offered() {
     assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
     assert_eq!(lines(&out)[0]["key_problem"], "damaged", "{out}");
     assert_eq!(lines(&out)[0]["fingerprint"], Value::Null);
-
-    // Unconfirmed: what it would do, and nothing done.
-    let (out, listed) = run(&mut s, Verb::IdentityNewKey { confirm: false }, true).await;
-    match &listed {
-        Err(Failure::Refused(why)) => assert!(why.contains("--confirm key-change"), "{why}"),
-        other => panic!("{other:?}"),
-    }
-    let would = &lines(&out)[0];
-    assert_eq!(would["key_problem"], "damaged");
-    assert_eq!(would["deletes_old_key"], true);
-    assert_eq!(would["cancels_pending_cards"], false);
-    assert_eq!(
-        std::fs::read(&file).expect("read"),
-        damaged,
-        "nothing removed"
-    );
-    s.close().await;
-
-    // Confirmed: still no new key under this identity (ADR-0067 decision
-    // 5: the id derives from the key, so a new key is a new identity),
-    // and the refused file is left as it is.
-    let mut s = alice.session_from_file();
-    let (_, made) = run(&mut s, Verb::IdentityNewKey { confirm: true }, true).await;
-    assert!(
-        made.is_err(),
-        "no key made in the identity's place: {made:?}"
-    );
     s.close().await;
     assert_eq!(
         std::fs::read(&file).expect("read"),
@@ -996,7 +962,7 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
 }
 
 #[tokio::test]
-async fn a_key_folder_not_safe_is_refused_naming_the_folder() {
+async fn a_key_folder_not_safe_is_shown_as_such_and_left() {
     let (a, _b) = FakeNetwork::pair(node(), node());
     let alice = Side::new(a);
     let fingerprint = alice.key().fingerprint().to_string();
@@ -1013,16 +979,6 @@ async fn a_key_folder_not_safe_is_refused_naming_the_folder() {
     let (out, shown) = run(&mut s, Verb::IdentityShow(None), true).await;
     assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
     assert_eq!(lines(&out)[0]["key_problem"], "key-folder-unsafe", "{out}");
-    let (out, refused) = run(&mut s, Verb::IdentityNewKey { confirm: true }, false).await;
-    match &refused {
-        Err(Failure::Refused(why)) => {
-            assert!(why.contains("key-folder-unsafe"), "{why}");
-            assert!(why.contains("endpoint-keys"), "the folder named: {why}");
-            assert!(!why.contains("later"), "{why}");
-        }
-        other => panic!("{other:?}"),
-    }
-    assert!(out.is_empty(), "{out}");
     s.close().await;
     assert_eq!(std::fs::read(&file).expect("read"), before, "the key stays");
     std::fs::remove_file(&keys).expect("unlinked");

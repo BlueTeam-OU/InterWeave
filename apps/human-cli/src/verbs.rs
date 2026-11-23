@@ -78,7 +78,6 @@ pub(crate) async fn run<B: interweave_human_transport_client::SessionBinding, A:
         // Main reads another endpoint's key file; the identity in front,
         // named or not, is the model's.
         Verb::IdentityShow(_) => crate::identity::show(s, r, out).await,
-        Verb::IdentityNewKey { confirm } => crate::identity::new_key(s, r, *confirm, out).await,
         Verb::CardSet {
             name,
             surname,
@@ -250,8 +249,6 @@ const fn command_name(command: &Command) -> &'static str {
         Command::AcceptCard { .. } => "accepting a card",
         Command::DeclineCard(_) => "declining a card",
         Command::UndoCard(_) => "undoing a card's answer",
-        Command::AskNewKey => "asking what a new key cancels",
-        Command::MakeNewKey => "making a new key",
         Command::RetryKey => "opening the key again",
         // A page, the contacts, a photo or a reply's target, read as a walk
         // or the start asks.

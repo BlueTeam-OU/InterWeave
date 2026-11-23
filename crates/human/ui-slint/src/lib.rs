@@ -5532,8 +5532,6 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::UndoCard(_)
         | Intent::UndoContact { .. }
         // The key's actions are the card page's own controls.
-        | Intent::AskNewKey
-        | Intent::MakeNewKey
         | Intent::RetryKey
         | Intent::CloseKeyStep
         | Intent::ReadTrust

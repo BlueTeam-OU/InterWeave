@@ -265,8 +265,6 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::AcceptCard { .. } => "accept card",
         Command::DeclineCard(_) => "decline card",
         Command::UndoCard(_) => "undo card",
-        Command::AskNewKey => "ask new key",
-        Command::MakeNewKey => "make new key",
         Command::RetryKey => "retry key",
         Command::Window(interweave_human_app_core::WindowCommand::FetchPage(_)) => "fetch page",
         Command::Window(interweave_human_app_core::WindowCommand::ReadContacts) => "read contacts",

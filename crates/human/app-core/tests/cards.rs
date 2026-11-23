@@ -1539,12 +1539,12 @@ fn own_key(root: &Root) -> interweave_human_ui_model::OwnKey {
 
 /// Design sections 3 and 4.1, acceptance items 2, 5 and 6 at the facade:
 /// a damaged key file leaves the identity keyless and named so, its card
-/// still saves, and Share is refused. A confirmed new key is NOT made
+/// still saves, and Share is refused. No key is made in its place
 /// (ADR-0067 decision 5: the id derives from the key, so a new key is a
-/// new identity, never this one's): the step fails with the file left.
+/// new identity, never this one's): the file is left as it is.
 #[tokio::test]
-async fn a_damaged_key_is_named_the_card_still_saves_and_no_new_key_is_made_under_its_id() {
-    use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
+async fn a_damaged_key_is_named_the_card_still_saves_and_the_file_is_left() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
     let (a, b) = FakeNetwork::pair(node(), node());
     let (pa, pb) = (profile(), profile());
     let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
@@ -1590,19 +1590,6 @@ async fn a_damaged_key_is_named_the_card_still_saves_and_no_new_key_is_made_unde
             .any(|(_, why)| *why == Failure::NoIdentityKey),
         "nothing is signed without a key"
     );
-
-    alice.will(Intent::AskNewKey);
-    alice.pump(9).await;
-    assert_eq!(
-        alice.model().key_step(),
-        Some(&KeyStep::Confirming { pending: false })
-    );
-    alice.will(Intent::MakeNewKey);
-    alice.pump(10).await;
-    assert_eq!(
-        alice.model().key_step(),
-        Some(&KeyStep::Failed { gone: false })
-    );
     assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Damaged));
     assert_eq!(
         std::fs::read_to_string(&file).expect("read"),
@@ -1611,13 +1598,12 @@ async fn a_damaged_key_is_named_the_card_still_saves_and_no_new_key_is_made_unde
     );
 }
 
-/// Acceptance items 9 and 11 at the facade: a key file gone after a
-/// share is missing and nothing makes one by itself; and a confirmed new
-/// key removes nothing and makes nothing (ADR-0067 decision 5: a new key
-/// is a new identity), so the file found at the step is left as it is.
+/// Acceptance item 9 at the facade: a key file gone after a share is
+/// missing and nothing makes one by itself (ADR-0067 decision 5: a new
+/// key is a new identity).
 #[tokio::test]
-async fn a_missing_key_after_a_share_is_named_and_a_new_key_is_never_made_under_its_id() {
-    use interweave_human_ui_model::{KeyProblem, KeyStep, OwnKey};
+async fn a_missing_key_after_a_share_is_named_and_no_key_is_made_by_itself() {
+    use interweave_human_ui_model::{KeyProblem, OwnKey};
     let (a, b) = FakeNetwork::pair(node(), node());
     let (pa, pb) = (profile(), profile());
     let mut alice = Root::new(facade_with_source(&a, &pa, Box::new(FilesystemCustody)));
@@ -1632,24 +1618,6 @@ async fn a_missing_key_after_a_share_is_named_and_a_new_key_is_never_made_under_
     alice.pump(5).await;
     assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Missing));
     assert!(!file.exists(), "no key made by itself");
-
-    std::fs::write(&file, "not a record\n").expect("a file to go");
-    std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600))
-        .expect("chmod");
-    alice.will(Intent::AskNewKey);
-    alice.pump(6).await;
-    alice.will(Intent::MakeNewKey);
-    alice.pump(7).await;
-    assert_eq!(
-        alice.model().key_step(),
-        Some(&KeyStep::Failed { gone: false })
-    );
-    assert_eq!(own_key(&alice), OwnKey::Unusable(KeyProblem::Damaged));
-    assert_eq!(
-        std::fs::read_to_string(&file).expect("read"),
-        "not a record\n",
-        "nothing removed"
-    );
 }
 
 /// The row `queued` named, from the updates since they were cleared.
@@ -2025,8 +1993,8 @@ async fn a_key_file_gone_while_a_card_is_pending_is_missing() {
     }
 }
 
-/// A cipher at the desktop's custody that cannot seal: a new key cannot
-/// be stored under it.
+/// A cipher at the desktop's custody that cannot seal: no key can be
+/// stored under it.
 struct NoSeal;
 
 impl identity_key::KeyCipher for NoSeal {
@@ -2055,39 +2023,6 @@ impl identity_key::KeyCipher for NoSeal {
     fn retire(&self, _: &str) -> Result<(), identity_key::CipherFailure> {
         Ok(())
     }
-}
-
-/// #423 F1 through the loop: a Make the facade refuses before it starts
-/// ends the step as not made, never one the page waits on.
-#[tokio::test]
-async fn a_make_the_facade_refuses_ends_the_step_not_made() {
-    use interweave_human_ui_model::{IdentityView, KeyProblem, KeyStep, OwnKey};
-    let (a, _b) = FakeNetwork::pair(node(), node());
-    let pa = profile();
-    let mut alice = Root::new(facade(&a, &pa, None));
-    alice.model.apply(Update::IdentityShown(IdentityView {
-        endpoint: human(),
-        name: "Ada".to_owned(),
-        given: "Ada".to_owned(),
-        surname: None,
-        has_photo: false,
-        photo: None,
-        key: OwnKey::Unusable(KeyProblem::Damaged),
-        peer: None,
-    }));
-    alice.will(Intent::AskNewKey);
-    alice.pump(1).await;
-    assert_eq!(
-        alice.model().key_step(),
-        Some(&KeyStep::Confirming { pending: false })
-    );
-    alice.will(Intent::MakeNewKey);
-    alice.pump(2).await;
-    assert_eq!(
-        alice.model().key_step(),
-        Some(&KeyStep::Failed { gone: false }),
-        "refused: not made, Make a new key offered again"
-    );
 }
 
 // One route of a contact goes, with its key; the contact keeps the other,

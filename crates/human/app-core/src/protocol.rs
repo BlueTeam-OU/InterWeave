@@ -158,10 +158,6 @@ pub enum Command {
         /// The route's `EndpointId`.
         endpoint: EndpointId,
     },
-    /// Say whether a new key would cancel own cards on their way.
-    AskNewKey,
-    /// Make a new key for the identity in front, as the person confirmed.
-    MakeNewKey,
     /// Open the identity in front's key once more.
     RetryKey,
     /// What the windowed mode reads from the store as the person moves
@@ -328,31 +324,6 @@ pub enum Update {
         seq: u64,
         /// The photo, decoded.
         photo: Option<interweave_human_ui_model::Photo>,
-    },
-    /// Whether a new key would cancel own cards still on their way.
-    NewKeyAsked {
-        /// Own card rows not yet accepted by the remote transport.
-        pending: bool,
-    },
-    /// The new key was made.
-    KeyMade {
-        /// The identity, with its new fingerprint, when it could be read.
-        identity: Option<IdentityView>,
-        /// The new key's fingerprint, whatever could be read.
-        fingerprint: String,
-        /// Where its counterparts hold or may hold the old key, most
-        /// recently shared first.
-        share_again: Vec<ConversationKey>,
-    },
-    /// No new key was made.
-    KeyNotMade {
-        /// The identity, as its key's open now finds it, when it could be
-        /// read.
-        identity: Option<IdentityView>,
-        /// Why its key cannot be used now.
-        problem: interweave_human_ui_model::KeyProblem,
-        /// The old file was removed before the failure.
-        gone: bool,
     },
     /// The key was opened once more.
     KeyRetried(IdentityView),

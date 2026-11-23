@@ -481,17 +481,12 @@ pub enum Intent {
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.
     ShareCard(ConversationKey),
-    /// Ask what making a new key for the identity in front would cancel:
-    /// the facade answers before the confirmation opens
-    /// ([`UiModel::new_key_asked`]).
-    AskNewKey,
-    /// Make a new key for the identity in front, as the person confirmed
-    /// (design/2026-10-24-identity-key.md section 5).
-    MakeNewKey,
-    /// Open the identity in front's key once more (section 6).
+    /// Open the identity in front's key once more
+    /// (design/2026-10-24-identity-key.md section 6). No intent makes a
+    /// new key: the key is the identity (ADR-0067 decision 5).
     RetryKey,
-    /// Close what the card page shows of a key step: the confirmation
-    /// cancelled, or the page left. The model's alone.
+    /// Close what the card page shows of a key step: the page left. The
+    /// model's alone.
     CloseKeyStep,
     /// A photo chosen for the own card, as its file holds it: the facade
     /// side prepares it (contact-cards design section 5.2), and the editor

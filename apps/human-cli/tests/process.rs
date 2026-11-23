@@ -56,7 +56,6 @@ fn help_names_every_verb_and_every_exit_code() {
         "peers add|remove",
         "peers show",
         "identity show",
-        "identity new-key",
         "--accept-key-change",
         "contacts route delete",
         "peers add -|--file",
@@ -84,13 +83,14 @@ fn a_usage_error_is_exit_2_and_prints_the_usage() {
 fn batch_fours_flags_out_of_place_are_exit_2() {
     let xdg = tempfile::tempdir().expect("tempdir");
     for args in [
+        // No command since ADR-0067 decision 5, its old flag with it.
         &[
             "--profile",
             "p",
             "identity",
             "new-key",
             "--confirm",
-            "everything",
+            "key-change",
         ][..],
         &[
             "--profile",
