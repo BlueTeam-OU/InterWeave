@@ -1099,12 +1099,15 @@ pass before it lands.
     width, two rows otherwise. The bar then has that layout, and keeps
     it with a 40-grapheme name and with a 3-grapheme name in front.
     The widest minimum is checked on the desktop's narrow layout at
-    100 % text, with two identities whose names begin "WWW" and "iii",
-    so that their three-grapheme minimums differ in width. The window
-    width is one where the title, the narrower minimum and the ⋮ fit on
-    one row, and the title, the wider minimum and the ⋮ do not. In two
-    runs, one with each identity in front, the bar has two rows. Once
-    the "WWW" identity is removed, the bar has one row.
+    100 % text, with three identities: the first, named "iii…", and
+    two added ones, "WWW…" and "ill…", neither the default, so that
+    the three-grapheme minimums of "WWW" and of the others differ in
+    width. The window width is one where the title, the narrower
+    minimum and the ⋮ fit on one row, and the title, the wider minimum
+    and the ⋮ do not. In two runs, one with "WWW…" in front and one
+    with "iii…" in front, the bar has two rows. Once "WWW…" is removed,
+    two identities are left and the switch is still shown, and the
+    bar has one row.
     Tab from the title reaches the switch, then the ⋮, in both
     layouts, and in a right-to-left window too, where the controls
     stand mirrored. *(§12 "The Chats bar when the switch does

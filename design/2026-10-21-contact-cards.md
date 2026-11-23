@@ -523,9 +523,9 @@ with the text for that action, naming the identity while two or more
 are held (with one, Make default's form names none, as nothing shown
 with one identity does), and no Undo, since nothing happened. A refused Remove closes its dialog first; after any
 refusal focus is on the overflow button of the identity's page. One
-exception to `IdentityChangeFailed`: a Remove that fails after it has
-taken the identity's key has changed something, and it says so with its
-own text (`IdentityRemoveUnfinished`, identities §7).
+exception to this paragraph: a Remove that fails after it has taken the
+identity's key has changed something. Its page shows the missing key,
+and its snackbar is `IdentityRemoveUnfinished` (identities §7).
 
 **The photo.** Add a photo opens Android's Photo Picker (images only,
 one item) or the desktop's file dialog filtered to PNG and JPEG. The
