@@ -141,6 +141,11 @@ pub enum CardFault {
     /// The signature failed strict verification under the identity key
     /// over the canonical bytes of the route the card arrived on.
     SignatureFails,
+    /// The identity key does not derive the `source_endpoint` the card
+    /// arrived on: the key is the sending endpoint's own, and a card
+    /// presenting one endpoint's name under another's key is malformed
+    /// (ADR-0067 decision 5, HUMAN-CHAT.md §Contact card).
+    KeyNotSourceEndpoint,
 }
 
 impl CardFault {
@@ -167,6 +172,7 @@ impl CardFault {
             Self::SignatureEncoding => "signature-encoding",
             Self::SignatureLength => "signature-length",
             Self::SignatureFails => "signature-fails",
+            Self::KeyNotSourceEndpoint => "key-not-source-endpoint",
         }
     }
 }
@@ -355,10 +361,13 @@ pub fn check_draft(draft: CardDraft<'_>) -> Result<(), CardBuildError> {
 /// sent on: `sender` is this node's `PeerId` and `endpoint` the identity
 /// the conversation speaks as, which the receiver takes from the
 /// connection and verifies the signature over. `sign` is the identity
-/// key's, and `identity_key` its public half.
+/// key's, and `identity_key` its public half, the key `endpoint` derives
+/// from (ADR-0067 decision 5).
 ///
 /// What it returns is the raw JSON text, which [`classify`] answers with
-/// [`Classified::Card`] on that route, and only there.
+/// [`Classified::Card`] on that route, and only there; built under a key
+/// that does not derive `endpoint`, with
+/// [`CardFault::KeyNotSourceEndpoint`] everywhere.
 ///
 /// # Errors
 /// [`CardBuildError`] for a draft a receiver would refuse.
@@ -541,6 +550,11 @@ fn parse_card(text: &str, route: CardRoute<'_>) -> Result<Card, CardFault> {
     .ok_or(CardFault::SignatureFails)?;
     if !verifies_strictly(&identity_key, &signature, &message) {
         return Err(CardFault::SignatureFails);
+    }
+    // After the signature, as the fixture verifier orders its rules: a
+    // signature vector's verdict never turns on its route's endpoint.
+    if EndpointId::from_ed25519_public(&identity_key) != *route.source_endpoint {
+        return Err(CardFault::KeyNotSourceEndpoint);
     }
 
     Ok(Card {

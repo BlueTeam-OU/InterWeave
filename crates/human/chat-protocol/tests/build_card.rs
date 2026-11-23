@@ -37,6 +37,12 @@ fn key() -> SigningKey {
     SigningKey::from_bytes(&[42u8; 32])
 }
 
+/// The id [`key`] derives: the endpoint a card under it is sent from
+/// (ADR-0067 decision 5).
+fn mine() -> EndpointId {
+    EndpointId::from_ed25519_public(&key().verifying_key().to_bytes())
+}
+
 fn build(
     draft: CardDraft<'_>,
     sender: &TransportIdentity,
@@ -74,8 +80,8 @@ fn a_built_card_verifies_on_its_route_and_on_no_other() {
         surname: Some("Ångström"),
         photo: Some(("image/png", &photo)),
     };
-    let text = build(draft, &peer(PEER), &endpoint("human")).expect("built");
-    let Classified::Card(card) = on(&text, &peer(PEER), &endpoint("human")) else {
+    let text = build(draft, &peer(PEER), &mine()).expect("built");
+    let Classified::Card(card) = on(&text, &peer(PEER), &mine()) else {
         panic!("not a card on its own route: {text}");
     };
     assert_eq!(card.name, "Zoë", "sent after NFC");
@@ -85,13 +91,40 @@ fn a_built_card_verifies_on_its_route_and_on_no_other() {
     assert_eq!(card.app_message_id, ID);
     // Another PeerId, or another identity of this node: not this card.
     assert_eq!(
-        on(&text, &peer(OTHER_PEER), &endpoint("human")),
+        on(&text, &peer(OTHER_PEER), &mine()),
         Classified::MalformedCard(CardFault::SignatureFails)
     );
     assert_eq!(
         on(&text, &peer(PEER), &endpoint("work")),
         Classified::MalformedCard(CardFault::SignatureFails)
     );
+}
+
+/// A card whose signature verifies over its route but whose key does not
+/// derive the route's endpoint presents one endpoint's name under another
+/// endpoint's key, and is malformed (ADR-0067 decision 5, HUMAN-CHAT.md
+/// §Contact card). The control: the same draft under the same key, sent
+/// from the endpoint the key derives, is a card. Mutation: `parse_card`
+/// without the derivation check answers the first with a card.
+#[test]
+fn a_card_whose_key_does_not_derive_its_endpoint_is_malformed() {
+    let draft = CardDraft {
+        name: "Ada",
+        surname: None,
+        photo: None,
+    };
+    let foreign = endpoint("human");
+    assert_ne!(foreign, mine(), "the premise: another endpoint's id");
+    let text = build(draft, &peer(PEER), &foreign).expect("built");
+    assert_eq!(
+        on(&text, &peer(PEER), &foreign),
+        Classified::MalformedCard(CardFault::KeyNotSourceEndpoint)
+    );
+    let text = build(draft, &peer(PEER), &mine()).expect("built");
+    assert!(matches!(
+        on(&text, &peer(PEER), &mine()),
+        Classified::Card(_)
+    ));
 }
 
 #[test]
