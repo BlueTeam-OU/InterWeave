@@ -58,12 +58,18 @@ fn take_word(flow: &mut IdentityFlow, word: &str) {
 }
 
 fn at_c4() -> IdentityFlow {
-    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     apply_identity(&mut flow, IdentityInput::Primary);
     let words: [&'static str; 24] = WORDS[..24].try_into().expect("24 words");
     flow.created(words, mine(), [3, 9]);
-    apply_identity(&mut flow, IdentityInput::Primary);
-    apply_identity(&mut flow, IdentityInput::Primary);
+    // C2's words, its PeerId page, then C3.
+    for _ in 0..3 {
+        apply_identity(&mut flow, IdentityInput::Primary);
+    }
     for _ in 0..2 {
         let (position, _) = flow.check().expect("C3 checks a word");
         take_word(&mut flow, WORDS[position]);
@@ -73,7 +79,11 @@ fn at_c4() -> IdentityFlow {
 }
 
 fn at_r3() -> IdentityFlow {
-    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     apply_identity(&mut flow, IdentityInput::Secondary);
     apply_identity(&mut flow, IdentityInput::Primary);
     for (at, word) in WORDS[..24].iter().enumerate() {
