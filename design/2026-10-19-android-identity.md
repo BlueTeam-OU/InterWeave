@@ -1229,49 +1229,55 @@ that a PeerId was created.
   prompt (Authentication needed), and a cancel or denial ends as a
   cancelled start after C4's Continue does: on Chats, offline and
   locked, since the flow has ended.
-- **An answer after the bound.** The start can answer after
-  add-a-peer §5.1's 10 s bound, when the flow has ended and Chats has
-  opened (rust-ui-dev-01's QUESTION 01a20aa2, on #750). It then ends
-  as the results above, but on the screen the person is on by then
-  (Chats, or a conversation opened since), as any start refused after
-  the bound does. The record opens to C4's PeerId: the service runs.
-  `RecoveryRequired`: K1 over that screen, as at a launch, with C4's
-  PeerId as the expected one. `LockHeld`: `IdStartBusy` as a session
-  notice (A start refused with the profile in use after the bound).
-  The prompt cancelled or denied: the locked notice, with focus on it
-  (Authentication needed). `Unavailable`, and a record that opens to
-  another PeerId than C4's: nothing runs, and the notice that Chats
-  shows for any refused start (`Refused`, with Try again) shows where
+- **An answer after the bound.** The start of `IdStartUnchecked` can
+  answer after add-a-peer §5.1's 10 s bound. By then the flow has
+  ended and Chats has opened (rust-ui-dev-01's QUESTION 01a20aa2, on
+  #750). The start then ends as in Its results above, but on the
+  screen the person is on by then (Chats, or a conversation opened
+  since), as any start refused after the bound does. The record opens
+  to C4's PeerId: the service runs. `RecoveryRequired`: K1 over that
+  screen, as at a launch, with C4's PeerId as the expected one.
+  `LockHeld`: `IdStartBusy` as a session notice (A start refused with
+  the profile in use after the bound). The start's prompt cancelled
+  or denied: the locked notice, with focus on it (Authentication
+  needed). `Unavailable`, or a record that opens to another PeerId
+  than C4's: nothing runs, and Chats' notice for a refused start
+  (`Refused`, with Try again) shows under the app bar, where
   `IdStartBusy` shows after the bound. Focus does not move, and the
   notice is announced once, politely, as `IdStartBusy` is after the
-  bound, for the same reason: it answers nothing the person is doing
-  then. A mismatch gets no notice of its own here either: it cannot
-  follow this flow's own write unless another writer took the profile
-  (above), and C4, the screen that explained what the PeerId is, has
-  gone.
+  bound, and for the same reason: it answers nothing the person is
+  doing then. A mismatch gets no notice of its own here either: it
+  cannot follow this flow's own write unless another writer took the
+  profile (above), and C4, the screen that explained what the PeerId
+  is, has closed.
 - **The comparison outlasts the bound.** Until a start opens the
-  record to C4's PeerId, or until the process ends, every start the
-  app makes after this press compares, as this press's start does:
-  Try again on `Refused` or on `IdStartBusy`, a start retried at a
-  return or a recreation, Unlock's start after the locked notice, and
+  record to C4's PeerId, or until the process ends, every start that
+  the app makes after the press of `IdStartUnchecked` compares the
+  PeerId that the record opens to with C4's PeerId, as the start of
+  that press does. These starts are: the start that Try again makes on
+  `Refused` or on `IdStartBusy`, a start retried at a return or a
+  recreation, the start that Unlock makes after the locked notice, and
   the start of a launch while the process still runs (the Activity
   created anew after Back finished it, or from a notification). A
-  record that opens to another PeerId answers each of them as above,
-  and nothing runs as it. Why: the person pressed "Go online with this
-  PeerId" (`IdStartUnchecked`), and the phrase they wrote down
-  restores that PeerId. A Try again that went online with another
-  PeerId would answer that press with another identity, with no word,
-  and the paper would no longer restore the identity that runs. The
-  ruling on Q15 (§11d) lets nothing run as that identity from C4; the
-  bound changes the screen, not the rule (architect-cto's REPLY
-  01a20aa8: the comparison binds every start of that process). The
-  expected PeerId is held in memory only, and nothing stores it, as
-  nothing stores that the press happened. So, as on C4, only the end
-  of the process leads on, and the next launch runs whatever the
-  record opens to, with no comparison (§12). A process the system
-  ended in the background and restored from saved state is such an
-  end: its start compares nothing, since the saved state does not
-  carry the expected PeerId either.
+  record that opens to another PeerId answers each of them as An
+  answer after the bound says, and nothing runs as that other PeerId.
+  Why: the person pressed "Go online with this PeerId"
+  (`IdStartUnchecked`), and the phrase they wrote down restores that
+  PeerId. A Try again that went online with another PeerId would
+  answer that press with another identity, with no word to the
+  person, and the phrase on paper would no longer restore the
+  identity that runs. The ruling on Q15 (§11d) lets nothing run from
+  C4 as an identity other than C4's; the bound changes the screen, not
+  the rule (architect-cto's REPLY 01a20aa8: the comparison binds every
+  start of that process). The expected PeerId is held in memory only.
+  Nothing stores it, and nothing stores the fact that the press
+  happened. So, as on C4, only the end of the process leads on, and
+  the next launch runs whatever the record opens to, with no
+  comparison (§12). When the system ends the process in the
+  background and the app is later restored from saved state, that
+  counts as an end of the process: the start after the restore makes
+  no comparison, since the saved state does not carry the expected
+  PeerId either.
 - **Focus.** The control sits after the primary in C4's order (§8).
   When it first shows, focus goes to the notice, as for any
   `IdStorageUnknown` (the error-banner rule, §8). Like a press of Continue, its press moves no focus while C4 is held: focus stays on the
@@ -2331,19 +2337,22 @@ landscape:
     hidden. This run needs the app's comparison before the start, and
     is blocked until it exists.
     With the start held past the 10 s bound (§6, An answer after the
-    bound): Chats opens at the bound, with focus on its title. Then
-    answered with the double's record opening to another PeerId than
-    C4's: the hook records no service start, `Refused` shows under
-    the app bar with Try again, and focus stays on Chats' title. Then
-    Try again: the hook records one start that compares with C4's
-    PeerId, answered the same, and still no service start. Then Back
-    finishes the Activity and the launcher launches it in the same
-    process: its start compares too, answered the same. A second
-    run answered `Unavailable` after the bound: `Refused` again, and
-    its Try again's start compares too. A third run answered
-    `LockHeld` after the bound: `IdStartBusy` on Chats, and its Try
-    again's start compares. This run needs the comparison to outlast
-    the bound, and is blocked until it does.
+    bound): Chats opens at the bound, with focus on its title. The
+    start is then answered with the double's record opening to another
+    PeerId than C4's: the hook records no service start, `Refused`
+    shows under the app bar with Try again, and focus stays on Chats'
+    title. Then Try again is pressed: the hook records one start, which
+    compares with C4's PeerId and is answered the same way, and the
+    hook still records no service start. Then Back finishes the
+    Activity, and the launcher launches it again in the same process:
+    the start of that launch compares too, and is answered the same
+    way. In a second run, the held start is answered `Unavailable`
+    after the bound: `Refused` shows again, and the start that Try again
+    makes on it compares too. In a third run, the held start is
+    answered `LockHeld` after the bound: `IdStartBusy` shows on Chats,
+    and the start that Try again makes on it compares too. These three runs
+    need the comparison to outlast the bound, and are blocked until it
+    does.
     Back goes where §6 (Back from a notice) says: on R2 after K1, to
     K1, through the discard dialog, with the words dropped only by
     `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
@@ -3393,13 +3402,17 @@ here; the first was already answered on this branch.
   on, and its words say it (§6, Q15), except after a start from it met
   another PeerId than C4's: then only the end of the process leads on,
   the next launch runs the record's identity, and no words say either.
-  A process the system ended and restored from saved state counts as
-  that end (§6, The comparison outlasts the bound): carrying the
-  expected PeerId across it would mean writing it into the saved
-  state, and its start would still run nothing until the person found
-  the end that leads on.
-  That case needs another writer between the flow's release of the
-  lock and the start (§6), so it gets none. A read-back that keeps failing can come only after the two refusals that can come after the write, and no device has shown
+  An end of the process by the system in the background, with the app
+  later restored from saved state, counts as that end (§6, The
+  comparison outlasts the bound). To carry the expected PeerId across
+  that end, the app would have to write it into the saved state, and
+  the start after the restore would then still compare, and would run
+  nothing until the person ended the process in another way.
+  A start from C4 that meets another PeerId needs another writer
+  between the flow's release of the lock and the start (§6), so that
+  case gets no words. A read-back that keeps failing can come only
+  after the two refusals that can come after the write, and no device
+  has shown
   it yet; words for it are language-culture's, if a test shows people
   stuck there.
 - **What the Settings screen shows besides the new item.**
