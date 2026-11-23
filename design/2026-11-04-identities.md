@@ -512,23 +512,24 @@ where focus lands — with its dialog changed for ADR-0067:
   conversations, contacts, trusted set and card), and asks the device
   to remove the endpoint last. A failure at any step after the key
   path, before the device has removed the endpoint, is a Remove that
-  did not finish:
+  did not finish. The first four items below say what follows such a
+  failure; the last says how the client reads a lost answer:
   - The snackbar is `IdentityRemoveUnfinished`, never
-    `IdentityChangeFailed`, with no Undo. It names the identity by the
-    name the Remove dialog showed. The dialog has closed and focus is
-    on the overflow button of the identity's page, as after a refused
+    `IdentityChangeFailed`, and has no Undo. It names the identity by
+    the name the Remove dialog showed. The dialog has closed and focus
+    is on the overflow button of the identity's page, as after a refused
     Remove (cards §5.2).
   - The identity stays listed, and its page shows the missing key
     (`KeyMissing`, identity-key §4.1). If its rows were deleted before
-    the failure, it has no card, and it is named by its alias, as any
-    identity with no card is (§6.2), with no conversations or contacts.
-    Until Remove finishes or the app next starts, it receives nothing:
-    no message to it is kept or shown.
-  - After a restart it shows the same, because nothing stores that a
-    Remove began; one case differs. When the device answers that it
-    could not apply the change now but will at its next start (ADR-0028,
-    `Internal`), the identity is gone after that start, with nothing
-    of it left.
+    the failure, it has no card, conversations or contacts, and the
+    list and its page name it by its alias, as they name any identity
+    with no card (§6.2). Until Remove finishes or the app next starts,
+    it receives nothing: no message to it is kept or shown.
+  - After a restart, the list and its page show the same as before,
+    because nothing stores that a Remove began. One case differs: when
+    the device answers that it could not apply the change now but will
+    at its own next start (ADR-0028, `Internal`), the identity is gone
+    after the device's next start, with nothing of it left.
   - Remove stays offered on that page. If the person chooses Remove
     again, it completes, because the key path now holds nothing to
     take. The Remove dialog is the same as before: its key item
@@ -536,14 +537,15 @@ where focus lands — with its dialog changed for ADR-0067:
     again.
   - **The device's answer to the remove is lost** (the connection
     drops, or the answer never comes): the client reads the endpoint
-    list back (`admin.endpoints.list`), as Add does (§6.2). The id is
-    absent: Remove is done, as when the device answers done (cards
-    §5.2). The id is present, or the list does not answer: the Remove
-    did not finish, as above. A Remove chosen again of an id the
-    device no longer holds ends the same way, done once the list shows
-    the id absent. That the device answers such a remove with
-    `EndpointUnknown` is D1's text in architect-cto's supply, not yet
-    on main; the read-back does not depend on it.
+    list back (`admin.endpoints.list`), as Add does (§6.2). If the
+    identity's id is absent from the list, Remove is done, as when the
+    device answers done (cards §5.2). If the id is present, or the list
+    does not answer, the Remove did not finish, as in the items above.
+    If Remove is chosen again for an id that the device no longer holds,
+    it ends the same way: done once the list shows the id absent. D1's
+    text in architect-cto's supply, not yet on main, says that the
+    device answers that remove with `EndpointUnknown`; the read-back
+    does not depend on that answer.
 
 **Turn off this identity** (the first identity) stands as cards §5.2
 says. One addition: its trust stays. Turned off, it admits nothing
@@ -1049,11 +1051,13 @@ pass before it lands.
     conversations, contacts and card are gone and it is named by its
     alias, and a message sent to it before the restart is not shown;
     Remove chosen again completes as above, with no snackbar of
-    failure. With a seam that drops the connection after the device
-    has removed the endpoint, before its answer: the list is read back,
-    and Remove ends as done, with no snackbar of failure. With the
-    same seam and the remove not applied: the snackbar is
-    `IdentityRemoveUnfinished`, as in the refusal run. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
+    failure. With a seam that drops the connection after the device has
+    removed the endpoint and before the device's answer arrives: the
+    list is read back, and Remove ends as done, with no snackbar of
+    failure. With a seam that drops the connection before the device
+    applies the remove: the snackbar is `IdentityRemoveUnfinished`, as
+    in the refusal run. Needs D1. *(`human-client-ui.md` §13 bullets 17,
+    36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
@@ -1132,14 +1136,14 @@ pass before it lands.
     it with a 40-grapheme name and with a 3-grapheme name in front.
     The widest minimum is checked on the desktop's narrow layout at
     100 % text, with three identities: the first, named "iii…", and
-    two added ones, "WWW…" and "ill…", neither the default, so that
-    the three-grapheme minimums of "WWW" and of the others differ in
-    width. The window width is one where the title, the narrower
-    minimum and the ⋮ fit on one row, and the title, the wider minimum
-    and the ⋮ do not. In two runs, one with "WWW…" in front and one
-    with "iii…" in front, the bar has two rows. Once "WWW…" is removed,
-    two identities are left and the switch is still shown, and the
-    bar has one row.
+    two added ones, named "WWW…" and "ill…", neither of them the
+    default. The three-grapheme minimum of "WWW" differs in width
+    from those of "iii" and "ill". The window width is one where the
+    title, the minimum of "iii" or of "ill", and the ⋮ fit on one row,
+    and the title, the minimum of "WWW" and the ⋮ do not. In two runs,
+    one with "WWW…" in front and one with "iii…" in front, the bar has
+    two rows. Once "WWW…" is removed, two identities are left and the
+    switch is still shown, and the bar has one row.
     Tab from the title reaches the switch, then the ⋮, in both
     layouts, and in a right-to-left window too, where the controls
     stand mirrored. *(§12 "The Chats bar when the switch does
