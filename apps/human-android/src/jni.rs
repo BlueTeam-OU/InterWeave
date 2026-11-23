@@ -13,10 +13,11 @@ use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
     EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, Resealed, ServiceHost,
     ServiceLaunch, StartRefused, Started, Told, Transports, UnlockStatus, addresses_from_wire,
-    locked_status, start_resealed,
+    locked_status, start_resealed, start_resealed_expecting,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
+use interweave_transport_api::TransportIdentity;
 use jni::{Env, EnvUnowned};
 
 use crate::keystore::{KeystoreCipher, StoreKeystore};
@@ -58,6 +59,12 @@ mod refused {
     /// recreation); the window's notice is `IdStartBusy`, told apart by
     /// the hub's `StoreAnswer::ProfileBusy`.
     pub(super) const LOCK_HELD: jint = -14;
+    /// The record opened to another `PeerId` than C4's
+    /// (`IdentityRefused::NotExpected`): nothing runs, and the held C4
+    /// answers it (identity note section 6, A start from C4 after a
+    /// failed read-back). Native.kt names no constant for it: the Service
+    /// answers it as any refusal it does not tell apart.
+    pub(super) const NOT_EXPECTED: jint = -15;
 }
 
 /// One line to the platform's log, under the app's tag. A started
@@ -153,10 +160,14 @@ extern "system" fn JNI_OnLoad(
 /// -- or the refusal code of why there is none, after logging it, with
 /// what the refused start learnt of the policy in force. A first run is
 /// provisioned here in the debug build alone (android-platform's
-/// `identity`); a release first run is onboarding's.
+/// `identity`); a release first run is onboarding's. A start told to
+/// `expect` a `PeerId` -- C4's `IdStartUnchecked` -- is refused before
+/// the reseal when the record opens to another, and provisions nothing
+/// in any build (android-platform's `start_resealed_expecting`).
 fn identity(
     env: &mut Env<'_>,
     app_data_dir: &str,
+    expect: Option<&TransportIdentity>,
 ) -> Result<Started, (jint, Learnt, IdentityRefused)> {
     let cipher = KeystoreCipher::new(env).map_err(|e| {
         log(&format!("the Keystore cipher could not be reached: {e}"));
@@ -178,9 +189,10 @@ fn identity(
     // The reseal runs before the host takes the profile's lock: one log
     // line when it did something or could not, never a word to the
     // person but the status.
-    let resealed = match crate::identity_hook::take() {
-        Some(why) => Err(why),
-        None => start_resealed(dir, PROFILE, &cipher, first_run),
+    let resealed = match (crate::identity_hook::take(), expect) {
+        (Some(why), _) => Err(why),
+        (None, Some(expected)) => start_resealed_expecting(dir, PROFILE, &cipher, expected),
+        (None, None) => start_resealed(dir, PROFILE, &cipher, first_run),
     };
     let started = resealed.map_err(|why| {
         let unlock = (why == IdentityRefused::UserNotAuthenticated)
@@ -227,6 +239,7 @@ fn refused_identity(why: &IdentityRefused) -> jint {
         IdentityRefused::Paths(_)
         | IdentityRefused::Unavailable(_)
         | IdentityRefused::Provisioning(_) => refused::IDENTITY_UNAVAILABLE,
+        IdentityRefused::NotExpected(_) => refused::NOT_EXPECTED,
     }
 }
 
@@ -331,9 +344,21 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     if let Err(code) = provision(app_data_dir) {
         return refused_early(code);
     }
-    let started = match identity(env, app_data_dir) {
+    // Read once, at the start's beginning: what the flow expected when it
+    // asked this start, never what a later screen says.
+    let expect = crate::onboard::expected_start();
+    let started = match identity(env, app_data_dir, expect.as_ref()) {
         Ok(started) => started,
         Err((code, learnt, why)) => {
+            // Before the hub hears the answer: the turn it wakes finds the
+            // held C4's answer there (onboard's `start_decided`).
+            if expect.is_some()
+                && let Some(answer) = crate::unchecked_start::unchecked_answer(&why, |cause| {
+                    crate::onboard::recovery_start(std::path::Path::new(app_data_dir), cause)
+                })
+            {
+                crate::onboard::unchecked_refused(answer);
+            }
             let host = ServiceHost::global();
             match learnt {
                 // The store was not reached and Unlock's start may open

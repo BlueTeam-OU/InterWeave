@@ -31,6 +31,9 @@ interweave-human-ui-model = { path = "../../crates/human/ui-model" }
 # comes through android-platform, the app's one way to the runtime.
 interweave-human-android-platform = { path = "../../crates/human/android-platform" }
 interweave-profile-config = { path = "../../crates/config/profile-config" }
+# The PeerId C4's start after a failed read-back must open the record to
+# (src/unchecked_start.rs), on every target so the host tests it.
+interweave-transport-api = { path = "../../crates/api/transport-api" }
 # The store key's custody (src/keystore.rs) and the store's screens
 # (src/store.rs): the store's KeyCipher seam and its at-rest actions. On
 # every target for the identity keys' directory K1 reads
@@ -67,7 +70,6 @@ serde_json = { workspace = true, optional = true }
 # The identity key's record read back by the log and backup tests
 # (src/platform_log.rs, src/identity_keys.rs), to look for its secret.
 base64 = { workspace = true }
-interweave-transport-api = { path = "../../crates/api/transport-api" }
 
 [features]
 # A first run's identity created and Keystore-provisioned by the Service

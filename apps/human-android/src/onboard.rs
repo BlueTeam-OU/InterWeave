@@ -23,7 +23,7 @@ use interweave_human_android_platform::{
 };
 use interweave_human_ui_model::{
     Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start, StartHold,
-    StepFailed,
+    StepFailed, UncheckedRefused,
 };
 use interweave_human_ui_slint::{
     IdentityInput, View, Wake, apply_identity, defer, identity_page, invoke_on_window,
@@ -39,9 +39,11 @@ use crate::keystore::KeystoreCipher;
 use crate::ready_check::{
     AtFlowEnd, Before, Over, asks_start_at_end, at_flow_end, secure_may_clear,
 };
+use crate::unchecked_start::ExpectedStart;
 use crate::unlock_route::{Route, UnlockRoute, flow_prompts};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, TracedStart, prompt_line, start_line};
+use interweave_transport_api::TransportIdentity;
 
 /// Where the window starts, as `Native.identityState` answers it.
 pub(crate) mod state {
@@ -276,7 +278,7 @@ pub(crate) fn identity_state(
 }
 
 /// K1's start for a record refused for `cause` (design section 3.4).
-fn recovery_start(app_data_dir: &Path, cause: &RecoveryCause) -> Start {
+pub(crate) fn recovery_start(app_data_dir: &Path, cause: &RecoveryCause) -> Start {
     let paths = TrustBoundary::new(app_data_dir)
         .and_then(|boundary| ProfilePaths::resolve_embedded(PROFILE, boundary))
         .ok();
@@ -482,6 +484,10 @@ fn held_by_showing(asked_at: StoreGeneration) {
         slot.borrow_mut().as_mut().is_some_and(|o| {
             let held = o.service_asked && o.flow.showing_started();
             if held {
+                UNCHECKED
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
                 o.asked_at = asked_at;
                 // The identity is on record: the bound counts from now.
                 o.hold = Some(StartHold::pressed(now_ms(), true));
@@ -546,6 +552,7 @@ pub(crate) fn person_asked() {
 /// Seal running).
 pub(crate) fn refused_locked() {
     let flow = FLOW_START.swap(false, Ordering::SeqCst);
+    expected_answered();
     await_authentication(ask::RESTART);
     let decided = route_state().refused();
     if flow_prompts(flow, decided) {
@@ -557,6 +564,19 @@ pub(crate) fn refused_locked() {
         // The held screen waited on this answer: decided now.
         invoke_on_window(crate::activity::turn_soon);
     }
+}
+
+/// A start answered, after [`FLOW_START`] was taken: with no flow shown
+/// any more, no later start compares (`ExpectedStart::answered`).
+fn expected_answered() {
+    let shows = FLOW_SHOWS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some();
+    EXPECTED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .answered(shows);
 }
 
 /// A held C4's or R4's start was asked and has not answered yet: its
@@ -603,6 +623,7 @@ pub(crate) fn start_answered(ran: bool) {
     if FLOW_START.swap(false, Ordering::SeqCst) {
         invoke_on_window(crate::activity::turn_soon);
     }
+    expected_answered();
     route_state().answered(ran);
     clear_authentication();
     // A K1 kept for a window is no longer owed once a start ran: the
@@ -861,11 +882,47 @@ static PARKED: Mutex<Option<Parked>> = Mutex::new(None);
 /// (`MainActivity.phraseShown`).
 static FLOW_SHOWS: Mutex<Option<FlowCheck>> = Mutex::new(None);
 
-/// Say in [`FLOW_SHOWS`] whether `o`, the flow now shown or none, lives.
+/// Say in [`FLOW_SHOWS`] whether `o`, the flow now shown or none, lives,
+/// and in [`EXPECTED`] what its start must open the record to.
 fn flow_shows(o: Option<&Onboarding>) {
     *FLOW_SHOWS.lock().unwrap_or_else(PoisonError::into_inner) = o
         .filter(|o| !matches!(o.over, Over::Settings))
         .map(|o| flow_check(o.service_asked, o.flow.start_shows()));
+    let mut expected = EXPECTED.lock().unwrap_or_else(PoisonError::into_inner);
+    match o {
+        Some(o) => expected.shown(o.flow.start_expects()),
+        // After FLOW_SHOWS, as the start's answer reads them the other
+        // way round ([`start_answered`]): whichever comes second clears.
+        None => expected.flow_ended(FLOW_START.load(Ordering::SeqCst)),
+    }
+}
+
+/// The `PeerId` the Service's start must open the record to: C4's, while
+/// the flow holds C4 for `IdStartUnchecked`'s start or shows it refused
+/// under `IdStartBusy` (design section 6, A start from C4 after a failed
+/// read-back). Said at every render and at the ask ([`flow_shows`]),
+/// read by the start ([`expected_start`]).
+static EXPECTED: Mutex<ExpectedStart> = Mutex::new(ExpectedStart::new());
+
+/// What the start beginning now must open the record to, for jni.rs's
+/// `start`, which compares before the identity reaches the service.
+pub(crate) fn expected_start() -> Option<TransportIdentity> {
+    EXPECTED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .for_start()
+}
+
+/// How the last start told to expect a `PeerId` was refused, said by
+/// jni.rs's `start` before the hub hears the start's answer, so the turn
+/// that decides the held C4 finds it ([`start_decided`]). Cleared at each
+/// ask, so an answer is the start's that the screen holds for.
+static UNCHECKED: Mutex<Option<UncheckedRefused>> = Mutex::new(None);
+
+/// The start the Service runs for C4's `IdStartUnchecked` was refused:
+/// the held C4 answers it rather than handing over to Chats.
+pub(crate) fn unchecked_refused(refused: UncheckedRefused) {
+    *UNCHECKED.lock().unwrap_or_else(PoisonError::into_inner) = Some(refused);
 }
 
 /// Answers for the flow, from threads that cannot tell which window holds
@@ -1877,11 +1934,33 @@ pub(crate) fn start_busy() {
 /// the root's model shows -- or the bound passed, or the start ended
 /// undecided: the screen goes, and the flow hands over. Called by the
 /// root around its turn, outside any borrow of the flow.
+///
+/// A start of C4's `IdStartUnchecked` that was refused for its identity
+/// ([`unchecked_refused`]) is not decided: C4 answers it -- its notice
+/// again, or K1 with its heading focused as at a launch (design section
+/// 6, Its results) -- and nothing runs.
 pub(crate) fn start_decided() {
     let effects = ONBOARDING.with(|slot| {
         slot.borrow_mut()
             .as_mut()
-            .map(|o| o.flow.decided())
+            .map(|o| {
+                let refused = UNCHECKED
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
+                match refused {
+                    Some(refused) if o.flow.start_held() && o.flow.start_expects().is_some() => {
+                        log(&format!("C4's unchecked start did not run: {refused:?}"));
+                        let k1 = matches!(refused, UncheckedRefused::Recovery { .. });
+                        let effects = o.flow.unchecked_refused(refused);
+                        if k1 {
+                            o.view.borrow().raise_identity_heading();
+                        }
+                        effects
+                    }
+                    _ => o.flow.decided(),
+                }
+            })
             .unwrap_or_default()
     });
     run(effects);
@@ -1937,6 +2016,10 @@ fn ask_service(o: &mut Onboarding) {
     // A press, or a granted prompt resuming a showing's start: either way
     // the person's, so its answer is raised as theirs.
     o.flow.person_started();
+    UNCHECKED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
     FLOW_START.store(o.flow.start_held(), Ordering::SeqCst);
     ASKS.push(start);
 }
