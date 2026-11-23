@@ -219,11 +219,14 @@ const ROUTE_MAP: &str = "v14_route_map";
 ///   rekeyed to it ([`rekey_own_card`]).
 /// - (b) A route with an `identity_key` is rebound to the id the key
 ///   derives, and every row keyed by its `{peer, label}` follows: the
-///   index row, the inbound rows' `source_endpoint`, the read pairs.
+///   index row, the inbound rows' `source_endpoint`, the read pairs, a
+///   channel's rows among them (A 2026-11-23).
 /// - (c) A `{peer, label}` that no keyed route names is discarded with its
 ///   index row, its unread, kept and pending rows, its read pairs and
 ///   every route without a key; a contact the migration leaves with no
-///   route is deleted.
+///   route is deleted. A channel's row is no part of it: its label, the
+///   publisher's assertion, becomes NULL and the row stays, counted
+///   nowhere ([`rebound`]).
 /// - (d) Two routes of one peer whose keys derive one id are one: the
 ///   route under the contact created first stays (`created_at`, then
 ///   `contact_id`) and the other goes, its contact with it when it holds
@@ -231,9 +234,11 @@ const ROUTE_MAP: &str = "v14_route_map";
 ///   `card_shared_at`; of two inbound rows of one table that then meet on
 ///   the key the one received earlier stays, an unread row meeting a kept
 ///   row or a read pair of the same message from the other route is
-///   discarded, and of two read pairs the earlier stays. Rows that held
-///   one key together before the migration are not a meeting: an unread
-///   copy beside its kept row in one conversation stays as it was.
+///   discarded, and of two read pairs the earlier stays. A channel's rows
+///   that the rebinding or the NULL bring to one key meet by the same
+///   rules. Rows that held one key together before the migration are not
+///   a meeting: an unread copy beside its kept row in one conversation
+///   stays as it was.
 /// - (e) Every pending row is discarded, and every unread row of kind
 ///   `card`.
 ///
@@ -353,9 +358,12 @@ fn migration_14(
     .map_err(migration_error)?;
     let contacts_combined = delete_routeless(tx, &routed)?;
 
-    // (d): the rows. Within one table two rows meet only through two
-    // routes, since the table's key kept them apart before; across tables
-    // a meeting is counted only between rows of two routes.
+    // (d): the rows, a channel's with them. Within one table two rows
+    // meet only where their endpoints differed, since the table's key kept
+    // them apart before; across tables a meeting is only between rows
+    // whose endpoints differed, so an unread copy beside its own kept row
+    // is none.
+    let (new_u, new_w) = (rebound("u", "mu"), rebound("w", "mw"));
     for (table, order) in [
         ("unread_inbound", "received_at, row_id"),
         ("kept_inbound", "received_at, row_id"),
@@ -370,13 +378,16 @@ fn migration_14(
             &format!(
                 "DELETE FROM {table} WHERE {id} IN (
                      SELECT u.{id} FROM {table} u
-                       JOIN {ROUTE_MAP} mu ON mu.peer_id = u.source_peer AND mu.old = u.source_endpoint
-                      WHERE u.channel_id IS NULL AND EXISTS (
+                       LEFT JOIN {ROUTE_MAP} mu
+                         ON mu.peer_id = u.source_peer AND mu.old = u.source_endpoint
+                      WHERE EXISTS (
                             SELECT 1 FROM {table} w
-                              JOIN {ROUTE_MAP} mw
+                              LEFT JOIN {ROUTE_MAP} mw
                                 ON mw.peer_id = w.source_peer AND mw.old = w.source_endpoint
-                             WHERE w.channel_id IS NULL AND w.source_peer = u.source_peer
-                               AND mw.new = mu.new AND w.app_message_id = u.app_message_id
+                             WHERE w.source_peer = u.source_peer
+                               AND w.channel_id IS u.channel_id
+                               AND ({new_w}) IS ({new_u})
+                               AND w.app_message_id = u.app_message_id
                                AND w.{id} <> u.{id}
                                AND ({order_w}) < ({order_u})))",
                 order_w = prefixed("w", order),
@@ -391,14 +402,17 @@ fn migration_14(
             &format!(
                 "DELETE FROM unread_inbound WHERE row_id IN (
                      SELECT u.row_id FROM unread_inbound u
-                       JOIN {ROUTE_MAP} mu ON mu.peer_id = u.source_peer AND mu.old = u.source_endpoint
-                      WHERE u.channel_id IS NULL AND EXISTS (
-                            SELECT 1 FROM {other} k
-                              JOIN {ROUTE_MAP} mk
-                                ON mk.peer_id = k.source_peer AND mk.old = k.source_endpoint
-                             WHERE k.channel_id IS NULL AND k.source_peer = u.source_peer
-                               AND mk.new = mu.new AND k.app_message_id = u.app_message_id
-                               AND k.source_endpoint <> u.source_endpoint))"
+                       LEFT JOIN {ROUTE_MAP} mu
+                         ON mu.peer_id = u.source_peer AND mu.old = u.source_endpoint
+                      WHERE EXISTS (
+                            SELECT 1 FROM {other} w
+                              LEFT JOIN {ROUTE_MAP} mw
+                                ON mw.peer_id = w.source_peer AND mw.old = w.source_endpoint
+                             WHERE w.source_peer = u.source_peer
+                               AND w.channel_id IS u.channel_id
+                               AND ({new_w}) IS ({new_u})
+                               AND w.app_message_id = u.app_message_id
+                               AND w.source_endpoint IS NOT u.source_endpoint))"
             ),
             [],
         )
@@ -457,6 +471,21 @@ fn prefixed(alias: &str, order: &str) -> String {
         .map(|c| format!("{alias}.{c}"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// The `source_endpoint` a row of `alias` holds after v14, `map` being its
+/// LEFT JOIN on [`ROUTE_MAP`]. A direct row takes the id its pair maps to;
+/// (c) left none unmapped but one with no endpoint, which stays NULL. A
+/// channel's row takes the mapped id where a keyed route names its
+/// publisher's pair and NULL where none does: the label was a display hint,
+/// and a reader taking it as absent would leave it in the row's UNIQUE key
+/// and miss the row by the origin it handed out (STATE.md v14 (b)-(c),
+/// A 2026-11-23; `a_channel_*` in `tests/schema_v14.rs`).
+fn rebound(alias: &str, map: &str) -> String {
+    format!(
+        "CASE WHEN {alias}.channel_id IS NULL THEN IFNULL({map}.new, {alias}.source_endpoint)
+              ELSE {map}.new END"
+    )
 }
 
 fn count(tx: &Transaction<'_>, sql: &str) -> Result<i64, StoreError> {
@@ -691,38 +720,36 @@ fn rebuild_v14(tx: &Transaction<'_>, local: &str) -> Result<(), StoreError> {
     tx.execute_batch(V14_TABLES).map_err(migration_error)?;
 
     // The copies. Pending is empty by (e); every route left is keyed by
-    // (c), so each is in the map; a direct inbound row, a read pair and an
-    // index row of a keyed pair take its id, and a channel row keeps its
-    // NULL endpoint.
+    // (c), so each is in the map; an inbound row and a read pair take the
+    // endpoint [`rebound`] gives it, and an index row of a keyed pair its
+    // id.
+    let (unread, kept, pair) = (rebound("u", "m"), rebound("k", "m"), rebound("p", "m"));
     for copy in [
         format!(
             "INSERT INTO unread_inbound_v14
                  (row_id, local_endpoint_id, app_message_id, source_peer, source_endpoint,
                   channel_id, media_type, payload, received_at, kind)
-             SELECT u.row_id, ?1, u.app_message_id, u.source_peer,
-                    IFNULL(m.new, u.source_endpoint), u.channel_id, u.media_type, u.payload,
-                    u.received_at, u.kind
+             SELECT u.row_id, ?1, u.app_message_id, u.source_peer, {unread}, u.channel_id,
+                    u.media_type, u.payload, u.received_at, u.kind
                FROM unread_inbound u LEFT JOIN {ROUTE_MAP} m
-                 ON u.channel_id IS NULL AND m.peer_id = u.source_peer AND m.old = u.source_endpoint"
+                 ON m.peer_id = u.source_peer AND m.old = u.source_endpoint"
         ),
         format!(
             "INSERT INTO kept_inbound_v14
                  (row_id, local_endpoint_id, app_message_id, source_peer, source_endpoint,
                   channel_id, media_type, payload, received_at, read_at, kept_at, kind)
-             SELECT k.row_id, ?1, k.app_message_id, k.source_peer,
-                    IFNULL(m.new, k.source_endpoint), k.channel_id, k.media_type, k.payload,
-                    k.received_at, k.read_at, k.kept_at, k.kind
+             SELECT k.row_id, ?1, k.app_message_id, k.source_peer, {kept}, k.channel_id,
+                    k.media_type, k.payload, k.received_at, k.read_at, k.kept_at, k.kind
                FROM kept_inbound k LEFT JOIN {ROUTE_MAP} m
-                 ON k.channel_id IS NULL AND m.peer_id = k.source_peer AND m.old = k.source_endpoint"
+                 ON m.peer_id = k.source_peer AND m.old = k.source_endpoint"
         ),
         format!(
             "INSERT INTO read_pairs_v14
                  (pair_id, local_endpoint_id, app_message_id, source_peer, source_endpoint,
                   channel_id, at)
-             SELECT p.pair_id, ?1, p.app_message_id, p.source_peer,
-                    IFNULL(m.new, p.source_endpoint), p.channel_id, p.at
+             SELECT p.pair_id, ?1, p.app_message_id, p.source_peer, {pair}, p.channel_id, p.at
                FROM read_pairs p LEFT JOIN {ROUTE_MAP} m
-                 ON p.channel_id IS NULL AND m.peer_id = p.source_peer AND m.old = p.source_endpoint"
+                 ON m.peer_id = p.source_peer AND m.old = p.source_endpoint"
         ),
         "INSERT INTO contacts_v14
              (contact_id, local_endpoint_id, display_name, notes, created_at, updated_at,

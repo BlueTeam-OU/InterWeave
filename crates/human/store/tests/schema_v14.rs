@@ -133,17 +133,29 @@ impl V13<'_> {
     }
 
     fn kept(&self, n: u32, peer: &str, endpoint: &str, received_at: i64) {
+        self.kept_in(n, peer, Some(endpoint), None, received_at);
+    }
+
+    fn kept_in(
+        &self,
+        n: u32,
+        peer: &str,
+        endpoint: Option<&str>,
+        channel: Option<&str>,
+        received_at: i64,
+    ) {
         self.0
             .execute(
                 "INSERT INTO kept_inbound
-                     (app_message_id, source_peer, source_endpoint, payload, received_at,
-                      read_at, kept_at, kind)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?5, 'text')",
+                     (app_message_id, source_peer, source_endpoint, channel_id, payload,
+                      received_at, read_at, kept_at, kind)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6, 'text')",
                 rusqlite::params![
                     id(n),
                     peer,
                     endpoint,
-                    payload(n, Some(endpoint)),
+                    channel,
+                    payload(n, endpoint),
                     received_at
                 ],
             )
@@ -599,6 +611,209 @@ fn a_discarded_conversations_pending_row_and_card_are_counted_by_the_row() {
     );
     assert!(store.unread_inbound().expect("unread").is_empty());
     assert!(store.pending_outbound().expect("pending").is_empty());
+}
+
+/// Which of the three tables a channel's row is seeded in.
+#[derive(Clone, Copy)]
+enum Held {
+    Unread,
+    Kept,
+    Pair,
+}
+
+impl Held {
+    fn table(self) -> &'static str {
+        match self {
+            Self::Unread => "unread_inbound",
+            Self::Kept => "kept_inbound",
+            Self::Pair => "read_pairs",
+        }
+    }
+
+    /// Message `n` from `peer` under `endpoint` on `channel`, at `at`.
+    fn seed(self, v13: &V13<'_>, n: u32, peer: &str, endpoint: Option<&str>, at: i64) {
+        let channel = Some("room");
+        match self {
+            Self::Unread => v13.unread_at(n, peer, endpoint, channel, at, "text"),
+            Self::Kept => v13.kept_in(n, peer, endpoint, channel, at),
+            Self::Pair => v13.pair(n, peer, endpoint, channel, at),
+        }
+    }
+}
+
+/// A channel's row in `held` follows a keyed route naming its publisher's
+/// `{peer, label}` to the id the key derives, and where no keyed route
+/// names it the row stays with its label NULL; nothing discarded, nothing
+/// counted (STATE.md v14 (b)-(c), A 2026-11-23). The store reads every row
+/// back: a label left in place read Corrupt (p2p-network-dev-01's finding).
+fn a_channel_row_follows_a_keyed_route_or_loses_its_label(held: Held) {
+    let (_dir, path) = v13_store();
+    let p = node("p");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("v13");
+        let v13 = V13(&conn);
+        v13.contact("c1", "Alice", 10);
+        v13.route("c1", &p, "alice-label", Some(key("alice").as_slice()));
+        held.seed(&v13, 1, &p, Some("alice-label"), 1);
+        held.seed(&v13, 2, &p, Some("stranger"), 2);
+        held.seed(&v13, 3, &p, None, 3);
+    }
+    let store = HumanStore::open(&path, &me(), StoreOptions::default()).expect("migrates");
+    assert_eq!(
+        store.discarded_at_v14().expect("read"),
+        None,
+        "counted nowhere"
+    );
+    let read = match held {
+        Held::Unread => Some(store.unread_inbound().expect("every row reads")),
+        Held::Kept => Some(store.kept_inbound().expect("every row reads")),
+        Held::Pair => None,
+    };
+    if let Some(read) = read {
+        let endpoints: Vec<_> = read.iter().map(|row| row.origin.endpoint.clone()).collect();
+        assert_eq!(endpoints, vec![Some(endpoint_id("alice")), None, None]);
+    }
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("read back");
+    let alice = endpoint_id("alice").as_str().to_owned();
+    let room = Some("room".to_owned());
+    assert_eq!(
+        rows(&conn, held.table(), me().as_str()),
+        vec![
+            (id(1), p.clone(), Some(alice), room.clone()),
+            (id(2), p.clone(), None, room.clone()),
+            (id(3), p, None, room),
+        ],
+        "rebound, NULLed, and the NULL it already held"
+    );
+}
+
+/// Mutations: the unread copy's rebinding kept to direct rows; its NULL
+/// left out (the label read back Corrupt).
+#[test]
+fn a_channel_unread_row_follows_a_keyed_route_or_loses_its_label() {
+    a_channel_row_follows_a_keyed_route_or_loses_its_label(Held::Unread);
+}
+
+/// Mutations: as for the unread copy, on the kept copy.
+#[test]
+fn a_channel_kept_row_follows_a_keyed_route_or_loses_its_label() {
+    a_channel_row_follows_a_keyed_route_or_loses_its_label(Held::Kept);
+}
+
+/// Mutations: as for the unread copy, on the read pairs' copy.
+#[test]
+fn a_channel_read_pair_follows_a_keyed_route_or_loses_its_label() {
+    a_channel_row_follows_a_keyed_route_or_loses_its_label(Held::Pair);
+}
+
+/// One publisher's one message on one channel held under two labels, or a
+/// label and none, is brought to one key by the NULL, and under two labels
+/// whose routes' keys derive one id by the rebinding: within each table the
+/// one received (or read) earlier stays and the other is discarded,
+/// counted nowhere (STATE.md v14 (d), A 2026-11-23). Mutation: the
+/// within-table meeting kept to direct rows, which fails the copy on the
+/// table's key.
+#[test]
+fn a_channel_message_held_under_two_labels_is_one_row_the_earlier() {
+    for held in [Held::Unread, Held::Kept, Held::Pair] {
+        let (_dir, path) = v13_store();
+        let (p, q) = (node("p"), node("q"));
+        {
+            let conn = rusqlite::Connection::open(&path).expect("v13");
+            let v13 = V13(&conn);
+            v13.contact("c3", "Carol A", 30);
+            v13.route("c3", &q, "carol-a", Some(key("carol").as_slice()));
+            v13.contact("c4", "Carol B", 40);
+            v13.route("c4", &q, "carol-b", Some(key("carol").as_slice()));
+            // NULL meets NULL: "y" earliest stays.
+            held.seed(&v13, 1, &p, Some("x"), 20);
+            held.seed(&v13, 1, &p, Some("y"), 10);
+            held.seed(&v13, 1, &p, None, 30);
+            // The rebinding meets itself: carol-b earlier stays.
+            held.seed(&v13, 2, &q, Some("carol-a"), 20);
+            held.seed(&v13, 2, &q, Some("carol-b"), 10);
+            // A rebound row and a NULLed one keep two keys.
+            held.seed(&v13, 3, &q, Some("carol-a"), 1);
+            held.seed(&v13, 3, &q, Some("someone"), 2);
+        }
+        let store = HumanStore::open(&path, &me(), StoreOptions::default()).expect("migrates");
+        assert_eq!(
+            store.discarded_at_v14().expect("read"),
+            Some(DiscardedAtV14 {
+                contacts_combined: 1,
+                ..DiscardedAtV14::default()
+            }),
+            "c4 combined into c3; no meeting counted"
+        );
+        drop(store);
+        let conn = rusqlite::Connection::open(&path).expect("read back");
+        let carol = Some(endpoint_id("carol").as_str().to_owned());
+        let room = Some("room".to_owned());
+        assert_eq!(
+            rows(&conn, held.table(), me().as_str()),
+            vec![
+                (id(1), p.clone(), None, room.clone()),
+                (id(2), q.clone(), carol.clone(), room.clone()),
+                (id(3), q.clone(), None, room.clone()),
+                (id(3), q.clone(), carol, room.clone()),
+            ],
+        );
+        let at = if matches!(held, Held::Pair) {
+            "at"
+        } else {
+            "received_at"
+        };
+        let stayed: Vec<i64> = conn
+            .prepare(&format!(
+                "SELECT {at} FROM {} WHERE app_message_id IN (?1, ?2) ORDER BY app_message_id",
+                held.table()
+            ))
+            .expect("prepare")
+            .query_map([id(1), id(2)], |r| r.get(0))
+            .expect("rows")
+            .collect::<Result<_, _>>()
+            .expect("read");
+        assert_eq!(stayed, vec![10, 10], "the earlier of each meeting");
+    }
+}
+
+/// A channel's unread copy that the NULL brings to the key of a kept row
+/// or a read pair of the same message is discarded in their favour, while
+/// an unread copy beside a kept row under its own label, a state v13
+/// allows, is no meeting and stays; none of it counted (STATE.md v14 (d),
+/// A 2026-11-23). Mutation: the cross-table meeting kept to direct rows.
+#[test]
+fn a_channel_unread_copy_meeting_a_kept_row_or_read_pair_goes() {
+    let (_dir, path) = v13_store();
+    let p = node("p");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("v13");
+        let v13 = V13(&conn);
+        v13.unread_at(1, &p, Some("x"), Some("room"), 1, "text");
+        v13.kept_in(1, &p, Some("y"), Some("room"), 5);
+        v13.unread_at(2, &p, Some("x"), Some("room"), 1, "text");
+        v13.pair(2, &p, None, Some("room"), 5);
+        v13.unread_at(3, &p, Some("x"), Some("room"), 1, "text");
+        v13.kept_in(3, &p, Some("x"), Some("room"), 5);
+    }
+    let store = HumanStore::open(&path, &me(), StoreOptions::default()).expect("migrates");
+    assert_eq!(
+        store.discarded_at_v14().expect("read"),
+        None,
+        "counted nowhere"
+    );
+    let unread: Vec<String> = store
+        .unread_inbound()
+        .expect("unread")
+        .iter()
+        .map(|row| row.app_message_id.as_str().to_owned())
+        .collect();
+    assert_eq!(unread, vec![id(3)], "1 met a kept row, 2 a read pair");
+    assert_eq!(store.kept_inbound().expect("kept").len(), 2);
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("read back");
+    assert_eq!(total(&conn, "read_pairs"), 1);
 }
 
 /// One `{peer, label}` pair under two contacts with two different keys,
