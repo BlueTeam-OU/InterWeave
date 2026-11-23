@@ -492,25 +492,6 @@ def kad_network_namespace_v1(vector: dict) -> dict[str, str]:
 # rule from its contract so a grammar loosened in prose without loosening
 # the fixture — or the reverse — is caught.
 
-ENDPOINT_ID_RE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
-
-
-def endpoint_id_grammar_v1(vector: dict) -> bool:
-    """From architecture/contracts/ENDPOINTS.md §EndpointId.
-
-    ASCII, 1..64 bytes, lower-case canonical. The anchored regex already
-    bounds the length, but the byte check is kept explicit because the
-    contract states both and a future grammar edit could drop the bound
-    from one without the other.
-    """
-    value = vector["endpoint_id"]
-    try:
-        raw = value.encode("ascii")
-    except UnicodeEncodeError:
-        return False
-    return bool(1 <= len(raw) <= 64 and ENDPOINT_ID_RE.fullmatch(value))
-
-
 ENDPOINT_ID_DERIVED_PREFIX = bytes([0x00, 0x24, 0x08, 0x01, 0x12, 0x20])
 
 
@@ -1375,7 +1356,6 @@ ALGORITHMS = {
     "ipc-v3-length-prefix-v1": (
         ipc_v3_length_prefix_v1, "frame_hex", True, (),
     ),
-    "endpoint-id-grammar-v1": (endpoint_id_grammar_v1, "valid", False, ()),
     "endpoint-id-derivation-v2": (
         endpoint_id_derivation_v2, ("expected_endpoint_id", "valid"), False, (),
     ),

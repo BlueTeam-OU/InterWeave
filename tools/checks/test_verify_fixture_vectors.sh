@@ -105,16 +105,16 @@ out="$(run "$R")"
 # `false`. Applying the derivation collision rule there would make a
 # correct verdict set unrepresentable, so distinctness is per-algorithm.
 R="$TMP/verdicts"; mkdir -p "$R/fixtures/endpoints" "$R/architecture/adr"
-touch "$R/architecture/adr/0030-x.md"
+touch "$R/architecture/adr/0067-x.md"
 cat > "$R/fixtures/endpoints/g.json" <<'EOF'
 {
-  "algorithm": { "id": "endpoint-id-grammar-v1" },
-  "adr": ["0030"],
+  "algorithm": { "id": "endpoint-id-derivation-v2" },
+  "adr": ["0067"],
   "vectors": [
-    { "name": "lower", "endpoint_id": "human", "valid": true },
-    { "name": "dotted", "endpoint_id": "automation.build", "valid": true },
-    { "name": "upper", "endpoint_id": "Human", "valid": false },
-    { "name": "empty", "endpoint_id": "", "valid": false }
+    { "name": "derived", "text": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5", "valid": true },
+    { "name": "zero-key", "text": "12D3KooW9pNAk8aiBuGVQtWRdbkLmo5qVL3e2h5UxbN2Nz9ttwiw", "valid": true },
+    { "name": "label", "text": "human", "valid": false },
+    { "name": "empty", "text": "", "valid": false }
   ]
 }
 EOF
