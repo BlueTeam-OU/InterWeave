@@ -133,3 +133,71 @@ Propagation: decision 7; ADR-0063 decision 2 with its note, log row
 and digest entry; this note; the log row; the digest entry. The design
 notes (identities section 7 and its acceptance, contact-cards 5.2)
 follow on #751.
+
+### Amendment 2026-11-24 — An unfinished Remove needs no special case: rows follow the endpoint and the key
+
+The third review of InterWeave #751 found the amendment of 2026-11-23
+wrong in its clause for ADR-0028's overlay left ahead (F10), and
+ux-designer-01 showed why in three parts, each read against the tree
+before this ruling. The client could not tell that case from a write
+that failed: the composition answered `Internal` for both. On the
+desktop the client's start is not the daemon's, so a window that ended
+"when the client next starts" ended while the daemon still served the
+endpoint; rows arrived again, and at the daemon's start the endpoint
+went and left rows of an identity no list showed, the state the note
+above rejects. And `admin.endpoints.list` answered the runtime's view,
+so while the overlay was ahead the read-back found the id present and
+Remove again could not complete before the daemon started again.
+
+Ruled by architect-cto on ux-designer-01's four-part proposal, with
+one condition added to its third part:
+
+1. The overlay left ahead is no case of its own. Every failure of the
+   administrative remove, `Internal` included, is a Remove that did
+   not finish.
+2. The no-admission window is the running client's: it ends when
+   Remove completes, when a list that answered does not hold the id,
+   or with the client's process. No mark is stored, so the client
+   still keeps no record that a Remove began (A 2026-11-04 for
+   removals). After a restart the identity receives as any identity
+   whose key is missing does, and part 3 is what leaves nothing.
+3. At its start, after every reconnection to the daemon and whenever
+   `admin.endpoints.list` answers, the client deletes the store rows
+   of an identity whose EndpointId the list does not hold and whose
+   key path holds no key file. Nothing is deleted on a list that
+   failed. The condition on the key is the addition: rows are deleted
+   because the identity cannot come back (an EndpointId is derived
+   from its key, ADR-0067 decision 2), not because one list lacked an
+   id. An endpoint taken out of the configuration by other hands, its
+   key still on disk, can be configured again, and its rows are left.
+   Remove takes the key path first, so every Remove this decision
+   describes meets the condition.
+4. While the overlay is ahead the list still holds the id, and Remove
+   again ends not finished each time; the identity goes at the
+   daemon's next start, by part 3 with nothing of it left.
+
+The same review asked whether a remove the client stopped waiting for
+commits before any later answer or never (F12). It does not, and
+neither does the add: `LOCAL-IPC.md` (A 2026-10-23) says a lost admin
+write may follow a later read, and the endpoint set's methods are not
+ordered by connection. So the id present after a lost answer is a
+Remove not known to have finished, and the words shown for it must
+stay true if the identity goes a moment later. A remove applied late
+is the remove the person confirmed; part 3 takes the identity from
+the list at the next answer. What the add leans on instead is its own
+refusal: an add applied after the client deleted the key file is
+refused `key_missing`.
+
+Rejected: a distinct answer for the overlay left ahead, which would
+give the client a state it can do nothing with before the daemon
+starts again; a stored mark that a Remove began, which part 3 makes
+unnecessary; and deleting rows on the list alone, which turns an
+edit of the configuration into the loss of an identity's
+conversations while its key still exists. As this was ruled, Remove
+was not built and `admin.endpoints.remove` was not on `main`.
+
+Propagation: decision 7; this note; the log row; the digest entry.
+ADR-0063 decision 2 is unchanged. `LOCAL-IPC.md`'s remove text, not
+on `main`, gains the reading of a remove while the overlay is ahead
+and of one applied late, on its own supply. The design notes
+(identities sections 1 and 7 and acceptance 13) follow on #751.
