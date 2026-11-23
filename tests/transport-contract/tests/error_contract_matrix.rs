@@ -146,7 +146,7 @@ const MATRIX: &[Clause] = &[
         doc: ENDPOINTS,
         text: "malformed/noncanonical endpoint input is `InvalidArgument`",
         error: "InvalidArgument",
-        proof: Proof::Unrepresentable("endpoint_id_rejects_everything_outside_the_grammar"),
+        proof: Proof::Unrepresentable("parse_derived_refuses_text_that_is_not_the_canonical_form"),
     },
     Clause {
         doc: ENDPOINTS,
