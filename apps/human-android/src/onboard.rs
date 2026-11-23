@@ -1047,7 +1047,11 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
     };
     // Before the network service is bound, so nothing else holds it.
     // Refused, no word is shown or taken until a Try again takes it.
-    let mut flow = IdentityFlow::new(english(), start.clone());
+    let mut flow = IdentityFlow::new(
+        english(),
+        interweave_profile_identity::FORMAT,
+        start.clone(),
+    );
     let lock = match onboarding::hold(app_data_dir, PROFILE) {
         Ok(lock) => Some(lock),
         Err(why) => {
@@ -1117,7 +1121,11 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
     else {
         return;
     };
-    let mut flow = IdentityFlow::new(english(), start.clone());
+    let mut flow = IdentityFlow::new(
+        english(),
+        interweave_profile_identity::FORMAT,
+        start.clone(),
+    );
     let lock = match onboarding::hold(app_data_dir, PROFILE) {
         Ok(lock) => Some(lock),
         Err(why) => {
@@ -1167,7 +1175,11 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
     };
     let onboarding = Onboarding {
         view: Rc::clone(view),
-        flow: IdentityFlow::new(english(), Start::ShowPhrase),
+        flow: IdentityFlow::new(
+            english(),
+            interweave_profile_identity::FORMAT,
+            Start::ShowPhrase,
+        ),
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
