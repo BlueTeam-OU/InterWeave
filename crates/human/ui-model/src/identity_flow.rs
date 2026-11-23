@@ -83,6 +83,43 @@ pub enum StepFailed {
     ReadBackNeedsAuthentication,
 }
 
+/// Why the service start of C4's `IdStartUnchecked` did not run (design
+/// section 6, A start from C4 after a failed read-back), as the root
+/// learnt it from the start's refusal. A refusal for the person and one
+/// with the profile in use are not here: they answer as any held start's
+/// (the gate's prompt, [`IdentityFlow::start_busy`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UncheckedRefused {
+    /// The record opened to another `PeerId` than the one C4 shows (the
+    /// app's comparison): nothing started.
+    OtherIdentity,
+    /// A platform error said nothing of the record: try again.
+    Unavailable,
+    /// The record does not open (`RecoveryRequired`, whatever its
+    /// cause): K1, as at a launch.
+    Recovery {
+        /// Why, by cause.
+        reason: RecoveryReason,
+        /// The `PeerId` the record names, when it still names one.
+        expected: Option<TransportIdentity>,
+        /// As [`Start::Recovery`]'s.
+        new_keys: bool,
+    },
+}
+
+/// Whether C4 offers `IdStartUnchecked` (design section 6, A start from
+/// C4 after a failed read-back).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Offer {
+    /// No read-back on this C4 has answered as failing yet.
+    No,
+    /// One has: offered while `IdStorageUnknown` shows.
+    Yes,
+    /// A start from it met another `PeerId` than C4's: not offered again
+    /// while C4 is open.
+    Withdrawn,
+}
+
 /// What the root must do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
@@ -275,6 +312,13 @@ enum Screen {
         /// Continue ([`crate::StartHold::starting`]); cleared at each
         /// press.
         starting: bool,
+        /// `IdStartUnchecked` is offered, or withdrawn for C4's life.
+        offer: Offer,
+        /// The start held, or the one `IdStartBusy` shows refused, is
+        /// `IdStartUnchecked`'s: it must open the record to C4's `PeerId`
+        /// ([`IdentityFlow::start_expects`]), and `IdStartBusy`'s Try
+        /// again repeats it, comparison included.
+        unchecked: bool,
     },
     R1,
     R2 {
@@ -786,6 +830,7 @@ impl IdentityFlow {
                 notice: Some(Notice::StartBusy { .. }),
                 held,
                 starting,
+                ..
             }
             | Screen::R4 {
                 notice: Some(Notice::StartBusy { .. }),
@@ -801,6 +846,7 @@ impl IdentityFlow {
                 notice: Some(Notice::AlreadyCreated),
                 held,
                 starting,
+                ..
             } => {
                 *held = true;
                 *starting = false;
@@ -816,17 +862,26 @@ impl IdentityFlow {
                 notice: Some(Notice::StorageUnknown),
                 held,
                 starting,
+                unchecked,
+                ..
             } => match shown_peer {
                 Some(peer) => {
                     *held = true;
                     *starting = false;
+                    *unchecked = false;
                     vec![Effect::ReadBack(peer)]
                 }
                 None => Vec::new(),
             },
-            Screen::C4 { held, starting, .. } => {
+            Screen::C4 {
+                held,
+                starting,
+                unchecked,
+                ..
+            } => {
                 *held = true;
                 *starting = false;
+                *unchecked = false;
                 vec![Effect::Seal]
             }
             Screen::R1 => {
@@ -1116,6 +1171,62 @@ impl IdentityFlow {
         }
     }
 
+    /// C4 offers `IdStartUnchecked` under its Try again, with
+    /// `IdStorageUnknownRestore` under it (design section 6, A start from
+    /// C4 after a failed read-back): while `IdStorageUnknown` shows, once a
+    /// read-back on this C4 has answered as failing -- not after a
+    /// cancelled or denied read-back prompt, where none answered -- and
+    /// until a start from it meets another `PeerId` than C4's, after which
+    /// it is not offered again while C4 is open. While C4 is held (Try
+    /// again's read-back, or this control's own start) it still shows,
+    /// disabled, as the primary does ([`Self::start_held`]).
+    /// `start_unchecked_is_offered_only_after_a_read_back_failed` and
+    /// `a_mismatch_withdraws_start_unchecked_for_c4s_life` hold it.
+    #[must_use]
+    pub const fn offers_unchecked(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::C4 {
+                notice: Some(Notice::StorageUnknown),
+                offer: Offer::Yes,
+                ..
+            }
+        )
+    }
+
+    /// `IdStartUnchecked`'s press (design section 6, A start from C4
+    /// after a failed read-back): the creation ends -- its unsealed
+    /// identity dropped ([`Effect::Discard`]), its words gone -- and the
+    /// service starts, sealing and writing nothing: no void-paper marker,
+    /// no connect-owed marker, so the start takes add-a-peer §5.1's
+    /// not-owed path. C4 is held from the press as after Continue, the
+    /// notice staying until the result, and the start is the one
+    /// [`Self::start_expects`] names, which the root must find opening to
+    /// C4's `PeerId` before anything runs. Nothing where the control is
+    /// not offered, or while C4 is held, so a second press starts nothing.
+    /// `start_unchecked_holds_c4_and_writes_nothing` holds it.
+    pub fn start_unchecked(&mut self) -> Vec<Effect> {
+        if !self.offers_unchecked() || self.peer.is_none() {
+            return Vec::new();
+        }
+        let Screen::C4 {
+            held: held @ false,
+            starting,
+            unchecked,
+            ..
+        } = &mut self.screen
+        else {
+            return Vec::new();
+        };
+        *held = true;
+        *starting = false;
+        *unchecked = true;
+        self.held_by = HeldBy::Press;
+        self.words = None;
+        self.shown = false;
+        vec![Effect::Discard, Effect::StartService]
+    }
+
     /// C3, after a wrong word: "Try again" takes the error away; the entry
     /// is already clear. Behind the discard dialog it does nothing, as
     /// [`Self::primary`].
@@ -1230,6 +1341,8 @@ impl IdentityFlow {
                         notice: None,
                         held: false,
                         starting: false,
+                        offer: Offer::No,
+                        unchecked: false,
                     };
                 }
                 Vec::new()
@@ -1316,6 +1429,8 @@ impl IdentityFlow {
             notice,
             held,
             starting,
+            offer,
+            ..
         } = &mut self.screen
         else {
             return Vec::new();
@@ -1342,8 +1457,16 @@ impl IdentityFlow {
                 self.shown = false;
                 vec![Effect::VoidPaper(false), Effect::StartService]
             }
-            // C4 stays, Continue (Try again) enabled again (§5.1).
+            // C4 stays, Continue (Try again) enabled again (§5.1). A
+            // read-back answered as failing -- the seal's own, or Try
+            // again's -- offers `IdStartUnchecked` beside Try again, unless
+            // a start from it met another `PeerId` (section 6, A start
+            // from C4 after a failed read-back;
+            // `start_unchecked_is_offered_only_after_a_read_back_failed`).
             Err(failed) => {
+                if failed == StepFailed::StorageUnknown && *offer == Offer::No {
+                    *offer = Offer::Yes;
+                }
                 *notice = Some(failed.into());
                 *held = false;
                 *starting = false;
@@ -1529,6 +1652,7 @@ impl IdentityFlow {
                         notice,
                         held,
                         starting,
+                        ..
                     } => {
                         *held = false;
                         *starting = false;
@@ -1669,6 +1793,73 @@ impl IdentityFlow {
         vec![Effect::OpenChats]
     }
 
+    /// The `PeerId` the service start this flow now holds a screen for, or
+    /// shows refused under `IdStartBusy`, must open the record to: C4's,
+    /// while that start is `IdStartUnchecked`'s (design section 6, A start
+    /// from C4 after a failed read-back) -- its press, `IdStartBusy`'s Try
+    /// again after it, and a start a showing retries under that notice
+    /// alike. The root compares the identity the start unlocks with it
+    /// before the identity reaches the service, and answers a mismatch
+    /// with [`Self::unchecked_refused`]. `None` for every other start.
+    /// `start_expects_names_c4s_peer_id_for_its_starts_alone` holds it.
+    #[must_use]
+    pub fn start_expects(&self) -> Option<&TransportIdentity> {
+        match &self.screen {
+            Screen::C4 {
+                unchecked: true, ..
+            } => self.peer.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// The held `IdStartUnchecked` start did not run, for `refused`
+    /// (design section 6, its results): another `PeerId` than C4's shows
+    /// `IdStorageUnknown` again with Try again only, the control withdrawn
+    /// while C4 is open; a platform error shows it again with both
+    /// controls; either raised, so the notice takes focus. A record that
+    /// does not open leads to K1, with its reason and the `PeerId` the
+    /// record names, and asks for the flow's profile lock again
+    /// ([`Effect::Hold`]): K1 takes it before any word, as at a launch.
+    /// Nothing on a screen not held for that start.
+    /// `start_uncheckeds_results_are_a_launchs_and_a_mismatch_fails_closed`
+    /// holds it.
+    pub fn unchecked_refused(&mut self, refused: UncheckedRefused) -> Vec<Effect> {
+        let Screen::C4 {
+            notice,
+            held: held @ true,
+            starting,
+            offer,
+            unchecked: unchecked @ true,
+        } = &mut self.screen
+        else {
+            return Vec::new();
+        };
+        self.held_by = HeldBy::Press;
+        match refused {
+            UncheckedRefused::OtherIdentity | UncheckedRefused::Unavailable => {
+                if refused == UncheckedRefused::OtherIdentity {
+                    *offer = Offer::Withdrawn;
+                }
+                *notice = Some(Notice::StorageUnknown);
+                *held = false;
+                *starting = false;
+                *unchecked = false;
+                self.notices_raised += 1;
+                Vec::new()
+            }
+            UncheckedRefused::Recovery {
+                reason,
+                expected,
+                new_keys,
+            } => {
+                self.drop_created();
+                self.new_keys = new_keys;
+                self.screen = Screen::K1 { reason, expected };
+                vec![Effect::Hold]
+            }
+        }
+    }
+
     /// The start under a held screen was refused with the profile in use
     /// (the runtime's `LockHeld`) before add-a-peer §5.1's bound: the
     /// hold ends and `IdStartBusy` shows in the screen's notice place,
@@ -1695,6 +1886,7 @@ impl IdentityFlow {
                 notice,
                 held,
                 starting,
+                ..
             } => {
                 let already = matches!(
                     notice,
@@ -1785,6 +1977,7 @@ impl IdentityFlow {
                 notice: Some(Notice::StartBusy { .. }),
                 held: held @ false,
                 starting,
+                ..
             }
             | Screen::R4 {
                 notice: Some(Notice::StartBusy { .. }),
@@ -3487,6 +3680,260 @@ mod tests {
         r3.restored(Err(StepFailed::StorageUnknown));
         assert!(!r3.waiting());
         assert_eq!(r3.notice(), Some(&Notice::StorageUnknown), "shown again");
+    }
+
+    /// C4 under `IdStorageUnknown` after a read-back answered as failing,
+    /// `IdStartUnchecked` offered (design section 6, A start from C4 after
+    /// a failed read-back).
+    fn c4_unchecked_offered() -> IdentityFlow {
+        let mut c4 = c4_sealing();
+        c4.sealed(Err(StepFailed::StorageUnknown));
+        assert!(c4.offers_unchecked(), "control: offered");
+        c4
+    }
+
+    /// `IdStartUnchecked` is offered only once a read-back on C4 has
+    /// answered as failing -- the seal's own read-back, or Try again's --
+    /// and only while `IdStorageUnknown` shows: never on a C4 before its
+    /// seal, nor under another notice, nor after a cancelled or denied
+    /// read-back prompt, where no read-back answered (design section 6,
+    /// A start from C4 after a failed read-back; acceptance 12). Under a
+    /// Try again that runs it stays, held (the view shows it disabled).
+    /// Mutations: `sealed` offering it for any failure, or `step_not_run`
+    /// offering it, or `offers_unchecked` reading no notice, fail here.
+    #[test]
+    fn start_unchecked_is_offered_only_after_a_read_back_failed() {
+        let mut fresh = created_at_c3();
+        enter(&mut fresh, "galaxy");
+        enter(&mut fresh, "saddle");
+        assert!(!fresh.offers_unchecked(), "not before a seal");
+        assert_eq!(fresh.start_unchecked(), [], "and starts nothing");
+
+        for failed in [StepFailed::Busy, StepFailed::Storage] {
+            let mut c4 = c4_sealing();
+            c4.sealed(Err(failed.clone()));
+            assert!(!c4.offers_unchecked(), "not under {failed:?}");
+            // Nor once `IdStorageUnknown` follows with no read-back
+            // answered: that failure offered nothing for later.
+            assert_eq!(c4.primary(), [Effect::Seal], "{failed:?}: seals again");
+            c4.sealed(Err(StepFailed::ReadBackNeedsAuthentication));
+            c4.step_not_run(&Effect::ReadBack(mine()));
+            assert_eq!(c4.notice(), Some(&Notice::StorageUnknown));
+            assert!(
+                !c4.offers_unchecked(),
+                "{failed:?}, then a cancelled prompt"
+            );
+        }
+        let mut already = c4_sealing();
+        already.sealed(Err(StepFailed::AlreadyProvisioned));
+        assert!(!already.offers_unchecked(), "not under IdAlreadyCreated");
+
+        // The read-back's prompt cancelled: the notice, and no control.
+        let mut cancelled = c4_sealing();
+        assert_eq!(
+            cancelled.sealed(Err(StepFailed::ReadBackNeedsAuthentication)),
+            [Effect::AuthenticateReadBack(mine())]
+        );
+        cancelled.step_not_run(&Effect::ReadBack(mine()));
+        assert_eq!(cancelled.notice(), Some(&Notice::StorageUnknown));
+        assert!(!cancelled.offers_unchecked(), "no read-back answered");
+        assert_eq!(cancelled.start_unchecked(), [], "starts nothing");
+        // Try again's read-back answered as failing: offered from then on.
+        assert_eq!(cancelled.primary(), [Effect::ReadBack(mine())]);
+        cancelled.sealed(Err(StepFailed::StorageUnknown));
+        assert!(cancelled.offers_unchecked(), "a read-back failed");
+
+        // The seal's own read-back answered as failing.
+        let mut c4 = c4_unchecked_offered();
+        assert_eq!(c4.primary(), [Effect::ReadBack(mine())], "Try again");
+        assert!(c4.offers_unchecked() && c4.start_held(), "shown, held");
+        assert_eq!(c4.start_unchecked(), [], "disabled while Try again runs");
+        // A later prompt for the read-back, cancelled: still offered, a
+        // read-back has failed before on this C4.
+        c4.step_not_run(&Effect::ReadBack(mine()));
+        assert!(
+            c4.offers_unchecked(),
+            "stays offered while the notice shows"
+        );
+    }
+
+    /// Its press holds C4 as Continue's does -- held at once, a second
+    /// press of it or of Try again starting nothing, Back doing nothing,
+    /// the notice and the `PeerId` staying until the result -- ends the
+    /// creation (the unsealed identity dropped, its words gone) and asks
+    /// one service start and nothing else: no seal, no read-back, no
+    /// void-paper marker, so nothing is written (design section 6, What
+    /// it does). Mutations: `start_unchecked` returning a seal, a
+    /// `VoidPaper`, or no `Discard`, or not holding C4, fail here.
+    #[test]
+    fn start_unchecked_holds_c4_and_writes_nothing() {
+        let mut c4 = c4_unchecked_offered();
+        assert_eq!(
+            c4.start_unchecked(),
+            [Effect::Discard, Effect::StartService]
+        );
+        assert!(c4.start_held(), "held from the press");
+        assert_eq!(c4.start_unchecked(), [], "a second press starts nothing");
+        assert_eq!(c4.primary(), [], "Try again starts nothing either");
+        assert_eq!(c4.back(), [], "C4 has no Back");
+        assert_eq!(c4.notice(), Some(&Notice::StorageUnknown), "stays");
+        assert_eq!(c4.peer(), Some(&mine()), "the PeerId stays on C4");
+        assert!(c4.offers_unchecked(), "shown, disabled, while it runs");
+        c4.set_starting(true);
+        assert!(c4.starting(), "ConnectStarting counts from the press");
+        assert_eq!(c4.decided(), [Effect::OpenChats], "opens: Chats");
+        assert_eq!(c4.screen(), ScreenId::Done);
+    }
+
+    /// The start that must open the record to C4's `PeerId` is
+    /// `IdStartUnchecked`'s, from its press, and `IdStartBusy`'s Try again
+    /// and a showing's retry after it: no other start of the flow names
+    /// one -- Continue's after a seal, Try again's after a read-back that
+    /// found the record, `IdAlreadyCreated`'s, R4's (design section 6, the
+    /// profile-in-use row and The hold). Mutations: `start_expects`
+    /// answering C4's `PeerId` on any held C4, or the `ReadBack` press
+    /// keeping `unchecked`, or `start_busy` clearing it, fail here.
+    #[test]
+    fn start_expects_names_c4s_peer_id_for_its_starts_alone() {
+        for (place, flow) in held_starts() {
+            assert_eq!(flow.start_expects(), None, "{place}");
+        }
+        let mut c4 = c4_unchecked_offered();
+        assert_eq!(c4.start_expects(), None, "nothing asked yet");
+        assert_eq!(c4.primary(), [Effect::ReadBack(mine())]);
+        assert_eq!(c4.start_expects(), None, "a read-back compares nothing");
+        c4.sealed(Err(StepFailed::StorageUnknown));
+        c4.start_unchecked();
+        assert_eq!(c4.start_expects(), Some(&mine()), "its press");
+        c4.start_busy();
+        assert_eq!(
+            c4.notice(),
+            Some(&Notice::StartBusy {
+                recorded: None,
+                already: false
+            })
+        );
+        assert!(!c4.offers_unchecked(), "Try again replaces both controls");
+        assert_eq!(c4.start_expects(), Some(&mine()), "under IdStartBusy");
+        assert_eq!(c4.primary(), [Effect::StartService], "Try again: a start");
+        assert_eq!(c4.start_expects(), Some(&mine()), "comparison included");
+        c4.start_busy();
+        assert!(c4.showing_started(), "a return's retry holds C4");
+        assert_eq!(c4.start_expects(), Some(&mine()), "and compares too");
+
+        // A mismatch ends it, and Try again's read-back that finds the
+        // record starts the service as after a seal, comparing nothing:
+        // the read-back answered the PeerId.
+        c4.unchecked_refused(UncheckedRefused::OtherIdentity);
+        assert_eq!(c4.start_expects(), None, "nothing held");
+        assert_eq!(c4.primary(), [Effect::ReadBack(mine())]);
+        assert_eq!(
+            c4.sealed(Ok(())),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        assert_eq!(c4.start_expects(), None, "Try again's start");
+    }
+
+    /// Its results (design section 6, Its results; acceptance 12): another
+    /// `PeerId` than C4's starts nothing and shows `IdStorageUnknown` with
+    /// Try again only, raised for focus; a platform error shows it with
+    /// both controls, raised; a record that does not open is K1, with the
+    /// record's `PeerId` as the expected one, asking for the flow's lock
+    /// as K1 at a launch does. Each answers only the held start it is
+    /// for. Mutations: the mismatch not withdrawing the control, or not
+    /// raising the notice, or `Unavailable` withdrawing it, or `Recovery`
+    /// staying on C4, fail here.
+    #[test]
+    fn start_uncheckeds_results_are_a_launchs_and_a_mismatch_fails_closed() {
+        let mut other = c4_unchecked_offered();
+        assert_eq!(
+            other.unchecked_refused(UncheckedRefused::OtherIdentity),
+            [],
+            "not held: nothing"
+        );
+        assert!(other.offers_unchecked(), "control: still offered");
+        other.start_unchecked();
+        let raised = other.notices_raised();
+        assert_eq!(other.unchecked_refused(UncheckedRefused::OtherIdentity), []);
+        assert_eq!(other.screen(), ScreenId::C4, "nothing started");
+        assert!(!other.start_held(), "Try again enabled again");
+        assert_eq!(other.notice(), Some(&Notice::StorageUnknown));
+        assert_eq!(other.notices_raised(), raised + 1, "focus on the notice");
+        assert!(!other.offers_unchecked(), "Try again only");
+        assert_eq!(other.start_unchecked(), [], "and it starts nothing");
+        assert_eq!(other.start_expects(), None);
+
+        let mut unavailable = c4_unchecked_offered();
+        unavailable.start_unchecked();
+        let raised = unavailable.notices_raised();
+        unavailable.unchecked_refused(UncheckedRefused::Unavailable);
+        assert!(!unavailable.start_held());
+        assert_eq!(unavailable.notice(), Some(&Notice::StorageUnknown));
+        assert_eq!(unavailable.notices_raised(), raised + 1, "focus");
+        assert!(unavailable.offers_unchecked(), "both controls");
+        assert_eq!(
+            unavailable.start_unchecked(),
+            [Effect::Discard, Effect::StartService],
+            "pressed again"
+        );
+
+        let mut recovery = c4_unchecked_offered();
+        recovery.start_unchecked();
+        assert_eq!(
+            recovery.unchecked_refused(UncheckedRefused::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            }),
+            [Effect::Hold],
+            "K1 takes the flow's lock again"
+        );
+        assert_eq!(recovery.screen(), ScreenId::K1);
+        assert_eq!(
+            recovery.recovery(),
+            Some((RecoveryReason::Key, Some(&mine()))),
+            "the record's PeerId, C4's, as the expected one"
+        );
+        assert!(recovery.can_restore());
+        assert_eq!(recovery.start_expects(), None);
+
+        // Under `IdStartBusy` after it, Try again's start answers the same.
+        let mut busy = c4_unchecked_offered();
+        busy.start_unchecked();
+        busy.start_busy();
+        busy.primary();
+        busy.unchecked_refused(UncheckedRefused::OtherIdentity);
+        assert_eq!(busy.notice(), Some(&Notice::StorageUnknown));
+        assert!(!busy.offers_unchecked(), "withdrawn from IdStartBusy too");
+
+        // A held start that is not its: nothing.
+        for (place, mut flow) in held_starts() {
+            assert_eq!(
+                flow.unchecked_refused(UncheckedRefused::OtherIdentity),
+                [],
+                "{place}"
+            );
+            assert!(flow.start_held(), "{place}: still held");
+        }
+    }
+
+    /// After a mismatch the control is not offered again while C4 is open,
+    /// whatever Try again answers: its read-back fails again, and the
+    /// start would meet the same comparison (design section 6). Mutation:
+    /// `sealed` setting the offer back on a failed read-back whatever it
+    /// was fails here.
+    #[test]
+    fn a_mismatch_withdraws_start_unchecked_for_c4s_life() {
+        let mut c4 = c4_unchecked_offered();
+        c4.start_unchecked();
+        c4.unchecked_refused(UncheckedRefused::OtherIdentity);
+        for _ in 0..2 {
+            assert_eq!(c4.primary(), [Effect::ReadBack(mine())], "Try again");
+            assert!(!c4.offers_unchecked(), "not while it runs");
+            c4.sealed(Err(StepFailed::StorageUnknown));
+            assert_eq!(c4.notice(), Some(&Notice::StorageUnknown));
+            assert!(!c4.offers_unchecked(), "nor after it failed again");
+        }
     }
 
     /// While `IdStorageUnknown` shows, R2's `IdCheckWords` and R3's
