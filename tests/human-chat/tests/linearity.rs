@@ -17,7 +17,10 @@
 //! it — the file's other timed test, which libtest runs on a thread
 //! beside it and nextest in a process beside it, or any other test
 //! process — takes the CPU away between its instructions, which the wall
-//! clock counts and the thread's own clock does not. (Timed one size
+//! clock counts and the thread's own clock does not
+//! (`the_clock_counts_this_threads_work_alone`). Contention while the
+//! thread runs, on a shared core or its caches, still slows both sides,
+//! which the alternation and the retries absorb. (Timed one size
 //! after the other, the render test failed under a full parallel
 //! workspace run while passing alone, 2026-10-25; on the wall clock, the
 //! control measured a quadratic cost within the bound under nextest on
@@ -51,7 +54,8 @@ fn thread_cpu_time() -> Duration {
 }
 
 /// Off unix there is no thread clock to hand; the wall clock since the
-/// first call stands in, with the load sensitivity the file's doc says.
+/// first call stands in, and the two timed tests, which no lock keeps
+/// apart, can then load each other's measurement.
 #[cfg(not(unix))]
 fn thread_cpu_time() -> Duration {
     static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -164,5 +168,46 @@ fn the_harness_fails_a_quadratic_cost_and_passes_a_linear_one() {
     assert!(
         within_bound(&linear, &small, &large).is_ok(),
         "a linear cost passes"
+    );
+}
+
+/// The clock [`ratio`] reads leaves out time this thread is not running:
+/// a sleep, and another thread's work, advance it by far less than this
+/// thread's own work does. The work is a fixed count of steps, not a
+/// span of wall time, so what it costs this thread does not shrink when
+/// load beside it takes the CPU away. Mutation: the monotonic or the
+/// process CPU clock in `thread_cpu_time`.
+#[cfg(unix)]
+#[test]
+fn the_clock_counts_this_threads_work_alone() {
+    let work = || {
+        let mut sum = 0u64;
+        for step in 0..30_000_000u64 {
+            sum = std::hint::black_box(sum.wrapping_add(step));
+        }
+    };
+    let used_by = |run: &dyn Fn()| {
+        let before = thread_cpu_time();
+        run();
+        thread_cpu_time().saturating_sub(before)
+    };
+    let own = used_by(&work);
+    let sleeping = used_by(&|| std::thread::sleep(own));
+    let joined = used_by(&|| {
+        std::thread::spawn(work)
+            .join()
+            .expect("the working thread ends");
+    });
+    assert!(
+        own >= Duration::from_millis(5),
+        "this thread's own work took only {own:?}"
+    );
+    assert!(
+        sleeping < own / 5,
+        "a sleep as long as the work took {sleeping:?} of the thread's CPU, the work {own:?}"
+    );
+    assert!(
+        joined < own / 5,
+        "another thread's work took {joined:?} of this one's CPU, its own {own:?}"
     );
 }

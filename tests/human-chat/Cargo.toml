@@ -28,6 +28,7 @@ jsonschema = "0.49"
 serde_json = { workspace = true }
 
 [target.'cfg(unix)'.dev-dependencies]
-# The thread CPU clock tests/linearity.rs times with: it counts only the
-# timed thread's own work, so load beside it does not enter the ratio.
+# The thread CPU clock tests/linearity.rs times with: time the timed
+# thread is not running, taken by load beside it, does not enter the ratio
+# (the file's doc says what still can).
 rustix = { workspace = true, features = ["time"] }
