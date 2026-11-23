@@ -670,7 +670,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
   a menu, a sheet's choice rows and a dialog's buttons, as the toolkit's
   menus already do, and do not leave them. The reading order is the
   logical one: a right-to-left window mirrors where the controls stand,
-  never their Tab order.
+  but their Tab order is not mirrored.
 - Enter and Space press the focused control. In a text field, Enter
   presses the form's primary (Create on the add form, Save on a card)
   and Space types a space.
@@ -760,31 +760,34 @@ can, and the TalkBack rows of §14 are blocked until it does.
   pane cut "Conversations" to "Conversa…" beside the switch). The bar
   keeps one row when the whole title, the switch at its minimum and
   the ⋮ fit on it at the current text size. The switch's minimum here
-  is the avatar, three graphemes and the ▾, measured on the widest
-  of the identities held, not on the one in front, so that adding or
-  removing an identity can change the bar's rows and a switch cannot.
-  When they do not fit, the bar takes two rows. The first row
-  holds the title and the network-state line under it, across the whole
-  width. The second row holds the switch at its start and the ⋮ at its
-  end, the switch's name taking the width between them and ellipsising
-  as above. Whether the bar has one row or two depends on the width,
-  the text size and the title, never on the name in front, so a switch
+  is the avatar, three graphemes and the ▾. This minimum is measured
+  for each identity held, and the widest of those minimums counts,
+  whichever identity is in front. So adding or removing an identity
+  can change the bar's rows, and switching identity cannot. When the
+  title, the switch at its minimum and the ⋮ do not all fit, the bar
+  takes two rows. The first row holds the title and the network-state
+  line under it, across the whole width. The second row holds the
+  switch at its start and the ⋮ at its end, the switch's name taking
+  the width between them and ellipsising as above. Whether the bar has one row or two depends on the width,
+  the text size, the title and the widest minimum among the identities
+  held, never on which identity is in front, so switching identity
   never reflows the bar. The order stays §11's for Chats: the title,
   the switch, the ⋮, in reading order and in Tab order, in both
   layouts. Neither the title nor the switch ellipsises to make room for
   the other. In the two-row bar the title wraps at word boundaries, and
   a single word wider than its row breaks inside the word: no part of
-  the title is ever cut, and its accessible name is always whole. (This
-  rule was first written as "a single word wider than its row
-  ellipsises"; it was changed on 2026-11-23, when rust-ui-dev-02 found
-  that the toolkit cannot ellipsise one word of a wrapped text: an
-  ellipsis hides part of the heading from the person who enlarged the
-  text to read it, WCAG 1.4.4, while a break inside the word keeps all
-  of it, which WCAG 1.4.10's reflow allows. The cost: at 200 % text on
-  the 280 px pane "Conversations" may show split at a letter, with no
-  hyphen.) The rows' heights are the build's, each at least the
-  targets above and growing with its content. With one identity held
-  there is no switch, and the bar is one row as today.
+  the title is ever ellipsised or hidden, and its accessible name is
+  always whole. (This rule was first written as "a single word wider
+  than its row ellipsises". It was changed on 2026-11-23, for two
+  reasons. rust-ui-dev-02 found that the toolkit cannot ellipsise one
+  word of a wrapped text. And an ellipsis hides part of the heading
+  from a person who enlarged the text to read it (WCAG 1.4.4), while a
+  break inside the word keeps all of it, which reflow allows (WCAG
+  1.4.10). The cost: at 200 % text on the 280 px pane, "Conversations"
+  may show split between two letters, with no hyphen.) The build sets
+  each row's height: at least the height that the Targets item above
+  gives, and more when the row's content needs it. With one identity
+  held there is no switch, and the bar is one row as today.
   **Alternatives named:**
   - (a) Wrap the title beside the switch. Rejected: "Conversations" is
     one word, so it would break inside the word, and the row would grow
@@ -1056,14 +1059,14 @@ pass before it lands.
     ⋮ on the second row. The same holds with a 40-grapheme name in
     front and with a 3-grapheme name in front, and switching between
     those two names leaves the bar's height and the title's place
-    unchanged. At 200 % text every letter of the title is shown, whole
-    or wrapped (inside the word when the word is wider than its row),
+    unchanged. At 200 % text every letter of the title is shown, on one
+    line or wrapped (inside the word when the word is wider than its row),
     never ellipsised, and its accessible name is "Conversations"
     either way. On a 360 dp phone at 100 % text, the
     test first measures, in the build, the width of the whole title, of
     the switch at its minimum (the avatar, three graphemes and the ▾,
-    on the widest name held) and of the ⋮, with the bar's paddings and
-    gaps, and records which
+    the widest of those minimums over the identities held) and of the
+    ⋮, with the bar's paddings and gaps, and records which
     layout the sum asks for: one row when it is at most the bar's
     width, two rows otherwise. The bar then has that layout, and keeps
     it with a 40-grapheme name and with a 3-grapheme name in front.
