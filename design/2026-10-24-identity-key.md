@@ -349,11 +349,13 @@ The step, in this order:
    the key, so it knows the new EndpointId first, and a kill between
    the add and a later write would leave an added identity with no
    record, which the next Replace would turn into a third identity.
-   When `endpoint-keys/` is a real directory this user owns with a
-   loose mode (the "not protected" row's directory case), the client
-   first makes it owner-only, asking nothing, as Q-dir's answer has it
-   (§12, REPLY 01a16d9b); the key is minted into it only after that.
-   A tightening the platform refuses is `KeyReplaceFailed`.
+   When `endpoint-keys/` is a real directory, owned by this user,
+   whose mode is loose (the directory case of the "not protected"
+   row), the client first makes the directory owner-only, without
+   asking the person, as the answer to Q-dir says (§12, REPLY
+   01a16d9b), and mints the key into it only once the directory is
+   owner-only. If the platform does not allow that change of mode,
+   step 1 is refused with `KeyReplaceFailed`.
    Nothing of the old identity is touched before this step has stored
    the new one, so a failure here leaves the old identity exactly as
    it was.
@@ -472,7 +474,8 @@ admitted. The counterparty still sees a new identity, and still has
 their contact for the old identity until they accept the new card.
 
 **Failed** (step 1 refused — a key folder that cannot be made
-owner-only, a key that cannot be minted or sealed, the add refused): `KeyReplaceFailed` ("InterWeave could not make the new
+owner-only, a key that cannot be minted or sealed, the add refused):
+`KeyReplaceFailed` ("InterWeave could not make the new
 identity. {identity} has not changed. Choose Replace with a new
 identity to try again."), in `error`, under the actions, and Replace
 offered again.
@@ -647,9 +650,9 @@ On both clients unless said; Android's screen-reader checks blocked as
     `KeyDamaged`, not `KeyNotNow`.
 15. Desktop: `endpoint-keys/` at mode 0755 shows `KeyExposed` and
     `KeyNoNewKey`, and no action; the directory's mode is not changed.
-    Under part 2 the same state also offers Replace (§5.1), and its
-    step 1 makes the directory owner-only before the new key is
-    minted; the mode changes only then.
+    Under part 2 the same state also offers Replace (§5.1), and
+    Replace's step 1 (§5.3) makes the directory owner-only before the
+    new key is minted; until that step, the mode is not changed.
 16. Desktop: `endpoint-keys/` replaced by a link to a private directory
     shows `KeyDirUnsafe` with the path and Try again, and no
     `KeyNoNewKey`; the link is not followed, changed or replaced; after
@@ -872,7 +875,7 @@ identity's, each as `{identity}` is.
 Q-file, Q-missing, Q-order and Q-dir's tightening describe the new key
 and the silent first key of Stage 21, withdrawn from the Stage 22
 release (§5, §7); they stay as the record. Q-dir's tightening still
-holds for the replacement's new key (§5.3, step 1). The answers on refusals and
+holds when a replacement mints its new key (§5.3, step 1). The answers on refusals and
 on "key folder not safe" still hold.
 
 For architect-cto (QUESTION 01a16d88), answered by DECISION 01a16d8a

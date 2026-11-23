@@ -382,8 +382,8 @@ flow screens, and §6 (The hold) now says what that rule depends on.
 Acceptance 15's sixth return run and acceptance 12's R2 recreation
 run are blocked until j311 lands. The Chats recreation runs are not
 blocked. No run yet recreates the window in a conversation, so the
-conversation part of §6's rule has no check here; that run is carried
-to the next revision (review F17 on #738).
+conversation part of §6's rule has no check here; such a run is
+carried to the next revision (review F17 on #738).
 
 Revised 2026-11-22 a third time, at rust-ui-dev-01's REQUEST
 01a202aa. §9's rows for `IdAlreadyCreated`, `IdStorageUnknown`,
@@ -440,14 +440,15 @@ From the contracts; listed so a reviewer can check each screen:
   binds its meaning and not its words (`IDENTITY-RECOVERY.md`,
   Recovery format; architect-cto-01's REPLY 01a20581-237c, Q16, which
   supersedes REPLYs 01a16736 and 01a1673d on this point). Each flow
-  that shows the phrase still says, before or with it, that it
-  restores the PeerId, by that word, and that it is not a
-  cryptocurrency wallet seed: creation on C1 (`IdC1Point5`,
-  `IdC1Point2`) and C2 (`IdNotWalletSeed`), Settings on S1
-  (`IdC1Point5`) and S2 (`IdNotWalletSeed`). The screens that take
-  the phrase, R1 and K1, say that it restores the PeerId
-  (`IdR1Settings`, `IdQReasonKey`, `IdQReasonRecord`) (REPLY
-  01a20588-c2bc). Where
+  that shows the phrase still says, before the phrase or with it,
+  that the phrase restores the PeerId, by that word, and is not a
+  cryptocurrency wallet seed: the creation flow on C1
+  (`IdC1Point5`, `IdC1Point2`) and C2 (`IdNotWalletSeed`), and the
+  Settings flow on S1 (`IdC1Point5`) and S2 (`IdNotWalletSeed`). Each
+  flow that asks for the phrase says, before the phrase is entered,
+  that the phrase restores the PeerId: the restore flow on R1
+  (`IdR1Settings`), and the recovery-required flow on K1
+  (`IdQReasonKey`, `IdQReasonRecord`) (REPLY 01a20588-c2bc). Where
   this note's own prose says "identity" for what the phrase holds, it
   is the PeerId in that sense.
 
@@ -2135,8 +2136,8 @@ landscape:
 9. Recovery required: with the record's key invalidated (rust-ui-dev's
    test hook), launch shows K1 with `IdQReasonKey` and the expected
    PeerId, and `IdActiveElsewhere` after its reason (with
-   `IdR1NewKeys` only when the hook also removes `endpoint-keys/`,
-   `identity-keys/` until the Stage 22 release).
+   `IdR1NewKeys` only when the hook also removes the key directory:
+   `endpoint-keys/`, or `identity-keys/` until the Stage 22 release).
    The right phrase restores with no R3. Another identity's
    phrase shows `IdOtherIdentity` with both PeerIds and restores
    nothing. With the record's PeerId field made unreadable (a test
@@ -2608,9 +2609,9 @@ scale would also be a finding of the Android review
         answer): after an answer of started, the next screen, no
         `IdStartBusy`, and one start at the return, as at a new
         launch (if that start is refused with `LockHeld` because
-        the stop's wait ran out, §6, `IdStartBusy` shows as a
-        session notice with focus unmoved, and the run records it
-        and still passes); after the stop, `IdStartBusy` and a second start,
+        the stop's wait ran out, `IdStartBusy` shows as a session
+        notice with focus unmoved, as §6 describes, and the run
+        records the refusal and still passes); after the stop, `IdStartBusy` and a second start,
         with Try again disabled until it answers. This run needs no
         new hook.
       - Connect: with no address recorded, after R4's Continue (so
@@ -3268,11 +3269,12 @@ here; the first was already answered on this branch.
 - **Q16. Does the phrase keep "identity" in its name on screen?**
   Answered by architect-cto, REPLY 01a20581-237c: no. `IdC1Point2` and
   `IdNotWalletSeed` say "InterWeave recovery phrase", the client
-  glossary's term, and §2 says so. Still binding, per flow as §2 lists
-  the screens: the flows that show the phrase say it restores the
-  PeerId, named by that word and never "identity" or "account", and
-  that it is not a wallet seed; the screens that take it say it
-  restores the PeerId.
+  glossary's term, and §2 says so. Still binding, flow by flow on the
+  screens that §2 lists: each flow that shows the phrase says that the
+  phrase restores the PeerId, named by that word and never "identity"
+  or "account", and is not a wallet seed; each flow that asks for the
+  phrase says, before the phrase is entered, that the phrase restores
+  the PeerId.
   S2 shows the phrase outside C1, so S1 now carries `IdC1Point5`
   (§3.5). It says "your PeerId", as every other identity screen does
   (architect-cto, REPLY 01a20588-c2bc: "this app's PeerId" read as a
