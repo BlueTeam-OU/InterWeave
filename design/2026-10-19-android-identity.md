@@ -1250,20 +1250,28 @@ that a PeerId was created.
   (above), and C4, the screen that explained what the PeerId is, has
   gone.
 - **The comparison outlasts the bound.** Until a start opens the
-  record to C4's PeerId, or until a new launch (the Activity created
-  anew), every start the app makes after this press compares, as this
-  press's start does: Try again on `Refused` or on `IdStartBusy`, a
-  start retried at a return or a recreation, and Unlock's start after
-  the locked notice. A record that opens to another PeerId answers
-  each of them as above, and nothing runs as it. Why: the person
-  pressed "Go online with this PeerId" (`IdStartUnchecked`), and the
-  phrase they wrote down restores that PeerId. A Try again that went
-  online with another PeerId would answer that press with another
-  identity, with no word, and the paper would no longer restore the
-  identity that runs. The ruling on Q15 (§11d) lets nothing run as
-  that identity from C4; the bound changes the screen, not the rule.
-  As on C4, only a new launch leads on, and that launch runs whatever
-  the record opens to, with no comparison (§12).
+  record to C4's PeerId, or until the process ends, every start the
+  app makes after this press compares, as this press's start does:
+  Try again on `Refused` or on `IdStartBusy`, a start retried at a
+  return or a recreation, Unlock's start after the locked notice, and
+  the start of a launch while the process still runs (the Activity
+  created anew after Back finished it, or from a notification). A
+  record that opens to another PeerId answers each of them as above,
+  and nothing runs as it. Why: the person pressed "Go online with this
+  PeerId" (`IdStartUnchecked`), and the phrase they wrote down
+  restores that PeerId. A Try again that went online with another
+  PeerId would answer that press with another identity, with no word,
+  and the paper would no longer restore the identity that runs. The
+  ruling on Q15 (§11d) lets nothing run as that identity from C4; the
+  bound changes the screen, not the rule (architect-cto's REPLY
+  01a20aa8: the comparison binds every start of that process). The
+  expected PeerId is held in memory only, and nothing stores it, as
+  nothing stores that the press happened. So, as on C4, only the end
+  of the process leads on, and the next launch runs whatever the
+  record opens to, with no comparison (§12). A process the system
+  ended in the background and restored from saved state is such an
+  end: its start compares nothing, since the saved state does not
+  carry the expected PeerId either.
 - **Focus.** The control sits after the primary in C4's order (§8).
   When it first shows, focus goes to the notice, as for any
   `IdStorageUnknown` (the error-banner rule, §8). Like a press of Continue, its press moves no focus while C4 is held: focus stays on the
@@ -2328,7 +2336,9 @@ landscape:
     C4's: the hook records no service start, `Refused` shows under
     the app bar with Try again, and focus stays on Chats' title. Then
     Try again: the hook records one start that compares with C4's
-    PeerId, answered the same, and still no service start. A second
+    PeerId, answered the same, and still no service start. Then Back
+    finishes the Activity and the launcher launches it in the same
+    process: its start compares too, answered the same. A second
     run answered `Unavailable` after the bound: `Refused` again, and
     its Try again's start compares too. A third run answered
     `LockHeld` after the bound: `IdStartBusy` on Chats, and its Try
@@ -3383,6 +3393,11 @@ here; the first was already answered on this branch.
   on, and its words say it (§6, Q15), except after a start from it met
   another PeerId than C4's: then only the end of the process leads on,
   the next launch runs the record's identity, and no words say either.
+  A process the system ended and restored from saved state counts as
+  that end (§6, The comparison outlasts the bound): carrying the
+  expected PeerId across it would mean writing it into the saved
+  state, and its start would still run nothing until the person found
+  the end that leads on.
   That case needs another writer between the flow's release of the
   lock and the start (§6), so it gets none. A read-back that keeps failing can come only after the two refusals that can come after the write, and no device has shown
   it yet; words for it are language-culture's, if a test shows people
