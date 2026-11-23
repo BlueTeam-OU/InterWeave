@@ -101,9 +101,10 @@ pub(crate) enum FlowCheck {
 /// only for both
 /// (`a_flow_answers_started_only_while_its_screen_shows_the_start`):
 /// `asked` alone is a latch, set at the first ask and kept while the
-/// screen moves on, and a flow back on K1 after R2's `IdStartBusy` would
-/// have the Activity restart the service under it, with nothing held,
-/// and the next restore refused busy.
+/// screen moves on, and a flow moved off the screen that asked it (R3's
+/// Back off `IdStartBusy`, to R2 and on to R1) would have the Activity
+/// restart the service under it, with nothing held, and the next restore
+/// refused busy.
 pub(crate) const fn flow_check(asked: bool, shows: bool) -> FlowCheck {
     if asked && shows {
         FlowCheck::Started
