@@ -140,12 +140,16 @@ in it open again (ux-designer's question of 2026-11-23, review of the
 identity-key note).
 
 Ruled: exposed is the file's own state. A directory this user owns at
-a loose mode shows other users at most the file names (where it gives
-them the read bit; a search bit alone lists nothing), which are
-EndpointIds and public; it gives no other user a read of an owner-only file, and no
-other user can change the mode of a file they do not own. Where the
-loose mode is a write bit, another user could have removed or swapped a
-file, and each such swap is refused at open on its own: another owner's
+a loose mode shows other users the file names where it gives them the
+read bit, and where it gives them the search bit the size, times, owner
+and mode of each file whose name they know; the names are EndpointIds
+and public, so the search bit alone, which lists nothing, is enough for
+that (corrected by the second amendment of this day, below). It gives
+no other user a read of an owner-only file, and no other user can
+change the mode of a file they do not own. Where the loose mode gives
+another user both the write bit and the search bit, that user could
+have removed or swapped a file, and each such swap is refused at open
+on its own: another owner's
 file and a link by the file's rule, this user's other key file by the
 envelope's EndpointId against the file's name; a removal is the
 key-missing state. So the directory's refusal needs no memory: no key
@@ -165,3 +169,58 @@ Propagation: decision 2 (the sentence after the ADR-0067 one); this
 note; the log row; the digest entry. The identity-key design note's
 section 3 and its criterion for a directory at mode 0755 follow in the
 note's own pull request.
+
+### Amendment 2026-11-23 — A loose key directory is the person's to fix, and what is not a file at the key path is not a record
+
+Three texts carried from the review of the identity-key note's pull
+request (#746, ux-designer's request of 2026-11-23), and one question.
+
+Decision 1 still said, from the 2026-10-24 amendment, that "an
+`identity-keys/` directory the client's own user owns with a loose mode
+it makes owner-only itself before that step". The first amendment of
+this day ruled that a refusal for the directory's mode alone ends when
+the directory is private, and narrowed decision 2 only. The two could
+not both hold: a client that tightens the directory itself opens every
+key in it again without the person having seen that the directory was
+loose, the replaced identity's key among them. The clause is withdrawn.
+The client refuses a loose key directory of its own user with the fix
+named and does not change its mode; the person makes it private, each
+key then shows its own state, and a new identity is offered on that
+state alone. As this was written the store's `identity_key::replace`
+still tightened the directory, as the Stage 21 text had it; the code
+that conforms is rust-ui-dev's.
+
+Decision 2's three causes of "exposed" did not cover a key path that
+holds neither a regular file nor a link. The read refuses such an
+entry by its kind, before it looks at an owner or a mode
+(`open_private_as`), under the same error as a file that is not
+private. Ruled (Q-kind): a directory, a FIFO, a socket or a device at
+the key path is not a record and not exposed, whoever owns it. No key
+was there to be read, and "other users may have read this key" would
+be untrue of this user's own directory at mode 0700. The client shows
+it as a record that is not valid (the design note's "damaged"),
+resolved by a new identity. The three causes now say "regular file"
+where they meant one. An entry of that kind that another user placed
+can only have arrived while the directory gave that user the write and
+search bits, and it is judged, like every file, only once the directory
+is private.
+
+The first amendment's note gave two bounds that were wrong, and its
+paragraph is corrected in place. It said a loose directory "shows
+other users at most the file names (where it gives them the read bit;
+a search bit alone lists nothing)". With the search bit another user
+can also read the size, times, owner and mode of any file whose name
+they know, and the names are EndpointIds, which are public, so a mode
+of 0711 or 0701 lists nothing and still gives that much. It said
+"Where the loose mode is a write bit, another user could have removed
+or swapped a file"; removing or placing an entry needs the search bit
+as well, so 0720 or 0702 allows neither. Neither correction changes
+the ruling: no bit of the directory gives a read of an owner-only
+file's contents, and the sealed record's size and times are not key
+material.
+
+Propagation: decision 1 (the clause, with its tombstone in place);
+decision 2 (the definition of exposed and the sentence after it); the
+first 2026-11-23 note's second paragraph; this note; the log row; the
+digest entry. The identity-key design note already reads so (its
+sections 3 and 5, criterion 14).
