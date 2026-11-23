@@ -2154,7 +2154,7 @@ impl InboundRow {
                     .map_err(|e| StoreError::Corrupt(e.to_string()))?,
                 endpoint: self
                     .endpoint
-                    .map(EndpointId::parse)
+                    .map(EndpointId::parse_derived)
                     .transpose()
                     .map_err(|e| StoreError::Corrupt(e.to_string()))?,
                 channel: self
@@ -2198,7 +2198,7 @@ impl InboundColumns {
                     .map_err(|e| StoreError::Corrupt(e.to_string()))?,
                 endpoint: self
                     .endpoint
-                    .map(EndpointId::parse)
+                    .map(EndpointId::parse_derived)
                     .transpose()
                     .map_err(|e| StoreError::Corrupt(e.to_string()))?,
                 channel: self
@@ -2291,7 +2291,7 @@ fn pending_from(raw: RawPending) -> Result<PendingOutbound, StoreError> {
         let peer =
             TransportIdentity::parse(peer).map_err(|e| StoreError::Corrupt(e.to_string()))?;
         let endpoint = endpoint
-            .map(EndpointId::parse)
+            .map(EndpointId::parse_derived)
             .transpose()
             .map_err(|e| StoreError::Corrupt(e.to_string()))?;
         OutboundDestination::Direct(DirectDestination { peer, endpoint })
