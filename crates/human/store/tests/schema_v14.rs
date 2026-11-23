@@ -5,7 +5,10 @@
 //! identity's derived id; a keyed route is rebound to the id its key
 //! derives and its conversation follows; a pair no keyed route names is
 //! discarded; two routes deriving one id are merged; every pending row and
-//! every unread card goes; what was discarded is counted once. And from v14
+//! every unread card goes; what was discarded is counted in eight counts,
+//! the row written only when one is not zero and kept until the person's
+//! acknowledgement; one pair under two contacts with two keys fails the
+//! migration. And from v14
 //! every read, bound and key is one identity's.
 //!
 //! Every key here is TEST-ONLY (`interweave_test_support::endpoint_keys`).
@@ -218,8 +221,10 @@ fn total(conn: &rusqlite::Connection, table: &str) -> i64 {
 /// unread copy; (c) not deleting a keyless pair's kept rows; (d)'s route
 /// merge keeping the later contact; (d)'s unread-meets-kept rule dropped;
 /// (d)'s read-pair merge keeping the later; (e)'s card discard dropped; the
-/// own card left under its label; the counts row's `kept` taken before the
-/// merge.
+/// own card left under its label; the counts row's `kept` taken after the
+/// merge (so counting (d)'s second copy); the card proposals deleted after
+/// (c), so that (c)'s card is counted as an unread message; (d)'s combined
+/// contact counted among (c)'s contacts.
 #[test]
 fn a_v13_store_takes_its_first_identity_and_keeps_only_what_a_key_names() {
     let (_dir, path) = v13_store();
@@ -259,6 +264,8 @@ fn a_v13_store_takes_its_first_identity_and_keeps_only_what_a_key_names() {
         v13.unread_at(2, &p, Some("alice-label"), None, 2, "card");
         v13.unread(3, &p, Some("typed-label"), None);
         v13.unread(4, &p, Some("stranger"), None);
+        // A card of a pair (c) discards is a card proposal, not a message.
+        v13.unread_at(6, &p, Some("stranger"), None, 6, "card");
         // Two unread copies meet: the earlier stays, from either route.
         v13.unread_at(5, &q, Some("carol-a"), None, 10, "text");
         v13.unread_at(5, &q, Some("carol-b"), None, 20, "text");
@@ -303,14 +310,17 @@ fn a_v13_store_takes_its_first_identity_and_keeps_only_what_a_key_names() {
         store.discarded_at_v14().expect("the counts"),
         Some(DiscardedAtV14 {
             conversations: 3,
-            unread: 7,
-            kept: 2,
+            unread: 2,
+            kept: 1,
             pending_never_attempted: 2,
             pending_may_have_reached: 2,
-            contacts: 2,
+            contacts: 1,
+            contacts_combined: 1,
+            card_proposals: 2,
         }),
-        "typed-label, stranger and old-label; unread 2, 3, 4, the later 5 and 7, 9 and 10; \
-         kept 14 and the later 15; c2 and c4"
+        "typed-label, stranger and old-label; unread 3 and 4 (the later 5 and 7, 9 and 10 \
+         counted nowhere); kept 14 (the later 15 nowhere); c2 with its last route; c4 \
+         combined into c3; the cards 2 and 6"
     );
     // What stays reads back through the store as this identity's.
     let unread = store.unread_inbound().expect("unread");
@@ -487,17 +497,29 @@ fn a_v13_store_takes_its_first_identity_and_keeps_only_what_a_key_names() {
     );
 }
 
-/// The counts row is shown once: read, deleted by the client, and not
-/// written again by a later open; a store made at v14 has none. Mutation:
-/// the row written on a fresh store.
+/// The counts row is kept until the person's acknowledgement: read at
+/// every open until the client deletes it, and not written again by a
+/// later open; a store made at v14 has none. Mutation: the row deleted
+/// when it is first read.
 #[test]
-fn the_counts_row_is_read_and_deleted_once() {
+fn the_counts_row_stays_until_it_is_deleted() {
     let (_dir, path) = v13_store();
-    let mut store = HumanStore::open(&path, &me(), StoreOptions::default()).expect("migrates");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("v13");
+        V13(&conn).pending(1, &node("p"), None, Some("room"), 0);
+    }
+    let counted = Some(DiscardedAtV14 {
+        pending_never_attempted: 1,
+        ..DiscardedAtV14::default()
+    });
+    let store = HumanStore::open(&path, &me(), StoreOptions::default()).expect("migrates");
+    assert_eq!(store.discarded_at_v14().expect("read"), counted);
+    drop(store);
+    let mut store = HumanStore::open(&path, &me(), StoreOptions::default()).expect("reopens");
     assert_eq!(
         store.discarded_at_v14().expect("read"),
-        Some(DiscardedAtV14::default()),
-        "an upgraded store says so even when nothing went"
+        counted,
+        "a second open still holds it: nothing was acknowledged"
     );
     store.forget_discarded_at_v14().expect("deleted");
     store
@@ -510,6 +532,91 @@ fn the_counts_row_is_read_and_deleted_once() {
 
     let fresh = HumanStore::open_in_memory(&me(), StoreOptions::default()).expect("fresh");
     assert_eq!(fresh.discarded_at_v14().expect("read"), None);
+}
+
+/// A migration that discarded nothing writes no row: it exists to be
+/// acknowledged (A 2026-11-22). The control: a store whose migration
+/// kept everything, a keyed route with its unread and kept texts, a
+/// channel row and a read pair. Mutation: the row written whatever the
+/// counts.
+#[test]
+fn an_upgrade_that_discarded_nothing_writes_no_counts_row() {
+    let (_dir, path) = v13_store();
+    let p = node("p");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("v13");
+        let v13 = V13(&conn);
+        v13.contact("c1", "Alice", 10);
+        v13.route("c1", &p, "alice-label", Some(key("alice").as_slice()));
+        v13.indexed(&p, "alice-label", Some(1));
+        v13.unread(1, &p, Some("alice-label"), None);
+        v13.kept(2, &p, "alice-label", 2);
+        v13.unread(3, &p, None, Some("room"));
+        v13.pair(4, &p, Some("alice-label"), None, 4);
+    }
+    let store = HumanStore::open(&path, &me(), StoreOptions::default()).expect("migrates");
+    assert_eq!(store.unread_inbound().expect("unread").len(), 2, "control");
+    assert_eq!(store.kept_inbound().expect("kept").len(), 1, "control");
+    assert_eq!(store.discarded_at_v14().expect("read"), None);
+    drop(store);
+    assert_eq!(
+        total(
+            &rusqlite::Connection::open(&path).expect("read back"),
+            "settings WHERE key = 'v14_discarded'"
+        ),
+        0
+    );
+}
+
+/// One `{peer, label}` pair under two contacts with two different keys,
+/// which no writer of the store makes, fails the migration rather than
+/// being settled either way: the transaction rolls back, the store stays
+/// at v13 with every row it had, and the open is refused as any failed
+/// migration is (STATE.md §Migrations (d), A 2026-11-22). Mutation:
+/// `route_map` keeping the first key's id instead of refusing.
+#[test]
+fn one_pair_under_two_contacts_with_two_keys_fails_the_migration() {
+    let (_dir, path) = v13_store();
+    let p = node("p");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("v13");
+        let v13 = V13(&conn);
+        v13.contact("c1", "Alice", 10);
+        v13.route("c1", &p, "shared-label", Some(key("alice").as_slice()));
+        v13.contact("c2", "Bob", 20);
+        v13.route("c2", &p, "shared-label", Some(key("bob").as_slice()));
+        v13.indexed(&p, "shared-label", None);
+        v13.unread(1, &p, Some("shared-label"), None);
+        v13.pending(2, &p, Some("shared-label"), None, 0);
+    }
+    match HumanStore::open(&path, &me(), StoreOptions::default()) {
+        Err(error @ StoreError::Migration(_)) => {
+            assert!(error.needs_recovery(), "{error}");
+            assert!(error.to_string().contains("two identity keys"), "{error}");
+        }
+        other => panic!("one pair under two keys must fail the migration: {other:?}"),
+    }
+    assert_eq!(version(&path), 13);
+    let conn = rusqlite::Connection::open(&path).expect("read back");
+    for (table, rows) in [
+        ("contacts", 2),
+        ("contact_routes", 2),
+        ("conversation_index", 1),
+        ("unread_inbound", 1),
+        ("pending_outbound", 1),
+        ("settings WHERE key = 'v14_discarded'", 0),
+        ("sqlite_master WHERE name = 'v14_route_map'", 0),
+    ] {
+        assert_eq!(total(&conn, table), rows, "{table}");
+    }
+    let labels: Vec<String> = conn
+        .prepare("SELECT endpoint_id FROM contact_routes ORDER BY contact_id")
+        .expect("prepare")
+        .query_map([], |r| r.get(0))
+        .expect("rows")
+        .collect::<Result<_, _>>()
+        .expect("read");
+    assert_eq!(labels, ["shared-label", "shared-label"], "rows untouched");
 }
 
 /// A row naming a parent the store does not hold fails the migration, which

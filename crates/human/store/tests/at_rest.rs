@@ -835,6 +835,8 @@ fn every_row_reached_the_migration(store: &HumanStore, when: &str) {
             pending_never_attempted: 1,
             pending_may_have_reached: 0,
             contacts: 0,
+            contacts_combined: 0,
+            card_proposals: 0,
         }),
         "{when}"
     );

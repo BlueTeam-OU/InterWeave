@@ -184,17 +184,21 @@ fn require_derived(identity: &EndpointId) -> Result<(), StoreError> {
 }
 
 /// What schema v14 discarded (STATE.md §Migrations): counts, and nothing
-/// that says what any row held. The words that show it are ux-designer's.
+/// that says what any row held, each count one thing a person would call
+/// gone or changed. The second copy of a message under (d), an unread row
+/// that met a kept row or a read pair there, and the later of two read
+/// pairs are counted nowhere: the message is still held, or was read and
+/// not kept. The words that show it are ux-designer's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DiscardedAtV14 {
-    /// Direct conversations no keyed route named, (c): each a `{peer,
-    /// endpoint}` the store held an index row, an inbound or a pending row
-    /// of.
+    /// Conversations: the distinct direct `{peer, endpoint}` pairs (c)
+    /// discarded, each one the store held an index row, an inbound or a
+    /// pending row of. A merge under (d) loses none.
     pub conversations: u64,
-    /// Unread rows: (c)'s, the second copy of a message under (d), and
-    /// (e)'s card proposals.
+    /// Unread messages: the unread rows (c) discarded, an unread row of
+    /// kind `card` not among them ([`Self::card_proposals`]).
     pub unread: u64,
-    /// Kept rows: (c)'s, and the second copy of a message under (d).
+    /// Kept messages: the kept rows (c) discarded.
     pub kept: u64,
     /// Pending rows with no attempt behind them, which were not sent (e).
     pub pending_never_attempted: u64,
@@ -202,21 +206,31 @@ pub struct DiscardedAtV14 {
     /// their counterparty under the previous release (e; RETENTION.md §2's
     /// `attempts > 0`): never said as not sent.
     pub pending_may_have_reached: u64,
-    /// Contacts left with no route by (c) or (d).
+    /// Contacts (c) deleted with their last route.
     pub contacts: u64,
+    /// Contacts combined: those (d) deleted because their route went to
+    /// another contact of the same identity, whose own name and notes went
+    /// with them while the person's contact stays.
+    pub contacts_combined: u64,
+    /// Card proposals: the unread rows of kind `card` that (e) discarded,
+    /// which are no messages and which the counterparty's card, shared
+    /// again, replaces.
+    pub card_proposals: u64,
 }
 
 impl DiscardedAtV14 {
-    const FIELDS: [&'static str; 6] = [
+    const FIELDS: [&'static str; 8] = [
         "conversations",
         "unread",
         "kept",
         "pending_never_attempted",
         "pending_may_have_reached",
         "contacts",
+        "contacts_combined",
+        "card_proposals",
     ];
 
-    const fn values(self) -> [u64; 6] {
+    const fn values(self) -> [u64; 8] {
         [
             self.conversations,
             self.unread,
@@ -224,7 +238,15 @@ impl DiscardedAtV14 {
             self.pending_never_attempted,
             self.pending_may_have_reached,
             self.contacts,
+            self.contacts_combined,
+            self.card_proposals,
         ]
+    }
+
+    /// Whether every count is zero: a migration that discarded nothing,
+    /// which writes no row (STATE.md §Migrations, A 2026-11-22).
+    pub(crate) fn is_empty(self) -> bool {
+        self.values().iter().all(|n| *n == 0)
     }
 
     /// The `settings` value: `name=count` for each field, `;`-separated.
@@ -239,7 +261,7 @@ impl DiscardedAtV14 {
 
     /// The value [`Self::to_setting`] writes, and nothing else.
     fn from_setting(value: &str) -> Option<Self> {
-        let mut counts = [0_u64; 6];
+        let mut counts = [0_u64; 8];
         let parts: Vec<&str> = value.split(';').collect();
         if parts.len() != Self::FIELDS.len() {
             return None;
@@ -247,7 +269,16 @@ impl DiscardedAtV14 {
         for ((part, name), count) in parts.iter().zip(Self::FIELDS).zip(&mut counts) {
             *count = part.strip_prefix(name)?.strip_prefix('=')?.parse().ok()?;
         }
-        let [conversations, unread, kept, never, reached, contacts] = counts;
+        let [
+            conversations,
+            unread,
+            kept,
+            never,
+            reached,
+            contacts,
+            contacts_combined,
+            card_proposals,
+        ] = counts;
         Some(Self {
             conversations,
             unread,
@@ -255,6 +286,8 @@ impl DiscardedAtV14 {
             pending_never_attempted: never,
             pending_may_have_reached: reached,
             contacts,
+            contacts_combined,
+            card_proposals,
         })
     }
 }
@@ -510,10 +543,12 @@ impl HumanStore {
     }
 
     /// What schema v14 discarded when it upgraded this store (STATE.md
-    /// §Migrations: conversations, unread, kept, pending never attempted,
-    /// pending that may have reached, contacts), until the client deletes
-    /// it with [`Self::forget_discarded_at_v14`] once it has shown it:
-    /// `None` on a store created at v14 or later, and after the delete.
+    /// §Migrations: the eight counts of [`DiscardedAtV14`]), until the
+    /// person acknowledges it and the client deletes it with
+    /// [`Self::forget_discarded_at_v14`]: the client shows it at each open
+    /// until then. `None` on a store created at v14 or later, on one whose
+    /// migration discarded nothing (the row is written only when a count
+    /// is not zero), and after the delete.
     ///
     /// # Errors
     /// A storage error, or [`StoreError::Corrupt`] for a row this build
@@ -536,8 +571,10 @@ impl HumanStore {
             .transpose()
     }
 
-    /// Delete the row [`Self::discarded_at_v14`] reads: the client's, once
-    /// the person has been shown it. Deleting it again is not an error.
+    /// Delete the row [`Self::discarded_at_v14`] reads: the client's, on the
+    /// person's acknowledgement of it and on nothing else -- not at the
+    /// open that first shows it, so a process that ends there loses no
+    /// notice (STATE.md §Migrations). Deleting it again is not an error.
     ///
     /// # Errors
     /// A storage error.

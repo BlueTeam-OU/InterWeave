@@ -196,8 +196,9 @@ fn run_migrations(
 }
 
 /// The `settings` key of what schema v14 discarded (STATE.md §Migrations):
-/// one content-free row the client shows once and then deletes
-/// ([`crate::HumanStore::discarded_at_v14`]).
+/// one content-free row, written only when a count is not zero, which the
+/// client shows at each open until the person acknowledges it and deletes
+/// it then ([`crate::HumanStore::discarded_at_v14`]).
 pub(crate) const V14_DISCARDED: &str = "v14_discarded";
 
 /// The scratch table v14 maps each keyed route's `{peer, label}` to the
@@ -236,8 +237,10 @@ const ROUTE_MAP: &str = "v14_route_map";
 /// - (e) Every pending row is discarded, and every unread row of kind
 ///   `card`.
 ///
-/// What (c), (d) and (e) discarded is counted into the content-free
-/// [`V14_DISCARDED`] row when an existing store is upgraded. Stored
+/// What (c) and (e) discarded is counted into the content-free
+/// [`V14_DISCARDED`] row when an existing store is upgraded and a count is
+/// not zero, with the contacts (d) combined; what (d) discarded of a
+/// message held twice is counted nowhere ([`crate::DiscardedAtV14`]). Stored
 /// payloads are not rewritten: the client reads a stored row's
 /// `from_endpoint` that does not parse as absent (chat-protocol's
 /// `parse_stored`). Runs with foreign keys off, checked before the commit
@@ -250,8 +253,6 @@ fn migration_14(
     let local = first.as_str();
     route_map(tx)?;
 
-    let unread_before = count(tx, "SELECT COUNT(*) FROM unread_inbound")?;
-    let kept_before = count(tx, "SELECT COUNT(*) FROM kept_inbound")?;
     let (never_attempted, may_have_reached): (i64, i64) = tx
         .query_row(
             "SELECT COUNT(*) FILTER (WHERE attempts = 0), COUNT(*) FILTER (WHERE attempts > 0)
@@ -282,34 +283,53 @@ fn migration_14(
               WHERE NOT EXISTS (SELECT 1 FROM {ROUTE_MAP} m WHERE m.peer_id = p AND m.old = e)"
         ),
     )?;
+
+    // (e)'s card proposals first, so that (c)'s unread count below is of
+    // messages alone: a card is no message, and every unread card goes
+    // whatever its pair.
+    let card_proposals = i64::try_from(
+        tx.execute("DELETE FROM unread_inbound WHERE kind = 'card'", [])
+            .map_err(migration_error)?,
+    )
+    .unwrap_or(i64::MAX);
+
+    let (mut unread, mut kept) = (0_i64, 0_i64);
     for (table, peer, endpoint) in [
         ("unread_inbound", "source_peer", "source_endpoint"),
         ("kept_inbound", "source_peer", "source_endpoint"),
         ("read_pairs", "source_peer", "source_endpoint"),
         ("conversation_index", "peer_id", "endpoint_id"),
     ] {
-        tx.execute(
-            &format!(
-                "DELETE FROM {table}
-                  WHERE channel_id IS NULL AND {endpoint} IS NOT NULL
-                    AND NOT EXISTS (SELECT 1 FROM {ROUTE_MAP} m
-                                     WHERE m.peer_id = {table}.{peer} AND m.old = {table}.{endpoint})"
-            ),
-            [],
-        )
-        .map_err(migration_error)?;
+        let gone = tx
+            .execute(
+                &format!(
+                    "DELETE FROM {table}
+                      WHERE channel_id IS NULL AND {endpoint} IS NOT NULL
+                        AND NOT EXISTS (SELECT 1 FROM {ROUTE_MAP} m
+                                         WHERE m.peer_id = {table}.{peer}
+                                           AND m.old = {table}.{endpoint})"
+                ),
+                [],
+            )
+            .map_err(migration_error)?;
+        let gone = i64::try_from(gone).unwrap_or(i64::MAX);
+        match table {
+            "unread_inbound" => unread = gone,
+            "kept_inbound" => kept = gone,
+            _ => {}
+        }
     }
-    // A route without a key derives no id, whatever pair it names.
+    // A route without a key derives no id, whatever pair it names; a
+    // contact that held a route and now holds none went with its last
+    // route, while one that held none before lost none here.
     tx.execute("DELETE FROM contact_routes WHERE identity_key IS NULL", [])
         .map_err(migration_error)?;
+    let contacts = delete_routeless(tx, &routed)?;
 
     // (e): the bytes were encoded over a label and the store holds no key
-    // to encode them again; a card proposal was signed over one.
-    tx.execute_batch(
-        "DELETE FROM pending_outbound;
-         DELETE FROM unread_inbound WHERE kind = 'card';",
-    )
-    .map_err(migration_error)?;
+    // to encode them again.
+    tx.execute("DELETE FROM pending_outbound", [])
+        .map_err(migration_error)?;
 
     // (d): the routes. The one under the contact created first stays; a
     // route of a contact this store does not hold sorts nowhere and is
@@ -330,18 +350,7 @@ fn migration_14(
         [],
     )
     .map_err(migration_error)?;
-    let mut contacts = 0_i64;
-    for contact_id in &routed {
-        contacts += i64::try_from(
-            tx.execute(
-                "DELETE FROM contacts WHERE contact_id = ?1
-                   AND NOT EXISTS (SELECT 1 FROM contact_routes WHERE contact_id = ?1)",
-                params![contact_id],
-            )
-            .map_err(migration_error)?,
-        )
-        .unwrap_or(i64::MAX);
-    }
+    let contacts_combined = delete_routeless(tx, &routed)?;
 
     // (d): the rows. Within one table two rows meet only through two
     // routes, since the table's key kept them apart before; across tables
@@ -394,23 +403,25 @@ fn migration_14(
         )
         .map_err(migration_error)?;
     }
-    let unread = unread_before - count(tx, "SELECT COUNT(*) FROM unread_inbound")?;
-    let kept = kept_before - count(tx, "SELECT COUNT(*) FROM kept_inbound")?;
 
     rebuild_v14(tx, local)?;
     rekey_own_card(tx, local)?;
     tx.execute_batch(&format!("DROP TABLE {ROUTE_MAP};"))
         .map_err(migration_error)?;
 
-    if existing {
-        let counts = crate::store::DiscardedAtV14 {
-            conversations: as_count(conversations),
-            unread: as_count(unread),
-            kept: as_count(kept),
-            pending_never_attempted: as_count(never_attempted),
-            pending_may_have_reached: as_count(may_have_reached),
-            contacts: as_count(contacts),
-        };
+    let counts = crate::store::DiscardedAtV14 {
+        conversations: as_count(conversations),
+        unread: as_count(unread),
+        kept: as_count(kept),
+        pending_never_attempted: as_count(never_attempted),
+        pending_may_have_reached: as_count(may_have_reached),
+        contacts: as_count(contacts),
+        contacts_combined: as_count(contacts_combined),
+        card_proposals: as_count(card_proposals),
+    };
+    // The row exists to be acknowledged: a migration that discarded
+    // nothing asks nothing of the person (A 2026-11-22).
+    if existing && !counts.is_empty() {
         tx.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
             params![V14_DISCARDED, counts.to_setting()],
@@ -418,6 +429,24 @@ fn migration_14(
         .map_err(migration_error)?;
     }
     Ok(())
+}
+
+/// Delete each of `routed` -- the contacts that held a route before the
+/// migration -- that now holds none; how many went.
+fn delete_routeless(tx: &Transaction<'_>, routed: &[String]) -> Result<i64, StoreError> {
+    let mut deleted = 0_i64;
+    for contact_id in routed {
+        deleted += i64::try_from(
+            tx.execute(
+                "DELETE FROM contacts WHERE contact_id = ?1
+                   AND NOT EXISTS (SELECT 1 FROM contact_routes WHERE contact_id = ?1)",
+                params![contact_id],
+            )
+            .map_err(migration_error)?,
+        )
+        .unwrap_or(i64::MAX);
+    }
+    Ok(deleted)
 }
 
 /// `order`'s columns, each prefixed by `alias`.
