@@ -1059,6 +1059,25 @@ extern "system" fn Java_org_interweave_human_Native_shown<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
+/// `Native.windowEnding(finishing)`: the Activity's `onDestroy`, before
+/// its window's thread ends, says whether it is finishing.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_windowEnding<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    finishing: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::window_ending(finishing);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `Native.showingStarts()`: the showing `onStart` began starts the
 /// service again, just after this returns.
 #[allow(

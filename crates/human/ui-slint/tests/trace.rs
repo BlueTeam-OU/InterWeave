@@ -388,7 +388,11 @@ fn the_trace_says_which_identity_page_carries_the_warning() {
         view.trace_identity(Some(flow.screen()), Some(&page));
     };
 
-    let mut first_run = IdentityFlow::new(&["abandon"], Start::FirstRun { void_paper: false });
+    let mut first_run = IdentityFlow::new(
+        &["abandon"],
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     say(&first_run);
     let _ = apply_identity(&mut first_run, IdentityInput::Secondary);
     assert_eq!(first_run.screen(), ScreenId::R1);
@@ -399,6 +403,7 @@ fn the_trace_says_which_identity_page_carries_the_warning() {
     let recovery = |expected| {
         IdentityFlow::new(
             &["abandon"],
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected,
@@ -443,7 +448,11 @@ fn the_identity_primary_is_reached_by_tab_and_pressed_by_enter() {
     let inputs = Rc::new(RefCell::new(Vec::new()));
     let into = Rc::clone(&inputs);
     view.on_identity(move |input| into.borrow_mut().push(input));
-    let flow = IdentityFlow::new(&["abandon"], Start::ShowPhrase);
+    let flow = IdentityFlow::new(
+        &["abandon"],
+        interweave_profile_identity::FORMAT,
+        Start::ShowPhrase,
+    );
     view.show_identity(Some(identity_page(&flow)));
     slint::platform::update_timers_and_animations();
     let first = said.borrow().len();
@@ -655,7 +664,11 @@ fn the_identity_page_keeps_tab_on_its_own_stops() {
     let to = Rc::clone(&said);
     view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
     view.render(&UiModel::new());
-    let flow = IdentityFlow::new(&["abandon"], Start::FirstRun { void_paper: false });
+    let flow = IdentityFlow::new(
+        &["abandon"],
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     view.show_identity(Some(identity_page(&flow)));
     slint::platform::update_timers_and_animations();
     let first = said.borrow().len();
@@ -750,7 +763,11 @@ impl Identity {
     fn at_r2() -> Self {
         use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
         use interweave_human_ui_slint::{IdentityInput, apply_identity};
-        let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            WORDS,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply_identity(&mut flow, IdentityInput::Secondary);
         apply_identity(&mut flow, IdentityInput::Primary);
         assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
@@ -763,14 +780,20 @@ impl Identity {
         use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
         use interweave_human_ui_slint::{IdentityInput, apply_identity};
         use interweave_transport_api::TransportIdentity;
-        let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            WORDS,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply_identity(&mut flow, IdentityInput::Primary);
         let words: [&'static str; 24] = WORDS[..24].try_into().expect("24 words");
         let peer = TransportIdentity::parse("12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e")
             .expect("a PeerId");
         flow.created(words, peer, [8, 20]);
-        apply_identity(&mut flow, IdentityInput::Primary);
-        apply_identity(&mut flow, IdentityInput::Primary);
+        // C2's words, its PeerId page, then C3.
+        for _ in 0..3 {
+            apply_identity(&mut flow, IdentityInput::Primary);
+        }
         assert_eq!(flow.screen(), ScreenId::C3, "control: at C3");
         Self::new(flow)
     }
@@ -1017,7 +1040,11 @@ impl Identity {
     fn at_r2_but_24(empty: Option<usize>) -> Self {
         use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
         use interweave_human_ui_slint::{IdentityInput, apply_identity};
-        let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            WORDS,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply_identity(&mut flow, IdentityInput::Secondary);
         apply_identity(&mut flow, IdentityInput::Primary);
         assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
@@ -1692,6 +1719,7 @@ fn a_valid_check_after_k1_puts_focus_on_r4s_title() {
     let expected = peer();
     let mut flow = IdentityFlow::new(
         WORDS,
+        interweave_profile_identity::FORMAT,
         Start::Recovery {
             reason: RecoveryReason::Key,
             expected: Some(expected.clone()),
@@ -1774,7 +1802,11 @@ fn a_chip_that_leaves_a_position_empty_hands_focus_to_the_keypad() {
 fn a_position_chosen_on_a_full_r2_hands_focus_to_the_keypad() {
     use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
     use interweave_human_ui_slint::{IdentityInput, apply_identity};
-    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     apply_identity(&mut flow, IdentityInput::Secondary);
     apply_identity(&mut flow, IdentityInput::Primary);
     assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
@@ -1904,7 +1936,11 @@ fn check_queued_behind_the_discard_dialog_checks_nothing() {
     use interweave_human_ui_model::{Effect, IdentityFlow, ScreenId, Start};
     use interweave_human_ui_slint::{IdentityInput, apply_identity};
     use slint::platform::Key;
-    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     apply_identity(&mut flow, IdentityInput::Secondary);
     apply_identity(&mut flow, IdentityInput::Primary);
     for word in &WORDS[..24] {
@@ -2593,7 +2629,8 @@ fn r2s_full_list_opens_with_the_current_row_in_view() {
 
 /// C3's Back with a word entered asks the same dialog as R2's (section
 /// 7): Continue entering stays on C3 with the letters, Delete words goes
-/// back to C2, and with nothing entered Back goes straight back.
+/// back to C2's `PeerId` page, and with nothing entered Back goes straight
+/// back.
 #[test]
 fn c3_back_with_words_entered_asks_the_discard_dialog() {
     use interweave_human_ui_model::ScreenId;
@@ -2621,7 +2658,11 @@ fn c3_back_with_words_entered_asks_the_discard_dialog() {
         page.take(),
         [IdentityInput::Back, IdentityInput::Dialog(true)]
     );
-    assert_eq!(page.flow.screen(), ScreenId::C2, "Delete words: back to C2");
+    assert_eq!(
+        page.flow.screen(),
+        ScreenId::C2PeerId,
+        "Delete words: back to C2's PeerId page"
+    );
     page.flow.primary();
     page.settle();
     assert_eq!(page.flow.screen(), ScreenId::C3);
@@ -2630,7 +2671,7 @@ fn c3_back_with_words_entered_asks_the_discard_dialog() {
     assert!(!page.flow.discard_asked());
     assert_eq!(
         page.flow.screen(),
-        ScreenId::C2,
+        ScreenId::C2PeerId,
         "nothing entered: straight back"
     );
 }
@@ -2642,6 +2683,7 @@ fn a_banner_that_appears_takes_focus() {
     use interweave_human_ui_model::{IdentityFlow, Start, StepFailed};
     let mut page = Identity::new(IdentityFlow::new(
         WORDS,
+        interweave_profile_identity::FORMAT,
         Start::FirstRun { void_paper: false },
     ));
     page.tab();
@@ -2814,6 +2856,7 @@ fn back_from_r2_to_k1_focuses_its_primary() {
         .expect("a PeerId");
     let flow = IdentityFlow::new(
         WORDS,
+        interweave_profile_identity::FORMAT,
         Start::Recovery {
             reason: RecoveryReason::Key,
             expected: Some(peer),
@@ -2884,6 +2927,7 @@ fn the_heading_takes_no_tap() {
         .expect("a PeerId");
     let mut page = Identity::new(IdentityFlow::new(
         WORDS,
+        interweave_profile_identity::FORMAT,
         Start::Recovery {
             reason: RecoveryReason::Key,
             expected: Some(peer),
@@ -2908,7 +2952,11 @@ fn the_heading_takes_no_tap() {
 fn at_r1() -> Identity {
     use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
     use interweave_human_ui_slint::{IdentityInput, apply_identity};
-    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     apply_identity(&mut flow, IdentityInput::Secondary);
     assert_eq!(flow.screen(), ScreenId::R1, "control: at R1");
     Identity::new(flow)
@@ -3026,15 +3074,15 @@ fn back_from_r2_focuses_what_opened_it() {
     );
 }
 
-/// Back from C3 puts focus on C2's primary, which opened it (section 7),
-/// with nothing entered and by Delete words.
+/// Back from C3 puts focus on the primary of C2's `PeerId` page, which
+/// opened it (section 7), with nothing entered and by Delete words.
 #[test]
 fn back_from_c3_focuses_what_opened_it() {
     use interweave_human_ui_model::ScreenId;
     use slint::platform::Key;
     let mut page = Identity::at_c3();
     page.key(Key::Escape);
-    assert_eq!(page.flow.screen(), ScreenId::C2);
+    assert_eq!(page.flow.screen(), ScreenId::C2PeerId);
     assert_eq!(page.last(), "ui-trace focus=identity-primary");
     page.enter();
     assert_eq!(page.flow.screen(), ScreenId::C3, "control: it opened C3");
@@ -3042,6 +3090,32 @@ fn back_from_c3_focuses_what_opened_it() {
     page.key(Key::Escape);
     page.tab();
     page.enter();
+    assert_eq!(page.flow.screen(), ScreenId::C2PeerId);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+}
+
+/// Between C2's two pages (section 8): forward, focus goes to the `PeerId`
+/// page's title; Back to the words page returns it to the primary that
+/// left it. Mutation: dropping either branch of the view's page rule
+/// leaves focus elsewhere and fails here.
+#[test]
+fn between_c2s_pages_focus_goes_to_the_title_forward_and_the_primary_back() {
+    use interweave_human_ui_model::ScreenId;
+    use slint::platform::Key;
+    let mut page = Identity::at_c3();
+    page.key(Key::Escape);
+    assert_eq!(page.flow.screen(), ScreenId::C2PeerId, "control");
+    page.key(Key::Escape);
+    assert_eq!(page.flow.screen(), ScreenId::C2, "Back to the words");
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.enter();
+    assert_eq!(page.flow.screen(), ScreenId::C2PeerId, "forward");
+    assert_eq!(page.last(), "ui-trace focus=peer-id-heading");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-copy");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-primary");
+    page.key(Key::Escape);
     assert_eq!(page.flow.screen(), ScreenId::C2);
     assert_eq!(page.last(), "ui-trace focus=identity-primary");
 }
@@ -3185,6 +3259,7 @@ fn the_app_bar_arrow_is_back_on_every_screen_that_has_one() {
     };
     let mut page = Identity::new(IdentityFlow::new(
         WORDS,
+        interweave_profile_identity::FORMAT,
         Start::FirstRun { void_paper: false },
     ));
     sized(&mut page);
@@ -3224,7 +3299,11 @@ fn the_app_bar_arrow_is_back_on_every_screen_that_has_one() {
     assert_eq!(page.flow.screen(), ScreenId::W);
 
     // One platform per test: S1 on the same window.
-    page.flow = IdentityFlow::new(WORDS, Start::ShowPhrase);
+    page.flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::ShowPhrase,
+    );
     page.view.window().set_rtl(true);
     sized(&mut page);
     let at = arrows(&page);
