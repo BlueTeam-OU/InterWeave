@@ -83,6 +83,8 @@ fn an_older_builds_messages_are_counted_at_v14_and_their_texts_stay_text() {
             pending_never_attempted: 1,
             pending_may_have_reached: 0,
             contacts: 0,
+            contacts_combined: 0,
+            card_proposals: 0,
         })
     );
     assert!(store.unread_inbound().expect("unread").is_empty());
