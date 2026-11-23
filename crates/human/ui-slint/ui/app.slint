@@ -433,7 +433,9 @@ export struct IdSlot {
 // Which identity screen a page is (design/2026-10-19-android-identity.md
 // section 3): the view tells a screen opening, or left by Back, from a
 // page rebuilt, and section 8 puts focus by it.
-export enum IdScreen { w, c1, c2, c3, c4, r1, r2, r3, r4, k1, s1, s2, done }
+// C2 and S2 are two pages each, the words and then the PeerId, so the
+// view tells one page from the other (section 8, between the two pages).
+export enum IdScreen { w, c1, c2, c2-peer-id, c3, c4, r1, r2, r3, r4, k1, s1, s2, s2-peer-id, done }
 
 export struct IdentityPage {
     screen: IdScreen,
@@ -465,6 +467,9 @@ export struct IdentityPage {
     peer-label: string,
     // A PeerId grouped by fours for comparing by eye (section 5).
     peer-groups: string,
+    // The note under the PeerId on C2's and S2's PeerId page, whose title
+    // names it (section 5); empty elsewhere, where `peer-label` is above.
+    peer-note: string,
     // The text button under the PeerId, C4's, R3's and R4's (section 5): its
     // label, empty for none, and what it copies -- the PeerId's
     // canonical string, with none of the groups' spaces.
@@ -478,6 +483,12 @@ export struct IdentityPage {
     second-peer-groups: string,
     // C2's and S2's numbered words.
     words: [IdSlot],
+    // Above the words: that this is an InterWeave recovery phrase and not a
+    // wallet seed, then, in body small, the format's label and the
+    // untranslated identifier (section 3.2); empty off the words pages.
+    words-note: string,
+    format-label: string,
+    format-id: string,
     // The picker (section 4), on C3 and R2.
     picker: bool,
     position: string,
@@ -2640,13 +2651,25 @@ component IdentityScreen inherits FocusScope {
             root.font-closed = false;
             if (root.page.picker) {
                 root.opened();
-            } else if ((from == IdScreen.c3 && root.page.screen == IdScreen.c2)
+            } else if ((from == IdScreen.c2 && root.page.screen == IdScreen.c2-peer-id)
+                || (from == IdScreen.s2 && root.page.screen == IdScreen.s2-peer-id)) {
+                // Forward to C2's or S2's PeerId page: focus on its title,
+                // so the reading starts at the top (section 8).
+                root.typing = false;
+                root.go(0, root.heading-idx());
+            } else if ((from == IdScreen.c3
+                    && (root.page.screen == IdScreen.c2-peer-id || root.page.screen == IdScreen.c2))
+                || (from == IdScreen.c2-peer-id && root.page.screen == IdScreen.c2)
+                || (from == IdScreen.s2-peer-id && root.page.screen == IdScreen.s2)
                 || (from == IdScreen.r2
                     && (root.page.screen == IdScreen.r1 || root.page.screen == IdScreen.k1))) {
                 // Back from C3 or R2, by Delete words or with nothing
-                // entered, to the screen that opened it (C2, R1 or K1):
-                // focus on the primary that opened the screen just left
-                // (section 7). R3 and C4 are forward, not Back.
+                // entered, to the screen that opened it (C2's PeerId page,
+                // R1 or K1), and Back from a PeerId page to its words: focus
+                // on the primary that opened the page just left (sections 7
+                // and 8). "Show my words again" from C3 lands on the
+                // primary of the words page too. R3 and C4 are forward,
+                // not Back.
                 root.go(6, 0);
             } else if (root.page.screen == IdScreen.r3 || root.page.screen == IdScreen.r4
                 || root.page.screen == IdScreen.c4) {
@@ -3082,6 +3105,26 @@ component IdentityScreen inherits FocusScope {
                     accessible-role: text;
                     accessible-label: Drawn.spoken(self.text);
                 }
+                // What the phrase is, and its format, above the words
+                // (section 3.2): text, no stop.
+                if root.page.words-note != "": Text {
+                    text: root.page.words-note;
+                    font-size: Type.body-large;
+                    color: Palette.on-surface;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                    accessible-role: text;
+                    accessible-label: Drawn.spoken(self.text);
+                }
+                if root.page.format-id != "": Text {
+                    text: root.page.format-label + " " + root.page.format-id;
+                    font-size: Type.body-small;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                    accessible-role: text;
+                    accessible-label: Drawn.spoken(self.text);
+                }
                 // The words, read down the first column then the second;
                 // one column when narrow (section 3.2, C2).
                 if root.page.words.length > 0: GridLayout {
@@ -3110,7 +3153,9 @@ component IdentityScreen inherits FocusScope {
                 }
                 if root.page.peer-groups != "": VerticalLayout {
                     spacing: 4px;
-                    Text {
+                    // On C2's and S2's PeerId page the title names the
+                    // PeerId and the note follows it (section 5).
+                    if root.page.peer-label != "": Text {
                         text: root.page.peer-label;
                         font-size: Type.body-medium;
                         color: Palette.on-surface-variant;
@@ -3126,7 +3171,17 @@ component IdentityScreen inherits FocusScope {
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                         accessible-role: text;
-                        accessible-label: Drawn.spoken(root.page.peer-label + " " + root.page.peer-groups);
+                        // The title is its name where no label is above it.
+                        accessible-label: Drawn.spoken((root.page.peer-label != "" ? root.page.peer-label : root.page.title) + " " + root.page.peer-groups);
+                    }
+                    if root.page.peer-note != "": Text {
+                        text: root.page.peer-note;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface-variant;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                        accessible-role: text;
+                        accessible-label: Drawn.spoken(self.text);
                     }
                     // Copy PeerId (section 5): the canonical string, through
                     // the window's field; focus stays here.
@@ -8571,7 +8626,26 @@ export component AppWindow inherits Window {
                         accessible-role: none;
                     }
                 // Spaced so a focused bubble's ring clears its day separator.
+                // Sized from the list's width and its own content, never from
+                // the size the list's layout gives the row: a row added to the
+                // list marks that layout's result changed for every row (the
+                // toolkit marks what depends on it dirty without comparing
+                // values), and each row then laid its bubble out again,
+                // measuring all its text -- a page landing above 256 held
+                // rows cost about three times what it costs now, one row as
+                // much as 32 (j307;
+                // `a_page_drawn_above_costs_its_own_rows_not_the_held_ones`).
+                // A leaving row's content fills its closing box, as every
+                // row's once did: given its own height there, the box's clip
+                // hid all of it from its first frame
+                // (`a_leaving_message_closes_its_space_without_a_jump`).
                 row-content := VerticalLayout {
+                    // The list's padding as it sets it: its per-side
+                    // properties read 0 when only `padding` is given, and
+                    // the bubble then reached the list's edge, which cut its
+                    // ring (`every_tab_stop_draws_exactly_one_focus_ring`).
+                    width: messages-column.width - 2 * messages-column.padding;
+                    height: row.leaving ? parent.height : self.preferred-height;
                     padding-top: row.gap;
                     spacing: FocusMode.ring-reach;
                     // The window's marks that stand above it, before its day

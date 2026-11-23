@@ -1078,6 +1078,97 @@ async fn a_send_with_no_pending_that_needs_attention_is_cancelled() {
     assert!(pending.is_empty(), "never sent by a later run: {pending:?}");
 }
 
+/// G4: a cancel the store refuses prints no line for the item and ends the
+/// verb with that refusal (the store's failure, exit 5), never "cancelled":
+/// the row stays pending, and a later run sends it, so saying otherwise
+/// would be false.
+/// Mutation: the line printed before `problems(s)?` after the cancel, or
+/// the refusal swallowed.
+#[tokio::test]
+async fn a_send_with_no_pending_whose_cancel_the_store_refuses_prints_nothing() {
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let dir = private_dir();
+    let mut alice = session(&a, store(dir.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    // A store that cannot delete a pending row, as one that cannot be
+    // written cannot: the insert goes through, the cancel's delete aborts.
+    rusqlite::Connection::open(dir.path().join("human.sqlite3"))
+        .expect("open")
+        .execute_batch(
+            "CREATE TRIGGER refuse_cancel BEFORE DELETE ON pending_outbound \
+             BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+        )
+        .expect("trigger");
+    let nobody = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer");
+    let verb = Verb::Send {
+        conversation: to(&nobody),
+        text: Some("stays".to_owned()),
+        pending: false,
+    };
+    let (out, sent) = run(&mut alice, verb, true).await;
+    assert!(matches!(sent, Err(Failure::Store(_))), "{sent:?}");
+    assert!(out.is_empty(), "no line for the item: {out}");
+    alice.close().await;
+    // Read raw: the store refuses to open over the planted trigger.
+    let pending: i64 = rusqlite::Connection::open(dir.path().join("human.sqlite3"))
+        .expect("open")
+        .query_row("SELECT count(*) FROM pending_outbound", [], |r| r.get(0))
+        .expect("count");
+    assert_eq!(pending, 1, "still pending for a later run");
+}
+
+/// G4: a `--no-pending` send the transport accepts while its cancel is
+/// asked is said as accepted, `"pending": false`, and the verb ends with
+/// success. The first attempt fails and its retry comes due only after the
+/// wait is over: the session's clock is moved past the retry between the
+/// deadline check and the cancel's step, so the accept is applied by that
+/// step's first turn, the model no longer offers the Cancel, and none is
+/// carried out (no refusal, no `Cancelled`).
+/// Mutation: `cancel_unaccepted` reading an Accepted status as cancelled.
+#[tokio::test]
+async fn a_send_with_no_pending_accepted_while_its_cancel_is_asked_is_accepted() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut alice, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    a.inject_send(TransportError::PeerUnknown);
+    let verb = Verb::Send {
+        conversation: to(b.peer()),
+        text: Some("just in time".to_owned()),
+        pending: false,
+    };
+    // The send's own step is the first with scripted input; the cancel's is
+    // the second, and the clock jumps there.
+    crate::session::test_clock::jump_at_scripted_step(1, 5_000);
+    let mut out = String::new();
+    let r = Run {
+        profile: "test",
+        json: true,
+        until: Instant::now() + Duration::from_millis(100),
+    };
+    let sent = verbs::run(&mut alice, &verb, &r, &mut out).await;
+    sent.expect("an accepted send ends with success");
+    let shown = lines(&out);
+    assert_eq!(shown.len(), 1, "{out}");
+    assert_eq!(shown[0]["status"], "accepted", "{out}");
+    // Only `cancel_unaccepted` says `pending`: the premise that the accept
+    // came during the cancel and not before the wait ended.
+    assert_eq!(shown[0]["pending"], false, "from the cancel's line: {out}");
+    alice.close().await;
+    let pending = store(dir_a.path()).pending_outbound().expect("read");
+    assert!(pending.is_empty(), "nothing left pending: {pending:?}");
+}
+
 /// Bob's store holding `texts` unread from alice, committed by a run that
 /// reads nothing, and bob's session opened afresh over it.
 async fn unread_at_open(

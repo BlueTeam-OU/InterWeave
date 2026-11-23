@@ -58,7 +58,10 @@ class MainActivity : NativeActivity() {
     @Volatile private var shown = false
     // Show my phrase took the service offline and its words are this
     // instance's to show: nothing binds or starts the service until they
-    // are gone, a return from Home included (design section 7).
+    // are gone, a return from Home included (design section 7). The
+    // instance's, not the process's: unlike the identity flows, which
+    // outlive a recreation, Show my phrase ends with its window
+    // (onboard.rs, window_ended), so no later instance shows its words.
     @Volatile private var phraseShown = false
     /** Scan a code's camera, opened for the viewfinder and closed with it (add-a-peer 5.5). */
     private var camera: CodeCamera? = null
@@ -147,12 +150,16 @@ class MainActivity : NativeActivity() {
         // Before super.onStart(), which waits for the window's thread to
         // take the Start; that thread waits for this answer before it
         // chooses between the identity screens and the chats (onboard.rs).
-        // After it, each would wait on the other (#309 review N1). Asked at
-        // every start, a return's and a launch's in a running process
-        // included: a start refused for the screen lock is answered as in
-        // a fresh process (unlock note section 11). Shown first, so the
-        // answer's prompt is this showing's. Not while Show my phrase holds
-        // the service offline: nothing starts until its words are gone.
+        // After it, each would wait on the other (#309 review N1). A flow
+        // kept from the window a recreation ended is shown again without
+        // the wait, and this answers for it unread (Native.IDENTITY_FLOW,
+        // or Native.IDENTITY_FLOW_STARTED while its screen shows a start).
+        // Asked at every start, a return's and a launch's in a running
+        // process included: a start refused for the screen lock is
+        // answered as in a fresh process (unlock note section 11). Shown
+        // first, so the answer's prompt is this showing's. Not while Show
+        // my phrase holds the service offline: nothing starts until its
+        // words are gone.
         Native.shown(true)
         val identity =
             if (phraseShown) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir, identityReady)
@@ -195,12 +202,19 @@ class MainActivity : NativeActivity() {
         if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) return
         // The identity screens come before the service: a profile with no
         // identity, or one the phone lost, binds nothing until the screens
-        // say the identity is ready (onboard.rs).
-        if (identity != Native.IDENTITY_READY) return
+        // say the identity is ready (onboard.rs), and a living flow whose
+        // screen shows no start (Native.IDENTITY_FLOW) binds nothing
+        // either. A flow that asked its start -- shown again after a
+        // recreation, or on a return -- goes on to the start's decision
+        // below, its flag set above.
+        if (identity != Native.IDENTITY_READY && identity != Native.IDENTITY_FLOW_STARTED) return
         identityReady = true
         if (phraseShown) return
         // A binding kept across a recreation, whose service's last start
-        // was refused for the lock, starts again now the key opens; one
+        // was refused for the lock, starts again: for a ready identity
+        // now the key opens; for a flow that asked its start
+        // (IDENTITY_FLOW_STARTED) with no key read, the start's own
+        // refusal raising the prompt (onboard.rs, identity_state); one
         // refused with the profile in use starts again too, as a return
         // that binds anew does (identity note section 6). With no binding,
         // connect binds, which creates the service and starts it: Home let
@@ -281,17 +295,35 @@ class MainActivity : NativeActivity() {
     }
 
     override fun onDestroy() {
+        // Before super.onDestroy(), which ends the window's thread: a
+        // finish -- the task removed from Recents, the system's finish()
+        // -- ends an identity flow the window showed, and drops its words
+        // as identity note section 7 says; only a destroy that is not one
+        // keeps it for the next window (onboard.rs, window_ended; the
+        // decision is flow_park.rs's
+        // a_window_end_parks_only_an_open_flow_past_a_destroy_that_is_not_a_finish).
+        // That this call lands before the window's thread ends is BLOCKED
+        // on a device run: case D5 of
+        // apps/human-android/device-runs/identity-recreation-cases.md.
+        Native.windowEnding(isFinishing && !isChangingConfigurations)
         unregisterReceiver(lockReceiver)
         // The editor goes with the window: its photo's open is not wanted.
         cancelPhotoOpen()
         photoRequest = -1L
-        // The words go with this instance; the service must not stay
-        // offline for a window that no longer shows them.
-        if (phraseShown) {
-            phraseShown = false
-            local?.online()
-        }
+        // The words go with this instance -- a new one is a new display,
+        // behind the prompt (identity note section 7), so Show my phrase
+        // ends with its window rather than being kept for the next
+        // (onboard.rs, window_ended) -- and the service must not stay
+        // offline for a window that no longer shows them. Brought back
+        // after super.onDestroy(), which returns only once the window's
+        // thread ended and the flow let go of the profile's lock: before
+        // it, the start could find the lock still held and be refused busy.
+        // BLOCKED on a device run: case D4 of
+        // apps/human-android/device-runs/identity-recreation-cases.md.
+        val phrase = phraseShown
+        phraseShown = false
         super.onDestroy()
+        if (phrase) local?.online()
     }
 
     override fun onStop() {
@@ -868,9 +900,12 @@ class MainActivity : NativeActivity() {
     }
 
     /**
-     * A camera went away under the scan. Told to the window from the main
-     * thread, and only for the camera this Activity holds now: one closed
-     * since, whose failure arrives late, ends no newer scan.
+     * A camera went away under the scan: told to the window from the main
+     * thread when `lost` is still the camera held. closeCamera drops the
+     * object it closes, so a later scan opens a new one and a failure of
+     * the old, arriving late, is passed over (#418). Unheld by a
+     * test: nothing under androidTest makes a camera fail under a scan;
+     * BLOCKED on a device case that does.
      */
     private fun cameraLost(lost: CodeCamera) {
         runOnUiThread {

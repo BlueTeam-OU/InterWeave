@@ -49,9 +49,10 @@ tracing = { workspace = true }
 # TEST BUILDS ONLY: the runtime's test hooks -- `ComposedRuntime`'s
 # `inject_path_change` (a path change through the driver's own handling,
 # so a test between real runtimes reaches it without a relay),
-# `end_driver`, `fail_publishes` and `fail_overlay_writes`, and
-# `OverlayFault`. Enabled by test crates as a dev-dependency feature;
-# nothing that ships turns it on.
+# `end_driver`, `abort_driver`, `fail_publishes`, `fail_overlay_writes`,
+# `keep_forgets`, `held_forgets`, `operator_holds` and `discovery_round`,
+# and `OverlayFault`. Enabled by
+# test crates as a dev-dependency feature; nothing that ships turns it on.
 test-hooks = []
 
 [dev-dependencies]

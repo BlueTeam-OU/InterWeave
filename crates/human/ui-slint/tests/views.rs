@@ -911,6 +911,7 @@ fn a_raised_store_or_recovery_screen_opens_on_its_heading() {
         .expect("a PeerId");
     let k1 = IdentityFlow::new(
         &["act", "bean", "cabin"],
+        interweave_profile_identity::FORMAT,
         Start::Recovery {
             reason: RecoveryReason::Key,
             expected: Some(expected),
@@ -939,7 +940,11 @@ const WORDS: &[&str] = &[
 fn checked_flow(restored: bool) -> interweave_human_ui_model::IdentityFlow {
     use interweave_human_ui_model::{Effect, IdentityFlow, ScreenId, Start};
     use interweave_human_ui_slint::{IdentityInput, apply_identity};
-    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     apply_identity(&mut flow, IdentityInput::Secondary);
     apply_identity(&mut flow, IdentityInput::Primary);
     assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
@@ -987,6 +992,7 @@ fn focus_on_any_screens_title_goes_with_the_page() {
     use interweave_human_ui_slint::{identity_page, store_page};
     let k1 = IdentityFlow::new(
         WORDS,
+        interweave_profile_identity::FORMAT,
         Start::Recovery {
             reason: RecoveryReason::Key,
             expected: Some(peer()),
