@@ -356,7 +356,13 @@ def stop_group(pid, pump, steps=(("session", signal.SIGINT, 5), ("group", signal
     under bwrap -- so its MCP servers are stopped by Claude Code, as
     SPIKE-001 measured, and not by this signal; a "group" step signals
     every member. pid itself is reaped, so its zombie does not keep the
-    group alive. Returns what happened, for the run's record."""
+    group alive. Returns what happened, for the run's record; its
+    bwrap_wait_status is pid's wait status, whatever pid is: bwrap
+    wherever the session was started through private_etc, whose argv
+    begins with it; podman in s27's container runs; Claude Code itself
+    where a driver starts it directly, as s23 does. It is null whenever
+    the caller reaped pid before calling, as every driver that waits for
+    the session's exit first does."""
     status = None
 
     def reap():

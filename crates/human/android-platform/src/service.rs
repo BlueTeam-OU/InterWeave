@@ -651,9 +651,30 @@ impl ServiceHost {
         // Whatever the rest of the start comes to, its custody step ran.
         *self.unlock_slot() = launch.unlock;
         self.unlock_start_ran();
+        // The debug build's hook: refused as the runtime refuses a profile
+        // another host holds, answered on the path every refusal takes.
+        #[cfg(any(test, feature = "dev-stand-ins"))]
+        if busy_hook::take() {
+            let started = Err(StartRefused::Runtime(EmbeddedRefused::LockHeld(
+                "the busy-start hook".to_owned(),
+            )));
+            self.answer(&started);
+            return started;
+        }
         let started = self.start_locked(&mut running, launch, data);
         self.answer(&started);
         started
+    }
+
+    /// The debug build's busy-start hook: each of the next `starts`
+    /// service starts is refused with the profile in use
+    /// (`EmbeddedRefused::LockHeld`) after its custody step, as a profile
+    /// another host holds refuses it, so `IdStartBusy` can be shown on a
+    /// phone where nothing else holds the lock (identity note §9,
+    /// acceptance 12 and 15). Debug builds and this crate's tests only.
+    #[cfg(any(test, feature = "dev-stand-ins"))]
+    pub fn refuse_next_starts_busy(&self, starts: u32) {
+        busy_hook::arm(starts);
     }
 
     /// Say a start's answer to the hub, while the caller holds the start
@@ -1069,6 +1090,7 @@ const fn store_answer(why: &StartRefused) -> Option<StoreAnswer> {
         StartRefused::StoreNeedsRecovery => Some(StoreAnswer::Refused(StoreRefusal::Recovery)),
         StartRefused::StoreKeyInvalidated => Some(StoreAnswer::Refused(StoreRefusal::KeyLost)),
         StartRefused::Runtime(EmbeddedRefused::NetworkDenied(_)) => None,
+        StartRefused::Runtime(EmbeddedRefused::LockHeld(_)) => Some(StoreAnswer::ProfileBusy),
         _ => Some(StoreAnswer::OtherRefusal),
     }
 }
@@ -1090,9 +1112,41 @@ fn classify(error: &StoreError) -> StartRefused {
     }
 }
 
+/// [`ServiceHost::refuse_next_starts_busy`]'s count, taken one start at a
+/// time (`the_busy_start_hook_is_taken_one_start_at_a_time`).
+#[cfg(any(test, feature = "dev-stand-ins"))]
+mod busy_hook {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static LEFT: AtomicU32 = AtomicU32::new(0);
+
+    pub(super) fn arm(starts: u32) {
+        LEFT.store(starts, Ordering::SeqCst);
+    }
+
+    /// Whether this start is to be refused: one of the armed count, spent.
+    pub(super) fn take() -> bool {
+        LEFT.try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+            left.checked_sub(1)
+        })
+        .is_ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Mutation: `take` answering true without spending one of the count
+    /// refuses every start after the hook.
+    #[test]
+    fn the_busy_start_hook_is_taken_one_start_at_a_time() {
+        assert!(!busy_hook::take(), "unarmed");
+        busy_hook::arm(2);
+        assert!(busy_hook::take());
+        assert!(busy_hook::take());
+        assert!(!busy_hook::take(), "two, then none");
+    }
 
     /// A runtime refused network access answers nothing: the Service goes
     /// on to the network-denied posture, whose answer is the start's, so a
@@ -1115,6 +1169,13 @@ mod tests {
         assert_eq!(
             store_answer(&StartRefused::NoHumanEndpoint),
             Some(StoreAnswer::OtherRefusal)
+        );
+        assert_eq!(
+            store_answer(&StartRefused::Runtime(EmbeddedRefused::LockHeld(
+                String::new()
+            ))),
+            Some(StoreAnswer::ProfileBusy),
+            "told apart from the other runtime refusals (identity note Q12)"
         );
         assert_eq!(
             store_answer(&StartRefused::StoreKeyInvalidated),

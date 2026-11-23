@@ -715,6 +715,58 @@ fn a_host_dropped_in_an_async_context_releases_the_profile() {
         .expect("stops");
 }
 
+/// A KILLED HOST RUNS NO SHUTDOWN, as a dead process runs none
+/// (`EmbeddedHost::kill_for_test`, j128): with the peer cache on, a kill
+/// leaves no cache file, at its return or after. A drop in its place ran
+/// the driver's shutdown, whose flush writes the file whatever the
+/// debounce says, on a worker the drop did not wait for: the file
+/// appeared after the drop returned in 3 kills of 40 on this host. The
+/// rounds are many because that race is: with the kill replaced by a
+/// drop this test failed (measured, j128).
+#[test]
+fn a_killed_host_writes_no_peer_cache_after_it_returns() {
+    let cached = document("embedded-android", false).replace(
+        "transport:\n",
+        "discovery:\n  providers:\n    - { type: peer-cache, enabled: true, priority: 10, \
+         config: { ttl: 7d, max_entries: 1024 } }\ntransport:\n",
+    );
+    for round in 0..60 {
+        let app = app();
+        let paths = provision(&app.dir, &cached);
+        let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+        host.kill_for_test();
+        // A run this short reaches nothing, so nothing dirties the cache
+        // and only a shutdown's flush writes the file: absent at the
+        // kill's return, no shutdown ran before it; absent after, none
+        // runs after it (#740 review F1).
+        let file = paths.peer_cache_file();
+        assert!(
+            !file.exists(),
+            "round {round}: {} was written before the kill returned",
+            file.display()
+        );
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(
+            !file.exists(),
+            "round {round}: {} was written after the kill returned",
+            file.display()
+        );
+        // THE POSITIVE CONTROL: a stop runs the shutdown the kill does
+        // not, and its flush writes the file this test reads, at this
+        // path -- so an absent file above is the kill's, not a wrong path
+        // or a cache that never writes.
+        EmbeddedHost::start(launch(&app.dir))
+            .expect("starts after the kill: the lock was released")
+            .stop(Duration::from_secs(1))
+            .expect("stops");
+        assert!(
+            file.exists(),
+            "round {round}: a stop's shutdown flush did not write {}",
+            file.display()
+        );
+    }
+}
+
 /// THE EMBEDDED HOST'S ADD (ADR-0062): the seam that writes the other
 /// overlays reaches the same function the daemon's `admin.peers` methods
 /// serve -- the special-use floor applied there, a private address

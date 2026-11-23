@@ -26,7 +26,7 @@ use std::time::Duration;
 use interweave_human_client_api::Connectivity;
 use interweave_human_ui_model::{
     AddNote, AddResult, Barred, BlockProblem, BlockState, ConnectPhase, Peers, Refusal, ScreenId,
-    SessionNotice, ShowState, TrustSettings, UiText,
+    SessionNotice, ShowState, StartBusy, TrustSettings, UiText,
 };
 use interweave_transport_api::TransportIdentity;
 
@@ -72,6 +72,8 @@ pub(crate) const fn session_notice(n: SessionNotice) -> &'static str {
         SessionNotice::Refused(_) => "refused",
         SessionNotice::NetworkDenied => "network-denied",
         SessionNotice::AuthenticationNeeded => "authentication-needed",
+        SessionNotice::StartBusy(StartBusy::Shown) => "start-busy",
+        SessionNotice::StartBusy(StartBusy::Starting) => "start-busy-starting",
     }
 }
 
@@ -173,7 +175,7 @@ pub enum Prompt {
     /// Show my phrase's prompt, before the words.
     Phrase,
     /// The prompt that unlocks the app: the notice's Unlock, or a key
-    /// operation the presence window held back.
+    /// operation or start refused until the person authenticates.
     Unlock,
     /// The person authenticated.
     Granted,

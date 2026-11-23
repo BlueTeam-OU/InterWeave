@@ -72,6 +72,16 @@ import android.util.Log
  *
  *     adb shell am force-stop org.interweave.human
  *     adb shell am start -n org.interweave.human/.MainActivity --ez sealAlreadyProvisioned true
+ *
+ * [BUSY_STARTS], from the launch too, refuses each of the next that many
+ * service starts with the profile in use (the runtime's `LockHeld`), so
+ * `IdStartBusy` shows (identity note section 9, acceptance 12 and 15).
+ * Alone, the start after C4's, R4's or `IdRestoreOther`'s Continue is
+ * refused before the bound; with [HOLD_START_MS] past the 10 s bound,
+ * after it, on Chats:
+ *
+ *     adb shell am start -n org.interweave.human/.MainActivity --ei busyStarts 2
+ *     adb shell am start -n org.interweave.human/.MainActivity --ei busyStarts 1 --ei holdStartMs 12000
  */
 internal object DebugHooks {
     const val RESTART = "org.interweave.human.debug.RESTART"
@@ -81,6 +91,7 @@ internal object DebugHooks {
     const val HOLD_READS_MS = "holdReadsMs"
     const val HOLD_START_MS = "holdStartMs"
     const val SEAL_ALREADY_PROVISIONED = "sealAlreadyProvisioned"
+    const val BUSY_STARTS = "busyStarts"
     private const val TAG = "interweave"
 
     /** The native side of [REFUSE_STORE]: the debug library's alone. */
@@ -101,6 +112,9 @@ internal object DebugHooks {
     /** The native side of [SEAL_ALREADY_PROVISIONED]: the debug library's alone. */
     @JvmStatic private external fun answerNextSealAlreadyProvisioned()
 
+    /** The native side of [BUSY_STARTS]: the debug library's alone. */
+    @JvmStatic private external fun refuseNextStartsBusy(starts: Int)
+
     /** Arm the launch's hooks from [intent]'s extras, before anything starts. */
     fun fromLaunch(intent: Intent?) {
         val reads = intent?.getIntExtra(HOLD_READS_MS, 0) ?: 0
@@ -108,6 +122,8 @@ internal object DebugHooks {
         if (reads > 0) holdNextStartReads(reads)
         if (start > 0) holdNextStart(start)
         if (intent?.getBooleanExtra(SEAL_ALREADY_PROVISIONED, false) == true) answerNextSealAlreadyProvisioned()
+        val busy = intent?.getIntExtra(BUSY_STARTS, 0) ?: 0
+        if (busy > 0) refuseNextStartsBusy(busy)
     }
 
     /** Hear the hooks on the main thread while [service] runs; the unregistration. */

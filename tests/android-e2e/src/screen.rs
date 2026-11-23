@@ -1315,7 +1315,6 @@ mod tests {
     /// [`stand_in`], its `dumpsys window` printing `focus` too: the
     /// `mCurrentFocus=` and `mFocusedApp=` lines.
     fn stand_in_focus(locked: u32, trace: &str, focus: &str) -> (tempfile::TempDir, Screens) {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path().display();
         let script = format!(
@@ -1333,11 +1332,36 @@ esac
 "#
         );
         let program = dir.path().join("adb");
-        std::fs::write(&program, script).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&program, &script);
         let mut screens = Screens::new("stand-in");
         screens.program = program.into();
         (dir, screens)
+    }
+
+    /// Writes `text` to `path` as an executable script, by a child `sh`: the
+    /// writable descriptor is that child's, not this process's. Tests
+    /// run on threads of one process: a child another thread forks between a
+    /// write's open and its close inherits the descriptor until that child
+    /// execs, and running the script meanwhile fails `ETXTBSY` ("Text file
+    /// busy"), met in a full `cargo xtask ci` on 2026-11-21.
+    fn write_script(path: &std::path::Path, text: &str) {
+        use std::io::Write as _;
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .expect("sh writes the script");
+        child
+            .stdin
+            .take()
+            .expect("its stdin")
+            .write_all(text.as_bytes())
+            .expect("the script's text");
+        assert!(
+            child.wait().expect("sh ends").success(),
+            "the script written"
+        );
     }
 
     fn calls(dir: &tempfile::TempDir) -> Vec<String> {

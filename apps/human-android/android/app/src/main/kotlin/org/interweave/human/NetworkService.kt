@@ -132,6 +132,17 @@ class NetworkService : Service() {
          */
         fun locked(): Boolean = mode == Native.REFUSED_USER_NOT_AUTHENTICATED
 
+        /**
+         * The last start was refused with the profile in use: a recreation
+         * that keeps the binding starts it again, as a return does by
+         * binding anew (identity note section 6, A return or a
+         * recreation). While a start runs `mode` is UNANSWERED, so this is
+         * false then and a recreation does not start a second (BLOCKED on
+         * a device run: ui-slint's views.rs, the `IdStartBusy` after the
+         * bound block).
+         */
+        fun busy(): Boolean = mode == Native.REFUSED_LOCK_HELD
+
         /** The words are gone: start again, as a launch does. */
         @Synchronized
         fun online() {

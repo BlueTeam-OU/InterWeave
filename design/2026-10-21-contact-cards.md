@@ -4,8 +4,9 @@ Status: proposal for plan §29 steps 2–4, 2026-10-21, at architect-cto's
 request (REQUEST 01a15d2a); revised the same day for plan §30 (Stage 22)
 at their request (REQUEST 01a15efd), when the owner made a user identity
 an EndpointId of the node with its own card (ADR-0061, ADR-0059 A
-2026-10-21 (ii)). rust-ui-dev builds the card flows when the owner opens
-Stage 21 and the identity flows (§5.7) when the owner opens Stage 22.
+2026-10-21 (ii)). rust-ui-dev built the card flows in Stage 21 and
+builds the identity flows (§5.7) in Stage 22, which the owner opened on
+2026-11-19 (plan §30's opening record).
 The rules it answers to: ADR-0059, ADR-0060 decision 6, ADR-0061,
 HUMAN-CHAT.md §Contact card, STATE.md (`own_cards` keyed by EndpointId,
 `conversation_index.local_endpoint_id` and `card_shared_at`,
@@ -1201,7 +1202,9 @@ Switch identity"); its target is at least 48 dp high; its name takes
 what width is left after "Chats" and the ⋮ and ellipsises at the end,
 never below the avatar and three graphemes, the full name in the
 accessible name. On the desktop it is in the list pane's bar, where the
-same menu is.
+same menu is. Where the title, the switch at that minimum and the ⋮ do
+not fit on one row, `design/2026-11-04-identities.md` §12 ("The Chats
+bar when the switch does not fit") gives the bar's two rows.
 
 When another identity has unread items or a message that was not sent,
 the switch carries a badge: a dot with the count of unread items in the
