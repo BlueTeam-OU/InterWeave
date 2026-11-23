@@ -26,3 +26,8 @@ interweave-human-chat-protocol = { path = "../../crates/human/chat-protocol", fe
 interweave-transport-api = { path = "../../crates/api/transport-api" }
 jsonschema = "0.49"
 serde_json = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+# The thread CPU clock tests/linearity.rs times with: it counts only the
+# timed thread's own work, so load beside it does not enter the ratio.
+rustix = { workspace = true, features = ["time"] }
