@@ -546,14 +546,18 @@ fn remove_file_then_retire(
     Ok(removed)
 }
 
-/// The key directory `dir` under the state root, judged by what it is and
-/// whose before any read: a link, something that is not a directory, or a
-/// directory another account owns is [`KeyFileRead::DirUnsafe`] -- never
-/// followed, changed or replaced, since the client changes nothing it
-/// does not own (design/2026-10-24-identity-key.md section 3). Owner is
-/// compared with the profile's state directory, this account's by the
-/// profile lock; the read judges a directory's mode and not its owner. No
-/// directory is no key file, left to the read.
+/// The key directory `dir` under the state root, judged by what it is,
+/// whose and its mode before any read: a link, something that is not a
+/// directory, a directory another account owns, or one this account owns
+/// with any permission for its group or for other users (0711 among
+/// them) is [`KeyFileRead::DirUnsafe`] -- never followed, changed,
+/// replaced or tightened, since the person fixes the folder and Try again
+/// then finds the file's own state (design/2026-10-24-identity-key.md
+/// section 3, Q-loose). So a file's [`KeyFileRead::NotPrivate`] is judged
+/// only under a private folder. Owner is compared with the profile's
+/// state directory, this account's by the profile lock; the read judges a
+/// directory's mode and not its owner. No directory is no key file, left
+/// to the read.
 fn keys_dir_is_safe(paths: &ProfilePaths, dir: &str) -> Result<(), IdentityKeyFileError> {
     use std::os::unix::fs::MetadataExt as _;
     let dir = paths.state_dir().join(dir);
@@ -569,7 +573,7 @@ fn keys_dir_is_safe(paths: &ProfilePaths, dir: &str) -> Result<(), IdentityKeyFi
     let owner = std::fs::metadata(paths.state_dir())
         .map_err(|e| IdentityKeyFileError::Read(KeyFileRead::Io(e.kind())))?
         .uid();
-    if meta.uid() != owner {
+    if meta.uid() != owner || meta.mode() & 0o077 != 0 {
         return Err(unsafe_dir());
     }
     Ok(())
@@ -636,10 +640,11 @@ impl core::fmt::Display for IdentityKeyFileError {
 pub enum KeyFileRead {
     /// Larger than any record.
     TooLarge,
-    /// The file, or the key directory this account owns, is open to
-    /// another account.
+    /// The key file is open to another account, judged only once its
+    /// directory is private ([`KeyFileRead::DirUnsafe`] otherwise).
     NotPrivate,
-    /// The key directory is a link, not a directory, or another account's.
+    /// The key directory is a link, not a directory, another account's,
+    /// or open to another account.
     DirUnsafe,
     /// The read failed with this kind.
     Io(std::io::ErrorKind),
@@ -676,7 +681,7 @@ pub enum KeyUnusable {
     Damaged,
     /// Open to another account.
     Exposed,
-    /// The key folder is not one this account alone owns.
+    /// The key folder is not a private folder this account owns.
     DirUnsafe,
     /// A platform or read error that may pass.
     NotNow,

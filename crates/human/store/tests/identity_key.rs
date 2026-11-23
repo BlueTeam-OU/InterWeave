@@ -693,21 +693,14 @@ fn every_open_refusal_has_its_kind() {
         "mode 0000"
     );
 
-    // Readable by the group, or a key folder others can read: exposed.
+    // Readable by the group: exposed. A loose folder is not, whatever its
+    // file: a_loose_key_folder_is_unsafe_whatever_it_holds_until_private.
     let (_d, paths, id, file) = fresh();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).expect("chmod");
     assert_eq!(
         kind(&paths, &id, &FilesystemCustody),
         Some(K::Exposed),
         "the file"
-    );
-    let (_d, paths, id, file) = fresh();
-    let keys = file.parent().expect("the folder").to_owned();
-    std::fs::set_permissions(&keys, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-    assert_eq!(
-        kind(&paths, &id, &FilesystemCustody),
-        Some(K::Exposed),
-        "the folder"
     );
 
     // The folder a link to a private folder, or a file: never followed.
@@ -758,6 +751,107 @@ fn every_open_refusal_has_its_kind() {
     ] {
         assert_eq!(not_an_open.unusable(), None, "{not_an_open:?}");
     }
+}
+
+/// Q-loose (REPLY 01a207c7; design/2026-10-24-identity-key.md section 3,
+/// acceptance 15): a key folder this account owns with any permission for
+/// its group or for other users is "key folder not safe" whatever it
+/// holds -- a private file, a file others can read, or none -- and its
+/// mode is left as it is. Once the person makes it private, the open finds
+/// the file's own state: the key opens, the file is exposed, or there is
+/// none. Nothing of the loose folder outlasts the fix.
+#[test]
+fn a_loose_key_folder_is_unsafe_whatever_it_holds_until_private() {
+    use identity_key::KeyUnusable as K;
+    use std::os::unix::fs::MetadataExt as _;
+    let mode = |p: &std::path::Path| std::fs::metadata(p).expect("stat").mode() & 0o7777;
+    let chmod = |p: &std::path::Path, m: u32| {
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).expect("chmod");
+    };
+    // Each bit class a folder may give away: read and search, search
+    // alone (no other user can list it), write alone for the group or for
+    // others, and the group's read.
+    for loose in [0o755, 0o711, 0o701, 0o720, 0o702, 0o750] {
+        for file_mode in [Some(0o600), Some(0o644), None] {
+            let case = format!(
+                "folder {loose:o}, file {:?}",
+                file_mode.map(|m| format!("{m:o}"))
+            );
+            let (_dir, paths) = desktop_paths();
+            let id = identity_key::create(&paths, &FilesystemCustody)
+                .expect("created")
+                .endpoint()
+                .clone();
+            let file = identity_key::key_path(&paths, &id);
+            let keys = file.parent().expect("the folder").to_owned();
+            match file_mode {
+                Some(m) => chmod(&file, m),
+                None => std::fs::remove_file(&file).expect("unlink"),
+            }
+            let before = std::fs::read(&file).ok();
+            chmod(&keys, loose);
+
+            let refused = identity_key::open(&paths, &id, &FilesystemCustody).expect_err(&case);
+            assert_eq!(
+                refused,
+                IdentityKeyFileError::Read(identity_key::KeyFileRead::DirUnsafe),
+                "{case}"
+            );
+            assert_eq!(refused.unusable(), Some(K::DirUnsafe), "{case}");
+            assert_eq!(
+                identity_key::sealed(&paths),
+                Err(IdentityKeyFileError::Read(
+                    identity_key::KeyFileRead::DirUnsafe
+                )),
+                "{case}: the folder is not listed either"
+            );
+            assert_eq!(mode(&keys), loose, "{case}: the folder's mode is left");
+            assert_eq!(
+                std::fs::read(&file).ok(),
+                before,
+                "{case}: the file is left"
+            );
+
+            chmod(&keys, 0o700);
+            let opened = identity_key::open(&paths, &id, &FilesystemCustody);
+            match file_mode {
+                Some(0o600) => assert_eq!(
+                    opened.map(|k| k.map(|k| k.endpoint().clone())),
+                    Ok(Some(id.clone())),
+                    "{case}: a private key opens once the folder is"
+                ),
+                Some(_) => assert_eq!(
+                    opened.expect_err(&case).unusable(),
+                    Some(K::Exposed),
+                    "{case}: the file's own refusal, once the folder is private"
+                ),
+                None => assert_eq!(
+                    opened.map(|k| k.is_some()),
+                    Ok(false),
+                    "{case}: no file is no key once the folder is private"
+                ),
+            }
+        }
+    }
+
+    // The legacy folder of a release before Stage 22 is judged the same way.
+    let (_dir, paths) = desktop_paths();
+    // Made by a create, so the state directory is private as the store's.
+    identity_key::create(&paths, &FilesystemCustody).expect("created");
+    let legacy = paths.state_dir().join(identity_key::IDENTITY_KEYS_DIR);
+    std::fs::create_dir(&legacy).expect("mkdir");
+    chmod(&legacy, 0o755);
+    assert_eq!(
+        identity_key::open_legacy(&paths, "default", &FilesystemCustody).map(|k| k.is_some()),
+        Err(IdentityKeyFileError::Read(
+            identity_key::KeyFileRead::DirUnsafe
+        ))
+    );
+    chmod(&legacy, 0o700);
+    assert_eq!(
+        identity_key::open_legacy(&paths, "default", &FilesystemCustody).map(|k| k.is_some()),
+        Ok(false)
+    );
 }
 
 #[path = "common/keystore.rs"]
