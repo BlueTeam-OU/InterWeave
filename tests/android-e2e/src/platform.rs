@@ -501,13 +501,13 @@ pub fn keyguard_showing(dump: &str) -> Result<bool, String> {
 
 /// Whether the phone's user 0 has a screen lock, from `dumpsys
 /// lock_settings`'s `CredentialType:` line under `User 0`: `false` for
-/// none, `true` for a pattern, PIN or password. AOSP prints the type as
-/// its number up to API 30 (`-1` none; `1`, `2`, `3`, `4` the others,
-/// by `LockPatternUtils`' constants then) and by name from API 31
-/// (`credentialTypeToString`: `None`, `Pattern`, `Pin`, `Password`);
-/// the A40's record calls its lock `CredentialType Pin`. The fixtures
-/// below follow AOSP's source; the first device run captures the line
-/// as the phone prints it. A dump with
+/// none, `true` for a pattern, PIN or password. The type is read by name
+/// (`None`, `Pattern`, `Pin`, `Password`) or by `LockPatternUtils`'
+/// number (`-1` none; `1` to `4` the others), since a build may print
+/// either. The Samsung A40, API 30, prints `CredentialType: Pin` under
+/// `User 0` (`tests/android-e2e/runs/2026-11-23-samsung-a40-s21-12-invalidated-key.md`);
+/// the numbered form is from AOSP's source and no phone has shown it.
+/// A dump with
 /// only one user's block may print no `User 0` line, and then its one
 /// `CredentialType:` line is read.
 ///
@@ -1682,7 +1682,8 @@ channels:
         assert!(dump_ended("x\nException occurred while dumping:\nIW_END=0").is_err());
     }
 
-    // `LockSettingsService.dump`'s per-user block, by name (API 31 on).
+    // `LockSettingsService.dump`'s per-user block, by name, as the A40
+    // (API 30) prints its `User 0` and `CredentialType:` lines.
     const LOCK_BY_NAME: &str = "\
 Current lock settings service state:
 User State:
