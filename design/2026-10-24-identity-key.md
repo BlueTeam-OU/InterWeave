@@ -131,7 +131,7 @@ mapped here, and nothing else refuses at open:
 | protected less than this device requires | `CustodyDowngrade` | Android (any platform with a wrapping key) | `KeyBelowDevice` | none; `KeyNoNewKey` |
 | sealed by another device | `SealedUnreadableHere` | desktop | `KeyOtherDevice` | none; `KeyNoNewKey` |
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | none; `KeyNoNewKey` (the reason line names the update) |
-| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `endpoint-keys/` is a directory this user owns (a file its owner cannot read); and any refusal of a key path that holds neither a regular file nor a link (a directory, a FIFO, a socket or a device file in the key file's place), whoever owns it (Q-kind, §12). Which refusal that is depends on the entry: one that this user can open is refused by its kind as `NotPrivate`, before the read looks at the owner or the mode; one whose own mode refuses this user is a permission refusal, as above; and a socket, or a device file with no driver behind it, fails the open itself (`ENXIO` or `ENODEV`), which the client must tell apart from the I/O errors of "temporarily unusable" | both | `KeyDamaged` | none; `KeyNoNewKey` |
+| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `endpoint-keys/` is a directory this user owns (a file its owner cannot read); and any refusal of a key path that holds neither a regular file nor a link (a directory, a FIFO, a socket or a device file in the key file's place), whoever owns it (Q-kind, §12). Which refusal such a key path gets depends on the entry: one that this user can open is refused by its kind as `NotPrivate`, before the read looks at the owner or the mode; one whose own mode refuses this user is a permission refusal, as above; and a socket, or a device file with no driver behind it, fails the open itself (`ENXIO` or `ENODEV`), which the client must tell apart from the I/O errors of "temporarily unusable" | both | `KeyDamaged` | none; `KeyNoNewKey` |
 | not protected | the read's `NotPrivate` for the file (a regular file readable or writable by another user, a link, another user's regular file), and the read reaches the file only after `endpoint-keys/` is private; while the folder is loose, the kind is "key folder not safe" (below) | both (in practice the desktop) | `KeyExposed` | none; `KeyNoNewKey` |
 | key folder not safe | the read's `NotPrivate` for an `endpoint-keys/` that is a link or not a directory at all; and any read refusal while `endpoint-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal); and the read's `NotPrivate` for an `endpoint-keys/` directory that this user owns and whose mode is loose (any permission for its group or for other users, 0711 and 0701 among them, though no other user can list a folder at either mode), whatever files it holds. The read stops at the directory and never reaches the file, so the person fixes the folder first. Try again then shows the file's own state: the key opens, or the page shows the file's kind ("not protected", "missing" or any other) (Q-loose, REPLY 01a207c7: a private key opens again once the folder is private, and nothing outlasts the fix) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder |
 | temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but those in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again |
@@ -423,11 +423,12 @@ The step, in this order:
    outlives it (§5.4). The first identity is turned off, as identities
    §7's Turn off turns it off; the record is kept while both exist, and
    goes if the new identity is ever removed. Whatever stands at the
-   removed identity's key path goes as Remove takes it (ADR-0063
+   removed identity's key path is treated as Remove treats it (ADR-0063
    decision 2, ruled on #748): one unlink, or one removal of an empty
-   directory; a directory that holds anything is left where it is, and
-   the step completes either way, so Finish replacing is never offered
-   for it (§11 says what the person is told).
+   directory, takes it; a directory that holds anything is left where
+   it is. The step completes either way, so Finish replacing is
+   never offered because of that entry (§11 says why the person is told nothing
+   of an entry left behind).
 
 **Every point the step can stop at resolves to a state the person
 already knows**:
@@ -688,13 +689,15 @@ On both clients unless said; Android's screen-reader checks blocked as
     `KeyExposed` and not `KeyNotNow`; the open does not wait for the
     FIFO. A device file is not checked: making one needs a privilege
     or a mount that allows devices, which a test run does not have.
-    With identities' Remove built, the same three entries at the key
-    path of an added identity, and a 0700 directory holding one file
-    there: Remove completes in each run and the identity is gone; the
-    empty directory, the FIFO and the socket are gone from the key
-    path, and the directory that holds a file is still there with its
-    file. With part 2 built, Replace of such an identity shows the
-    result (§5.4) in each run, never `KeyReplaceUnfinished`.
+    With identities' Remove built, four runs, each with one entry at
+    the key path of an added identity: in three runs, one each of the
+    three entries above, with the directory empty, and in the fourth, a
+    0700 directory that holds one file.
+    Remove completes in each run and the identity is gone; the empty
+    directory, the FIFO and the socket are gone from the key path, and
+    the directory that holds a file is still there with its file. With
+    part 2 built, Replace of such an identity shows the result (§5.4)
+    in each of the four runs, never `KeyReplaceUnfinished`.
 15. Desktop, in three runs: `endpoint-keys/` at mode 0755 over a 0600
     key file, over a 0644 key file, and with no key file. Each run
     shows `KeyDirUnsafe` with the path and Try again, no `KeyNoNewKey`
@@ -928,11 +931,11 @@ identity's, each as `{identity}` is.
 - **Telling contacts automatically** after a replacement: a share is
   the person's act (ADR-0059), so part 2's list offers it and sends
   nothing.
-- **A line about an entry left at the key path** (the directory that
+- **A line about an entry left at the key path** (a directory that
   holds anything, which Remove and Replace leave, ADR-0063 decision 2):
   nothing is shown. What Remove's dialog said stays true, since no key
-  was there (`IdentityRemoveKey`), nothing of the identity is in the
-  entry the client did not write, and the person has nothing to do for
+  was there (`IdentityRemoveKey`), nothing of the identity is in that
+  entry, which the client did not write, and the person has nothing to do for
   the app: no later identity takes that file name. On Android the
   folder is the app's own and the person cannot open it, so a line
   naming it would offer a place they cannot reach; on the desktop the
@@ -1121,10 +1124,11 @@ acceptance 14 follow. Review round 1 on #748 found that the read does
 not refuse every such entry by its kind: one whose own mode refuses
 this user fails the open with a permission refusal, and a socket or a
 device with no driver fails it with `ENXIO` or `ENODEV`. §3's
-"damaged" row names all three, and ADR-0063 decision 2 does since the
-same review. That review's F4 found that a directory in the key file's
-place of an added identity could not be removed by Remove, which
-deleted a file, so Replace's step 5 (§5.3) would have stopped there.
+"damaged" row names all three, and ADR-0063 decision 2 has named them
+since the same review. That review's F4 found that a directory in the
+key file's place of an added identity could not be removed by Remove,
+since Remove deleted the key path as a file, so Replace's step 5 (§5.3) would have stopped at that
+entry.
 architect-cto ruled it the same day (REPLY 01a209d9, ADR-0063
 decision 2): one unlink, or one removal of an empty directory, takes
 the entry; a directory that holds anything is left; Remove and
