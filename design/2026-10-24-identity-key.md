@@ -121,7 +121,7 @@ refusal: an identity whose key opens has no line about it.
 
 Each refusal is named by its kind, in the person's terms, never by the
 error's name. A refusal comes from one of two places: the file read
-(`IdentityKeyFileError::Persist`, from `read_private_within`, before
+(`IdentityKeyFileError::Read`, from `read_private_within`, before
 the record is parsed) or the record (`IdentityKeyError`); both are
 mapped here, and nothing else refuses at open:
 
@@ -131,15 +131,18 @@ mapped here, and nothing else refuses at open:
 | protected less than this device requires | `CustodyDowngrade` | Android (any platform with a wrapping key) | `KeyBelowDevice` | none; `KeyNoNewKey` |
 | sealed by another device | `SealedUnreadableHere` | desktop | `KeyOtherDevice` | none; `KeyNoNewKey` |
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | none; `KeyNoNewKey` (the reason line names the update) |
-| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `endpoint-keys/` is a directory this user owns (a file its owner cannot read); and any refusal of a key path that holds neither a regular file nor a link (a directory, a FIFO, a socket or a device file in the key file's place), whoever owns it (Q-kind, §12). Which refusal such a key path gets depends on the entry: one that this user can open is refused by its kind as `NotPrivate`, before the read looks at the owner or the mode; one whose own mode refuses this user is a permission refusal, as above; and a socket, or a device file with no driver behind it, fails the open itself (`ENXIO` or `ENODEV`), which the client must tell apart from the I/O errors of "temporarily unusable" | both | `KeyDamaged` | none; `KeyNoNewKey` |
-| not protected | the read's `NotPrivate` for the file (a regular file readable or writable by another user, a link, another user's regular file), and the read reaches the file only after `endpoint-keys/` is private; while the folder is loose, the kind is "key folder not safe" (below) | both (in practice the desktop) | `KeyExposed` | none; `KeyNoNewKey` |
+| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal of a file this user owns while `endpoint-keys/` is a directory this user owns (a file its owner cannot read; another user's regular file refused this way is "not protected", below, which the client finds by the file's owner, since the open fails before the read looks at it); and any refusal of a key path that holds neither a regular file nor a link (a directory, a FIFO, a socket or a device file in the key file's place), whoever owns it (Q-kind, §12). Which refusal such a key path gets depends on the entry: one that this user can open is refused by its kind as `NotPrivate`, before the read looks at the owner or the mode; one whose own mode refuses this user is a permission refusal, "damaged" too whoever owns it, since it is not a regular file; and a socket, or a device file with no driver behind it, fails the open itself (`ENXIO` or `ENODEV`), which the client must tell apart from the I/O errors of "temporarily unusable" | both | `KeyDamaged` | none; `KeyNoNewKey` |
+| not protected | the read's `NotPrivate` for the file (a regular file readable or writable by another user, a link, another user's regular file), and its permission refusal of another user's regular file (a root-owned 0600 file, for one), and the read reaches the file only after `endpoint-keys/` is private; while the folder is loose, the kind is "key folder not safe" (below) | both (in practice the desktop) | `KeyExposed` | none; `KeyNoNewKey` |
 | key folder not safe | the read's `NotPrivate` for an `endpoint-keys/` that is a link or not a directory at all; and any read refusal while `endpoint-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal); and the read's `NotPrivate` for an `endpoint-keys/` directory that this user owns and whose mode is loose (any permission for its group or for other users, 0711 and 0701 among them, though no other user can list a folder at either mode), whatever files it holds. The read stops at the directory and never reaches the file, so the person fixes the folder first. Try again then shows the file's own state: the key opens, or the page shows the file's kind ("not protected", "missing" or any other) (Q-loose, REPLY 01a207c7: a private key opens again once the folder is private, and nothing outlasts the fix) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder |
 | temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but those in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again |
 | missing | no file (§7) | both | `KeyMissing` | none; `KeyNoNewKey` |
 
-The client must tell these read refusals apart: today `open` turns
-every read error into one string (`IdentityKeyFileError::Persist`),
-which cannot carry this mapping; the error's shape is rust-ui-dev's.
+The client must tell these read refusals apart: `open` gives the read's
+refusal as `IdentityKeyFileError::Read` with its cause (`TooLarge`,
+`NotPrivate`, `DirUnsafe`, or the I/O error's kind); what the table
+needs beyond those causes (the owner of the file or folder, the
+`ENXIO`/`ENODEV` of the "damaged" row) the client finds itself; the
+error's shape is rust-ui-dev's.
 A refusal that persists on every attempt is never "temporarily
 unusable", since Try again would repeat it for ever.
 
@@ -426,9 +429,14 @@ The step, in this order:
    removed identity's key path is treated as Remove treats it (ADR-0063
    decision 2, ruled on #748): one unlink, or one removal of an empty
    directory, takes it; a directory that holds anything is left where
-   it is. The step completes either way, so Finish replacing is
-   never offered because of that entry (§11 says why the person is told nothing
-   of an entry left behind).
+   it is. The step completes in both of those cases, so Finish replacing is
+   never offered because of a directory left there (§11 says why the person is told nothing
+   of an entry left behind). Any other failure of that unlink or
+   removal (the entry not removable by this user, a read-only or
+   busy file system, an I/O error), whatever the entry is, a key file
+   included, stops the step like any refusal in steps 2 to 5:
+   `KeyReplaceUnfinished` and Finish replacing (below). Identities §7's
+   Remove stops the same way.
 
 **Every point the step can stop at resolves to a state the person
 already knows**:
@@ -650,7 +658,10 @@ On both clients unless said; Android's screen-reader checks blocked as
    byte below this build's, and a file over the record bound each show
    `KeyDamaged`; a version byte above this build's, and an unknown
    custody byte, show `KeyNewerVersion`; desktop: the key file made
-   readable by the group shows `KeyExposed`.
+   readable by the group shows `KeyExposed`, and the key file at mode
+   0000 (this user's, so the open is refused) shows `KeyDamaged`.
+   Another user's 0600 key file (`KeyExposed`, §3) is not checked:
+   making one needs a privilege a test run does not have.
 3. With two identities, the list's row of the one in this state shows
    `KeyStateRow` with the icon, and only that row.
 4. Share in a conversation of that identity shows the sheet with the
@@ -697,7 +708,12 @@ On both clients unless said; Android's screen-reader checks blocked as
     directory, the FIFO and the socket are gone from the key path, and
     the directory that holds a file is still there with its file. With
     part 2 built, Replace of such an identity shows the result (§5.4)
-    in each of the four runs, never `KeyReplaceUnfinished`.
+    in each of the four runs, never `KeyReplaceUnfinished`. In a fifth
+    run, a seam failing the unlink of an ordinary key file with an I/O
+    error: Remove shows `IdentityChangeFailed` (identities §7), the
+    identity is still listed and its key opens; with part 2 built,
+    Replace shows `KeyReplaceUnfinished` with Finish replacing, as
+    item 31's seam refusing step 5.
 15. Desktop, in three runs: `endpoint-keys/` at mode 0755 over a 0600
     key file, over a 0644 key file, and with no key file. Each run
     shows `KeyDirUnsafe` with the path and Try again, no `KeyNoNewKey`
@@ -732,7 +748,7 @@ On both clients unless said; Android's screen-reader checks blocked as
     client, on the page, in the share sheet or in a menu; `KeyNotNow`
     shows Try again alone, and refused again (item 10's seam returning
     the platform error twice) shows `KeyNotNowAgain` with Try again
-    alone. The store's new-key refusal (`KeyIsTheIdentity`) is never
+    alone (part 1; with part 2 built, item 21). The store's new-key refusal (`KeyIsTheIdentity`) is never
     reached from the interface.
 20. With every kind of item 2 and `KeyMissing` in turn, the sheet of
     §4.3 shows the reason line and `KeyCannotShareHere` and not
@@ -753,7 +769,11 @@ exists those runs are blocked.
     Replace with a new identity after it; "temporarily unusable"
     shows Try again, then Replace as a text button, and no
     `KeyNoNewKey`; "key folder not safe" shows Try again alone. Replace
-    is not in the share sheet or the list of identities.
+    is not in the share sheet or the list of identities. "Temporarily
+    unusable" refused again (item 10's seam returning the platform
+    error twice) shows `KeyNotNowAgain` with Try again and Replace, as
+    §6 says; "key folder not safe" refused again shows it with Try
+    again alone.
 22. Replace opens the dialog with focus on Cancel, and Enter cancels.
     For an added identity it shows `KeyReplaceBody`,
     `KeyReplaceCarries`, `KeyReplaceRemoves` and the Remove list of
@@ -936,7 +956,10 @@ identity's, each as `{identity}` is.
   nothing is shown. What Remove's dialog said stays true, since no key
   was there (`IdentityRemoveKey`), nothing of the identity is in that
   entry, which the client did not write, and the person has nothing to do for
-  the app: no later identity takes that file name. On Android the
+  the app: no new identity takes that file name, since an EndpointId
+  is derived from its key. Bringing the same key back (ADR-0064,
+  proposed) would meet that entry at the same path; how that restore
+  treats it is that record's to decide, not designed here. On Android the
   folder is the app's own and the person cannot open it, so a line
   naming it would offer a place they cannot reach; on the desktop the
   person who put a directory there finds it where they put it.

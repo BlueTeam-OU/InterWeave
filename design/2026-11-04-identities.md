@@ -496,6 +496,13 @@ where focus lands — with its dialog changed for ADR-0067:
 - **Cancel** first focus, **Remove** filled in `error`, no Undo.
 - **Its trusted peers** leave the device's admission set when no other
   set holds them; nothing on the remaining identities' screens changes.
+- **Its key path** is the first thing Remove takes, as ADR-0063
+  decision 2 says (identity-key §5.3 step 5): a directory that holds
+  anything is left and Remove goes on; any other failure to remove
+  the entry stops Remove before anything else goes, and the snackbar
+  is `IdentityChangeFailed`'s Remove text, whose "Nothing was changed"
+  is then true. Never done: Remove reporting done while the key file
+  is still there.
 
 **Turn off this identity** (the first identity) stands as cards §5.2
 says. One addition: its trust stays. Turned off, it admits nothing
@@ -960,7 +967,10 @@ pass before it lands.
     its conversations, pending outbound (tried no further), contacts,
     trusted set and card are gone, and a may-have-reached count was
     shown when one existed. Not offered on the first identity or the
-    default. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
+    default. With the unlink of the key file made to fail (identity-key
+    acceptance 14's fifth run): `IdentityChangeFailed`'s Remove text,
+    and the identity, its conversations, contacts, trusted set, card
+    and key are all still there. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
