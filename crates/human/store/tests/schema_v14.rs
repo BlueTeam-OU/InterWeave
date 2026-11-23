@@ -568,6 +568,39 @@ fn an_upgrade_that_discarded_nothing_writes_no_counts_row() {
     );
 }
 
+/// The counts are by the row (STATE.md §Migrations, A 2026-11-22 (ii)): a
+/// pending row and an unread card of a conversation (c) discards are each
+/// counted once, in its pending part and in card proposals, and the card
+/// is no unread message. Mutations: (c) taking its pair's pending rows
+/// before the pending parts are counted; the card proposals deleted after
+/// (c).
+#[test]
+fn a_discarded_conversations_pending_row_and_card_are_counted_by_the_row() {
+    let (_dir, path) = v13_store();
+    let p = node("p");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("v13");
+        let v13 = V13(&conn);
+        v13.indexed(&p, "stranger", None);
+        v13.pending(1, &p, Some("stranger"), None, 0);
+        v13.pending(2, &p, Some("stranger"), None, 3);
+        v13.unread_at(3, &p, Some("stranger"), None, 3, "card");
+    }
+    let store = HumanStore::open(&path, &me(), StoreOptions::default()).expect("migrates");
+    assert_eq!(
+        store.discarded_at_v14().expect("read"),
+        Some(DiscardedAtV14 {
+            conversations: 1,
+            pending_never_attempted: 1,
+            pending_may_have_reached: 1,
+            card_proposals: 1,
+            ..DiscardedAtV14::default()
+        })
+    );
+    assert!(store.unread_inbound().expect("unread").is_empty());
+    assert!(store.pending_outbound().expect("pending").is_empty());
+}
+
 /// One `{peer, label}` pair under two contacts with two different keys,
 /// which no writer of the store makes, fails the migration rather than
 /// being settled either way: the transaction rolls back, the store stays

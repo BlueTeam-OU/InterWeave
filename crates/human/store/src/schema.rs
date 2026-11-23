@@ -286,7 +286,8 @@ fn migration_14(
 
     // (e)'s card proposals first, so that (c)'s unread count below is of
     // messages alone: a card is no message, and every unread card goes
-    // whatever its pair.
+    // whatever its pair, counted here by the row. The pending rows were
+    // counted above, before (c) or (e) took any of them.
     let card_proposals = i64::try_from(
         tx.execute("DELETE FROM unread_inbound WHERE kind = 'card'", [])
             .map_err(migration_error)?,

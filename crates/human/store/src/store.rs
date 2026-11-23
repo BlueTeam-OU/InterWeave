@@ -191,11 +191,13 @@ pub struct DiscardedAtV14 {
     pub unread: u64,
     /// Kept messages: the kept rows (c) discarded.
     pub kept: u64,
-    /// Pending rows with no attempt behind them, which were not sent (e).
+    /// Pending rows with no attempt behind them, which were not sent:
+    /// every one the migration discarded, whichever of (c) and (e) took it
+    /// (the count is by the row, A 2026-11-22 (ii)).
     pub pending_never_attempted: u64,
     /// Pending rows with an attempt behind them, which may have reached
-    /// their counterparty under the previous release (e; RETENTION.md §2's
-    /// `attempts > 0`): never said as not sent.
+    /// their counterparty under the previous release (RETENTION.md §2's
+    /// `attempts > 0`): never said as not sent. By the row, as above.
     pub pending_may_have_reached: u64,
     /// Contacts (c) deleted with their last route.
     pub contacts: u64,
@@ -203,9 +205,10 @@ pub struct DiscardedAtV14 {
     /// another contact of the same identity, whose own name and notes went
     /// with them while the person's contact stays.
     pub contacts_combined: u64,
-    /// Card proposals: the unread rows of kind `card` that (e) discarded,
-    /// which are no messages and which the counterparty's card, shared
-    /// again, replaces.
+    /// Card proposals: every unread row of kind `card` the migration
+    /// discarded, whichever of (c) and (e) took it (by the row, A
+    /// 2026-11-22 (ii)), which are no messages and which the counterparty's
+    /// card, shared again, replaces.
     pub card_proposals: u64,
 }
 
