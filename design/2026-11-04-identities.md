@@ -89,19 +89,24 @@ acceptance case in §14 that needs one says so:
   the same three on Android. §6.2 relies on one behaviour of the add
   that D1 must name: an add whose key derives an EndpointId the profile
   already holds answers that the id exists, distinguishable from a
-  refusal, and creates nothing new. And one property the key's cleanup
-  relies on (§6.2): an add the client stopped waiting for is either
-  committed before the daemon answers any later call, or never commits;
-  and a refusal means no add of that key will commit. Without it, a key
-  deleted on a list that answered could belong to an endpoint created
-  afterwards. §7's Remove relies on the same property for the remove:
-  a remove the client stopped waiting for is either committed before
-  the daemon answers any later call, or never commits. Without it, a
-  list read back after a lost answer could show the id present for an
-  identity that is removed a moment later, and the snackbar would say
-  it is still here. And the remove takes the identity's trusted set
-  (its `inbound` and `outbound` members, ADR-0028) out of the endpoint
-  overlay with the endpoint.
+  refusal, and creates nothing new. The key's cleanup (§6.2) relies on
+  one more answer of the add: an add whose key file is absent when the
+  daemon applies it is refused (`key_missing`) and creates nothing, so
+  an add the client stopped waiting for cannot create an endpoint after
+  the client deleted its key on a list that answered; and a refusal
+  means no add of that key will commit. Neither the add nor the remove
+  promises more about an answer that was lost: a write the client
+  stopped waiting for may still commit after a later list has answered
+  (`LOCAL-IPC.md`, A 2026-10-23; ADR-0061 decision 7, A 2026-11-24).
+  §7's Remove is written for that: an id read back present after a lost
+  answer is a Remove not known to have finished, and what the person is
+  told stays true if the identity goes a moment later. Of the remove,
+  §7 relies on three answers: a remove of an id the device does not
+  hold answers `EndpointUnknown`, told apart from a refusal; a remove
+  that leaves the configuration ahead of the running device (ADR-0028)
+  answers `Internal`, as a write that failed does; and the remove takes
+  the identity's trusted set (its `inbound` and `outbound` members,
+  ADR-0028) out of the endpoint overlay with the endpoint.
 - **D2** the endpoint dimension of `admin.trust.set` and
   `admin.trust.list` (p2p-network-dev's IPC minor, contract text
   architect-cto's; ADR-0067 d. 6).
@@ -519,10 +524,14 @@ where focus lands — with its dialog changed for ADR-0067:
   conversations, contacts and card), and asks the device to remove the
   endpoint last. Its trusted set is the device's, kept in the endpoint
   overlay (ADR-0028), and goes with the endpoint at the device's remove
-  (D1); a Remove that did not finish leaves it unchanged. A failure at any step after the key
-  path, before the device has removed the endpoint, is a Remove that
-  did not finish. The first four items below say what follows such a
-  failure; the last says how the client reads a lost answer:
+  (D1); a Remove that did not finish leaves it unchanged. A failure at
+  any step after the key path, before the device has removed the
+  endpoint, is a Remove that did not finish, whatever the device
+  answered: a refusal, and `Internal` too, since the client cannot tell
+  a write that failed from a configuration left ahead of the running
+  device (ADR-0028, D1). The first five items below say what follows
+  such a failure; the sixth says how the client reads a lost answer,
+  and the last what leaves nothing of the identity behind:
   - The snackbar is `IdentityRemoveUnfinishedRows` when the
     identity's rows were deleted before the failure, and
     `IdentityRemoveUnfinished` when they were not (a failure at the
@@ -531,38 +540,65 @@ where focus lands — with its dialog changed for ADR-0067:
     has an Undo. It names the identity by
     the name the Remove dialog showed. The dialog has closed and focus
     is on the overflow button of the identity's page, as after a refused
-    Remove (cards §5.2).
+    Remove (cards §5.2). `IdentityRemoveUnfinishedRows` never says that
+    the identity is still here, nor that Remove again will finish it:
+    it shows also where the device may yet remove the endpoint a moment
+    later, or only at its own next start (the items below).
   - The identity stays listed, and its page shows the missing key
     (`KeyMissing`, identity-key §4.1). If its rows were deleted before
     the failure, it has no card, conversations or contacts, and the
     list and its page name it by its alias, as they name any identity
-    with no card (§6.2). From the deletion of its rows until Remove
-    finishes or the app next starts, it receives nothing: no message
-    to it is kept or shown (ADR-0061 decision 7). If Remove failed
-    before its rows were deleted, the rows stay, and the identity
-    still receives messages, like any other identity whose key is
-    missing (identity-key §1).
-  - After a restart, the list and its page show the same as before,
-    because nothing stores that a Remove began. One case differs: when
-    the device answers that it could not apply the change now but will
-    at its own next start (ADR-0028, `Internal`), the identity is gone
-    after the device's next start, with nothing of it left.
+    with no card (§6.2). From the deletion of its rows it receives
+    nothing (no message to it is kept or shown) until Remove finishes,
+    a list that answered does not hold its id, or the app's process
+    ends (ADR-0061 decision 7). If Remove failed before its rows were
+    deleted, the rows stay, and the identity still receives messages,
+    like any other identity whose key is missing (identity-key §1).
+  - After a restart of the app, the list and its page show the same as
+    before, because nothing stores that a Remove began, and the
+    identity receives messages again, like any other identity whose key
+    is missing; the last item takes them with it when it goes.
   - Remove stays offered on that page. If the person chooses Remove
-    again, it completes, because the key path now holds nothing to
-    take. The Remove dialog is the same as before: its key item
-    (`IdentityRemoveKey`) still says that no one can use this identity
-    again.
+    again, it completes once the device removes the endpoint, because
+    the key path now holds nothing to take. The Remove dialog is the
+    same as before: its key item (`IdentityRemoveKey`) still says that
+    no one can use this identity again.
+  - **The configuration is left ahead of the running device** (the
+    desktop's daemon wrote it and could not apply it, ADR-0028): the
+    device still serves the endpoint and lists its id until its own
+    next start, so each Remove again until then ends as above, with
+    `IdentityRemoveUnfinishedRows`. The client cannot tell this case
+    from a write that failed, and the snackbar does not name it. At the
+    device's next start the endpoint is gone, and the identity leaves
+    the list by the last item.
   - **The device's answer to the remove is lost** (the connection
     drops, or the answer never comes): the client reads the endpoint
     list back (`admin.endpoints.list`), as Add does (§6.2). If the
     identity's id is absent from the list, Remove is done, as when the
     device answers done (cards §5.2). If the id is present, or the list
-    does not answer, the Remove did not finish, as in the items above.
-    If Remove is chosen again for an id that the device no longer holds,
-    it ends the same way: done once the list shows the id absent. D1's
-    text in architect-cto's supply, not yet on main, says that the
-    device answers that remove with `EndpointUnknown`; the read-back
-    does not depend on that answer.
+    does not answer, the Remove is not known to have finished, since
+    the remove may still be applied after that list answered (D1), and
+    it ends as in the items above. If Remove is chosen again for an id
+    that the device no longer holds, the device answers
+    `EndpointUnknown` (D1), and Remove ends as done once the list shows
+    the id absent.
+  - **An identity that cannot come back leaves with nothing of it
+    left** (ADR-0061 decision 7, A 2026-11-24): at the app's start,
+    after every reconnection to the device, and whenever
+    `admin.endpoints.list` answers, the client deletes the store rows of
+    an identity whose id that list does not hold and whose key path
+    holds no key file. Nothing is deleted on a list that failed, and an
+    identity whose key file is still there keeps its rows, since it can
+    be configured again. The identity leaves Your identities, the
+    switcher and the switch, as one that Remove ended as done leaves
+    them (cards §5.2), with no snackbar of its own: the person already
+    chose Remove, and `IdentityRemoveUnfinishedRows` did not say it was
+    staying. One case has one: when it was in front, the default comes
+    in front with `ConfirmIdentityRemovedSwitched`, as after a Remove
+    done (cards §5.2), since the identity in use never changes without
+    the person being told which one it now is. Where its page or one
+    of its screens was shown, the app lands as after a Remove done
+    (cards §5.2, "Where it lands"); focus is F22's (§11).
 
 **Turn off this identity** (the first identity) stands as cards §5.2
 says. One addition: its trust stays. Turned off, it admits nothing
@@ -782,6 +818,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
 | F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
 | F21 | the identity in front becomes Starting or Could not start while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted |
+| F22 | an identity leaves the list after an unfinished Remove (§7's last item) | when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); otherwise unchanged, the focused control still being shown | keyboard, with acceptance 13's late-remove run |
 
 ## 12. Accessibility beyond focus
 
@@ -912,7 +949,7 @@ front.
 | `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
 | `IdentityRemoveUnfinished` | Could not finish removing {identity}. Its key was removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken and before its rows were deleted (§7) | the key is gone, the identity is still there; Remove chosen again finishes it |
-| `IdentityRemoveUnfinishedRows` | Could not finish removing {identity}. Its key, conversations, contacts and card were removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its rows were deleted and before the device removed the endpoint (§7) | the key, conversations, contacts and card are gone, the identity is still there; Remove chosen again finishes it |
+| `IdentityRemoveUnfinishedRows` | Could not finish removing {identity}. Its key, conversations, contacts and card were removed. If {identity} is still listed, choose Remove again. | snackbar after a Remove that failed after its rows were deleted, or whose answer from the device was lost, and before the device was known to have removed the endpoint (§7) | the key, conversations, contacts and card are gone; the identity may still be listed, or may leave the list a moment later or at the device's next start, so the text never says it is still here or that Remove again will finish it; while it is listed, Remove again is the way on |
 | `IdentityRemoveOthersKeep` | People who saved {identity} as a contact still have its name and photo. Their messages to it reach no one. To them, an identity that you add later is a different one. | Remove dialog | others keep its name and photo, their messages reach no one, a new identity is a different one to them |
 | `MessagesWaitingLocked` | New messages | lock screen | new messages, no count, no name; the same text as `MessagesChannel`, so the key may be that one |
 | `NotificationIdentityLine` | {identity}: 1 new message / {identity}: {count} new messages | the group summary's lines (§9), one an identity; the first for a count of one, the second for any other | the identity and its count; plural forms language-culture's |
@@ -1077,7 +1114,23 @@ pass before it lands.
     list is read back, and Remove ends as done, with no snackbar of
     failure. With a seam that drops the connection before the device
     applies the remove: the snackbar is `IdentityRemoveUnfinishedRows`,
-    as in the refusal run. Needs D1. *(`human-client-ui.md` §13 bullets 17,
+    as in the refusal run. With a seam that holds the remove until after
+    the read-back has answered and then applies it (the late-remove
+    run): the snackbar is `IdentityRemoveUnfinishedRows`; at the next
+    list that answers (Your identities opened again) the identity is
+    gone with no snackbar, and focus is as F22 says; with it in front
+    when the remove was applied, the default is in front with
+    `ConfirmIdentityRemovedSwitched`. On the desktop, with the daemon's
+    configuration write made to install and its apply and restore made
+    to fail (`Internal`): the snackbar is
+    `IdentityRemoveUnfinishedRows`, and Remove chosen again ends the
+    same way; after the app is restarted with the daemon still running,
+    a message sent to the identity is admitted as to any identity whose
+    key is missing; after the daemon is restarted, the identity is gone
+    from the list, and the store holds no row of it, that message's
+    included. In a run that takes an identity's endpoint out of the
+    configuration by other hands with its key file left in place, its
+    rows are still there after the next list that answers. Needs D1. *(`human-client-ui.md` §13 bullets 17,
     36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
