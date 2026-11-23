@@ -267,6 +267,29 @@ found it, the store removed the key path with an unlink alone, which
 fails on a directory (`EISDIR`), so Replace stayed unfinished and
 repeated the refusal; the code that conforms is rust-ui-dev's.
 
+The first review of #751 found a third gap in the same sentences (F1).
+"A Remove that stops there has changed nothing" covered a failure at
+the key path, and nothing covered a failure after it: the platform
+key's retirement, the configuration, the daemon's refusal or a lost
+connection to it, the store's deletion. The key was then gone, the
+identity still listed with its key missing, and the design note's
+snackbar for a failed Remove said "Nothing was changed". Ruled, on
+ux-designer-01's request (their alternative A): the key path stays
+first, and a failure after it is a Remove that did not finish, not one
+that changed nothing. It says the key is removed and that Remove did
+not finish; the identity stays listed in the missing state decision 1
+already gives a key file that is gone, with no stored mark of the
+Remove; Remove stays offered and completes, since a path that holds
+nothing has nothing to take. Rejected: taking the key path last. A
+failure there would come after the identity had left the configuration
+and the store, so the private key would stay on disk under an identity
+no list shows, and no screen would be left to finish from. With the
+key first, every state a failed Remove leaves is one the person sees
+and can finish, and the one Remove that leaves a private key on disk
+is the one that says nothing was changed. The words are the design note's
+(identities section 7, with language-culture's read) and the code that
+conforms is rust-ui-dev's; as this was ruled, Remove was not built.
+
 The first amendment's note gave two bounds that were wrong, and its
 paragraph is corrected in place. It said a loose directory "shows
 other users at most the file names (where it gives them the read bit;
@@ -291,4 +314,7 @@ first 2026-11-23 note's second paragraph; this note; the log row; the
 digest entry. The identity-key design note already reads so (its
 sections 3 and 5, its section 11 for the entry left behind, which
 decision 2 hands to it, and criterion 14), and the identities design
-note's section 7 for Remove taking the key path first.
+note's section 7 for Remove taking the key path first. The ruling on a
+Remove that fails after the key path adds a sentence to decision 2, to
+the log row and to the digest entry; identities section 7 and its
+acceptance run follow on #751.
