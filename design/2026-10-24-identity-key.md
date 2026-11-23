@@ -154,12 +154,17 @@ key may already have been read, so it is not used again (architect-cto's,
 a card again. "Not used again" applies when the client refuses the
 key file itself, not its folder: a loose directory this user owns,
 over a private file, never lets another user read the file. At most,
-it lets other users see the files' names, if it gives them the read
-bit, and each file's size, times and mode, if it gives them the search
-bit (at 0711 and 0701 they can list nothing). If the directory also lets them write, a file
-that was swapped is refused at open by the checks on the file itself,
-and a file that was removed is "missing"; the person sees each
-result only after the folder is private (REPLY 01a207c7). A private key
+it lets other users list the files' names, if it gives them the read
+bit, and see the size, times, owner and mode of each file whose name
+they know, if it gives them the search bit. The names are EndpointIds,
+which are public, so the search bit alone (0711, 0701) lists nothing
+and still gives that much; none of it is key material. If the
+directory gives another user both the write bit and the search bit, a
+file that was swapped is refused at open by the checks on the file
+itself, and a file that was removed is "missing"; the write bit
+without the search bit (0720, 0702) allows neither. The person sees
+each result only after the folder is private (REPLY 01a207c7;
+ADR-0063, second amendment of 2026-11-23). A private key
 file in a loose directory opens after the folder is made private,
 never while the folder is loose. When the folder is private, a key
 file that is not private is refused by its own check, and is not
@@ -1078,8 +1083,14 @@ private. The mapping in §3 follows that ruling. The question, as asked:
   refusal outlast the folder's fix (a stored mark, the store's), and
   Replace then tighten the folder first?
 
-Open, for architect-cto, asked with this revision (job j166, review
-round 1 on #746):
+Asked of architect-cto with job j166 (review round 1 on #746), and
+answered yes by REPLY 01a208d0-28c6 the same day: a directory, a FIFO,
+a socket or a device file at the key path is a record that is not
+valid ("damaged", §3), whoever owns it, since the read refuses it by
+its kind before it looks at the owner or the mode. ADR-0063 records
+the ruling (second amendment of 2026-11-23, decision 2: its three
+causes of "exposed" say "regular file"); §3 and acceptance 14 follow.
+The question, as asked:
 
 - **Q-kind**: the read refuses anything at the key path that is
   neither a regular file nor a link (a directory, a FIFO) as
