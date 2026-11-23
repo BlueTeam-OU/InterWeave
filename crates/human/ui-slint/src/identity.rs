@@ -1361,9 +1361,8 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::W);
     }
 
-    /// S1's primary raises the system prompt: it has a key of its own,
-    /// never C4's and R4's Continue, which moves on (the owner, on the
-    /// Pixel; language-culture-en, REPLY 01a15d22).
+    /// S1 says, under its body, what the words do not restore: C1's fifth
+    /// point (identity note section 3.5, the `IdC1Point5` row).
     #[test]
     fn s1_says_what_the_words_do_not_restore_under_its_body() {
         let flow = IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
@@ -1372,6 +1371,9 @@ mod tests {
         assert_eq!(s1.paragraphs.row_data(1), Some(en(UiText::IdC1Point5)));
     }
 
+    /// S1's primary raises the system prompt: it has a key of its own,
+    /// never C4's and R4's Continue, which moves on (the owner, on the
+    /// Pixel; language-culture-en, REPLY 01a15d22).
     #[test]
     fn s1_asks_to_unlock_where_c4_continues() {
         let flow = IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
