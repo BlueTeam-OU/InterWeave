@@ -55,7 +55,14 @@ A40's app data"), relayed by architect-cto's REPLY 01a20747-d1aa:
 (`interweave.idk1.human-android.human`) and the store's key
 (`interweave.store.human-android`) still open, inside secure hardware,
 not bound to authentication. Only the seed's `user-presence` key is
-refused. The lock read as `CredentialType: Pin` under `User 0`.
+refused. The lock read as `CredentialType: Pin` under `User 0`. The same
+dump, read before the run at about 09:20 UTC, goes on past user 0's
+block to a storage section that names user 0 again:
+
+```text
+Storage:
+  User 0 [/data/system_de/0/spblob]:
+```
 
 So on this phone, removing the screen lock invalidates a key made with
 `setUserAuthenticationRequired` and keeps its alias, and setting the lock

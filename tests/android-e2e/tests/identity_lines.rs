@@ -45,7 +45,8 @@
 //! a PIN. Keystore invalidation on a lock-screen change is
 //! `an_invalidated_user_presence_key_opens_on_k1_and_mints_nothing`,
 //! S21-12's case: it needs the person's lock settings and leaves the
-//! profile in recovery. It passed on the Samsung A40, API 30
+//! profile in recovery. It passed on the Samsung A40, API 30, at
+//! `4ef7723fc`, before its `QUIET` wait on K1 was added
 //! (`runs/2026-11-23-samsung-a40-s21-12-invalidated-key.md`).
 
 #![cfg(target_os = "linux")]

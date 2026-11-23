@@ -1746,7 +1746,8 @@ User State:
         // and with no User 0 at all.
         assert!(screen_lock_set("User 0\n  SID: 0\nUser 10\n  CredentialType: None\n").is_err());
         assert!(screen_lock_set("User 10\n  CredentialType: None\n").is_err());
-        // The A40's storage section names user 0 again: it ends the block.
+        // The storage section names user 0 again, as the A40 printed it
+        // (the 2026-11-23 run record): it ends the block.
         assert!(
             screen_lock_set("User 0\n  SID: 0\nStorage:\n  User 0 [/data/system_de/0/spblob]:\n  CredentialType: None\n")
                 .is_err()
