@@ -587,14 +587,43 @@ ui_texts! {
     IdShowWords => "Show my words",
     /// ANDROID, identity screens: C2's and S2's title.
     IdWordsTitle => "Your 24 words",
-    /// ANDROID, identity screens: The `PeerId`'s label (§5) on C2 and S2,
-    /// where the person writes.
-    IdPeerIdLabel => "Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share.",
+    /// ANDROID, identity screens: C2's and S2's words page, one line above
+    /// the words (§3.2). Keeps the phrase's name, "identity recovery
+    /// phrase", as `IdC1Point2` does, until Q16 decides it for both.
+    // PLACEHOLDER (en)
+    IdNotWalletSeed => "InterWeave identity recovery phrase, not a cryptocurrency wallet seed",
+    /// ANDROID, identity screens: C2's and S2's words page, under
+    /// `IdNotWalletSeed`: the label before the phrase's untranslated
+    /// format identifier, which stands alone after it (§3.2).
+    // PLACEHOLDER (en)
+    IdFormatLine => "Phrase format:",
+    /// ANDROID, identity screens: The title of C2's and S2's `PeerId`
+    /// page, and the `PeerId`'s accessible name there (§5).
+    // PLACEHOLDER (en)
+    IdPeerIdTitle => "Your PeerId",
+    /// ANDROID, identity screens: The note under the `PeerId` (§5) on C2's
+    /// `PeerId` page, where the person writes; the page's title names it.
+    // PLACEHOLDER (en)
+    IdPeerIdLabel => "Write it on the same paper as your words. It is not a password, and it is safe to share.",
+    /// ANDROID, identity screens: The note under the `PeerId` on S2's
+    /// `PeerId` page, where the person has written it before; the page's
+    /// title names it.
+    // PLACEHOLDER (en)
+    IdPeerIdNoteShown => "It is the one on your paper. It is not a password, and it is safe to share.",
     /// ANDROID, identity screens: The `PeerId`'s label on C4 and R4, where
     /// the person has already written it.
     IdPeerIdLabelShown => "Your PeerId. It is the one on your paper. It is not a password, and it is safe to share.",
-    /// ANDROID, identity screens: C2's primary.
-    IdWrittenDown => "I wrote down the words and PeerId",
+    /// ANDROID, identity screens: The primary of C2's words page (→ its
+    /// `PeerId` page).
+    // PLACEHOLDER (en)
+    IdWrittenDown => "I wrote down the words",
+    /// ANDROID, identity screens: The primary of C2's `PeerId` page (→ C3).
+    // PLACEHOLDER (en)
+    IdPeerIdWritten => "I wrote down the PeerId",
+    /// ANDROID, identity screens: The primary of S2's words page (→ its
+    /// `PeerId` page).
+    // PLACEHOLDER (en)
+    IdNext => "Next",
     /// ANDROID, identity screens: C3's title.
     IdCheckTitle => "Check your words",
     /// ANDROID, identity screens: C3's body, one line.
@@ -719,7 +748,8 @@ ui_texts! {
     IdS1Unlock => "Unlock and show my words",
     /// ANDROID, identity screens: The progress state (§3.5, §6).
     IdGoingOffline => "Going offline…",
-    /// ANDROID, identity screens: S2's primary.
+    /// ANDROID, identity screens: The primary of S2's `PeerId` page, its
+    /// last page.
     IdDone => "Done",
     /// ANDROID, identity screens: §6's checksum banner.
     IdChecksumFailed => "These words do not form a recovery phrase. A word may be wrong or in the wrong place. Check them against your paper.",
