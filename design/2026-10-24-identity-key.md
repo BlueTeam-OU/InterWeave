@@ -131,10 +131,10 @@ mapped here, and nothing else refuses at open:
 | protected less than this device requires | `CustodyDowngrade` | Android (any platform with a wrapping key) | `KeyBelowDevice` | none; `KeyNoNewKey` |
 | sealed by another device | `SealedUnreadableHere` | desktop | `KeyOtherDevice` | none; `KeyNoNewKey` |
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | none; `KeyNoNewKey` (the reason line names the update) |
-| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `endpoint-keys/` is a directory this user owns (a file its owner cannot read); and the read's `NotPrivate` for a key path that holds neither a regular file nor a link (a directory, a FIFO, a socket or a device file in the key file's place), whoever owns it, since the read refuses a key path of that kind before it looks at the owner or the mode (Q-kind, §12) | both | `KeyDamaged` | none; `KeyNoNewKey` |
+| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `endpoint-keys/` is a directory this user owns (a file its owner cannot read); and any refusal of a key path that holds neither a regular file nor a link (a directory, a FIFO, a socket or a device file in the key file's place), whoever owns it (Q-kind, §12). Which refusal that is depends on the entry: one that this user can open is refused by its kind as `NotPrivate`, before the read looks at the owner or the mode; one whose own mode refuses this user is a permission refusal, as above; and a socket, or a device file with no driver behind it, fails the open itself (`ENXIO` or `ENODEV`), which the client must tell apart from the I/O errors of "temporarily unusable" | both | `KeyDamaged` | none; `KeyNoNewKey` |
 | not protected | the read's `NotPrivate` for the file (a regular file readable or writable by another user, a link, another user's regular file), and the read reaches the file only after `endpoint-keys/` is private; while the folder is loose, the kind is "key folder not safe" (below) | both (in practice the desktop) | `KeyExposed` | none; `KeyNoNewKey` |
 | key folder not safe | the read's `NotPrivate` for an `endpoint-keys/` that is a link or not a directory at all; and any read refusal while `endpoint-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal); and the read's `NotPrivate` for an `endpoint-keys/` directory that this user owns and whose mode is loose (any permission for its group or for other users, 0711 and 0701 among them, though no other user can list a folder at either mode), whatever files it holds. The read stops at the directory and never reaches the file, so the person fixes the folder first. Try again then shows the file's own state: the key opens, or the page shows the file's kind ("not protected", "missing" or any other) (Q-loose, REPLY 01a207c7: a private key opens again once the folder is private, and nothing outlasts the fix) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder |
-| temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again |
+| temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but those in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again |
 | missing | no file (§7) | both | `KeyMissing` | none; `KeyNoNewKey` |
 
 The client must tell these read refusals apart: today `open` turns
@@ -153,13 +153,14 @@ key may already have been read, so it is not used again (architect-cto's,
 §12); from the Stage 22 release only a new identity (§5) shares
 a card again. "Not used again" applies when the client refuses the
 key file itself, not its folder: a loose directory this user owns,
-over a private file, never lets another user read the file. At most,
-it lets other users list the files' names, if it gives them the read
-bit, and see the size, times, owner and mode of each file whose name
-they know, if it gives them the search bit. With the search bit alone
-(0711, 0701), they can list nothing, but the names are EndpointIds,
-which are public, so they can still see each file's size, times,
-owner and mode; none of it is key material. If the directory gives another user both the write bit and
+over a private file, never lets another user read the file. It lets
+other users list the folder's entries (each file's name, kind and
+inode number), if it gives them the read bit, and see what `stat`
+says of each file whose name they know (its size, times, owner, mode
+and the rest of its metadata, never its contents), if it gives them
+the search bit. With the search bit alone (0711, 0701), they can list
+nothing, but the names are EndpointIds, which are public, so they can
+still see each file's metadata; none of it is key material. If the directory gives another user both the write bit and
 the search bit, a file that was swapped is refused at open by the
 checks on the file itself, and a file that was removed is "missing";
 the write bit without the search bit (0720, 0702) lets another user
@@ -677,9 +678,11 @@ On both clients unless said; Android's screen-reader checks blocked as
 14. A key file of non-text bytes, and one of mode 0000, each show
     `KeyDamaged`, not `KeyNotNow`. Desktop: in a private
     `endpoint-keys/`, a directory of mode 0700 in the key file's place,
-    and a FIFO of mode 0600 in the same place, both owned by this user,
-    each show `KeyDamaged`, not `KeyExposed`; the open does not wait for
-    the FIFO.
+    a FIFO of mode 0600 in the same place, and a Unix socket of mode
+    0600 there, each owned by this user, each show `KeyDamaged`, not
+    `KeyExposed` and not `KeyNotNow`; the open does not wait for the
+    FIFO. A device file is not checked: making one needs a privilege
+    or a mount that allows devices, which a test run does not have.
 15. Desktop, in three runs: `endpoint-keys/` at mode 0755 over a 0600
     key file, over a 0644 key file, and with no key file. Each run
     shows `KeyDirUnsafe` with the path and Try again, no `KeyNoNewKey`
@@ -1088,10 +1091,20 @@ Asked of architect-cto with job j166 (review round 1 on #746), and
 answered yes the same day, 2026-11-23, by REPLY 01a208d0-28c6: a
 directory, a FIFO, a socket or a device file at the key path is a
 record that is not
-valid ("damaged", §3), whoever owns it, since the read refuses it by
-its kind before it looks at the owner or the mode. ADR-0063 records
-the ruling (second amendment of 2026-11-23, decision 2: its three
-causes of "exposed" say "regular file"); §3 and acceptance 14 follow.
+valid ("damaged", §3), whoever owns it, since no record is there.
+ADR-0063 records the ruling (second amendment of 2026-11-23, decision
+2: its three causes of "exposed" say "regular file"); §3 and
+acceptance 14 follow. Review round 1 on #748 found that the read does
+not refuse every such entry by its kind: one whose own mode refuses
+this user fails the open with a permission refusal, and a socket or a
+device with no driver fails it with `ENXIO` or `ENODEV`. §3's
+"damaged" row names all three. Still open, architect-cto's to rule
+(asked with F4 of that round), and not designed here: a
+directory in the key file's place of an identity that was added
+cannot be removed by Remove (it deletes a file), so Replace's step 5
+(§5.3) stops there and Finish replacing repeats the refusal. A FIFO,
+a socket or a device file is removed as a file is, and the first
+identity is turned off, not removed.
 The question, as asked:
 
 - **Q-kind**: the read refuses anything at the key path that is
