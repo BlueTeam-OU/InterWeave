@@ -17,14 +17,14 @@ use interweave_ipc_protocol::{
     OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId,
     RequestedCapability, ResponseFrame, SendParams, SendResult, ServerCounters, ServerState,
     SessionLossesResult, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams,
-    Since, TrustList, TrustListParams, TrustSetParams, TrustSetResult, UnsupportedMajor,
-    encode_frame, supported,
+    Since, TrustList, TrustListParams, TrustSeedParams, TrustSeedResult, TrustSetParams,
+    TrustSetResult, UnsupportedMajor, encode_frame, supported,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminCapability, AdminStatus,
     BootstrapAddress, DataCapability, EndpointAdminView, Generation, LeaseRecord, LineChange,
     LocalSessionEvent, OwnAddress, OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome,
-    ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView, TrustDirection,
 };
 use interweave_transport_api::{
     ChannelId, ConnectivitySummary, DirectInboundState, EndpointDirectoryV1, EndpointId, Health,
@@ -489,7 +489,7 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 39] = [
+const IPC_SCHEMAS: [&str; 41] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
@@ -527,6 +527,8 @@ const IPC_SCHEMAS: [&str; 39] = [
     "architecture/contracts/schemas/ipc/shutdown-params.schema.json",
     "architecture/contracts/schemas/ipc/trust-list-params.schema.json",
     "architecture/contracts/schemas/ipc/trust-list.schema.json",
+    "architecture/contracts/schemas/ipc/trust-seed-params.schema.json",
+    "architecture/contracts/schemas/ipc/trust-seed-result.schema.json",
     "architecture/contracts/schemas/ipc/trust-set-params.schema.json",
     "architecture/contracts/schemas/ipc/trust-set-result.schema.json",
 ];
@@ -858,10 +860,16 @@ fn every_request() -> Vec<Request> {
         }),
         Request::AdminTrustList(TrustListParams {
             after: Some(peer()),
+            endpoint: Some(ep("human")),
+            direction: Some(TrustDirection::Outbound),
         }),
         Request::AdminTrustSet(TrustSetParams {
             peer: peer(),
             allowed: false,
+            endpoint: Some(ep("human")),
+        }),
+        Request::AdminTrustSeed(TrustSeedParams {
+            endpoint: ep("human"),
         }),
         Request::AdminPeersList(PeerListParams {
             after: Some(peer()),
@@ -1408,6 +1416,9 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             }
             Method::AdminTrustSet => {
                 "architecture/contracts/schemas/ipc/trust-set-params.schema.json"
+            }
+            Method::AdminTrustSeed => {
+                "architecture/contracts/schemas/ipc/trust-seed-params.schema.json"
             }
             Method::AdminPeersList => {
                 "architecture/contracts/schemas/ipc/peer-list-params.schema.json"
@@ -1990,6 +2001,228 @@ fn the_trust_set_result_holds_what_the_contract_says() {
             .expect("parses")
             .into();
         assert_eq!(change, back);
+    }
+}
+
+/// `trust-seed-params` and `trust-seed-result` (IPC 3.0, ADR-0067 decision
+/// 6): the endpoint required and nothing else, the outcome closed at its
+/// two values, the schema and the mirror refusing the same instances.
+#[test]
+fn the_trust_seed_shapes_hold_what_the_contract_says() {
+    use interweave_local_client_api::TrustSeed;
+    let params = "architecture/contracts/schemas/ipc/trust-seed-params.schema.json";
+    let result = "architecture/contracts/schemas/ipc/trust-seed-result.schema.json";
+    let seed = |v: &Value| {
+        let raw = serde_json::value::to_raw_value(v).expect("raw");
+        Request::decode(Method::AdminTrustSeed, Some(&raw)).is_ok()
+    };
+    let good = serde_json::json!({ "endpoint": HUMAN });
+    assert_valid(params, &good);
+    assert!(seed(&good), "the control");
+    for bad in [
+        serde_json::json!({}),
+        serde_json::json!({ "endpoint": null }),
+        serde_json::json!({ "endpoint": "human" }),
+        serde_json::json!({ "endpoint": HUMAN, "peer": PEER }),
+        serde_json::json!({ "endpoint": HUMAN.to_lowercase() }),
+    ] {
+        assert!(!validator(params).is_valid(&bad), "{params} admits {bad}");
+        assert!(!seed(&bad), "the mirror admits {bad}");
+    }
+
+    for outcome in [TrustSeed::Seeded, TrustSeed::Present] {
+        let wire = serde_json::to_value(TrustSeedResult::from(outcome)).expect("ser");
+        assert_valid(result, &wire);
+        let back: TrustSeed = serde_json::from_value::<TrustSeedResult>(wire)
+            .expect("parses")
+            .into();
+        assert_eq!(outcome, back);
+    }
+    for bad in [
+        serde_json::json!({}),
+        serde_json::json!({ "outcome": "refused" }),
+        serde_json::json!({ "outcome": "set" }),
+        serde_json::json!({ "outcome": "seeded", "detail": "x" }),
+    ] {
+        assert!(!validator(result).is_valid(&bad), "{result} admits {bad}");
+        assert!(
+            serde_json::from_value::<TrustSeedResult>(bad.clone()).is_err(),
+            "the mirror admits {bad}"
+        );
+    }
+}
+
+/// The endpoint dimension of `admin.trust.list` and `admin.trust.set`
+/// params: `direction` is required with `endpoint` and refused without
+/// it, the endpoint a derived id, every member refused as `null`, and the
+/// schema and the mirror agree on each instance, a positive control beside
+/// every refusal.
+#[test]
+fn the_trust_params_hold_the_endpoint_dimension_both_ways() {
+    let list_schema = "architecture/contracts/schemas/ipc/trust-list-params.schema.json";
+    let set_schema = "architecture/contracts/schemas/ipc/trust-set-params.schema.json";
+    let decode = |method, v: &Value| {
+        let raw = serde_json::value::to_raw_value(v).expect("raw");
+        Request::decode(method, Some(&raw)).is_ok()
+    };
+    for (instance, legal) in [
+        (serde_json::json!({}), true),
+        (serde_json::json!({ "after": PEER }), true),
+        (
+            serde_json::json!({ "endpoint": HUMAN, "direction": "inbound" }),
+            true,
+        ),
+        (
+            serde_json::json!({ "after": PEER, "endpoint": HUMAN, "direction": "outbound" }),
+            true,
+        ),
+        (serde_json::json!({ "endpoint": HUMAN }), false),
+        (serde_json::json!({ "direction": "inbound" }), false),
+        (
+            serde_json::json!({ "endpoint": HUMAN, "direction": "both" }),
+            false,
+        ),
+        (
+            serde_json::json!({ "endpoint": HUMAN, "direction": null }),
+            false,
+        ),
+        (
+            serde_json::json!({ "endpoint": null, "direction": "inbound" }),
+            false,
+        ),
+        (
+            serde_json::json!({ "endpoint": "human", "direction": "inbound" }),
+            false,
+        ),
+        (
+            serde_json::json!({ "endpoint": HUMAN, "direction": "inbound", "set": "own" }),
+            false,
+        ),
+    ] {
+        assert_eq!(
+            validator(list_schema).is_valid(&instance),
+            legal,
+            "schema on {instance}"
+        );
+        assert_eq!(
+            decode(Method::AdminTrustList, &instance),
+            legal,
+            "mirror on {instance}"
+        );
+    }
+    for (instance, legal) in [
+        (serde_json::json!({ "peer": PEER, "allowed": true }), true),
+        (
+            serde_json::json!({ "peer": PEER, "allowed": true, "endpoint": HUMAN }),
+            true,
+        ),
+        (
+            serde_json::json!({ "peer": PEER, "allowed": true, "endpoint": null }),
+            false,
+        ),
+        (
+            serde_json::json!({ "peer": PEER, "allowed": true, "endpoint": "human" }),
+            false,
+        ),
+        (
+            serde_json::json!({ "peer": PEER, "allowed": true, "endpoint": HUMAN, "direction": "inbound" }),
+            false,
+        ),
+    ] {
+        assert_eq!(
+            validator(set_schema).is_valid(&instance),
+            legal,
+            "schema on {instance}"
+        );
+        assert_eq!(
+            decode(Method::AdminTrustSet, &instance),
+            legal,
+            "mirror on {instance}"
+        );
+    }
+}
+
+/// `trust-list` 1.2.0's `set`: an endpoint answer has no `local_peer`,
+/// an `own` set's rows are administered and persisted, and the mirror and
+/// the schema refuse the same pages; the constructor of an endpoint answer
+/// sets `set`, so the converse the schema cannot state holds of every
+/// page this crate writes.
+#[test]
+fn a_trust_list_set_holds_what_the_contract_says() {
+    use interweave_local_client_api::{
+        EndpointSetKind, EndpointTrustView, TrustSource, TrustedPeer,
+    };
+    let schema = "architecture/contracts/schemas/ipc/trust-list.schema.json";
+    let admin = serde_json::json!({"peer": PEER, "persisted": true, "source": "administered"});
+    let configured = serde_json::json!({"peer": PEER, "persisted": true, "source": "configured"});
+    let both = |instance: &Value, legal: bool| {
+        assert_eq!(
+            validator(schema).is_valid(instance),
+            legal,
+            "schema on {instance}"
+        );
+        assert_eq!(
+            serde_json::from_value::<TrustList>(instance.clone()).is_ok(),
+            legal,
+            "mirror on {instance}"
+        );
+    };
+    for kind in ["own", "authored", "inherited"] {
+        both(
+            &serde_json::json!({ "set": kind, "allowed": [admin.clone()] }),
+            true,
+        );
+        both(
+            &serde_json::json!({ "set": kind, "allowed": [], "local_peer": PEER }),
+            false,
+        );
+    }
+    both(
+        &serde_json::json!({ "local_peer": PEER, "allowed": [] }),
+        true,
+    );
+    both(
+        &serde_json::json!({ "set": "authored", "allowed": [configured.clone()] }),
+        true,
+    );
+    both(
+        &serde_json::json!({ "set": "inherited", "allowed": [configured.clone()] }),
+        true,
+    );
+    both(
+        &serde_json::json!({ "set": "own", "allowed": [configured] }),
+        false,
+    );
+    both(
+        &serde_json::json!({ "set": "own", "allowed": [{"peer": PEER, "persisted": false}] }),
+        false,
+    );
+    both(
+        &serde_json::json!({ "set": "everyone", "allowed": [] }),
+        false,
+    );
+    both(&serde_json::json!({ "set": null, "allowed": [] }), false);
+
+    for kind in EndpointSetKind::ALL {
+        let page = TrustList::page_endpoint(
+            EndpointTrustView {
+                set: kind,
+                allowed: vec![TrustedPeer {
+                    peer: TransportIdentity::parse(PEER).expect("peer"),
+                    persisted: true,
+                    source: if kind == EndpointSetKind::Authored {
+                        TrustSource::Configured
+                    } else {
+                        TrustSource::Administered
+                    },
+                }],
+            },
+            None,
+        );
+        let wire = serde_json::to_value(&page).expect("ser");
+        assert_eq!(wire["set"], kind.as_str());
+        assert!(wire.get("local_peer").is_none(), "{wire}");
+        both(&wire, true);
     }
 }
 

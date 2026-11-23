@@ -210,10 +210,10 @@ impl core::error::Error for ResolveEndpointError {}
 /// is enabled: whether it may be leased is the daemon's to answer.
 ///
 /// The overlay is applied rather than ignored so that the endpoints it
-/// ADDS resolve too: the overlay has no `added` member yet, and when it
-/// gains one, `EndpointOverlay::apply` is what puts those entries into
-/// the composed `entries` this searches -- this function then covers
-/// them unchanged.
+/// ADDS resolve too: `EndpointOverlay::apply` puts the overlay's `added`
+/// entries into the composed `entries` this searches, so an added alias
+/// resolves as an authored one does
+/// (`an_added_alias_resolves_and_an_unknown_one_is_refused`).
 ///
 /// # Errors
 /// [`ResolveEndpointError`]: a text that is neither grammar, an alias no

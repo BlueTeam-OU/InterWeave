@@ -14,10 +14,10 @@ use std::collections::BTreeSet;
 
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminStatus, BootstrapAddress,
-    EndpointAdminView, Generation, IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD,
-    MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress, OwnAddressKind, OwnAddresses,
-    PeerGateView, PeerLastSeen, PeerOutcome, PreAuthCounts, TrustAdminView, TrustChange,
-    TrustRefusal, TrustSource,
+    EndpointAdminView, EndpointSetKind, EndpointTrustView, Generation, IngressCounts, LeaseRecord,
+    LineChange, MAX_ADDRESSES_PER_ADD, MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress,
+    OwnAddressKind, OwnAddresses, PeerGateView, PeerLastSeen, PeerOutcome, PreAuthCounts,
+    TrustAdminView, TrustChange, TrustRefusal, TrustSeed, TrustSource,
 };
 use interweave_transport_api::{
     ConnectivitySummary, EndpointDirectoryV1, EndpointId, Health, MAX_DIRECTORY_ENTRIES,
@@ -436,6 +436,30 @@ pub struct TrustList {
     /// The last row's peer, when more remain: the next page's `after`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<TransportIdentity>,
+    /// Which set an ENDPOINT answer is of (IPC 3.0, ADR-0067 decision 6);
+    /// absent on the operator's list. An endpoint answer has no
+    /// `local_peer`, which the decoder holds.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_set_kind"
+    )]
+    pub set: Option<EndpointSetKind>,
+}
+
+#[expect(
+    clippy::ref_option,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the signature serde's serialize_with calls"
+)]
+fn serialize_set_kind<S: serde::Serializer>(
+    kind: &Option<EndpointSetKind>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    // `skip_serializing_if` takes the `None` before this is called.
+    match kind {
+        Some(k) => s.serialize_str(k.as_str()),
+        None => s.serialize_none(),
+    }
 }
 
 impl TrustList {
@@ -449,7 +473,32 @@ impl TrustList {
     /// `a_trust_row_carries_its_source_when_persisted`.
     #[must_use]
     pub fn page(view: TrustAdminView, after: Option<&TransportIdentity>) -> Self {
-        let mut rows = view.allowed;
+        let mut page = Self::paged(view.allowed, after);
+        if after.is_none() {
+            page.local_peer = view.local_peer;
+        }
+        page
+    }
+
+    /// The page of one direction of an endpoint's effective set that
+    /// follows `after`: the operator form's page, order and cursor, the
+    /// answer's `set` saying which set it is and no `local_peer`
+    /// (`admin.trust.list {endpoint, direction}`, `LOCAL-IPC.md` §The
+    /// endpoint dimension). The one constructor of an endpoint answer, so
+    /// `set` is on every one.
+    /// `an_endpoint_page_says_its_set_and_has_no_local_peer`.
+    #[must_use]
+    pub fn page_endpoint(view: EndpointTrustView, after: Option<&TransportIdentity>) -> Self {
+        let mut page = Self::paged(view.allowed, after);
+        page.set = Some(view.set);
+        page
+    }
+
+    fn paged(
+        rows: Vec<interweave_local_client_api::TrustedPeer>,
+        after: Option<&TransportIdentity>,
+    ) -> Self {
+        let mut rows = rows;
         rows.sort_by(|a, b| a.peer.cmp(&b.peer));
         rows.dedup_by(|a, b| a.peer == b.peer);
         let mut rest = rows
@@ -474,13 +523,10 @@ impl TrustList {
             .then(|| allowed.last().map(|row| row.peer.clone()))
             .flatten();
         Self {
-            local_peer: if after.is_none() {
-                view.local_peer
-            } else {
-                None
-            },
+            local_peer: None,
             allowed,
             next,
+            set: None,
         }
     }
 }
@@ -495,8 +541,28 @@ impl<'de> Deserialize<'de> for TrustList {
             allowed: Vec<TrustRow>,
             #[serde(default, deserialize_with = "absent_or_identity")]
             next: Option<TransportIdentity>,
+            #[serde(default, deserialize_with = "absent_or_set_kind")]
+            set: Option<EndpointSetKind>,
         }
         let wire = Wire::deserialize(d)?;
+        // The schema's `dependentSchemas` on `set`: an endpoint answer has
+        // no `local_peer`, and an own set's rows are all administered and
+        // persisted.
+        if wire.set.is_some() && wire.local_peer.is_some() {
+            return Err(serde::de::Error::custom(
+                "an endpoint answer has no local_peer",
+            ));
+        }
+        if wire.set == Some(EndpointSetKind::Own)
+            && wire
+                .allowed
+                .iter()
+                .any(|row| !row.persisted || row.source != Some(TrustSource::Administered))
+        {
+            return Err(serde::de::Error::custom(
+                "an own set's rows are administered and persisted",
+            ));
+        }
         if wire.allowed.len() > MAX_TRUST_PAGE_ROWS {
             return Err(serde::de::Error::custom(format!(
                 "at most {MAX_TRUST_PAGE_ROWS} rows, got {}",
@@ -518,7 +584,60 @@ impl<'de> Deserialize<'de> for TrustList {
             local_peer: wire.local_peer,
             allowed: wire.allowed,
             next: wire.next,
+            set: wire.set,
         })
+    }
+}
+
+fn absent_or_set_kind<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<EndpointSetKind>, D::Error> {
+    let name = String::deserialize(d)?;
+    EndpointSetKind::ALL
+        .into_iter()
+        .find(|known| known.as_str() == name)
+        .map(Some)
+        .ok_or_else(|| serde::de::Error::custom("set is own, authored or inherited"))
+}
+
+/// `ipc/trust-seed-result` (IPC 3.0): what an `admin.trust.seed` did.
+/// `outcome` is closed at the two values, and a refusal is an error, never
+/// a third outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TrustSeedResult {
+    outcome: &'static str,
+    #[serde(skip)]
+    seed: TrustSeed,
+}
+
+impl From<TrustSeed> for TrustSeedResult {
+    fn from(seed: TrustSeed) -> Self {
+        Self {
+            outcome: seed.as_str(),
+            seed,
+        }
+    }
+}
+
+impl From<TrustSeedResult> for TrustSeed {
+    fn from(result: TrustSeedResult) -> Self {
+        result.seed
+    }
+}
+
+impl<'de> Deserialize<'de> for TrustSeedResult {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            outcome: String,
+        }
+        let wire = Wire::deserialize(d)?;
+        [TrustSeed::Seeded, TrustSeed::Present]
+            .into_iter()
+            .find(|known| known.as_str() == wire.outcome)
+            .map(Self::from)
+            .ok_or_else(|| serde::de::Error::custom("an unknown outcome"))
     }
 }
 
@@ -2421,11 +2540,59 @@ mod tests {
                 })
                 .collect(),
             next: Some(longest),
+            set: None,
         };
         let bytes = serde_json::to_vec(&page).expect("serializes").len();
         assert!(
             bytes + 1_024 <= crate::framing::MAX_BODY_BYTES,
             "{bytes} bytes for {MAX_TRUST_PAGE_ROWS} rows"
         );
+    }
+
+    /// `TrustList::page_endpoint`: the operator form's page, order and
+    /// cursor, `set` on the answer and no `local_peer`.
+    #[test]
+    fn an_endpoint_page_says_its_set_and_has_no_local_peer() {
+        use interweave_local_client_api::TrustedPeer;
+        let peers: Vec<_> = (0..=MAX_TRUST_PAGE_ROWS + 1).map(synthetic_peer).collect();
+        let view = |set| EndpointTrustView {
+            set,
+            allowed: peers
+                .iter()
+                .rev()
+                .map(|peer| TrustedPeer {
+                    peer: peer.clone(),
+                    persisted: true,
+                    source: TrustSource::Administered,
+                })
+                .collect(),
+        };
+        let mut sorted = peers.clone();
+        sorted.sort();
+        let first = TrustList::page_endpoint(view(EndpointSetKind::Own), None);
+        assert_eq!(first.set, Some(EndpointSetKind::Own));
+        assert_eq!(first.local_peer, None);
+        assert_eq!(first.allowed.len(), MAX_TRUST_PAGE_ROWS);
+        assert_eq!(
+            first.allowed[0].peer, sorted[0],
+            "sorted whatever the port's order"
+        );
+        assert_eq!(first.next.as_ref(), Some(&sorted[MAX_TRUST_PAGE_ROWS - 1]));
+        let second = TrustList::page_endpoint(view(EndpointSetKind::Own), first.next.as_ref());
+        assert_eq!(second.allowed.len(), 2);
+        assert_eq!(second.next, None);
+        assert_eq!(second.set, Some(EndpointSetKind::Own), "on every page");
+        // The control: the operator's page carries no `set`.
+        let operator = TrustList::page(
+            TrustAdminView {
+                local_peer: Some(synthetic_peer(9999)),
+                allowed: Vec::new(),
+            },
+            None,
+        );
+        assert_eq!(operator.set, None);
+        assert!(operator.local_peer.is_some());
+        let wire = serde_json::to_value(&first).expect("ser");
+        assert_eq!(wire["set"], "own");
     }
 }

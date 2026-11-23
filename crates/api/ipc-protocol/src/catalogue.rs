@@ -62,6 +62,10 @@ pub enum Method {
     /// trust overlay across restarts (ADR-0028 A 2026-10-07).
     #[serde(rename = "admin.trust.set")]
     AdminTrustSet,
+    /// Give a configured endpoint its own trust set from what it admits
+    /// now, if it has none (3.0, ADR-0067 decision 6).
+    #[serde(rename = "admin.trust.seed")]
+    AdminTrustSeed,
     /// One page of the dial gate's per-peer state (2.2, under
     /// `admin.status`).
     #[serde(rename = "admin.peers.list")]
@@ -107,7 +111,7 @@ impl Method {
     /// Every method, in catalogue order. `tests/schema_agreement.rs`
     /// holds this list to the enum's own variants, so a variant missing
     /// here fails a test rather than escaping one.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::ChannelJoin,
         Self::ChannelLeave,
         Self::BroadcastPublish,
@@ -121,6 +125,7 @@ impl Method {
         Self::AdminShutdown,
         Self::AdminTrustList,
         Self::AdminTrustSet,
+        Self::AdminTrustSeed,
         Self::AdminPeersList,
         Self::AdminPeersAddAddress,
         Self::AdminPeersRemoveAddress,
@@ -150,7 +155,9 @@ impl Method {
             | Self::AdminEndpointsSetEnabled
             | Self::AdminEndpointsSetDefault => (Admin, C::AdminEndpoints),
             Self::AdminShutdown => (Admin, C::AdminShutdown),
-            Self::AdminTrustList | Self::AdminTrustSet => (Admin, C::AdminTrust),
+            Self::AdminTrustList | Self::AdminTrustSet | Self::AdminTrustSeed => {
+                (Admin, C::AdminTrust)
+            }
             Self::AdminPeersAddAddress
             | Self::AdminPeersRemoveAddress
             | Self::AdminPeersListAddresses
@@ -181,6 +188,7 @@ impl Method {
             Self::AdminShutdown => "admin.shutdown",
             Self::AdminTrustList => "admin.trust.list",
             Self::AdminTrustSet => "admin.trust.set",
+            Self::AdminTrustSeed => "admin.trust.seed",
             Self::AdminPeersList => "admin.peers.list",
             Self::AdminPeersAddAddress => "admin.peers.add_address",
             Self::AdminPeersRemoveAddress => "admin.peers.remove_address",
@@ -265,7 +273,11 @@ mod tests {
 
     #[test]
     fn the_trust_methods_are_admin_under_trust() {
-        for method in [Method::AdminTrustList, Method::AdminTrustSet] {
+        for method in [
+            Method::AdminTrustList,
+            Method::AdminTrustSet,
+            Method::AdminTrustSeed,
+        ] {
             let entry = method.entry();
             assert_eq!(entry.domain, AuthorityDomain::Admin);
             assert_eq!(entry.capability, RequestedCapability::AdminTrust);
@@ -296,5 +308,22 @@ mod tests {
         let entry = Method::AdminPeersList.entry();
         assert_eq!(entry.domain, AuthorityDomain::Admin);
         assert_eq!(entry.capability, RequestedCapability::AdminStatus);
+    }
+
+    /// `admin.trust.seed` is a 3.0 method: major 3 is the only major a
+    /// server speaks, so no connection reaches it below 3.0, and the gate
+    /// is the table's `since` (the same one every method is held to).
+    #[test]
+    fn the_seed_method_is_gated_at_three_zero() {
+        use crate::version::IpcVersion;
+        let entry = Method::AdminTrustSeed.entry();
+        assert_eq!(entry.since, Since::THREE_ZERO);
+        let at = |major, minor| IpcVersion { major, minor };
+        assert!(entry.since.admits(at(3, 0)), "the control");
+        assert!(!entry.since.admits(at(2, 13)), "the last minor of major 2");
+        assert_eq!(
+            Method::parse("admin.trust.seed"),
+            Some(Method::AdminTrustSeed)
+        );
     }
 }

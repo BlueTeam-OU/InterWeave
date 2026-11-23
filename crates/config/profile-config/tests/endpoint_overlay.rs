@@ -505,11 +505,13 @@ fn a_failed_normalisation_rewrite_stops_the_load() {
     }
 }
 
-/// The largest overlay a normalised file can hold -- every configured
-/// endpoint, each flipped, the default `null` -- fits well inside the
-/// size bound and loads as itself, so the bound refuses only what no set
-/// could have written. Every id is derived, so every id is 52 bytes: the
-/// longest an overlay can name, under `EndpointId::MAX_BYTES`.
+/// The largest overlay of `enabled` and `default` alone -- every
+/// configured endpoint, each flipped, the default `null` -- is under 7
+/// KiB and loads as itself; the members past them (sets, added entries)
+/// are sized by `the_largest_legal_overlay_fits_its_bound_and_the_bound_is_not_loose`
+/// in `endpoint_overlay_members.rs`, which holds the size bound. Every id
+/// is derived, so every id is 52 bytes: the longest an overlay can name,
+/// under `EndpointId::MAX_BYTES`.
 #[test]
 fn the_largest_overlay_fits_its_bound() {
     let ids: Vec<EndpointId> = (0..MAX_ENDPOINTS).map(|i| id(&format!("e{i}"))).collect();

@@ -38,6 +38,7 @@ pub use binding::{
     ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionLosses, SessionRequest, TrustAdminView,
     TrustChange, TrustRefusal, TrustSource, TrustedPeer,
 };
+pub use binding::{EndpointSetKind, EndpointTrustView, TrustDirection, TrustSeed};
 
 use interweave_transport_api::{
     ConnectivitySummary, EndpointId, Health, PeerPath, TransportError, TransportIdentity,

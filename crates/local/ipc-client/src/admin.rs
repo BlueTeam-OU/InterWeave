@@ -10,12 +10,13 @@ use interweave_ipc_protocol::{
     EmptyResult, EndpointList, EndpointParams, IpcVersion, MAX_BOOTSTRAP_ADDRESS_CHARS,
     MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList, PeerList, PeerListParams, Request,
     RequestedCapability, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams,
-    TrustList, TrustListParams, TrustSetParams, TrustSetResult,
+    TrustList, TrustListParams, TrustSeedParams, TrustSeedResult, TrustSetParams, TrustSetResult,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressesChange, AdminBinding, AdminCapability, AdminPort,
-    AdminStatus, BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, OwnAddresses,
-    PeerGateView, PeerLastSeen, TrustAdminView, TrustChange, TrustedPeer,
+    AdminStatus, BootstrapAddress, EndpointAdminView, EndpointTrustView, Generation,
+    LocalAdminPort, OwnAddresses, PeerGateView, PeerLastSeen, TrustAdminView, TrustChange,
+    TrustDirection, TrustSeed, TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -198,6 +199,7 @@ impl IpcAdmin {
                 .connection
                 .call::<TrustList>(Request::AdminTrustList(TrustListParams {
                     after: after.clone(),
+                    ..TrustListParams::default()
                 }))
                 .await?;
             let next = page.next.clone();
@@ -205,6 +207,52 @@ impl IpcAdmin {
             match next {
                 // A cursor that does not move would read the same page
                 // for ever.
+                Some(next) if after.as_ref().is_none_or(|after| next > *after) => {
+                    after = Some(next);
+                }
+                Some(_) => return Err(TransportError::Internal),
+                None => return Ok(pages),
+            }
+        }
+    }
+
+    /// Every page of one direction of an endpoint's effective set as the
+    /// daemon sent it, in order, for `transportctl trust list --endpoint
+    /// --json`: one `ipc/trust-list` each, every one carrying `set`.
+    ///
+    /// # Errors
+    /// As [`AdminPort::endpoint_trust`]; `Internal` for a daemon whose
+    /// cursor does not advance, that pages past [`MAX_TRUST_PAGES`], or
+    /// that answers a page without `set` or with one that differs from
+    /// the first's: the answer to an endpoint request is an endpoint
+    /// answer, so a client reading it as the operator's would be shown
+    /// the wrong list.
+    pub async fn endpoint_trust_pages(
+        &self,
+        endpoint: &EndpointId,
+        direction: TrustDirection,
+    ) -> Result<Vec<TrustList>, TransportError> {
+        self.speaks(Method::AdminTrustList)?;
+        let mut pages: Vec<TrustList> = Vec::new();
+        let mut after: Option<TransportIdentity> = None;
+        loop {
+            if pages.len() == MAX_TRUST_PAGES {
+                return Err(TransportError::Internal);
+            }
+            let page = self
+                .connection
+                .call::<TrustList>(Request::AdminTrustList(TrustListParams {
+                    after: after.clone(),
+                    endpoint: Some(endpoint.clone()),
+                    direction: Some(direction),
+                }))
+                .await?;
+            if page.set.is_none() || page.set != pages.first().map_or(page.set, |p| p.set) {
+                return Err(TransportError::Internal);
+            }
+            let next = page.next.clone();
+            pages.push(page);
+            match next {
                 Some(next) if after.as_ref().is_none_or(|after| next > *after) => {
                     after = Some(next);
                 }
@@ -383,9 +431,66 @@ impl AdminPort for IpcAdmin {
         allowed: bool,
     ) -> Result<TrustChange, TransportError> {
         self.connection
-            .call::<TrustSetResult>(Request::AdminTrustSet(TrustSetParams { peer, allowed }))
+            .call::<TrustSetResult>(Request::AdminTrustSet(TrustSetParams {
+                peer,
+                allowed,
+                endpoint: None,
+            }))
             .await
             .map(TrustChange::from)
+    }
+
+    /// Read page by page and joined, as [`Self::trust`] reads the
+    /// operator's list, with the `set` the daemon names; every row
+    /// persisted with its source, as there.
+    async fn endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        direction: TrustDirection,
+    ) -> Result<EndpointTrustView, TransportError> {
+        let pages = self.endpoint_trust_pages(&endpoint, direction).await?;
+        let set = pages
+            .first()
+            .and_then(|page| page.set)
+            .ok_or(TransportError::Internal)?;
+        let allowed = pages
+            .into_iter()
+            .flat_map(|page| page.allowed)
+            .map(|row| match row.source {
+                Some(source) if row.persisted => Ok(TrustedPeer {
+                    peer: row.peer,
+                    persisted: true,
+                    source,
+                }),
+                _ => Err(TransportError::Internal),
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(EndpointTrustView { set, allowed })
+    }
+
+    async fn set_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<TrustChange, TransportError> {
+        self.speaks(Method::AdminTrustSet)?;
+        self.connection
+            .call::<TrustSetResult>(Request::AdminTrustSet(TrustSetParams {
+                peer,
+                allowed,
+                endpoint: Some(endpoint),
+            }))
+            .await
+            .map(TrustChange::from)
+    }
+
+    async fn seed_endpoint_trust(&self, endpoint: EndpointId) -> Result<TrustSeed, TransportError> {
+        self.speaks(Method::AdminTrustSeed)?;
+        self.connection
+            .call::<TrustSeedResult>(Request::AdminTrustSeed(TrustSeedParams { endpoint }))
+            .await
+            .map(TrustSeed::from)
     }
 
     async fn add_bootstrap_address(

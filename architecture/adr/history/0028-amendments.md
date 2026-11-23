@@ -723,3 +723,54 @@ allow could not survive beside it, and an inheriting agent endpoint
 saw every peer a person trusted in an identity). Propagation: the
 allowlist sentence, the endpoint overlay's shape and normalisation
 sentences; this note; the log row; the digest entry.
+
+### Amendment 2026-11-22 — The endpoint overlay's trust sets are two top-level maps an endpoint is in both of or neither, an added entry carries no trust field, and the sets' rows are bounded together
+
+The builder of Stage 22's trust batch asked, before writing the loader,
+what the amendment of 2026-10-28 had left open about the endpoint
+overlay's `inbound` and `outbound` members. Four things were ruled and
+the body now says them.
+
+The two are top-level members of the file, each a map from EndpointId
+to a list of PeerIds written sorted with no PeerId twice. `[]` is a set
+the endpoint owns and that is empty, which is what an added identity is
+given at its add; an absent id is no own set, and the endpoint reads
+its authored subset or the operator's list. An id stands in both
+members or in neither, and a file naming it in one alone fails the
+load: every writer writes both (the trust methods' endpoint dimension
+has no way to write one), so one alone is a hand edit whose meaning for
+the other direction nobody decided.
+
+An `added` entry does not carry the `inbound` and `outbound` policy a
+configured endpoint has in `config.yaml`. The amendment of 2026-10-21
+had said an added entry is "the fields a configured endpoint has in
+`config.yaml`", which was written before trust was per endpoint; kept
+whole, an added entry could carry a `static_subset` beside an overlay
+set, and the effective-set order (own, authored, inherited) would have
+had to say which of the two an added endpoint's "authored" one is. Its
+trust is its overlay set alone.
+
+The rows of all endpoint sets together, both members counted, are
+bounded at 4 × `MAX_ALLOWED_PEERS` (16384): FATAL at start past it, and
+a write that would cross it refused with nothing written. Each set and
+the admission set were already bounded by `MAX_ALLOWED_PEERS`, but the
+file was not: 64 endpoints with two full sets each is 524,288 rows,
+about 29 MiB read at every start and rewritten whole at every trust
+act. Four full sets' worth is far above what a person's identities
+hold and keeps the file near one mebibyte. The bound is this record's
+author's, taken with the ruling and not put to the owner; the byte
+bound that follows from it is the loader's, derived in code.
+
+What the loader answers to a file that breaks these was settled with
+its builder once the loader existed, and the body says it: an `added`
+entry that carries an `inbound` or `outbound` field fails the load,
+naming the member; a list that names a PeerId twice fails the load,
+naming the member, the endpoint and the peer; a list that is unsorted
+and without a repeat is read as the set it names, with no rewrite at
+load, and is written sorted at the file's next write. Nothing is
+rewritten for a refused file. The body had said since 2026-10-21 that
+an `added` id `config.yaml` also authors fails the load by name; the
+same now holds of an `added` alias that an authored entry or another
+added one holds. Dropping the added entry was the alternative and was
+refused: it would lose that identity's sets silently, where a refused
+start names the entry and leaves both files as they were.

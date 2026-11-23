@@ -71,6 +71,10 @@ pub(crate) struct Script {
     pub(crate) peers: Vec<interweave_local_client_api::PeerGateView>,
     /// The rows `leases()` answers with.
     pub(crate) endpoints: Vec<EndpointAdminView>,
+    /// What `endpoint_trust` answers, for either direction.
+    pub(crate) endpoint_view: Option<interweave_local_client_api::EndpointTrustView>,
+    /// What `seed_endpoint_trust` answers.
+    pub(crate) seed: Option<interweave_local_client_api::TrustSeed>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -378,6 +382,49 @@ impl AdminPort for FakeAdmin {
             interweave_local_client_api::TrustChange::Set,
             interweave_local_client_api::TrustChange::Refused,
         ))
+    }
+
+    async fn endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        direction: interweave_local_client_api::TrustDirection,
+    ) -> Result<interweave_local_client_api::EndpointTrustView, TransportError> {
+        self.fake.call(format!(
+            "endpoint_trust {} {}",
+            name(&endpoint),
+            direction.as_str()
+        ));
+        self.fake
+            .script()
+            .endpoint_view
+            .clone()
+            .ok_or(TransportError::EndpointUnknown)
+    }
+
+    async fn set_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<interweave_local_client_api::TrustChange, TransportError> {
+        self.fake.call(format!(
+            "set_endpoint_trust {} {} {allowed}",
+            name(&endpoint),
+            peer.as_str()
+        ));
+        Ok(interweave_local_client_api::TrustChange::Set)
+    }
+
+    async fn seed_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+    ) -> Result<interweave_local_client_api::TrustSeed, TransportError> {
+        self.fake
+            .call(format!("seed_endpoint_trust {}", name(&endpoint)));
+        self.fake
+            .script()
+            .seed
+            .ok_or(TransportError::EndpointUnknown)
     }
 
     async fn add_bootstrap_address(
