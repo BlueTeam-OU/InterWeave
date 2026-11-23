@@ -1193,6 +1193,16 @@ impl View {
             .into(),
         );
         window.set_own_key_try_shown(problem.as_ref().is_some_and(KeyProblem::offers_try_again));
+        // Design §3: every kind whose Try again cannot open the key says
+        // no new key can be made for it, so the person does not look for one.
+        window.set_own_key_no_new_key(
+            if problem.as_ref().is_some_and(|p| !p.offers_try_again()) {
+                text(UiText::KeyNoNewKey)
+            } else {
+                ""
+            }
+            .into(),
+        );
         window.set_own_key_failure(
             match &step {
                 Some(KeyStep::StillNotNow) => text(UiText::KeyNotNowAgain),

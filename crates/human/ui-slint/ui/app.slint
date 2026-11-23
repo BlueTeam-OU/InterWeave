@@ -5395,6 +5395,8 @@ export component AppWindow inherits Window {
     in property <string> own-key-path-label;
     in property <string> own-key-path;
     in property <string> own-key-cannot-share;
+    // Empty where the kind offers Try again (design §3): no line then.
+    in property <string> own-key-no-new-key;
     // Try again is its one action, where the kind offers it: no new key
     // is made in the identity's place (ADR-0067 decision 5).
     in property <bool> own-key-try-shown;
@@ -7811,6 +7813,15 @@ export component AppWindow inherits Window {
                                 }
                                 Text {
                                     text: root.own-key-cannot-share;
+                                    font-size: Type.body-medium;
+                                    wrap: word-wrap;
+                                    min-height: self.preferred-height;
+                                    color: Palette.on-surface;
+                                    accessible-role: text;
+                                    accessible-label: Drawn.spoken(self.text);
+                                }
+                                if root.own-key-no-new-key != "": Text {
+                                    text: root.own-key-no-new-key;
                                     font-size: Type.body-medium;
                                     wrap: word-wrap;
                                     min-height: self.preferred-height;

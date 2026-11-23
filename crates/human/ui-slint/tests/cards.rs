@@ -2294,6 +2294,7 @@ fn the_key_block_offers_no_new_key_and_try_again_where_it_may_pass() {
         UiText::KeyStateTitle,
         UiText::KeyDamaged,
         UiText::KeyCannotShare,
+        UiText::KeyNoNewKey,
     ] {
         assert!(shows(&view, text(line)), "{line:?}");
     }
@@ -2312,7 +2313,7 @@ fn the_key_block_offers_no_new_key_and_try_again_where_it_may_pass() {
         let (_, top, _, _) = bounds(view, text(UiText::DetailsPeerId));
         top - bottom
     };
-    let nothing_to_press = below(&view, text(UiText::KeyCannotShare));
+    let nothing_to_press = below(&view, text(UiText::KeyNoNewKey));
 
     let kinds = [
         KeyProblem::LostOnDevice,
@@ -2342,6 +2343,11 @@ fn the_key_block_offers_no_new_key_and_try_again_where_it_may_pass() {
         );
         let offers = problem.offers_try_again();
         assert_eq!(shows(&view, text(UiText::TryAgain)), offers, "{problem:?}");
+        assert_eq!(
+            shows(&view, text(UiText::KeyNoNewKey)),
+            !offers,
+            "{problem:?}: KeyNoNewKey exactly where Try again is not offered"
+        );
         assert_eq!(
             met.iter().any(|at| at == "own-key-try"),
             offers,
@@ -2395,6 +2401,10 @@ fn the_share_sheet_says_the_key_cannot_be_used_and_opens_the_card_page() {
     assert!(
         !shows(&view, text(UiText::ShareCardAction)),
         "no Share, never shown disabled"
+    );
+    assert!(
+        !shows(&view, text(UiText::KeyNoNewKey)),
+        "never in the share sheet"
     );
     assert_eq!(view.window().get_focus_target(), "share-open-card");
     press(&view, text(UiText::KeyOpenCard));
@@ -4566,7 +4576,7 @@ fn the_card_page_scrolls_to_its_last_line_at_a_phones_sizes() {
                 (
                     "damaged",
                     keyless(KeyProblem::Damaged),
-                    vec![text(UiText::KeyCannotShare), Q],
+                    vec![text(UiText::KeyNoNewKey), Q],
                 ),
                 ("ready", ada(true, ready()), vec![Q]),
             ] {
