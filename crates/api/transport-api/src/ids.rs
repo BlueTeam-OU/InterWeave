@@ -100,11 +100,10 @@ impl core::error::Error for IdError {}
 /// a remote `source_endpoint` proves only that the authenticated peer claimed
 /// it.
 ///
-/// TRANSITIONAL: [`Self::parse`] still accepts the retired label grammar
-/// `^[a-z][a-z0-9._-]{0,63}$` through `parse_legacy_label`, because the rest
-/// of the workspace still writes labels. That path goes when every caller
-/// derives its ids; [`Self::parse_derived`] is the strict constructor and
-/// refuses a label.
+/// [`Self::parse_derived`] and [`Self::from_ed25519_public`] are its only
+/// constructors, so no value of this type holds a retired label
+/// (`^[a-z][a-z0-9._-]{0,63}$`, refused as `parse_derived_refuses_a_label`
+/// shows).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct EndpointId(String);
@@ -189,27 +188,9 @@ impl EndpointId {
         Ok(canonical)
     }
 
-    /// Parse an `EndpointId`: the derived form, or (TRANSITIONAL) a legacy
-    /// label.
-    ///
-    /// Text beginning `12D3KooW` or `Qm` can only be meant as a derived id
-    /// (a label starts with a lowercase letter) and is judged by
-    /// [`Self::parse_derived`]; anything else is judged as a label.
-    ///
-    /// # Errors
-    /// The [`Self::parse_derived`] errors for PeerId-shaped text, else the
-    /// label grammar's: [`IdError::Empty`], [`IdError::TooLong`],
-    /// [`IdError::IllegalLeadingByte`] or [`IdError::IllegalByte`].
-    pub fn parse(value: impl Into<String>) -> Result<Self, IdError> {
-        let value = value.into();
-        if value.starts_with("12D3KooW") || value.starts_with("Qm") {
-            Self::parse_derived(value)
-        } else {
-            Self::parse_legacy_label(value)
-        }
-    }
-
-    /// The Ed25519 public key a derived id names; `None` for a legacy label.
+    /// The Ed25519 public key the id names. Every constructed id is derived,
+    /// so this answers `Some`; `None` would mean bytes that are not a
+    /// derived id, which no constructor admits.
     #[must_use]
     pub fn ed25519_public(&self) -> Option<[u8; 32]> {
         let mut buf = [0_u8; 64];
@@ -220,33 +201,6 @@ impl EndpointId {
         let mut key = [0_u8; 32];
         key.copy_from_slice(&buf[DERIVED_PREFIX.len()..len]);
         Some(key)
-    }
-
-    /// TRANSITIONAL: the retired label grammar `^[a-z][a-z0-9._-]{0,63}$`.
-    /// Delete this function and its call in [`Self::parse`] when the last
-    /// caller that writes a label moves to a derived id.
-    fn parse_legacy_label(value: String) -> Result<Self, IdError> {
-        let bytes = value.as_bytes();
-        let Some(&first) = bytes.first() else {
-            return Err(IdError::Empty);
-        };
-        if bytes.len() > Self::MAX_BYTES {
-            return Err(IdError::TooLong {
-                got: bytes.len(),
-                max: Self::MAX_BYTES,
-            });
-        }
-        if !first.is_ascii_lowercase() {
-            return Err(IdError::IllegalLeadingByte { byte: first });
-        }
-        for (index, &b) in bytes.iter().enumerate() {
-            let ok =
-                b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-');
-            if !ok {
-                return Err(IdError::IllegalByte { index, byte: b });
-            }
-        }
-        Ok(Self(value))
     }
 
     /// The identifier as a string slice.
@@ -557,10 +511,10 @@ macro_rules! deserialize_via_parse {
 // failure mode these newtypes exist to prevent — and JSON arriving over
 // IPC is exactly the untrusted path where it would happen.
 //
-// An `EndpointId` deserializes by `parse_derived` alone: every schema that
-// carries one demands the derived grammar (ADR-0067), and the
-// transitional `parse` would let a retired label in through any JSON or
-// YAML boundary (`a_label_does_not_deserialize_as_an_endpoint_id`,
+// An `EndpointId` deserializes by `parse_derived`: every schema that
+// carries one demands the derived grammar (ADR-0067), so a retired label
+// is refused at every JSON or YAML boundary
+// (`a_label_does_not_deserialize_as_an_endpoint_id`,
 // `negative_conformance`).
 impl<'de> Deserialize<'de> for EndpointId {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -644,21 +598,8 @@ mod tests {
             assert_eq!(text.len(), 52);
             assert!(text.starts_with("12D3KooW"), "{text}");
             assert_eq!(EndpointId::parse_derived(text), Ok(id.clone()));
-            assert_eq!(EndpointId::parse(text), Ok(id.clone()));
             assert_eq!(id.ed25519_public(), Some(key));
         }
-    }
-
-    #[test]
-    fn a_legacy_label_has_no_key() {
-        // Control for the derived case above: the same accessor answers Some.
-        let label = EndpointId::parse("human").expect("label");
-        assert_eq!(label.ed25519_public(), None);
-        assert!(
-            EndpointId::from_ed25519_public(&KEYS[1])
-                .ed25519_public()
-                .is_some()
-        );
     }
 
     #[test]
@@ -672,7 +613,6 @@ mod tests {
             EndpointId::parse_derived(qm.as_str()),
             Err(IdError::NotDerived)
         );
-        assert_eq!(EndpointId::parse(qm.as_str()), Err(IdError::NotDerived));
         assert!(
             EndpointId::parse_derived(EndpointId::from_ed25519_public(&KEYS[1]).as_str()).is_ok()
         );
@@ -776,8 +716,14 @@ mod tests {
 
     #[test]
     fn parse_derived_refuses_a_label() {
-        assert!(EndpointId::parse_derived("human").is_err());
-        assert!(EndpointId::parse("human").is_ok());
+        // The derived id beside it is the control: the same constructor
+        // accepts it.
+        for label in ["human", "claude", "automation.build", "a"] {
+            assert!(EndpointId::parse_derived(label).is_err(), "{label}");
+        }
+        assert!(
+            EndpointId::parse_derived(EndpointId::from_ed25519_public(&KEYS[1]).as_str()).is_ok()
+        );
     }
 
     #[test]
@@ -803,54 +749,6 @@ mod tests {
         for bad in ["\"human\"".to_owned(), format!("\"{}\"", "x".repeat(52))] {
             assert!(serde_json::from_str::<EndpointId>(&bad).is_err(), "{bad}");
         }
-    }
-
-    #[test]
-    fn endpoint_id_accepts_the_conventional_names() {
-        for name in [
-            "human",
-            "claude",
-            "automation.build",
-            "a_b-c.d",
-            "a",
-            &"e".repeat(64),
-        ] {
-            assert!(EndpointId::parse(name).is_ok(), "{name} should parse");
-        }
-    }
-
-    #[test]
-    fn endpoint_id_rejects_everything_outside_the_grammar() {
-        assert_eq!(EndpointId::parse(""), Err(IdError::Empty));
-        assert_eq!(
-            EndpointId::parse("e".repeat(65)),
-            Err(IdError::TooLong { got: 65, max: 64 })
-        );
-        // A leading digit is reported as a LEADING error, not a generic
-        // illegal byte: digits are legal everywhere else, so the position
-        // is the whole explanation.
-        assert_eq!(
-            EndpointId::parse("1human"),
-            Err(IdError::IllegalLeadingByte { byte: b'1' })
-        );
-        assert_eq!(
-            EndpointId::parse("-human"),
-            Err(IdError::IllegalLeadingByte { byte: b'-' })
-        );
-        assert_eq!(
-            EndpointId::parse("Human"),
-            Err(IdError::IllegalLeadingByte { byte: b'H' })
-        );
-        assert_eq!(
-            EndpointId::parse("huMan"),
-            Err(IdError::IllegalByte {
-                index: 2,
-                byte: b'M'
-            })
-        );
-        assert!(EndpointId::parse("human client").is_err());
-        assert!(EndpointId::parse("human/main").is_err());
-        assert!(EndpointId::parse("hüman").is_err());
     }
 
     #[test]

@@ -226,10 +226,9 @@ impl DirectMessageV2 {
     /// once. Every length written here was validated when its component
     /// type was constructed, which is why this cannot fail.
     ///
-    /// It does not refuse a label: `EndpointId::parse` still constructs
-    /// one (TRANSITIONAL, ids.rs), and such a frame encodes and is refused
-    /// by every 3.0.0 decoder, this one included
-    /// (`tests::a_label_encodes_and_is_refused_on_decode`).
+    /// No `EndpointId` holds a label (ids.rs constructs derived ids only),
+    /// so no label is encoded; one that arrives as bytes is refused by the
+    /// decoder (`tests::a_label_in_the_bytes_is_refused_on_decode`).
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let source = self.source_endpoint.as_str().as_bytes();
@@ -428,9 +427,8 @@ fn endpoint_length(field: &'static str, got: usize) -> Result<(), FrameError> {
     Ok(())
 }
 
-/// The field's bytes as a DERIVED id, strictly: `parse_derived`, never the
-/// transitional `parse`, so a 52-byte label of the retired grammar is
-/// refused here as DIRECT.md §Request requires.
+/// The field's bytes as a DERIVED id: `parse_derived`, so a 52-byte label
+/// of the retired grammar is refused here as DIRECT.md §Request requires.
 fn endpoint(field: &'static str, raw: &[u8]) -> Result<EndpointId, FrameError> {
     let text = core::str::from_utf8(raw).map_err(|_| FrameError::Endpoint {
         field,
@@ -626,31 +624,31 @@ mod tests {
         }
     }
 
-    /// A label still constructs through the transitional `EndpointId::parse`
-    /// and encodes, and a 3.0.0 decoder refuses it: by its length, or, at 52
-    /// bytes, by the derived grammar.
+    /// A label written into a frame's bytes is refused by a 3.0.0 decoder:
+    /// by its length, or, at 52 bytes, by the derived grammar. The control
+    /// is the same frame's own encoding, which decodes.
     #[test]
-    fn a_label_encodes_and_is_refused_on_decode() {
-        let short = frame_from(
-            EndpointId::parse("human").expect("a transitional label"),
-            None,
-            None,
-            b"hi",
-        );
+    fn a_label_in_the_bytes_is_refused_on_decode() {
+        let bytes = frame(Some("claude"), None, b"hi").encode();
+        assert!(DirectMessageV2::decode(&bytes, MAX_PAYLOAD_BYTES).is_ok());
+        let source = FIXED_PREFIX + 1..FIXED_PREFIX + 1 + ENDPOINT_FIELD_BYTES;
+
+        let mut short = bytes.clone();
+        short[FIXED_PREFIX] = 5;
+        short.splice(source.clone(), b"human".iter().copied());
         assert_eq!(
-            DirectMessageV2::decode(&short.encode(), MAX_PAYLOAD_BYTES),
+            DirectMessageV2::decode(&short, MAX_PAYLOAD_BYTES),
             Err(FrameError::EndpointLength {
                 field: "source_endpoint",
                 got: 5
             })
         );
-        let long = frame_from(
-            endpoint_id("human"),
-            Some(EndpointId::parse("a".repeat(52)).expect("a 52-byte label")),
-            None,
-            b"hi",
-        );
-        let error = DirectMessageV2::decode(&long.encode(), MAX_PAYLOAD_BYTES)
+
+        let destination = source.end + 1..source.end + 1 + ENDPOINT_FIELD_BYTES;
+        assert_eq!(usize::from(bytes[source.end]), ENDPOINT_FIELD_BYTES);
+        let mut long = bytes;
+        long.splice(destination, std::iter::repeat_n(b'a', ENDPOINT_FIELD_BYTES));
+        let error = DirectMessageV2::decode(&long, MAX_PAYLOAD_BYTES)
             .expect_err("a 52-byte label is not a derived id");
         assert!(
             matches!(
