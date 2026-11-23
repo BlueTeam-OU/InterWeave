@@ -1236,7 +1236,9 @@ that a PeerId was created.
   screen the person is on by then (Chats, or a conversation opened
   since), as any start refused after the bound does. The record opens
   to C4's PeerId: the service runs. `RecoveryRequired`: K1 over that
-  screen, as at a launch, with C4's PeerId as the expected one.
+  screen, as at a launch, with the PeerId the record names as the
+  expected one (C4's, when this flow's seal wrote the record), as Its
+  results says.
   `LockHeld`: `IdStartBusy` as a session notice (A start refused with
   the profile in use after the bound). The start's prompt cancelled
   or denied: the locked notice, with focus on it (Authentication
