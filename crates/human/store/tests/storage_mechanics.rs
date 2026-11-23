@@ -36,7 +36,7 @@ use interweave_human_store::{
     PageLimits, PageLimitsError, READ_PAIR_CAP, SCHEMA_VERSION, StoreError, StoreOptions, name_key,
 };
 use interweave_transport_api::{
-    ChannelId, DirectDestination, EndpointId, MediaType, MessageId, TransportIdentity,
+    ChannelId, DirectDestination, MediaType, MessageId, TransportIdentity,
 };
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -67,7 +67,9 @@ fn inbound_via(endpoint: &str, id: &str, payload: Vec<u8>) -> NewInbound {
     NewInbound {
         origin: InboundOrigin {
             peer: peer(),
-            endpoint: Some(EndpointId::parse(endpoint).expect("test endpoint is canonical")),
+            endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id(
+                endpoint,
+            )),
             channel: None,
         },
         ..inbound(id, payload)
@@ -2480,7 +2482,7 @@ fn a_v3_database_migrates_to_the_channel_scoped_key_without_losing_rows() {
         .commit_unread_inbound(&NewInbound {
             origin: InboundOrigin {
                 peer: peer(),
-                endpoint: Some(EndpointId::parse("human").expect("canonical")),
+                endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
                 channel: Some(ChannelId::parse("channel-b").expect("canonical")),
             },
             ..inbound(ID_A, b"on b".to_vec())

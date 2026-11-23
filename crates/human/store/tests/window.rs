@@ -23,7 +23,7 @@ fn peer(s: &str) -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("an endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id("human")
 }
 
 fn store() -> (tempfile::TempDir, HumanStore) {
@@ -643,7 +643,7 @@ fn the_shown_conversations_include_a_kept_only_one() {
         .commit_unread_inbound(&NewInbound {
             origin: InboundOrigin {
                 peer: peer(P),
-                endpoint: Some(EndpointId::parse("agent").expect("an endpoint")),
+                endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("agent")),
                 channel: None,
             },
             ..direct(5, P, 5, InboundKind::Other)
@@ -678,7 +678,7 @@ fn the_shown_conversations_include_a_kept_only_one() {
 fn a_reply_target_is_stored_only_in_its_own_conversation() {
     let (_dir, mut store) = store();
     let channel = ChannelId::parse("room").expect("a channel");
-    let other_endpoint = EndpointId::parse("other").expect("an endpoint");
+    let other_endpoint = interweave_test_support::endpoint_keys::endpoint_id("other");
     let id = |n: u32| format!("{n:032x}");
     let direct_p = StoreConversation::Direct {
         peer: peer(P),

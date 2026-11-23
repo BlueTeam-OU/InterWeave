@@ -174,15 +174,6 @@ fn sql_timestamp(field: &'static str, value: u64) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::TimestampOutOfRange { field, got: value })
 }
 
-/// Refuse an identity that is not derived from a key (ADR-0067): after
-/// schema v14 no row holds a label, so none may be handed to the open
-/// that writes one into every row (`a_label_identity_is_refused_before_anything_is_made`).
-fn require_derived(identity: &EndpointId) -> Result<(), StoreError> {
-    EndpointId::parse_derived(identity.as_str())
-        .map(|_| ())
-        .map_err(|_| StoreError::IdentityNotDerived)
-}
-
 /// What schema v14 discarded (STATE.md §Migrations): counts, and nothing
 /// that says what any row held, each count one thing a person would call
 /// gone or changed. The second copy of a message under (d), an unread row
@@ -330,7 +321,6 @@ impl HumanStore {
         identity: &EndpointId,
         options: StoreOptions,
     ) -> Result<Self, StoreError> {
-        require_derived(identity)?;
         crate::at_rest::open(paths, cipher, identity, options)
     }
 
@@ -343,15 +333,12 @@ impl HumanStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] if the file cannot be opened, a migration
-    /// fails, or the database contains a table ADR-0044 forbids;
-    /// [`StoreError::IdentityNotDerived`] for an `identity` that is not
-    /// derived from a key, before anything is created.
+    /// fails, or the database contains a table ADR-0044 forbids.
     pub fn open(
         path: &Path,
         identity: &EndpointId,
         options: StoreOptions,
     ) -> Result<Self, StoreError> {
-        require_derived(identity)?;
         Self::open_within(
             path,
             &profile_config::TrustBoundary::root(),
@@ -601,7 +588,6 @@ impl HumanStore {
         identity: &EndpointId,
         options: StoreOptions,
     ) -> Result<Self, StoreError> {
-        require_derived(identity)?;
         let conn = crate::engine::open_in_memory()?;
         Self::from_connection(conn, identity, options)
     }

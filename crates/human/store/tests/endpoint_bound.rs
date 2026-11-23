@@ -26,7 +26,7 @@ fn peer(s: &str) -> TransportIdentity {
 }
 
 fn endpoint(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("an endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id(s)
 }
 
 fn id(n: u32) -> AppMessageId {

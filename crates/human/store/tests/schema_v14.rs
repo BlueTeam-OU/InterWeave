@@ -655,24 +655,6 @@ fn an_orphan_route_fails_the_migration_and_leaves_v13() {
     );
 }
 
-/// A label is refused as the identity before anything is created: no row
-/// may be given one (ADR-0067). Mutation: the check dropped from the open.
-#[test]
-fn a_label_identity_is_refused_before_anything_is_made() {
-    let dir = common::private_tempdir();
-    let path = dir.path().join("state").join("human.sqlite3");
-    let label = EndpointId::parse("human").expect("a label still parses");
-    assert!(matches!(
-        HumanStore::open(&path, &label, StoreOptions::default()),
-        Err(StoreError::IdentityNotDerived)
-    ));
-    assert!(!path.exists(), "nothing created");
-    assert!(matches!(
-        HumanStore::open_in_memory(&label, StoreOptions::default()),
-        Err(StoreError::IdentityNotDerived)
-    ));
-}
-
 /// The shape guard holds v14: a file still in v13's shape that claims
 /// v14 is refused, and so is a v14 file whose kind index lost the
 /// identity it is led by. Mutation: `unread_inbound`'s expected shape

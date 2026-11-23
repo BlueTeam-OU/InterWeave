@@ -654,7 +654,7 @@ impl HumanStore {
                     peer: TransportIdentity::parse(&peer).map_err(|_| {
                         StoreError::Corrupt("a route's PeerId does not parse".to_owned())
                     })?,
-                    endpoint: EndpointId::parse(&endpoint).map_err(|_| {
+                    endpoint: EndpointId::parse_derived(&endpoint).map_err(|_| {
                         StoreError::Corrupt("a route's EndpointId does not parse".to_owned())
                     })?,
                     identity_key: key_of(key)?,
@@ -1455,7 +1455,7 @@ impl HumanStore {
                 Ok((
                     TransportIdentity::parse(&peer)
                         .map_err(|_| StoreError::Corrupt("a shared card's peer".to_owned()))?,
-                    EndpointId::parse(&endpoint)
+                    EndpointId::parse_derived(&endpoint)
                         .map_err(|_| StoreError::Corrupt("a shared card's endpoint".to_owned()))?,
                     stored_ms("card_shared_at", at)?,
                 ))
@@ -1682,7 +1682,7 @@ mod tests {
             crate::StoreOptions::default(),
         )
         .expect("store");
-        let human = EndpointId::parse("human").expect("an endpoint");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         let peers: Vec<TransportIdentity> = (0..40).map(peer).collect();
         for (n, peer) in peers.iter().enumerate() {
             store

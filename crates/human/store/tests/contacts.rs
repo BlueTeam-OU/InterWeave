@@ -23,7 +23,7 @@ fn peer(s: &str) -> TransportIdentity {
 }
 
 fn endpoint(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("an endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id(s)
 }
 
 fn store() -> (tempfile::TempDir, HumanStore) {
@@ -373,8 +373,9 @@ fn an_identitys_own_card_and_when_a_conversation_shared_it() {
     let human = endpoint("human");
     let made = store.ensure_own_card(&human, 1).expect("made");
     assert_eq!(
-        made.name, "human",
-        "the route label until the person writes a name"
+        made.name,
+        human.as_str(),
+        "the identity's id until the person writes a name"
     );
     let edited = OwnCard {
         name: "Grace".to_owned(),
@@ -755,7 +756,7 @@ fn seed_route(path: &std::path::Path, contact_id: &str, peer: &TransportIdentity
     let conn = rusqlite::Connection::open(path).expect("open");
     conn.execute(
         "INSERT INTO contact_routes (contact_id, local_endpoint_id, peer_id, endpoint_id, identity_key)
-         VALUES (?1, ?4, ?2, 'human', ?3)",
+         VALUES (?1, ?4, ?2, ?4, ?3)",
         rusqlite::params![
             contact_id,
             peer.as_str(),

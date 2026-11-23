@@ -36,7 +36,7 @@ use interweave_human_store::{
 use interweave_profile_config::TrustBoundary;
 use interweave_profile_config::paths::ProfilePaths;
 use interweave_profile_config::profile_format;
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::TransportIdentity;
 use keystore::SoftKeystore;
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -102,7 +102,7 @@ fn fill(store: &mut HumanStore) {
         store.keep(&read, 3_001).expect("kept");
     }
     let p = TransportIdentity::parse(PEER).unwrap();
-    let human = EndpointId::parse("human").unwrap();
+    let human = interweave_test_support::endpoint_keys::endpoint_id("human");
     store
         .accept_card(
             &AcceptedCard {

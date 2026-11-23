@@ -630,7 +630,7 @@ impl HumanStore {
                 conversation: StoreConversation::Direct {
                     peer: TransportIdentity::parse(peer)
                         .map_err(|e| StoreError::Corrupt(e.to_string()))?,
-                    endpoint: EndpointId::parse(endpoint)
+                    endpoint: EndpointId::parse_derived(endpoint)
                         .map_err(|e| StoreError::Corrupt(e.to_string()))?,
                 },
                 unread: u64::try_from(count).unwrap_or(0),
@@ -675,7 +675,7 @@ impl HumanStore {
                 (Some(peer), Some(endpoint), None) => StoreConversation::Direct {
                     peer: TransportIdentity::parse(peer)
                         .map_err(|e| StoreError::Corrupt(e.to_string()))?,
-                    endpoint: EndpointId::parse(endpoint)
+                    endpoint: EndpointId::parse_derived(endpoint)
                         .map_err(|e| StoreError::Corrupt(e.to_string()))?,
                 },
                 (_, _, Some(channel)) => StoreConversation::Channel(

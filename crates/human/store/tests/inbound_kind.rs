@@ -13,7 +13,7 @@ use interweave_human_store::{
     AppMessageId, HumanStore, InboundCounts, InboundKind, InboundOrigin, NewInbound, PageLimits,
     StoreConversation, StoreOptions,
 };
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::TransportIdentity;
 
 const P: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
@@ -34,7 +34,7 @@ fn inbound(n: u8, kind: InboundKind) -> NewInbound {
         app_message_id: AppMessageId::parse(format!("{n:032x}")).expect("an id"),
         origin: InboundOrigin {
             peer: TransportIdentity::parse(P).expect("a PeerId"),
-            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+            endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             channel: None,
         },
         media_type: None,
@@ -266,7 +266,7 @@ fn a_kind_this_build_does_not_know_is_hidden_and_reset_by_reclassification() {
     );
     let conversation = StoreConversation::Direct {
         peer: TransportIdentity::parse(P).expect("a PeerId"),
-        endpoint: EndpointId::parse("human").expect("an endpoint"),
+        endpoint: interweave_test_support::endpoint_keys::endpoint_id("human"),
     };
     let page = store
         .conversation_page(&conversation, None, PageLimits::default())

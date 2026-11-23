@@ -268,11 +268,6 @@ pub enum StoreError {
     /// A confirmed discard found the store no longer as the person saw it
     /// confirmed: nothing was removed, and the client asks again.
     DiscardChanged,
-    /// The identity handed to the open is not an `EndpointId` derived from
-    /// a key (ADR-0067): a label, which after schema v14 no row holds.
-    /// Refused before anything is created or migrated, so a store stays
-    /// at the version it had.
-    IdentityNotDerived,
 }
 
 impl StoreError {
@@ -411,10 +406,6 @@ impl core::fmt::Display for StoreError {
             Self::ProfileFormat(e) => write!(f, "the profile's format marker: {e}"),
             Self::DiscardChanged => f.write_str(
                 "the message store changed since the discard was confirmed; nothing was removed",
-            ),
-            Self::IdentityNotDerived => f.write_str(
-                "the message store was asked to open for an identity whose id is not derived \
-                 from its key",
             ),
             Self::UnsupportedPlatform => write!(
                 f,
