@@ -388,7 +388,7 @@ pub(crate) fn conversation(text: &str) -> Result<ConversationKey, String> {
     Ok(ConversationKey::Direct {
         peer: TransportIdentity::parse(peer).map_err(|e| format!("the peer: {e}"))?,
         endpoint: endpoint
-            .map(|e| EndpointId::parse(e).map_err(|e| format!("the endpoint: {e}")))
+            .map(|e| EndpointId::parse_derived(e).map_err(|e| format!("the endpoint: {e}")))
             .transpose()?,
     })
 }
@@ -941,6 +941,8 @@ mod tests {
         }
         assert!(conversation("not a peer").is_err());
         assert!(conversation(&format!("{PEER}/")).is_err());
+        // A retired label is not an endpoint any more (ADR-0067).
+        assert!(conversation(&format!("{PEER}/human")).is_err());
         assert!(conversation("#").is_err());
     }
 

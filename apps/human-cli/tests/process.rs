@@ -9,6 +9,7 @@
 #![cfg(unix)]
 #![allow(clippy::expect_used)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::process::{Command, Output};
 
 fn human(args: &[&str], xdg: &std::path::Path) -> Output {
@@ -138,7 +139,10 @@ fn a_message_on_stdin_past_its_bound_is_refused_before_anything_opens() {
                 "--profile",
                 "absent",
                 "send",
-                "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN/human",
+                &format!(
+                    "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN/{}",
+                    endpoint_id("human").as_str()
+                ),
                 "-",
             ])
             .env_clear()
