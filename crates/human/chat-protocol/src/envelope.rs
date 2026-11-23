@@ -359,7 +359,7 @@ impl HumanChatV2 {
             None => None,
             Some(v) => Some(
                 v.as_str()
-                    .and_then(|s| EndpointId::parse(s).ok())
+                    .and_then(|s| EndpointId::parse_derived(s).ok())
                     .ok_or(EnvelopeError::MalformedFromEndpoint)?,
             ),
         };
