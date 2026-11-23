@@ -128,8 +128,8 @@ mapped here, and nothing else refuses at open:
 | sealed by another device | `SealedUnreadableHere` | desktop | `KeyOtherDevice` | none; `KeyNoNewKey` |
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | none; `KeyNoNewKey` (the reason line names the update) |
 | damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `endpoint-keys/` is a directory this user owns (a file its owner cannot read) | both | `KeyDamaged` | none; `KeyNoNewKey` |
-| not protected | the read's `NotPrivate` for the file (readable or writable by another user, a link, another user's file), or for an `endpoint-keys/` directory this user owns with a loose mode | both (in practice the desktop) | `KeyExposed` | none; `KeyNoNewKey` |
-| key folder not safe | the read's `NotPrivate` for an `endpoint-keys/` that is a link or not a directory at all; and any read refusal while `endpoint-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder |
+| not protected | the read's `NotPrivate` for the file (readable or writable by another user, a link, another user's file), whatever the directory's mode | both (in practice the desktop) | `KeyExposed` | none; `KeyNoNewKey` |
+| key folder not safe | the read's `NotPrivate` for an `endpoint-keys/` that is a link or not a directory at all; and any read refusal while `endpoint-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal); and an `endpoint-keys/` directory this user owns with a loose mode while the identity's own file is private, which the client tells from the file case by checking the directory's mode itself (Q-loose, REPLY 01a207c7: the key opens again once the folder is private, and nothing outlasts the fix) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder |
 | temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again |
 | missing | no file (§7) | both | `KeyMissing` | none; `KeyNoNewKey` |
 
@@ -147,7 +147,10 @@ below this build's was never written by any release, so it is damage.
 "Not protected" offers no way to tighten the file's permissions: the
 key may already have been read, so it is not used again (architect-cto's,
 §12); from the Stage 22 release only a new identity (§5) shares
-a card again.
+a card again. "Not used again" belongs to the file's own refusal: a
+loose directory this user owns, over a private file, exposes only the
+files' names, and its key opens once the folder is private, never
+while it is loose (Q-loose, REPLY 01a207c7).
 
 Every reason line is followed by the same consequence line,
 `KeyCannotShare`: messages are not affected, and its card cannot be
@@ -270,13 +273,13 @@ button), for every kind that shows `KeyNoNewKey`. For "temporarily
 unusable" it is a text button after Try again, and `KeyNoNewKey` is
 not shown: Try again comes first, as the Stage 21 design had it. It
 is never offered for "key folder not safe", where the person fixes the
-folder and the key can open again (§4.1). Nor, until Q-loose (§12) is
-answered, is it offered for "not protected" when the loose mode is the
-`endpoint-keys/` directory's and not the file's: a new key minted
-into that folder is refused (Q-dir), and making the folder owner-only
-first would let every key in it open again at its next open, the old
-identity's included, against this note's "not used again" (§3). The
-block there shows `KeyNoNewKey` alone, as in part 1.
+folder and the key can open again (§4.1); a loose `endpoint-keys/`
+of this user's over a private file is that kind (Q-loose, §3). Where
+the file is not private either, the identity is "not protected", and
+Replace is offered only once the folder is private: a new key cannot
+be minted into a loose folder (Q-dir), and Replace never changes the
+folder's mode, since that would open every other key in it. While the
+folder is loose that block shows `KeyNoNewKey` alone, as in part 1.
 
 It is offered nowhere else: not in the share sheet (§4.3, whose Open
 your card leads here), not in the list of identities (§4.2's row opens
@@ -646,10 +649,14 @@ On both clients unless said; Android's screen-reader checks blocked as
     snackbar at a new key); item 26 checks the replacement's.
 14. A key file of non-text bytes, and one of mode 0000, each show
     `KeyDamaged`, not `KeyNotNow`.
-15. Desktop: `endpoint-keys/` at mode 0755 shows `KeyExposed` and
-    `KeyNoNewKey`, and no action; the directory's mode is not changed.
-    Under part 2 the same state does not offer Replace either, until
-    Q-loose (§12) is answered (§5.1).
+15. Desktop: `endpoint-keys/` at mode 0755 over a 0600 key file
+    shows `KeyDirUnsafe` with the path and Try again, no `KeyNoNewKey`
+    and no Replace; the directory's mode is not changed; after the
+    person makes it 0700, Try again opens the key and the page shows
+    no block. Over a 0644 key file the same folder shows `KeyExposed`
+    and `KeyNoNewKey`, and no Replace; after the person makes the
+    folder 0700 the page offers Replace (part 2), and the 0644 key
+    still does not open.
 16. Desktop: `endpoint-keys/` replaced by a link to a private directory
     shows `KeyDirUnsafe` with the path and Try again, and no
     `KeyNoNewKey`; the link is not followed, changed or replaced; after
@@ -682,9 +689,8 @@ rust-ui-dev's to provide beside item 26's holding seam; until it
 exists those runs are blocked.
 
 21. With part 2 built: every kind that shows `KeyNoNewKey` shows
-    Replace with a new identity after it, except "not protected" for a
-    loose `endpoint-keys/` directory, which shows no Replace until
-    Q-loose is answered; "temporarily unusable"
+    Replace with a new identity after it, except "not protected" while
+    `endpoint-keys/` is loose (item 15); "temporarily unusable"
     shows Try again, then Replace as a text button, and no
     `KeyNoNewKey`; "key folder not safe" shows Try again alone. Replace
     is not in the share sheet or the list of identities.
@@ -820,7 +826,7 @@ identity's, each as `{identity}` is.
 | `KeyNewFailed` | *retired* InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed before the old file was removed; says nothing about what changed |
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
 | `KeyNewFailedGone` | *retired* The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
-| `KeyDirUnsafe` | This identity's key must be kept in a regular folder that only your user account owns. The location shown is not a folder like that, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again. | §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own |
+| `KeyDirUnsafe` | This identity's key must be kept in a regular folder that only your user account owns. The location shown is not a folder like that, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again. | §3, desktop only; must be true for a symbolic link, a folder owned by another user account, a file where the folder should be, and (Q-loose, 2026-11-23) a folder of this user's that other users can open, for which "only your user account owns" may now read as not enough: language-culture to check; must say what to make of it, since the client never changes what it does not own |
 | `KeyDirUnsafePath` | Folder location: {path} | §4.1 and §4.3, desktop only, the line under `KeyDirUnsafe` wherever it shows; a label and the path, `{path}` last so no punctuation touches it |
 | `KeyNewPending` | *retired* In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11) |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
@@ -873,8 +879,8 @@ identity's, each as `{identity}` is.
 
 Q-file, Q-missing, Q-order and Q-dir's tightening describe the new key
 and the silent first key of Stage 21, withdrawn from the Stage 22
-release (§5, §7); they stay as the record. Whether Replace may
-tighten the folder is Q-loose, below. The answers on refusals and
+release (§5, §7); they stay as the record. Replace never tightens the
+folder (Q-loose, below). The answers on refusals and
 on "key folder not safe" still hold.
 
 For architect-cto (QUESTION 01a16d88), answered by DECISION 01a16d8a
@@ -1001,7 +1007,13 @@ revision:
   practice, and what frees a row, so that `KeyReplaceTrustFull` can say
   what the person can do. Acceptance 33 and 35 wait for it.
 
-Open, for architect-cto, asked after review round 4 on #738 (F18):
+Asked of architect-cto after review round 4 on #738 (F18), and
+answered (a) by REPLY 01a207c7 the same day: "not used again" is the
+key file's own refusal; a refusal only from this user's loose
+directory over a private file ends when the folder is private, and
+no mark outlasts the fix. §3 places that case under "key folder not
+safe"; a file that is not private stays "not protected" whatever the
+folder; §5.1 and acceptance 15 and 21 follow. The question, as asked:
 
 - **Q-loose**: on the desktop, "not protected" can come from the
   `endpoint-keys/` directory alone (this user's, loose mode, each key
@@ -1016,5 +1028,4 @@ Open, for architect-cto, asked after review round 4 on #738 (F18):
   case is "key folder not safe": Try again after the person fixes the
   folder, and §3's sentence is narrowed to the file), or (b) must the
   refusal outlast the folder's fix (a stored mark, the store's), and
-  Replace then tighten the folder first? Until it is answered, Replace
-  is not offered in this case (§5.1) and acceptance 15 and 21 say so.
+  Replace then tighten the folder first?
