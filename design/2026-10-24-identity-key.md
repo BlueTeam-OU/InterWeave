@@ -141,8 +141,10 @@ The client must tell these read refusals apart. `open` gives the
 read's refusal as `IdentityKeyFileError::Read` with its cause
 (`TooLarge`, `NotPrivate`, `DirUnsafe`, or the I/O error's kind). The
 client finds out for itself what the table needs beyond those causes:
-the owner of the file or the folder, and the `ENXIO` or `ENODEV` of the
-"damaged" row. The error's shape is rust-ui-dev's.
+the kind and the owner of the entry at the key path (a permission
+refusal at the open carries neither, and the kind decides before the
+owner: a non-regular entry is "damaged" whoever owns it), the owner of
+the folder, and the `ENXIO` or `ENODEV` of the "damaged" row. The error's shape is rust-ui-dev's.
 A refusal that persists on every attempt is never "temporarily
 unusable", since Try again would repeat it for ever.
 
@@ -716,9 +718,12 @@ On both clients unless said; Android's screen-reader checks blocked as
     in each of the four runs, never `KeyReplaceUnfinished`. In a fifth
     run, a seam makes the unlink of an ordinary key file fail with an
     I/O error: Remove shows `IdentityChangeFailed` (identities §7), the
-    identity is still listed and its key opens; with part 2 built,
-    Replace shows `KeyReplaceUnfinished` with Finish replacing, as with
-    item 31's seam that refuses step 5.
+    identity is still listed and its key opens. With part 2 built, a
+    sixth run uses the same seam on a key file of bytes that are not
+    text, a regular file the page shows as `KeyDamaged` (Replace is not
+    offered for a key that opens, §5.1): Replace shows
+    `KeyReplaceUnfinished` with Finish replacing, as with item 31's seam
+    that refuses step 5.
 15. Desktop, in three runs: `endpoint-keys/` at mode 0755 over a 0600
     key file, over a 0644 key file, and with no key file. Each run
     shows `KeyDirUnsafe` with the path and Try again, no `KeyNoNewKey`
@@ -1162,7 +1167,10 @@ entry.
 architect-cto ruled it the same day (REPLY 01a209d9, ADR-0063
 decision 2): one unlink, or one removal of an empty directory, takes
 the entry; a directory that holds anything is left; Remove and
-Replace complete either way. §5.3 step 5 and acceptance 14 follow,
+Replace complete either way. The second review of #748 corrected that
+last clause (F5, F7; ADR-0063 decision 2 as amended): a path where
+nothing is has nothing to take, and any other failure of the unlink
+or the removal stops the step. §5.3 step 5 and acceptance 14 follow,
 and §11 says why the person is told nothing of an entry left behind.
 The question, as asked:
 
