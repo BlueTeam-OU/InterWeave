@@ -121,12 +121,12 @@ All materialized, and recomputed on every CI run by `tools/checks/verify_fixture
 | GossipSub topic key | `transport/libp2p/PUBSUB.md` topic mapping; golden in ADR-0047 | `fixtures/gossipsub/gossipsub-topic-key-v1.json` |
 | Kademlia network hash / protocol namespace | `docs/architecture/kademlia-integration.md`; golden in ADR-0047 | `fixtures/kademlia/kad-network-namespace-v1.json` |
 | IPC maximum payload/frame (payload-fit invariant; major 3 from the Stage 22 release, ADR-0067 decision 7) | `contracts/LOCAL-IPC.md` §Framing | `fixtures/ipc-v3/ipc-v3-payload-fit.json` |
-| EndpointId grammar vectors | `contracts/ENDPOINTS.md` + `contracts/schemas/endpoints/` | `fixtures/endpoints/endpoint-id-grammar-v1.json` |
+| EndpointId derivation and grammar vectors (ADR-0067: the id is derived from the endpoint's key, and the file's `verdict-*` vectors are the derived grammar's) | `contracts/ENDPOINTS.md` + `contracts/schemas/endpoints/` | `fixtures/endpoints/endpoint-id-derivation-v2.json` |
 | Endpoint directory v1 framing (byte order pinned big-endian in `transport/libp2p/ENDPOINTS.md`) | `transport/libp2p/ENDPOINTS.md` §Endpoint directory protocol | `fixtures/endpoints/endpoint-directory-v1-frame.json` |
 | HumanChatV2 envelope vectors | `clients/human/HUMAN-CHAT.md` + `contracts/schemas/human-chat/` | `fixtures/human-chat-v2/human-chat-v2-envelope.json` |
 | configuration-v2 vectors | `architecture/config/config.schema.yaml` + examples | `fixtures/config/config-v2-cross-field.json` |
 
-Distinctness is a per-algorithm property. Derivation vectors must not collide — two edge cases sharing a digest means they stopped distinguishing anything. Verdict sets (`endpoint-id-grammar-v1`, `human-chat-v2-envelope`, `config-v2-cross-field`) repeat `true` and `false` by design, so the collision rule is off for them.
+Distinctness is a per-algorithm property. Derivation vectors must not collide — two edge cases sharing a digest means they stopped distinguishing anything. Verdict sets (`endpoint-id-derivation-v2`, checked as one set with the derivations it holds beside its verdicts, `human-chat-v2-envelope`, `config-v2-cross-field`) repeat `true` and `false` by design, so the collision rule is off for them.
 
 ### Exit gate
 
