@@ -3,7 +3,7 @@
 This is a list of cases, not a run record. Each case is named by its number
 (D1 and D3 to D7; D2 is withdrawn, below). A comment in `apps/human-android` that says a recreation claim is
 BLOCKED on a device run cites one of them; D6 checks behaviour no comment
-claims, and are run with the rest. A run of these cases is recorded beside
+claims, and is run with the rest. A run of these cases is recorded beside
 this file as a dated record, and that record names each case by its number.
 
 These cases check the native and Kotlin wiring of
@@ -93,7 +93,7 @@ items 10 to 12 do not hold these recreation cases.
 
 ## Status
 
-None of D1 to D7 has run yet. The owed queue's delivery across a window's
+None of D1 and D3 to D7 has run yet. The owed queue's delivery across a window's
 end (`flow_park.rs`, `Owed`) has no case: an answer owed while no window
 holds the flow is not one today's hooks time (they time the service's
 start, not the gap between a window's end and the next window's start),
