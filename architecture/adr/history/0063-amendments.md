@@ -290,6 +290,18 @@ is the one that says nothing was changed. The words are the design note's
 (identities section 7, with language-culture's read) and the code that
 conforms is rust-ui-dev's; as this was ruled, Remove was not built.
 
+The second review of #751 found that ruling too wide (F7). As first
+written it said the identity stays listed and Remove again completes
+after a failure at "whichever later step", the daemon's refusal or a
+lost connection among them. Once the administrative remove has
+committed, the endpoint is gone and so is the identity, and nothing
+had fixed the order of the steps after the key path. Ruled the same
+day in ADR-0061 decision 7 (its amendment of 2026-11-23): the platform
+key, then the store's deletion, then the administrative remove last,
+and a lost answer read back from the endpoint list. Decision 2's
+sentence, the log row and the digest entry now say "until the
+administrative remove commits" and point there.
+
 The first amendment's note gave two bounds that were wrong, and its
 paragraph is corrected in place. It said a loose directory "shows
 other users at most the file names (where it gives them the read bit;

@@ -91,3 +91,45 @@ person cannot see, which the decision forbids. Ruled by architect-cto
 as the design proposed. Propagation: `human-client-ui.md` §10 and
 §13's notification and lock-screen bullets, the plan's §30 exit gate,
 this note, the log row, the digest entry.
+
+### Amendment 2026-11-23 — Remove has one order, and the administrative remove is last
+
+Decision 7 listed what Remove takes and fixed no order. ADR-0063
+decision 2 had put the key path first that day, and said a failure
+after it leaves the identity listed, to be finished by Remove again.
+The second review of InterWeave #751 found that false once the
+administrative remove has committed (F7): the endpoint is gone, so the
+identity is, and a connection lost after the commit, or a store
+deletion that failed after it, left rows or a report of failure for an
+identity no list showed. Ruled by architect-cto on ux-designer-01's
+proposal: the key path, the platform key, the store's rows, then the
+administrative remove last. Every failure before that remove commits
+then leaves the endpoint configured, so the identity is listed, the
+person is told what was removed, and Remove again completes; the one
+state after a commit is a lost answer, which the client reads back
+from `admin.endpoints.list`, as the add's is: the id absent is Remove
+done, and the id present, or a list that does not answer, is a Remove
+that did not finish. A remove of an id no entry holds is the daemon's
+`EndpointUnknown` in the method's contract text, read as done once the
+list confirms it.
+
+One constraint comes with the order. The endpoint keeps its lease
+until the remove commits, so a message could arrive after the store's
+rows were deleted; were it stored and the remove then committed, the
+store would hold rows of an identity no list shows. So the client
+admits nothing to its store for that identity from the deletion until
+Remove completes or the client next starts. That also covers ADR-0028's
+overlay left ahead of the runtime: the remove is answered `Internal`,
+the identity is still served until the next start and gone after it,
+and nothing of it is left by then. How the client declines, and what
+the sender is answered, is rust-ui-dev's to build inside the
+contracts, and theirs to report if no mechanism holds it. Rejected:
+the remove before the store's deletion, which leaves rows of an
+identity no screen shows whenever the deletion fails. As this was
+ruled, Remove was not built and `admin.endpoints.remove` was not on
+`main`.
+
+Propagation: decision 7; ADR-0063 decision 2 with its note, log row
+and digest entry; this note; the log row; the digest entry. The design
+notes (identities section 7 and its acceptance, contact-cards 5.2)
+follow on #751.
