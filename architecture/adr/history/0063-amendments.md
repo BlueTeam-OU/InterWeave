@@ -140,8 +140,9 @@ in it open again (ux-designer's question of 2026-11-23, review of the
 identity-key note).
 
 Ruled: exposed is the file's own state. A directory this user owns at
-a loose mode shows other users the file names, which are EndpointIds
-and public; it gives no other user a read of an owner-only file, and no
+a loose mode shows other users at most the file names (where it gives
+them the read bit; a search bit alone lists nothing), which are
+EndpointIds and public; it gives no other user a read of an owner-only file, and no
 other user can change the mode of a file they do not own. Where the
 loose mode is a write bit, another user could have removed or swapped a
 file, and each such swap is refused at open on its own: another owner's
