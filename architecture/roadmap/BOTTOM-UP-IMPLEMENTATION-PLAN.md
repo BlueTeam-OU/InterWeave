@@ -6397,7 +6397,10 @@ none is the status value's, which stays on this stage.
   and S21-12's step reads `owner`, its cases named and one item owed,
   a `user-presence` seed key invalidated on a device, which needs the
   owner's hand and their word to wipe the phone and is carried at the
-  close if that window does not come.
+  close if that window does not come (A 2026-11-23: it was carried to
+  §30, the case passed on the A40 that day and the step cell reads `—`
+  since #745; §30's carried paragraph has the dated note and its
+  limits).
 - **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
   notification content and the clients' own logs as a shadow archive
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
@@ -8340,6 +8343,28 @@ Android↔desktop path (rust-ui-dev-01); the host Validate rows run
 against `v0.4.0`'s archive (rust-ui-dev-02); the Android update in
 place from `v0.3.0` to `v0.4.0`, the same PeerId from the same store
 (p2p-network-dev-01).
+
+**2026-11-23, S21-12's owed case: passed on the Samsung A40 (API 30).**
+`an_invalidated_user_presence_key_opens_on_k1_and_mints_nothing`
+(`tests/android-e2e/tests/identity_lines.rs`), run by p2p-network-dev-02
+with the owner at the phone
+(`tests/android-e2e/runs/2026-11-23-samsung-a40-s21-12-invalidated-key.md`,
+#745). With a `user-presence` identity made for the run, the owner
+removed the screen lock and set the same PIN again; the seed key's
+alias stayed and was refused (`UnrecoverableKeyException`), and a cold
+launch opened on K1, the recovery page with ADR-0043's warning, with no
+credential prompt and no service, the identity record byte-equal to the
+one read before the change. The row's step cell reads `—` since that
+pull request, and the item is no longer owed. Its limits, by name: the
+pass is the case as at `4ef7723fc`; the wait for a quiet window before
+the K1 reads and the lock reader bounded to user 0's block, both added
+in the review of #745, have run on no phone. One phone: an A40, API 30,
+One UI, no StrongBox. The invalidating change was the PIN's removal,
+not a biometric enrolment or removal. No phone at API 31 or later ran
+it, where the alias may be deleted instead of kept; the app opens K1
+for a missing key and an invalidated one alike, and the run did not
+read which of the two the app itself saw. No restore from the recovery
+phrase followed K1.
 
 ### Record
 
