@@ -429,13 +429,15 @@ The step, in this order:
    removed identity's key path is treated as Remove treats it (ADR-0063
    decision 2, ruled on #748): one unlink, or one removal of an empty
    directory, takes it; a directory that holds anything is left where
-   it is; and a path that holds nothing (the key file already missing)
-   has nothing to take. The step completes in each of those cases, so
-   Finish replacing is never offered because of a directory left there
-   or a key file already missing (§11 says why the person is told nothing
-   of an entry left behind). If that unlink or removal fails for any
-   reason other than a directory that holds anything, the step stops,
-   whatever the entry is (a key file included), as any refusal in
+   it is; and where nothing is at the path (the key file is already
+   missing), there is nothing to take. The step completes in each of
+   those three cases, so Finish replacing is never offered because of
+   a directory left there or a key file already missing (§11 says why
+   the person is told nothing of an entry left behind). A key file
+   already missing is not a failure of the unlink. If that unlink or
+   removal fails for any reason other than a directory that holds
+   anything, the step stops, whatever the entry is (a key file
+   included), as any refusal in
    steps 2 to 5 does: `KeyReplaceUnfinished` and Finish replacing
    (below). For example, each of these stops the step: an entry that
    this user cannot remove, a read-only or busy file system, and an I/O

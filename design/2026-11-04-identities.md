@@ -498,10 +498,10 @@ where focus lands — with its dialog changed for ADR-0067:
   set holds them; nothing on the remaining identities' screens changes.
 - **Its key path** is the first thing Remove takes, as ADR-0063
   decision 2 says (identity-key §5.3 step 5): a directory that holds
-  anything is left and Remove goes on; a path that holds nothing (the
-  key file already missing) has nothing to take, and Remove goes on;
-  every other failure to remove
-  the entry stops Remove before anything else is removed, and the
+  anything is left and Remove goes on; where nothing is at the path
+  (the key file is already missing), there is nothing to take, and
+  Remove goes on; every other failure to remove the entry stops
+  Remove before anything else is removed, and the
   snackbar is `IdentityChangeFailed`'s Remove text; its words "Nothing
   was changed" are then true. Remove never reports done while the key file
   is still there.
@@ -987,8 +987,10 @@ pass before it lands.
     acceptance 14's fifth run): the snackbar is `IdentityChangeFailed`'s
     Remove text, the identity is still listed, and its conversations,
     contacts, trusted set, card and key are all still there. With the
-    key file deleted before Remove (the page shows `KeyMissing`), Remove
-    completes as above, with no `IdentityChangeFailed`. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
+    key file deleted before Remove is chosen (the page shows
+    `KeyMissing`), Remove completes: the identity and everything that
+    the first part of this item lists are gone, and no snackbar shows
+    `IdentityChangeFailed`. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
