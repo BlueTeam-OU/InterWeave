@@ -258,7 +258,14 @@ enum Screen {
         void_paper: bool,
     },
     C1,
-    C2,
+    /// Your 24 words, then, on `peer_page`, C2's `PeerId` page: the words
+    /// and the `PeerId` are never on one page (section 3.2;
+    /// `the_words_and_the_peer_id_are_never_on_one_page`). One screen,
+    /// so every rule of C2 -- the words held until C4, the void-paper
+    /// marker, Back to C1 from the words -- holds on both pages.
+    C2 {
+        peer_page: bool,
+    },
     C3(Check),
     C4 {
         notice: Option<Notice>,
@@ -331,7 +338,11 @@ enum Screen {
         going_offline: bool,
         notice: Option<Notice>,
     },
-    S2,
+    /// As C2: the words, then on `peer_page` the `PeerId` (section 3.5);
+    /// the time on S2 counts both pages.
+    S2 {
+        peer_page: bool,
+    },
     Done,
 }
 
@@ -351,13 +362,15 @@ pub enum ScreenId {
     W,
     /// Before you see your words.
     C1,
-    /// Your 24 words.
+    /// Your 24 words: C2's words page.
     C2,
+    /// C2's `PeerId` page, after the words.
+    C2PeerId,
     /// Check two words.
     C3,
-    /// Identity created.
+    /// `PeerId` created.
     C4,
-    /// Restore your identity.
+    /// Restore your `PeerId`.
     R1,
     /// Enter your 24 words.
     R2,
@@ -369,8 +382,10 @@ pub enum ScreenId {
     K1,
     /// Show your recovery phrase (§3.5).
     S1,
-    /// Your 24 words, on demand.
+    /// Your 24 words, on demand: S2's words page.
     S2,
+    /// S2's `PeerId` page, after the words.
+    S2PeerId,
     /// The flow handed over to Chats or Settings.
     Done,
 }
@@ -378,6 +393,10 @@ pub enum ScreenId {
 /// The identity screens' state.
 pub struct IdentityFlow {
     list: &'static [&'static str],
+    /// The phrase's format identifier, the recovery record's own, which
+    /// the words pages show (section 3.2): the root hands it over with
+    /// the word list, so the client holds no copy of it.
+    format: &'static str,
     screen: Screen,
     /// The unsealed identity's words and `PeerId`, from `created` until
     /// the seal or the discard; S2's words while they show.
@@ -421,10 +440,11 @@ pub struct IdentityFlow {
 }
 
 impl IdentityFlow {
-    /// A flow over `list` (BIP-39's English list on the device), starting
-    /// as `start` says.
+    /// A flow over `list` (BIP-39's English list on the device), whose
+    /// phrases are in `format` (the recovery record's identifier),
+    /// starting as `start` says.
     #[must_use]
-    pub fn new(list: &'static [&'static str], start: Start) -> Self {
+    pub fn new(list: &'static [&'static str], format: &'static str, start: Start) -> Self {
         let mut new_keys = false;
         let screen = match start {
             Start::FirstRun { void_paper } => Screen::Welcome { void_paper },
@@ -443,6 +463,7 @@ impl IdentityFlow {
         };
         Self {
             list,
+            format,
             screen,
             words: None,
             peer: None,
@@ -464,7 +485,8 @@ impl IdentityFlow {
         match &self.screen {
             Screen::Welcome { .. } => ScreenId::W,
             Screen::C1 => ScreenId::C1,
-            Screen::C2 => ScreenId::C2,
+            Screen::C2 { peer_page: false } => ScreenId::C2,
+            Screen::C2 { peer_page: true } => ScreenId::C2PeerId,
             Screen::C3(_) => ScreenId::C3,
             Screen::C4 { .. } => ScreenId::C4,
             Screen::R1 => ScreenId::R1,
@@ -473,7 +495,8 @@ impl IdentityFlow {
             Screen::R4 { .. } => ScreenId::R4,
             Screen::K1 { .. } => ScreenId::K1,
             Screen::S1 { .. } => ScreenId::S1,
-            Screen::S2 => ScreenId::S2,
+            Screen::S2 { peer_page: false } => ScreenId::S2,
+            Screen::S2 { peer_page: true } => ScreenId::S2PeerId,
             Screen::Done => ScreenId::Done,
         }
     }
@@ -537,20 +560,35 @@ impl IdentityFlow {
         }
     }
 
-    /// The words C2 or S2 shows.
+    /// The words C2's or S2's words page shows. None on their `PeerId`
+    /// page, where the words are held and not shown (section 3.2;
+    /// `the_words_and_the_peer_id_are_never_on_one_page`).
     #[must_use]
     pub fn words(&self) -> Option<&Words> {
         match self.screen {
-            Screen::C2 | Screen::S2 => self.words.as_ref(),
+            Screen::C2 { peer_page: false } | Screen::S2 { peer_page: false } => {
+                self.words.as_ref()
+            }
             _ => None,
         }
     }
 
-    /// The `PeerId` C2, C4, R3, R4 or S2 shows.
+    /// The format identifier the words pages show under the words' line
+    /// (section 3.2): wherever [`Self::words`] shows words, and nowhere
+    /// else.
+    #[must_use]
+    pub fn format(&self) -> Option<&'static str> {
+        self.words().map(|_| self.format)
+    }
+
+    /// The `PeerId` C2's or S2's `PeerId` page, C4, R3 or R4 shows. None
+    /// on C2's and S2's words pages (section 3.2).
     #[must_use]
     pub fn peer(&self) -> Option<&TransportIdentity> {
         match &self.screen {
-            Screen::C2 | Screen::C4 { .. } | Screen::S2 => self.peer.as_ref(),
+            Screen::C2 { peer_page: true } | Screen::C4 { .. } | Screen::S2 { peer_page: true } => {
+                self.peer.as_ref()
+            }
             Screen::R3 { derived, .. } => Some(derived),
             Screen::R4 { peer, .. } => peer.as_ref(),
             _ => None,
@@ -601,13 +639,13 @@ impl IdentityFlow {
         matches!(
             self.screen,
             Screen::C1
-                | Screen::C2
+                | Screen::C2 { .. }
                 | Screen::C3(_)
                 | Screen::R1
                 | Screen::R2 { .. }
                 | Screen::R3 { .. }
                 | Screen::S1 { .. }
-                | Screen::S2
+                | Screen::S2 { .. }
         )
     }
 
@@ -714,7 +752,7 @@ impl IdentityFlow {
                 vec![Effect::VoidPaper(false), Effect::Generate]
             }
             Screen::C1 => {
-                self.screen = Screen::C2;
+                self.screen = Screen::C2 { peer_page: false };
                 if self.shown {
                     Vec::new()
                 } else {
@@ -722,7 +760,13 @@ impl IdentityFlow {
                     vec![Effect::VoidPaper(true)]
                 }
             }
-            Screen::C2 => {
+            // The words written (C2), or Next (S2): the PeerId on its own
+            // page. S2's Done there ends the showing.
+            Screen::C2 { peer_page } | Screen::S2 { peer_page } if !*peer_page => {
+                *peer_page = true;
+                Vec::new()
+            }
+            Screen::C2 { .. } => {
                 self.screen = Screen::C3(Check {
                     positions: self.check_positions,
                     done: 0,
@@ -834,7 +878,7 @@ impl IdentityFlow {
                 Vec::new()
             }
             Screen::S1 { going_offline, .. } if !*going_offline => vec![Effect::Prompt],
-            Screen::S2 => self.leave_s2(),
+            Screen::S2 { .. } => self.leave_s2(),
             Screen::C3(_) | Screen::K1 { .. } | Screen::S1 { .. } | Screen::Done => Vec::new(),
         }
     }
@@ -857,8 +901,14 @@ impl IdentityFlow {
                 self.screen = Screen::Welcome { void_paper };
                 vec![Effect::Discard]
             }
-            Screen::C2 => {
-                self.screen = Screen::C1;
+            // From the PeerId page back to the same words; from the words
+            // to C1, the words kept until C4 (section 3.2).
+            Screen::C2 { peer_page } => {
+                if *peer_page {
+                    *peer_page = false;
+                } else {
+                    self.screen = Screen::C1;
+                }
                 Vec::new()
             }
             Screen::C3(check) => {
@@ -870,7 +920,7 @@ impl IdentityFlow {
                 } else if check.entered() {
                     check.discard_asked = true;
                 } else {
-                    self.screen = Screen::C2;
+                    self.screen = Screen::C2 { peer_page: true };
                 }
                 Vec::new()
             }
@@ -928,13 +978,22 @@ impl IdentityFlow {
                     vec![Effect::OpenSettings]
                 }
             }
-            Screen::S2 => self.leave_s2(),
+            // Back from the PeerId page returns to the words; from the
+            // words it is Done (section 3.5).
+            Screen::S2 { peer_page } => {
+                if *peer_page {
+                    *peer_page = false;
+                    Vec::new()
+                } else {
+                    self.leave_s2()
+                }
+            }
         }
     }
 
     /// R2's or C3's discard dialog: delete the words (`true`) or keep
-    /// entering. C3's delete returns to C2, and C3 asks both positions
-    /// again on return.
+    /// entering. C3's delete goes back as C3's Back does, to C2's `PeerId`
+    /// page, and C3 asks both positions again on return.
     pub fn discard(&mut self, delete: bool) {
         match &mut self.screen {
             Screen::R2 { discard_asked, .. } if *discard_asked => {
@@ -946,7 +1005,7 @@ impl IdentityFlow {
             Screen::C3(check) if check.discard_asked => {
                 check.discard_asked = false;
                 if delete {
-                    self.screen = Screen::C2;
+                    self.screen = Screen::C2 { peer_page: true };
                 }
             }
             _ => {}
@@ -1070,8 +1129,8 @@ impl IdentityFlow {
         }
     }
 
-    /// C3, after a wrong word: show the words again (→ C2); the same two
-    /// positions are asked on return. Behind the discard dialog it does
+    /// C3, after a wrong word: show the words again (→ C2's words page);
+    /// the same two positions are asked on return. Behind the discard dialog it does
     /// nothing, as [`Self::primary`].
     pub fn show_words_again(&mut self) {
         if matches!(
@@ -1081,7 +1140,7 @@ impl IdentityFlow {
                 ..
             })
         ) {
-            self.screen = Screen::C2;
+            self.screen = Screen::C2 { peer_page: false };
         }
     }
 
@@ -1516,6 +1575,34 @@ impl IdentityFlow {
         )
     }
 
+    /// The screen now shows a service start the flow asked: held for it
+    /// ([`Self::start_held`]), or showing `IdStartBusy` on C4, R4, R3 or
+    /// R2 -- the screens a showing's start holds
+    /// ([`Self::showing_started`]). A reading of the current screen, not
+    /// of the flow's past: R3's Back off `IdStartBusy`, to R2 and on to
+    /// R1, shows no start. `a_start_shows_on_its_screen_and_goes_with_it`
+    /// holds it.
+    #[must_use]
+    pub const fn start_shows(&self) -> bool {
+        self.start_held()
+            || matches!(
+                self.screen,
+                Screen::C4 {
+                    notice: Some(Notice::StartBusy { .. }),
+                    ..
+                } | Screen::R4 {
+                    notice: Some(Notice::StartBusy { .. }),
+                    ..
+                } | Screen::R3 {
+                    notice: Some(Notice::StartBusy { .. }),
+                    ..
+                } | Screen::R2 {
+                    notice: Some(Notice::StartBusy { .. }),
+                    ..
+                }
+            )
+    }
+
     /// Whether `ConnectStarting` shows under the held Continue, as the
     /// root's clock says: 1 s after the press with no decision, and not
     /// while a system prompt is up (§5.1).
@@ -1781,7 +1868,7 @@ impl IdentityFlow {
             Ok((words, peer)) => {
                 self.words = Some(words);
                 self.peer = Some(peer);
-                self.screen = Screen::S2;
+                self.screen = Screen::S2 { peer_page: false };
                 Vec::new()
             }
             Err(failed) => {
@@ -1925,7 +2012,11 @@ mod tests {
     }
 
     fn created_at_c2() -> IdentityFlow {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         assert_eq!(flow.primary(), [Effect::VoidPaper(false), Effect::Generate]);
         flow.created(words(), mine(), [6, 18]);
         assert_eq!(
@@ -1936,13 +2027,27 @@ mod tests {
         flow
     }
 
+    /// C2's words, its `PeerId` page, then C3.
+    fn created_at_c3() -> IdentityFlow {
+        let mut flow = created_at_c2();
+        assert_eq!(flow.primary(), [], "control: to the PeerId page");
+        assert_eq!(flow.screen(), ScreenId::C2PeerId, "control");
+        assert_eq!(flow.primary(), [], "control: to C3");
+        assert_eq!(flow.screen(), ScreenId::C3, "control");
+        flow
+    }
+
     #[test]
     fn create_shows_words_checks_two_and_seals_only_at_c4() {
         let mut flow = created_at_c2();
         assert_eq!(flow.screen(), ScreenId::C2);
         assert_eq!(flow.words(), Some(&words()));
+        assert_eq!(flow.peer(), None, "no PeerId beside the words");
+        assert_eq!(flow.primary(), [], "I wrote down the words");
+        assert_eq!(flow.screen(), ScreenId::C2PeerId);
+        assert_eq!(flow.words(), None, "no word beside the PeerId");
         assert_eq!(flow.peer(), Some(&mine()));
-        flow.primary();
+        assert_eq!(flow.primary(), [], "I wrote down the PeerId");
         assert_eq!(flow.check(), Some((6, None)));
         enter(&mut flow, "galaxy");
         assert_eq!(flow.check(), Some((18, None)));
@@ -1973,8 +2078,7 @@ mod tests {
     /// here.
     #[test]
     fn a_failed_or_cancelled_seal_gives_continue_back_with_nothing_under_it() {
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         enter(&mut flow, "galaxy");
         enter(&mut flow, "saddle");
         assert_eq!(flow.primary(), [Effect::Seal]);
@@ -2002,8 +2106,7 @@ mod tests {
 
     #[test]
     fn a_wrong_check_word_names_its_position_and_there_is_no_way_past() {
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         enter(&mut flow, "zebra");
         assert_eq!(flow.check(), Some((6, Some(6))));
         assert_eq!(flow.picker().map(WordPicker::typed), Some(""), "cleared");
@@ -2011,14 +2114,21 @@ mod tests {
         assert_eq!(flow.check(), Some((6, None)));
         enter(&mut flow, "zebra");
         flow.show_words_again();
-        assert_eq!(flow.screen(), ScreenId::C2);
+        assert_eq!(flow.screen(), ScreenId::C2, "the words page");
+        assert_eq!(flow.words(), Some(&words()), "the same words");
+        assert_eq!(flow.primary(), [], "the marker is already set");
+        assert_eq!(flow.screen(), ScreenId::C2PeerId);
         assert_eq!(flow.primary(), [], "the marker is already set");
         assert_eq!(flow.check(), Some((6, None)), "the same positions again");
     }
 
     #[test]
     fn back_from_c1_discards_and_warns_of_a_void_paper_only_once_words_showed() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.primary();
         flow.created(words(), mine(), [0, 1]);
         assert_eq!(flow.back(), [Effect::Discard]);
@@ -2034,8 +2144,7 @@ mod tests {
 
     #[test]
     fn a_failed_seal_is_shown_on_c4_and_can_be_tried_again() {
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         enter(&mut flow, "galaxy");
         enter(&mut flow, "saddle");
         flow.primary();
@@ -2056,7 +2165,11 @@ mod tests {
     /// asks for it again (android-key-custody.md, Recovery; #309 F4).
     #[test]
     fn no_word_is_shown_or_taken_until_the_lock_is_held() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.held(Err(StepFailed::Busy));
         assert_eq!(flow.notice(), Some(&Notice::Busy));
         assert_eq!(flow.primary(), [Effect::Hold], "Create waits for the lock");
@@ -2072,6 +2185,7 @@ mod tests {
 
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -2088,7 +2202,11 @@ mod tests {
     /// says so, never on to an empty grid (#309 F7).
     #[test]
     fn an_identity_not_made_is_said_on_welcome_and_create_tries_again() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         assert_eq!(flow.primary(), [Effect::VoidPaper(false), Effect::Generate]);
         flow.not_created(StepFailed::Storage);
         assert_eq!(flow.screen(), ScreenId::W);
@@ -2103,7 +2221,11 @@ mod tests {
 
     #[test]
     fn a_fresh_install_restores_only_the_peer_the_person_confirmed() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: true });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: true },
+        );
         flow.restore();
         flow.primary();
         assert_eq!(flow.screen(), ScreenId::R2);
@@ -2152,6 +2274,7 @@ mod tests {
     fn recovery_restores_against_the_record_with_no_r3_and_refuses_another_identity() {
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -2189,6 +2312,7 @@ mod tests {
     fn a_cancelled_restore_keeps_the_words_and_gives_the_action_back() {
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -2220,7 +2344,11 @@ mod tests {
     #[test]
     fn every_path_into_r2_passes_a_screen_that_warns() {
         let fresh = {
-            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            let mut flow = IdentityFlow::new(
+                LIST,
+                interweave_profile_identity::FORMAT,
+                Start::FirstRun { void_paper: false },
+            );
             assert!(!flow.warns_active_elsewhere(), "Welcome restores nothing");
             flow.restore();
             flow
@@ -2228,6 +2356,7 @@ mod tests {
         let recovery = |reason| {
             IdentityFlow::new(
                 LIST,
+                interweave_profile_identity::FORMAT,
                 Start::Recovery {
                     reason,
                     expected: Some(mine()),
@@ -2252,6 +2381,7 @@ mod tests {
 
         let mut no_restore = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Record,
                 expected: None,
@@ -2270,7 +2400,7 @@ mod tests {
     /// layouts are as they were (#392 review F1).
     #[test]
     fn no_screen_that_shows_or_takes_a_word_warns() {
-        use ScreenId::{C1, C2, C3, C4, R2, R3, R4, S1, S2};
+        use ScreenId::{C1, C2, C2PeerId, C3, C4, R2, R3, R4, S1, S2, S2PeerId};
 
         let mut seen = Vec::new();
         let mut look = |flow: &IdentityFlow| {
@@ -2279,10 +2409,16 @@ mod tests {
             seen.push(flow.screen());
         };
 
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.primary();
         look(&flow);
         flow.created(words(), mine(), [6, 18]);
+        flow.primary();
+        look(&flow);
         flow.primary();
         look(&flow);
         flow.primary();
@@ -2291,7 +2427,11 @@ mod tests {
         enter(&mut flow, "saddle");
         look(&flow);
 
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         fill(&mut flow);
@@ -2303,14 +2443,21 @@ mod tests {
         flow.restored(Ok(()));
         look(&flow);
 
-        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        let mut flow =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
         look(&flow);
         flow.primary();
         flow.prompted(true);
         flow.offline(Ok((words(), mine())));
         look(&flow);
+        flow.primary();
+        look(&flow);
 
-        assert_eq!(seen, [C1, C2, C3, C4, R2, R3, R4, S1, S2], "control");
+        assert_eq!(
+            seen,
+            [C1, C2, C2PeerId, C3, C4, R2, R3, R4, S1, S2, S2PeerId],
+            "control"
+        );
     }
 
     /// Section 3's app bar: the back arrow shows on every screen whose
@@ -2322,10 +2469,14 @@ mod tests {
     /// R4, fails here.
     #[test]
     fn the_back_arrow_shows_where_back_stays_in_the_app() {
-        use ScreenId::{C1, C2, C3, C4, K1, R1, R2, R3, R4, S1, S2, W};
+        use ScreenId::{C1, C2, C2PeerId, C3, C4, K1, R1, R2, R3, R4, S1, S2, S2PeerId, W};
 
         let create = |steps: usize| {
-            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            let mut flow = IdentityFlow::new(
+                LIST,
+                interweave_profile_identity::FORMAT,
+                Start::FirstRun { void_paper: false },
+            );
             if steps > 0 {
                 flow.primary();
             }
@@ -2333,17 +2484,21 @@ mod tests {
                 flow.created(words(), mine(), [6, 18]);
                 flow.primary();
             }
-            if steps > 2 {
+            for _ in 2..steps.min(4) {
                 flow.primary();
             }
-            if steps > 3 {
+            if steps > 4 {
                 enter(&mut flow, "galaxy");
                 enter(&mut flow, "saddle");
             }
             flow
         };
         let restore = |steps: usize| {
-            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            let mut flow = IdentityFlow::new(
+                LIST,
+                interweave_profile_identity::FORMAT,
+                Start::FirstRun { void_paper: false },
+            );
             flow.restore();
             if steps > 0 {
                 flow.primary();
@@ -2360,16 +2515,21 @@ mod tests {
             flow
         };
         let show = |steps: usize| {
-            let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+            let mut flow =
+                IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
             if steps > 0 {
                 flow.primary();
                 flow.prompted(true);
                 flow.offline(Ok((words(), mine())));
             }
+            if steps > 1 {
+                flow.primary();
+            }
             flow
         };
         let k1 = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -2384,6 +2544,7 @@ mod tests {
             create(2),
             create(3),
             create(4),
+            create(5),
             restore(0),
             restore(1),
             restore(2),
@@ -2391,6 +2552,7 @@ mod tests {
             k1,
             show(0),
             show(1),
+            show(2),
         ] {
             let screen = flow.screen();
             let arrow = flow.back_arrow();
@@ -2416,6 +2578,7 @@ mod tests {
                 (W, false),
                 (C1, true),
                 (C2, true),
+                (C2PeerId, true),
                 (C3, true),
                 (C4, false),
                 (R1, true),
@@ -2425,6 +2588,7 @@ mod tests {
                 (K1, false),
                 (S1, true),
                 (S2, true),
+                (S2PeerId, true),
             ]
         );
     }
@@ -2436,7 +2600,11 @@ mod tests {
     #[test]
     fn r1_always_says_new_keys() {
         for void_paper in [false, true] {
-            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper });
+            let mut flow = IdentityFlow::new(
+                LIST,
+                interweave_profile_identity::FORMAT,
+                Start::FirstRun { void_paper },
+            );
             assert!(!flow.says_new_keys(), "Welcome restores nothing");
             flow.restore();
             assert_eq!(flow.screen(), ScreenId::R1);
@@ -2462,6 +2630,7 @@ mod tests {
         let k1 = |reason, expected, new_keys| {
             IdentityFlow::new(
                 LIST,
+                interweave_profile_identity::FORMAT,
                 Start::Recovery {
                     reason,
                     expected,
@@ -2494,6 +2663,7 @@ mod tests {
     fn a_record_naming_no_peer_offers_no_restore_at_all() {
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Record,
                 expected: None,
@@ -2510,6 +2680,7 @@ mod tests {
     fn back_from_r2_after_k1_returns_to_k1_with_its_reason() {
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Record,
                 expected: Some(mine()),
@@ -2528,8 +2699,7 @@ mod tests {
 
     #[test]
     fn a_seal_that_finds_another_identity_shows_already_created_and_opens_it() {
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         enter(&mut flow, "galaxy");
         enter(&mut flow, "saddle");
         flow.primary();
@@ -2549,7 +2719,11 @@ mod tests {
 
     #[test]
     fn back_from_r2_with_words_asks_first_and_keeping_stays() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         assert_eq!(flow.back(), []);
@@ -2585,7 +2759,11 @@ mod tests {
     /// that position; it never opens over the dialog or a check.
     #[test]
     fn r2s_full_list_closes_on_back_or_a_position_and_waits_for_the_dialog() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         enter(&mut flow, "acid");
@@ -2609,7 +2787,11 @@ mod tests {
         assert!(!flow.reviewing());
 
         // A check pending: the list waits for it.
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         fill(&mut flow);
@@ -2625,7 +2807,11 @@ mod tests {
     /// the Back in one batch, which the view cannot refuse.
     #[test]
     fn no_letter_chip_or_enter_reaches_the_words_behind_the_dialog_or_the_list() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         assert!(flow.press('z'));
@@ -2663,8 +2849,7 @@ mod tests {
         assert!(flow.press('b'), "control: the list closed, b is a letter");
 
         // C3 behind its dialog.
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         assert!(flow.press('g'));
         flow.back();
         assert!(flow.discard_asked());
@@ -2716,7 +2901,11 @@ mod tests {
         }
         // A fresh restore: position 6 reopened with "fabri" typed, so
         // Delete, Clear and a letter each have something to change.
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         fill(&mut flow);
@@ -2733,6 +2922,7 @@ mod tests {
         // again of the refused restore, each holding the words.
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -2763,7 +2953,11 @@ mod tests {
     /// dialog closes, then act (#634 review, pre-existing 1).
     #[test]
     fn no_screen_action_runs_behind_the_dialog() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         fill(&mut flow);
@@ -2778,8 +2972,7 @@ mod tests {
             "control: with the dialog closed Check runs"
         );
 
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         enter(&mut flow, "habit");
         assert_eq!(flow.check(), Some((6, Some(6))), "control: a wrong word");
         assert!(flow.press('g'));
@@ -2810,7 +3003,11 @@ mod tests {
     /// and an Enter that takes nothing counts nothing (#634 F3).
     #[test]
     fn chips_taken_counts_each_chip_a_page_took() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         assert_eq!(flow.choose("zebra"), []);
@@ -2830,8 +3027,7 @@ mod tests {
         enter(&mut flow, "acid");
         assert_eq!(flow.chips_taken(), 2, "R2: a chip tapped");
 
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         enter(&mut flow, "habit");
         assert_eq!(flow.check(), Some((6, Some(6))), "control: a wrong word");
         assert_eq!(flow.chips_taken(), 1, "C3: a wrong word counts");
@@ -2851,7 +3047,11 @@ mod tests {
     /// and one behind the discard dialog, which edits nothing, does not.
     #[test]
     fn positions_chosen_counts_each_edit_r2_made() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         assert_eq!(flow.positions_chosen(), 0, "R2 opens on none chosen");
@@ -2871,7 +3071,11 @@ mod tests {
 
     /// R3, a valid check of every word on a fresh install.
     fn at_r3() -> IdentityFlow {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         fill(&mut flow);
@@ -2964,7 +3168,11 @@ mod tests {
     /// review P-2); a cancelled prompt raises none.
     #[test]
     fn notices_raised_counts_each_result_that_raises_one() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         fill(&mut flow);
@@ -2997,6 +3205,7 @@ mod tests {
     fn notices_raised_counts_r2s_results_after_k1() {
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -3024,8 +3233,7 @@ mod tests {
     /// one again included (#698 review F3).
     #[test]
     fn notices_raised_counts_c4s_seal_and_s1s_going_offline() {
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         enter(&mut flow, "galaxy");
         enter(&mut flow, "saddle");
         for raised in 1..=2 {
@@ -3033,7 +3241,8 @@ mod tests {
             flow.sealed(Err(StepFailed::Storage));
             assert_eq!(flow.notices_raised(), raised, "the seal");
         }
-        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        let mut flow =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
         for raised in 1..=2 {
             flow.primary();
             flow.prompted(true);
@@ -3044,13 +3253,12 @@ mod tests {
 
     #[test]
     fn back_from_c3_with_words_asks_first_and_delete_asks_both_again() {
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         assert_eq!(flow.back(), []);
         assert_eq!(
             flow.screen(),
-            ScreenId::C2,
-            "nothing entered: straight back"
+            ScreenId::C2PeerId,
+            "nothing entered: straight back, to C2's PeerId page"
         );
         flow.primary();
         assert!(flow.press('g'));
@@ -3071,8 +3279,11 @@ mod tests {
         assert_eq!(flow.check(), Some((18, None)), "the right word kept");
         flow.back();
         flow.discard(true);
-        assert_eq!(flow.screen(), ScreenId::C2);
-        assert_eq!(flow.words(), Some(&words()), "the identity is kept");
+        assert_eq!(flow.screen(), ScreenId::C2PeerId, "back as C3's Back goes");
+        assert_eq!(flow.peer(), Some(&mine()), "the identity is kept");
+        flow.back();
+        assert_eq!(flow.words(), Some(&words()), "the same words");
+        flow.primary();
         flow.primary();
         assert_eq!(flow.check(), Some((6, None)), "both positions asked again");
         flow.discard(true);
@@ -3081,7 +3292,8 @@ mod tests {
 
     #[test]
     fn show_phrase_prompts_goes_offline_and_restarts_the_service_after() {
-        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        let mut flow =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
         assert_eq!(flow.primary(), [Effect::Prompt]);
         assert_eq!(flow.prompted(false), []);
         assert_eq!(flow.screen(), ScreenId::S1);
@@ -3097,16 +3309,113 @@ mod tests {
         flow.offline(Ok((words(), mine())));
         assert_eq!(flow.screen(), ScreenId::S2);
         assert_eq!(flow.words(), Some(&words()));
-        assert_eq!(flow.peer(), Some(&mine()));
+        assert_eq!(flow.peer(), None, "no PeerId beside the words");
         assert_eq!(flow.back(), [Effect::StartService, Effect::OpenSettings]);
         assert_eq!(flow.words(), None);
+    }
+
+    /// S2's two pages (section 3.5): Next to the `PeerId` page, Back there
+    /// to the same words, and Done -- the `PeerId` page's primary, or Back
+    /// on the words page -- drops both and restarts the service. Mutation:
+    /// sending S2's Next to `leave_s2`, or its `PeerId` page's Back,
+    /// fails here.
+    #[test]
+    fn s2_shows_the_words_then_the_peer_id_and_done_ends_on_either() {
+        let mut flow =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
+        flow.primary();
+        flow.prompted(true);
+        flow.offline(Ok((words(), mine())));
+        assert_eq!(flow.primary(), [], "Next restarts nothing");
+        assert_eq!(flow.screen(), ScreenId::S2PeerId);
+        assert_eq!(flow.words(), None, "no word beside the PeerId");
+        assert_eq!(flow.format(), None, "nor the words' format");
+        assert_eq!(flow.peer(), Some(&mine()));
+        assert!(flow.back_arrow());
+        assert_eq!(flow.back(), [], "back to the words, still offline");
+        assert_eq!(flow.screen(), ScreenId::S2);
+        assert_eq!(flow.words(), Some(&words()), "the same words");
+        flow.primary();
+        assert_eq!(
+            flow.primary(),
+            [Effect::StartService, Effect::OpenSettings],
+            "Done"
+        );
+        assert_eq!(flow.screen(), ScreenId::Done);
+        assert_eq!(flow.words(), None);
+        assert_eq!(flow.peer(), None);
+    }
+
+    /// C2's two pages (section 3.2): the words page's primary opens the
+    /// `PeerId` page, whose Back returns to the same words and whose
+    /// primary opens C3; C3's "Show my words again" returns to the words
+    /// page and its Back to the `PeerId` page. Nothing is sealed or
+    /// discarded on either page. Mutation: sending the words page's
+    /// primary to C3, or the `PeerId` page's Back to C1, fails here.
+    #[test]
+    fn c2s_words_page_and_peer_id_page_lead_to_each_other() {
+        let mut flow = created_at_c2();
+        assert_eq!(flow.primary(), []);
+        assert_eq!(flow.screen(), ScreenId::C2PeerId);
+        assert_eq!(flow.check(), None, "not C3 yet");
+        assert!(flow.back_arrow());
+        assert_eq!(flow.back(), [], "nothing discarded");
+        assert_eq!(flow.screen(), ScreenId::C2);
+        assert_eq!(flow.words(), Some(&words()), "the same words");
+        assert_eq!(flow.back(), [], "the words page's Back");
+        assert_eq!(flow.screen(), ScreenId::C1, "C1, nothing discarded yet");
+        assert_eq!(flow.primary(), [], "the marker is already set");
+        assert_eq!(flow.screen(), ScreenId::C2, "the words page first");
+        assert_eq!(flow.words(), Some(&words()), "the same words on return");
+        flow.primary();
+        flow.primary();
+        assert_eq!(flow.screen(), ScreenId::C3);
+        enter(&mut flow, "zebra");
+        flow.show_words_again();
+        assert_eq!(flow.screen(), ScreenId::C2);
+        flow.primary();
+        flow.primary();
+        assert_eq!(flow.back(), []);
+        assert_eq!(flow.screen(), ScreenId::C2PeerId, "C3's Back");
+    }
+
+    /// The secret words and the public `PeerId` are never on one page, and
+    /// the format identifier shows with the words alone (section 3.2).
+    /// Every page of C2 and S2 is visited and each accessor read there.
+    /// Mutation: letting `words` answer on a `PeerId` page, `peer` on a
+    /// words page, or `format` anywhere the words are not, fails here.
+    #[test]
+    fn the_words_and_the_peer_id_are_never_on_one_page() {
+        let mut c2 = created_at_c2();
+        let mut s2 =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
+        s2.primary();
+        s2.prompted(true);
+        s2.offline(Ok((words(), mine())));
+        for flow in [&mut c2, &mut s2] {
+            for page in 0..2 {
+                let screen = flow.screen();
+                let words = flow.words().is_some();
+                let peer = flow.peer().is_some();
+                assert!(words != peer, "{screen:?}: one of the two, never both");
+                assert_eq!(words, page == 0, "{screen:?}: the words first");
+                assert_eq!(
+                    flow.format(),
+                    words.then_some(interweave_profile_identity::FORMAT),
+                    "{screen:?}: the format with the words alone"
+                );
+                flow.primary();
+            }
+        }
+        assert_eq!(c2.screen(), ScreenId::C3, "control: past both pages");
+        assert_eq!(c2.format(), None, "C3 shows no format");
+        assert_eq!(s2.screen(), ScreenId::Done, "control: past both pages");
     }
 
     /// C4 after its seal, R2 after K1 after its check, and R3: each at
     /// the point where the step's result arrives.
     fn c4_sealing() -> IdentityFlow {
-        let mut flow = created_at_c2();
-        flow.primary();
+        let mut flow = created_at_c3();
         enter(&mut flow, "galaxy");
         enter(&mut flow, "saddle");
         assert_eq!(flow.primary(), [Effect::Seal], "control: the seal");
@@ -3116,6 +3425,7 @@ mod tests {
     fn r2_after_k1_restoring() -> IdentityFlow {
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -3697,6 +4007,59 @@ mod tests {
         for (place, flow) in [("C4", &mut failed), ("R3", &mut r3), ("R4", &mut r4)] {
             assert!(!flow.showing_started(), "{place}: nothing to hold");
             assert!(!flow.start_held(), "{place}: not held");
+        }
+    }
+
+    /// `start_shows` reads the screen now shown (identity note section 6,
+    /// A return or a recreation): on each of the five places a start
+    /// shows while it is held and while `IdStartBusy` shows, and none
+    /// once the flow is off that screen -- R3's Back to R2, R2's discard
+    /// off it, a decided start to Done -- nor on a screen that never asked
+    /// one. So the Activity's check of a recreation after R3's Back off
+    /// `IdStartBusy` restarts nothing under R2 or R1.
+    ///
+    /// Mutations: `start_shows` without its `start_held` (a held C4 shows
+    /// none), without its `StartBusy` arms (C4 under `IdStartBusy` shows
+    /// none), or answering a latch of the start once asked (R3's Back
+    /// still shows one), fails here.
+    #[test]
+    fn a_start_shows_on_its_screen_and_goes_with_it() {
+        for (place, mut flow) in held_starts() {
+            assert!(flow.start_shows(), "{place}: held");
+            flow.start_busy();
+            assert!(flow.start_shows(), "{place}: IdStartBusy");
+            match place {
+                "R3" => {
+                    flow.back();
+                    assert_eq!(flow.screen(), ScreenId::R2, "control: R3's Back");
+                    assert!(!flow.start_shows(), "R3: Back to R2");
+                    // R2's Back with words entered asks the discard dialog.
+                    flow.back();
+                    flow.discard(true);
+                    assert_eq!(flow.screen(), ScreenId::R1, "control: R2's discard");
+                    assert!(!flow.start_shows(), "R3: on to R1");
+                }
+                "R2 after K1" => {
+                    flow.back();
+                    assert!(flow.start_shows(), "R2: the dialog over IdStartBusy");
+                    flow.discard(true);
+                    assert_eq!(flow.screen(), ScreenId::K1, "control: R2's discard");
+                    assert!(!flow.start_shows(), "R2: on to K1");
+                }
+                _ => {
+                    assert_eq!(try_again(place, &mut flow), [Effect::StartService]);
+                    assert_eq!(flow.decided(), [Effect::OpenChats], "{place}");
+                    assert!(!flow.start_shows(), "{place}: Done");
+                }
+            }
+        }
+        let mut failed = c4_sealing();
+        failed.sealed(Err(StepFailed::Busy));
+        let mut r4 = at_r3();
+        r4.primary();
+        r4.restored(Ok(()));
+        for (place, flow) in [("C4", &failed), ("R3", &at_r3()), ("R4", &r4)] {
+            assert!(!flow.start_shows(), "{place}: none asked");
         }
     }
 

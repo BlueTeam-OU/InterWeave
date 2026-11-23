@@ -28,6 +28,10 @@ pub(crate) const R4_HEADING: &str = "r4-heading";
 /// seals and starts the service, is reached by Tab and not by a second
 /// Enter (design section 8).
 pub(crate) const C4_HEADING: &str = "c4-heading";
+/// The title of C2's and S2's `PeerId` page, a stop that takes focus when
+/// the words page's primary opens it, so the reading starts at the top
+/// (design section 8).
+pub(crate) const PEER_ID_HEADING: &str = "peer-id-heading";
 
 /// QWERTY rows of 10, 9 and 7 (section 4.3).
 const QWERTY: [&str; 3] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
@@ -210,6 +214,7 @@ fn screen_id(screen: ScreenId) -> IdScreen {
         ScreenId::W => IdScreen::W,
         ScreenId::C1 => IdScreen::C1,
         ScreenId::C2 => IdScreen::C2,
+        ScreenId::C2PeerId => IdScreen::C2PeerId,
         ScreenId::C3 => IdScreen::C3,
         ScreenId::C4 => IdScreen::C4,
         ScreenId::R1 => IdScreen::R1,
@@ -219,6 +224,7 @@ fn screen_id(screen: ScreenId) -> IdScreen {
         ScreenId::K1 => IdScreen::K1,
         ScreenId::S1 => IdScreen::S1,
         ScreenId::S2 => IdScreen::S2,
+        ScreenId::S2PeerId => IdScreen::S2PeerId,
         ScreenId::Done => IdScreen::Done,
     }
 }
@@ -335,6 +341,115 @@ fn notice(flow: &IdentityFlow, screen: ScreenId, page: &mut IdentityPage) -> boo
     }
     takes_peer
 }
+/// A screen's title, paragraphs and primary, before the statements the
+/// flow owes; `None` on Done, which shows nothing. R3 alone has no title
+/// (section 3.3): its question is what it asks.
+fn screen_texts(
+    flow: &IdentityFlow,
+    screen: ScreenId,
+    already_created: bool,
+    start_busy: bool,
+) -> Option<(Option<UiText>, Vec<UiText>, Option<UiText>)> {
+    let texts = match screen {
+        ScreenId::W => (
+            Some(UiText::IdWelcomeTitle),
+            vec![UiText::IdWelcomeBody],
+            Some(UiText::IdCreate),
+        ),
+        ScreenId::C1 => (
+            Some(UiText::IdC1Title),
+            vec![
+                UiText::IdC1Point1,
+                UiText::IdC1Point2,
+                UiText::IdC1Point3,
+                UiText::IdC1Point4,
+                UiText::IdC1Point5,
+                UiText::IdC1Point6,
+            ],
+            Some(UiText::IdShowWords),
+        ),
+        ScreenId::C2 => (
+            Some(UiText::IdWordsTitle),
+            Vec::new(),
+            Some(UiText::IdWrittenDown),
+        ),
+        ScreenId::C2PeerId => (
+            Some(UiText::IdPeerIdTitle),
+            Vec::new(),
+            Some(UiText::IdPeerIdWritten),
+        ),
+        ScreenId::C3 => (Some(UiText::IdCheckTitle), vec![UiText::IdCheckBody], None),
+        // Under `IdAlreadyCreated` no PeerId was created: the title says
+        // the phone has one, and the body, which calls the PeerId shown
+        // this identity, goes. Try again takes Continue's place while a
+        // notice that retries shows (section 6).
+        ScreenId::C4 if already_created => (
+            Some(UiText::IdAlreadyTitle),
+            Vec::new(),
+            Some(continue_or_try_again(start_busy)),
+        ),
+        ScreenId::C4 => (
+            Some(UiText::IdCreatedTitle),
+            vec![UiText::IdCreatedBody],
+            Some(continue_or_try_again(
+                start_busy || flow.notice().is_some_and(Notice::retries),
+            )),
+        ),
+        ScreenId::R1 => (
+            Some(UiText::IdR1Title),
+            vec![UiText::IdR1Body, UiText::IdR1Settings],
+            Some(UiText::IdEnterWords),
+        ),
+        ScreenId::R2 => (
+            Some(UiText::IdR1Title),
+            Vec::new(),
+            Some(UiText::IdCheckWords),
+        ),
+        ScreenId::R3 => (None, Vec::new(), Some(UiText::IdR3Yes)),
+        ScreenId::R4 => (
+            Some(UiText::IdRestoredTitle),
+            vec![UiText::IdCreatedBody],
+            Some(continue_or_try_again(start_busy)),
+        ),
+        ScreenId::K1 => k1_texts(flow),
+        ScreenId::S1 => (
+            Some(UiText::IdS1Title),
+            vec![UiText::IdS1Body, UiText::IdC1Point5],
+            Some(UiText::IdS1Unlock),
+        ),
+        ScreenId::S2 => (Some(UiText::IdWordsTitle), Vec::new(), Some(UiText::IdNext)),
+        ScreenId::S2PeerId => (
+            Some(UiText::IdPeerIdTitle),
+            Vec::new(),
+            Some(UiText::IdDone),
+        ),
+        ScreenId::Done => return None,
+    };
+    Some(texts)
+}
+
+/// K1's title, reason and primary. With no `PeerId` on the record there is
+/// nothing to restore against: no primary, and a title and reason that
+/// ask for no phrase (section 3.4).
+fn k1_texts(flow: &IdentityFlow) -> (Option<UiText>, Vec<UiText>, Option<UiText>) {
+    if !flow.can_restore() {
+        return (
+            Some(UiText::IdQTitleNoPath),
+            vec![UiText::IdQReasonNoPath],
+            None,
+        );
+    }
+    let reason = match flow.recovery().map(|(reason, _)| reason) {
+        Some(RecoveryReason::Record) => UiText::IdQReasonRecord,
+        _ => UiText::IdQReasonKey,
+    };
+    (
+        Some(UiText::IdQTitle),
+        vec![reason],
+        Some(UiText::IdEnterPhrase),
+    )
+}
+
 /// C4's and R4's primary: Try again in Continue's place while a notice
 /// it answers shows (section 6).
 const fn continue_or_try_again(again: bool) -> UiText {
@@ -374,79 +489,10 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
     // Try again in Continue's place: C4's and R4's primary makes one
     // service start under `IdStartBusy` (section 6).
     let start_busy = matches!(flow.notice(), Some(Notice::StartBusy { .. }));
-    // R3 alone has no title (section 3.3): its question is what it asks.
-    let (title, paragraphs, primary): (Option<UiText>, Vec<UiText>, Option<UiText>) = match screen {
-        ScreenId::W => (
-            Some(UiText::IdWelcomeTitle),
-            vec![UiText::IdWelcomeBody],
-            Some(UiText::IdCreate),
-        ),
-        ScreenId::C1 => (
-            Some(UiText::IdC1Title),
-            vec![
-                UiText::IdC1Point1,
-                UiText::IdC1Point2,
-                UiText::IdC1Point3,
-                UiText::IdC1Point4,
-                UiText::IdC1Point5,
-            ],
-            Some(UiText::IdShowWords),
-        ),
-        ScreenId::C2 => (
-            Some(UiText::IdWordsTitle),
-            Vec::new(),
-            Some(UiText::IdWrittenDown),
-        ),
-        ScreenId::C3 => (Some(UiText::IdCheckTitle), vec![UiText::IdCheckBody], None),
-        // Under `IdAlreadyCreated` no PeerId was created: the title says
-        // the phone has one, and the body, which calls the PeerId shown
-        // this identity, goes. Try again takes Continue's place while a
-        // notice that retries shows (section 6).
-        ScreenId::C4 if already_created => (
-            Some(UiText::IdAlreadyTitle),
-            Vec::new(),
-            Some(continue_or_try_again(start_busy)),
-        ),
-        ScreenId::C4 => (
-            Some(UiText::IdCreatedTitle),
-            vec![UiText::IdCreatedBody],
-            Some(continue_or_try_again(
-                start_busy || flow.notice().is_some_and(Notice::retries),
-            )),
-        ),
-        ScreenId::R1 => (
-            Some(UiText::IdR1Title),
-            vec![UiText::IdR1Body, UiText::IdR1Settings],
-            Some(UiText::IdEnterWords),
-        ),
-        ScreenId::R2 => (
-            Some(UiText::IdR1Title),
-            Vec::new(),
-            Some(UiText::IdCheckWords),
-        ),
-        ScreenId::R3 => (None, Vec::new(), Some(UiText::IdR3Yes)),
-        ScreenId::R4 => (
-            Some(UiText::IdRestoredTitle),
-            vec![UiText::IdCreatedBody],
-            Some(continue_or_try_again(start_busy)),
-        ),
-        ScreenId::K1 => {
-            let reason = match flow.recovery().map(|(reason, _)| reason) {
-                Some(RecoveryReason::Record) => UiText::IdQReasonRecord,
-                _ => UiText::IdQReasonKey,
-            };
-            // With no PeerId on the record there is nothing to restore
-            // against: the reason and the way out only (section 3.4).
-            let primary = flow.can_restore().then_some(UiText::IdEnterPhrase);
-            (Some(UiText::IdQTitle), vec![reason], primary)
-        }
-        ScreenId::S1 => (
-            Some(UiText::IdS1Title),
-            vec![UiText::IdS1Body],
-            Some(UiText::IdS1Unlock),
-        ),
-        ScreenId::S2 => (Some(UiText::IdWordsTitle), Vec::new(), Some(UiText::IdDone)),
-        ScreenId::Done => return page,
+    let Some((title, paragraphs, primary)) =
+        screen_texts(flow, screen, already_created, start_busy)
+    else {
+        return page;
     };
     page.title = title.map(text).unwrap_or_default().into();
     // Last, after what the screen is for: the statements the flow owes
@@ -471,6 +517,15 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
     if screen == ScreenId::W && flow.void_paper() {
         page.notice = text(UiText::IdVoidPaper).into();
     }
+    // Above the words: what the phrase is, then its format identifier
+    // after a label (section 3.2). The identifier is the flow's, which the
+    // root handed over from the recovery record, so it shows only where
+    // the words do (`c2_shows_the_words_then_the_peer_id_on_its_own_page`).
+    if let Some(format) = flow.format() {
+        page.words_note = text(UiText::IdNotWalletSeed).into();
+        page.format_label = text(UiText::IdFormatLine).into();
+        page.format_id = format.into();
+    }
     if let Some(words) = flow.words() {
         page.words = ModelRc::new(VecModel::from(
             words
@@ -484,14 +539,24 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
                 .collect::<Vec<_>>(),
         ));
     }
+    // On C2's and S2's PeerId page the title names the PeerId, and the
+    // note follows it, under the PeerId (sections 5 and 9).
+    let peer_note = match screen {
+        ScreenId::C2PeerId => Some(UiText::IdPeerIdLabel),
+        ScreenId::S2PeerId => Some(UiText::IdPeerIdNoteShown),
+        _ => None,
+    };
+    if let (Some(note), Some(peer)) = (peer_note, flow.peer()) {
+        page.peer_note = text(note).into();
+        page.peer_groups = grouped(peer).into();
+    }
     let peer_label = match screen {
-        ScreenId::C2 | ScreenId::S2 => Some(UiText::IdPeerIdLabel),
         ScreenId::C4 | ScreenId::R4 => Some(UiText::IdPeerIdLabelShown),
         ScreenId::R3 => Some(UiText::IdDerivedPeerId),
         _ => None,
     };
     // The PeerId `peer_groups` shows, for a Copy under it.
-    let mut shown = None;
+    let mut shown = peer_note.and(flow.peer());
     // Under `IdAlreadyCreated` C4's PeerId is not the person's: hidden,
     // with its label and Copy (section 6).
     if let (Some(label), Some(peer), false) = (peer_label, flow.peer(), already_created) {
@@ -553,21 +618,29 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::R3 => r3(flow, &mut page),
         ScreenId::R4 => page.heading_key = R4_HEADING.into(),
         ScreenId::C4 => page.heading_key = C4_HEADING.into(),
+        ScreenId::C2PeerId | ScreenId::S2PeerId => page.heading_key = PEER_ID_HEADING.into(),
         ScreenId::K1 => {
             page.heading_key = K1_HEADING.into();
-            page.footnote = text(UiText::IdQLost).into();
+            let way_out = if flow.can_restore() {
+                UiText::IdQLost
+            } else {
+                UiText::IdQNoPath
+            };
+            page.footnote = text(way_out).into();
         }
         ScreenId::S1 if flow.waiting() => page.waiting = text(UiText::IdGoingOffline).into(),
         _ => {}
     }
-    // Copy PeerId under C4's, R3's and R4's PeerId (section 5); not on C4
-    // while `IdAlreadyCreated` says the words were not used, since its
-    // PeerId is not the person's (section 6); a banner's PeerId has none. C2 and
-    // S2 show their words beside the PeerId, and a screen that shows
-    // words has no copy (section 5), so theirs waits on the PeerId's own
-    // page.
-    if let (ScreenId::C4 | ScreenId::R3 | ScreenId::R4, Some(peer), false) =
-        (screen, shown, already_created)
+    // Copy PeerId under the PeerId of C2's and S2's PeerId pages, C4, R3
+    // and R4 (section 5); not on C4 while `IdAlreadyCreated` says the
+    // words were not used, since its PeerId is not the person's (section
+    // 6); a banner's PeerId has none, and neither has a words page, which
+    // shows no PeerId (`copy_peer_id_is_built_where_section_5_puts_it`).
+    if let (
+        ScreenId::C2PeerId | ScreenId::S2PeerId | ScreenId::C4 | ScreenId::R3 | ScreenId::R4,
+        Some(peer),
+        false,
+    ) = (screen, shown, already_created)
     {
         page.copy_label = text(UiText::CopyPeerId).into();
         page.peer_id = peer.as_str().into();
@@ -617,13 +690,21 @@ mod tests {
 
     #[test]
     fn welcome_offers_create_and_restore_and_warns_of_a_void_paper() {
-        let flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: true });
+        let flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: true },
+        );
         let page = page(&flow);
         assert_eq!(page.title, en(UiText::IdWelcomeTitle));
         assert_eq!(page.primary, en(UiText::IdCreate));
         assert_eq!(page.secondary, en(UiText::IdRestore));
         assert_eq!(page.notice, en(UiText::IdVoidPaper));
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         assert_eq!(page_of(&mut flow, &[]).notice, "");
         apply(&mut flow, IdentityInput::Secondary);
         assert_eq!(flow.screen(), ScreenId::R1);
@@ -647,7 +728,11 @@ mod tests {
                 .iter()
                 .any(|p| p == en(UiText::IdActiveElsewhere))
         };
-        let mut fresh = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut fresh = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         assert!(!shows(&page(&fresh)), "Welcome restores nothing");
         let r1 = page_of(&mut fresh, &[IdentityInput::Secondary]);
         assert_eq!(r1.paragraphs.row_data(1), Some(en(UiText::IdR1Settings)));
@@ -658,6 +743,7 @@ mod tests {
         let k1 = |expected| {
             page(&IdentityFlow::new(
                 LIST,
+                interweave_profile_identity::FORMAT,
                 Start::Recovery {
                     reason: RecoveryReason::Key,
                     expected,
@@ -672,6 +758,42 @@ mod tests {
         );
         assert!(shows(&with_restore));
         assert!(!shows(&k1(None)), "no restore, no phrase taken");
+    }
+
+    /// K1 over a record that names no readable `PeerId` offers no restore,
+    /// so nothing on it asks for the phrase or suggests the words would
+    /// help: its own title, reason and way out, and no primary (section
+    /// 3.4), whatever the cause.
+    #[test]
+    fn k1_with_no_path_asks_for_no_phrase() {
+        for reason in [RecoveryReason::Key, RecoveryReason::Record] {
+            let k1 = |expected| {
+                page(&IdentityFlow::new(
+                    LIST,
+                    interweave_profile_identity::FORMAT,
+                    Start::Recovery {
+                        reason,
+                        expected,
+                        new_keys: false,
+                    },
+                ))
+            };
+            let none = k1(None);
+            assert_eq!(none.title, en(UiText::IdQTitleNoPath), "{reason:?}");
+            assert_eq!(none.paragraphs.row_count(), 1, "{reason:?}");
+            assert_eq!(
+                none.paragraphs.row_data(0),
+                Some(en(UiText::IdQReasonNoPath)),
+                "{reason:?}"
+            );
+            assert_eq!(none.footnote, en(UiText::IdQNoPath), "{reason:?}");
+            assert!(none.primary.is_empty(), "{reason:?}");
+
+            let some = k1(Some(mine()));
+            assert_eq!(some.title, en(UiText::IdQTitle), "{reason:?}");
+            assert_eq!(some.footnote, en(UiText::IdQLost), "{reason:?}");
+            assert_eq!(some.primary, en(UiText::IdEnterPhrase), "{reason:?}");
+        }
     }
 
     /// The page binds item 12's line right after the ADR-0043 warning,
@@ -690,7 +812,11 @@ mod tests {
         let shows_new_keys =
             |page: &IdentityPage| page.paragraphs.iter().any(|p| p == en(UiText::IdR1NewKeys));
 
-        let mut fresh = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut fresh = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         let r1 = page_of(&mut fresh, &[IdentityInput::Secondary]);
         assert_eq!(tail(&r1), both);
         let r2 = page_of(&mut fresh, &[IdentityInput::Primary]);
@@ -699,6 +825,7 @@ mod tests {
         let k1 = |new_keys| {
             page(&IdentityFlow::new(
                 LIST,
+                interweave_profile_identity::FORMAT,
                 Start::Recovery {
                     reason: RecoveryReason::Key,
                     expected: Some(mine()),
@@ -718,23 +845,96 @@ mod tests {
         );
     }
 
+    /// C2's words page: the 24 numbered words under the not-a-wallet-seed
+    /// line and the format line, which carries the identifier the flow was
+    /// given, and no `PeerId` and no Copy (section 3.2). Its `PeerId`
+    /// page: the title, the `PeerId` with its note and Copy, no word and
+    /// no format, and the title a stop (section 8). Mutation: dropping
+    /// the format lines from `page`, or giving the words page the
+    /// `PeerId`, fails here.
     #[test]
-    fn c2_shows_24_numbered_words_and_the_peer_id_to_write_down() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+    fn c2_shows_the_words_then_the_peer_id_on_its_own_page() {
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply(&mut flow, IdentityInput::Primary);
         flow.created(words(), mine(), [3, 9]);
         let page = page_of(&mut flow, &[IdentityInput::Primary]);
+        assert_eq!(page.screen, IdScreen::C2);
+        assert_eq!(page.title, en(UiText::IdWordsTitle));
         assert_eq!(page.words.row_count(), PHRASE_WORDS);
         let first = page.words.row_data(0).expect("a word");
         assert_eq!((first.number, first.word.as_str()), (1, "acid"));
-        assert_eq!(page.peer_label, en(UiText::IdPeerIdLabel));
-        assert_eq!(page.peer_groups, grouped(&mine()));
+        assert_eq!(page.words_note, en(UiText::IdNotWalletSeed));
+        assert_eq!(page.format_label, en(UiText::IdFormatLine));
+        assert_eq!(page.format_id, interweave_profile_identity::FORMAT);
+        assert_eq!(page.peer_groups, "", "no PeerId beside the words");
+        assert_eq!(page.peer_id, "");
+        assert_eq!(page.copy_label, "");
+        assert_eq!(page.heading_key, "");
         assert_eq!(page.primary, en(UiText::IdWrittenDown));
+
+        let page = page_of(&mut flow, &[IdentityInput::Primary]);
+        assert_eq!(page.screen, IdScreen::C2PeerId);
+        assert_eq!(page.title, en(UiText::IdPeerIdTitle));
+        assert_eq!(page.heading_key, PEER_ID_HEADING, "the title is a stop");
+        assert_eq!(page.words.row_count(), 0, "no word beside the PeerId");
+        assert_eq!(page.words_note, "");
+        assert_eq!(page.format_id, "");
+        assert_eq!(page.peer_groups, grouped(&mine()));
+        assert_eq!(page.peer_label, "", "the title names it");
+        assert_eq!(page.peer_note, en(UiText::IdPeerIdLabel));
+        assert_eq!(page.copy_label, en(UiText::CopyPeerId));
+        assert_eq!(page.peer_id.as_str(), mine().as_str());
+        assert_eq!(page.primary, en(UiText::IdPeerIdWritten));
+        assert!(page.back_arrow);
+
+        let page = page_of(&mut flow, &[IdentityInput::Back]);
+        assert_eq!(page.screen, IdScreen::C2, "Back: the words again");
+        assert_eq!(page.words.row_count(), PHRASE_WORDS);
+    }
+
+    /// S2's words page has Next where C2 has `IdWrittenDown`, and its
+    /// `PeerId` page the note for a `PeerId` already written and Done
+    /// (section 3.5). Mutation: S2's words page with Done, or its
+    /// `PeerId` page with C2's note, fails here.
+    #[test]
+    fn s2_shows_the_words_with_next_then_the_peer_id_with_done() {
+        let mut flow =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
+        apply(&mut flow, IdentityInput::Primary);
+        flow.prompted(true);
+        flow.offline(Ok((words(), mine())));
+        let page = page(&flow);
+        assert_eq!(page.screen, IdScreen::S2);
+        assert_eq!(page.title, en(UiText::IdWordsTitle));
+        assert_eq!(page.words.row_count(), PHRASE_WORDS);
+        assert_eq!(page.words_note, en(UiText::IdNotWalletSeed));
+        assert_eq!(page.format_id, interweave_profile_identity::FORMAT);
+        assert_eq!(page.peer_groups, "");
+        assert_eq!(page.primary, en(UiText::IdNext));
+
+        let page = page_of(&mut flow, &[IdentityInput::Primary]);
+        assert_eq!(page.screen, IdScreen::S2PeerId);
+        assert_eq!(page.title, en(UiText::IdPeerIdTitle));
+        assert_eq!(page.heading_key, PEER_ID_HEADING);
+        assert_eq!(page.words.row_count(), 0);
+        assert_eq!(page.format_id, "");
+        assert_eq!(page.peer_groups, grouped(&mine()));
+        assert_eq!(page.peer_note, en(UiText::IdPeerIdNoteShown));
+        assert_eq!(page.copy_label, en(UiText::CopyPeerId));
+        assert_eq!(page.primary, en(UiText::IdDone));
     }
 
     #[test]
     fn the_keypad_disables_dead_letters_and_r2_checks_only_when_complete() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         let page = page_of(
             &mut flow,
             &[IdentityInput::Secondary, IdentityInput::Primary],
@@ -777,6 +977,7 @@ mod tests {
     fn another_identity_shows_both_peer_ids_and_storage_failure_offers_try_again() {
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             interweave_human_ui_model::Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -831,6 +1032,7 @@ mod tests {
     fn r2_after_k1_restoring() -> IdentityFlow {
         let mut flow = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -902,7 +1104,11 @@ mod tests {
         r2.set_starting(true);
         assert_eq!(page(&r2).starting, en(UiText::ConnectStarting));
 
-        let mut r3 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut r3 = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply(&mut r3, IdentityInput::Secondary);
         apply(&mut r3, IdentityInput::Primary);
         type_all(&mut r3);
@@ -983,7 +1189,11 @@ mod tests {
     /// were, fails here.
     #[test]
     fn r3s_notice_action_is_its_own_and_the_restore_holds_the_page() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply(&mut flow, IdentityInput::Secondary);
         apply(&mut flow, IdentityInput::Primary);
         for (at, word) in words().into_iter().enumerate() {
@@ -1047,16 +1257,15 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::R2, "control: R2");
     }
 
-    /// Copy `PeerId` is built under C4's, R3's and R4's `PeerId`, and on no
-    /// other page that shows one. Section 5 also puts it on C2's and S2's
-    /// `PeerId` pages; their rows here change when those pages are built
-    /// (today C2 and S2 show their words beside the `PeerId`). R2's
-    /// `IdOtherIdentity` banner has none. C4, R3 and R4 are the controls.
+    /// Copy `PeerId` is built under the `PeerId` of C2's and S2's `PeerId`
+    /// pages, C4, R3 and R4 (section 5), and on no other page: never on
+    /// a words page, and not under R2's `IdOtherIdentity` banner.
     /// Mutation: `page`'s copy arm matching any screen (`(_, Some(peer))`)
-    /// fails here. `IdOtherIdentity` shows only on R2, which has no Copy,
-    /// so its `shown = None` is not observable; `IdRestoreOther` on R3 is.
+    /// fails here, as does dropping the `PeerId` pages from it.
+    /// `IdOtherIdentity` shows only on R2, which has no Copy, so its
+    /// `shown = None` is not observable; `IdRestoreOther` on R3 is.
     #[test]
-    fn copy_peer_id_is_built_on_c4_r3_and_r4() {
+    fn copy_peer_id_is_built_where_section_5_puts_it() {
         let copies = |page: &IdentityPage| {
             (
                 page.copy_label == en(UiText::CopyPeerId),
@@ -1064,27 +1273,48 @@ mod tests {
             )
         };
 
-        let mut c2 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut c2 = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply(&mut c2, IdentityInput::Primary);
         c2.created(words(), mine(), [3, 9]);
+        let c2_words = page_of(&mut c2, &[IdentityInput::Primary]);
+        assert!(
+            c2_words.words.row_count() > 0,
+            "control: C2 shows its words"
+        );
+        assert_eq!(copies(&c2_words), (false, false), "C2's words page");
         let c2 = page_of(&mut c2, &[IdentityInput::Primary]);
         assert!(!c2.peer_groups.is_empty(), "control: C2 shows its PeerId");
-        assert_eq!(copies(&c2), (false, false), "C2");
+        assert_eq!(copies(&c2), (true, true), "C2's PeerId page");
 
-        let mut s2 = IdentityFlow::new(LIST, Start::ShowPhrase);
+        let mut s2 =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
         apply(&mut s2, IdentityInput::Primary);
         s2.prompted(true);
         s2.offline(Ok((words(), mine())));
         assert_eq!(s2.screen(), ScreenId::S2, "control: S2");
-        let s2 = page(&s2);
+        let s2_words = page(&s2);
+        assert!(
+            s2_words.words.row_count() > 0,
+            "control: S2 shows its words"
+        );
+        assert_eq!(copies(&s2_words), (false, false), "S2's words page");
+        let s2 = page_of(&mut s2, &[IdentityInput::Primary]);
         assert!(!s2.peer_groups.is_empty(), "control: S2 shows its PeerId");
-        assert_eq!(copies(&s2), (false, false), "S2");
+        assert_eq!(copies(&s2), (true, true), "S2's PeerId page");
 
         let c4 = page(&at_c4());
         assert!(!c4.peer_groups.is_empty(), "control: C4 shows its PeerId");
         assert_eq!(copies(&c4), (true, true), "C4");
 
-        let mut r2 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut r2 = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply(&mut r2, IdentityInput::Secondary);
         apply(&mut r2, IdentityInput::Primary);
         type_all(&mut r2);
@@ -1092,6 +1322,7 @@ mod tests {
         // An OtherIdentity banner needs an expected PeerId: R2 after K1.
         let mut k1 = IdentityFlow::new(
             LIST,
+            interweave_profile_identity::FORMAT,
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
@@ -1118,7 +1349,11 @@ mod tests {
     /// asks for the lock again rather than opening Restore (#309 F4).
     #[test]
     fn welcome_unheld_shows_busy_and_try_again_asks_for_the_lock() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.held(Err(StepFailed::Busy));
         let page = page(&flow);
         assert_eq!(page.notice, en(UiText::IdBusy));
@@ -1127,12 +1362,22 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::W);
     }
 
+    /// S1 says, under its body, what the words do not restore: C1's fifth
+    /// point (identity note section 3.5, the `IdC1Point5` row).
+    #[test]
+    fn s1_says_what_the_words_do_not_restore_under_its_body() {
+        let flow = IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
+        let s1 = page(&flow);
+        assert_eq!(s1.paragraphs.row_data(0), Some(en(UiText::IdS1Body)));
+        assert_eq!(s1.paragraphs.row_data(1), Some(en(UiText::IdC1Point5)));
+    }
+
     /// S1's primary raises the system prompt: it has a key of its own,
     /// never C4's and R4's Continue, which moves on (the owner, on the
     /// Pixel; language-culture-en, REPLY 01a15d22).
     #[test]
     fn s1_asks_to_unlock_where_c4_continues() {
-        let flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        let flow = IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
         assert_eq!(page(&flow).primary, en(UiText::IdS1Unlock));
         assert_ne!(en(UiText::IdS1Unlock), en(UiText::IdContinue));
 
@@ -1141,11 +1386,17 @@ mod tests {
     }
 
     fn at_c4() -> IdentityFlow {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply(&mut flow, IdentityInput::Primary);
         flow.created(words(), mine(), [3, 9]);
-        apply(&mut flow, IdentityInput::Primary);
-        apply(&mut flow, IdentityInput::Primary);
+        // C2's words, its PeerId page, then C3.
+        for _ in 0..3 {
+            apply(&mut flow, IdentityInput::Primary);
+        }
         for _ in 0..2 {
             let (position, _) = flow.check().expect("C3 checks a word");
             let word = words()[position];
@@ -1191,7 +1442,8 @@ mod tests {
 
     #[test]
     fn s1_shows_going_offline_in_place_of_its_action() {
-        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        let mut flow =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
         apply(&mut flow, IdentityInput::Primary);
         flow.prompted(true);
         let page = page(&flow);
@@ -1202,7 +1454,8 @@ mod tests {
     /// offline (acceptance 15).
     #[test]
     fn the_back_arrow_is_inactive_while_the_page_waits() {
-        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        let mut flow =
+            IdentityFlow::new(LIST, interweave_profile_identity::FORMAT, Start::ShowPhrase);
         apply(&mut flow, IdentityInput::Primary);
         let s1 = page(&flow);
         assert!(s1.back_arrow && s1.back_active, "control: S1, not waiting");
@@ -1217,7 +1470,11 @@ mod tests {
     /// is a word no letter continues (section 8).
     #[test]
     fn any_key_is_false_once_no_letter_continues_what_is_typed() {
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         flow.restore();
         flow.primary();
         assert!(page(&flow).any_key, "control: nothing typed");
@@ -1234,7 +1491,7 @@ mod tests {
 
     /// C4 carries Copy `PeerId` under its `PeerId`, with the canonical
     /// string (section 5), and not while `IdAlreadyCreated` says the words were
-    /// not used (section 6); C2 shows words beside its `PeerId` and
+    /// not used (section 6); C2's words page shows no `PeerId` and
     /// carries none. The `PeerId` it hides then is the page's void one,
     /// for the view to take its copy off the clipboard (section 6), and no
     /// other page names one. Mutation: leaving `ScreenId::C4` out of
@@ -1271,18 +1528,26 @@ mod tests {
         );
         assert_eq!(page(&flow).void_peer.as_str(), mine().as_str(), "void");
 
-        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply(&mut flow, IdentityInput::Primary);
         flow.created(words(), mine(), [3, 9]);
         apply(&mut flow, IdentityInput::Primary);
         assert_eq!(flow.screen(), ScreenId::C2, "control: C2");
-        assert_eq!(page(&flow).copy_label, "", "C2 shows words");
+        assert_eq!(page(&flow).copy_label, "", "C2's words page");
     }
 
     /// R3, its restore refused `IdRestoreOther` and that notice's
     /// Continue pressed: its start asked.
     fn r3_continued() -> IdentityFlow {
-        let mut r3 = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let mut r3 = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::FirstRun { void_paper: false },
+        );
         apply(&mut r3, IdentityInput::Secondary);
         apply(&mut r3, IdentityInput::Primary);
         type_all(&mut r3);

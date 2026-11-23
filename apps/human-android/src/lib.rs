@@ -124,3 +124,12 @@ mod clip_slot;
     )
 )]
 mod ready_check;
+// On every target, so the host tests what a window's end does with a flow.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs parks with it on Android"
+    )
+)]
+mod flow_park;

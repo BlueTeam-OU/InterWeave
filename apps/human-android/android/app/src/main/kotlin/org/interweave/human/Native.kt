@@ -176,7 +176,11 @@ internal object Native {
      * already running is asked nothing. When the person must authenticate,
      * the native side asks the prompt ([Ask.UNLOCK]) or focuses the locked
      * notice itself; a prompt it asked for a refused start in this showing,
-     * not yet answered, answers the check too.
+     * not yet answered, answers the check too. While an identity flow
+     * lives -- in the window, or kept from the window a recreation ended
+     * -- the record is not read and the flow answers: [IDENTITY_FLOW]
+     * (4) before its screen shows a service start, [IDENTITY_FLOW_STARTED]
+     * (5) while it does.
      */
     @JvmStatic external fun identityState(appDataDir: String, ready: Boolean): Int
 
@@ -190,6 +194,27 @@ internal object Native {
      * of the prompt the native side asks binds or restarts the service.
      */
     const val IDENTITY_AUTHENTICATION_NEEDED = 3
+
+    /**
+     * An identity flow shows -- in the window, or kept from the window a
+     * recreation ended, for this one -- and its screen shows no service
+     * start: set `FLAG_SECURE`, and bind or start nothing, as for the
+     * identity screens of a first run. The record is not read: the flow
+     * decides it.
+     */
+    const val IDENTITY_FLOW = 4
+
+    /**
+     * An identity flow shows -- in the window, or kept from the window a
+     * recreation ended, for this one -- and asked its service start (a
+     * held C4 or R4, R2 or R3 held after `IdRestoreOther`'s Continue, or
+     * `IdStartBusy` on C4, R4, R3 or R2 after K1): set
+     * `FLAG_SECURE`, then decide a start as for [IDENTITY_READY], a busy
+     * or locked one retried and one running left alone (identity note
+     * section 6, A return to a screen showing `IdStartBusy`). A flow whose
+     * screen shows no start answers [IDENTITY_FLOW].
+     */
+    const val IDENTITY_FLOW_STARTED = 5
 
     /**
      * The identity screens' next ask of the Activity ([Ask]) in its low
@@ -265,6 +290,14 @@ internal object Native {
 
     /** An Activity's window started (true) or stopped (false) showing. */
     @JvmStatic external fun shown(shown: Boolean)
+
+    /**
+     * The Activity's onDestroy, before super.onDestroy(): whether it is
+     * [finishing] -- isFinishing and not changing configurations. An
+     * identity flow its window showed ends at a finish, and is kept for
+     * the next window otherwise (onboard.rs, window_ended).
+     */
+    @JvmStatic external fun windowEnding(finishing: Boolean)
 
     /** The Activity was created anew -- a launch -- not recreated in this process. */
     @JvmStatic external fun launched()

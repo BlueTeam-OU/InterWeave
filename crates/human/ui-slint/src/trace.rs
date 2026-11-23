@@ -154,6 +154,7 @@ const fn identity(screen: ScreenId) -> Option<&'static str> {
         ScreenId::W => "w",
         ScreenId::C1 => "c1",
         ScreenId::C2 => "c2",
+        ScreenId::C2PeerId => "c2-peer-id",
         ScreenId::C3 => "c3",
         ScreenId::C4 => "c4",
         ScreenId::R1 => "r1",
@@ -163,6 +164,7 @@ const fn identity(screen: ScreenId) -> Option<&'static str> {
         ScreenId::K1 => "k1",
         ScreenId::S1 => "s1",
         ScreenId::S2 => "s2",
+        ScreenId::S2PeerId => "s2-peer-id",
         ScreenId::Done => return None,
     })
 }
