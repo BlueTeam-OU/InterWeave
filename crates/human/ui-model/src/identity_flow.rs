@@ -258,7 +258,8 @@ enum Screen {
     },
     C1,
     /// Your 24 words, then, on `peer_page`, C2's `PeerId` page: the words
-    /// and the `PeerId` are never on one page (section 3.2). One screen,
+    /// and the `PeerId` are never on one page (section 3.2;
+    /// `the_words_and_the_peer_id_are_never_on_one_page`). One screen,
     /// so every rule of C2 -- the words held until C4, the void-paper
     /// marker, Back to C1 from the words -- holds on both pages.
     C2 {
@@ -1577,7 +1578,7 @@ impl IdentityFlow {
     /// R2 -- the screens a showing's start holds
     /// ([`Self::showing_started`]). A reading of the current screen, not
     /// of the flow's past: R3's Back off `IdStartBusy`, to R2 and on to
-    /// K1, shows no start. `a_start_shows_on_its_screen_and_goes_with_it`
+    /// R1, shows no start. `a_start_shows_on_its_screen_and_goes_with_it`
     /// holds it.
     #[must_use]
     pub const fn start_shows(&self) -> bool {
