@@ -771,8 +771,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
   the width between them and ellipsising as above. Whether the bar
   has one row or two depends on the width, the text size, the title
   and the widest minimum among the identities held, never on which
-  identity is in front, so switching identity never reflows the bar. The order stays §11's for Chats: the title,
-  the switch, the ⋮, in reading order and in Tab order, in both
+  identity is in front, so switching identity never reflows the bar.
+  The order stays §11's for Chats: the title, the switch, the ⋮, in
+  reading order and in Tab order, in both
   layouts. Neither the title nor the switch ellipsises to make room for
   the other. In the two-row bar the title wraps at word boundaries, and
   a single word wider than its row breaks inside the word: no part of
@@ -791,9 +792,10 @@ can, and the TalkBack rows of §14 are blocked until it does.
   **Alternatives named:**
   - (a) Wrap the title beside the switch. Rejected: "Conversations" is
     one word, so at the default text size every desktop with two
-    identities would show it broken inside the word, on two lines in a
-    third of the bar's width. The two-row bar breaks a word only when
-    the word is wider than the whole row, as at 200 % text.
+    identities would show the title broken inside the word, on two
+    lines in a third of the bar's width. The two-row bar breaks a word
+    only when the word is wider than the whole row, which can happen,
+    for example, at 200 % text on the 280 px pane.
   - (b) Drop the switch to the avatar alone. Rejected: §5 names the
     identity in front in words. Two identities without photos show the
     same placeholder, so the bar would no longer say who acts.
