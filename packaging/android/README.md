@@ -310,12 +310,20 @@ still waits on.
   first-run profile (plan §22, "The published Android releases cannot
   onboard a new user"; every build writes it since #569). By §22's baseline rule that half runs from the first
   published release that onboards a new user to the release after it,
-  and is a limit of this row until then. That first release is v0.3.0:
+  and was a limit of this row until it ran. That first release is v0.3.0:
   its published APK updated the published v0.2.0 in place on both
   phones on 2026-11-12 (`Success`, versionCode 2 to 3, one signer, the
   first-install time kept), and each phone so updated then made an
   identity and started the service
   ([`evidence/2026-11-12-v0-3-0-update-in-place-from-v0-2-0.md`](evidence/2026-11-12-v0-3-0-update-in-place-from-v0-2-0.md)).
+  The half ran on 2026-11-23 on the Pixel 9a: the published v0.4.0
+  updated an onboarded published v0.3.0 in place (`Success`,
+  versionCode 3 to 4, one signer, the first-install time kept), the
+  updated app started on the store v0.3.0 wrote, and the PeerId the
+  app showed was the same before and after
+  ([`evidence/2026-11-23-v0-4-0-update-in-place-from-v0-3-0.md`](evidence/2026-11-23-v0-4-0-update-in-place-from-v0-3-0.md)),
+  with that record's limits: one phone, Create only, a store holding
+  only the identity, and the PeerIds as the owner read them.
 
 ## What this does not prove
 
@@ -324,11 +332,10 @@ still waits on.
 - Nothing here installs the APK on a phone: a release's update and
   reinstall behaviour is plan §22's Validate row, read from a device
   run (§21's S12 and the two cases above).
-- The same PeerId from the same store across an update in place:
-  neither v0.1.0 nor v0.2.0 can make an identity on a fresh install,
-  so the two 2026-11-05 device records above could not run it, and
-  by §22's baseline rule it runs from v0.3.0, the first release that
-  onboards, to the release after it.
+- The same PeerId from the same store across an update in place on
+  the A40, after Restore, or with conversations and contacts in the
+  store: the 2026-11-23 record ran it from v0.3.0 to v0.4.0 on the
+  Pixel 9a alone, after Create, with only the identity stored.
 - The self-tests sign minimal APKs with throwaway keys made at test
   time; the release key and a real `assembleRelease` APK meet the
   scripts only in the run itself. The tag and archive checks are tested

@@ -86,6 +86,7 @@ store `v0.3.0` left:
 11-23 21:32:35.368 15094 15144 I interweave: android_main: the Activity's views start
 11-23 21:32:35.606 15094 15155 I interweave: the runtime started with the networks: 2 addresses (0 on no local network), 2 resolvers, strict Private DNS off
 11-23 21:32:35.606 15094 15155 I interweave: start answered 0
+11-23 21:32:55.175 15094 15155 I interweave: stopped: session closed true, runtime Ok(0)
 ```
 
 The owner then opened the PeerId in the app and read
@@ -116,9 +117,10 @@ the owner read them on the phone; the host read the log and `dumpsys`.
 - Restore across the update: only Create ran.
 - What else the person saw after the update past the owner's reading,
   the window being `FLAG_SECURE`; no notice was reported to the host.
-- Why the runtime stopped about 20 seconds after each start (`stopped:
-  session closed true`); both stops answered cleanly, and the start
-  after the update came from a fresh process.
+- Why the runtime stopped shortly after each start (`stopped: session
+  closed true`, about 40 s after the first and 20 s after the second);
+  both stops answered cleanly, and the start after the update came
+  from a fresh process.
 - An update from a `v0.3.0` holding conversations or contacts: the
   store held only the identity Create made.
 
