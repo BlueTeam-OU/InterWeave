@@ -505,6 +505,20 @@ where focus lands — with its dialog changed for ADR-0067:
   snackbar is `IdentityChangeFailed`'s Remove text; its words "Nothing
   was changed" are then true. Remove never reports done while the key file
   is still there.
+- **A Remove that fails after its key path is taken** (ADR-0063
+  decision 2, as ruled on #751): at whichever later step it fails (on
+  Android the Keystore alias's retirement, the configuration, the
+  device refusing or the connection to it lost, the store's deletion),
+  the key is gone and Remove did not finish. The snackbar is
+  `IdentityRemoveUnfinished`, never `IdentityChangeFailed`, with no
+  Undo. The dialog has closed and focus is on the overflow button of
+  the identity's page, as after a refused Remove (cards §5.2). The
+  identity stays listed, and its page shows the missing key
+  (`KeyMissing`, identity-key §4.1), as after a restart, since nothing
+  stores that a Remove began. Remove stays offered there and, chosen
+  again, completes, since nothing is at the key path to take. Its
+  dialog is the same; its key item still says what Remove ends, that
+  no one can use this identity again.
 
 **Turn off this identity** (the first identity) stands as cards §5.2
 says. One addition: its trust stays. Turned off, it admits nothing
@@ -853,6 +867,7 @@ front.
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
 | `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
+| `IdentityRemoveUnfinished` | The key of {identity} was removed, but {identity} could not be removed. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken (§7) | the key is gone, the identity is not; Remove again finishes it |
 | `IdentityRemoveOthersKeep` | People who saved {identity} as a contact still have its name and photo. Their messages to it reach no one. To them, an identity that you add later is a different one. | Remove dialog | others keep its name and photo, their messages reach no one, a new identity is a different one to them |
 | `MessagesWaitingLocked` | New messages | lock screen | new messages, no count, no name; the same text as `MessagesChannel`, so the key may be that one |
 | `NotificationIdentityLine` | {identity}: 1 new message / {identity}: {count} new messages | the group summary's lines (§9), one an identity; the first for a count of one, the second for any other | the identity and its count; plural forms language-culture's |
@@ -998,7 +1013,14 @@ pass before it lands.
     key file deleted before Remove is chosen (the page shows
     `KeyMissing`), Remove completes: the identity and everything that
     the first part of this item lists are gone, and no snackbar shows
-    `IdentityChangeFailed`. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
+    `IdentityChangeFailed`. With a seam that fails Remove after the key
+    file is unlinked, in two runs (one at the device's administrative
+    remove, and on Android one at the Keystore alias's retirement): the
+    snackbar is `IdentityRemoveUnfinished`, never
+    `IdentityChangeFailed`; focus is on the overflow button; the key
+    file is gone; the identity is still listed, and its page shows
+    `KeyMissing`, again after the app is restarted; Remove chosen again
+    completes as above, with no snackbar of failure. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*

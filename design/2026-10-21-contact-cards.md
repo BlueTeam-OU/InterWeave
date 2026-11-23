@@ -522,7 +522,11 @@ success, the page as it was, and `IdentityChangeFailed` in a snackbar
 with the text for that action, naming the identity while two or more
 are held (with one, Make default's form names none, as nothing shown
 with one identity does), and no Undo, since nothing happened. A refused Remove closes its dialog first; after any
-refusal focus is on the overflow button of the identity's page.
+refusal focus is on the overflow button of the identity's page. One
+exception: a Remove that fails after it has taken the identity's key
+has changed something, and says so with its own text
+(`IdentityRemoveUnfinished`, identities §7) in place of
+`IdentityChangeFailed`.
 
 **The photo.** Add a photo opens Android's Photo Picker (images only,
 one item) or the desktop's file dialog filtered to PNG and JPEG. The
@@ -2293,7 +2297,7 @@ and are for them to write.
 | `TurnOffIdentity` / `TurnOnIdentity` | Turn off this identity / Turn on this identity | Turn off: the first identity's overflow; Turn on: the overflow of any identity that is off (§5.2) |
 | `ConfirmIdentityOff` / `ConfirmIdentityOn` | {identity} turned off / {identity} turned on | snackbars; the first with Undo |
 | `IdentityDefaultNeedsOn` | To make this identity the default, first turn it on. | §5.2, on an identity that is off |
-| `IdentityChangeFailed` | Make default, one identity: Could not set the default. Nothing was changed. Make default, two or more identities: Could not make {identity} the default. Nothing was changed. Remove: Could not remove {identity}. Nothing was changed. Turn off: Could not turn off {identity}. Nothing was changed. Turn on: Could not turn on {identity}. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; one whole text per action, each saying nothing was changed and, with two or more identities, naming the identity (language-culture-en: a button's words placed into a sentence cannot be translated or reordered); with one identity, Make default's form names no identity and does not use the word; the one-identity Make default form added in round 5 |
+| `IdentityChangeFailed` | Make default, one identity: Could not set the default. Nothing was changed. Make default, two or more identities: Could not make {identity} the default. Nothing was changed. Remove: Could not remove {identity}. Nothing was changed. Turn off: Could not turn off {identity}. Nothing was changed. Turn on: Could not turn on {identity}. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on (not a Remove that fails after its key is taken: identities §7's `IdentityRemoveUnfinished`); one whole text per action, each saying nothing was changed and, with two or more identities, naming the identity (language-culture-en: a button's words placed into a sentence cannot be translated or reordered); with one identity, Make default's form names no identity and does not use the word; the one-identity Make default form added in round 5 |
 | `IdentityNoDefault` | One identity: People who write to your PeerId without using your label do not reach you. To let them reach you, choose Make default in the menu on this page. Two or more identities: You have no default identity. People who write to your PeerId without using one of your labels do not reach any of your identities. To set a default, open an identity that is turned on and choose Make default. | §5.1, when the profile has no default; must say who is not reached; with one identity, a one-identity form on the card page, naming no identity, saying people who write to the PeerId without the label do not reach the person and that Make default in the page's menu fixes it; the one-identity form added in round 4 |
 | `IdentityRemoveConfirm` | Remove | dialog primary, in `error` |
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
