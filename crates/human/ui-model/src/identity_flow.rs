@@ -4014,7 +4014,7 @@ mod tests {
     /// once the flow is off that screen -- R3's Back to R2, R2's discard
     /// off it, a decided start to Done -- nor on a screen that never asked
     /// one. So the Activity's check of a recreation after R3's Back off
-    /// `IdStartBusy` restarts nothing under K1.
+    /// `IdStartBusy` restarts nothing under R2 or R1.
     ///
     /// Mutations: `start_shows` without its `start_held` (a held C4 shows
     /// none), without its `StartBusy` arms (C4 under `IdStartBusy` shows
