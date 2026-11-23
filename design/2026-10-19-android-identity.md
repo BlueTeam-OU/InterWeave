@@ -1229,6 +1229,41 @@ that a PeerId was created.
   prompt (Authentication needed), and a cancel or denial ends as a
   cancelled start after C4's Continue does: on Chats, offline and
   locked, since the flow has ended.
+- **An answer after the bound.** The start can answer after
+  add-a-peer §5.1's 10 s bound, when the flow has ended and Chats has
+  opened (rust-ui-dev-01's QUESTION 01a20aa2, on #750). It then ends
+  as the results above, but on the screen the person is on by then
+  (Chats, or a conversation opened since), as any start refused after
+  the bound does. The record opens to C4's PeerId: the service runs.
+  `RecoveryRequired`: K1 over that screen, as at a launch, with C4's
+  PeerId as the expected one. `LockHeld`: `IdStartBusy` as a session
+  notice (A start refused with the profile in use after the bound).
+  The prompt cancelled or denied: the locked notice, with focus on it
+  (Authentication needed). `Unavailable`, and a record that opens to
+  another PeerId than C4's: nothing runs, and the notice that Chats
+  shows for any refused start (`Refused`, with Try again) shows where
+  `IdStartBusy` shows after the bound. Focus does not move, and the
+  notice is announced once, politely, as `IdStartBusy` is after the
+  bound, for the same reason: it answers nothing the person is doing
+  then. A mismatch gets no notice of its own here either: it cannot
+  follow this flow's own write unless another writer took the profile
+  (above), and C4, the screen that explained what the PeerId is, has
+  gone.
+- **The comparison outlasts the bound.** Until a start opens the
+  record to C4's PeerId, or until a new launch (the Activity created
+  anew), every start the app makes after this press compares, as this
+  press's start does: Try again on `Refused` or on `IdStartBusy`, a
+  start retried at a return or a recreation, and Unlock's start after
+  the locked notice. A record that opens to another PeerId answers
+  each of them as above, and nothing runs as it. Why: the person
+  pressed "Go online with this PeerId" (`IdStartUnchecked`), and the
+  phrase they wrote down restores that PeerId. A Try again that went
+  online with another PeerId would answer that press with another
+  identity, with no word, and the paper would no longer restore the
+  identity that runs. The ruling on Q15 (§11d) lets nothing run as
+  that identity from C4; the bound changes the screen, not the rule.
+  As on C4, only a new launch leads on, and that launch runs whatever
+  the record opens to, with no comparison (§12).
 - **Focus.** The control sits after the primary in C4's order (§8).
   When it first shows, focus goes to the notice, as for any
   `IdStorageUnknown` (the error-banner rule, §8). Like a press of Continue, its press moves no focus while C4 is held: focus stays on the
@@ -2287,6 +2322,18 @@ landscape:
     `IdStorageUnknown` shows again, and `IdStartUnchecked` stays
     hidden. This run needs the app's comparison before the start, and
     is blocked until it exists.
+    With the start held past the 10 s bound (§6, An answer after the
+    bound): Chats opens at the bound, with focus on its title. Then
+    answered with the double's record opening to another PeerId than
+    C4's: the hook records no service start, `Refused` shows under
+    the app bar with Try again, and focus stays on Chats' title. Then
+    Try again: the hook records one start that compares with C4's
+    PeerId, answered the same, and still no service start. A second
+    run answered `Unavailable` after the bound: `Refused` again, and
+    its Try again's start compares too. A third run answered
+    `LockHeld` after the bound: `IdStartBusy` on Chats, and its Try
+    again's start compares. This run needs the comparison to outlast
+    the bound, and is blocked until it does.
     Back goes where §6 (Back from a notice) says: on R2 after K1, to
     K1, through the discard dialog, with the words dropped only by
     `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
