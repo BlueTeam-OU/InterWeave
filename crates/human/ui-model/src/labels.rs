@@ -593,34 +593,27 @@ ui_texts! {
     /// ANDROID, identity screens: C2's and S2's words page, under
     /// `IdNotWalletSeed`: the label before the phrase's untranslated
     /// format identifier, which stands alone after it (§3.2).
-    // PLACEHOLDER (en)
     IdFormatLine => "Phrase format:",
     /// ANDROID, identity screens: The title of C2's and S2's `PeerId`
     /// page, and the `PeerId`'s accessible name there (§5).
-    // PLACEHOLDER (en)
     IdPeerIdTitle => "Your PeerId",
     /// ANDROID, identity screens: The note under the `PeerId` (§5) on C2's
     /// `PeerId` page, where the person writes; the page's title names it.
-    // PLACEHOLDER (en)
     IdPeerIdLabel => "Write it on the same paper as your words. It is not a password, and it is safe to share.",
     /// ANDROID, identity screens: The note under the `PeerId` on S2's
     /// `PeerId` page, where the person has written it before; the page's
     /// title names it.
-    // PLACEHOLDER (en)
     IdPeerIdNoteShown => "It is the one on your paper. It is not a password, and it is safe to share.",
     /// ANDROID, identity screens: The `PeerId`'s label on C4 and R4, where
     /// the person has already written it.
     IdPeerIdLabelShown => "Your PeerId. It is the one on your paper. It is not a password, and it is safe to share.",
     /// ANDROID, identity screens: The primary of C2's words page (→ its
     /// `PeerId` page).
-    // PLACEHOLDER (en)
     IdWrittenDown => "I wrote down the words",
     /// ANDROID, identity screens: The primary of C2's `PeerId` page (→ C3).
-    // PLACEHOLDER (en)
     IdPeerIdWritten => "I wrote down the PeerId",
     /// ANDROID, identity screens: The primary of S2's words page (→ its
     /// `PeerId` page).
-    // PLACEHOLDER (en)
     IdNext => "Next",
     /// ANDROID, identity screens: C3's title.
     IdCheckTitle => "Check your words",
@@ -720,12 +713,10 @@ ui_texts! {
     /// ANDROID, identity screens: K1's title when the record names no
     /// readable `PeerId` (§3.4): `IdQTitle` asks for the phrase, which
     /// cannot help there.
-    // PLACEHOLDER (en)
     IdQTitleNoPath => "The app cannot use your PeerId",
     /// ANDROID, identity screens: K1's reason when the record names no
     /// readable `PeerId`. Says nothing can be restored here: the other
     /// reasons' "Restore it with your recovery phrase" is false there.
-    // PLACEHOLDER (en)
     IdQReasonNoPath => "The app cannot use the PeerId saved on this phone, and it cannot be restored here.",
     /// ANDROID, identity screens: K1's plain text when the record names no
     /// readable `PeerId`, in `IdQLost`'s place, whose "If your words are
@@ -2401,8 +2392,10 @@ mod tests {
         assert_eq!(short_peer("abc"), "…abc");
     }
 
-    /// Pairs whose English is one word and whose meaning is not:
-    /// another language may need two words, so each keeps its key.
+    /// Pairs that read the same in English, each with its reason: one
+    /// word with two meanings, which another language may need two words
+    /// for, or one statement that two screens own, kept as two keys so
+    /// each screen's row can change apart.
     const ONE_ENGLISH_WORD: &[(UiText, UiText)] = &[
         // The trust settings' heading, a noun; step two's button, a verb.
         (UiText::TrustHeading, UiText::TrustThisPeer),
