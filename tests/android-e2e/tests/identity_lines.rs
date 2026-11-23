@@ -44,8 +44,9 @@
 //! the frames between); the Recents thumbnail; a biometric rather than
 //! a PIN. Keystore invalidation on a lock-screen change is
 //! `an_invalidated_user_presence_key_opens_on_k1_and_mints_nothing`,
-//! S21-12's owed case: it needs the person's lock settings and leaves
-//! the profile in recovery, and no phone has run it yet.
+//! S21-12's case: it needs the person's lock settings and leaves the
+//! profile in recovery. It passed on the Samsung A40, API 30
+//! (`runs/2026-11-23-samsung-a40-s21-12-invalidated-key.md`).
 
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -214,7 +215,7 @@ fn k1_warns_that_the_phrase_may_be_live_elsewhere() {
     );
 }
 
-/// S21-12's owed case: a `user-presence` seed key invalidated on a
+/// S21-12's case: a `user-presence` seed key invalidated on a
 /// phone, and what the app shows for it. The person removes the screen
 /// lock and sets it again, which the platform answers by invalidating
 /// (or deleting) every key bound to the person's authentication; the
