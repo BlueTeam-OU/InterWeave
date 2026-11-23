@@ -523,11 +523,12 @@ where focus lands — with its dialog changed for ADR-0067:
     (`KeyMissing`, identity-key §4.1). If its rows were deleted before
     the failure, it has no card, conversations or contacts, and the
     list and its page name it by its alias, as they name any identity
-    with no card (§6.2), and from their deletion until Remove finishes
-    or the app next starts, it receives nothing: no message to it is
-    kept or shown (ADR-0061 decision 7). A Remove that stopped before
-    the rows were deleted leaves them, and the identity receives as
-    any identity whose key is missing does.
+    with no card (§6.2). From the deletion of its rows until Remove
+    finishes or the app next starts, it receives nothing: no message
+    to it is kept or shown (ADR-0061 decision 7). If Remove failed
+    before its rows were deleted, the rows stay, and the identity
+    still receives messages, like any other identity whose key is
+    missing (identity-key §1).
   - After a restart, the list and its page show the same as before,
     because nothing stores that a Remove began. One case differs: when
     the device answers that it could not apply the change now but will
