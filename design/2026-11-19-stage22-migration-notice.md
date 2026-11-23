@@ -5,13 +5,35 @@ Status: proposal, 2026-11-19, my job j148. Read against `origin/main`
 this design to ux-designer: the store migration of the Stage 22 release
 counts what it discarded into one content-free `settings` row, "which
 the client shows once at the first open and then deletes; the words are
-ux-designer's" (STATE.md §Migrations, schema v14). This note's two
+ux-designer's" (STATE.md §Migrations, schema v14). This note's first two
 product questions (§11) were ruled by architect-cto as proposed (REPLY
 01a1f3c6, 2026-11-19): the row holds eight counts, and it is deleted
-on the person's acknowledgement and on nothing else. STATE.md's text
-follows as architect-cto's for/ branch onto this PR; until it lands, the
-merged sentence still reads "shows once at the first open and then
-deletes", and this note follows the ruling.
+on the person's acknowledgement and on nothing else. STATE.md's schema
+v14 has stated both rulings since architect-cto's commit 530def301,
+which is folded into this note's PR (#738); the sentence quoted above
+is the text as it stood before that commit, when this design was
+handed to ux-designer.
+The third, Q3, was ruled as proposed too (REPLY 01a204c2,
+2026-11-22): each of the two pending counts, and the card proposals
+count, holds every row of its kind that the migration discarded,
+whichever step discarded it.
+Revised 2026-11-21, at #728's review (F29, F30): when the person moved
+focus before a late banner showed, focus stays where it is, whichever
+notice showed first (§6), and §5 says what the dialog does when a session notice
+rises under it, which acceptance 9 now sets up. Before, two rows of §6
+both applied to a late banner, and acceptance 9 needed OK with a store
+degraded from the open, which hides the banner.
+
+Revised 2026-11-22, at #738's review (F1, F3-F6, F8). Only storage
+degraded refuses OK's delete; under another session notice OK deletes
+the row (§5, §6, acceptance 9's second run). The late-banner row of §6
+covers focus moved on Chats only. Acceptance 9's store hook is named as
+missing, so its first run is blocked. The client deletes no all-zero
+row, and acceptance 1 checks that no banner shows. §1 counts each
+pending row and each card row, whichever step took it, as architect-cto
+ruled on Q3 (§11). Before, §5 said that any session notice refused the delete,
+and §3 had the client delete an all-zero row, which STATE.md's "on
+nothing else" forbids.
 
 Owner of the design: ux-designer. The words are language-culture's: §7
 names each string and what it must say. No new colour: the banner is
@@ -32,15 +54,21 @@ the desktop and on Android; the command-line client's form is left out
   contact when it holds no other route, and the second copy of a message
   where two copies meet; (e) every pending row and every unread contact
   card proposal. What (c), (d) and (e) discarded is counted into one
-  content-free `settings` row. As merged it names six counts; ruled
-  2026-11-19 (§11) it holds eight, each one thing a person would call
-  gone or changed: conversations, unread messages, kept messages,
-  pending never attempted, pending that may have reached, contacts
+  content-free `settings` row. As ruled on 2026-11-19 (§11; STATE.md
+  530def301), the row holds eight counts, each one thing a person
+  would call gone or changed: conversations, unread messages, kept
+  messages, pending messages never attempted, pending messages that may
+  have reached their counterparty, contacts
   ((c)'s: deleted with their last route), contacts combined ((d)'s: a
   route moved to another contact of the same identity, its own name and
-  notes gone), card proposals ((e)'s unread proposals). A second copy
-  under (d) is counted nowhere: the message is still held, or was read
-  and not kept.
+  notes gone), card proposals (unread contact card proposals). A second
+  copy under (d) is counted nowhere: the message is still held, or was
+  read and not kept. The two pending counts and the card proposals
+  count each hold every row of their kind that the migration
+  discarded, whether (c) or (e) took it; the unread and kept counts hold no card row (Q3 in
+  §11, ruled as proposed by architect-cto's REPLY 01a204c2, 2026-11-22;
+  STATE.md states it in architect-cto's commit 840747b85, which is
+  to reach main together with the human store's schema v14 change).
 - The pending rows are counted in two parts, "as Remove of an identity
   names them" (ADR-0061 decision 7): those never attempted were not
   sent; those with an attempt behind them "may have reached their
@@ -50,7 +78,13 @@ the desktop and on Android; the command-line client's form is left out
   client says once, at the first open, how many conversations, unread,
   kept and contacts went and how many pending messages, those never
   attempted as not sent and those attempted before the upgrade as
-  possibly received, never as not sent".
+  possibly received, never as not sent". Written before 530def301:
+  STATE.md's schema v14 now says when the notice shows (at each open
+  until acknowledged) and how many counts it holds (eight); bringing
+  §13 in line is architect-cto's. architect-cto does so in 840747b85,
+  together with Q3's ruling, and §13 there has the client say, "at
+  each open until the person acknowledges it and never after, each of
+  the eight counts that is not zero".
 - The row is content-free (RETENTION.md §7, the one exception): it holds
   counts and nothing else. The notice therefore cannot say which
   conversation, contact or message went, and it names no peer and no
@@ -71,8 +105,8 @@ what they do next:
 
 - messages they were sending and that were **not sent**: they may want
   to write them again;
-- messages they were sending that **may have been received**: they must
-  not assume these failed, and the app will not send them again.
+- messages they were sending that **may have reached the peer**: they
+  must not assume these failed, and the app will not send them again.
 
 They cannot get any of it back, and the app cannot show which items
 went. The notice must not invite a search for them, and must not alarm
@@ -87,18 +121,20 @@ someone for whom nothing was lost.
   the slot already serves; the counts are in the dialog (§4), whose
   content scrolls.
 - **Why a dialog for the counts.** Up to ten lines (eight counts and
-  two of explanation, §4) in the banner would fill a phone's screen at large text
-  sizes and push Chats below it. A dialog holds them where they can
-  scroll, and the person reads them by one press. (Heuristic: visibility
+  two of explanation, §4) in the banner would fill a phone's screen at
+  large text sizes and push Chats below it. A dialog holds them where
+  they can scroll, and the person reads them with one press. (Heuristic: visibility
   of system status without blocking the primary task. Hypothesis, not
   tested with a person.)
 - **When.** At every open that finds the `settings` row with at least
   one count above zero, until the person presses **OK** in the dialog
-  (Q2 in §11, ruled). A row whose counts are all zero shows nothing, and the
-  client deletes it at that open.
+  (Q2 in §11, ruled). A row whose counts are all zero shows nothing,
+  and the client deletes no row it has not shown; architect-cto ruled
+  on 2026-11-22 that the migration writes no row when every count is
+  zero (STATE.md, 72434415a, not yet on main).
 - **Under what.** A session notice (authentication needed, storage
   degraded, the device offline) goes first, as for the discard's
-  notice; the banner shows once no session notice is shown. An identity
+  notice; the banner shows when no session notice is shown. An identity
   screen (R, K, K1) or the reader over Chats hides the banner as it
   hides the slot.
 - **Which identity.** The banner shows on Chats whichever identity is in
@@ -106,8 +142,8 @@ someone for whom nothing was lost.
   client held one identity, and its words name none: it is about the
   update, not about an identity.
 - **Never** in a conversation's notice slot alone: a narrow window that
-  opens into a conversation (a notification) shows it when Chats is
-  shown.
+  opens on a conversation (from a notification) shows the banner when
+  Chats is shown.
 
 ## 4. The dialog
 
@@ -145,8 +181,18 @@ dialog; OK stays reachable.
   banner goes for this session, with no further message; the row stays,
   so the banner comes back at the next open. Nothing is lost by that,
   and the degraded store already has its own session notice.
-- **The process ends before OK** (killed, a crash, a restart, the
-  update of Android's own): the row is still there, so the next open
+- **A session notice rises while the dialog is open** (authentication
+  needed, storage degraded, the device offline): the dialog stays open
+  and keeps focus, and under it the notice takes the slot from the
+  banner, as at any time (§3). A press on OK then closes the dialog and
+  focus goes to the session notice: it rose behind the dialog, so the
+  person has not seen it yet. (Heuristic: visibility of system status.)
+  Only storage degraded refuses the delete, as above, so the banner
+  comes back at the next open; under authentication needed or the
+  device offline the store is writable, OK deletes the row, and the
+  banner does not come back.
+- **The process ends before OK** (killed, a crash, a restart, an
+  update of Android itself): the row is still there, so the next open
   shows the banner again. What the person was told matches what the
   store holds: nothing says "done" until the row is gone.
 - **The app goes to the background with the dialog open**: on return
@@ -158,12 +204,13 @@ dialog; OK stays reachable.
 | case | focus goes to | check |
 |---|---|---|
 | Chats shows the banner at an open (no session notice, no screen over it) | the banner's Details | keyboard: open a store with the row; Tab order starts on Details; desktop screen reader reads the banner text then "Details, button" |
-| a session notice was shown first, and goes | Details, once the banner shows | keyboard: open with storage degraded, then healthy |
-| an identity screen or the reader was over Chats, and goes | Details, once the banner shows | keyboard, with K1 raised at the open |
-| the person moved focus before the banner showed (it showed late) | stays where it was | keyboard |
+| a session notice was shown first, and goes | Details, when the banner shows | keyboard: open with storage degraded, then healthy |
+| an identity screen or the reader was over Chats, and goes | Details, when the banner shows | keyboard, with K1 raised at the open |
+| the person moved focus on Chats before the banner showed (it showed late) | stays where it was; this row applies, not the session-notice or identity-screen row above, even when a session notice or an identity screen showed first; when focus was moved on an identity screen or on the reader, the identity-screen row applies instead | keyboard: open with storage degraded, Tab into the list, then healthy |
 | Details pressed | the dialog's title (screen reader), OK (keyboard) | keyboard: Enter on Details, then Enter presses OK; desktop screen reader reads title, the lines in order, the explanation, then OK |
 | dialog closed without OK (Back, Escape, outside) | Details | keyboard: Escape returns to Details |
 | OK | the Chats list heading, as when the locked notice leaves (unlock note F14) | keyboard |
+| OK with a session notice raised while the dialog was open (§5; the delete refused only under storage degraded) | that session notice | keyboard: acceptance 9 |
 | OK on a wide window with a conversation open | the Chats pane's heading | keyboard |
 | return from the background with the dialog open | OK | keyboard: Alt+Tab away and back (desktop) |
 
@@ -174,25 +221,27 @@ until the Android build exposes an accessibility tree (contact-cards
 ## 7. Strings
 
 language-culture writes every word; what follows is what each must say,
-with a proposal in English to make the flow concrete. Plural forms and
+and its English words (language-culture, j386). Plural forms and
 number formats are the locale's: each count line is one message with
-its number, never a number put before a fixed word.
+its number, never a number put before a fixed word. For English, a
+count line has two forms: "one" for 1 and "other" for every other
+number.
 
-| key | must say | proposal |
+| key | must say | words |
 |---|---|---|
-| `MigratedBanner` | the update removed some stored items; more is one press away | "This update removed some stored messages." |
-| `Details` | opens the counts | "Details" |
+| `MigratedBanner` | the update removed some stored items; more is one press away | "This update removed some saved items." |
+| `Details` | opens the counts | "Details" (the existing `Details` value) |
 | `MigratedTitle` | the dialog's subject | "What this update removed" |
-| `MigratedNotSent` {n} | n of the person's sends were never sent and will not be | "{n} messages you were sending were not sent" |
-| `MigratedMayHaveReached` {n} | n of the person's sends may have been received before the update; the app will not send them again; never "not sent" | "{n} messages you were sending may have been received before the update. They will not be sent again." |
-| `MigratedCards` {n} | n contact cards the person had not answered went; the sender can share theirs again | "{n} contact cards you had not answered" |
-| `MigratedUnread` {n} | n unread messages went, before they were read; never a card | "{n} unread messages" |
-| `MigratedKept` {n} | n messages the person had kept went | "{n} kept messages" |
-| `MigratedConversations` {n} | n conversations went, each with someone whose contact card the person had not accepted (unread or declined counts as not accepted) | "{n} conversations with no accepted contact card" |
-| `MigratedContacts` {n} | n contacts went, each with no accepted contact card | "{n} contacts with no accepted contact card" |
-| `MigratedCombined` {n} | n contacts were joined to another contact of the same person; that person's contact stays, the joined contact's own name and notes did not | "{n} contacts were combined with another contact of the same person. Their own names and notes were not kept." |
-| `MigratedWhy` | each contact is now reached by the key on the card the person accepted; what had no accepted card could not move; the app cannot show which items went | "Each contact is now reached by the key on their contact card, so what had no accepted card could not be kept. The app cannot show which items were removed." |
-| `MigratedKeptWhat` | contacts with an accepted card, and their conversations, are still there | "Your contacts with an accepted contact card and their conversations are still here." |
+| `MigratedNotSent` {n} | n of the person's sends were never sent and will not be | one: "{n} message you were sending was not sent. InterWeave will not send it."; other: "{n} messages you were sending were not sent. InterWeave will not send them." |
+| `MigratedMayHaveReached` {n} | n of the person's sends may have reached the peer before the update; the app will not send them again; never "not sent" | one: "{n} message you were sending may have reached the peer before the update. InterWeave will not send it again."; other: "{n} messages you were sending may each have reached its peer before the update. InterWeave will not send them again." |
+| `MigratedCards` {n} | n contact cards the person had not answered went; the sender can share theirs again | one: "{n} contact card that you had not accepted or declined was removed. The sender can share it again."; other: "{n} contact cards that you had not accepted or declined were removed. The senders can share their cards again." |
+| `MigratedUnread` {n} | n unread messages went, before they were read; never a card | one: "{n} unread message was removed."; other: "{n} unread messages were removed." |
+| `MigratedKept` {n} | n messages the person had kept went | one: "{n} message you had kept was removed."; other: "{n} messages you had kept were removed." |
+| `MigratedConversations` {n} | n conversations went, each with someone whose contact card the person had not accepted (unread or declined counts as not accepted) | one: "{n} conversation was removed. You had not accepted a contact card from the other person."; other: "{n} conversations were removed. In each, you had not accepted a contact card from the other person." |
+| `MigratedContacts` {n} | n contacts went, each with no accepted contact card | one: "{n} contact was removed. You had not accepted a contact card from them."; other: "{n} contacts were removed. You had not accepted a contact card from any of them." |
+| `MigratedCombined` {n} | n contacts were joined to another contact of the same person; that person's contact stays, the joined contact's own name and notes did not | one: "{n} contact was merged into another contact of the same person. The contact it was merged into stays, but the name and notes you had given the merged one were removed."; other: "{n} contacts were each merged into another contact of the same person. The contacts they were merged into stay, but the names and notes you had given the merged ones were removed." |
+| `MigratedWhy` | each contact is now reached by the key on the card the person accepted; what had no accepted card could not move; the app cannot show which items went | "InterWeave now recognizes each contact by the key on the contact card you accepted from them. Conversations and contacts without an accepted contact card could not stay. InterWeave cannot show which items were removed." |
+| `MigratedKeptWhat` | contacts with an accepted card, and their conversations, are still there | "Your contacts with an accepted contact card, and your conversations with them, are still in InterWeave." |
 | `MigratedOk` | acknowledges, and the notice will not return; distinct from Close, which elsewhere dismisses with no effect | "OK" (new: no OK string exists) |
 
 No string names a peer, an identity, a PeerId or a label.
@@ -224,8 +273,9 @@ Each on the desktop and on Android unless it says otherwise, from a
 schema-v13 store written by the release before Stage 22 holding the
 cases named (the store's own migration tests build such stores).
 
-1. A store whose migration discarded nothing opens with no banner, and
-   the `settings` row is gone after that open (store query).
+1. A store whose migration discarded nothing opens with no banner, at
+   that open and at the next (no `MigratedBanner` drawn; store query:
+   no row with a count above zero).
 2. A store with one of each discard opens with `MigratedBanner` on Chats
    and focus on Details; nothing else on Chats moved below the slot's
    usual place.
@@ -250,9 +300,22 @@ cases named (the store's own migration tests build such stores).
    opening again, shows the banner again with the same counts.
 8. Opened with a session notice raised (storage degraded), the banner is
    not drawn; when the notice goes, the banner shows with focus on
-   Details.
-9. With the store degraded, OK closes the dialog and the banner for the
-   session, the row stays, and the next healthy open shows the banner.
+   Details. In a second run, opened the same way, the tester moves
+   focus into the list before the notice goes: when the banner shows,
+   focus stays where the tester put it.
+9. With the dialog open, the open store is made to refuse writes, by
+   a debug or test hook on each platform: the dialog stays open with
+   focus where it was, and storage degraded takes the slot under it.
+   OK then closes the dialog, the banner is gone for the session,
+   focus is on the storage-degraded notice, the row stays (store
+   query), and the next healthy open shows the banner. No such hook
+   exists today (Android's `REFUSE_STORE`, `DebugHooks.kt`, refuses
+   the store at the next start; the view tests feed only the session
+   state, which refuses no write), so this first run is blocked, not
+   passed, until rust-ui-dev adds one. A second run, on Android, raises the
+   device-offline notice under the open dialog (airplane mode on): OK
+   closes the dialog, focus is on that notice, the row is gone (store
+   query), and the next open shows no banner.
 10. With a second identity added and in front before OK, the banner
     still shows on Chats, and no string in the banner or the dialog
     names either identity (read the strings).
@@ -279,9 +342,10 @@ cases named (the store's own migration tests build such stores).
 
 ## 11. Questions
 
-To architect-cto, each the product's and not a layout's. Both ruled
-as proposed (REPLY 01a1f3c6, 2026-11-19), with (ii) as a separate
-count; the text below is the question as asked.
+To architect-cto, each the product's and not a layout's. Q1 and Q2
+were ruled as proposed (REPLY 01a1f3c6, 2026-11-19), with (ii) as a
+separate count, and Q3 as proposed (REPLY 01a204c2, 2026-11-22); the
+text below is each question as asked.
 
 - **Q1. What each count holds.** STATE.md lists six counts and puts
   three different things under "discarded". (i) A second copy of a
@@ -304,3 +368,19 @@ count; the text below is the question as asked.
   presses OK, so the banner returns at each open until then (§5).
   Proposal: STATE.md reads "shows at each open until the person
   acknowledges it, then deletes".
+- **Q3. Which step's rows each count holds** (asked 2026-11-22, at
+  #738's review, F3 and F8; ruled as proposed, REPLY 01a204c2). STATE.md names the two pending counts
+  "(e)'s two parts" and the card proposals "the unread rows of kind
+  `card` that (e) discarded", while (c) also discards the pending and
+  unread rows of every conversation it removes, and STATE.md fixes no
+  order between the two steps. Applied in the order (a) to (e), (c)
+  runs first and takes the sends and cards of exactly the conversations
+  most likely to hold them (those with no accepted card), and the
+  notice would tell the person that fewer sends were lost than really
+  were.
+  Proposal: the two pending counts and the card proposals count each
+  hold every such row discarded, whichever of (c) and (e) took it; the unread and kept counts
+  hold no card row. Also asked with it:
+  `human-client-ui.md` §13's first Stage 22 criterion still says
+  "once, at the first open" and names six counts; §1 above follows
+  STATE.md, and §13 is architect-cto's to bring in line.
