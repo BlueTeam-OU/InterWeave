@@ -658,8 +658,7 @@ ui_texts! {
     /// `human-client-ui.md` section 9, IDENTITY-RECOVERY.md item 12,
     /// ADR-0063 decision 1). A statement, not a question. Its words are
     /// ux-designer's and language-culture's.
-    // PLACEHOLDER (en)
-    IdR1NewKeys => "Your words bring back your PeerId, but not the keys of your identities. Each identity is replaced by a new one.",
+    IdR1NewKeys => "Your words restore your PeerId, but not the keys of your identities. Each identity's key is gone, so each identity is replaced by a new one. Your contacts will see each replacement as a new identity.",
     /// ANDROID, identity screens: R3, two lines under the question.
     IdR3NoPeerId => "If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches.",
     /// ANDROID, identity screens: R3's question, two lines.
@@ -968,8 +967,8 @@ ui_texts! {
     KeyBelowDevice => "This identity's key has weaker protection than this phone requires, so InterWeave does not use it.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): desktop, a sealed record
     KeyOtherDevice => "This identity's key was saved on another device and works only there, not on this computer.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): must name the way to keep the key before the new-key offer, and say only that a newer version *may* read it (§3: the client cannot know)
-    KeyNewerVersion => "This version of InterWeave cannot use this identity's key, because the key file has a format this version does not know. A newer version may be able to use it. To try to keep the key, update InterWeave first. If you make a new key, you lose this key.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): names the one way the key may come back, an update, and says only that a newer version *may* read it (§3: the client cannot know); `KeyNoNewKey` follows it
+    KeyNewerVersion => "This version of InterWeave cannot use this identity's key, because the key file has a format this version does not know. A newer version may be able to use it. To find out, update InterWeave.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): every damaged or foreign record
     KeyDamaged => "This identity's key file is not valid, so the key cannot be used.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): a platform error; must suggest trying again, not a loss
@@ -977,17 +976,23 @@ ui_texts! {
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): a lost file (§7); must not suggest the person deleted it
     KeyMissing => "This identity's key is missing from this device.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): after every reason; must say what is blocked and what is not
-    KeyCannotShare => "You can still send and receive messages. You cannot share this card until the key can be used.",
+    KeyCannotShare => "You can still send and receive messages, but you cannot share this card.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3,
+    /// §4.1, after `KeyCannotShare`, for every kind but `KeyNotNow` and
+    /// `KeyDirUnsafe`; says no new key can be made for this identity, so
+    /// the person does not look for one (ADR-0067 decision 5); never in
+    /// the share sheet (§4.3)
+    KeyNoNewKey => "InterWeave cannot give this identity a new key.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.2 row line
     KeyStateRow => "Key cannot be used",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.3 sheet
-    KeyCannotShareHere => "You cannot share your card until this identity's key can be used.",
+    KeyCannotShareHere => "You cannot share your card without this identity's key.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.3 primary
     KeyOpenCard => "Open your card",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3 "not protected"; must say why it is refused, and not suggest fixing the file
     KeyExposed => "Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own
-    KeyDirUnsafe => "This identity's key must be kept in a regular folder that only your user account owns. The location shown is not a folder like that, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again.",
+    KeyDirUnsafe => "This identity's key must be kept in a regular folder that your user account owns and no other user account can open. The location shown is not a folder like that, so InterWeave does not use the key. Make the location shown a regular folder that your user account owns and no other user account can open, then choose Try again.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 and §4.3, desktop only, the line under `KeyDirUnsafe` wherever it shows; a label and the path, '{path}' last so no punctuation touches it
     KeyDirUnsafePath => "Folder location: {path}",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §6
