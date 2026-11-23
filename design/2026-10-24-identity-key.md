@@ -270,7 +270,13 @@ button), for every kind that shows `KeyNoNewKey`. For "temporarily
 unusable" it is a text button after Try again, and `KeyNoNewKey` is
 not shown: Try again comes first, as the Stage 21 design had it. It
 is never offered for "key folder not safe", where the person fixes the
-folder and the key can open again (§4.1).
+folder and the key can open again (§4.1). Nor, until Q-loose (§12) is
+answered, is it offered for "not protected" when the loose mode is the
+`endpoint-keys/` directory's and not the file's: a new key minted
+into that folder is refused (Q-dir), and making the folder owner-only
+first would let every key in it open again at its next open, the old
+identity's included, against this note's "not used again" (§3). The
+block there shows `KeyNoNewKey` alone, as in part 1.
 
 It is offered nowhere else: not in the share sheet (§4.3, whose Open
 your card leads here), not in the list of identities (§4.2's row opens
@@ -349,13 +355,6 @@ The step, in this order:
    the key, so it knows the new EndpointId first, and a kill between
    the add and a later write would leave an added identity with no
    record, which the next Replace would turn into a third identity.
-   When `endpoint-keys/` is a real directory, owned by this user,
-   whose mode is loose (the directory case of the "not protected"
-   row), the client first makes the directory owner-only, without
-   asking the person, as the answer to Q-dir says (§12, REPLY
-   01a16d9b), and mints the key into it only once the directory is
-   owner-only. If the platform does not allow that change of mode,
-   step 1 is refused with `KeyReplaceFailed`.
    Nothing of the old identity is touched before this step has stored
    the new one, so a failure here leaves the old identity exactly as
    it was.
@@ -473,9 +472,8 @@ named contact, and the counterparty's reply to the shared card is
 admitted. The counterparty still sees a new identity, and still has
 their contact for the old identity until they accept the new card.
 
-**Failed** (step 1 refused — a key folder that cannot be made
-owner-only, a key that cannot be minted or sealed, the add refused):
-`KeyReplaceFailed` ("InterWeave could not make the new
+**Failed** (step 1 refused — a key that cannot be minted or sealed, the
+add refused): `KeyReplaceFailed` ("InterWeave could not make the new
 identity. {identity} has not changed. Choose Replace with a new
 identity to try again."), in `error`, under the actions, and Replace
 offered again.
@@ -650,9 +648,8 @@ On both clients unless said; Android's screen-reader checks blocked as
     `KeyDamaged`, not `KeyNotNow`.
 15. Desktop: `endpoint-keys/` at mode 0755 shows `KeyExposed` and
     `KeyNoNewKey`, and no action; the directory's mode is not changed.
-    Under part 2 the same state also offers Replace (§5.1), and
-    Replace's step 1 (§5.3) makes the directory owner-only before the
-    new key is minted; until that step, the mode is not changed.
+    Under part 2 the same state does not offer Replace either, until
+    Q-loose (§12) is answered (§5.1).
 16. Desktop: `endpoint-keys/` replaced by a link to a private directory
     shows `KeyDirUnsafe` with the path and Try again, and no
     `KeyNoNewKey`; the link is not followed, changed or replaced; after
@@ -685,7 +682,9 @@ rust-ui-dev's to provide beside item 26's holding seam; until it
 exists those runs are blocked.
 
 21. With part 2 built: every kind that shows `KeyNoNewKey` shows
-    Replace with a new identity after it; "temporarily unusable"
+    Replace with a new identity after it, except "not protected" for a
+    loose `endpoint-keys/` directory, which shows no Replace until
+    Q-loose is answered; "temporarily unusable"
     shows Try again, then Replace as a text button, and no
     `KeyNoNewKey`; "key folder not safe" shows Try again alone. Replace
     is not in the share sheet or the list of identities.
@@ -874,8 +873,8 @@ identity's, each as `{identity}` is.
 
 Q-file, Q-missing, Q-order and Q-dir's tightening describe the new key
 and the silent first key of Stage 21, withdrawn from the Stage 22
-release (§5, §7); they stay as the record. Q-dir's tightening still
-holds when a replacement mints its new key (§5.3, step 1). The answers on refusals and
+release (§5, §7); they stay as the record. Whether Replace may
+tighten the folder is Q-loose, below. The answers on refusals and
 on "key folder not safe" still hold.
 
 For architect-cto (QUESTION 01a16d88), answered by DECISION 01a16d8a
@@ -1001,3 +1000,21 @@ revision:
   bound: its name and size, whether a replacement can reach it in
   practice, and what frees a row, so that `KeyReplaceTrustFull` can say
   what the person can do. Acceptance 33 and 35 wait for it.
+
+Open, for architect-cto, asked after review round 4 on #738 (F18):
+
+- **Q-loose**: on the desktop, "not protected" can come from the
+  `endpoint-keys/` directory alone (this user's, loose mode, each key
+  file private). A new key cannot be minted into it (Q-dir), and
+  making it owner-only first, as Q-dir's answer did for Stage 21's
+  new key, lets every key in it open again at its next open, the
+  replaced identity's and the turned-off first identity's included,
+  against §3's "not used again". The same reopening already follows
+  when the person makes the folder private themselves (§3: the state
+  lasts until a key opens). Asked: (a) may a key refused only for the
+  folder's mode be used again once the folder is private (then this
+  case is "key folder not safe": Try again after the person fixes the
+  folder, and §3's sentence is narrowed to the file), or (b) must the
+  refusal outlast the folder's fix (a stored mark, the store's), and
+  Replace then tighten the folder first? Until it is answered, Replace
+  is not offered in this case (§5.1) and acceptance 15 and 21 say so.
