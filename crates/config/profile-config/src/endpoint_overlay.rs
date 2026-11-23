@@ -260,8 +260,8 @@ impl core::fmt::Display for OverlayMember {
     }
 }
 
-/// What one member's text is, by the DERIVED grammar and never the
-/// transitional label path of `EndpointId::parse`.
+/// What one member's text is, by the DERIVED grammar
+/// (`EndpointId::parse_derived`).
 enum Member {
     Id(EndpointId),
     /// Not a derived id, but in the alias grammar.

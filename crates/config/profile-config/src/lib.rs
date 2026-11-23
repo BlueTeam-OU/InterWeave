@@ -1915,11 +1915,6 @@ pub enum NotDerivedEntry {
     },
     /// The entry names no key at all.
     NoKey,
-    /// An entry built in code holds an id that is not derived: a label.
-    Label {
-        /// The id.
-        id: EndpointId,
-    },
 }
 
 /// The one command that brings an entry with the retired `id` member
@@ -3073,11 +3068,6 @@ fn write_not_derived(
         NotDerivedEntry::NoKey => {
             f.write_str("an endpoint entry names no key file (`key: <EndpointId>.key`)")
         }
-        NotDerivedEntry::Label { id } => write!(
-            f,
-            "endpoint '{}' is not an id derived from a key",
-            id.as_str()
-        ),
     }
 }
 
@@ -3135,17 +3125,9 @@ impl ProfileConfig {
             errors.push(ConfigError::TooManyEndpoints { got: entries.len() });
         }
 
-        // Rule 0 — every id is derived from a key (ADR-0067 decision 2).
-        // An entry read from a document cannot break it, its id being its
-        // key file's stem; one built in code can, `EndpointId::parse`
-        // still taking a label.
-        for e in entries {
-            if EndpointId::parse_derived(e.id.as_str()).is_err() {
-                errors.push(ConfigError::EndpointIdNotDerived {
-                    found: NotDerivedEntry::Label { id: e.id.clone() },
-                });
-            }
-        }
+        // Every id is derived from a key (ADR-0067 decision 2) by
+        // construction: an `EndpointId` holds nothing else, so there is no
+        // rule to check here.
 
         // Rule 1 — endpoint ids are unique, and so are aliases.
         let mut seen: BTreeSet<&EndpointId> = BTreeSet::new();
