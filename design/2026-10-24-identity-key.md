@@ -141,10 +141,12 @@ The client must tell these read refusals apart. `open` gives the
 read's refusal as `IdentityKeyFileError::Read` with its cause
 (`TooLarge`, `NotPrivate`, `DirUnsafe`, or the I/O error's kind). The
 client finds out for itself what the table needs beyond those causes:
-the kind and the owner of the entry at the key path (a permission
-refusal at the open carries neither, and the kind decides before the
-owner: a non-regular entry is "damaged" whoever owns it), the owner of
-the folder, and the `ENXIO` or `ENODEV` of the "damaged" row. The error's shape is rust-ui-dev's.
+the kind and the owner of the entry at the key path, the owner of the
+folder, and the `ENXIO` or `ENODEV` of the "damaged" row. A permission
+refusal at the open carries neither the kind nor the owner of the
+entry. The kind is judged before the owner: an entry that is not a
+regular file is "damaged", whoever owns it. The error's shape is
+rust-ui-dev's.
 A refusal that persists on every attempt is never "temporarily
 unusable", since Try again would repeat it for ever.
 
@@ -718,10 +720,10 @@ On both clients unless said; Android's screen-reader checks blocked as
     in each of the four runs, never `KeyReplaceUnfinished`. In a fifth
     run, a seam makes the unlink of an ordinary key file fail with an
     I/O error: Remove shows `IdentityChangeFailed` (identities §7), the
-    identity is still listed and its key opens. With part 2 built, a
-    sixth run uses the same seam on a key file of bytes that are not
-    text, a regular file the page shows as `KeyDamaged` (Replace is not
-    offered for a key that opens, §5.1): Replace shows
+    identity is still listed and its key opens. Replace is not offered
+    for a key that opens (§5.1), so with part 2 built, a sixth run uses
+    the same seam on a key file of bytes that are not text, a regular
+    file that the page shows as `KeyDamaged`: Replace shows
     `KeyReplaceUnfinished` with Finish replacing, as with item 31's seam
     that refuses step 5.
 15. Desktop, in three runs: `endpoint-keys/` at mode 0755 over a 0600
@@ -1164,14 +1166,15 @@ since the same review. That review's F4 found that a directory in the
 key file's place of an added identity could not be removed by Remove,
 since Remove deleted the key path as a file, so Replace's step 5 (§5.3) would have stopped at that
 entry.
-architect-cto ruled it the same day (REPLY 01a209d9, ADR-0063
-decision 2): one unlink, or one removal of an empty directory, takes
-the entry; a directory that holds anything is left; Remove and
-Replace complete either way. The second review of #748 corrected that
-last clause (F5, F7; ADR-0063 decision 2 as amended): a path where
-nothing is has nothing to take, and any other failure of the unlink
-or the removal stops the step. §5.3 step 5 and acceptance 14 follow,
-and §11 says why the person is told nothing of an entry left behind.
+architect-cto ruled it the same day (REPLY 01a209d9, ADR-0063 decision
+2): one unlink, or one removal of an empty directory, takes the entry; a
+directory that holds anything is left; Remove and Replace complete
+either way. The second review of #748 corrected that last clause,
+"complete either way" (F5, F7; ADR-0063 decision 2 as amended): a path
+that holds nothing has nothing to take, and any other failure of the
+unlink or of the directory's removal stops the step. §5.3 step 5 and
+acceptance 14 follow, and §11 says why the person is told nothing of an
+entry left behind.
 The question, as asked:
 
 - **Q-kind**: the read refuses anything at the key path that is
