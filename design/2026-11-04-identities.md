@@ -2,10 +2,10 @@
 
 Status: proposal, 2026-11-04. **This note opened no stage.** Stage 22
 (plan §30, several user identities in one client) was roadmap only when
-it was written, to open on the owner's word alone, and the design was
-the one part of the stage that could go first. The owner opened the
-stage on 2026-11-19 (plan §30's opening record), so what follows is now
-built in the stage's steps.
+this note was written, and only the owner's word could open it; the
+design was the one part of the stage that could go first. The owner opened the
+stage on 2026-11-19 (plan §30's opening record), so the stage's steps
+now build what follows.
 
 Asked by architect-cto (REQUEST 01a1a689, job j89), read against
 `origin/main` b563dd00c, for four things: how every acting screen names
@@ -247,8 +247,8 @@ front, and only that identity admits the peer at the route. So:
 - **Peers rows** (add-a-peer §5.2): the trust state is that of the identity
   in front. `PeerStateTrusted` stays with one identity ("this device
   tries to connect to this address": true, since the device dials every
-  peer in its admission set, which every identity's set and the
-  device's own list feed; ADR-0067 d. 6), and with two or more reads
+  peer in its admission set, the union of every identity's set and
+  the device's own list; ADR-0067 d. 6), and with two or more reads
   `PeerStateTrustedAs`, the same claim after "Trusted by {identity}". `PeerStateNeedsTrust` today adds "this device does not
   connect to this address", which is false when another identity trusts
   that peer and would tell the person so. With two or more identities
@@ -1029,16 +1029,24 @@ pass before it lands.
     unchanged. At 200 % text the title is whole or wrapped, never cut
     unless a single word is wider than its row, and its accessible name
     is "Conversations" either way. On a 360 dp phone at 100 % text, the
-    bar is one row when the title, the switch at its minimum and the ⋮
-    fit. Tab from the title reaches the switch, then the ⋮, in both
+    test first measures, in the build, the width of the whole title, of
+    the switch at its minimum (the avatar, three graphemes and the ▾)
+    and of the ⋮, with the bar's paddings and gaps, and records which
+    layout the sum asks for: one row when it is at most the bar's
+    width, two rows otherwise. The bar then has that layout, and keeps
+    it with a 40-grapheme name and with a 3-grapheme name in front.
+    Tab from the title reaches the switch, then the ⋮, in both
     layouts. *(§12 "The Chats bar when the switch does not fit".)*
 
 ## 15. Deliberately left out
 
 - **Replacing an identity whose key is lost** (ADR-0067 d. 5: a new
-  identity, never a new key under the old name). It changes
-  `design/2026-10-24-identity-key.md` whole and is asked for as its own
-  revision; nothing here builds "make a new key".
+  identity, never a new key under the old name). It is
+  `design/2026-10-24-identity-key.md`'s own revision: part 1 (the
+  interim, no Make a new key) on 2026-11-22, and part 2 (the
+  replacement, in that note's §5) the same day, as a proposal to be
+  built once an identity can be created and removed; nothing here
+  builds "make a new key".
 - **Per-conversation notifications** and any inline reply: the build
   has a count notification, and cards §5.7.5's rule (an inline reply
   names the identity it replies as) stands for later.
@@ -1055,10 +1063,10 @@ pass before it lands.
   (`labels.rs`) still call it "identity", which with two identities
   reads as one of them; `design/2026-10-19-android-identity.md` already
   says PeerId in all eight, so that gap is the build's, rust-ui-dev's.
-  `IdR1NewKeys` ("each identity gets a new key") contradicts ADR-0067
-  d. 5 in that note and in the build alike; it is that note's to
-  revise, with the identity-key revision above, the words
-  language-culture's.
+  `IdR1NewKeys` ("each identity gets a new key") contradicted ADR-0067
+  d. 5 in that note and in the build alike; that note revised it on
+  2026-11-22 with the identity-key note's part 1 (job j159), the words
+  language-culture's, and the build's string is rust-ui-dev's.
 
 ## 16. Questions
 
