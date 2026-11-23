@@ -422,7 +422,12 @@ The step, in this order:
    2026-11-04); only the share-again list, owned by the new identity,
    outlives it (§5.4). The first identity is turned off, as identities
    §7's Turn off turns it off; the record is kept while both exist, and
-   goes if the new identity is ever removed.
+   goes if the new identity is ever removed. Whatever stands at the
+   removed identity's key path goes as Remove takes it (ADR-0063
+   decision 2, ruled on #748): one unlink, or one removal of an empty
+   directory; a directory that holds anything is left where it is, and
+   the step completes either way, so Finish replacing is never offered
+   for it (§11 says what the person is told).
 
 **Every point the step can stop at resolves to a state the person
 already knows**:
@@ -683,6 +688,13 @@ On both clients unless said; Android's screen-reader checks blocked as
     `KeyExposed` and not `KeyNotNow`; the open does not wait for the
     FIFO. A device file is not checked: making one needs a privilege
     or a mount that allows devices, which a test run does not have.
+    With identities' Remove built, the same three entries at the key
+    path of an added identity, and a 0700 directory holding one file
+    there: Remove completes in each run and the identity is gone; the
+    empty directory, the FIFO and the socket are gone from the key
+    path, and the directory that holds a file is still there with its
+    file. With part 2 built, Replace of such an identity shows the
+    result (§5.4) in each run, never `KeyReplaceUnfinished`.
 15. Desktop, in three runs: `endpoint-keys/` at mode 0755 over a 0600
     key file, over a 0644 key file, and with no key file. Each run
     shows `KeyDirUnsafe` with the path and Try again, no `KeyNoNewKey`
@@ -916,6 +928,17 @@ identity's, each as `{identity}` is.
 - **Telling contacts automatically** after a replacement: a share is
   the person's act (ADR-0059), so part 2's list offers it and sends
   nothing.
+- **A line about an entry left at the key path** (the directory that
+  holds anything, which Remove and Replace leave, ADR-0063 decision 2):
+  nothing is shown. What Remove's dialog said stays true, since no key
+  was there (`IdentityRemoveKey`), nothing of the identity is in the
+  entry the client did not write, and the person has nothing to do for
+  the app: no later identity takes that file name. On Android the
+  folder is the app's own and the person cannot open it, so a line
+  naming it would offer a place they cannot reach; on the desktop the
+  person who put a directory there finds it where they put it.
+  Considered and not taken: one line naming the location, once, when
+  the step completes (architect-cto's suggestion, REPLY 01a209d9).
 - **The fingerprint row's own design** (the key-change proposal is
   withdrawn, ADR-0067 decision 5):
   built from `human-client-ui.md` §3 and §13 directly; their
@@ -1098,13 +1121,15 @@ acceptance 14 follow. Review round 1 on #748 found that the read does
 not refuse every such entry by its kind: one whose own mode refuses
 this user fails the open with a permission refusal, and a socket or a
 device with no driver fails it with `ENXIO` or `ENODEV`. §3's
-"damaged" row names all three. Still open, architect-cto's to rule
-(asked with F4 of that round), and not designed here: a
-directory in the key file's place of an identity that was added
-cannot be removed by Remove (it deletes a file), so Replace's step 5
-(§5.3) stops there and Finish replacing repeats the refusal. A FIFO,
-a socket or a device file is removed as a file is, and the first
-identity is turned off, not removed.
+"damaged" row names all three, and ADR-0063 decision 2 does since the
+same review. That review's F4 found that a directory in the key file's
+place of an added identity could not be removed by Remove, which
+deleted a file, so Replace's step 5 (§5.3) would have stopped there.
+architect-cto ruled it the same day (REPLY 01a209d9, ADR-0063
+decision 2): one unlink, or one removal of an empty directory, takes
+the entry; a directory that holds anything is left; Remove and
+Replace complete either way. §5.3 step 5 and acceptance 14 follow,
+and §11 says why the person is told nothing of an entry left behind.
 The question, as asked:
 
 - **Q-kind**: the read refuses anything at the key path that is
