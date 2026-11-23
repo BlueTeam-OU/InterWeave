@@ -519,7 +519,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
     // Above the words: what the phrase is, then its format identifier
     // after a label (section 3.2). The identifier is the flow's, which the
     // root handed over from the recovery record, so it shows only where
-    // the words do.
+    // the words do (`c2_shows_the_words_then_the_peer_id_on_its_own_page`).
     if let Some(format) = flow.format() {
         page.words_note = text(UiText::IdNotWalletSeed).into();
         page.format_label = text(UiText::IdFormatLine).into();
