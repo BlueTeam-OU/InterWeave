@@ -467,17 +467,14 @@ fn assert_hello_names(daemon: &Daemon, id: &str, alias: Option<&str>) {
     }
 }
 
-fn assert_refused_class(bridge: &mut Bridge, class: &str, secrets: &[&str]) {
+fn assert_refused_class(bridge: &mut Bridge, class: &str, absent: &[&str]) {
     bridge.initialize();
     let status = bridge.status();
     assert_eq!(status["endpoint_lease_state"], "bridge refused", "{status}");
     assert_eq!(status["refused"]["class"], class, "{status}");
     let reason = status["refused"]["reason"].to_string();
-    for secret in secrets {
-        assert!(
-            !reason.contains(secret),
-            "the reason names {secret}: {reason}"
-        );
+    for word in absent {
+        assert!(!reason.contains(word), "the reason names {word}: {reason}");
     }
 }
 
