@@ -221,3 +221,29 @@ digest entry. `LOCAL-IPC.md`'s remove text, not
 on `main`, gains the reading of a remove while the overlay is ahead
 and of one applied late, on its own supply. The design notes
 (identities sections 1 and 7 and acceptance 13) follow on #751.
+
+### Amendment 2026-11-24 — The add, remove and set_advertise methods are IPC 3.0 methods, not a minor (ii)
+
+Decision 2 said the administrative methods that add a configured
+endpoint, remove an added one and set an endpoint's `advertise` come
+"under ADR-0017's minor rule". It was written on 2026-10-21, when the
+IPC was major 2 and three new methods would have been a minor of it.
+ADR-0067 decision 7 then moved the IPC to major 3 in the Stage 22
+release, and `LOCAL-IPC.md` §Version negotiation and phases states the
+major's rule: no production build speaks major 3 before that release
+is tagged, so a method the stage adds is a 3.0 method and
+`IPC_MAX_MINOR` is 0 at the release. ADR-0067's note of 2026-11-19
+corrected the same phrase for the trust methods' endpoint dimension
+and did not reach this record; the review of the Stage 22 batch found
+the two texts apart (p2p-network-dev-01, 2026-11-24). Decision 2 now
+names IPC 3.0 and the pre-release rule. What follows for a builder:
+no client gates the three methods on a minor, a mirror that did would
+refuse them to every 3.0 connection, and the release is not tagged
+with any of them missing, since a build that spoke 3.0 without them
+would leave them to arrive as 3.1. Nothing else a reader was told to
+build changes: the methods, their capability and their overlay are as
+decided. The history notes of ADR-0028 that call these methods "an
+IPC minor under ADR-0017" stand as written, being what was true on
+their day. Propagation: decision 2; this note; the log row; this
+record's digest entry and ADR-0028's, which carried the same phrase;
+plan §30 Activate.

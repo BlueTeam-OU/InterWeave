@@ -8248,7 +8248,9 @@ endpoint overlay's `added` member, never in the authored file), the overlay's
 normalisation and the profile's 64-endpoint bound over authored and
 added together
 (ADR-0028 A 2026-10-21) — and — in
-p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
+p2p-network-dev's lane, in IPC 3.0 itself under ADR-0017's pre-release
+rule, no minor, and so built before the stage's release is tagged
+(ADR-0061 A 2026-11-24 (ii)) — the
 administrative methods that add a configured endpoint, remove an
 added one and set an endpoint's `advertise` (`admin.endpoints.*`,
 LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
