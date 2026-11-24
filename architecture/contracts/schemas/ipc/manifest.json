@@ -155,12 +155,12 @@
     {
       "name": "trust-seed-params",
       "file": "trust-seed-params.schema.json",
-      "status": "approved"
+      "status": "active"
     },
     {
       "name": "trust-seed-result",
       "file": "trust-seed-result.schema.json",
-      "status": "approved"
+      "status": "active"
     },
     {
       "name": "peer-list-params",
