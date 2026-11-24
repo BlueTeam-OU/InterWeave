@@ -1317,11 +1317,12 @@ that a PeerId was created.
   did not open R4, the next start of that process still compares. A
   check that did not open R4 is one whose prompt was cancelled or
   denied, or one that showed the checksum banner, `IdOtherIdentity`,
-  `IdBusy`, `IdStorageFailed` or `IdStorageUnknown`. After all of
-  these but `IdStorageUnknown`, nothing is restored. After
-  `IdStorageUnknown`, the restore may have been written, but it still
-  did not open R4, so the comparison still binds, and the next start
-  compares whatever PeerId the record then opens to.
+  `IdBusy`, `IdStorageFailed` or `IdStorageUnknown`. After any of these
+  checks other than one that showed `IdStorageUnknown`, nothing is
+  restored. After `IdStorageUnknown`, the restored PeerId may have
+  been saved, but the check did not open R4, so the comparison still
+  binds, and the next start of that process compares the PeerId that
+  the record opens to at that start.
   `IdRestoreOther`'s Continue on R2 after K1 does not end the
   comparison either. A build cannot reach that Continue there: K1
   offers R2 only with the record's own PeerId. If a build reaches that
@@ -3462,9 +3463,10 @@ here; the first was already answered on this branch.
   not open R4 (a check whose prompt was cancelled or denied, or one
   that showed the checksum banner, `IdOtherIdentity`, `IdBusy`,
   `IdStorageFailed` or `IdStorageUnknown`), the comparison still
-  binds. After `IdStorageUnknown` the restore may have been written;
-  after the others, nothing is restored (§6, The comparison outlasts
-  the bound). `IdRestoreOther`'s Continue on R2 after K1 would end the
+  binds. After `IdStorageUnknown`, the restored PeerId may have been
+  saved; after any other check in that list, nothing is restored
+  (§6, The comparison outlasts the bound). `IdRestoreOther`'s
+  Continue on R2 after K1 would end the
   comparison only if that notice also said that the words written down
   on C4 do not restore the PeerId below it. The note does not add that
   text, because a build cannot reach that notice there (K1 offers R2
