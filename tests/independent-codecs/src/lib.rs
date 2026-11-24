@@ -62,25 +62,6 @@ pub const MAX_PAYLOAD_BYTES: usize = 49_152;
 /// `TRANSPORT.md` §Direct send: a present media type is 1..128 bytes.
 pub const MAX_MEDIA_TYPE_BYTES: usize = 128;
 
-/// `ENDPOINTS.md`, the retired label grammar: `^[a-z][a-z0-9._-]{0,63}$`.
-/// The direct codecs and the endpoint directory's no longer use it (they take
-/// [`is_derived_endpoint_id`]); the shapes that still do follow their own
-/// contract's major.
-#[must_use]
-pub fn is_endpoint_id(s: &str) -> bool {
-    let b = s.as_bytes();
-    match b.split_first() {
-        Some((first, rest)) => {
-            first.is_ascii_lowercase()
-                && rest.len() <= 63
-                && rest.iter().all(|c| {
-                    c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-')
-                })
-        }
-        None => false,
-    }
-}
-
 /// The length of a derived `EndpointId`'s text, and so of every endpoint
 /// field on `/interweave/direct/3.0.0` (`DIRECT.md` §Request).
 pub const DERIVED_ENDPOINT_ID_BYTES: usize = 52;
