@@ -879,27 +879,31 @@ static FLOW_SHOWS: Mutex<Option<FlowCheck>> = Mutex::new(None);
 
 /// Say in [`FLOW_SHOWS`] whether `o`, the flow now shown or none, lives,
 /// and to [`EXPECTED`] what its start must open the record to, if it
-/// says one.
+/// says one, or that it ends the comparison: R4 held for its Continue
+/// after K1. [`ask_service`] says it before it asks the start, so that
+/// start already compares nothing.
 fn flow_shows(o: Option<&Onboarding>) {
     *FLOW_SHOWS.lock().unwrap_or_else(PoisonError::into_inner) = o
         .filter(|o| !matches!(o.over, Over::Settings))
         .map(|o| flow_check(o.service_asked, o.flow.start_shows()));
     if let Some(o) = o {
-        EXPECTED
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .said(o.flow.start_expects());
+        let mut expected = EXPECTED.lock().unwrap_or_else(PoisonError::into_inner);
+        if o.flow.start_ends_comparison() {
+            expected.restored();
+        }
+        expected.said(o.flow.start_expects());
     }
 }
 
 /// The `PeerId` every start of this process must open the record to,
 /// from C4's `IdStartUnchecked` press until a start opened the record to
-/// it and ran (design section 6, The comparison outlasts the bound;
+/// it and ran, or R4's Continue after K1 was pressed (design section 6,
+/// The comparison outlasts the bound; architect-cto's ruling on Q17;
 /// [`ExpectedStart`] has the rule and its test). Said at the ask and at
 /// every render while C4 holds for that start ([`flow_shows`]), read by
 /// every start ([`expected_start`]), cleared by the start's answer
-/// ([`expected_answered`]). A process static: a parked flow and the
-/// Activity's saved state do not carry it.
+/// ([`expected_answered`]) or by that press ([`flow_shows`]). A process
+/// static: a parked flow and the Activity's saved state do not carry it.
 static EXPECTED: Mutex<ExpectedStart> = Mutex::new(ExpectedStart::new());
 
 /// What the start beginning now must open the record to, for jni.rs's

@@ -16,15 +16,18 @@ use interweave_transport_api::TransportIdentity;
 /// The `PeerId` every start of this process must open the record to once
 /// C4's `IdStartUnchecked` was pressed (design section 6, The comparison
 /// outlasts the bound): said by the flow at the press and at each render
-/// while C4 holds for that start ([`Self::said`]), and taken away by
-/// nothing but a start that compared with it, opened the record to it and
-/// ran ([`Self::answered`]). The flow's end, a later screen, a recreation,
-/// a launch in this process and every refusal leave it standing, so Try
-/// again, a return's retry, Unlock's start and a new launch's start all
-/// compare. It is a value of its own, held in a static apart from the
-/// parked flow (`flow_park.rs`) and from the Activity's saved state, so a
-/// process the system ended and restored compares nothing.
-/// `the_comparison_outlasts_the_flow_until_a_start_opens_to_it` holds it.
+/// while C4 holds for that start ([`Self::said`]), and taken away by a
+/// start that compared with it, opened the record to it and ran
+/// ([`Self::answered`]), or by R4's Continue after K1, a restore the
+/// person committed ([`Self::restored`]; architect-cto's ruling on Q17).
+/// The flow's end, a later screen, a recreation, a launch in this process
+/// and every refusal leave it standing, so Try again, a return's retry,
+/// Unlock's start and a new launch's start all compare. It is a value of
+/// its own, held in a static apart from the parked flow (`flow_park.rs`)
+/// and from the Activity's saved state, so a process the system ended and
+/// restored compares nothing.
+/// `the_comparison_outlasts_the_flow_until_a_start_opens_to_it` and
+/// `a_restore_committed_after_k1_ends_the_comparison` hold it.
 #[derive(Debug, Default)]
 pub(crate) struct ExpectedStart {
     peer: Option<TransportIdentity>,
@@ -53,6 +56,14 @@ impl ExpectedStart {
         if ran && compared.is_some() && compared == self.peer.as_ref() {
             self.peer = None;
         }
+    }
+
+    /// R4's Continue after K1 was pressed (`IdentityFlow::start_ends_comparison`):
+    /// its start, and every later one of the process, compares nothing,
+    /// and nothing is written of it. Said before that start reads
+    /// [`Self::for_start`].
+    pub(crate) fn restored(&mut self) {
+        self.peer = None;
     }
 
     /// What a start beginning now must open the record to.
@@ -193,6 +204,26 @@ mod tests {
         slot.said(Some(&mine()));
         slot.said(Some(&other()));
         assert_eq!(slot.for_start(), Some(other()), "a later press");
+    }
+
+    /// R4's Continue after K1 ends the comparison at its press: that
+    /// start and the next compare nothing, even after a refusal; before
+    /// it, everything leaves it standing (the flow's side of which press
+    /// that is: ui-model's
+    /// `only_r4s_continue_after_k1_ends_the_comparison`). Mutation:
+    /// `restored` leaving the `PeerId` fails here.
+    #[test]
+    fn a_restore_committed_after_k1_ends_the_comparison() {
+        let mut slot = ExpectedStart::new();
+        slot.said(Some(&mine()));
+        // K1 shows, R2 opens, a prompt is cancelled: the flow says nothing.
+        slot.said(None);
+        assert_eq!(slot.for_start(), Some(mine()), "before R4's press");
+        slot.restored();
+        assert_eq!(slot.for_start(), None, "R4's Continue after K1");
+        slot.answered(None, false);
+        slot.said(None);
+        assert_eq!(slot.for_start(), None, "refused, then Try again");
     }
 
     /// A refusal said for the start a hold waits on -- counted past the
