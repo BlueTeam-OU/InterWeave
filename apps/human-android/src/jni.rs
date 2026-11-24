@@ -15,7 +15,7 @@ use interweave_human_android_platform::{
     ServiceLaunch, StartRefused, Started, Told, Transports, UnlockStatus, addresses_from_wire,
     locked_status, start_resealed, start_resealed_expecting,
 };
-use interweave_human_ui_model::{UiText, fill, placeholder_en};
+use interweave_human_ui_model::{UiText, UncheckedRefused, fill, placeholder_en};
 use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
 use interweave_transport_api::TransportIdentity;
 use jni::{Env, EnvUnowned};
@@ -327,7 +327,10 @@ fn log_key_refused(host: &ServiceHost) {
     }
 }
 
-fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
+/// The start `Native.start` makes, told to `expect` a `PeerId` once C4's
+/// `IdStartUnchecked` was pressed in this process (onboard's
+/// `expected_start`).
+fn start(env: &mut Env<'_>, app_data_dir: &str, expect: Option<&TransportIdentity>) -> jint {
     // The debug build's start hook: a start that has not answered yet
     // (add-a-peer §8 item 12). Off the Service's main thread, as all of
     // this is.
@@ -342,21 +345,37 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     // The profile first: a first run's identity is provisioned under the
     // unlock policy it configures.
     if let Err(code) = provision(app_data_dir) {
+        // A refusal that says nothing of the record: a start that compares
+        // answers it as `Unavailable` (identity note section 6, Its
+        // results; An answer after the bound).
+        if expect.is_some() {
+            crate::onboard::unchecked_refused(UncheckedRefused::Unavailable);
+            ServiceHost::global().refused_compared(None, false);
+            return code;
+        }
         return refused_early(code);
     }
-    // Read once, at the start's beginning: what the flow expected when it
-    // asked this start, never what a later screen says.
-    let expect = crate::onboard::expected_start();
-    let started = match identity(env, app_data_dir, expect.as_ref()) {
+    let started = match identity(env, app_data_dir, expect) {
         Ok(started) => started,
         Err((code, learnt, why)) => {
-            // Before the hub hears the answer: the turn it wakes finds the
-            // held C4's answer there (onboard's `start_decided`).
-            if expect.is_some()
-                && let Some(answer) = crate::unchecked_start::unchecked_answer(&why, |cause| {
+            let answer = expect.and_then(|_| {
+                crate::unchecked_start::unchecked_answer(&why, |cause| {
                     crate::onboard::recovery_start(std::path::Path::new(app_data_dir), cause)
                 })
-            {
+            });
+            // Another PeerId, or nothing said of the record: `Refused` with
+            // Try again on Chats once no flow screen shows (section 6, An
+            // answer after the bound). A C4 held for this start answers it
+            // first, and that screen's next ask takes the notice away
+            // (`Hub::start_asked`). K1 and the prompt answer the other two
+            // as for any start.
+            let compared = matches!(
+                answer,
+                Some(UncheckedRefused::OtherIdentity | UncheckedRefused::Unavailable)
+            );
+            // Before the hub hears the answer: the turn it wakes finds the
+            // held C4's answer there (onboard's `start_decided`).
+            if let Some(answer) = answer {
                 crate::onboard::unchecked_refused(answer);
             }
             let host = ServiceHost::global();
@@ -366,7 +385,9 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
                 Learnt::Status(unlock) if code == refused::USER_NOT_AUTHENTICATED => {
                     host.refused_locked(unlock);
                 }
+                Learnt::Status(unlock) if compared => host.refused_compared(unlock, true),
                 Learnt::Status(unlock) => host.refused_before_start_with(unlock),
+                Learnt::Nothing if compared => host.refused_compared(None, false),
                 Learnt::Nothing => host.refused_before_start(),
             }
             // K1 over whatever the window shows, as at a launch (identity
@@ -429,7 +450,13 @@ extern "system" fn Java_org_interweave_human_Native_start<'caller>(
 ) -> jint {
     env.with_env(|env| -> Result<jint, jni::errors::Error> {
         let app_data_dir = app_data_dir.try_to_string(env)?;
-        let code = start(env, &app_data_dir);
+        // What the process expects of every start since C4's
+        // `IdStartUnchecked` was pressed, read once so that the comparison
+        // and its answer below name the one PeerId (`ExpectedStart`).
+        let expect = crate::onboard::expected_start();
+        let code = start(env, &app_data_dir, expect.as_ref());
+        // Opened to that PeerId and running: no later start compares.
+        crate::onboard::expected_answered(expect.as_ref(), code >= 0);
         // What the start left of the unlock policy, whatever it answered
         // (unlock note section 3).
         ServiceHost::global().say_unlock(std::path::Path::new(&app_data_dir), PROFILE);

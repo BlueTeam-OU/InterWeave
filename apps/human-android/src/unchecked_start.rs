@@ -13,12 +13,18 @@ use interweave_human_android_platform::custody::RecoveryCause;
 use interweave_human_ui_model::{Start, UncheckedRefused};
 use interweave_transport_api::TransportIdentity;
 
-/// The `PeerId` the Service's next start must open the record to, as the
-/// flow last said it ([`interweave_human_ui_model::IdentityFlow::start_expects`]).
-/// Said at the ask and at every render, so a start a showing retries
-/// under `IdStartBusy` reads it too, and kept past the flow's end while
-/// the flow's start has not answered: a start the bound left running
-/// behind Chats still compares (`a_start_in_flight_keeps_its_peer_id_past_the_flows_end`).
+/// The `PeerId` every start of this process must open the record to once
+/// C4's `IdStartUnchecked` was pressed (design section 6, The comparison
+/// outlasts the bound): said by the flow at the press and at each render
+/// while C4 holds for that start ([`Self::said`]), and taken away by
+/// nothing but a start that compared with it, opened the record to it and
+/// ran ([`Self::answered`]). The flow's end, a later screen, a recreation,
+/// a launch in this process and every refusal leave it standing, so Try
+/// again, a return's retry, Unlock's start and a new launch's start all
+/// compare. It is a value of its own, held in a static apart from the
+/// parked flow (`flow_park.rs`) and from the Activity's saved state, so a
+/// process the system ended and restored compares nothing.
+/// `the_comparison_outlasts_the_flow_until_a_start_opens_to_it` holds it.
 #[derive(Debug, Default)]
 pub(crate) struct ExpectedStart {
     peer: Option<TransportIdentity>,
@@ -30,27 +36,21 @@ impl ExpectedStart {
         Self { peer: None }
     }
 
-    /// The flow, shown, says what its start expects now: `None` for a
-    /// start that compares nothing.
-    pub(crate) fn shown(&mut self, expects: Option<&TransportIdentity>) {
-        self.peer = expects.cloned();
-    }
-
-    /// The flow ended. A start it asked that has not answered yet keeps
-    /// what it expects, which its answer then clears ([`Self::answered`]);
-    /// with none in flight nothing is expected any more.
-    pub(crate) fn flow_ended(&mut self, start_in_flight: bool) {
-        if !start_in_flight {
-            self.peer = None;
+    /// The flow, shown, says what its start expects: a `PeerId` is held
+    /// from then on (the press's, which a later press would replace);
+    /// `None` -- any other screen, the flow's end -- changes nothing.
+    pub(crate) fn said(&mut self, expects: Option<&TransportIdentity>) {
+        if let Some(peer) = expects {
+            self.peer = Some(peer.clone());
         }
     }
 
-    /// A start answered. With no flow shown any more nothing is expected
-    /// of the next start: a later one, an Unlock's or a launch's, opens
-    /// the record to whatever it holds, as any launch does (design section
-    /// 6, Its results). While a flow shows, it says what it expects.
-    pub(crate) fn answered(&mut self, flow_shows: bool) {
-        if !flow_shows {
+    /// A start that was told to expect `compared` answered, `ran` when
+    /// the service runs: the record opened to that `PeerId`, so nothing is
+    /// expected of the next start. Any other answer -- a mismatch, a
+    /// refusal, a start that compared nothing -- leaves it.
+    pub(crate) fn answered(&mut self, compared: Option<&TransportIdentity>, ran: bool) {
+        if ran && compared.is_some() && compared == self.peer.as_ref() {
             self.peer = None;
         }
     }
@@ -67,7 +67,10 @@ impl ExpectedStart {
 /// `IdStorageUnknown` again -- the first with Try again only -- and a
 /// record that does not open is K1, built by `recovery` as at a launch.
 /// A refusal for the person is not here (`None`): the screen's prompt
-/// answers it, as for any held start.
+/// answers it, as for any held start. With no C4 held for the start --
+/// the bound passed, or any later start of the process -- the first two
+/// show as Chats' `Refused` instead (jni.rs, `refused_compared`; section
+/// 6, An answer after the bound).
 pub(crate) fn unchecked_answer(
     refused: &IdentityRefused,
     recovery: impl FnOnce(&RecoveryCause) -> Start,
@@ -109,32 +112,54 @@ mod tests {
         peer("12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e")
     }
 
-    /// The slot says what the flow last said, and the flow's end clears
-    /// it only once no start of the flow is in flight; that start's
-    /// answer then clears it, so no later start -- an Unlock's, a
-    /// launch's -- is compared. A start answered while a flow shows
-    /// leaves the flow's word standing. Mutations: `flow_ended` clearing
-    /// whatever is in flight, or `answered` keeping the slot with no flow
-    /// shown, fail here.
+    fn other() -> TransportIdentity {
+        peer("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+    }
+
+    /// Nothing is expected before a press; from it, every start compares
+    /// with C4's `PeerId` whatever the flow says next -- its end, another
+    /// screen -- and whatever answers: a mismatch, a refusal, the profile
+    /// in use, a start that ran without comparing, a start that compared
+    /// with another `PeerId` and ran. Only a start that compared with it
+    /// and ran takes it away; a later press replaces it (design section
+    /// 6, The comparison outlasts the bound). Mutations: `said(None)`
+    /// clearing it, `answered` clearing on any `ran`, on a refusal, or
+    /// for a start that compared with another `PeerId`, fail here.
     #[test]
-    fn a_start_in_flight_keeps_its_peer_id_past_the_flows_end() {
+    fn the_comparison_outlasts_the_flow_until_a_start_opens_to_it() {
         let mut slot = ExpectedStart::new();
         assert_eq!(slot.for_start(), None, "nothing at first");
-        slot.shown(Some(&mine()));
-        assert_eq!(slot.for_start(), Some(mine()));
-        slot.answered(true);
-        assert_eq!(slot.for_start(), Some(mine()), "the flow still shows");
-        slot.flow_ended(true);
-        assert_eq!(slot.for_start(), Some(mine()), "its start still runs");
-        slot.answered(false);
-        assert_eq!(slot.for_start(), None, "answered: no later start compares");
+        slot.answered(None, true);
+        assert_eq!(slot.for_start(), None, "a start before any press");
+        slot.said(None);
+        assert_eq!(slot.for_start(), None, "a screen that expects nothing");
 
-        slot.shown(Some(&mine()));
-        slot.flow_ended(false);
-        assert_eq!(slot.for_start(), None, "nothing in flight");
-        slot.shown(Some(&mine()));
-        slot.shown(None);
-        assert_eq!(slot.for_start(), None, "the flow's own word");
+        slot.said(Some(&mine()));
+        assert_eq!(slot.for_start(), Some(mine()), "the press");
+        slot.said(None);
+        assert_eq!(slot.for_start(), Some(mine()), "the flow ended");
+        slot.answered(Some(&mine()), false);
+        assert_eq!(
+            slot.for_start(),
+            Some(mine()),
+            "refused: Try again compares"
+        );
+        slot.answered(None, true);
+        assert_eq!(
+            slot.for_start(),
+            Some(mine()),
+            "a start that compared nothing"
+        );
+        slot.answered(Some(&other()), true);
+        assert_eq!(slot.for_start(), Some(mine()), "compared with another");
+        slot.answered(Some(&mine()), true);
+        assert_eq!(slot.for_start(), None, "opened to it and ran");
+        slot.said(None);
+        assert_eq!(slot.for_start(), None, "and stays clear");
+
+        slot.said(Some(&mine()));
+        slot.said(Some(&other()));
+        assert_eq!(slot.for_start(), Some(other()), "a later press");
     }
 
     /// A start told to expect C4's `PeerId` answers the flow as section 6

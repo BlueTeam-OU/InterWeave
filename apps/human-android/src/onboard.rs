@@ -552,7 +552,6 @@ pub(crate) fn person_asked() {
 /// Seal running).
 pub(crate) fn refused_locked() {
     let flow = FLOW_START.swap(false, Ordering::SeqCst);
-    expected_answered();
     await_authentication(ask::RESTART);
     let decided = route_state().refused();
     if flow_prompts(flow, decided) {
@@ -566,17 +565,15 @@ pub(crate) fn refused_locked() {
     }
 }
 
-/// A start answered, after [`FLOW_START`] was taken: with no flow shown
-/// any more, no later start compares (`ExpectedStart::answered`).
-fn expected_answered() {
-    let shows = FLOW_SHOWS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .is_some();
+/// A start told to expect `compared` answered, `ran` when the service
+/// runs: once one opened the record to C4's `PeerId`, no later start
+/// compares (`ExpectedStart::answered`). Said by jni.rs's `Native.start`
+/// before the start's answer is handed on.
+pub(crate) fn expected_answered(compared: Option<&TransportIdentity>, ran: bool) {
     EXPECTED
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .answered(shows);
+        .answered(compared, ran);
 }
 
 /// A held C4's or R4's start was asked and has not answered yet: its
@@ -623,7 +620,6 @@ pub(crate) fn start_answered(ran: bool) {
     if FLOW_START.swap(false, Ordering::SeqCst) {
         invoke_on_window(crate::activity::turn_soon);
     }
-    expected_answered();
     route_state().answered(ran);
     clear_authentication();
     // A K1 kept for a window is no longer owed once a start ran: the
@@ -883,29 +879,32 @@ static PARKED: Mutex<Option<Parked>> = Mutex::new(None);
 static FLOW_SHOWS: Mutex<Option<FlowCheck>> = Mutex::new(None);
 
 /// Say in [`FLOW_SHOWS`] whether `o`, the flow now shown or none, lives,
-/// and in [`EXPECTED`] what its start must open the record to.
+/// and to [`EXPECTED`] what its start must open the record to, if it
+/// says one.
 fn flow_shows(o: Option<&Onboarding>) {
     *FLOW_SHOWS.lock().unwrap_or_else(PoisonError::into_inner) = o
         .filter(|o| !matches!(o.over, Over::Settings))
         .map(|o| flow_check(o.service_asked, o.flow.start_shows()));
-    let mut expected = EXPECTED.lock().unwrap_or_else(PoisonError::into_inner);
-    match o {
-        Some(o) => expected.shown(o.flow.start_expects()),
-        // After FLOW_SHOWS, as the start's answer reads them the other
-        // way round ([`start_answered`]): whichever comes second clears.
-        None => expected.flow_ended(FLOW_START.load(Ordering::SeqCst)),
+    if let Some(o) = o {
+        EXPECTED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .said(o.flow.start_expects());
     }
 }
 
-/// The `PeerId` the Service's start must open the record to: C4's, while
-/// the flow holds C4 for `IdStartUnchecked`'s start or shows it refused
-/// under `IdStartBusy` (design section 6, A start from C4 after a failed
-/// read-back). Said at every render and at the ask ([`flow_shows`]),
-/// read by the start ([`expected_start`]).
+/// The `PeerId` every start of this process must open the record to,
+/// from C4's `IdStartUnchecked` press until a start opened the record to
+/// it and ran (design section 6, The comparison outlasts the bound;
+/// [`ExpectedStart`] has the rule and its test). Said at the ask and at
+/// every render while C4 holds for that start ([`flow_shows`]), read by
+/// every start ([`expected_start`]), cleared by the start's answer
+/// ([`expected_answered`]). A process static: a parked flow and the
+/// Activity's saved state do not carry it.
 static EXPECTED: Mutex<ExpectedStart> = Mutex::new(ExpectedStart::new());
 
 /// What the start beginning now must open the record to, for jni.rs's
-/// `start`, which compares before the identity reaches the service.
+/// `Native.start`, which compares before the identity reaches the service.
 pub(crate) fn expected_start() -> Option<TransportIdentity> {
     EXPECTED
         .lock()
