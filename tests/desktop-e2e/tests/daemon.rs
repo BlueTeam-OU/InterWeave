@@ -1886,9 +1886,9 @@ async fn peer_list_says_when_each_peer_was_last_seen_and_every_row_carries_it() 
     {
         let mut client = RawClient::connect(&a.admin_socket()).await;
         client
-            .send(&format!(
-                r#"{{"type":"hello","ipc_version":{{"major":3,"minor":0}},"client":{{"kind":"transportctl"}},"requested_capabilities":["admin.status"]}}"#
-            ))
+            .send(
+                r#"{"type":"hello","ipc_version":{"major":3,"minor":0},"client":{"kind":"transportctl"},"requested_capabilities":["admin.status"]}"#,
+            )
             .await;
         match client.next(PATIENCE).await {
             Some(Frame::HelloResponse(response)) => {
