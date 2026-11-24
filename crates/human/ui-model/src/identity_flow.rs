@@ -862,26 +862,18 @@ impl IdentityFlow {
                 notice: Some(Notice::StorageUnknown),
                 held,
                 starting,
-                unchecked,
                 ..
             } => match shown_peer {
                 Some(peer) => {
                     *held = true;
                     *starting = false;
-                    *unchecked = false;
                     vec![Effect::ReadBack(peer)]
                 }
                 None => Vec::new(),
             },
-            Screen::C4 {
-                held,
-                starting,
-                unchecked,
-                ..
-            } => {
+            Screen::C4 { held, starting, .. } => {
                 *held = true;
                 *starting = false;
-                *unchecked = false;
                 vec![Effect::Seal]
             }
             Screen::R1 => {
@@ -3760,6 +3752,12 @@ mod tests {
             c4.offers_unchecked(),
             "stays offered while the notice shows"
         );
+        // Under another notice with the offer still standing: its start
+        // refused with the profile in use, `IdStartBusy`'s Try again
+        // replaces both controls.
+        c4.start_unchecked();
+        c4.start_busy();
+        assert!(!c4.offers_unchecked(), "not under IdStartBusy");
     }
 
     /// Its press holds C4 as Continue's does -- held at once, a second
@@ -3796,8 +3794,8 @@ mod tests {
     /// one -- Continue's after a seal, Try again's after a read-back that
     /// found the record, `IdAlreadyCreated`'s, R4's (design section 6, the
     /// profile-in-use row and The hold). Mutations: `start_expects`
-    /// answering C4's `PeerId` on any held C4, or the `ReadBack` press
-    /// keeping `unchecked`, or `start_busy` clearing it, fail here.
+    /// answering C4's `PeerId` on any held C4, or `start_busy` clearing
+    /// `unchecked`, or `unchecked_refused` leaving it set, fail here.
     #[test]
     fn start_expects_names_c4s_peer_id_for_its_starts_alone() {
         for (place, flow) in held_starts() {
