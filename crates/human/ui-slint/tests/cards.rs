@@ -542,7 +542,7 @@ fn the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands() {
     );
     // A later card from the route arrives and is accepted: the facade
     // lists the contact with the person's name kept (app-core's
-    // `a_later_card_names_the_values_it_changes_and_the_edit_it_keeps`).
+    // `a_later_card_keeps_the_persons_name_and_names_the_photo_it_removes`).
     model.card_received(proposal(2, P, card("Ada again", false), context()));
     model.card_resolved(
         row(2),
