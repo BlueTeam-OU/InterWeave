@@ -514,6 +514,10 @@ impl Opener for AndroidOpener {
     fn unlock_line_seen(&mut self, start: u64) {
         ServiceHost::global().hub().unlock_line_seen(start);
     }
+
+    fn retry_start(&mut self) {
+        crate::onboard::retry_start();
+    }
 }
 
 /// The rules of a start with Connect owed (add-a-peer section 5.1;
@@ -543,6 +547,10 @@ impl Root {
     /// from it counts against an owed Connect (add-a-peer §5.1), together
     /// with what an earlier window of this start opened.
     fn new_window(view: Rc<RefCell<View>>) -> Self {
+        // The line the recreation device cases read (D1, D3 and D7 of
+        // device-runs/identity-recreation-cases.md): here, not in
+        // `attach`, so a lost link's reattach is not counted with it.
+        log("the chats attach to the window");
         rules().new_window(view.borrow().opened_from_chats());
         Self::attach(view)
     }
@@ -616,8 +624,15 @@ impl Root {
             carried.remember(&self.side);
             drop(carried);
             crate::onboard::start_decided();
-        } else if self.side.start_decided(asked_at) {
-            crate::onboard::start_decided();
+        } else if self.side.start_decided(asked_at) && !crate::onboard::flow_answers_refusal() {
+            // Refused with the profile in use before the bound: the
+            // screen stays, with `IdStartBusy` and Try again (identity
+            // note section 6; `ViewSide::start_busy`).
+            if self.side.start_busy(asked_at) {
+                crate::onboard::start_busy();
+            } else {
+                crate::onboard::start_decided();
+            }
         }
     }
 
@@ -891,8 +906,16 @@ fn android_main(app: AndroidApp) {
     if let Err(e) = handle.run() {
         log(&format!("the event loop ended: {e}"));
     }
-    // The Activity is gone: its link goes with it, and the hub detaches
+    // The Activity is gone. An identity flow it showed is kept for the
+    // next window, whose thread is another, unless the Activity finished
+    // (onboard.rs, window_ended):
+    // done here, before the glue lets onDestroy return and the platform
+    // makes the next instance (BLOCKED on a device run: case D1 of
+    // apps/human-android/device-runs/identity-recreation-cases.md, whose
+    // new window shows Welcome if the flow is parked late). Its link goes
+    // with it, and the hub detaches
     // it on its next send. The session stays the Service's.
+    crate::onboard::window_ended();
     ROOT.with(|root| root.borrow_mut().take());
     VIEW.with(|slot| slot.borrow_mut().take());
     SHOW_OPEN.with(|slot| slot.borrow_mut().take());

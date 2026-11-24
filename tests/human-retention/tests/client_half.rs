@@ -38,11 +38,11 @@ use interweave_transport_api::{
 const LIMIT: usize = 49_152;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("human")
 }
 
 fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("agent")
 }
 
 fn node() -> FakeConfig {
@@ -82,7 +82,12 @@ fn envelope(id: u8) -> HumanChatV2 {
 
 fn store_at(dir: &Path) -> (PathBuf, HumanStore) {
     let path = dir.join("state").join("human.sqlite3");
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("store");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     (path, store)
 }
 
@@ -243,7 +248,11 @@ async fn case_5_client_every_message_drain_hands_over_is_already_an_unread_row()
     let mut sender = TransportClient::new(
         a.clone(),
         a.clone(),
-        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
         config(agent()),
         Box::new(|| 1_786_600_000_000),
         0,
@@ -284,10 +293,22 @@ async fn case_5_client_every_message_drain_hands_over_is_already_an_unread_row()
 async fn case_14_client_a_store_that_cannot_hold_unread_content_takes_no_lease() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("create"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("create"),
+    );
     // A quota below the file's size opens degraded (StoreOptions docs):
     // the real SQLITE_FULL path, not an injected one.
-    let tight = HumanStore::open(&path, StoreOptions { max_pages: Some(1) }).expect("opens");
+    let tight = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions { max_pages: Some(1) },
+    )
+    .expect("opens");
     let (_a, b) = FakeNetwork::pair(node(), node());
     let mut receiver = TransportClient::new(
         b.clone(),

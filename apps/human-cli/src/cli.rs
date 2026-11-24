@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use interweave_human_store::at_rest::DiscardScope;
 use interweave_human_ui_model::ConversationKey;
+use interweave_profile_config::EndpointSelector;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 
 /// The usage text, every verb and the exit codes.
@@ -31,7 +32,6 @@ usage:
   interweave-human --profile <name> identities enable|disable <endpoint>
   interweave-human --profile <name> identities default <endpoint>|--none
   interweave-human --profile <name> identity show [<endpoint>] [--json]
-  interweave-human --profile <name> identity new-key [--confirm key-change] [--json]
   interweave-human --profile <name> store health [--json]
   interweave-human --profile <name> store discard
                    [--confirm everything|unfinished-plaintext] [--json]
@@ -40,7 +40,7 @@ usage:
   interweave-human --profile <name> card share <conversation> [--json]
   interweave-human --profile <name> proposals [--json]
   interweave-human --profile <name> proposals read <conversation>
-                   [--accept <id>]... [--accept-key-change <id>]...
+                   [--accept <id>]...
                    [--decline <id>]... [--json]
   interweave-human --profile <name> contacts [--json]
   interweave-human --profile <name> contacts show <contact> [--json]
@@ -63,8 +63,6 @@ pending, u<row> unread, k<row> kept; a proposal's is its card's u<row>,
 as proposals prints it. A <contact> is its id, as contacts prints it. `send ... -` reads the text from
 stdin. `--` ends the flags. `store discard` without --confirm lists what
 it would remove and removes nothing; --confirm names what it listed.
-`identity new-key` without --confirm key-change says what a new key would
-do and changes nothing.
 
 Exit codes:
   0  done
@@ -96,8 +94,9 @@ pub(crate) enum Command {
         /// How long to wait for the session and for an answer.
         wait: Duration,
         /// The one of the profile's human endpoints to lease, in place of
-        /// the first (`--endpoint`, G2).
-        endpoint: Option<EndpointId>,
+        /// the first (`--endpoint`, G2): its alias or its id, resolved
+        /// once the profile is read (ADR-0067 decision 3).
+        endpoint: Option<EndpointSelector>,
     },
 }
 
@@ -232,20 +231,13 @@ pub(crate) enum Verb {
     /// The identities this client may hold: the profile's human
     /// endpoints, as the daemon reports them.
     IdentitiesList,
-    /// Enable or disable one.
-    SetEnabled(EndpointId, bool),
-    /// Set the default one, or clear it.
-    SetDefault(Option<EndpointId>),
+    /// Enable or disable one, by its alias or its id.
+    SetEnabled(EndpointSelector, bool),
+    /// Set the default one, by its alias or its id, or clear it.
+    SetDefault(Option<EndpointSelector>),
     /// An identity's fingerprint: the one in front, or the named human
-    /// endpoint's.
-    IdentityShow(Option<EndpointId>),
-    /// A new key for the identity in front, whose key cannot be used:
-    /// made only when `confirm` (the person's `--confirm key-change`),
-    /// else what it would do is said and nothing changes.
-    IdentityNewKey {
-        /// The key change confirmed.
-        confirm: bool,
-    },
+    /// endpoint's, by its alias or its id.
+    IdentityShow(Option<EndpointSelector>),
     /// The store's health, and its key and files at rest.
     StoreHealth,
     /// Discard and recreate a store that needs recovery (ADR-0060
@@ -273,12 +265,8 @@ pub(crate) enum Verb {
     ProposalsRead {
         /// The conversation.
         conversation: ConversationKey,
-        /// The proposals to accept, by id: none of them a key change.
+        /// The proposals to accept, by id.
         accept: Vec<String>,
-        /// The key changes to accept, by id: each must be one (ADR-0063
-        /// decision 4: a changed key is accepted only by the person's
-        /// act, named for it).
-        accept_key_change: Vec<String>,
         /// The proposals to decline, by id.
         decline: Vec<String>,
     },
@@ -356,7 +344,6 @@ struct Flags {
     photo: Option<String>,
     no_photo: bool,
     accept: Vec<String>,
-    accept_key_change: Vec<String>,
     decline: Vec<String>,
     confirm: Option<String>,
     file: Option<String>,
@@ -386,7 +373,7 @@ pub(crate) fn conversation(text: &str) -> Result<ConversationKey, String> {
     Ok(ConversationKey::Direct {
         peer: TransportIdentity::parse(peer).map_err(|e| format!("the peer: {e}"))?,
         endpoint: endpoint
-            .map(|e| EndpointId::parse(e).map_err(|e| format!("the endpoint: {e}")))
+            .map(|e| EndpointId::parse_derived(e).map_err(|e| format!("the endpoint: {e}")))
             .transpose()?,
     })
 }
@@ -451,7 +438,6 @@ fn flags_and_words(args: Vec<String>) -> Result<Option<(Flags, Vec<String>)>, St
             }
             "--keep" => flags.keep.push(value("--keep")?),
             "--accept" => flags.accept.push(value("--accept")?),
-            "--accept-key-change" => flags.accept_key_change.push(value("--accept-key-change")?),
             "--decline" => flags.decline.push(value("--decline")?),
             "--photo" => {
                 let v = value("--photo")?;
@@ -522,7 +508,12 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     }
     let profile = flags.profile.take().ok_or("--profile <name> is required")?;
     let wait = wait_of(flags.wait.take().as_deref())?;
-    let endpoint = |id: &str| EndpointId::parse(id).map_err(|e| format!("the endpoint: {e}"));
+    // One of this profile's own endpoints, as a person names it: its alias
+    // or its id. Which endpoint it is waits for the profile (main).
+    let endpoint = |text: &str| {
+        EndpointSelector::parse(text)
+            .ok_or_else(|| "the endpoint is neither an EndpointId nor an alias".to_owned())
+    };
     let peer = |id: &str| TransportIdentity::parse(id).map_err(|e| format!("the peer: {e}"));
     let (verb, json_allowed) = match words.as_slice() {
         ["status"] => (Verb::Status, true),
@@ -577,12 +568,6 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ["identities", "default", id] => (Verb::SetDefault(Some(endpoint(id)?)), false),
         ["identity", "show"] => (Verb::IdentityShow(None), true),
         ["identity", "show", id] => (Verb::IdentityShow(Some(endpoint(id)?)), true),
-        ["identity", "new-key"] => (
-            Verb::IdentityNewKey {
-                confirm: key_change_confirmed(flags.confirm.take().as_deref())?,
-            },
-            true,
-        ),
         ["store", "health"] => (Verb::StoreHealth, true),
         ["store", "discard"] => (
             Verb::StoreDiscard(discard_scope(flags.confirm.take().as_deref())?),
@@ -613,7 +598,6 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::ProposalsRead {
                 conversation: conversation(c)?,
                 accept: std::mem::take(&mut flags.accept),
-                accept_key_change: std::mem::take(&mut flags.accept_key_change),
                 decline: std::mem::take(&mut flags.decline),
             },
             true,
@@ -670,7 +654,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     };
     if json && !json_allowed {
         return Err(
-            "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
+            "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share and store discard"
                 .to_owned(),
         );
     }
@@ -714,15 +698,6 @@ fn discard_scope(confirm: Option<&str>) -> Result<Option<DiscardScope>, String> 
     }
 }
 
-/// `identity new-key`'s `--confirm`: whether it names the key change.
-fn key_change_confirmed(confirm: Option<&str>) -> Result<bool, String> {
-    match confirm {
-        None => Ok(false),
-        Some("key-change") => Ok(true),
-        Some(_) => Err("identity new-key's --confirm takes key-change".to_owned()),
-    }
-}
-
 /// A flag given to a verb that does not take it: a usage error naming
 /// the verbs it applies to.
 fn unused(flags: &Flags) -> Result<(), String> {
@@ -732,14 +707,11 @@ fn unused(flags: &Flags) -> Result<(), String> {
     if flags.none {
         return Err("--none applies to identities default and contacts photo only".to_owned());
     }
-    if !flags.accept.is_empty() || !flags.accept_key_change.is_empty() || !flags.decline.is_empty()
-    {
-        return Err(
-            "--accept, --accept-key-change and --decline apply to proposals read only".to_owned(),
-        );
+    if !flags.accept.is_empty() || !flags.decline.is_empty() {
+        return Err("--accept and --decline apply to proposals read only".to_owned());
     }
     if flags.confirm.is_some() {
-        return Err("--confirm applies to store discard and identity new-key only".to_owned());
+        return Err("--confirm applies to store discard only".to_owned());
     }
     if flags.photo.is_some() || flags.no_photo {
         return Err("--photo and --no-photo apply to card set only".to_owned());
@@ -762,6 +734,7 @@ fn unused(flags: &Flags) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
@@ -778,7 +751,7 @@ mod tests {
 
     #[test]
     fn every_verb_in_the_usage_parses() {
-        let c = format!("{PEER}/human");
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         let cases: &[&[&str]] = &[
             &["--profile", "p", "status"],
             &["--profile", "p", "conversations", "--json"],
@@ -805,15 +778,6 @@ mod tests {
             &["--profile", "p", "store", "health", "--json"],
             &["--profile", "p", "identity", "show"],
             &["--profile", "p", "identity", "show", "second", "--json"],
-            &["--profile", "p", "identity", "new-key", "--json"],
-            &[
-                "--profile",
-                "p",
-                "identity",
-                "new-key",
-                "--confirm",
-                "key-change",
-            ],
             &["--profile", "p", "store", "discard", "--json"],
             &["--profile", "p", "peers", "show", "--json"],
             &["--profile", "p", "peers", "state", "--json"],
@@ -848,8 +812,6 @@ mod tests {
                 &c,
                 "--accept",
                 "u3",
-                "--accept-key-change",
-                "u5",
                 "--decline",
                 "u4",
             ],
@@ -901,7 +863,6 @@ mod tests {
             "identities default",
             "store health",
             "identity show",
-            "identity new-key",
             "card show",
             "card set",
             "card share",
@@ -923,7 +884,7 @@ mod tests {
     fn a_conversation_is_a_peer_a_peer_and_endpoint_or_a_channel() {
         for text in [
             PEER.to_owned(),
-            format!("{PEER}/human"),
+            format!("{PEER}/{}", endpoint_id("human").as_str()),
             "#general".to_owned(),
         ] {
             assert_eq!(
@@ -933,12 +894,14 @@ mod tests {
         }
         assert!(conversation("not a peer").is_err());
         assert!(conversation(&format!("{PEER}/")).is_err());
+        // A retired label is not an endpoint any more (ADR-0067).
+        assert!(conversation(&format!("{PEER}/human")).is_err());
         assert!(conversation("#").is_err());
     }
 
     #[test]
     fn a_message_starting_with_a_dash_is_sent_after_the_end_of_the_flags() {
-        let c = format!("{PEER}/human");
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         assert_eq!(
             verb(&["--profile", "p", "send", &c, "--", "-1 is a number"]),
             Verb::Send {
@@ -954,8 +917,28 @@ mod tests {
     }
 
     #[test]
+    fn the_withdrawn_accept_key_change_flag_is_an_unknown_flag() {
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
+        // The control: the flag that stays parses.
+        assert!(run(&["--profile", "p", "proposals", "read", &c, "--accept", "u1"]).is_ok());
+        assert_eq!(
+            run(&[
+                "--profile",
+                "p",
+                "proposals",
+                "read",
+                &c,
+                "--accept-key-change",
+                "u1"
+            ])
+            .map(|_| ()),
+            Err("an unknown flag".to_owned())
+        );
+    }
+
+    #[test]
     fn flags_that_do_not_apply_are_usage_errors() {
-        let c = format!("{PEER}/human");
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         for args in [
             vec!["--profile", "p", "trust", "allow", PEER, "--json"],
             vec![
@@ -970,15 +953,6 @@ mod tests {
             ],
             vec!["--profile", "p", "card", "set", "A", "B", "C"],
             vec!["--profile", "p", "read", &c, "--accept", "u1"],
-            vec!["--profile", "p", "read", &c, "--accept-key-change", "u1"],
-            vec![
-                "--profile",
-                "p",
-                "proposals",
-                "read",
-                &c,
-                "--accept-key-change",
-            ],
             vec!["--profile", "p", "status", "--photo", "x"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],
@@ -1029,7 +1003,7 @@ mod tests {
         assert_eq!(
             run(&["--profile", "p", "trust", "allow", PEER, "--json"]),
             Err(
-                "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
+                "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share and store discard"
                     .to_owned()
             )
         );
@@ -1065,27 +1039,6 @@ mod tests {
         ));
         assert!(discard(&["--confirm", "yes"]).is_err());
         assert!(discard(&["--confirm", "key-change"]).is_err());
-        let new_key = |extra: &[&str]| {
-            let mut args = vec!["--profile", "p", "identity", "new-key"];
-            args.extend_from_slice(extra);
-            run(&args)
-        };
-        assert!(matches!(
-            new_key(&[]),
-            Ok(Command::Run {
-                verb: Verb::IdentityNewKey { confirm: false },
-                ..
-            })
-        ));
-        assert!(matches!(
-            new_key(&["--confirm", "key-change"]),
-            Ok(Command::Run {
-                verb: Verb::IdentityNewKey { confirm: true },
-                ..
-            })
-        ));
-        assert!(new_key(&["--confirm", "everything"]).is_err());
-        assert!(new_key(&["--confirm", "yes"]).is_err());
         assert!(discard(&["--confirm"]).is_err());
         assert!(discard(&["--confirm", "everything", "--confirm", "everything"]).is_err());
         assert!(
@@ -1099,6 +1052,25 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    /// ADR-0067 decision 5: a new key is a new identity, so no verb makes
+    /// one under an identity's name -- `identity new-key` is no command,
+    /// with or without its old flag, and the usage names it nowhere.
+    /// Mutation: the verb's parse arm put back.
+    #[test]
+    fn no_verb_makes_a_new_key_for_an_identity() {
+        for extra in [&[][..], &["--confirm", "key-change"], &["--json"]] {
+            let mut args = vec!["--profile", "p", "identity", "new-key"];
+            args.extend_from_slice(extra);
+            assert_eq!(
+                run(&args),
+                Err("an unknown command (see --help)".to_owned()),
+                "{args:?}"
+            );
+        }
+        assert!(!USAGE.contains("new-key"), "the usage names no new key");
+        assert!(!USAGE.contains("--confirm key-change"), "nor its flag");
     }
 
     #[test]
@@ -1144,7 +1116,7 @@ mod tests {
     /// Mutations: a flag accepted on another verb; --input without --json.
     #[test]
     fn the_carriers_flags_go_where_they_apply() {
-        let c = format!("{PEER}/human");
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         assert!(matches!(
             run(&["--profile", "p", "listen", "--input", "--consume", "--json"]),
             Ok(Command::Run {
@@ -1172,13 +1144,16 @@ mod tests {
             Ok(Command::Run {
                 endpoint: Some(e),
                 ..
-            }) if e.as_str() == "fabric-control"
+            }) if e.to_string() == "fabric-control"
         ));
         for wrong in [
             vec!["--profile", "p", "status", "--input"],
             vec!["--profile", "p", "status", "--consume"],
             vec!["--profile", "p", "listen", "--no-pending"],
             vec!["--profile", "p", "status", "--endpoint", "human"],
+            // Neither an alias nor an id: a usage error, before any profile.
+            vec!["--profile", "p", "listen", "--endpoint", "Human"],
+            vec!["--profile", "p", "identities", "enable", "12D3KooWnot"],
         ] {
             assert!(run(&wrong).is_err(), "{wrong:?}");
         }
@@ -1236,7 +1211,7 @@ mod tests {
     fn a_conversation_filter_names_a_peer_or_one_of_its_endpoints() {
         let direct = |e: Option<&str>| ConversationKey::Direct {
             peer: TransportIdentity::parse(PEER).expect("a PeerId"),
-            endpoint: e.map(|e| EndpointId::parse(e).expect("an endpoint")),
+            endpoint: e.map(endpoint_id),
         };
         let on = |c: ConversationKey| ListenFilter {
             events: None,

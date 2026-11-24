@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! `/interweave/endpoints/1.0.0`: answering directory queries, asking
+//! `/interweave/endpoints/2.0.0`: answering directory queries, asking
 //! them, and the requester's advisory cache.
 //!
 //! The libp2p-shaped half. The decisions are pure and live in

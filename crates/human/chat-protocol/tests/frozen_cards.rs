@@ -555,6 +555,7 @@ fn every_fault_has_a_distinct_fixed_name() {
         CardFault::SignatureEncoding,
         CardFault::SignatureLength,
         CardFault::SignatureFails,
+        CardFault::KeyNotSourceEndpoint,
     ];
     let names: BTreeSet<&str> = all.iter().map(|f| f.as_str()).collect();
     assert_eq!(names.len(), all.len());

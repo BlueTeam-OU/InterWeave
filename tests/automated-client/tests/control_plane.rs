@@ -165,9 +165,11 @@ observability: {{ log_level: debug }}
         client
     }
 
-    /// `peer/fabric-control`, the conversation a CLI addresses.
+    /// `peer/<fabric-control's derived id>`, the conversation a CLI
+    /// addresses: a conversation names the endpoint by its id, never its
+    /// alias (ADR-0067).
     fn control(&self) -> String {
-        format!("{}/{CONTROL}", self.peer.as_str())
+        format!("{}/{}", self.peer.as_str(), endpoint(CONTROL).as_str())
     }
 }
 
@@ -384,7 +386,7 @@ fn envelope(n: u8, text: &str) -> Payload {
         "app_message_id": format!("{n:032x}"),
         "text": text,
         "sent_at_ms": 1,
-        "from_endpoint": CARRIER,
+        "from_endpoint": endpoint(CARRIER).as_str(),
     });
     Payload::at_ceiling(
         Some(
@@ -415,13 +417,12 @@ async fn the_carrier_and_the_control_cli_share_one_profile_and_leave_no_row() {
     let mut carrier_b = b.carrier().await;
     let mut cli_a = Listener::start(&a.home);
     let mut cli_b = Listener::start(&b.home);
+    // The admin port names a lease by the endpoint's derived id, never
+    // its alias (ADR-0067).
+    let mut both = [endpoint(CONTROL), endpoint(CARRIER)].map(|e| e.as_str().to_owned());
+    both.sort();
     for p in [&a, &b] {
-        assert_eq!(
-            p.leased().await,
-            [CONTROL, CARRIER],
-            "both leases held\n{}",
-            p.log()
-        );
+        assert_eq!(p.leased().await, both, "both leases held\n{}", p.log());
     }
 
     // The carrier's traffic, endpoint to endpoint.
@@ -445,12 +446,12 @@ async fn the_carrier_and_the_control_cli_share_one_profile_and_leave_no_row() {
     let at_b = cli_b.until("A's line at B", |l| {
         l["event"] == "message" && l["text"] == "control a to b"
     });
-    assert_eq!(at_b["local_endpoint"], CONTROL, "{at_b}");
+    assert_eq!(at_b["local_endpoint"], endpoint(CONTROL).as_str(), "{at_b}");
     cli_b.send_accepted(&a.control(), "control b to a", "r2");
     let at_a = cli_a.until("B's line at A", |l| {
         l["event"] == "message" && l["text"] == "control b to a"
     });
-    assert_eq!(at_a["local_endpoint"], CONTROL, "{at_a}");
+    assert_eq!(at_a["local_endpoint"], endpoint(CONTROL).as_str(), "{at_a}");
 
     assert_eq!(at_b["conversation"], a.control(), "{at_b}");
     assert_eq!(at_a["conversation"], b.control(), "{at_a}");

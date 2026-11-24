@@ -15,6 +15,7 @@ use interweave_human_store::at_rest::{
 use interweave_human_store::key_custody::{Custody, KeyCipher};
 use interweave_human_store::{HumanStore, StorageHealth, StoreError};
 use interweave_profile_config::ProfilePaths;
+use interweave_transport_api::EndpointId;
 use serde_json::json;
 
 use crate::startup::{Blocked, open_store_at};
@@ -71,8 +72,13 @@ fn unavailable(e: &StoreError) -> Failure {
 /// private to this user), the key and the files are not reported
 /// (`a_store_whose_directory_is_not_private_is_reported_and_never_discarded`).
 /// Anything but healthy is exit 5.
-pub(crate) fn health(paths: &ProfilePaths, cipher: &dyn KeyCipher, json: bool) -> Outcome {
-    let opened = open_store_at(paths, cipher);
+pub(crate) fn health(
+    paths: &ProfilePaths,
+    identity: &EndpointId,
+    cipher: &dyn KeyCipher,
+    json: bool,
+) -> Outcome {
+    let opened = open_store_at(paths, identity, cipher);
     let (state, counts, failure) = match opened {
         Ok(mut store) => {
             let healthy = matches!(store.recheck_health(), Ok(StorageHealth::Healthy));
@@ -162,11 +168,12 @@ fn health_lines(
 /// After a discard the store is opened again, which recreates it.
 pub(crate) fn discard(
     paths: &ProfilePaths,
+    identity: &EndpointId,
     cipher: &dyn KeyCipher,
     confirm: Option<DiscardScope>,
     json: bool,
 ) -> Outcome {
-    match open_store_at(paths, cipher) {
+    match open_store_at(paths, identity, cipher) {
         Ok(_store) => {
             return Failure::Refused(
                 "the message store opens, so there is nothing to recover: discard is for a \
@@ -222,7 +229,7 @@ pub(crate) fn discard(
             }),
         };
     }
-    match open_store_at(paths, cipher) {
+    match open_store_at(paths, identity, cipher) {
         Ok(_store) => Outcome {
             out: listed(true, true),
             result: Ok(()),
@@ -303,6 +310,11 @@ mod tests {
 
     const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
+    /// The first identity the store opens as: a TEST-ONLY key's id.
+    fn me() -> EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id("human")
+    }
+
     /// A profile's paths in an owner-only directory, its human directory
     /// made as the clients make it.
     fn profile() -> (tempfile::TempDir, ProfilePaths) {
@@ -331,7 +343,7 @@ mod tests {
 
     /// The store made, with one unread message in it.
     fn with_one_unread(paths: &ProfilePaths) {
-        let mut store = open_store_at(paths, &FilesystemCustody)
+        let mut store = open_store_at(paths, &me(), &FilesystemCustody)
             .map_err(|(_, f)| f)
             .expect("opens");
         store
@@ -360,7 +372,7 @@ mod tests {
     }
 
     fn health_json(paths: &ProfilePaths) -> (Value, Result<(), Failure>) {
-        let Outcome { out, result } = health(paths, &FilesystemCustody, true);
+        let Outcome { out, result } = health(paths, &me(), &FilesystemCustody, true);
         (serde_json::from_str(&out).expect("one JSON line"), result)
     }
 
@@ -379,7 +391,8 @@ mod tests {
         let before = files_in(&paths);
         assert!(!before.is_empty());
         for confirm in [None, Some(DiscardScope::UnfinishedPlaintext)] {
-            let Outcome { out, result } = discard(&paths, &FilesystemCustody, confirm, false);
+            let Outcome { out, result } =
+                discard(&paths, &me(), &FilesystemCustody, confirm, false);
             assert!(
                 matches!(result, Err(Failure::Refused(ref m)) if m.contains("Nothing was removed")),
                 "{confirm:?}: {result:?}"
@@ -407,7 +420,7 @@ mod tests {
         let (_dir, paths) = profile_named("a\u{1b}]0;x\u{7}\nb");
         with_one_unread(&paths);
         std::fs::remove_file(store_key::key_path(&paths)).expect("the key file");
-        let Outcome { out, .. } = discard(&paths, &FilesystemCustody, None, true);
+        let Outcome { out, .. } = discard(&paths, &me(), &FilesystemCustody, None, true);
         assert_eq!(out.matches('\n').count(), 1, "{out:?}");
         let line: Value = serde_json::from_str(&out).expect("one JSON line");
         let file = line["files"][0].as_str().expect("a file");
@@ -415,7 +428,7 @@ mod tests {
             file.contains("a\u{1b}]0;x\u{7}\nb"),
             "the path itself, escaped: {file:?}"
         );
-        let Outcome { out, .. } = discard(&paths, &FilesystemCustody, None, false);
+        let Outcome { out, .. } = discard(&paths, &me(), &FilesystemCustody, None, false);
         let file_line = out.lines().find(|l| l.starts_with("file")).expect("{out}");
         assert!(!file_line.contains(['\u{1b}', '\u{7}']), "{file_line:?}");
         for line in out.lines() {
@@ -433,6 +446,7 @@ mod tests {
         let (_dir, paths) = needing_recovery();
         let Outcome { out, result } = discard(
             &paths,
+            &me(),
             &FilesystemCustody,
             Some(DiscardScope::Everything),
             true,
@@ -473,6 +487,7 @@ mod tests {
         assert_eq!(report["unread"], Value::Null);
         let Outcome { out, result } = discard(
             &paths,
+            &me(),
             &FilesystemCustody,
             Some(DiscardScope::Everything),
             false,
@@ -488,6 +503,7 @@ mod tests {
         with_one_unread(&paths);
         let Outcome { out, result } = discard(
             &paths,
+            &me(),
             &FilesystemCustody,
             Some(DiscardScope::Everything),
             false,

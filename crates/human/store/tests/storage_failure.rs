@@ -102,7 +102,12 @@ fn a_store_damaged_under_its_unread_rows_needs_recovery_and_never_reads_as_empty
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens");
         for n in 1..=3 {
             store
                 .commit_unread_inbound(&inbound(n, b"on disk before the damage"))
@@ -112,11 +117,15 @@ fn a_store_damaged_under_its_unread_rows_needs_recovery_and_never_reads_as_empty
 
     // THE CONTROL: before the damage, a fresh open reads all three.
     assert_eq!(
-        HumanStore::open(&path, StoreOptions::default())
-            .expect("reopens")
-            .unread_inbound()
-            .expect("reads")
-            .len(),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default()
+        )
+        .expect("reopens")
+        .unread_inbound()
+        .expect("reads")
+        .len(),
         3
     );
 
@@ -129,8 +138,12 @@ fn a_store_damaged_under_its_unread_rows_needs_recovery_and_never_reads_as_empty
     file.write_all_at(&[0xFF], offset).expect("damage the page");
     drop(file);
 
-    let mut store = HumanStore::open(&path, StoreOptions::default())
-        .expect("the header is sound, so the store opens: the damage is met at the first read");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("the header is sound, so the store opens: the damage is met at the first read");
 
     // NEVER AS EMPTY: the read is an error, and one a client turns into
     // its recovery screen rather than a retry.
@@ -176,13 +189,19 @@ fn a_store_damaged_under_its_unread_rows_needs_recovery_and_never_reads_as_empty
 /// A v5 file whose migration to this build's schema fails after its first
 /// step has already rebuilt a table. The migration is one transaction, so
 /// the file is left at v5 with every row it had; a person who clears the
-/// obstacle opens it migrated, with nothing lost.
+/// obstacle opens it migrated, losing nothing but what v14 discards and
+/// counts (STATE.md §Migrations).
 #[test]
 fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every_row() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens");
         store
             .commit_pending_outbound(&outbound(1, b"pending before the upgrade".to_vec()))
             .expect("pending");
@@ -246,8 +265,12 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
     let before = v5_columns(&raw(&path));
     assert!(!before.iter().any(|c| c == "transport_message_id"));
 
-    let error = HumanStore::open(&path, StoreOptions::default())
-        .expect_err("a migration that cannot apply refuses the open");
+    let error = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect_err("a migration that cannot apply refuses the open");
     assert!(
         matches!(&error, StoreError::Migration(m) if m.contains("already an index named read_pairs")),
         "{error:?}"
@@ -272,14 +295,26 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
     assert_eq!(count(&conn, "pending_outbound"), 1);
     assert_eq!(count(&conn, "unread_inbound"), 1);
 
-    // The obstacle cleared, the same file migrates with both rows.
+    // The obstacle cleared, the same file migrates: both rows reach it.
     conn.execute_batch("DROP INDEX read_pairs;")
         .expect("clear it");
     drop(conn);
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates now");
-    let pending = store.pending_outbound().expect("read");
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].payload, b"pending before the upgrade");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("migrates now");
+    // The pending row reached the last migration, which discards every
+    // pending row and counts it (schema v14 (e)).
+    assert!(store.pending_outbound().expect("read").is_empty());
+    assert_eq!(
+        store
+            .discarded_at_v14()
+            .expect("read")
+            .map(|d| d.pending_never_attempted),
+        Some(1)
+    );
     let unread = store.unread_inbound().expect("read");
     assert_eq!(unread.len(), 1);
     assert_eq!(unread[0].payload, b"unread before the upgrade");
@@ -305,6 +340,7 @@ fn a_send_that_fills_the_medium_is_refused_degrades_the_store_and_keeps_every_ac
     let path = dir.path().join("state").join("human.sqlite3");
     let mut store = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(64),
         },
@@ -363,7 +399,12 @@ fn a_send_that_fills_the_medium_is_refused_degrades_the_store_and_keeps_every_ac
     // NEVER SILENTLY: reopened without the ceiling, the file holds every
     // acknowledged send, byte for byte under its own ids, and nothing of
     // the refused one.
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     let pending = store.pending_outbound().expect("read");
     let held: Vec<u32> = pending
         .iter()

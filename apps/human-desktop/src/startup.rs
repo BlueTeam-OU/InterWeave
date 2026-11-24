@@ -183,7 +183,10 @@ pub fn resolve(launch: &Launch, roots: &XdgRoots) -> Result<Profile, StartError>
     if !paths.roles_are_distinct() {
         return Err(StartError::RolesOverlap);
     }
-    let config = ProfileConfig::load(&paths).map_err(|error| StartError::Config {
+    // The document alone: the window holds no endpoint key, so it reads
+    // nothing under `endpoint-keys/` (ENDPOINTS.md, an alias is resolved
+    // by the client, A 2026-11-21); a key's header is the daemon's load.
+    let config = ProfileConfig::load_document(&paths).map_err(|error| StartError::Config {
         error,
         paths: Box::new(paths.clone()),
     })?;
@@ -271,9 +274,18 @@ impl fmt::Display for Blocked {
 /// classifying a failure by what a person can do about it.
 #[must_use]
 pub fn open_store(profile: &Profile, options: StoreOptions) -> Opened {
+    // The store opens as the first identity, the first endpoint the
+    // client may lease, whose derived id schema v14 gives every row an
+    // older store holds (STATE.md §Migrations); `resolve` refuses a
+    // profile with none.
+    let Some(identity) = profile.endpoints.first() else {
+        return Opened::Blocked(Blocked::Unavailable {
+            path: profile.store_path(),
+        });
+    };
     // The v1 desktop seals the store key at ADR-0038's `filesystem-only`
     // (ADR-0060 decision 3), until SPIKE-007's envelope lands.
-    match HumanStore::open_profile(&profile.paths, &FilesystemCustody, options) {
+    match HumanStore::open_profile(&profile.paths, &FilesystemCustody, identity, options) {
         Ok(store) => Opened::Ready(store),
         Err(error) => Opened::Blocked(classify(&profile.store_path(), &error)),
     }

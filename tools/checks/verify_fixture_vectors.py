@@ -124,6 +124,9 @@ def _test_only_endpoint_id(name: str) -> str:
 def _direct_endpoint(vector: dict, field: str) -> bytes:
     """One endpoint field of a direct vector, checked, as its wire bytes.
 
+    The directory frame's entries are judged by this too, each as a field
+    `endpoints[<n>]` naming its key in `endpoints_test_keys`.
+
     The id must be a derived one of exactly 52 bytes, and when the vector
     names the test-only key it came from (`<field>_test_key`) it must be
     the id that key derives: so a vector's id is recomputed, never only
@@ -225,13 +228,20 @@ def direct_response_v2_frame(vector: dict) -> str:
 
 
 def endpoint_directory_v1_frame(vector: dict) -> str:
-    """Encode one /interweave/endpoints/1.0.0 frame, returning hex.
+    """Encode one /interweave/endpoints/2.0.0 frame, returning hex.
 
     From architecture/transport/libp2p/ENDPOINTS.md §Endpoint directory
     protocol. One algorithm covers the request and both response shapes
     because they share a wire and a byte order, and `kind` says which.
     The layout was conceptual — field names and widths, no bytes — until
     this fixture forced the pin, exactly as the direct frame did.
+
+    Every entry is a derived EndpointId of 52 bytes (ADR-0067), named by
+    the TEST-ONLY key it came from in `endpoints_test_keys`, one name per
+    entry in the entries' order, and recomputed from it as a direct
+    vector's `<field>_test_key` is. The list is sorted and unique: the
+    sender sorts it (ENDPOINTS.md), so a vector of what a sender writes is
+    sorted, and a duplicate is a frame no receiver accepts.
     """
     kind = vector["kind"]
     if kind == "request":
@@ -247,11 +257,25 @@ def endpoint_directory_v1_frame(vector: dict) -> str:
         endpoints = vector["endpoints"]
         if len(endpoints) > 32:
             raise ValueError(f"{len(endpoints)} entries; the frame carries at most 32")
+        keys = vector.get("endpoints_test_keys")
+        if endpoints and (
+            not isinstance(keys, list)
+            or len(keys) != len(endpoints)
+            or not all(isinstance(k, str) for k in keys)
+        ):
+            raise ValueError(
+                "endpoints_test_keys names one TEST-ONLY key per entry, in the entries' order"
+            )
+        if len(set(endpoints)) != len(endpoints):
+            raise ValueError("a duplicate entry; no receiver accepts the frame")
+        if [e.encode("ascii") for e in endpoints] != sorted(e.encode("ascii") for e in endpoints):
+            raise ValueError("the entries are not sorted; the sender sorts them (ENDPOINTS.md)")
         out += bytes([len(endpoints)])
-        for endpoint in endpoints:
-            b = endpoint.encode("ascii")
-            if not 1 <= len(b) <= 64:
-                raise ValueError(f"endpoint {endpoint!r} is {len(b)} bytes; 1..64")
+        for n, endpoint in enumerate(endpoints):
+            field = f"endpoints[{n}]"
+            b = _direct_endpoint({field: endpoint, f"{field}_test_key": keys[n]}, field)
+            if len(b) != 52:
+                raise ValueError(f"{field} is {len(b)} bytes; a 2.0.0 entry is exactly 52")
             out += bytes([len(b)]) + b
     else:
         raise ValueError(f"unknown frame kind {kind!r}")
@@ -467,25 +491,6 @@ def kad_network_namespace_v1(vector: dict) -> dict[str, str]:
 # deliberately repeat results (see ALGORITHMS), and each implements the
 # rule from its contract so a grammar loosened in prose without loosening
 # the fixture — or the reverse — is caught.
-
-ENDPOINT_ID_RE = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
-
-
-def endpoint_id_grammar_v1(vector: dict) -> bool:
-    """From architecture/contracts/ENDPOINTS.md §EndpointId.
-
-    ASCII, 1..64 bytes, lower-case canonical. The anchored regex already
-    bounds the length, but the byte check is kept explicit because the
-    contract states both and a future grammar edit could drop the bound
-    from one without the other.
-    """
-    value = vector["endpoint_id"]
-    try:
-        raw = value.encode("ascii")
-    except UnicodeEncodeError:
-        return False
-    return bool(1 <= len(raw) <= 64 and ENDPOINT_ID_RE.fullmatch(value))
-
 
 ENDPOINT_ID_DERIVED_PREFIX = bytes([0x00, 0x24, 0x08, 0x01, 0x12, 0x20])
 
@@ -1147,7 +1152,16 @@ def _ipc_endpoint_pointers(value: object, pointer: str = "") -> list[str]:
             elif k == "endpoint" and isinstance(item, dict) and isinstance(item.get("id"), str):
                 found.append(f"{here}/id")
             elif k in _IPC_ENDPOINT_LIST_KEYS and isinstance(item, list):
-                found.extend(f"{here}/{i}" for i, e in enumerate(item) if isinstance(e, str))
+                # An endpoint-list row is a bare EndpointId string, or an
+                # object whose `id` is one; the row's other fields recurse.
+                for i, row in enumerate(item):
+                    row_pointer = f"{here}/{i}"
+                    if isinstance(row, str):
+                        found.append(row_pointer)
+                        continue
+                    if isinstance(row, dict) and isinstance(row.get("id"), str):
+                        found.append(f"{row_pointer}/id")
+                    found.extend(_ipc_endpoint_pointers(row, row_pointer))
             else:
                 found.extend(_ipc_endpoint_pointers(item, here))
     elif isinstance(value, list):
@@ -1351,7 +1365,6 @@ ALGORITHMS = {
     "ipc-v3-length-prefix-v1": (
         ipc_v3_length_prefix_v1, "frame_hex", True, (),
     ),
-    "endpoint-id-grammar-v1": (endpoint_id_grammar_v1, "valid", False, ()),
     "endpoint-id-derivation-v2": (
         endpoint_id_derivation_v2, ("expected_endpoint_id", "valid"), False, (),
     ),

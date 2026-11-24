@@ -15,6 +15,7 @@ use interweave_human_ui_model::{
     Avatar, AvatarHue, ConversationKey, Day, Direction, Intent, LabelKey, ListedInbound, LocalTime,
     UiModel, Weekday, local_time,
 };
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 
 // Three canonical PeerIds, one for each pair. Their byte sums modulo 3
@@ -29,7 +30,7 @@ fn id(text: &str) -> TransportIdentity {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid")
+    endpoint_id(name)
 }
 
 fn direct(peer: &TransportIdentity, route: Option<&str>) -> ConversationKey {

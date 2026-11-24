@@ -226,6 +226,7 @@ impl Side {
         let store = HumanStore::open(
             // A directory the store makes owner-only itself.
             &store_dir.path().join("state/human.sqlite"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             StoreOptions::default(),
         )
         .expect("a store");

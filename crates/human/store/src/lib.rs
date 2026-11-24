@@ -69,7 +69,7 @@ pub use store::window::{
     ConversationUnread, InboundCounts, Order, PageRange, StoreConversation, WindowCursor,
     WindowLimits, WindowPage,
 };
-pub use store::{HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};
+pub use store::{DiscardedAtV14, HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};
 
 // Re-exported so a caller acting on retention does not need a second
 // dependency to name the event it is reporting.

@@ -355,8 +355,8 @@ fn crate_encode(bytes: &[u8]) -> String {
 #[test]
 fn the_endpoint_id_grammar_matches_its_schema() {
     let doc = schema("endpoints/endpoint-id.schema.json");
-    // ADR-0067: the derived grammar, the PeerId's. The retired label grammar
-    // still parses (transitional) but is no longer the schema.
+    // ADR-0067: the derived grammar, the PeerId's; no constructor takes the
+    // retired label grammar.
     assert_eq!(doc["pattern"], "^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$");
     assert_eq!(doc["minLength"], 52);
     assert_eq!(doc["maxLength"], 52);

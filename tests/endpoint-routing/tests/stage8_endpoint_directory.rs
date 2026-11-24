@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! `/interweave/endpoints/1.0.0` over the wire: a trusted peer learns
+//! `/interweave/endpoints/2.0.0` over the wire: a trusted peer learns
 //! which routes another advertises, and an untrusted one learns nothing.
 //!
 //! Real sockets, because the claim is about what one node discloses to
@@ -508,16 +508,19 @@ impl libp2p::request_response::Codec for RawResponder {
 
 /// A hostile directory response is a local `ProtocolViolation` across all
 /// three forms the clause names — a duplicate entry (caught by
-/// `validate_response`), an over-32 count and an invalid-grammar label
-/// (both caught in the codec's decoder, which fails as
+/// `validate_response`), an over-32 count and an entry outside the
+/// derived grammar (both caught in the codec's decoder, which fails as
 /// `Io(InvalidData)` -> `outbound_error` -> `ProtocolViolation`). Driving
 /// only the duplicate would leave a regression on the codec path — one
 /// mapping those decode failures to `PeerUnreachable` — undetected.
 ///
 /// The responder writes RAW BYTES rather than encoding through
-/// `EndpointsCodec`, whose encoder cannot produce an over-32 count or an
-/// out-of-grammar label; the querier decodes with the real codec and is
-/// what refuses them.
+/// `EndpointsCodec`, whose encoder cannot produce an over-32 count; the
+/// querier decodes with the real codec and is what refuses them. The
+/// duplicate is of a DERIVED id, so the codec passes it and the runtime's
+/// duplicate rule is what refuses it; the out-of-grammar entry is a
+/// derived id with its `12D3KooW` prefix altered, 52 bytes, so it passes
+/// the codec's length rule and is refused by `parse_derived` (ADR-0067).
 ///
 /// Proves ENDPOINTS.md ">32 entries, invalid `EndpointId` grammar, or
 /// duplicates are `ProtocolViolation`", and, with an empty frame queued
@@ -541,11 +544,12 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
         v
     }
     let duplicate = {
+        let id = endpoint("claude");
         let mut v = directory_header();
         v.push(2); // count
         for _ in 0..2 {
-            v.push(5);
-            v.extend_from_slice(b"human");
+            v.push(u8::try_from(id.as_str().len()).expect("52"));
+            v.extend_from_slice(id.as_str().as_bytes());
         }
         v
     };
@@ -559,10 +563,15 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
         v
     };
     let bad_grammar = {
+        // 52 bytes, so the length rule passes it and the grammar is what
+        // refuses it: a derived id with one character of its prefix changed.
+        let altered = endpoint("claude")
+            .as_str()
+            .replacen("12D3KooW", "12D3KooX", 1);
         let mut v = directory_header();
         v.push(1);
-        v.push(5);
-        v.extend_from_slice(b"Human"); // uppercase: outside the grammar
+        v.push(u8::try_from(altered.len()).expect("52"));
+        v.extend_from_slice(altered.as_bytes());
         v
     };
     let outbox = Arc::new(Mutex::new(std::collections::VecDeque::from([
@@ -681,8 +690,127 @@ async fn a_hostile_directory_response_is_a_protocol_violation() {
     );
 }
 
+/// The real runtime queries a raw peer that answers one valid directory
+/// frame on `protocol`, and says what the query came to. The peer is the
+/// same raw request-response behaviour in both mixed-version tests, so the
+/// only variable between them is the protocol string it registers.
+async fn query_a_raw_peer_speaking(
+    protocol: &'static str,
+) -> Result<interweave_transport_libp2p::runtime::DirectoryResult, TransportError> {
+    use interweave_transport_libp2p::runtime::{SubstrateConfig, SwarmRuntime};
+    use libp2p::futures::StreamExt;
+    use libp2p::request_response;
+    use libp2p::swarm::SwarmEvent as RawEvent;
+    use std::time::Duration;
+
+    // One legal frame: a directory of one derived id, tag 0x01.
+    let frame = {
+        let id = endpoint("claude");
+        let mut v = vec![0x01u8];
+        v.extend_from_slice(&1u64.to_be_bytes());
+        v.extend_from_slice(&60_000u32.to_be_bytes());
+        v.push(1);
+        v.push(u8::try_from(id.as_str().len()).expect("52"));
+        v.extend_from_slice(id.as_str().as_bytes());
+        v
+    };
+    let codec = RawResponder {
+        outbox: std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from([
+            frame,
+        ]))),
+    };
+    let responder_keys = libp2p::identity::Keypair::generate_ed25519();
+    let responder_peer = interweave_transport_api::TransportIdentity::parse(
+        responder_keys.public().to_peer_id().to_string(),
+    )
+    .expect("a valid peer id");
+    let mut responder = libp2p::SwarmBuilder::with_existing_identity(responder_keys)
+        .with_tokio()
+        .with_tcp(
+            libp2p::tcp::Config::default(),
+            libp2p::noise::Config::new,
+            libp2p::yamux::Config::default,
+        )
+        .expect("the same transport stack")
+        .with_behaviour(|_| {
+            request_response::Behaviour::with_codec(
+                codec,
+                [(
+                    libp2p::StreamProtocol::new(protocol),
+                    request_response::ProtocolSupport::Full,
+                )],
+                request_response::Config::default(),
+            )
+        })
+        .expect("behaviour")
+        .build();
+    responder
+        .listen_on("/ip4/127.0.0.1/tcp/0".parse().expect("loopback"))
+        .expect("listens");
+    let address = loop {
+        if let RawEvent::NewListenAddr { address, .. } = responder.select_next_some().await {
+            break address;
+        }
+    };
+    tokio::spawn(async move {
+        loop {
+            if let RawEvent::Behaviour(request_response::Event::Message {
+                message: request_response::Message::Request { channel, .. },
+                ..
+            }) = responder.select_next_some().await
+            {
+                let _ = responder.behaviour_mut().send_response(channel, ());
+            }
+        }
+    });
+
+    let (querier_id, _querier_peer) = who();
+    let mut querier = SwarmRuntime::start(
+        &querier_id,
+        SubstrateConfig::default(),
+        support::trusting(&[&responder_peer]),
+    )
+    .expect("the querier starts");
+    querier
+        .dial(responder_peer.clone(), address)
+        .await
+        .expect("command")
+        .expect("admitted");
+    loop {
+        match tokio::time::timeout(Duration::from_secs(20), querier.next_event()).await {
+            Ok(Some(interweave_transport_libp2p::runtime::SwarmEvent::Connected { .. })) => break,
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the querier stopped before connecting"),
+            Err(elapsed) => panic!("no connection within 20s ({elapsed})"),
+        }
+    }
+    querier
+        .query_endpoints(responder_peer)
+        .await
+        .expect("the command reaches the task")
+}
+
+/// A peer that still speaks only `/interweave/endpoints/1.0.0` cannot be
+/// queried: the 2.0.0 negotiation fails and the querier reports
+/// `ProtocolUnsupported`, the major-version signal, instead of reading a
+/// 1.0.0 frame it was never offered. The control is the same raw peer
+/// registered under 2.0.0 answering a valid frame, which is read.
+#[tokio::test]
+async fn a_peer_speaking_only_endpoints_1_0_0_is_protocol_unsupported() {
+    let control = query_a_raw_peer_speaking("/interweave/endpoints/2.0.0")
+        .await
+        .expect("the same peer on 2.0.0 is read");
+    assert_eq!(control.endpoints.len(), 1, "the control read its frame");
+
+    let old = query_a_raw_peer_speaking("/interweave/endpoints/1.0.0").await;
+    assert_eq!(
+        old.expect_err("a 1.0.0-only peer has no directory for us"),
+        TransportError::ProtocolUnsupported
+    );
+}
+
 /// The largest legal directory crosses the wire: 32 advertised, leased,
-/// admissible endpoints at the 64-byte label ceiling. The codec's frozen
+/// admissible endpoints, the read ceiling (1710 bytes). The codec's frozen
 /// bytes are unit-tested; this proves the whole path carries them.
 #[tokio::test]
 async fn the_largest_legal_directory_crosses_the_wire() {

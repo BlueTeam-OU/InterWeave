@@ -49,8 +49,8 @@ If a PeerId belongs to both sets, `DataPlaneTrusted` wins and the peer may also 
 | Relay v2 circuit with that peer as application destination | yes | **no** |
 | DCUtR with that peer as application destination | yes | **no** |
 | GossipSub | yes | **no** |
-| direct `/direct/2.0.0` | yes | **no** |
-| endpoint directory `/endpoints/1.0.0` | yes | **no** |
+| direct `/direct/3.0.0` | yes | **no** |
+| endpoint directory `/endpoints/2.0.0` | yes | **no** |
 | Kademlia routing peer | yes subject to ADR-0009 | **no** |
 | Channel/application trust | yes subject to higher policy | **no** |
 
@@ -122,3 +122,4 @@ Full notes: [`history/0036-amendments.md`](./history/0036-amendments.md).
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-03 | Relay circuit toward an infrastructure-only destination | The protocol-admission matrix now answers the case it was silent on: a circuit whose far end is the infrastructure-only peer is refused, as DCUtR toward that peer already was. A dial gate may no longer read the "reservation/circuit control" row as permitting it. |
+| 2026-11-22 | The matrix names the direct and directory protocols by their Stage 22 ids | The protocol-admission matrix's two rows read `/direct/3.0.0` and `/endpoints/2.0.0` (ADR-0067 decision 7; `2.0.0` and `1.0.0` until the Stage 22 release); what each class may carry is unchanged. |

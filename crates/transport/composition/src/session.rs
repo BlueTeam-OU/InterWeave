@@ -320,15 +320,10 @@ impl DataSessionBinding for InProcessBinding {
         // Owed the runtime's notices from now, and woken by what is
         // queued for it, if it reads events.
         let wake = session.holds(DataCapability::Events).then(|| {
-            let wake = self.notices.register(
+            self.notices.register(
                 session.session_id().as_str(),
                 session.endpoint_lease().map(|lease| lease.endpoint.clone()),
-            );
-            if !request.route_notices() {
-                self.notices
-                    .decline_route_notices(session.session_id().as_str());
-            }
-            wake
+            )
         });
         Ok(InProcessSession {
             session,
@@ -903,6 +898,43 @@ impl AdminPort for InProcessAdmin {
         let by = self.writer(AdminCapability::Trust)?;
         ask_driver(&self.driver()?, |reply| {
             Request::SetTrust(by, peer, allowed, reply)
+        })
+        .await?
+    }
+
+    async fn endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        direction: interweave_local_client_api::TrustDirection,
+    ) -> Result<interweave_local_client_api::EndpointTrustView, TransportError> {
+        self.require(AdminCapability::Trust)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::EndpointTrust(endpoint, direction, reply)
+        })
+        .await?
+    }
+
+    async fn set_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<TrustChange, TransportError> {
+        let by = self.writer(AdminCapability::Trust)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::SetEndpointTrust(by, endpoint, peer, allowed, reply)
+        })
+        .await?
+    }
+
+    async fn seed_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+    ) -> Result<interweave_local_client_api::TrustSeed, TransportError> {
+        // A write: it takes the port's write admission, as a set does.
+        let _by = self.writer(AdminCapability::Trust)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::SeedEndpointTrust(endpoint, reply)
         })
         .await?
     }

@@ -1006,34 +1006,6 @@ async fn a_route_notice_reads_back_on_a_three_zero_connection() {
     );
 }
 
-/// A request that declines route notices is refused `ProtocolUnsupported`
-/// and no connection is made: major 3 has no hello that asks for a
-/// session without them (every 3.0 session takes them), where major 2
-/// offered a minor below 2.4. The control opens, offering the client's
-/// maximum on major 3 (#245 re-review N5).
-#[tokio::test]
-async fn a_request_declining_route_notices_is_refused_unsent() {
-    use interweave_ipc_protocol::{IPC_MAJOR, IPC_MAX_MINOR};
-    let script = Script::new();
-    let (declined, accepted) = tokio::join!(
-        script.binding.open(request().without_route_notices()),
-        tokio::time::timeout(Duration::from_millis(200), script.listener.accept())
-    );
-    assert_eq!(
-        declined.err(),
-        Some(interweave_transport_api::TransportError::ProtocolUnsupported)
-    );
-    assert!(accepted.is_err(), "no connection was made");
-    let (_, proposed) = tokio::join!(script.binding.open(request()), async {
-        let mut server = Server::accept(&script.listener).await;
-        let Some(Frame::Hello(hello)) = server.read().await else {
-            panic!("a hello first");
-        };
-        (hello.ipc_version.major, hello.ipc_version.minor)
-    });
-    assert_eq!(proposed, (IPC_MAJOR, IPC_MAX_MINOR));
-}
-
 /// A session opened with events, the server selecting IPC 3.`minor`.
 async fn opened_at(script: &Script, minor: u64) -> (interweave_ipc_client::IpcSession, Server) {
     let (session, server) = tokio::join!(script.binding.open(request()), async {
@@ -1444,6 +1416,219 @@ async fn a_set_reads_trust_set_result() {
             }
         );
         assert_eq!(set.expect("answered"), read, "3.{minor}: {result}");
+    }
+}
+
+/// The endpoint dimension over the wire (IPC 3.0, ADR-0067 decision 6):
+/// each of the three port methods sends the request frame the contract
+/// names and reads its answer. The list pages through the cursor, one
+/// direction a call, and joins the rows with the `set` the daemon names;
+/// the operator's list is the control in the same run, its frame carrying
+/// neither new member.
+#[tokio::test]
+async fn the_endpoint_methods_send_their_frames_and_read_their_answers() {
+    use interweave_local_client_api::{
+        AdminBinding as _, AdminCapability, AdminPort as _, EndpointSetKind, TrustChange,
+        TrustDirection, TrustSeed,
+    };
+    use interweave_transport_api::{EndpointId, TransportIdentity};
+    const OTHER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    const THIRD: &str = "QmZyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    let endpoint = interweave_test_support::endpoint_keys::endpoint_id("human");
+    let script = Script::new();
+    let (admin, mut server) = tokio::join!(
+        script.binding.admin([AdminCapability::Trust].into()),
+        async {
+            let (mut real, _) = admin_hello(&script).await;
+            admin_response(&mut real, 0, &["admin.trust"]).await;
+            real
+        }
+    );
+    let admin = admin.expect("a port");
+    let answer = async |server: &mut Server, result: serde_json::Value| -> (String, String) {
+        let Some(Frame::Request(request)) = server.read().await else {
+            panic!("a request");
+        };
+        let frame = (
+            request.method.clone(),
+            request
+                .params
+                .as_ref()
+                .map(|p| p.get().to_owned())
+                .unwrap_or_default(),
+        );
+        server
+            .write(&json!({"type": "response", "id": request.id.as_str(), "ok": true, "result": result}))
+            .await;
+        frame
+    };
+    let id = |s: &str| TransportIdentity::parse(s).expect("peer");
+    let ep: &EndpointId = &endpoint;
+
+    let (view, frames) = tokio::join!(
+        admin.endpoint_trust(endpoint.clone(), TrustDirection::Outbound),
+        async {
+            let first = answer(
+            &mut server,
+            json!({"set": "own", "allowed": [{"peer": OTHER, "persisted": true, "source": "administered"}], "next": OTHER}),
+        )
+        .await;
+            let second = answer(
+            &mut server,
+            json!({"set": "own", "allowed": [{"peer": THIRD, "persisted": true, "source": "administered"}]}),
+        )
+        .await;
+            (first, second)
+        }
+    );
+    let view = view.expect("the set");
+    assert_eq!(view.set, EndpointSetKind::Own);
+    assert_eq!(
+        view.allowed
+            .iter()
+            .map(|row| row.peer.clone())
+            .collect::<Vec<_>>(),
+        [id(OTHER), id(THIRD)]
+    );
+    assert_eq!(frames.0.0, "admin.trust.list");
+    assert_eq!(
+        frames.0.1,
+        format!(r#"{{"endpoint":"{}","direction":"outbound"}}"#, ep.as_str())
+    );
+    assert_eq!(
+        frames.1.1,
+        format!(
+            r#"{{"after":"{OTHER}","endpoint":"{}","direction":"outbound"}}"#,
+            ep.as_str()
+        ),
+        "the cursor rides with the endpoint and direction"
+    );
+
+    let (change, frame) = tokio::join!(
+        admin.set_endpoint_trust(endpoint.clone(), id(OTHER), true),
+        answer(&mut server, json!({"outcome": "set"}))
+    );
+    assert_eq!(change, Ok(TrustChange::Set));
+    assert_eq!(frame.0, "admin.trust.set");
+    assert_eq!(
+        frame.1,
+        format!(
+            r#"{{"peer":"{OTHER}","allowed":true,"endpoint":"{}"}}"#,
+            ep.as_str()
+        )
+    );
+    let (change, frame) = tokio::join!(
+        admin.set_trust(id(OTHER), false),
+        answer(&mut server, json!({"outcome": "set"}))
+    );
+    assert_eq!(change, Ok(TrustChange::Set));
+    assert_eq!(
+        frame.1,
+        format!(r#"{{"peer":"{OTHER}","allowed":false}}"#),
+        "the control: the operator's set names no endpoint"
+    );
+
+    for (outcome, seed) in [
+        ("seeded", TrustSeed::Seeded),
+        ("present", TrustSeed::Present),
+    ] {
+        let (read, frame) = tokio::join!(
+            admin.seed_endpoint_trust(endpoint.clone()),
+            answer(&mut server, json!({ "outcome": outcome }))
+        );
+        assert_eq!(read, Ok(seed));
+        assert_eq!(frame.0, "admin.trust.seed");
+        assert_eq!(frame.1, format!(r#"{{"endpoint":"{}"}}"#, ep.as_str()));
+    }
+}
+
+/// A daemon that answers an endpoint list without `set`, or with a `set`
+/// that changes between pages, is read as the operator's list would be
+/// misread: `Internal`. A daemon that does not know `admin.trust.seed`
+/// answers it as it answers any unknown method, `ProtocolUnsupported`,
+/// which the client passes on as it does for an absent method; an unknown
+/// endpoint is the daemon's `EndpointUnknown`, passed on.
+#[tokio::test]
+async fn an_endpoint_answer_is_checked_and_a_daemons_refusals_are_passed_on() {
+    use interweave_local_client_api::{
+        AdminBinding as _, AdminCapability, AdminPort as _, TrustDirection,
+    };
+    use interweave_transport_api::TransportError;
+    const OTHER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    const THIRD: &str = "QmZyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    let endpoint = interweave_test_support::endpoint_keys::endpoint_id("human");
+    let script = Script::new();
+    let (admin, mut server) = tokio::join!(
+        script.binding.admin([AdminCapability::Trust].into()),
+        async {
+            let (mut real, _) = admin_hello(&script).await;
+            admin_response(&mut real, 0, &["admin.trust"]).await;
+            real
+        }
+    );
+    let admin = admin.expect("a port");
+    let reply = async |server: &mut Server, body: serde_json::Value| {
+        let Some(Frame::Request(request)) = server.read().await else {
+            panic!("a request");
+        };
+        let mut frame = json!({"type": "response", "id": request.id.as_str()});
+        frame
+            .as_object_mut()
+            .expect("object")
+            .extend(body.as_object().expect("object").clone());
+        server.write(&frame).await;
+    };
+    let row = |peer: &str| json!({"peer": peer, "persisted": true, "source": "administered"});
+
+    // No `set`: the operator's page, which this request did not ask for.
+    let (read, ()) = tokio::join!(
+        tokio::time::timeout(
+            PATIENCE,
+            admin.endpoint_trust(endpoint.clone(), TrustDirection::Inbound)
+        ),
+        reply(
+            &mut server,
+            json!({"ok": true, "result": {"allowed": [row(OTHER)]}})
+        )
+    );
+    assert_eq!(read.expect("answered"), Err(TransportError::Internal));
+    // A `set` that moves between pages.
+    let (read, ()) = tokio::join!(
+        tokio::time::timeout(
+            PATIENCE,
+            admin.endpoint_trust(endpoint.clone(), TrustDirection::Inbound)
+        ),
+        async {
+            reply(&mut server, json!({"ok": true, "result": {"set": "own", "allowed": [row(OTHER)], "next": OTHER}})).await;
+            reply(&mut server, json!({"ok": true, "result": {"set": "inherited", "allowed": [{"peer": THIRD, "persisted": true, "source": "configured"}]}})).await;
+        }
+    );
+    assert_eq!(read.expect("answered"), Err(TransportError::Internal));
+    // The control: the same two pages with one `set` are read.
+    let (read, ()) = tokio::join!(
+        tokio::time::timeout(
+            PATIENCE,
+            admin.endpoint_trust(endpoint.clone(), TrustDirection::Inbound)
+        ),
+        async {
+            reply(&mut server, json!({"ok": true, "result": {"set": "inherited", "allowed": [row(OTHER)], "next": OTHER}})).await;
+            reply(&mut server, json!({"ok": true, "result": {"set": "inherited", "allowed": [{"peer": THIRD, "persisted": true, "source": "configured"}]}})).await;
+        }
+    );
+    assert_eq!(read.expect("answered").expect("read").allowed.len(), 2);
+    // The daemon's refusals, passed on.
+    for code in ["ProtocolUnsupported", "EndpointUnknown"] {
+        let (read, ()) = tokio::join!(
+            admin.seed_endpoint_trust(endpoint.clone()),
+            reply(&mut server, json!({"ok": false, "error": {"code": code}}))
+        );
+        assert_eq!(
+            read,
+            Err(match code {
+                "ProtocolUnsupported" => TransportError::ProtocolUnsupported,
+                _ => TransportError::EndpointUnknown,
+            })
+        );
     }
 }
 

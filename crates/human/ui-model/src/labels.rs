@@ -555,41 +555,66 @@ ui_texts! {
     TrustSuperseded => "The change for {peer} was not saved, because a change made at the same time in another app or window on this device was kept. The list shows what is in effect.",
     /// ANDROID, identity screens: W's title.
     IdWelcomeTitle => "Welcome to InterWeave",
-    /// ANDROID, identity screens: W's body, two lines.
-    IdWelcomeBody => "Exchange messages with the people you trust, directly from this phone. There is no account to create.",
+    /// ANDROID, identity screens: W's body, three lines.
+    IdWelcomeBody => "Exchange messages with the people you trust, from this phone. There is no account. Your contacts know this phone by its PeerId, a public code.",
     /// ANDROID, identity screens: W's notice while the void-paper marker
     /// is set (§3.1), three lines.
-    IdVoidPaper => "The words shown last time were never used. They are not your identity, so do not use that paper as your backup.",
+    IdVoidPaper => "The words shown last time were never used, so they do not restore this phone's PeerId. Do not use the paper where you wrote those words as your backup.",
     /// ANDROID, identity screens: W's primary.
-    IdCreate => "Create a new identity",
+    IdCreate => "Create a new PeerId",
     /// ANDROID, identity screens: W's secondary.
-    IdRestore => "Restore my identity",
+    IdRestore => "Restore my PeerId",
     /// ANDROID, identity screens: C1's title.
     IdC1Title => "About your recovery phrase",
     /// ANDROID, identity screens: C1, first point.
-    IdC1Point1 => "These 24 words are the key to your identity. With them, you can restore it on another phone.",
-    /// ANDROID, identity screens: C1, second point.
-    IdC1Point2 => "Write them on paper, in order, with your PeerId. Store the paper in a safe place.",
-    /// ANDROID, identity screens: C1, third point: "can be you", without
+    IdC1Point1 => "These 24 words are the key to your PeerId. With them, you can move your PeerId to a new phone.",
+    /// ANDROID, identity screens: C1, second point. No "identity": on
+    /// screen it means a name and photo, which the phrase does not
+    /// restore (the identity note's Q16, answered).
+    IdC1Point2 => "They are an InterWeave recovery phrase, not a cryptocurrency wallet seed.",
+    /// ANDROID, identity screens: C1, third point.
+    IdC1Point3 => "Write them on paper, in order, with your PeerId. Store the paper in a safe place.",
+    /// ANDROID, identity screens: C1, fourth point: "can be you", without
     /// alarm.
-    IdC1Point3 => "Anyone who has these words can act as you in InterWeave. Do not show them to anyone.",
-    /// ANDROID, identity screens: C1, fourth point (human-client-ui.md
-    /// §9).
-    IdC1Point4 => "The words bring back your identity only, not your contacts or your settings.",
-    /// ANDROID, identity screens: C1, fifth point (§11 Q3).
-    IdC1Point5 => "Your identity exists only after you finish, by checking two of the words.",
+    IdC1Point4 => "Anyone who has these words can act as you in InterWeave. Do not show them to anyone.",
+    /// ANDROID, identity screens: C1, fifth point, and S1 under its body
+    /// (human-client-ui.md §9). Plural: the phone may hold several
+    /// identities, and none of their names and photos comes back.
+    IdC1Point5 => "Your words restore only your PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity.",
+    /// ANDROID, identity screens: C1, sixth point (§11 Q3).
+    IdC1Point6 => "Your PeerId is created only after you check two of the words.",
     /// ANDROID, identity screens: C1's primary.
     IdShowWords => "Show my words",
     /// ANDROID, identity screens: C2's and S2's title.
     IdWordsTitle => "Your 24 words",
-    /// ANDROID, identity screens: The `PeerId`'s label (§5) on C2 and S2,
-    /// where the person writes.
-    IdPeerIdLabel => "Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share.",
+    /// ANDROID, identity screens: C2's and S2's words page, one line above
+    /// the words (§3.2). No "identity", as in `IdC1Point2`.
+    IdNotWalletSeed => "InterWeave recovery phrase, not a cryptocurrency wallet seed",
+    /// ANDROID, identity screens: C2's and S2's words page, under
+    /// `IdNotWalletSeed`: the label before the phrase's untranslated
+    /// format identifier, which stands alone after it (§3.2).
+    IdFormatLine => "Phrase format:",
+    /// ANDROID, identity screens: The title of C2's and S2's `PeerId`
+    /// page, and the `PeerId`'s accessible name there (§5).
+    IdPeerIdTitle => "Your PeerId",
+    /// ANDROID, identity screens: The note under the `PeerId` (§5) on C2's
+    /// `PeerId` page, where the person writes; the page's title names it.
+    IdPeerIdLabel => "Write it on the same paper as your words. It is not a password, and it is safe to share.",
+    /// ANDROID, identity screens: The note under the `PeerId` on S2's
+    /// `PeerId` page, where the person has written it before; the page's
+    /// title names it.
+    IdPeerIdNoteShown => "It is the one on your paper. It is not a password, and it is safe to share.",
     /// ANDROID, identity screens: The `PeerId`'s label on C4 and R4, where
     /// the person has already written it.
     IdPeerIdLabelShown => "Your PeerId. It is the one on your paper. It is not a password, and it is safe to share.",
-    /// ANDROID, identity screens: C2's primary.
-    IdWrittenDown => "I wrote down the words and PeerId",
+    /// ANDROID, identity screens: The primary of C2's words page (→ its
+    /// `PeerId` page).
+    IdWrittenDown => "I wrote down the words",
+    /// ANDROID, identity screens: The primary of C2's `PeerId` page (→ C3).
+    IdPeerIdWritten => "I wrote down the PeerId",
+    /// ANDROID, identity screens: The primary of S2's words page (→ its
+    /// `PeerId` page).
+    IdNext => "Next",
     /// ANDROID, identity screens: C3's title.
     IdCheckTitle => "Check your words",
     /// ANDROID, identity screens: C3's body, one line.
@@ -605,45 +630,51 @@ ui_texts! {
     /// ANDROID, identity screens: C3's action after an error.
     IdShowAgain => "Show my words again",
     /// ANDROID, identity screens: C4's title.
-    IdCreatedTitle => "Identity created",
+    IdCreatedTitle => "PeerId created",
     /// ANDROID, identity screens: R4's title.
-    IdRestoredTitle => "Identity restored",
+    IdRestoredTitle => "PeerId restored",
     /// ANDROID, identity screens: C4's and R4's body.
-    IdCreatedBody => "When you continue, the app connects to the network with this identity.",
+    IdCreatedBody => "When you continue, the app connects to the network with this PeerId.",
     /// ANDROID, identity screens: C4's and R4's primary.
     IdContinue => "Continue",
     /// ANDROID, identity screens: C4's title while `IdAlreadyCreated`
     /// shows (design section 6): no `PeerId` was created, so
     /// `IdCreatedTitle` would be false. It takes C4's first focus.
-    // PLACEHOLDER (en)
     IdAlreadyTitle => "This phone already has a PeerId",
     /// ANDROID, identity screens: C4's notice when another first run
     /// sealed first (`AlreadyProvisioned`, section 6), under
-    /// `IdAlreadyTitle`, so it does not say that again; Continue opens
-    /// the identity on record.
-    // PLACEHOLDER (en)
-    IdAlreadyCreated => "The words you just saw were not used. Do not use the paper where you wrote those words as your backup.",
+    /// `IdAlreadyTitle`, so it does not say that again; its last sentence
+    /// says what Continue does: it opens the identity on record.
+    IdAlreadyCreated => "The words you just saw were not used, so they do not restore this phone's PeerId. Do not use the paper where you wrote those words as your backup. Choose Continue to go online with this phone's PeerId.",
     /// ANDROID, identity screens: section 6's notice when the read-back
     /// after a refusal that may follow the write fails, two lines, with
     /// `TryAgain`, which reads back before it writes. Never says that
     /// nothing changed.
-    // PLACEHOLDER (en)
-    IdStorageUnknown => "The app could not tell whether your PeerId was saved. Try again to check.",
+    IdStorageUnknown => "The app does not know whether your PeerId was saved. Try again to check.",
     /// ANDROID, identity screens: section 6's another-identity-on-record
-    /// notice at a restore, two lines, the record's `PeerId` in full
-    /// under it, then `IdContinue`.
-    // PLACEHOLDER (en)
-    IdRestoreOther => "Your PeerId was not restored. This phone already has another PeerId saved, shown below.",
+    /// notice at a restore, three lines on R3 and R2 after K1, the
+    /// record's `PeerId` in full under it, then `IdContinue`; its last
+    /// sentence says that Continue goes online with that `PeerId`.
+    IdRestoreOther => "Your PeerId was not restored. This phone already has a different saved PeerId, shown below. Choose Continue to go online with the PeerId below.",
+    /// ANDROID, identity screens and Chats: section 6's notice when the
+    /// service start was refused with the profile in use (the runtime's
+    /// `LockHeld`), with `TryAgain`. On C4 and R4 in C4's notice place,
+    /// on R3 and R2 after K1 in `IdRestoreOther`'s; after add-a-peer
+    /// §5.1's bound, a session notice on Chats or a conversation, where
+    /// no flow screen is in view. Says that the start failed, never that
+    /// the identity was not created or not restored: one is on record.
+    IdStartBusy => "The app could not go online because this profile is busy. Wait a moment, then try again.",
     /// ANDROID, identity screens: R1's title.
-    IdR1Title => "Restore your identity",
+    IdR1Title => "Restore your PeerId",
     /// ANDROID, identity screens: R1's body, three lines.
-    IdR1Body => "You need your 24 words, and your PeerId from your paper or from a contact's app. The app stays offline until the restore is done.",
+    IdR1Body => "You need your 24 words, and the PeerId that goes with them: from your paper, or from a contact who has that PeerId. The app stays offline until the restore is done.",
     /// ANDROID, identity screens: R1's primary.
     IdEnterWords => "Enter my words",
     /// ANDROID, identity screens: R2's primary.
     IdCheckWords => "Check my words",
-    /// ANDROID, identity screens: R1's line under the body, two lines.
-    IdR1Settings => "The words bring back your identity only. Your contacts and settings are not part of them.",
+    /// ANDROID, identity screens: R1's line under the body, three lines:
+    /// the same statement as `IdC1Point5`.
+    IdR1Settings => "Your words restore only your PeerId. They do not restore your contacts, trust, settings, messages or the name and photo of any identity.",
     /// ANDROID, identity screens: R1's and, when it offers a restore,
     /// K1's line before the phrase is taken: an identity still running
     /// on another device would be on two (`human-client-ui.md` section
@@ -653,12 +684,14 @@ ui_texts! {
     /// ANDROID, identity screens: under `IdActiveElsewhere` on R1, and on
     /// K1 when it offers a restore and the state root holds no
     /// `identity-keys/`: the phrase restores the node's `PeerId`, not the
-    /// identities' keys, so each gets a new one and contacts see it change
-    /// (`human-client-ui.md` section 9, IDENTITY-RECOVERY.md item 12,
-    /// ADR-0063 decision 1). A statement, not a question.
-    IdR1NewKeys => "Your words bring back your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see that each key changed.",
+    /// identities' keys, and since an identity's id is derived from its
+    /// key, each identity is replaced by a new one (ADR-0067 decision 5;
+    /// `human-client-ui.md` section 9, IDENTITY-RECOVERY.md item 12,
+    /// ADR-0063 decision 1). A statement, not a question. Its words are
+    /// ux-designer's and language-culture's.
+    IdR1NewKeys => "Your words restore your PeerId, but not the keys of your identities. Each identity's key is gone, so each identity is replaced by a new one. Your contacts will see each replacement as a new identity.",
     /// ANDROID, identity screens: R3, two lines under the question.
-    IdR3NoPeerId => "If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches.",
+    IdR3NoPeerId => "If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches.",
     /// ANDROID, identity screens: R3's question, two lines.
     IdR3Question => "Is this the PeerId that you wrote down? If it is not, a word may be wrong.",
     /// ANDROID, identity screens: R3's primary.
@@ -668,15 +701,30 @@ ui_texts! {
     /// ANDROID, identity screens: K1's title.
     IdQTitle => "This phone needs your recovery phrase",
     /// ANDROID, identity screens: K1 for `KeyInvalidated` and `KeyMissing`.
-    IdQReasonKey => "This phone's screen lock or security changed, so the app cannot open your identity. Restore it with your recovery phrase.",
+    IdQReasonKey => "This phone's screen lock or security changed, so the app cannot use your PeerId. Restore it with your recovery phrase.",
     /// ANDROID, identity screens: K1 for Record, Authentication and
     /// `WrongIdentity`.
-    IdQReasonRecord => "The app cannot read your identity on this phone. Restore it with your recovery phrase.",
+    IdQReasonRecord => "The app cannot use the PeerId saved on this phone. Restore your PeerId with your recovery phrase.",
     /// ANDROID, identity screens: K1's primary.
     IdEnterPhrase => "Enter my recovery phrase",
     /// ANDROID, identity screens: K1's plain text below its primary
-    /// (§3.4), three lines.
-    IdQLost => "If your words are lost, clear this app's data in the phone's settings. That starts a new identity, which each contact must trust again.",
+    /// (§3.4), up to five lines. Says what clearing deletes before the
+    /// person leaves for the phone's settings, where nothing in this app
+    /// can warn them again.
+    IdQLost => "If your words are lost, you can clear this app's data in the phone's settings. Clearing the data deletes the identities, contacts and messages on this phone. The app then gets a new PeerId, and each person you talk to must trust the new PeerId.",
+    /// ANDROID, identity screens: K1's title when the record names no
+    /// readable `PeerId` (§3.4): `IdQTitle` asks for the phrase, which
+    /// cannot help there.
+    IdQTitleNoPath => "The app cannot use your PeerId",
+    /// ANDROID, identity screens: K1's reason when the record names no
+    /// readable `PeerId`. Says nothing can be restored here: the other
+    /// reasons' "Restore it with your recovery phrase" is false there.
+    IdQReasonNoPath => "The app cannot use the PeerId saved on this phone, and it cannot be restored here.",
+    /// ANDROID, identity screens: K1's plain text when the record names no
+    /// readable `PeerId`, in `IdQLost`'s place, whose "If your words are
+    /// lost" suggests the words would help. Says what clearing deletes, as
+    /// `IdQLost` does.
+    IdQNoPath => "The only way to use the app again is to clear this app's data in the phone's settings. Clearing the data deletes the identities, contacts and messages on this phone. The app then gets a new PeerId, and each person you talk to must trust the new PeerId.",
     /// ANDROID, identity screens: The label of the expected `PeerId`, on K1
     /// and in `IdOtherIdentity`'s banner.
     IdExpectedPeerId => "PeerId this phone expects",
@@ -694,17 +742,18 @@ ui_texts! {
     IdS1Unlock => "Unlock and show my words",
     /// ANDROID, identity screens: The progress state (§3.5, §6).
     IdGoingOffline => "Going offline…",
-    /// ANDROID, identity screens: S2's primary.
+    /// ANDROID, identity screens: The primary of S2's `PeerId` page, its
+    /// last page.
     IdDone => "Done",
     /// ANDROID, identity screens: §6's checksum banner.
     IdChecksumFailed => "These words do not form a recovery phrase. A word may be wrong or in the wrong place. Check them against your paper.",
     /// ANDROID, identity screens: §6's other-identity banner, above the
     /// two labelled `PeerIds`.
-    IdOtherIdentity => "These words open a different identity, so nothing on this phone was changed. Compare the two PeerIds below with your paper.",
+    IdOtherIdentity => "These words belong to a different PeerId, so nothing on this phone was changed. Compare the two PeerIds below with your paper.",
     /// ANDROID, identity screens: §6's busy notice, with `TryAgain`.
     IdBusy => "The app could not go offline. Wait a moment, then try again.",
     /// ANDROID, identity screens: §6's storage notice, with `TryAgain`.
-    IdStorageFailed => "The app could not save your identity on this phone. Nothing was changed.",
+    IdStorageFailed => "The app could not save your PeerId on this phone. Nothing was changed.",
     /// ANDROID, identity screens: §7's dialog title.
     IdDiscardTitle => "Delete the words you entered?",
     /// ANDROID, identity screens: §7's dialog: the action that drops the
@@ -965,8 +1014,8 @@ ui_texts! {
     KeyBelowDevice => "This identity's key has weaker protection than this phone requires, so InterWeave does not use it.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): desktop, a sealed record
     KeyOtherDevice => "This identity's key was saved on another device and works only there, not on this computer.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): must name the way to keep the key before the new-key offer, and say only that a newer version *may* read it (§3: the client cannot know)
-    KeyNewerVersion => "This version of InterWeave cannot use this identity's key, because the key file has a format this version does not know. A newer version may be able to use it. To try to keep the key, update InterWeave first. If you make a new key, you lose this key.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): names the one way the key may come back, an update, and says only that a newer version *may* read it (§3: the client cannot know); `KeyNoNewKey` follows it
+    KeyNewerVersion => "This version of InterWeave cannot use this identity's key, because the key file has a format this version does not know. A newer version may be able to use it. To find out, update InterWeave.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): every damaged or foreign record
     KeyDamaged => "This identity's key file is not valid, so the key cannot be used.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): a platform error; must suggest trying again, not a loss
@@ -974,45 +1023,27 @@ ui_texts! {
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): a lost file (§7); must not suggest the person deleted it
     KeyMissing => "This identity's key is missing from this device.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): after every reason; must say what is blocked and what is not
-    KeyCannotShare => "You can still send and receive messages. You cannot share this card until the key can be used.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 action
-    KeyMakeNew => "Make a new key",
+    KeyCannotShare => "You can still send and receive messages, but you cannot share this card.",
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3,
+    /// §4.1, after `KeyCannotShare`, for every kind but `KeyNotNow` and
+    /// `KeyDirUnsafe`; says no new key can be made for this identity, so
+    /// the person does not look for one (ADR-0067 decision 5); never in
+    /// the share sheet (§4.3)
+    KeyNoNewKey => "InterWeave cannot give this identity a new key.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.2 row line
     KeyStateRow => "Key cannot be used",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.3 sheet
-    KeyCannotShareHere => "You cannot share your card until this identity's key can be used.",
+    KeyCannotShareHere => "You cannot share your card without this identity's key.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.3 primary
     KeyOpenCard => "Open your card",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1 title
-    KeyNewTitle => "Make a new key for {identity}?",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1; must name the change, the warning they will see, and that nothing happens before a share
-    KeyNewBody => "The next time you share your card with a contact who has it, their app will show a warning that the card might be from someone else. Tell them it was you. Until then, nothing changes for them.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1, every kind but missing
-    KeyNewOld => "The old key will be deleted and cannot be used again.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1, newer version; must say the choice is the update or the loss, and claim no more than *may*
-    KeyNewOldNewer => "A newer version of InterWeave may be able to use the old key. To try to keep it, update InterWeave first. If you make a new key, you lose the old key. Updating later will not bring it back.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1 confirm
-    KeyNewConfirm => "Make a new key",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.2
-    KeyMaking => "Making a new key…",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.3
-    KeyMade => "This identity has a new key. Your contacts have the new key only after you share your card with them again.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.3 list heading
-    KeyShareAgainTitle => "Share your card again in these conversations",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.3, failed before the old file was removed; says nothing about what changed
-    KeyNewFailed => "InterWeave could not make a new key. Choose Make a new key to try again.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3 "not protected"; must say why it is refused, and not suggest fixing the file
     KeyExposed => "Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order)
-    KeyNewFailedGone => "The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own
-    KeyDirUnsafe => "This identity's key must be kept in a regular folder that only your user account owns. The location shown is not a folder like that, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again.",
+    KeyDirUnsafe => "This identity's key must be kept in a regular folder that your user account owns and that gives no permissions at all to any group or any other user. The location shown is not a folder like that, so InterWeave does not use any key kept there. Make the location shown a regular folder that your user account owns and that gives no permissions at all to any group or any other user, then choose Try again.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 and §4.3, desktop only, the line under `KeyDirUnsafe` wherever it shows; a label and the path, '{path}' last so no punctuation touches it
     KeyDirUnsafePath => "Folder location: {path}",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11)
-    KeyNewPending => "In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §6
-    KeyNotNowAgain => "InterWeave still could not use the key.",
+    KeyNotNowAgain => "InterWeave still could not use this identity's key.",
     /// A conversation's action: send this identity's own card to the
     /// counterparty. Offered in a direct conversation only, never sent
     /// on its own.
@@ -2345,17 +2376,20 @@ mod tests {
         assert_eq!(short_peer("abc"), "…abc");
     }
 
-    /// Pairs whose English is one word and whose meaning is not:
-    /// another language may need two words, so each keeps its key.
+    /// Pairs that read the same in English, each with its reason: one
+    /// word with two meanings, which another language may need two words
+    /// for, or one statement that two screens own, kept as two keys so
+    /// each screen's row can change apart.
     const ONE_ENGLISH_WORD: &[(UiText, UiText)] = &[
         // The trust settings' heading, a noun; step two's button, a verb.
         (UiText::TrustHeading, UiText::TrustThisPeer),
-        // The card page's action and the confirmation's act: one name for
-        // one act, as the identity-key design's strings give it.
-        (UiText::KeyMakeNew, UiText::KeyNewConfirm),
         // A conversation's details panel; the P-up notice's action, which
         // opens the Trust page's line (unlock note section 7).
         (UiText::Details, UiText::UnlockPendingDetails),
+        // What the words do not restore: one statement with one meaning
+        // on C1, S1 and R1 (the identity note's section 9 rows;
+        // language-culture-en, REPLY 01a2058a).
+        (UiText::IdC1Point5, UiText::IdR1Settings),
     ];
 
     #[test]

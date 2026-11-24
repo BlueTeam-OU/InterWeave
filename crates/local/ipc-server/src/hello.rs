@@ -197,8 +197,7 @@ where
             };
             // Every session takes route notices: 2.4 brought them, and
             // every 3.0 connection is past 2.4 (`LOCAL-IPC.md` §Version
-            // negotiation and phases). Major 2's sessions below 2.4, which
-            // declined them, are not served.
+            // negotiation and phases).
             let session = match DataSessionBinding::open(binding, request).await {
                 Ok(session) => session,
                 Err(code) => return close(code),

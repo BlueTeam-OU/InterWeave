@@ -45,8 +45,19 @@ use super::{PendingDirect, to_transport_identity};
 /// which is the correct posture for a daemon that has just started and
 /// has no local client attached yet (`testing.md` scenario 27).
 pub struct DirectState {
-    /// Who this profile trusts, mirrored from the manager's sources.
+    /// Who this profile trusts, mirrored from the manager's sources: the
+    /// admission set, for the gate before a frame is parsed.
     pub(super) trust: interweave_transport_runtime::PeerTrustPolicy,
+    /// The operator's list, for the endpoint step, the directory and an
+    /// outbound send from an inheriting or authored endpoint (ADR-0067
+    /// decision 6).
+    pub(super) operator: interweave_transport_runtime::PeerTrustPolicy,
+    /// Each endpoint's own sets, kept to re-apply when `configure`
+    /// rebuilds the registry.
+    own: std::collections::BTreeMap<
+        interweave_transport_api::EndpointId,
+        interweave_transport_runtime::OwnTrust,
+    >,
     /// Direct-ingress token buckets.
     pub(super) ingress: interweave_transport_runtime::ingress::IngressLimiter,
     /// The duplicate cache.
@@ -151,6 +162,24 @@ impl DirectState {
     /// admitted its connection.
     pub(super) fn adopt_trust(&mut self, trust: &TrustSources) {
         self.trust = trust.peers.clone();
+        self.operator = trust.operator().clone();
+        self.own = trust.own().clone();
+        self.apply_own();
+    }
+
+    /// Give every configured endpoint its own sets, or none. Over the
+    /// registry's endpoints, not the map's: a set for an endpoint that is
+    /// not configured has nothing to apply to, and an endpoint that lost
+    /// its set must lose it here too.
+    fn apply_own(&mut self) {
+        let configured: Vec<_> = self
+            .registry
+            .endpoints()
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in configured {
+            self.registry.set_own(&id, self.own.get(&id).cloned());
+        }
     }
 
     /// Install endpoint configuration.
@@ -166,6 +195,7 @@ impl DirectState {
     pub(super) fn configure(&mut self, config: DirectEndpoints, now_ms: u64) {
         let endpoints: std::collections::BTreeMap<_, _> = config.endpoints.into_iter().collect();
         self.registry = EndpointRegistry::new(endpoints, config.default);
+        self.apply_own();
         self.queues = EndpointQueues::new();
         self.queue_bound = config.queue_bound;
         self.directory_enabled = config.directory_enabled;
@@ -241,7 +271,7 @@ impl DirectState {
     /// profile's `max_advertised` (itself at or below the wire's 32).
     pub(super) fn advertised_for(&self, peer: &TransportIdentity) -> Vec<EndpointId> {
         self.registry
-            .advertised_for(peer, &self.trust, self.max_advertised)
+            .advertised_for(peer, &self.operator, self.max_advertised)
     }
 
     /// The endpoint a lease-holder may send AS — the lease's endpoint, or
@@ -457,6 +487,8 @@ impl DirectState {
         };
         Self {
             trust: interweave_transport_runtime::PeerTrustPolicy::default(),
+            operator: interweave_transport_runtime::PeerTrustPolicy::default(),
+            own: std::collections::BTreeMap::new(),
             ingress: interweave_transport_runtime::ingress::IngressLimiter::with_defaults(now_ms),
             answering: std::collections::BTreeSet::new(),
             dedup: DedupCache::new(DEFAULT_MAX_ENTRIES, DEFAULT_TTL_MS),
@@ -780,6 +812,7 @@ pub(super) fn handle_direct(
                     dedup: &mut state.dedup,
                     reservations: &mut state.reservations,
                     registry: &state.registry,
+                    operator: &state.operator,
                     queues: &mut state.queues,
                 };
                 admit_structured(
@@ -1097,7 +1130,7 @@ mod response_validation_tests {
     };
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn asked() -> MessageId {
@@ -1197,7 +1230,7 @@ mod waiter_tests {
     }
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn request() -> DirectMessageV2 {
@@ -1298,7 +1331,7 @@ mod admin_tests {
     };
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn session(name: &str) -> LocalSessionId {
@@ -1435,7 +1468,10 @@ mod admin_tests {
             .expect("claimed");
         let views = state.endpoint_views();
         let ids: Vec<_> = views.iter().map(|v| v.endpoint.as_str()).collect();
-        assert_eq!(ids, ["claude", "human"]);
+        assert_eq!(
+            ids,
+            [endpoint("claude").as_str(), endpoint("human").as_str()]
+        );
         assert!(views[0].lease.is_none() && !views[0].default && views[0].enabled);
         let held = views[1].lease.as_ref().expect("human is leased");
         assert!(views[1].default);
@@ -1457,12 +1493,12 @@ mod admin_tests {
         assert!(state.take_lease_notices(&session("a"), 0).is_empty());
         let first = state.take_lease_notices(&session("a"), 1);
         assert!(
-            matches!(&first[..], [LocalSessionEvent::EndpointLeaseChanged { endpoint, .. }] if endpoint.as_str() == "human"),
+            matches!(&first[..], [LocalSessionEvent::EndpointLeaseChanged { endpoint, .. }] if *endpoint == interweave_test_support::endpoint_keys::endpoint_id("human")),
             "{first:?}"
         );
         let rest = state.take_lease_notices(&session("a"), usize::MAX);
         assert!(
-            matches!(&rest[..], [LocalSessionEvent::EndpointLeaseChanged { endpoint, .. }] if endpoint.as_str() == "claude"),
+            matches!(&rest[..], [LocalSessionEvent::EndpointLeaseChanged { endpoint, .. }] if *endpoint == interweave_test_support::endpoint_keys::endpoint_id("claude")),
             "{rest:?}"
         );
         assert!(
@@ -1606,5 +1642,87 @@ mod admin_tests {
             })
             .collect();
         assert_eq!(kept, epochs[1..], "the oldest went, the newest stayed");
+    }
+}
+
+#[cfg(test)]
+mod own_trust_tests {
+    use super::{DirectEndpoints, DirectState};
+    use interweave_transport_api::{EndpointId, TransportIdentity};
+    use interweave_transport_runtime::endpoint_registry::RegisteredEndpoint;
+    use interweave_transport_runtime::{OwnTrust, TrustSources};
+    use interweave_trust_api::{EndpointSet, InfrastructureSet, PeerTrustPolicy};
+
+    const OPERATORS: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    const IDENTITYS: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+
+    fn peer(s: &str) -> TransportIdentity {
+        TransportIdentity::parse(s).expect("valid identity")
+    }
+    fn endpoint(name: &str) -> EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id(name)
+    }
+    fn endpoints() -> DirectEndpoints {
+        DirectEndpoints {
+            endpoints: vec![
+                (endpoint("human"), RegisteredEndpoint::default()),
+                (endpoint("claude"), RegisteredEndpoint::default()),
+            ],
+            default: None,
+            queue_bound: 8,
+            directory_enabled: false,
+            max_advertised: 0,
+            directory_queries_per_min: 0,
+            directory_max_inflight: 0,
+            directory_cache_ttl_ms: 0,
+            ingress_global: (1200, 256),
+        }
+    }
+    fn sources(own_for_human: bool) -> TrustSources {
+        let operator = PeerTrustPolicy::new([peer(OPERATORS)]).expect("bounded");
+        let mut own = std::collections::BTreeMap::new();
+        if own_for_human {
+            let set = EndpointSet::new([peer(IDENTITYS)]).expect("bounded");
+            own.insert(
+                endpoint("human"),
+                OwnTrust {
+                    inbound: set.clone(),
+                    outbound: set,
+                },
+            );
+        }
+        TrustSources::per_endpoint(operator, own, InfrastructureSet::default()).expect("bounded")
+    }
+    fn sends(state: &DirectState, from: &str, to: &str) -> bool {
+        state
+            .registry
+            .authorize_outbound(&endpoint(from), &peer(to), &state.operator)
+            .is_allowed()
+    }
+
+    /// The prefix gate holds the admission set, the endpoint step the
+    /// operator's list and the own sets -- and a reconfigure, which
+    /// rebuilds the registry, keeps them.
+    #[test]
+    fn adopted_own_sets_reach_the_registry_and_survive_a_reconfigure() {
+        let mut state = DirectState::new(0);
+        state.configure(endpoints(), 0);
+        state.adopt_trust(&sources(true));
+        assert!(
+            state.trust.decide(&peer(IDENTITYS)).is_allowed(),
+            "admitted"
+        );
+        assert!(!state.operator.decide(&peer(IDENTITYS)).is_allowed());
+        for _ in 0..2 {
+            assert!(sends(&state, "human", IDENTITYS));
+            assert!(!sends(&state, "human", OPERATORS));
+            assert!(sends(&state, "claude", OPERATORS), "the inheriting control");
+            assert!(!sends(&state, "claude", IDENTITYS));
+            state.configure(endpoints(), 0);
+        }
+        // A later adoption without the set takes it away.
+        state.adopt_trust(&sources(false));
+        assert!(sends(&state, "human", OPERATORS));
+        assert!(!sends(&state, "human", IDENTITYS));
     }
 }

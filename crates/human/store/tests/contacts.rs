@@ -23,13 +23,14 @@ fn peer(s: &str) -> TransportIdentity {
 }
 
 fn endpoint(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("an endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id(s)
 }
 
 fn store() -> (tempfile::TempDir, HumanStore) {
     let dir = common::private_tempdir();
     let store = HumanStore::open(
         &dir.path().join("state").join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("opens");
@@ -372,8 +373,9 @@ fn an_identitys_own_card_and_when_a_conversation_shared_it() {
     let human = endpoint("human");
     let made = store.ensure_own_card(&human, 1).expect("made");
     assert_eq!(
-        made.name, "human",
-        "the route label until the person writes a name"
+        made.name,
+        human.as_str(),
+        "the identity's id until the person writes a name"
     );
     let edited = OwnCard {
         name: "Grace".to_owned(),
@@ -563,7 +565,12 @@ fn a_deleted_contact_leaves_both_files_before_the_call_returns() {
         std::fs::read(p).is_ok_and(|bytes| bytes.windows(GONE.len()).any(|w| w == GONE.as_bytes()))
     };
     let wal = path.with_extension("sqlite3-wal");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let (p, human) = (peer(P), endpoint("human"));
     let gone = store
         .accept_card(&card(&p, &human, GONE, 1), 10)
@@ -576,7 +583,12 @@ fn a_deleted_contact_leaves_both_files_before_the_call_returns() {
         holds(&path),
         "the setup: the name reached the database file"
     );
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert!(store.delete_contact(&gone.contact_id).expect("deleted"));
     // Still open: the bound is the delete itself.
     assert!(
@@ -743,9 +755,14 @@ fn the_conversations_a_card_was_shared_in_come_most_recent_first() {
 fn seed_route(path: &std::path::Path, contact_id: &str, peer: &TransportIdentity, key: &[u8]) {
     let conn = rusqlite::Connection::open(path).expect("open");
     conn.execute(
-        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
-         VALUES (?1, ?2, 'human', ?3)",
-        rusqlite::params![contact_id, peer.as_str(), key],
+        "INSERT INTO contact_routes (contact_id, local_endpoint_id, peer_id, endpoint_id, identity_key)
+         VALUES (?1, ?4, ?2, ?4, ?3)",
+        rusqlite::params![
+            contact_id,
+            peer.as_str(),
+            key,
+            interweave_test_support::endpoint_keys::endpoint_id("human").as_str()
+        ],
     )
     .expect("seeded");
 }
@@ -761,7 +778,12 @@ fn a_deleted_route_leaves_both_files_and_the_last_is_refused() {
         std::fs::read(p).is_ok_and(|bytes| bytes.windows(KEY.len()).any(|w| w == KEY))
     };
     let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let ada = store
         .accept_card(&card(&p, &human, "Ada", 1), 10)
         .expect("accepted");
@@ -772,7 +794,12 @@ fn a_deleted_route_leaves_both_files_and_the_last_is_refused() {
         "the setup: the key reached the files"
     );
 
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert_eq!(
         store
             .delete_route(&ada.contact_id, &q, &endpoint("other"))
@@ -986,7 +1013,12 @@ fn a_removed_photo_leaves_both_files_before_the_call_returns() {
     let holds = |p: &std::path::Path, what: &[u8]| {
         std::fs::read(p).is_ok_and(|bytes| bytes.windows(what.len()).any(|w| w == what))
     };
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let (p, human) = (peer(P), endpoint("human"));
     let ada = store
         .accept_card(
@@ -999,7 +1031,12 @@ fn a_removed_photo_leaves_both_files_before_the_call_returns() {
         .expect("accepted");
     drop(store);
     assert!(holds(&path, GONE), "the setup: the photo reached the file");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     let removed = store
         .remove_contact_photo(&ada.contact_id, 20)
         .expect("removed");
@@ -1162,7 +1199,12 @@ fn a_v11_store_gains_the_shape_keys_and_derives_them_at_its_first_open() {
         .expect("back to v11");
     drop(conn);
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates to v12");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("migrates to v12");
     let standing = store
         .card_standing(&card(&q, &human, "Alfie", 2))
         .expect("standing");
@@ -1222,7 +1264,12 @@ fn a_contacts_name_reads_back_as_written_not_as_its_keys() {
         .expect("a contact");
     drop(store);
     let path = dir.path().join("state").join("human.sqlite3");
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     let contacts = store.contacts().expect("read");
     assert_eq!(contacts[0].display_name, NAME, "the contact");
     let page = store.contact_directory_page(None, 10).expect("page");

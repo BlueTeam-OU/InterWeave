@@ -71,7 +71,13 @@ fn profile() -> (tempfile::TempDir, ProfilePaths) {
 }
 
 fn open(paths: &ProfilePaths) -> HumanStore {
-    HumanStore::open_profile(paths, &FilesystemCustody, StoreOptions::default()).expect("opens")
+    HumanStore::open_profile(
+        paths,
+        &FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens")
 }
 
 /// The raw key in the desktop's key file: its body, after the six header

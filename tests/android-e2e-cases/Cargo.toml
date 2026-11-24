@@ -48,6 +48,8 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time"] }
 
 [dev-dependencies]
+# TEST-ONLY: the derived EndpointId a test store opens as (ADR-0067).
+interweave-test-support = { path = "../support" }
 # The cases' third runner: the in-memory fake pair (plan §17 (2)), where
 # the body's own checks are proved without a socket.
 interweave-local-client-fake = { path = "../local-client-fake" }

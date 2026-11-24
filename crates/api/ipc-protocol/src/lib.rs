@@ -64,7 +64,8 @@ pub use request::{
     AddressParams, AddressesParams, Admission, ChannelParams, EndpointParams,
     MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_REQUEST_ID_CHARS, MAX_SHUTDOWN_GRACE_MS, PeerListParams,
     PublishParams, QueryParams, Refusal, Request, RequestFrame, RequestId, RequestTag, SendParams,
-    SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams, TrustSetParams,
+    SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams, TrustSeedParams,
+    TrustSetParams,
 };
 pub use result::{
     AddressList, AddressResult, AddressRow, AddressesResult, AdminStatusResult, DirectoryResult,
@@ -73,7 +74,7 @@ pub use result::{
     MAX_PEER_PAGE_ROWS, MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN, MAX_TRUST_PAGE_ROWS, NotDialled,
     OwnAddressList, OwnAddressRow, OwnKind, PeerList, PeerRow, PreAuthCounters, RowSource,
     SendResult, ServerCounters, SessionLossesResult, SetEnabledResult, TrustList, TrustRow,
-    TrustSetResult,
+    TrustSeedResult, TrustSetResult,
 };
 pub use version::{
     IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, Since, UnsupportedMajor, negotiate, supported,

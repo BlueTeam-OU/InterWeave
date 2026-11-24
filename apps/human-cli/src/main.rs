@@ -43,8 +43,8 @@ use interweave_human_store::key_custody::FilesystemCustody;
 use interweave_human_store::{HumanStore, StoreError};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_ipc_client::{IpcBinding, SocketPaths};
-use interweave_profile_config::ProfileLock;
-use interweave_transport_api::{EndpointId, MAX_PAYLOAD_BYTES};
+use interweave_profile_config::{EndpointSelector, ProfileLock};
+use interweave_transport_api::MAX_PAYLOAD_BYTES;
 
 /// The workspace version with the commit as build metadata (ADR-0065
 /// decision 6; `tools/stamp/commit_stamp.rs`).
@@ -180,7 +180,7 @@ fn run(
     verb: &cli::Verb,
     json: bool,
     wait: Duration,
-    endpoint: Option<&EndpointId>,
+    endpoint: Option<&EndpointSelector>,
 ) -> Outcome {
     let until = Instant::now() + wait;
     let mut profile = match startup::resolve(profile) {
@@ -188,16 +188,13 @@ fn run(
         Err(failure) => return failure.into(),
     };
     // `--endpoint`: one of the profile's human endpoints is leased in place
-    // of the first. Never one it does not offer: no endpoint is made here
-    // (G2; ENDPOINTS.md, configured only).
-    if let Some(endpoint) = endpoint {
-        if !profile.endpoints.contains(endpoint) {
-            return Failure::Refused(
-                "that endpoint is not one a human client may use in this profile".to_owned(),
-            )
-            .into();
+    // of the first, by its alias or its id. Never one it does not offer: no
+    // endpoint is made here (G2; ENDPOINTS.md, configured only).
+    if let Some(selector) = endpoint {
+        match startup::identity(&profile, selector) {
+            Ok(id) => profile.endpoints = vec![id],
+            Err(failure) => return failure.into(),
         }
-        profile.endpoints = vec![endpoint.clone()];
     }
     // One worker, as the desktop's facade runtime: the IPC client's reader
     // task runs there, so a store call blocking this thread cannot starve
@@ -221,11 +218,25 @@ fn run(
         None
     };
     let mut out = String::new();
-    if matches!(
-        verb,
-        cli::Verb::IdentitiesList | cli::Verb::SetEnabled(..) | cli::Verb::SetDefault(_)
-    ) {
-        let result = runtime.block_on(admin::identities(&profile, verb, json, &mut out));
+    let change = match verb {
+        cli::Verb::IdentitiesList => Some(Ok(admin::Identities::List)),
+        cli::Verb::SetEnabled(selector, on) => Some(
+            startup::identity(&profile, selector).map(|id| admin::Identities::SetEnabled(id, *on)),
+        ),
+        cli::Verb::SetDefault(selector) => Some(
+            selector
+                .as_ref()
+                .map(|s| startup::identity(&profile, s))
+                .transpose()
+                .map(admin::Identities::SetDefault),
+        ),
+        _ => None,
+    };
+    if let Some(change) = change {
+        let result = match change {
+            Ok(change) => runtime.block_on(admin::identities(&profile, &change, json, &mut out)),
+            Err(failure) => Err(failure),
+        };
         return Outcome { out, result };
     }
     if matches!(
@@ -244,26 +255,35 @@ fn run(
         Ok(lock) => lock,
         Err(failure) => return failure.into(),
     };
-    match verb {
-        cli::Verb::StoreHealth => return store::health(&profile.paths, &FilesystemCustody, json),
-        cli::Verb::StoreDiscard(confirm) => {
-            return store::discard(&profile.paths, &FilesystemCustody, *confirm, json);
+    if matches!(verb, cli::Verb::StoreHealth | cli::Verb::StoreDiscard(_)) {
+        let identity = &profile.store_identity;
+        match verb {
+            cli::Verb::StoreHealth => {
+                return store::health(&profile.paths, identity, &FilesystemCustody, json);
+            }
+            cli::Verb::StoreDiscard(confirm) => {
+                return store::discard(
+                    &profile.paths,
+                    identity,
+                    &FilesystemCustody,
+                    *confirm,
+                    json,
+                );
+            }
+            _ => {}
         }
-        _ => {}
     }
     // Another identity than the one in front has no model: its key file
     // is read, under the lock, as the store's files are.
-    if let cli::Verb::IdentityShow(Some(endpoint)) = verb
-        && profile.endpoints.first() != Some(endpoint)
-    {
-        let result = if profile.endpoints.contains(endpoint) {
-            identity::show_file(&profile.paths, endpoint, json, &mut out)
-        } else {
-            Err(Failure::Refused(
-                "that endpoint is not one a human client may use in this profile".to_owned(),
-            ))
+    if let cli::Verb::IdentityShow(Some(selector)) = verb {
+        let endpoint = match startup::identity(&profile, selector) {
+            Ok(endpoint) => endpoint,
+            Err(failure) => return failure.into(),
         };
-        return Outcome { out, result };
+        if profile.endpoints.first() != Some(&endpoint) {
+            let result = identity::show_file(&profile.paths, &endpoint, json, &mut out);
+            return Outcome { out, result };
+        }
     }
     let (_lock, store) = match startup::open_store(&profile) {
         Ok(store) => (lock, store),

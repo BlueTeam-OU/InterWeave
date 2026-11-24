@@ -54,8 +54,7 @@ profile:
   name: {PROFILE}
 runtime:
   deployment: {deployment}
-  # By id: the schema's default `human` is a label no derived entry
-  # holds (ADR-0067).
+  # By id: the field takes a derived id and has no default (ADR-0067).
   android:
     endpoint: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr
 ipc:
@@ -382,6 +381,48 @@ fn a_start_on_form_1_is_refused_no_identity() {
     host.stop(Duration::from_secs(1)).expect("stops");
 }
 
+/// An overlay a release before Stage 22 keyed by the label `human` does
+/// not turn the form-1 refusal into an overlay one: form 1 has no entry,
+/// so no alias matches and the member is dropped in memory (the start
+/// only READS the overlay), and the start is refused `AndroidNoIdentity`
+/// as without it. The overlay file is left as it was, for
+/// `provision_identity`'s carry. Control: the same overlay beside an
+/// entry aliased `human` -- form 2 -- is refused for the label.
+#[test]
+fn a_label_overlay_beside_form_1_is_still_no_identity() {
+    use interweave_profile_config::ConfigError;
+    use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+    use interweave_profile_config::provision::{provision_embedded, provision_identity};
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let overlay = EndpointOverlay::path_for(&paths);
+    let text = br#"{"enabled":{"human":false}}"#;
+    interweave_profile_config::write_private_atomic_within(&overlay, text, paths.boundary())
+        .expect("planted");
+    assert_eq!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::NoIdentity(ConfigError::AndroidNoIdentity)),
+        "form 1 beside a label overlay: no identity, not an overlay refusal"
+    );
+    assert_eq!(std::fs::read(&overlay).expect("kept"), text);
+
+    // The control: with an entry aliased `human` the same overlay is
+    // refused for its label. A hand-written form 2, with no carry run.
+    let id = interweave_profile_config::endpoint_key::mint_filesystem(&paths).expect("a key");
+    std::fs::remove_file(&overlay).expect("removed");
+    provision_identity(&paths, &id).expect("form 2");
+    interweave_profile_config::write_private_atomic_within(&overlay, text, paths.boundary())
+        .expect("planted");
+    let refused = EmbeddedHost::start(launch(&app.dir)).map(|_| ());
+    assert!(
+        matches!(&refused, Err(EmbeddedRefused::Internal(m)) if m.contains("'human'")),
+        "{refused:?}"
+    );
+}
+
 /// A second start in the same process while a host holds the profile is
 /// refused `LockHeld`, and the first keeps serving; once the first has
 /// stopped, a start succeeds -- the lock went with it.
@@ -671,6 +712,58 @@ fn a_host_dropped_in_an_async_context_releases_the_profile() {
         .expect("starts after the drop")
         .stop(Duration::from_secs(1))
         .expect("stops");
+}
+
+/// A KILLED HOST RUNS NO SHUTDOWN, as a dead process runs none
+/// (`EmbeddedHost::kill_for_test`, j128): with the peer cache on, a kill
+/// leaves no cache file, at its return or after. A drop in its place ran
+/// the driver's shutdown, whose flush writes the file whatever the
+/// debounce says, on a worker the drop did not wait for: the file
+/// appeared after the drop returned in 3 kills of 40 on this host. The
+/// rounds are many because that race is: with the kill replaced by a
+/// drop this test failed (measured, j128).
+#[test]
+fn a_killed_host_writes_no_peer_cache_after_it_returns() {
+    let cached = document("embedded-android", false).replace(
+        "transport:\n",
+        "discovery:\n  providers:\n    - { type: peer-cache, enabled: true, priority: 10, \
+         config: { ttl: 7d, max_entries: 1024 } }\ntransport:\n",
+    );
+    for round in 0..60 {
+        let app = app();
+        let paths = provision(&app.dir, &cached);
+        let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+        host.kill_for_test();
+        // A run this short reaches nothing, so nothing dirties the cache
+        // and only a shutdown's flush writes the file: absent at the
+        // kill's return, no shutdown ran before it; absent after, none
+        // runs after it (#740 review F1).
+        let file = paths.peer_cache_file();
+        assert!(
+            !file.exists(),
+            "round {round}: {} was written before the kill returned",
+            file.display()
+        );
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(
+            !file.exists(),
+            "round {round}: {} was written after the kill returned",
+            file.display()
+        );
+        // THE POSITIVE CONTROL: a stop runs the shutdown the kill does
+        // not, and its flush writes the file this test reads, at this
+        // path -- so an absent file above is the kill's, not a wrong path
+        // or a cache that never writes.
+        EmbeddedHost::start(launch(&app.dir))
+            .expect("starts after the kill: the lock was released")
+            .stop(Duration::from_secs(1))
+            .expect("stops");
+        assert!(
+            file.exists(),
+            "round {round}: a stop's shutdown flush did not write {}",
+            file.display()
+        );
+    }
 }
 
 /// THE EMBEDDED HOST'S ADD (ADR-0062): the seam that writes the other

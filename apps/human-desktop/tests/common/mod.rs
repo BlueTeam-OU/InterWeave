@@ -105,3 +105,29 @@ fn running_out_fails_naming_the_wait_and_its_bound() {
 fn a_wait_inside_its_bound_passes() {
     Wait::on("anything").check();
 }
+
+/// Writes `text` to `path` as an executable script, by a child `sh`: the
+/// writable descriptor is that child's, not this process's. Tests
+/// run on threads of one process: a child another thread forks between a
+/// write's open and its close inherits the descriptor until that child
+/// execs, and running the script meanwhile fails `ETXTBSY` ("Text file
+/// busy"), met in a full `cargo xtask ci` on 2026-11-21.
+pub(crate) fn write_script(path: &std::path::Path, text: &str) {
+    use std::io::Write as _;
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 700 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("sh writes the script");
+    child
+        .stdin
+        .take()
+        .expect("its stdin")
+        .write_all(text.as_bytes())
+        .expect("the script's text");
+    assert!(
+        child.wait().expect("sh ends").success(),
+        "the script written"
+    );
+}

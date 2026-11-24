@@ -22,8 +22,16 @@ use serde_json::Value;
 use super::common::{Daemon, Home, PATIENCE, free_port};
 use super::{Listener, runtime_up};
 
-/// The fleet's human endpoint, the one every control child leases.
+/// The fleet's human endpoint's alias, the one every control child leases.
 const CONTROL: &str = "fabric-control";
+
+/// Its derived id (a test-only key): what a control child is told to lease
+/// and what a conversation with it names (ADR-0067).
+fn control_id() -> String {
+    interweave_test_support::endpoint_keys::endpoint_id(CONTROL)
+        .as_str()
+        .to_owned()
+}
 
 /// One account's profile: its home, `PeerId`, loopback port and daemon.
 struct Account {
@@ -65,7 +73,7 @@ trust:
 endpoints:
   default_direct_endpoint: {CONTROL}
   entries:
-    - {{ id: {CONTROL}, enabled: true, advertise: false, allowed_client_kinds: [human-client] }}
+    - {{ key: {id}.key, alias: {CONTROL}, enabled: true, advertise: false, allowed_client_kinds: [human-client] }}
 channels: {{ desired: [] }}
 discovery:
   providers:
@@ -81,6 +89,7 @@ observability: {{ log_level: debug }}
             allowed = allowed.join(", "),
             entries = entries.join(", "),
             port = self.port,
+            id = control_id(),
         ));
     }
 
@@ -101,7 +110,7 @@ observability: {{ log_level: debug }}
                 "--input",
                 "--consume",
                 "--endpoint",
-                CONTROL,
+                &control_id(),
             ],
         );
         listener.until("the session ready", |l| {
@@ -110,9 +119,9 @@ observability: {{ log_level: debug }}
         (listener, input)
     }
 
-    /// `peer/fabric-control`, the conversation a control child addresses.
+    /// `peer/<fabric-control's id>`, the conversation a control child addresses.
     fn control(&self) -> String {
-        format!("{}/{CONTROL}", self.peer.as_str())
+        format!("{}/{}", self.peer.as_str(), control_id())
     }
 }
 
@@ -123,6 +132,56 @@ fn signal(signal: &str, pid: &str) {
         .status()
         .expect("kill runs");
     assert!(sent.success(), "kill {signal} {pid}");
+}
+
+/// Bytes waiting unread in the receive queues of `pid`'s established TCP
+/// sockets (`/proc/net/tcp`, IPv4: every profile here is on 127.0.0.1).
+/// A frozen process reads nothing, so what arrives for it stays counted.
+fn queued_at(pid: &str) -> u64 {
+    let inodes: BTreeSet<String> = std::fs::read_dir(format!("/proc/{pid}/fd"))
+        .expect("the frozen daemon's descriptors")
+        .flatten()
+        .filter_map(|fd| std::fs::read_link(fd.path()).ok())
+        .filter_map(|link| {
+            let link = link.to_string_lossy();
+            Some(link.strip_prefix("socket:[")?.strip_suffix(']')?.to_owned())
+        })
+        .collect();
+    let table = std::fs::read_to_string("/proc/net/tcp").expect("the TCP table");
+    table
+        .lines()
+        .skip(1)
+        .filter_map(|row| {
+            let fields: Vec<&str> = row.split_whitespace().collect();
+            // Field 3 is the state (01 established), 4 `tx:rx` queues in
+            // hex, 9 the socket's inode.
+            let established = *fields.get(3)? == "01";
+            (established && inodes.contains(*fields.get(9)?))
+                .then(|| u64::from_str_radix(fields.get(4)?.rsplit(':').next()?, 16).ok())?
+        })
+        .sum()
+}
+
+/// How long b2's request may take to reach the frozen D: about 20 ms on
+/// an idle host. Not `PATIENCE`: B's own traffic on the idle connection
+/// reaches D too, 92 bytes some 14.5 s after the freeze (measured with no
+/// b2 sent, j300), and a wait that long would read that as the request.
+const ON_THE_WIRE: Duration = Duration::from_secs(5);
+
+/// Until more than `before` bytes wait unread at `pid`, within
+/// [`ON_THE_WIRE`].
+fn until_queued(pid: &str, before: u64) {
+    let deadline = Instant::now() + ON_THE_WIRE;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "nothing reached the frozen daemon {pid} within {ON_THE_WIRE:?} ({before} bytes before)"
+        );
+        if queued_at(pid) > before {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// One `--input` line, written and flushed.
@@ -227,11 +286,15 @@ async fn a_peer_shutting_down_leaves_the_senders_session_ready() {
     // D frozen: B's next line to it is written and never answered.
     let d_pid = d.daemon.as_ref().expect("running").child.id().to_string();
     signal("-STOP", &d_pid);
+    let before = queued_at(&d_pid);
     send_line(&mut b_input, &d.control(), "held", "b2");
-    b_child.until("b2 issued", |l| {
-        l["event"] == "outbound" && l["ref"] == "b2"
-    });
-    std::thread::sleep(Duration::from_millis(300));
+    // ON THE WIRE, not issued: B's `sending` line is its store taking the
+    // line, before its daemon has the exchange, and a daemon asked to stop
+    // with nothing in flight stops at once -- A then meets a closed
+    // connection, not a drain (j300: a full `cargo xtask ci` run, a 300 ms
+    // sleep here). D's kernel holding bytes D never read is b2's request
+    // written to it.
+    until_queued(&d_pid, before);
     // B drains for its grace: it refuses new direct work `shutting_down`,
     // keeping its connections, while the line to D is in flight.
     let out = b.home.transportctl(&["shutdown", "--grace", "8000"], "");

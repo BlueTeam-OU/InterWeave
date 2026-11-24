@@ -67,14 +67,6 @@ struct Owed {
     /// One pending path notice per routed peer, merged
     /// (`a_path_change_is_coalesced_per_peer_and_a_round_trip_withdrawn`).
     paths: BTreeMap<TransportIdentity, PathNotice>,
-    /// Whether the session takes a notice with no `previous` -- a
-    /// route's begin, a routed peer's return. A session opened without
-    /// them (`SessionRequest::without_route_notices`; over IPC, major 2's
-    /// connections below 2.4 were opened so, and major 3 opens none) is
-    /// owed none, so no change is ever merged into one
-    /// that its binding would then have to drop: it is owed every change
-    /// as it was before them, `previous` included (#245 review F1).
-    route_notices: bool,
     /// Routes that began before this registry saw their peer connected --
     /// the session and the driver are separate tasks, so a send can be
     /// accepted, or a message taken, a moment before the driver records
@@ -183,7 +175,6 @@ impl SessionNotices {
                 endpoint,
                 routes: BTreeSet::new(),
                 paths: BTreeMap::new(),
-                route_notices: true,
                 unannounced: BTreeSet::new(),
                 wake: Arc::new(Notify::new()),
             });
@@ -192,13 +183,6 @@ impl SessionNotices {
             owed.wake();
         }
         Arc::clone(&owed.wake)
-    }
-
-    /// `session` takes no notice without a `previous` (`Owed::route_notices`).
-    pub(crate) fn decline_route_notices(&self, session: &str) {
-        if let Some(owed) = self.registry().sessions.get_mut(session) {
-            owed.route_notices = false;
-        }
     }
 
     /// A session that has gone is owed nothing, and holds nothing.
@@ -295,9 +279,6 @@ impl SessionNotices {
             return;
         }
         owed.routes.insert(peer.clone());
-        if !owed.route_notices {
-            return;
-        }
         if let Some(path) = connected.get(peer) {
             self.owe_path(owed, peer, None, *path, ROUTE_ESTABLISHED, wall_ms());
         } else {
@@ -351,7 +332,7 @@ impl SessionNotices {
         let mut registry = self.registry();
         registry.connected.insert(peer.clone(), path);
         for owed in registry.sessions.values_mut() {
-            if owed.route_notices && owed.routes.contains(peer) {
+            if owed.routes.contains(peer) {
                 let class = if owed.unannounced.remove(peer) {
                     ROUTE_ESTABLISHED
                 } else {
@@ -524,8 +505,8 @@ mod tests {
     use interweave_local_client_api::LocalSessionEvent;
     use interweave_profile_identity::ProfileIdentity;
     use interweave_transport_api::{
-        ConnectivitySummary, DirectInboundState, DisconnectReason, EndpointId, Health,
-        PathReadiness, PeerPath, PreferredPathPolicy, TransportIdentity,
+        ConnectivitySummary, DirectInboundState, DisconnectReason, Health, PathReadiness, PeerPath,
+        PreferredPathPolicy, TransportIdentity,
     };
 
     fn peer() -> TransportIdentity {
@@ -697,7 +678,7 @@ mod tests {
             )
             .is_ready()
         };
-        let human = EndpointId::parse("human").expect("endpoint");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         let notices = SessionNotices::default();
         let a = notices.register("a", Some(human.clone()));
         let b = notices.register("b", None);
@@ -810,7 +791,7 @@ mod tests {
 
         // A message the session drained is a route too, and a delivery
         // report alone is not: it only wakes.
-        let human = EndpointId::parse("human").expect("endpoint");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         notices.register("reader", Some(human.clone()));
         let (q, r) = (peer(), peer());
         notices.delivered_to(&human);
@@ -949,7 +930,7 @@ mod tests {
     fn a_route_begin_is_owed_the_peers_path_with_no_previous() {
         use PeerPath::Relayed;
         let notices = SessionNotices::default();
-        let human = EndpointId::parse("human").expect("endpoint");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         notices.register("sender", None);
         notices.register("reader", Some(human));
         notices.register("stranger", None);
@@ -1062,53 +1043,6 @@ mod tests {
         assert!(
             matches!(renewed.as_slice(), [(None, Relayed, class, _)] if class == "route_established"),
             "a new route after a revocation: {renewed:?}"
-        );
-    }
-
-    /// A session that declined route notices (an IPC connection below
-    /// 2.4) is owed no notice without a `previous` -- at a route's begin
-    /// or a routed peer's return -- so a later real change reaches it as
-    /// it did before them, `previous` included, instead of merging into a
-    /// notice its binding would drop (#245 review F1). The control: a
-    /// session that takes them is owed the merged notice with no
-    /// `previous`.
-    #[test]
-    fn a_session_without_route_notices_is_owed_every_change_with_its_previous() {
-        use PeerPath::{Direct, Relayed};
-        let notices = SessionNotices::default();
-        notices.register("old", None);
-        notices.decline_route_notices("old");
-        notices.register("new", None);
-        let p = peer();
-        notices.connected(&p, Relayed, 1);
-        notices.sent_to("old", &p);
-        notices.sent_to("new", &p);
-        assert!(
-            !notices.ready("old"),
-            "no route-begin notice for the old session"
-        );
-        notices.path_changed(&p, Relayed, Direct, "direct_established", 2);
-        assert_eq!(
-            paths(&notices.take_paths("old", usize::MAX)),
-            [(Some(Relayed), Direct, "direct_established".to_owned(), 2)],
-            "the change, previous included"
-        );
-        assert_eq!(
-            paths(&notices.take_paths("new", usize::MAX)),
-            [(None, Direct, "direct_established".to_owned(), 2)],
-            "the control: merged into the route's begin"
-        );
-        // And the return: nothing owed to the old session at a reconnect.
-        notices.disconnected(&p, DisconnectReason::Closed);
-        notices.connected(&p, Relayed, 3);
-        assert!(
-            notices.take_paths("old", usize::MAX).is_empty(),
-            "no return notice"
-        );
-        assert_eq!(
-            notices.take_paths("new", usize::MAX).len(),
-            1,
-            "the control's return"
         );
     }
 

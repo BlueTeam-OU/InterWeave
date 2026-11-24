@@ -403,8 +403,8 @@ async fn the_phrase_and_its_key_reach_no_stream_the_daemon_or_transportctl_write
         &["peers", "list", "--json"],
         &["trust", "allow", someone.as_str()],
         &["trust", "revoke", someone.as_str()],
-        // The id of the endpoint aliased `claude`: transportctl resolves no
-        // alias yet.
+        // The id of the endpoint aliased `claude`, typed as the id itself:
+        // no alias is given, so the command runs without `resolve`.
         &[
             "endpoints",
             "disable",

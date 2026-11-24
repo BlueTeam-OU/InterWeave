@@ -69,8 +69,9 @@
 //! on a screen (both rows trust by the binding); a dial at boot, which the product
 //! does not make; the cache rows with Kademlia on, the shipped set; the one-sided step in the other
 //! direction (B trusting first); a LAN that isolates its clients; and,
-//! on the stand-ins, a radio, a process death (a dropped host runs its
-//! destructors) or two machines (one host's private address both ways).
+//! on the stand-ins, a radio, a process death (a killed host runs no
+//! shutdown path, but its destructors) or two machines (one host's
+//! private address both ways).
 
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]

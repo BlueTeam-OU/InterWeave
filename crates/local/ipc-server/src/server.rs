@@ -1399,24 +1399,6 @@ mod tests {
         }
     }
 
-    /// Every 3.0 connection opens its session WITH route notices: 2.4
-    /// brought them, and major 2's sessions below 2.4, which declined
-    /// them (#245 review F1), are not served. Asked of the request the
-    /// binding receives, since that is what the composition honours.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_three_zero_connection_opens_its_session_with_route_notices() {
-        let at = |minor: u64| DATA.replace(r#""minor":0"#, &format!(r#""minor":{minor}"#));
-        for (minor, takes) in [(0, true), (7, true)] {
-            let fake = Fake::default();
-            let harness = Harness::start(&fake, config());
-            let mut client = Client::connect(&harness.paths.data).await;
-            client.hello(&at(minor)).await;
-            drop(client);
-            harness.stop().await;
-            assert_eq!(fake.script().route_notices, [takes], "3.{minor}");
-        }
-    }
-
     /// A path change the protocol refuses -- its class out of bounds --
     /// takes its number on a 3.0 connection, whose version admits the
     /// type, so the client sees the gap.

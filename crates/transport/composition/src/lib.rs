@@ -15,6 +15,7 @@
 pub mod discovery;
 pub mod gate;
 mod notices;
+mod pending_forget;
 pub mod runtime;
 pub mod session;
 pub mod translate;

@@ -54,8 +54,10 @@ use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-use interweave_transport_api::TransportIdentity;
-use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
+use std::collections::BTreeMap;
+
+use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy, TrustPolicyError};
 
 use crate::connection_policy::{
     ConnectionClass, ConnectionPolicy, DialDenial, DialOrigin, DialRequest,
@@ -72,7 +74,10 @@ use crate::loss_ladder::LossLadder;
 /// application messages with.
 #[derive(Debug, Clone, Default)]
 pub struct TrustSources {
-    /// Peers authorized for the application data plane.
+    /// Peers authorized for the application data plane: the ADMISSION
+    /// SET, which decides the connection (ADR-0067 decision 6). Built by
+    /// [`Self::new`] it is the one list; by [`Self::per_endpoint`] it is
+    /// derived from the operator's list and the own sets, never supplied.
     pub peers: PeerTrustPolicy,
     /// Peers authorized for reachability control only.
     pub infrastructure: InfrastructureSet,
@@ -84,6 +89,11 @@ pub struct TrustSources {
     /// could also name a different one, which is the confusion this
     /// exists to prevent rather than a flexibility worth offering.
     local_peer: Option<TransportIdentity>,
+    /// The operator's list when it differs from the admission set;
+    /// `None` when [`Self::new`] built one list that is both.
+    operator: Option<PeerTrustPolicy>,
+    /// Each endpoint's own sets, from the endpoint overlay.
+    own: BTreeMap<EndpointId, crate::endpoint_registry::OwnTrust>,
 }
 
 impl TrustSources {
@@ -102,7 +112,47 @@ impl TrustSources {
             peers,
             infrastructure,
             local_peer: None,
+            operator: None,
+            own: BTreeMap::new(),
         }
+    }
+
+    /// Build the trust sources of ADR-0067 decision 6: the operator's
+    /// list, each endpoint's own sets, and the admission set DERIVED from
+    /// them -- their union, bounded as one set ([`PeerTrustPolicy::admission`])
+    /// -- so no caller supplies an admission set that disagrees with its
+    /// parts (`the_admission_set_is_derived_from_its_parts`).
+    ///
+    /// # Errors
+    ///
+    /// [`TrustPolicyError::AllowlistTooLarge`] when the union is past
+    /// [`PeerTrustPolicy::MAX_ALLOWED_PEERS`].
+    pub fn per_endpoint(
+        operator: PeerTrustPolicy,
+        own: BTreeMap<EndpointId, crate::endpoint_registry::OwnTrust>,
+        infrastructure: InfrastructureSet,
+    ) -> Result<Self, TrustPolicyError> {
+        let peers = operator.admission(own.values().flat_map(|o| [&o.inbound, &o.outbound]))?;
+        Ok(Self {
+            peers,
+            infrastructure,
+            local_peer: None,
+            operator: Some(operator),
+            own,
+        })
+    }
+
+    /// The operator's list: what an inheriting or authored endpoint, and
+    /// broadcast admission, judge against -- never the admission set.
+    #[must_use]
+    pub fn operator(&self) -> &PeerTrustPolicy {
+        self.operator.as_ref().unwrap_or(&self.peers)
+    }
+
+    /// Each endpoint's own sets.
+    #[must_use]
+    pub fn own(&self) -> &BTreeMap<EndpointId, crate::endpoint_registry::OwnTrust> {
+        &self.own
     }
 
     /// The class this profile grants `peer`, right now.
@@ -7204,5 +7254,42 @@ mod tests {
                  the dot."
             );
         }
+    }
+
+    #[test]
+    fn the_admission_set_is_derived_from_its_parts() {
+        use crate::endpoint_registry::OwnTrust;
+        use interweave_trust_api::EndpointSet;
+        let operator = PeerTrustPolicy::new([peer(P1)]).expect("bounded");
+        let endpoint = interweave_test_support::endpoint_keys::endpoint_id("human");
+        let own = BTreeMap::from([(
+            endpoint,
+            OwnTrust {
+                inbound: EndpointSet::default(),
+                // A peer in one direction alone still enters the union.
+                outbound: EndpointSet::new([peer(P2)]).expect("bounded"),
+            },
+        )]);
+        let sources = TrustSources::per_endpoint(operator, own, InfrastructureSet::default())
+            .expect("bounded");
+        assert_eq!(
+            sources.classify(&peer(P2)),
+            ConnectionClass::DataPlaneTrusted
+        );
+        assert_eq!(
+            sources.classify(&peer(P1)),
+            ConnectionClass::DataPlaneTrusted
+        );
+        // The operator's list is kept apart: it holds P1 alone.
+        assert!(sources.operator().decide(&peer(P1)).is_allowed());
+        assert!(!sources.operator().decide(&peer(P2)).is_allowed());
+        // The control: one list built by `new` is both.
+        let one = TrustSources::new(
+            PeerTrustPolicy::new([peer(P1)]).expect("bounded"),
+            InfrastructureSet::default(),
+        );
+        assert_eq!(one.classify(&peer(P2)), ConnectionClass::Unauthorized);
+        assert!(one.operator().decide(&peer(P1)).is_allowed());
+        assert!(one.own().is_empty());
     }
 }

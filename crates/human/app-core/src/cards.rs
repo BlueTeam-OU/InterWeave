@@ -266,29 +266,6 @@ pub(crate) fn own_card_route(row: &PendingOutbound) -> Option<(TransportIdentity
     is_card(&text).then(|| (direct.peer.clone(), endpoint))
 }
 
-/// Whether any conversation holds or may hold the identity's card: a
-/// share recorded (`card_shared_at`, written at Accepted) or an own card
-/// row still pending outbound, Sending or Not sent -- the two sources
-/// Make a new key's share-again list unions (`new_key_start`). A read
-/// that fails counts as held, so a key is never made silently on a guess
-/// (design/2026-10-24-identity-key.md section 7, ADR-0063 A 2026-10-27;
-/// `tests/cards.rs`: `a_key_file_gone_while_a_card_is_pending_is_missing`;
-/// a failed read: `a_failed_read_counts_as_held`).
-pub(crate) fn card_may_be_held(store: &HumanStore) -> bool {
-    held(store.card_ever_shared(), || {
-        own_cards_pending(store).map(|rows| rows.len())
-    })
-}
-
-/// [`card_may_be_held`] from its two reads: whether a share was recorded,
-/// and how many own card rows are pending, read only when none was.
-fn held(
-    shared: Result<bool, StoreError>,
-    pending: impl FnOnce() -> Result<usize, StoreError>,
-) -> bool {
-    shared.unwrap_or(true) || pending().map_or(true, |rows| rows > 0)
-}
-
 /// Whether a read row holds a contact card by its kind, verified or not:
 /// what Keep refuses (RETENTION.md: a card has no Keep), so a card that
 /// would no longer verify is not keepable either (`tests/cards.rs`,
@@ -322,20 +299,5 @@ pub(crate) fn card_of(held: &ReadEphemeral) -> Option<(TransportIdentity, Endpoi
     ) {
         Classified::Card(card) => Some((peer.clone(), endpoint.clone(), card)),
         Classified::NotCard | Classified::MalformedCard(_) => None,
-    }
-}
-
-#[cfg(test)]
-mod held_tests {
-    use super::{StoreError, held};
-
-    #[test]
-    fn a_failed_read_counts_as_held() {
-        let failed = || StoreError::Corrupt("told to".to_owned());
-        assert!(held(Err(failed()), || Ok(0)), "the shares unread");
-        assert!(held(Ok(false), || Err(failed())), "the pending rows unread");
-        assert!(held(Ok(true), || Ok(0)), "a share recorded");
-        assert!(held(Ok(false), || Ok(1)), "a card on its way");
-        assert!(!held(Ok(false), || Ok(0)), "neither");
     }
 }

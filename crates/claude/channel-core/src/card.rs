@@ -48,7 +48,8 @@ pub enum CardDrop {
     DuplicateMember,
     /// A text the parser cannot hold to one JSON value.
     Unreadable,
-    /// The identity key's encoding or length.
+    /// The identity key's encoding or length, or a key that does not derive
+    /// the `source_endpoint` the card arrived on (ADR-0067 decision 5).
     IdentityKey,
     /// The signature's encoding or length, or its verification.
     Signature,
@@ -108,7 +109,9 @@ impl CardDrop {
     }
 
     /// The reason a parser fault is counted under: a surname with the
-    /// name, both key faults as one, the three signature faults as one,
+    /// name, the three key faults as one (a key that does not derive the
+    /// card's endpoint among them, ADR-0067 decision 5), the three
+    /// signature faults as one,
     /// the envelope-wide faults as one.
     #[must_use]
     pub(crate) const fn of(fault: CardFault) -> Self {
@@ -121,7 +124,9 @@ impl CardDrop {
             CardFault::TextPresent | CardFault::ReplyToPresent => Self::StrayMember,
             CardFault::DuplicateMember => Self::DuplicateMember,
             CardFault::Unreadable => Self::Unreadable,
-            CardFault::IdentityKeyEncoding | CardFault::IdentityKeyLength => Self::IdentityKey,
+            CardFault::IdentityKeyEncoding
+            | CardFault::IdentityKeyLength
+            | CardFault::KeyNotSourceEndpoint => Self::IdentityKey,
             CardFault::SignatureEncoding
             | CardFault::SignatureLength
             | CardFault::SignatureFails => Self::Signature,
@@ -238,6 +243,7 @@ mod tests {
             (F::Unreadable, CardDrop::Unreadable),
             (F::IdentityKeyEncoding, CardDrop::IdentityKey),
             (F::IdentityKeyLength, CardDrop::IdentityKey),
+            (F::KeyNotSourceEndpoint, CardDrop::IdentityKey),
             (F::SignatureEncoding, CardDrop::Signature),
             (F::SignatureLength, CardDrop::Signature),
             (F::SignatureFails, CardDrop::Signature),

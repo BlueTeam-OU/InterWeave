@@ -12,6 +12,7 @@
 
 mod common;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -38,7 +39,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid")
+    endpoint_id(name)
 }
 
 fn node() -> FakeConfig {
@@ -69,7 +70,11 @@ fn facade(node: &FakeNode, store: HumanStore) -> FacadeSide<FakeNode, FakeNode> 
 }
 
 fn memory() -> HumanStore {
-    HumanStore::open_in_memory(StoreOptions::default()).expect("store")
+    HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store")
 }
 
 /// A view whose person acts from a script: each `take_events` hands over
@@ -128,6 +133,9 @@ const CONNECT_SETTLED: &str = "<connect settled>";
 /// What [`Opened`] records for the P-up line seen, before its start.
 const UNLOCK_SEEN: &str = "<unlock line seen> ";
 
+/// What [`Opened`] records for a start asked by `IdStartBusy`'s Try again.
+const START_RETRIED: &str = "<start retried>";
+
 impl Opener for Opened {
     fn open(&mut self, destination: &str) {
         self.0.borrow_mut().push(destination.to_owned());
@@ -147,6 +155,10 @@ impl Opener for Opened {
 
     fn unlock_line_seen(&mut self, start: u64) {
         self.0.borrow_mut().push(format!("{UNLOCK_SEEN}{start}"));
+    }
+
+    fn retry_start(&mut self) {
+        self.0.borrow_mut().push(START_RETRIED.to_owned());
     }
 }
 
@@ -367,7 +379,12 @@ async fn read_then_keep_then_unkeep_then_keep_again_reaches_the_store() {
     let path = dir.path().join("state").join("human.sqlite3");
     let (mut alice, _) = Root::new(facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     ));
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
@@ -434,7 +451,12 @@ async fn read_then_keep_then_unkeep_then_keep_again_reaches_the_store() {
     alice.facade.close().await;
     drop(alice);
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     let kept = store.kept_inbound().expect("kept");
     assert_eq!(kept.len(), 1, "durable after the second Keep");
     assert!(store.unread_inbound().expect("unread").is_empty());
@@ -447,7 +469,12 @@ async fn a_keep_with_no_copy_held_fails_and_changes_nothing() {
     let path = dir.path().join("state").join("human.sqlite3");
     let (mut alice, _) = Root::new(facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     ));
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
@@ -507,7 +534,12 @@ async fn a_keep_with_no_copy_held_fails_and_changes_nothing() {
     );
     alice.facade.close().await;
     drop(alice);
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(
         store.kept_inbound().expect("kept").is_empty(),
         "nothing kept"
@@ -583,7 +615,12 @@ async fn the_store_is_read_at_start() {
     a.inject_send(TransportError::Overloaded);
     let (mut alice, _) = Root::new(facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     ));
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
@@ -599,7 +636,12 @@ async fn the_store_is_read_at_start() {
     let (a2, _b2) = FakeNetwork::pair(node(), node());
     let (mut restarted, _) = Root::new(facade(
         &a2,
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
     ));
     restarted.open(&received_from(b.peer()), 0).await;
     let mut texts: Vec<String> = restarted
@@ -623,7 +665,12 @@ async fn a_store_failure_changes_nothing_in_the_model_and_says_why() {
     let path = dir.path().join("state").join("human.sqlite3");
     let (mut alice, _) = Root::new(facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     ));
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
@@ -1057,7 +1104,12 @@ async fn an_undone_unkeep_is_kept_in_the_store() {
     let path = dir.path().join("state").join("human.sqlite3");
     let (mut alice, _) = Root::new(facade(
         &a,
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     ));
     let (mut bob, _) = Root::new(facade(&b, memory()));
     alice.pump(0).await;
@@ -1098,7 +1150,12 @@ async fn an_undone_unkeep_is_kept_in_the_store() {
     alice.facade.close().await;
     drop(alice);
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert_eq!(store.kept_inbound().expect("kept").len(), 1, "kept again");
 }
 
@@ -1534,6 +1591,46 @@ async fn an_ask_for_authentication_reaches_the_platform_and_never_the_facade() {
     assert_ne!(
         alice.model().session_notice(),
         Some(SessionNotice::AuthenticationNeeded)
+    );
+}
+
+/// `IdStartBusy`'s Try again after the bound (identity note §6) asks the
+/// platform for one start and never the facade: a second press in the
+/// same take, and one before the start answers, ask nothing, since a
+/// second start would itself be refused with `LockHeld`; the notice
+/// stays, its start running. Answered `LockHeld` again, Try again asks
+/// again.
+///
+/// Mutation: `command_for`'s `RetryStart` arm not marking the start
+/// asked (two asks), or asking the facade, fails here.
+#[tokio::test]
+async fn a_busy_starts_try_again_reaches_the_platform_once() {
+    use interweave_human_ui_model::{SessionNotice, StartBusy};
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut alice, opened) = Root::new(facade(&a, memory()));
+    alice.settled(0).await;
+    alice.model.start_busy(Some(StartBusy::Shown));
+    alice.will(vec![
+        ViewEvent::Intent(Intent::RetryStart),
+        ViewEvent::Intent(Intent::RetryStart),
+    ]);
+    alice.pump(1).await;
+    assert_eq!(*opened.0.borrow(), [START_RETRIED], "one start");
+    assert!(alice.commands.is_empty(), "{:?}", alice.commands);
+    assert_eq!(
+        alice.model().session_notice(),
+        Some(SessionNotice::StartBusy(StartBusy::Starting))
+    );
+    alice.will(vec![ViewEvent::Intent(Intent::RetryStart)]);
+    alice.pump(2).await;
+    assert_eq!(*opened.0.borrow(), [START_RETRIED], "none while it runs");
+    alice.model.start_busy(Some(StartBusy::Shown));
+    alice.will(vec![ViewEvent::Intent(Intent::RetryStart)]);
+    alice.pump(3).await;
+    assert_eq!(
+        *opened.0.borrow(),
+        [START_RETRIED, START_RETRIED],
+        "refused again: Try again again"
     );
 }
 

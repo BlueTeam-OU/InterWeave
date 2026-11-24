@@ -738,20 +738,21 @@ overflow-checks = true
 # on the owner's word): the Android human client, apps/human-android and
 # the embedded runtime, proved on two phones with what it did not prove
 # carried by name. Nothing here is server-mode reachability evidence for
-# ADR-0034 §7's release gate: that decision is separate. STAGE 18 IS OPEN
-# by this status: the adversarial/security gate (§21, opened beside Stage
-# 17 by its paragraph 0 under ADR-0046's allowance), whose packages are
-# tests/security and tests/security-local and whose exit gate is
-# tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE IT by the plan's section
-# 22 record (activated 2026-10-20 on the owner's word): packaging,
-# migration and release. STAGE 22 RUNS BESIDE BOTH by the plan's section
-# 30 opening record (2026-11-19, on the owner's word): several user
-# identities in one client, no new crate. STAGE 21 CLOSED on 2026-10-25 (the plan's section
-# 29 closing record, on the owner's word): contacts, cards and the
-# encrypted store, in the human crates, with what it did not prove
-# carried by name. This value names the lowest open
-# stage because the guards read it as one number.
-status = "stage-18-adversarial-security-gate"
+# ADR-0034 §7's release gate: that decision is separate. STAGE 18 CLOSED
+# on 2026-11-21 (the plan's section 21 closing record, on the owner's
+# word): the adversarial/security gate, tests/security and
+# tests/security-local, its exit gate tests/SECURITY-MATRIX.md, with
+# what it did not prove carried by name. STAGE 19 CLOSED the same day
+# (the plan's section 22 closing record, on the owner's word):
+# packaging, migration and release, four releases from signed tags,
+# macOS and Windows postponed by name. STAGE 21 CLOSED on 2026-10-25
+# (the plan's section 29 closing record, on the owner's word): contacts,
+# cards and the encrypted store, in the human crates, with what it did
+# not prove carried by name. STAGE 22 IS OPEN by this status (the
+# plan's section 30 opening record, 2026-11-19, on the owner's word):
+# several user identities in one client, no new crate. This value names
+# the lowest open stage because the guards read it as one number.
+status = "stage-22-several-user-identities"
 architecture_root = "architecture"
 
 planned_members = [

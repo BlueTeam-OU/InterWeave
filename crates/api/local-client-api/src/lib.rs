@@ -38,6 +38,7 @@ pub use binding::{
     ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionLosses, SessionRequest, TrustAdminView,
     TrustChange, TrustRefusal, TrustSource, TrustedPeer,
 };
+pub use binding::{EndpointSetKind, EndpointTrustView, TrustDirection, TrustSeed};
 
 use interweave_transport_api::{
     ConnectivitySummary, EndpointId, Health, PeerPath, TransportError, TransportIdentity,
@@ -594,7 +595,7 @@ mod tests {
     }
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn session(lease: Option<EndpointLease>, caps: &[DataCapability]) -> LocalDataSession {

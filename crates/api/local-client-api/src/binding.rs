@@ -39,7 +39,6 @@ pub struct SessionRequest {
     client_kind: String,
     endpoint: Option<EndpointId>,
     capabilities: BTreeSet<DataCapability>,
-    route_notices: bool,
 }
 
 impl SessionRequest {
@@ -70,31 +69,7 @@ impl SessionRequest {
             client_kind,
             endpoint,
             capabilities,
-            route_notices: true,
         })
-    }
-
-    /// The same request for a session that takes no `PeerPathChanged`
-    /// without a `previous` -- no route-begin and no return notice
-    /// (`LOCAL-CLIENT.md` item 12, A 2026-10-09). The in-process binding
-    /// opens such a session for a client that cannot read that shape:
-    /// owed none, it is owed every path change as it was before them,
-    /// `previous` included, rather than a change merged into a notice the
-    /// binding then has to drop. No major-3 IPC connection declines them
-    /// (`LOCAL-IPC.md`, A 2026-11-21): the IPC client refuses this request
-    /// with `ProtocolUnsupported`; a connection below minor 2.4 was major
-    /// 2's way to decline.
-    #[must_use]
-    pub const fn without_route_notices(mut self) -> Self {
-        self.route_notices = false;
-        self
-    }
-
-    /// Whether the session takes route-begin and return notices (true
-    /// unless [`Self::without_route_notices`] said otherwise).
-    #[must_use]
-    pub const fn route_notices(&self) -> bool {
-        self.route_notices
     }
 
     /// The local label, a hygiene label and never authority.
@@ -458,6 +433,93 @@ impl TrustRefusal {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Superseded => "superseded",
+        }
+    }
+}
+
+/// One direction of an endpoint's trust (`admin.trust.list`'s
+/// `direction`, IPC 3.0, ADR-0067 decision 6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TrustDirection {
+    /// Who may reach the endpoint.
+    Inbound,
+    /// Whom the endpoint may address.
+    Outbound,
+}
+
+impl TrustDirection {
+    /// Both directions, in the wire's order.
+    pub const ALL: [Self; 2] = [Self::Inbound, Self::Outbound];
+
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inbound => "inbound",
+            Self::Outbound => "outbound",
+        }
+    }
+}
+
+/// Which of the three an endpoint's effective set is (`trust-list`'s
+/// `set` member, ADR-0067 decision 6): its own, in the endpoint overlay;
+/// an authored `static_subset` narrowing the operator's list; or the
+/// operator's list it inherits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointSetKind {
+    /// The endpoint's own set: every row `administered`, persisted.
+    Own,
+    /// An authored `static_subset`: every row `configured`.
+    Authored,
+    /// The operator's list, its rows with their own sources.
+    Inherited,
+}
+
+impl EndpointSetKind {
+    /// Every kind; what a decoder matches a name against.
+    pub const ALL: [Self; 3] = [Self::Own, Self::Authored, Self::Inherited];
+
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Own => "own",
+            Self::Authored => "authored",
+            Self::Inherited => "inherited",
+        }
+    }
+}
+
+/// One direction of one endpoint's effective set, as `admin.trust.list
+/// {endpoint, direction}` answers it. Carries no `local_peer`: the
+/// endpoint answer has none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointTrustView {
+    /// Which set this is.
+    pub set: EndpointSetKind,
+    /// The peers it admits, in order.
+    pub allowed: Vec<TrustedPeer>,
+}
+
+/// What an `admin.trust.seed` did (`trust-seed-result`, IPC 3.0).
+#[must_use = "a seed on a present set wrote nothing"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrustSeed {
+    /// The endpoint had no own set; it now holds a copy of what it
+    /// admitted, per direction.
+    Seeded,
+    /// The endpoint already had an own set, an empty one included;
+    /// nothing was written.
+    Present,
+}
+
+impl TrustSeed {
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Seeded => "seeded",
+            Self::Present => "present",
         }
     }
 }
@@ -1010,6 +1072,58 @@ pub trait AdminPort {
         peer: TransportIdentity,
         allowed: bool,
     ) -> impl Future<Output = Result<TrustChange, TransportError>> + Send;
+
+    /// One direction of `endpoint`'s effective set (`admin.trust.list
+    /// {endpoint, direction}`, IPC 3.0, ADR-0067 decision 6). Answered
+    /// `ProtocolUnsupported` by a port that does not serve the endpoint
+    /// dimension, unless the port implements it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.trust`, `EndpointUnknown` for an
+    /// id no entry holds, `ProtocolUnsupported`, or `BackendUnavailable`.
+    fn endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        direction: TrustDirection,
+    ) -> impl Future<Output = Result<EndpointTrustView, TransportError>> + Send {
+        let _ = (endpoint, direction);
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Write `peer` into, or out of, both members of `endpoint`'s own set
+    /// (`admin.trust.set {endpoint, peer, allowed}`), the first write
+    /// creating the set from what the endpoint admitted. Answered
+    /// `ProtocolUnsupported` by a port that does not serve the endpoint
+    /// dimension.
+    ///
+    /// # Errors
+    /// As [`Self::set_trust`], plus `EndpointUnknown`; `InvalidArgument`
+    /// also when the write would put the sets past their row bound.
+    fn set_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> impl Future<Output = Result<TrustChange, TransportError>> + Send {
+        let _ = (endpoint, peer, allowed);
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Give `endpoint` its own set from what it admits, if it has none
+    /// (`admin.trust.seed`, IPC 3.0). Answered `ProtocolUnsupported` by a
+    /// port that does not serve it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.trust`, `EndpointUnknown`,
+    /// `InvalidArgument` past the row bound, `Internal` when the overlay
+    /// could not be written, `ProtocolUnsupported`, or `BackendUnavailable`.
+    fn seed_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+    ) -> impl Future<Output = Result<TrustSeed, TransportError>> + Send {
+        let _ = endpoint;
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
 
     /// Ask the runtime's owner to shut down within `grace`. A REQUEST: the
     /// port does not own the runtime, and the owner -- the composition

@@ -292,7 +292,7 @@ fn check_class(class: Class, v: &Value) -> Result<(), DecodeError> {
                 ));
             }
             if let Some(e) = v.get("endpoint")
-                && !e.as_str().is_some_and(is_derived_endpoint_id)
+                && !e.as_str().is_some_and(matches_endpoint_id_pattern)
             {
                 return Err(DecodeError(
                     "endpoint outside the EndpointId grammar".to_owned(),
@@ -411,10 +411,11 @@ fn is_peer_id(s: &str) -> bool {
     })
 }
 
-/// `endpoints/endpoint-id` 2.0.0, the derived id IPC major 3 carries
-/// (ADR-0067): `^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$`. The label grammar of
-/// `crate::is_endpoint_id` is the direct v2 frame's, not the IPC's.
-fn is_derived_endpoint_id(s: &str) -> bool {
+/// The pattern of `endpoints/endpoint-id` 2.0.0, the derived id IPC major 3
+/// carries (ADR-0067): `^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$`. This is the
+/// schema's pattern only; the canonical round-trip decoding is
+/// `crate::is_derived_endpoint_id`, which this shape does not call.
+fn matches_endpoint_id_pattern(s: &str) -> bool {
     s.strip_prefix("12D3KooW").is_some_and(|t| {
         t.len() == 44
             && t.bytes().all(|b| {

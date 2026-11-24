@@ -122,6 +122,8 @@ interweave-human-core = { path = "../core" }
 # tests/cards.rs: the fingerprint of the fixture's test key, as the client
 # computes it, against the fixture's vector.
 interweave-human-store = { path = "../store" }
+# TEST-ONLY derived endpoint ids (ADR-0067).
+interweave-test-support = { path = "../../../tests/support" }
 # TEST-ONLY: the model's test bounds and its Connect hook, for the
 # window's walk over the pages that take a conversation's place
 # (tests/window.rs).

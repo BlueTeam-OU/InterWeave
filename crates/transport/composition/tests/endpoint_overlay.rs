@@ -20,7 +20,7 @@ mod common;
 mod endpoint_common;
 
 use common::{chmod, id};
-use endpoint_common::{on_disk, options, row, rows, set_default, set_enabled, start, state};
+use endpoint_common::{ep, on_disk, options, row, rows, set_default, set_enabled, start, state};
 
 /// THE GATE (e) EVIDENCE: a composed runtime has its default endpoint
 /// disabled -- which clears the default -- and is dropped and rebuilt
@@ -436,6 +436,111 @@ async fn an_overlay_the_composed_profile_refuses_stops_the_start_by_name() {
         .stop()
         .await
         .expect("stops");
+}
+
+/// The endpoint dimension of `admin.trust.set` and `admin.trust.seed`
+/// audits a write that failed before its rename -- nothing changed --
+/// `unwritten`, and a publish that failed after a write that landed (the
+/// overlay put back) `failed`, as the trust overlay does (LOCAL-IPC.md,
+/// `admin.trust.set`). Each is answered `Internal`; the control is the
+/// same call with no fault, audited `seeded` and `changed`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_endpoint_trust_write_is_audited_unwritten_and_a_failed_publish_failed() {
+    use interweave_local_client_api::{
+        AdminBinding, AdminCapability, AdminPort, TrustChange, TrustSeed,
+    };
+    use interweave_transport_composition::OverlayFault::BeforeRename;
+
+    let _ = logged();
+    let (_dir, path) = state();
+    let runtime = start(Some(&path)).await.expect("composes");
+    let admin = runtime
+        .sessions()
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("a port");
+    let agent = ep("agent");
+    let (_, peer) = id();
+
+    // The seed: unwritten, failed, then the control.
+    runtime
+        .fail_overlay_writes(vec![BeforeRename])
+        .await
+        .expect("queued");
+    assert_eq!(
+        admin.seed_endpoint_trust(agent.clone()).await,
+        Err(TransportError::Internal)
+    );
+    assert!(!path.exists(), "nothing written");
+    runtime.fail_publishes(1).await.expect("queued");
+    assert_eq!(
+        admin.seed_endpoint_trust(agent.clone()).await,
+        Err(TransportError::BackendUnavailable)
+    );
+    assert_eq!(
+        admin.seed_endpoint_trust(agent.clone()).await,
+        Ok(TrustSeed::Seeded),
+        "the control"
+    );
+
+    // The set: unwritten, failed, then the control.
+    runtime
+        .fail_overlay_writes(vec![BeforeRename])
+        .await
+        .expect("queued");
+    assert_eq!(
+        admin
+            .set_endpoint_trust(agent.clone(), peer.clone(), true)
+            .await,
+        Err(TransportError::Internal)
+    );
+    runtime.fail_publishes(1).await.expect("queued");
+    assert_eq!(
+        admin
+            .set_endpoint_trust(agent.clone(), peer.clone(), true)
+            .await,
+        Err(TransportError::BackendUnavailable)
+    );
+    assert_eq!(
+        admin
+            .set_endpoint_trust(agent.clone(), peer.clone(), true)
+            .await,
+        Ok(TrustChange::Set),
+        "the control"
+    );
+    runtime.stop().await.expect("stops");
+
+    let text = logged();
+    let audit = |what: &str, own: Option<&str>| -> Vec<String> {
+        text.lines()
+            .filter(|l| {
+                l.contains(what)
+                    && l.contains("outcome=")
+                    && l.contains(agent.as_str())
+                    && own.is_none_or(|p| l.contains(p))
+            })
+            .map(|l| l.rsplit("outcome=").next().expect("an outcome").to_owned())
+            .collect()
+    };
+    let outcome = |line: &String| line.split_whitespace().next().unwrap_or("").to_owned();
+    let seeds: Vec<String> = audit("admin.trust.seed", None)
+        .iter()
+        .map(outcome)
+        .collect();
+    assert_eq!(
+        seeds,
+        ["\"unwritten\"", "\"failed\"", "\"seeded\""],
+        "{text}"
+    );
+    let sets: Vec<String> = audit("admin.trust.set", Some(peer.as_str()))
+        .iter()
+        .map(outcome)
+        .collect();
+    assert_eq!(
+        sets,
+        ["\"unwritten\"", "\"failed\"", "\"changed\""],
+        "{text}"
+    );
 }
 
 /// How many ahead warnings the runtimes in this binary have logged.

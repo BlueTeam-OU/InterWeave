@@ -534,7 +534,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// Whether a direct conversation with `peer`'s `endpoint` may be held:
     /// it is held already, or the peer has fewer than a profile's most
     /// endpoints (`MAX_ENDPOINTS`) in the store's conversations and its
-    /// contacts' routes together.
+    /// contacts' routes together -- the store's identity's alone, each
+    /// identity counted apart (STATE.md schema v14).
     fn admits_endpoint(
         &self,
         peer: &TransportIdentity,
@@ -1868,12 +1869,13 @@ fn trust_row(row: interweave_local_client_api::TrustedPeer) -> TrustRow {
 #[cfg(test)]
 mod tests {
     use interweave_human_client_api::Connectivity;
+    use interweave_test_support::endpoint_keys::endpoint_id;
     use interweave_transport_api::Health;
 
     use std::collections::BTreeMap;
 
     use interweave_human_store::{AppMessageId, RowId};
-    use interweave_transport_api::{EndpointId, TransportIdentity};
+    use interweave_transport_api::TransportIdentity;
 
     use super::{Flight, Order, Row, attemptable, connectivity_of};
 
@@ -1909,7 +1911,7 @@ mod tests {
     /// the first two cases pass; the guard without the cap -- the last.
     #[test]
     fn a_pass_is_due_only_for_a_head() {
-        let human = EndpointId::parse("human").expect("valid");
+        let human = endpoint_id("human");
         let a = Order::Conversation(peer(0), Some(human.clone()));
         let other_of_a = Order::Conversation(peer(0), None);
         let mut rows = BTreeMap::new();

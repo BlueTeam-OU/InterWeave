@@ -231,7 +231,7 @@ pub struct SubstrateBehaviour {
     /// connection admission at all, so an untrusted peer never reaches it
     /// only because the gated swarm refused the connection first.
     pub broadcast: ClassGated<gossipsub::Behaviour>,
-    /// The endpoint directory, `/interweave/endpoints/1.0.0` (ADR-0031).
+    /// The endpoint directory, `/interweave/endpoints/2.0.0` (ADR-0031).
     ///
     /// After both gates for the same reason `direct` is: `send_request`
     /// dials an unconnected peer, so this behaviour sits in a Swarm where

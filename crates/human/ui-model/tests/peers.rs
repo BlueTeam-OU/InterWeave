@@ -18,6 +18,7 @@ use interweave_human_ui_model::{
     ScanControl, ScanVerdict, TYPED_LINES, TrustChange, TrustLine, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::TransportIdentity;
 
 fn peer() -> TransportIdentity {
@@ -2869,7 +2870,6 @@ fn a_read_ends_only_the_trusts_sent_before_it() {
 #[test]
 fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
     use interweave_human_ui_model::{ContactView, RouteView};
-    use interweave_transport_api::EndpointId;
     let (p, q) = (peer(), peer());
     let contact = |id: &str, name: &str, on: &TransportIdentity, endpoint: &str| ContactView {
         contact_id: id.to_owned(),
@@ -2881,7 +2881,7 @@ fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
         photo: None,
         routes: vec![RouteView {
             peer: on.clone(),
-            endpoint: EndpointId::parse(endpoint).expect("valid"),
+            endpoint: endpoint_id(endpoint),
             fingerprint: None,
         }],
     };

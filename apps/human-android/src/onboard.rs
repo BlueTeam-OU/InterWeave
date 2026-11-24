@@ -16,27 +16,30 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
-use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{self, RecordName, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
 use interweave_human_android_platform::{
-    Expected, IdentityRefused, ServiceHost, StoreGeneration, locked_status, opening_needs_presence,
-    reseal_needs_presence,
+    Expected, IdentityRefused, ServiceHost, StoreGeneration, locked_status, reseal_needs_presence,
 };
 use interweave_human_ui_model::{
-    Admit, Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
-    StartHold, StepFailed,
+    Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start, StartHold,
+    StepFailed,
 };
 use interweave_human_ui_slint::{
     IdentityInput, View, Wake, apply_identity, defer, identity_page, invoke_on_window,
 };
-use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 
 use crate::asks::Asks;
+use crate::flow_park::{
+    AtWindowEnd, Attached, Destroy, Finish, FlowCheck, OWED_MAX, Owed, at_window_end, flow_check,
+};
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
-use crate::ready_check::{AtFlowEnd, Before, Over, at_flow_end, secure_may_clear};
-use crate::unlock_route::{Route, UnlockRoute};
+use crate::ready_check::{
+    AtFlowEnd, Before, Over, asks_start_at_end, at_flow_end, secure_may_clear,
+};
+use crate::unlock_route::{Route, UnlockRoute, flow_prompts};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, TracedStart, prompt_line, start_line};
 
@@ -56,6 +59,21 @@ pub(crate) mod state {
     /// before it binds anything (android-key-custody.md's failure list,
     /// 80594810; ADR-0042 A 2026-11-05).
     pub(crate) const AUTHENTICATION_NEEDED: jint = 3;
+    /// An identity flow shows, in a window or kept for the next
+    /// ([`super::window_ended`]), and its screen shows no service start
+    /// -- any flow that has not asked its start, and one whose screen the
+    /// start went with: `FLAG_SECURE` on and nothing bound, its record
+    /// unread (`Native.IDENTITY_FLOW`).
+    pub(crate) const FLOW: jint = 4;
+    /// An identity flow shows with its start asked -- a held C4 or R4, R2
+    /// or R3 held after `IdRestoreOther`'s Continue, or `IdStartBusy` on
+    /// C4, R4, R3 or R2 after K1 (`IdentityFlow::start_shows`):
+    /// `FLAG_SECURE` on, and
+    /// the binding decides a start as for a ready identity, a busy or
+    /// locked one retried and one running left alone (identity note
+    /// section 6, A return to a screen showing `IdStartBusy`;
+    /// `Native.IDENTITY_FLOW_STARTED`).
+    pub(crate) const FLOW_STARTED: jint = 5;
 }
 
 /// What the window asks of the Activity's Kotlin side
@@ -79,8 +97,8 @@ pub(crate) mod ask {
     pub(crate) const OFFLINE: jint = 6;
     /// Show my phrase is over: start the service again.
     pub(crate) const ONLINE: jint = 7;
-    /// The same prompt as [`PROMPT`], for a key operation or a launch the
-    /// presence window holds back: its title says it unlocks the app, not
+    /// The same prompt as [`PROMPT`], for a key operation or a start the
+    /// Keystore refused until the person authenticates: its title says it unlocks the app, not
     /// that it shows the phrase. Answered by `Native.prompted`.
     pub(crate) const UNLOCK: jint = 8;
     /// The store's screens: start the network service again -- R's Try
@@ -132,11 +150,6 @@ struct Platform {
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
     start: Option<Start>,
-    /// The profile's configured key needs the person: a first run's and a
-    /// restore's seal wait on the presence window (design section 6,
-    /// acceptance 10). Show my phrase opens the record instead, and asks
-    /// its own policy ([`opening_needs_presence`]).
-    user_presence: bool,
     /// `start` is a K1 [`recovery_refused`] kept in a process that found
     /// the identity ready: whichever window opens it opens it as over a
     /// running window ([`Over::Running`]), its end restarting the service
@@ -166,12 +179,26 @@ const PLATFORM_WAIT: Duration = Duration::from_secs(10);
 /// starts. Any other refusal is the service's to report, as it does
 /// today, so it reads as ready. `ready`: this process found the identity
 /// ready before, so only whether a start now needs the person is asked
-/// ([`ready_state`]).
+/// ([`ready_state`]). While a flow lives -- shown, or [`PARKED`] -- the
+/// record is not read and the flow answers: [`state::FLOW`] (4) before its
+/// screen shows a service start, [`state::FLOW_STARTED`] (5) while it does
+/// (`Native.IDENTITY_FLOW`, `Native.IDENTITY_FLOW_STARTED`).
 pub(crate) fn identity_state(
     app_data_dir: PathBuf,
     cipher: KeystoreCipher,
     ready: bool,
 ) -> jni::sys::jint {
+    // A flow that shows decides the record's state itself: read here, R4
+    // before its Continue would read as ready and the Activity would
+    // bind the service under it, against the lock the flow holds; read
+    // on C4 after the seal, a recreation answered ready and the next
+    // window showed Welcome over the sealed identity (j311).
+    if let Some(check) = *FLOW_SHOWS.lock().unwrap_or_else(PoisonError::into_inner) {
+        return match check {
+            FlowCheck::BeforeStart => state::FLOW,
+            FlowCheck::Started => state::FLOW_STARTED,
+        };
+    }
     if ready {
         return ready_state(&app_data_dir, &cipher);
     }
@@ -239,12 +266,10 @@ pub(crate) fn identity_state(
     if code != state::AUTHENTICATION_NEEDED {
         clear_authentication();
     }
-    let user_presence = needs_presence(&app_data_dir);
     *PLATFORM.lock().unwrap_or_else(PoisonError::into_inner) = Some(Platform {
         app_data_dir,
         cipher: Arc::new(cipher),
         start,
-        user_presence,
         kept: false,
     });
     code
@@ -384,9 +409,10 @@ fn gate_ask(o: &mut Onboarding) {
 /// nothing will answer them. The route learns no prompt is outstanding,
 /// which is not a decline -- the person decided nothing, and L2 counts
 /// only an answered prompt's cancel -- and a key operation the gate held
-/// for one of them is released on the window's thread as a cancelled
-/// prompt releases it ([`not_run`]): no screen stays held by a prompt
-/// nobody will raise, and nothing is retried.
+/// for one of them is released on the window that holds the flow
+/// ([`owe`]: dropped by a new instance's showing, the flow is the next
+/// window's) as a cancelled prompt releases it ([`not_run`]): no screen
+/// stays held by a prompt nobody will raise, and nothing is retried.
 fn unlock_unasked(through: u64) {
     route_state().unasked();
     if through == 0 {
@@ -394,7 +420,7 @@ fn unlock_unasked(through: u64) {
         // waited on them.
         return;
     }
-    invoke_on_window(move || {
+    owe(move || {
         let effects = ONBOARDING.with(|slot| {
             slot.borrow_mut()
                 .as_mut()
@@ -420,10 +446,83 @@ pub(crate) fn window_shown(shown: bool) {
     route_state().shown(shown);
 }
 
+/// `Native.showingStarts`: the showing `onStart` began starts the service
+/// again -- a return's bind, or a kept binding's restart of a start
+/// refused busy or locked. MainActivity.onStart decides it, in one place,
+/// and calls this just before the start, never for a showing that starts
+/// nothing (phrase shown, authentication needed, no identity ready, a
+/// binding whose service runs or is still being bound). What waits on
+/// that start then waits with Try again disabled, as after a press
+/// (unlock note section 11, L3; identity note section 6, A return or a
+/// recreation): `IdStartBusy` on Chats, by the hub, a launch having taken
+/// it away first ([`launched`]); and on C4, R4, R3 or R2 the screen
+/// showing it, by the flow ([`held_by_showing`]).
+pub(crate) fn showing_starts() {
+    let hub = ServiceHost::global().hub();
+    // Before the start: an answer counted past this is its own.
+    let asked_at = hub.store_generation();
+    hub.start_asked(true);
+    owe(move || held_by_showing(asked_at));
+}
+
+/// [`showing_starts`] on the window's thread: a flow screen showing
+/// `IdStartBusy` holds for the showing's start as its Try again would
+/// (`IdentityFlow::showing_started`), with no ask of its own -- one start
+/// in flight. The start's answer is counted from `asked_at`, so the
+/// root's `held_rule` and `held_ended` decide it as a press's; its bound
+/// and `ConnectStarting` count from here; a refusal for the person is the
+/// flow's to prompt for ([`FLOW_START`]) unless an answer was counted
+/// already, before this hop. An answer landing between that count's read
+/// and the store leaves `FLOW_START` set for no start, which only keeps
+/// the screen held until its bound. BLOCKED on a device run: no host test drives
+/// the Activity (ui-slint's views.rs, the `IdStartBusy` after the bound
+/// block, lists it).
+fn held_by_showing(asked_at: StoreGeneration) {
+    let held = ONBOARDING.with(|slot| {
+        slot.borrow_mut().as_mut().is_some_and(|o| {
+            let held = o.service_asked && o.flow.showing_started();
+            if held {
+                o.asked_at = asked_at;
+                // The identity is on record: the bound counts from now.
+                o.hold = Some(StartHold::pressed(now_ms(), true));
+                let hub = ServiceHost::global().hub();
+                if hub.store_generation() == asked_at {
+                    FLOW_START.store(true, Ordering::SeqCst);
+                }
+            }
+            held
+        })
+    });
+    if held {
+        // As a press's start: Chats' openings count against an owed
+        // Connect from here (add-a-peer section 5.1).
+        crate::activity::start_asked();
+    }
+    render();
+}
+
 /// `Native.launched`: the Activity was created anew, not recreated in
 /// this process -- a launch, which prompts as a cold launch does.
 pub(crate) fn launched() {
+    // A new launch shows what its own start answers, not `IdStartBusy`
+    // (identity note section 6, How long). BLOCKED on a device run: no host
+    // test reaches this call (ui-slint's views.rs, the `IdStartBusy` after
+    // the bound block).
+    ServiceHost::global().hub().start_asked(false);
     route_state().launched();
+}
+
+/// `IdStartBusy`'s Try again on Chats or a conversation, after the bound
+/// (identity note section 6): one service start, by the path a granted
+/// Unlock uses ([`authenticated`]), as the person's, so a refusal for the
+/// screen lock prompts (L1) and Connect counts its openings from here
+/// (add-a-peer section 5.1). The hub shows the notice's start running
+/// until it answers, and the model offers no second press meanwhile
+/// (ui-model's `a_busy_start_is_retried_once_until_it_answers`).
+pub(crate) fn retry_start() {
+    ServiceHost::global().hub().start_asked(true);
+    person_asked();
+    ASKS.push(ask::RESTART);
 }
 
 /// The person's action asks for the next start: a store screen's Try
@@ -439,16 +538,71 @@ pub(crate) fn person_asked() {
 /// the service again, and the prompt, the focused notice or nothing as
 /// [`UnlockRoute::refused`] says. The Service never prompts: the Activity
 /// raises it, and only while its window shows.
+///
+/// A start a held C4 or R4 asked ([`FLOW_START`]) is answered by the
+/// flow's prompt over that screen when the route prompts: the screen stays
+/// held, a grant starts the service again under it, and a cancel ends on
+/// Chats locked ([`not_run`]; design section 6, Authentication needed and
+/// Seal running).
 pub(crate) fn refused_locked() {
+    let flow = FLOW_START.swap(false, Ordering::SeqCst);
     await_authentication(ask::RESTART);
     let decided = route_state().refused();
+    if flow_prompts(flow, decided) {
+        owe(flow_start_refused);
+        return;
+    }
     route(decided);
+    if flow {
+        // The held screen waited on this answer: decided now.
+        invoke_on_window(crate::activity::turn_soon);
+    }
+}
+
+/// A held C4's or R4's start was asked and has not answered yet: its
+/// refusal for the person, if it comes, is the flow's to prompt for. Set
+/// on the window's thread at the ask, taken by the start's answer on the
+/// Service's ([`refused_locked`], [`start_answered`]).
+static FLOW_START: AtomicBool = AtomicBool::new(false);
+
+/// [`refused_locked`] on the window's thread: the held screen's gate
+/// holds the start for the prompt. A screen no longer held -- its bound
+/// passed meanwhile -- leaves the prompt to the route, over Chats.
+fn flow_start_refused() {
+    let held = ONBOARDING.with(|slot| {
+        slot.borrow_mut().as_mut().is_some_and(|o| {
+            let ours = o.flow.start_held() && o.service_asked && !o.gate.holding();
+            if ours {
+                prompt_for(o, Effect::StartService);
+            }
+            ours
+        })
+    });
+    if !held {
+        ask_unlock();
+    }
+    render();
+}
+
+/// Whether a held C4's or R4's start is the flow's to answer still: asked
+/// and unanswered, or held by the gate for its prompt. The screen is not
+/// decided meanwhile, or a refusal for the person would hand over to
+/// Chats before the prompt over the screen answers it.
+pub(crate) fn flow_answers_refusal() -> bool {
+    FLOW_START.load(Ordering::SeqCst)
+        || ONBOARDING.with(|slot| {
+            slot.try_borrow()
+                .is_ok_and(|o| o.as_ref().is_some_and(|o| o.gate.holding_start()))
+        })
 }
 
 /// A start the Service made answered anything but a refusal for the
 /// person, `ran` when it runs: the locked state ends, as at the
 /// Activity's check (#313 review 1).
 pub(crate) fn start_answered(ran: bool) {
+    if FLOW_START.swap(false, Ordering::SeqCst) {
+        invoke_on_window(crate::activity::turn_soon);
+    }
     route_state().answered(ran);
     clear_authentication();
     // A K1 kept for a window is no longer owed once a start ran: the
@@ -491,21 +645,7 @@ pub(crate) fn answered() {
     PLATFORM_SET.notify_all();
 }
 
-/// Whether the profile's configured unlock policy needs the person. A
-/// profile not yet readable counts as not: its first run has no key to
-/// open yet, and a seal under user-presence that the Keystore refuses
-/// still answers `UserNotAuthenticated`.
-fn needs_presence(app_data_dir: &Path) -> bool {
-    TrustBoundary::new(app_data_dir)
-        .and_then(|boundary| ProfilePaths::resolve_embedded(PROFILE, boundary))
-        .ok()
-        .and_then(|paths| ProfileConfig::load(&paths).ok())
-        .is_some_and(|config| {
-            config.runtime.android.key_unlock_policy == KeyUnlockPolicy::UserPresence
-        })
-}
-
-/// Monotonic milliseconds for the presence window.
+/// Monotonic milliseconds for a held screen's clock (add-a-peer §5.1).
 fn now_ms() -> u64 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     u64::try_from(
@@ -534,7 +674,7 @@ struct Onboarding {
     creation: Option<Creation>,
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
-    /// The presence window, and the key operation waiting on its prompt.
+    /// The key operation refused for the person, waiting on its prompt.
     gate: PresenceGate,
     /// Where the flow was opened, which says how its end starts the
     /// service.
@@ -558,19 +698,335 @@ struct Onboarding {
     /// `done` was called: the chats are attached under a held C4 or R4,
     /// so the start's reads run while the screen holds.
     handed: bool,
+    /// Whether the chats are attached under the flow's window: raised
+    /// over attached chats, or handed over under a held screen. The next
+    /// window attaches them at once exactly when they were ([`rebind`];
+    /// the rule held by [`Attached::at_rebind`]'s test
+    /// `the_next_window_attaches_its_chats_where_the_last_had_them`, and
+    /// where each flow sets it is BLOCKED on a device run: cases D1, D3
+    /// and D7 of `device-runs/identity-recreation-cases.md`).
+    attached: Attached,
+    /// Whether the flow finished the Activity (Back on a first screen):
+    /// its window's end then ends it rather than keeping it
+    /// ([`window_ended`]).
+    finished: Finish,
     /// Called once the flow hands over to the chats -- or, under a held
     /// C4 or R4, once the service is asked, so the start's reads run while
     /// the screen holds and the first screen shown is the one they decide.
     done: Rc<dyn Fn()>,
 }
 
+impl Onboarding {
+    /// The ask that starts the service now. The first is the flow's own
+    /// ([`Over::start_ask`]). Any later one -- `IdStartBusy`'s Try again,
+    /// a held start resumed after a granted prompt, the Unlock after that
+    /// prompt was cancelled -- finds the service bound and started: a bind
+    /// would find the binding (MainActivity.connect) and Show my phrase's
+    /// way back the service already back (NetworkService.online), and
+    /// either would start nothing. A restart starts it again, and binds
+    /// when the service is unbound since.
+    const fn start_ask(&self) -> jni::sys::jint {
+        if self.service_asked {
+            ask::RESTART
+        } else {
+            self.over.start_ask()
+        }
+    }
+}
+
+impl Onboarding {
+    /// The flow without its window, for the next ([`window_ended`]).
+    fn park(self) -> Parked {
+        let Self {
+            view: _,
+            done: _,
+            flow,
+            creation,
+            app_data_dir,
+            cipher,
+            gate,
+            over,
+            lock,
+            offline_asked,
+            service_asked,
+            hold,
+            asked_at,
+            handed,
+            attached,
+            finished,
+        } = self;
+        Parked {
+            flow,
+            creation,
+            app_data_dir,
+            cipher,
+            gate,
+            over,
+            lock,
+            offline_asked,
+            service_asked,
+            hold,
+            asked_at,
+            handed,
+            attached,
+            finished,
+        }
+    }
+}
+
+/// An [`Onboarding`] without its window -- its `view` and `done` -- kept
+/// in [`PARKED`] between the window that showed it and the next
+/// ([`window_ended`], [`start`]). Each Activity instance runs its own
+/// `android_main` thread, so what a flow holds must cross threads: the
+/// static would not compile if any part of this were not `Send`. The
+/// profile's lock goes with it, held across, and so do the words, a held
+/// start's clock (the process's, [`now_ms`]) and the hub's count it
+/// waits past.
+struct Parked {
+    flow: IdentityFlow,
+    creation: Option<Creation>,
+    app_data_dir: PathBuf,
+    cipher: Arc<KeystoreCipher>,
+    gate: PresenceGate,
+    over: Over,
+    lock: Option<ProfileLock>,
+    offline_asked: bool,
+    service_asked: bool,
+    hold: Option<StartHold>,
+    asked_at: StoreGeneration,
+    handed: bool,
+    attached: Attached,
+    finished: Finish,
+}
+
+impl Parked {
+    /// The flow shown over `view` again, handing over through `done`.
+    fn rebind(self, view: &Rc<RefCell<View>>, done: Rc<dyn Fn()>) -> Onboarding {
+        let Self {
+            flow,
+            creation,
+            app_data_dir,
+            cipher,
+            gate,
+            over,
+            lock,
+            offline_asked,
+            service_asked,
+            hold,
+            asked_at,
+            handed,
+            attached,
+            finished,
+        } = self;
+        Onboarding {
+            view: Rc::clone(view),
+            flow,
+            creation,
+            app_data_dir,
+            cipher,
+            gate,
+            over,
+            lock,
+            offline_asked,
+            service_asked,
+            hold,
+            asked_at,
+            handed,
+            attached,
+            finished,
+            done,
+        }
+    }
+}
+
 thread_local! {
+    /// The flow the window of this thread shows. A window's end parks it
+    /// in [`PARKED`] for the next window, whose thread is another
+    /// ([`window_ended`]).
     static ONBOARDING: RefCell<Option<Onboarding>> = const { RefCell::new(None) };
 }
 
+/// A flow whose window ended, for the next window of this process
+/// ([`start`]); none while a window shows it.
+static PARKED: Mutex<Option<Parked>> = Mutex::new(None);
+
+/// Whether an identity flow opened at a launch or over a running window
+/// lives -- shown by a window or [`PARKED`] -- and whether its screen now
+/// shows the service start it asked ([`flow_check`]), for
+/// `Native.identityState` on the Activity's thread ([`identity_state`]),
+/// which runs beside the window's. Said again at each render, so it
+/// follows the screen after every input. Show my phrase
+/// is not counted: Settings' service is bound and running, and its words
+/// keep the Activity from starting anything by its own flag
+/// (`MainActivity.phraseShown`).
+static FLOW_SHOWS: Mutex<Option<FlowCheck>> = Mutex::new(None);
+
+/// Say in [`FLOW_SHOWS`] whether `o`, the flow now shown or none, lives.
+fn flow_shows(o: Option<&Onboarding>) {
+    *FLOW_SHOWS.lock().unwrap_or_else(PoisonError::into_inner) = o
+        .filter(|o| !matches!(o.over, Over::Settings))
+        .map(|o| flow_check(o.service_asked, o.flow.start_shows()));
+}
+
+/// Answers for the flow, from threads that cannot tell which window holds
+/// it ([`owe`]).
+static OWED: Mutex<Owed<Box<dyn FnOnce() + Send>>> = Mutex::new(Owed::new());
+
+/// Run `task` on the window that holds the flow: held in [`OWED`], and
+/// that window told to take it. Between two windows the tell may reach
+/// the ended window's loop and be lost ([`Owed`] says why it is held), so
+/// the next window takes what is held once it holds the flow
+/// ([`start`]): a prompt's answer, an Unlock ask dropped unraised, a held
+/// start's refusal for the person, a showing's start held.
+fn owe(task: impl FnOnce() + Send + 'static) {
+    let dropped = OWED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(Box::new(task));
+    if dropped.is_some() {
+        log(&format!(
+            "more than {OWED_MAX} answers were owed to the identity flow: the oldest is dropped"
+        ));
+    }
+    invoke_on_window(run_owed);
+}
+
+/// What [`OWED`] holds, run on this window's thread, oldest first.
+fn run_owed() {
+    let owed = OWED.lock().unwrap_or_else(PoisonError::into_inner).take();
+    for task in owed {
+        task();
+    }
+}
+
+/// Whether the Activity being destroyed is finishing, as its `onDestroy`
+/// said ([`window_ending`]) for [`window_ended`], which takes it. A
+/// process static, not the window's: `onDestroy` runs on the JVM's main
+/// thread, before `super.onDestroy()` lets the window's thread end.
+static FINISHING: AtomicBool = AtomicBool::new(false);
+
+/// `Native.windowEnding`: the Activity's `onDestroy`, before
+/// `super.onDestroy()`, says whether it is finishing (`isFinishing`, and
+/// not changing configurations). Stored before the window's event loop
+/// can return: the glue's destroy, which ends that loop, is sent by
+/// `super.onDestroy()`.
+///
+/// A finishing destroy also decides a flow still [`PARKED`]: one the
+/// last window kept that this one did not take, because its
+/// `android_main` returned before [`start`] (no views' platform, or no
+/// window). A window that reached `start` took the flow before its event
+/// loop ran, and [`window_ended`] decides it there. Both ask the same
+/// rule, [`at_window_end`], whose test holds that a finish ends every
+/// flow (`a_window_end_parks_only_an_open_flow_past_a_destroy_that_is_not_a_finish`).
+/// The early returns are failures a device run has no hook to cause.
+pub(crate) fn window_ending(finishing: bool) {
+    FINISHING.store(finishing, Ordering::SeqCst);
+    if !finishing {
+        return;
+    }
+    let mut slot = PARKED.lock().unwrap_or_else(PoisonError::into_inner);
+    let ends = slot.as_ref().is_some_and(|p| {
+        matches!(
+            at_window_end(p.over, p.finished, Destroy::Finishing),
+            AtWindowEnd::End
+        )
+    });
+    let parked = if ends { slot.take() } else { None };
+    drop(slot);
+    if parked.is_some() {
+        log("the Activity finished: the identity flow kept for it ends");
+        flow_shows(None);
+    }
+    // Dropped here, its lock with it.
+    drop(parked);
+}
+
+/// The window of this thread ended (`android_main`, once its event loop
+/// returned): a flow it showed is parked for the next window, or ends
+/// with it ([`at_window_end`]) -- at a finishing destroy as when the flow
+/// finished itself. Runs before the Activity's `onDestroy` returns --
+/// android-activity's `notify_destroyed` waits for the `android_main`
+/// thread to stop -- so before the platform creates the next instance
+/// and its thread asks for the flow.
+pub(crate) fn window_ended() {
+    // Taken at every window's end, a flow shown or not: the next
+    // window's destroy says its own.
+    let destroy = if FINISHING.swap(false, Ordering::SeqCst) {
+        Destroy::Finishing
+    } else {
+        Destroy::Kept
+    };
+    let Some(o) = ONBOARDING.with(|slot| slot.borrow_mut().take()) else {
+        return;
+    };
+    match at_window_end(o.over, o.finished, destroy) {
+        AtWindowEnd::Park => {
+            log("the window ended: its identity flow is kept for the next");
+            *PARKED.lock().unwrap_or_else(PoisonError::into_inner) = Some(o.park());
+        }
+        AtWindowEnd::End => {
+            log("the window ended: its identity flow ends with it");
+            flow_shows(None);
+            if matches!(o.over, Over::Settings) {
+                // Show my phrase's prompt and stop, asked and not yet
+                // carried out, are no one's now: raised later, they would
+                // take the service offline for words no window shows.
+                ASKS.drop_all(ask::PROMPT);
+                ASKS.drop_all(ask::OFFLINE);
+            }
+            // Dropped here, its lock with it.
+            drop(o);
+        }
+    }
+}
+
+/// Whether a flow is parked for the next window: nothing builds another
+/// meanwhile.
+fn parked() -> bool {
+    PARKED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some()
+}
+
+/// `parked`, shown over the new window's `view` as it was, handing over
+/// through `done`: the chats attached at once where the last window had
+/// them ([`Attached::at_rebind`]). The Activity's check set `FLAG_SECURE`
+/// for it before this window can draw ([`state::FLOW`],
+/// [`state::FLOW_STARTED`]); asked again for a window made with no check
+/// before it.
+fn rebind(view: &Rc<RefCell<View>>, parked: Parked, done: impl Fn() + 'static) {
+    let attach = parked.attached.at_rebind();
+    let done: Rc<dyn Fn()> = Rc::new(done);
+    // Attached here, its hand-over attaches nothing again.
+    let later: Rc<dyn Fn()> = if attach {
+        Rc::new(|| {})
+    } else {
+        Rc::clone(&done)
+    };
+    log("an identity flow kept from the last window shows again");
+    ASKS.push(ask::SECURE_ON);
+    begin(view, parked.rebind(view, later));
+    if attach {
+        done();
+    }
+}
+
 /// Show the flow over `view` if the identity is not ready, calling `done`
-/// once it hands over to the chats. False when there is nothing to show.
+/// once it hands over to the chats -- the flow the last window showed if
+/// one is parked ([`window_ended`]), as it was, else one from the start
+/// `Native.identityState` found. False when there is nothing to show.
 pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool {
+    // What a window could not take is this one's, once it holds the flow.
+    defer(run_owed);
+    // The flow the last window showed, as it was: not one built anew from
+    // the start the process's check found, which a sealed C4 left as
+    // Welcome's (j311).
+    let parked = PARKED.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(parked) = parked {
+        rebind(view, parked, done);
+        return true;
+    }
     let platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
     let (platform, waited) = PLATFORM_SET
         .wait_timeout_while(platform, PLATFORM_WAIT, |platform| {
@@ -584,7 +1040,6 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         app_data_dir,
         cipher,
         start: Some(start),
-        user_presence,
         kept,
     }) = platform.as_ref()
     else {
@@ -592,7 +1047,11 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
     };
     // Before the network service is bound, so nothing else holds it.
     // Refused, no word is shown or taken until a Try again takes it.
-    let mut flow = IdentityFlow::new(english(), start.clone());
+    let mut flow = IdentityFlow::new(
+        english(),
+        interweave_profile_identity::FORMAT,
+        start.clone(),
+    );
     let lock = match onboarding::hold(app_data_dir, PROFILE) {
         Ok(lock) => Some(lock),
         Err(why) => {
@@ -617,7 +1076,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        gate: PresenceGate::new(*user_presence),
+        gate: PresenceGate::default(),
         over,
         lock,
         offline_asked: false,
@@ -625,6 +1084,10 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         hold: None,
         asked_at: StoreGeneration::default(),
         handed: false,
+        // A K1 kept for a window's start included: its window attaches
+        // the chats at its hand-over.
+        attached: Attached::opened(false),
+        finished: Finish::Open,
         done: Rc::new(done),
     };
     drop(platform);
@@ -644,7 +1107,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
 /// can draw a word: K1 itself draws none. Its end starts the service
 /// again.
 pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
-    if ONBOARDING.with(|slot| slot.borrow().is_some()) {
+    if ONBOARDING.with(|slot| slot.borrow().is_some()) || parked() {
         log("K1 kept: an identity flow shows, whose end decides it");
         return;
     }
@@ -653,13 +1116,16 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         app_data_dir,
         cipher,
         start: Some(start @ Start::Recovery { .. }),
-        user_presence,
         ..
     }) = platform.as_ref()
     else {
         return;
     };
-    let mut flow = IdentityFlow::new(english(), start.clone());
+    let mut flow = IdentityFlow::new(
+        english(),
+        interweave_profile_identity::FORMAT,
+        start.clone(),
+    );
     let lock = match onboarding::hold(app_data_dir, PROFILE) {
         Ok(lock) => Some(lock),
         Err(why) => {
@@ -673,7 +1139,7 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        gate: PresenceGate::new(*user_presence),
+        gate: PresenceGate::default(),
         over: Over::Running,
         lock,
         offline_asked: false,
@@ -681,6 +1147,8 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         hold: None,
         asked_at: StoreGeneration::default(),
         handed: false,
+        attached: Attached::opened(true),
+        finished: Finish::Open,
         done: Rc::new(|| {}),
     };
     drop(platform);
@@ -692,7 +1160,7 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
 /// Settings' Show recovery phrase: S1 over `view`, the chats staying
 /// attached underneath; Done or Back returns to Settings.
 pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
-    if ONBOARDING.with(|slot| slot.borrow().is_some()) {
+    if ONBOARDING.with(|slot| slot.borrow().is_some()) || parked() {
         return;
     }
     let platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
@@ -705,16 +1173,17 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         log("Show my phrase: no identity state was read");
         return;
     };
-    // The phrase is read by opening the record, under the record's policy:
-    // while a change is pending that is not the configured one.
-    let user_presence = opening_needs_presence(app_data_dir, PROFILE);
     let onboarding = Onboarding {
         view: Rc::clone(view),
-        flow: IdentityFlow::new(english(), Start::ShowPhrase),
+        flow: IdentityFlow::new(
+            english(),
+            interweave_profile_identity::FORMAT,
+            Start::ShowPhrase,
+        ),
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        gate: PresenceGate::new(user_presence),
+        gate: PresenceGate::default(),
         over: Over::Settings,
         // Taken once the service has stopped (`offline`).
         lock: None,
@@ -723,6 +1192,8 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         hold: None,
         asked_at: StoreGeneration::default(),
         handed: false,
+        attached: Attached::opened(true),
+        finished: Finish::Open,
         done: Rc::new(|| {}),
     };
     drop(platform);
@@ -735,6 +1206,7 @@ fn begin(view: &Rc<RefCell<View>>, onboarding: Onboarding) {
         // the view, which is borrowed while its callback runs.
         defer(move || input_later(input));
     });
+    flow_shows(Some(&onboarding));
     ONBOARDING.with(|slot| *slot.borrow_mut() = Some(onboarding));
     render();
 }
@@ -768,7 +1240,7 @@ fn input_later(input: IdentityInput) {
 }
 
 /// What a granted prompt starts once no flow is on screen: the service a
-/// launch outside the presence window held back (BIND), the one a
+/// launch refused for the person held back (BIND), the one a
 /// cancelled restart after Show my phrase left stopped (ONLINE), or a
 /// start refused for the screen lock, or found locked at the Activity's
 /// check in a running process (RESTART), which the grant runs again
@@ -864,7 +1336,7 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
     } else {
         TracedPrompt::Cancelled
     }));
-    invoke_on_window(move || {
+    owe(move || {
         if ONBOARDING.with(|slot| slot.borrow().is_none()) {
             authenticated(granted);
             return;
@@ -876,7 +1348,7 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
                     if granted && let Some(hold) = o.hold.as_mut() {
                         hold.prompt_granted(now_ms());
                     }
-                    match o.gate.prompted(granted, now_ms()) {
+                    match o.gate.prompted(granted) {
                         // The prompt a key operation waited on.
                         Prompted::Resume(effect) => vec![effect],
                         Prompted::Dropped(effect) => not_run(o, &effect),
@@ -961,8 +1433,10 @@ fn not_run(o: &mut Onboarding, effect: &Effect) -> Vec<Effect> {
         // section 6 forbids. Whether a return prompts is the route's
         // ([`UnlockRoute`]), which counts no decline for a dropped ask.
         Effect::StartService => {
+            let start = o.start_ask();
             o.service_asked = true;
-            await_authentication(o.over.start_ask());
+            flow_shows(Some(o));
+            await_authentication(start);
             // C4's or R4's continue ends on Chats with the notice focused
             // -- the held screen's start is decided, refused -- S2's Done
             // on Settings, which keeps its own (identity note §10 item
@@ -1008,26 +1482,14 @@ fn one(effect: Effect) -> Vec<Effect> {
         let Some(o) = slot.as_mut() else {
             return Vec::new();
         };
-        // A key operation outside the presence window waits for the
-        // prompt, raised here, by the screen, never by the service.
-        let effect = match o.gate.admit(effect, now_ms()) {
-            Admit::Run(effect) => effect,
-            Admit::Prompt => {
-                // The person's time, not the app's: a held screen's clock
-                // stops while the prompt is up (§5.1).
-                if let Some(hold) = o.hold.as_mut() {
-                    hold.prompt_shown(now_ms());
-                }
-                // The prompt shows over the screen: a copy's confirmation
-                // there closes (identity note section 5).
-                o.view.borrow().close_peer_id_copied();
-                gate_ask(o);
-                return Vec::new();
-            }
-        };
+        // Every key operation runs at once: the app keeps no clock of the
+        // Keystore's window, and a refusal for the person is its only
+        // reading of it, answered by the prompt and a retry (design
+        // section 6, Authentication needed; ADR-0042, A 2026-10-20).
         match effect {
             Effect::Finish => {
                 o.lock = None;
+                o.finished = Finish::Asked;
                 ASKS.push(ask::FINISH);
                 Vec::new()
             }
@@ -1061,14 +1523,19 @@ fn one(effect: Effect) -> Vec<Effect> {
                         log("seal hook: answered AlreadyProvisioned, nothing sealed");
                         Err(StepFailed::AlreadyProvisioned)
                     }
-                    Some(creation) => onboarding::seal(
+                    Some(creation) => match onboarding::seal(
                         &o.app_data_dir,
                         PROFILE,
                         o.cipher.as_ref(),
                         creation,
                         o.lock.as_ref(),
-                    )
-                    .map_err(|why| failed(&why)),
+                    ) {
+                        Err(WriteRefused::UserNotAuthenticated) => {
+                            prompt_for(o, Effect::Seal);
+                            return Vec::new();
+                        }
+                        sealed => sealed.map_err(|why| failed(&why)),
+                    },
                     None => Err(StepFailed::Storage),
                 };
                 if outcome.is_ok() {
@@ -1107,30 +1574,44 @@ fn one(effect: Effect) -> Vec<Effect> {
             }
             Effect::Check(text) => o.flow.checked(onboarding::check(text)),
             Effect::RestoreRecorded(text) => {
-                let outcome = onboarding::restore(
+                // Kept for the retry a refusal for the person asks: the
+                // words stay on the screen meanwhile anyway (section 6).
+                let retry = Effect::RestoreRecorded(text.clone());
+                let outcome = match onboarding::restore(
                     &o.app_data_dir,
                     PROFILE,
                     o.cipher.as_ref(),
                     text,
                     Expected::Recorded,
                     o.lock.as_ref(),
-                )
-                .map_err(|why| failed(&why));
+                ) {
+                    Err(WriteRefused::UserNotAuthenticated) => {
+                        prompt_for(o, retry);
+                        return Vec::new();
+                    }
+                    restored => restored.map_err(|why| failed(&why)),
+                };
                 if outcome.is_ok() {
                     connect_owed(o);
                 }
                 o.flow.restored(outcome)
             }
             Effect::RestoreConfirmed(text, peer) => {
-                let outcome = onboarding::restore(
+                let retry = Effect::RestoreConfirmed(text.clone(), peer.clone());
+                let outcome = match onboarding::restore(
                     &o.app_data_dir,
                     PROFILE,
                     o.cipher.as_ref(),
                     text,
                     Expected::Confirmed(&peer),
                     o.lock.as_ref(),
-                )
-                .map_err(|why| failed(&why));
+                ) {
+                    Err(WriteRefused::UserNotAuthenticated) => {
+                        prompt_for(o, retry);
+                        return Vec::new();
+                    }
+                    restored => restored.map_err(|why| failed(&why)),
+                };
                 if outcome.is_ok() {
                     connect_owed(o);
                 }
@@ -1161,13 +1642,30 @@ fn one(effect: Effect) -> Vec<Effect> {
                 ask_service(o);
                 Vec::new()
             }
-            // The gate holds every one for the prompt (`PresenceGate::admit`)
-            // and resumes it as `Effect::ReadBack`: never carried out here.
-            Effect::AuthenticateReadBack(_) | Effect::OpenChats | Effect::OpenSettings => {
+            // A read-back refused for the person: the prompt, and the
+            // read-back again once it is granted.
+            effect @ Effect::AuthenticateReadBack(_) => {
+                prompt_for(o, effect);
                 Vec::new()
             }
+            Effect::OpenChats | Effect::OpenSettings => Vec::new(),
         }
     })
+}
+
+/// `effect` was refused until the person authenticates: the gate holds it
+/// and the screen raises the prompt over itself, never the service.
+fn prompt_for(o: &mut Onboarding, effect: Effect) {
+    o.gate.refused(effect);
+    // The person's time, not the app's: a held screen's clock stops while
+    // the prompt is up (§5.1).
+    if let Some(hold) = o.hold.as_mut() {
+        hold.prompt_shown(now_ms());
+    }
+    // The prompt shows over the screen: a copy's confirmation there
+    // closes (identity note section 5).
+    o.view.borrow().close_peer_id_copied();
+    gate_ask(o);
 }
 
 /// C4's identity is committed, by its seal or by the read-back of
@@ -1231,6 +1729,8 @@ fn render() {
             .borrow_mut()
             .trace_identity(Some(o.flow.screen()), page.as_ref());
         if let Some(page) = page {
+            // The screen this input left: a start shown or gone with it.
+            flow_shows(Some(o));
             o.view.borrow().show_identity(Some(page));
             schedule_hold(o.hold.as_ref(), now);
             // Held with the service asked: the chats attach under the
@@ -1238,6 +1738,7 @@ fn render() {
             // first screen shown is the one they decide (§5.1).
             if o.flow.start_held() && o.service_asked && !o.handed {
                 o.handed = true;
+                o.attached = Attached::Yes;
                 return Some(Step::Attach(Rc::clone(&o.done)));
             }
             return None;
@@ -1247,7 +1748,7 @@ fn render() {
         if o.gate.holding() {
             return None;
         }
-        if !o.service_asked && (o.over != Over::Settings || o.offline_asked) {
+        if asks_start_at_end(o.over, o.service_asked, o.offline_asked) {
             ask_service(o);
         }
         let cleared = o.view.borrow_mut().after_next_frame(secure_off);
@@ -1275,6 +1776,7 @@ fn render() {
         }) => (done, over, start_asked, handed),
     };
     ONBOARDING.with(|slot| slot.borrow_mut().take());
+    flow_shows(None);
     // A K1 a refused start kept while Show my phrase showed is still
     // owed when Show my phrase ends: `raise_recovery` held back for it.
     let mut raise = false;
@@ -1357,6 +1859,20 @@ pub(crate) fn hold_bound_passed() -> bool {
     })
 }
 
+/// The start under a held screen was refused with the profile in use
+/// before its bound: the screen stays, with `IdStartBusy` and Try again,
+/// focused (identity note section 6). Its Try again asks the service
+/// again ([`ask_service`]), a restart of the bound one. Called by the root
+/// as [`start_decided`] is.
+pub(crate) fn start_busy() {
+    ONBOARDING.with(|slot| {
+        if let Some(o) = slot.borrow_mut().as_mut() {
+            o.flow.start_busy();
+        }
+    });
+    render();
+}
+
 /// The start under a held C4 or R4 decided -- Connect or Chats, which
 /// the root's model shows -- or the bound passed, or the start ended
 /// undecided: the screen goes, and the flow hands over. Called by the
@@ -1405,10 +1921,22 @@ pub(crate) fn secure_off() {
 /// goes first: the service takes it.
 fn ask_service(o: &mut Onboarding) {
     o.lock = None;
+    let start = o.start_ask();
     o.service_asked = true;
+    // Before the ask: the Activity's check, at a recreation the ask
+    // overtakes, sees a start asked.
+    flow_shows(Some(o));
+    let hub = ServiceHost::global().hub();
     // Before the ask: an answer counted past this is this start's.
-    o.asked_at = ServiceHost::global().hub().store_generation();
+    o.asked_at = hub.store_generation();
+    // A held screen shows its own start's answer: a notice an earlier
+    // start left on Chats is not this one's.
+    hub.start_asked(false);
     clear_authentication();
     person_asked();
-    ASKS.push(o.over.start_ask());
+    // A press, or a granted prompt resuming a showing's start: either way
+    // the person's, so its answer is raised as theirs.
+    o.flow.person_started();
+    FLOW_START.store(o.flow.start_held(), Ordering::SeqCst);
+    ASKS.push(start);
 }

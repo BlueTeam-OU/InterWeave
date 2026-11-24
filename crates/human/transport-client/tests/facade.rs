@@ -10,6 +10,7 @@
 
 mod common;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
@@ -34,11 +35,11 @@ use interweave_transport_api::{
 const LIMIT: usize = 49_152;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("valid")
+    endpoint_id("agent")
 }
 
 fn room() -> ChannelId {
@@ -87,7 +88,11 @@ fn wall() -> interweave_human_transport_client::WallClock {
 }
 
 fn memory() -> HumanStore {
-    HumanStore::open_in_memory(StoreOptions::default()).expect("store")
+    HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store")
 }
 
 fn envelope(text: &str) -> HumanChatV2 {
@@ -434,7 +439,12 @@ async fn after_a_restart_a_pending_row_is_reported_once_and_resent_under_its_id(
         let mut sender = client(
             &a,
             agent(),
-            HumanStore::open(&path, StoreOptions::default()).expect("store"),
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("store"),
         );
         ready(&mut sender, 0).await;
         a.inject_send(TransportError::Timeout);
@@ -450,7 +460,12 @@ async fn after_a_restart_a_pending_row_is_reported_once_and_resent_under_its_id(
     let mut restarted = client(
         &a,
         agent(),
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
     );
     let reported: Vec<_> = events(&mut restarted)
         .into_iter()
@@ -483,7 +498,12 @@ async fn a_pending_row_that_does_not_decode_is_resent_after_a_restart() {
     let held = raw(&b, Some(human())).await;
     let transport = MessageId::parse_hex(&format!("{:032x}", rand_id() + 7)).expect("an id");
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         store
             .commit_pending_outbound(&NewOutbound {
                 app_message_id: AppMessageId::parse(format!("{:032x}", rand_id())).expect("an id"),
@@ -500,7 +520,12 @@ async fn a_pending_row_that_does_not_decode_is_resent_after_a_restart() {
     let mut restarted = client(
         &a,
         agent(),
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
     );
     ready(&mut restarted, 10).await;
     assert_eq!(
@@ -714,8 +739,12 @@ async fn an_endpoint_in_use_is_refused_and_not_retried_until_the_person_asks() {
 }
 
 fn spare() -> EndpointId {
-    // Sorts before `human`, so a preference order lost to sorting shows.
-    EndpointId::parse("backup").expect("valid")
+    // Its derived id sorts before `human`'s (asserted: the ids are derived,
+    // so the labels' order says nothing), so a preference order lost to
+    // sorting shows.
+    let spare = endpoint_id("backup");
+    assert!(spare.as_str() < human().as_str());
+    spare
 }
 
 /// A node with a second endpoint this client may lease, and a client
@@ -890,10 +919,21 @@ async fn degraded_storage_refuses_a_send_and_releases_the_lease() {
     let (_a, b) = FakeNetwork::pair(node_config(), node_config());
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("create"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("create"),
+    );
     // A quota below the file's size opens degraded (StoreOptions docs).
-    let tight =
-        HumanStore::open(&path, StoreOptions { max_pages: Some(1) }).expect("opens degraded");
+    let tight = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions { max_pages: Some(1) },
+    )
+    .expect("opens degraded");
     let mut receiver = client(&b, human(), tight);
     receiver.tick(0).await;
     // Noticed on the tick, before anything was sent: no lease is taken
@@ -1008,7 +1048,12 @@ async fn a_restarted_row_the_config_no_longer_allows_needs_attention_and_keeps_t
         let mut before = client(
             &a,
             human(),
-            HumanStore::open(&path, StoreOptions::default()).expect("store"),
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("store"),
         );
         // Not ticked: committed, never attempted.
         before
@@ -1019,7 +1064,12 @@ async fn a_restarted_row_the_config_no_longer_allows_needs_attention_and_keeps_t
     let mut after = TransportClient::new(
         a.clone(),
         a.clone(),
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: vec![human()],
@@ -1109,13 +1159,21 @@ async fn a_lease_loss_hands_over_everything_already_accepted() {
 /// `SQLITE_FULL`, not an injected failure.
 fn store_with_room_for_one(dir: &std::path::Path) -> HumanStore {
     let path = dir.join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("create"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("create"),
+    );
     let pages: u32 = rusqlite::Connection::open(&path)
         .expect("raw")
         .query_row("PRAGMA page_count", [], |r| r.get(0))
         .expect("pages");
     HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(pages + 16),
         },
@@ -1414,7 +1472,12 @@ async fn a_pending_row_that_no_longer_reads_is_counted_not_silently_stalled() {
     let mut sender = client(
         &a,
         agent(),
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     );
     ready(&mut sender, 0).await;
     a.inject_send(TransportError::Overloaded);
@@ -2193,15 +2256,25 @@ async fn a_cancel_on_degraded_storage_offers_no_restore() {
 
 // --- cards (plan §29 step 2) -------------------------------------------------
 
-fn signing_key() -> ed25519_dalek::SigningKey {
-    ed25519_dalek::SigningKey::from_bytes(&[42u8; 32])
+/// `endpoint`'s TEST-ONLY key: the key its id derives from (ADR-0067).
+fn signing_key(endpoint: &str) -> ed25519_dalek::SigningKey {
+    interweave_test_support::endpoint_keys::signing_key(endpoint)
 }
 
-/// A card for `name`, signed by the test key for the route `sender` /
-/// `endpoint`.
-fn card_text(sender: &TransportIdentity, endpoint: &EndpointId, name: &str) -> String {
+/// A card for `name` from the endpoint `endpoint` names, signed by that
+/// endpoint's own key for the route `sender` / `endpoint`.
+fn card_text(sender: &TransportIdentity, endpoint: &str, name: &str) -> String {
+    card_signed_by(&signing_key(endpoint), sender, &endpoint_id(endpoint), name)
+}
+
+/// A card for `name`, signed by `key` for the route `sender` / `endpoint`.
+fn card_signed_by(
+    key: &ed25519_dalek::SigningKey,
+    sender: &TransportIdentity,
+    endpoint: &EndpointId,
+    name: &str,
+) -> String {
     use ed25519_dalek::Signer as _;
-    let key = signing_key();
     interweave_human_chat_protocol::build_card(
         &format!("{:032x}", rand_id()),
         interweave_human_chat_protocol::CardDraft {
@@ -2236,7 +2309,7 @@ async fn a_shared_card_arrives_verified_as_a_card_and_is_held_unread() {
         Some(a.peer()),
         "the session says this node's PeerId"
     );
-    let text = card_text(a.peer(), &agent(), "Ada");
+    let text = card_text(a.peer(), "agent", "Ada");
     sender
         .send_card(b.peer().clone(), human(), &text, 0)
         .await
@@ -2252,7 +2325,7 @@ async fn a_shared_card_arrives_verified_as_a_card_and_is_held_unread() {
     assert_eq!(card.card.name, "Ada");
     assert_eq!(
         card.card.identity_key,
-        signing_key().verifying_key().to_bytes()
+        signing_key("agent").verifying_key().to_bytes()
     );
     // Stored as a card (schema v10's kind), which the badge counts.
     let kinds: Vec<_> = receiver
@@ -2275,7 +2348,7 @@ async fn a_card_that_would_not_verify_on_its_own_route_is_refused_before_any_row
     let mut sender = client(&a, agent(), memory());
     ready(&mut sender, 0).await;
     // Signed as if sent from another identity of this node.
-    let text = card_text(a.peer(), &human(), "Ada");
+    let text = card_text(a.peer(), "human", "Ada");
     assert_eq!(
         sender.send_card(b.peer().clone(), human(), &text, 0).await,
         Err(SendError::InvalidEnvelope)
@@ -2296,7 +2369,7 @@ async fn a_malformed_card_is_counted_as_a_card_and_never_stored() {
     ready(&mut receiver, 0).await;
     let from = raw(&a, Some(agent())).await;
     // Signed for another PeerId: a replay from another node.
-    let replayed = card_text(b.peer(), &agent(), "Ada");
+    let replayed = card_text(b.peer(), "agent", "Ada");
     from.send_direct(
         DirectDestination::to_default(b.peer().clone()),
         MessageId::from_bytes([7; 16]),
@@ -2324,6 +2397,42 @@ async fn a_malformed_card_is_counted_as_a_card_and_never_stored() {
     );
 }
 
+/// A card whose signature verifies over its route but whose key is not the
+/// one the route's endpoint derives from presents that endpoint's name
+/// under another endpoint's key: malformed, counted as a card, never
+/// stored or presented (ADR-0067 decision 5). The control: the same draft
+/// under the endpoint's own key arrives as a card. Mutation: chat-protocol's
+/// derivation check left out, which presents the first.
+#[tokio::test]
+async fn a_card_under_another_endpoints_key_is_counted_and_never_stored() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut receiver = client(&b, human(), memory());
+    ready(&mut receiver, 0).await;
+    let from = raw(&a, Some(agent())).await;
+    let foreign = card_signed_by(&signing_key("other"), a.peer(), &agent(), "Ada");
+    let own = card_text(a.peer(), "agent", "Ada");
+    for (n, card) in [(8u8, foreign), (9, own)] {
+        from.send_direct(
+            DirectDestination::to_default(b.peer().clone()),
+            MessageId::from_bytes([n; 16]),
+            Payload::at_ceiling(Some(human_chat_media()), card.into_bytes()).expect("fits"),
+        )
+        .await
+        .expect("accepted by the queue");
+    }
+    let got = receiver.drain_inbound(16, 2).await;
+    assert_eq!(got.len(), 1, "the control alone: {got:?}");
+    assert!(matches!(&got[0], Inbound::Card(card) if card.endpoint == agent()));
+    assert_eq!(
+        receiver.store_mut().unread_inbound().expect("read").len(),
+        1,
+        "the control alone stored"
+    );
+    let d = receiver.diagnostics();
+    assert_eq!(d.malformed_card, 1);
+    assert_eq!(d.malformed_invalid_envelope, 0);
+}
+
 /// What `session` has received from the network, directs and broadcasts:
 /// its own notices are not traffic.
 async fn raw_traffic(session: &impl DataSessionPort) -> Vec<SessionEvent> {
@@ -2349,7 +2458,7 @@ async fn a_card_of_an_unknown_kind_or_over_a_bound_is_rejected_with_no_network_e
     from.join(room()).await.expect("joined");
     beside.join(room()).await.expect("joined");
 
-    let valid = card_text(a.peer(), &agent(), "Ada");
+    let valid = card_text(a.peer(), "agent", "Ada");
     let unknown_kind = valid.replacen(
         &format!(
             "\"kind\":\"{}\"",
@@ -2446,7 +2555,7 @@ async fn a_card_received_over_broadcast_is_ignored_and_shows_nothing() {
     ready(&mut receiver, 0).await;
     let from = raw(&a, Some(agent())).await;
     from.join(room()).await.expect("joined");
-    let valid = card_text(a.peer(), &agent(), "Ada");
+    let valid = card_text(a.peer(), "agent", "Ada");
     from.broadcast(
         room(),
         BroadcastMessageV1 {
@@ -2479,9 +2588,14 @@ fn store_at_the_bound(path: &std::path::Path, peer: &TransportIdentity) -> Human
     use interweave_human_store::{
         AcceptedCard, AppMessageId, InboundKind, InboundOrigin, NewInbound,
     };
-    let mut store = HumanStore::open(path, StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open(
+        path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     let names: Vec<EndpointId> = std::iter::once(agent())
-        .chain((1..63).map(|n| EndpointId::parse(format!("e{n}")).expect("an endpoint")))
+        .chain((1..63).map(|n| endpoint_id(&format!("e{n}"))))
         .collect();
     for (n, endpoint) in names.iter().enumerate() {
         store
@@ -2503,7 +2617,7 @@ fn store_at_the_bound(path: &std::path::Path, peer: &TransportIdentity) -> Human
         .accept_card(
             &AcceptedCard {
                 peer,
-                endpoint: &EndpointId::parse("e63").expect("an endpoint"),
+                endpoint: &endpoint_id("e63"),
                 name: "Ada",
                 surname: None,
                 identity_key: [1; 32],
@@ -2561,7 +2675,12 @@ async fn a_65th_source_endpoint_of_a_peer_is_discarded_and_counted() {
     let mut reopened = client(
         &b,
         human(),
-        HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("reopen"),
     );
     ready(&mut reopened, 3).await;
     from_new
@@ -2622,7 +2741,12 @@ async fn a_failed_read_behind_the_endpoint_check_stores_nothing() {
     let mut receiver = client(
         &b,
         human(),
-        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
     );
     ready(&mut receiver, 0).await;
     rusqlite::Connection::open(&path)

@@ -13,9 +13,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use interweave_ipc_protocol::{
     AddressList, AddressResult, AddressesResult, AdminStatusResult, DirectoryResult, EmptyResult,
     EndpointList, OwnAddressList, PeerList, Request, RequestId, ResponseFrame, SendResult,
-    SessionLossesResult, SetEnabledResult, TrustList, TrustSetResult,
+    SessionLossesResult, SetEnabledResult, TrustList, TrustSeedResult, TrustSetResult,
 };
-use interweave_local_client_api::{AddressChange, AdminPort, DataSessionPort};
+use interweave_local_client_api::{
+    AddressChange, AdminPort, DataSessionPort, EndpointSetKind, TrustSource,
+};
 use interweave_transport_api::{BroadcastMessageV1, DirectDestination, TransportError};
 
 use crate::counters::Counters;
@@ -79,6 +81,7 @@ pub(crate) async fn data<S: DataSessionPort>(
         | Request::AdminShutdown(_)
         | Request::AdminTrustList(_)
         | Request::AdminTrustSet(_)
+        | Request::AdminTrustSeed(_)
         | Request::AdminPeersList(_)
         | Request::AdminPeersAddAddress(_)
         | Request::AdminPeersRemoveAddress(_)
@@ -148,23 +151,68 @@ pub(crate) async fn admin<A: AdminPort>(
         }
         // One page of the policy the port answers whole: the cursor is a
         // position in its order, so nothing is held between pages.
-        Request::AdminTrustList(p) => match port.trust().await {
-            // A ROW THAT DOES NOT PERSIST IS REFUSED, never served in the
-            // 2.1 shape the contract (the 2.3 row, the one 3.0 serves)
-            // forbids: only a store-less runtime reports one, and it is
-            // never served over IPC (LOCAL-CLIENT.md §7 item 11) -- one
-            // that is served is refused here with `Internal`, never served
-            // the row (`an_unpersisted_trust_row_is_refused`).
-            Ok(view) if view.allowed.iter().any(|row| !row.persisted) => {
-                ResponseFrame::failure(id, TransportError::Internal)
+        //
+        // The endpoint form (IPC 3.0, ADR-0067 decision 6) is the same page
+        // over one direction of the endpoint's set. `TrustListParams`
+        // decodes `endpoint` and `direction` together, so one without the
+        // other is not a request that reaches here; if one did, it is the
+        // params error it would have been.
+        Request::AdminTrustList(p) => match (p.endpoint, p.direction) {
+            (Some(endpoint), Some(direction)) => {
+                match port.endpoint_trust(endpoint, direction).await {
+                    // A row that does not persist is refused as the operator
+                    // form refuses it, and so is an `own` set's row that is
+                    // not `administered`: after the seed the configuration
+                    // no longer decides an own set, so a row that says
+                    // otherwise is the port's defect, never served as the
+                    // contract's row
+                    // (`an_endpoint_list_refuses_a_row_its_set_cannot_carry`).
+                    Ok(view)
+                        if view.allowed.iter().any(|row| {
+                            !row.persisted
+                                || (view.set == EndpointSetKind::Own
+                                    && row.source != TrustSource::Administered)
+                        }) =>
+                    {
+                        ResponseFrame::failure(id, TransportError::Internal)
+                    }
+                    Ok(view) => ResponseFrame::success(
+                        id,
+                        &TrustList::page_endpoint(view, p.after.as_ref()),
+                    ),
+                    Err(code) => ResponseFrame::failure(id, code),
+                }
             }
-            Ok(view) => ResponseFrame::success(id, &TrustList::page(view, p.after.as_ref())),
-            Err(code) => ResponseFrame::failure(id, code),
+            (None, None) => match port.trust().await {
+                // A ROW THAT DOES NOT PERSIST IS REFUSED, never served in
+                // the 2.1 shape the contract (the 2.3 row, the one 3.0
+                // serves) forbids: only a store-less runtime reports one,
+                // and it is never served over IPC (LOCAL-CLIENT.md §7 item
+                // 11) -- one that is served is refused here with
+                // `Internal`, never served the row
+                // (`an_unpersisted_trust_row_is_refused`).
+                Ok(view) if view.allowed.iter().any(|row| !row.persisted) => {
+                    ResponseFrame::failure(id, TransportError::Internal)
+                }
+                Ok(view) => ResponseFrame::success(id, &TrustList::page(view, p.after.as_ref())),
+                Err(code) => ResponseFrame::failure(id, code),
+            },
+            _ => ResponseFrame::failure(id, TransportError::InvalidArgument),
         },
         // The set's own result, a refusal -- superseded among them -- by
         // name: the 2.10 shape, the one 3.0 serves.
-        Request::AdminTrustSet(p) => match port.set_trust(p.peer, p.allowed).await {
-            Ok(change) => ResponseFrame::success(id, &TrustSetResult::from(change)),
+        Request::AdminTrustSet(p) => {
+            let change = match p.endpoint {
+                Some(endpoint) => port.set_endpoint_trust(endpoint, p.peer, p.allowed).await,
+                None => port.set_trust(p.peer, p.allowed).await,
+            };
+            match change {
+                Ok(change) => ResponseFrame::success(id, &TrustSetResult::from(change)),
+                Err(code) => ResponseFrame::failure(id, code),
+            }
+        }
+        Request::AdminTrustSeed(p) => match port.seed_endpoint_trust(p.endpoint).await {
+            Ok(seed) => ResponseFrame::success(id, &TrustSeedResult::from(seed)),
             Err(code) => ResponseFrame::failure(id, code),
         },
         // The dial gate's rows, paged as the trust list is: the cursor is
@@ -453,6 +501,177 @@ mod tests {
                 "{}",
                 method.as_str()
             );
+        }
+    }
+
+    /// The endpoint dimension (IPC 3.0): the endpoint form of list, set and
+    /// seed each reaches its own port method with the endpoint, and the
+    /// endpoint-less form still reaches the operator's (the control, in the
+    /// same run), never the other.
+    #[tokio::test]
+    async fn the_endpoint_forms_reach_their_own_port_methods() {
+        use interweave_ipc_protocol::TrustSeedResult;
+        use interweave_local_client_api::{
+            EndpointSetKind, EndpointTrustView, TrustSeed, TrustedPeer,
+        };
+        let fake = Fake::default();
+        fake.script().endpoint_view = Some(EndpointTrustView {
+            set: EndpointSetKind::Own,
+            allowed: vec![TrustedPeer {
+                peer: crate::fake::peer(),
+                persisted: true,
+                source: TrustSource::Administered,
+            }],
+        });
+        fake.script().seed = Some(TrustSeed::Present);
+        let port = fake.admin([].into()).await.expect("port");
+        let counters = Counters::default();
+        let run = |method, params: serde_json::Value| {
+            let request = request(method, &params);
+            let (port, counters) = (&port, &counters);
+            async move { admin(port, counters, Duration::from_secs(1), id(), request).await }
+        };
+        let human = crate::fake::ep("human");
+        let peer = crate::fake::peer();
+
+        let page = run(
+            Method::AdminTrustList,
+            serde_json::json!({"endpoint": human.as_str(), "direction": "inbound"}),
+        )
+        .await
+        .outcome::<TrustList>()
+        .expect("a page");
+        assert_eq!(page.set, Some(EndpointSetKind::Own));
+        assert_eq!(page.local_peer, None);
+        assert_eq!(page.allowed.len(), 1);
+        let _ = run(
+            Method::AdminTrustList,
+            serde_json::json!({"endpoint": human.as_str(), "direction": "outbound"}),
+        )
+        .await;
+        let set = run(
+            Method::AdminTrustSet,
+            serde_json::json!({"peer": peer.as_str(), "allowed": true, "endpoint": human.as_str()}),
+        )
+        .await
+        .outcome::<TrustSetResult>()
+        .expect("a result");
+        assert_eq!(
+            interweave_local_client_api::TrustChange::from(set),
+            interweave_local_client_api::TrustChange::Set
+        );
+        let seed = run(
+            Method::AdminTrustSeed,
+            serde_json::json!({"endpoint": human.as_str()}),
+        )
+        .await
+        .outcome::<TrustSeedResult>()
+        .expect("a result");
+        assert_eq!(TrustSeed::from(seed), TrustSeed::Present);
+        // The control: the endpoint-less forms are the operator's.
+        let operator = run(Method::AdminTrustList, serde_json::json!({}))
+            .await
+            .outcome::<TrustList>()
+            .expect("a page");
+        assert_eq!(operator.set, None);
+        assert!(operator.local_peer.is_some());
+        let _ = run(
+            Method::AdminTrustSet,
+            serde_json::json!({"peer": peer.as_str(), "allowed": false}),
+        )
+        .await;
+        let calls = fake.script().calls.clone();
+        assert_eq!(
+            calls,
+            [
+                "endpoint_trust human inbound".to_owned(),
+                "endpoint_trust human outbound".to_owned(),
+                format!("set_endpoint_trust human {} true", peer.as_str()),
+                "seed_endpoint_trust human".to_owned(),
+                "trust".to_owned(),
+                format!("set_trust {} false", peer.as_str()),
+            ]
+        );
+        // An unknown endpoint is the port's code.
+        fake.script().endpoint_view = None;
+        let answer = body(
+            run(
+                Method::AdminTrustList,
+                serde_json::json!({"endpoint": human.as_str(), "direction": "inbound"}),
+            )
+            .await,
+        );
+        assert!(answer.contains("EndpointUnknown"), "{answer}");
+    }
+
+    /// An endpoint answer a set cannot carry is refused `Internal`, as an
+    /// unpersisted operator row is: a row not persisted in any set, and
+    /// an `own` set's row that is not `administered`. The same row in a
+    /// set that may carry it (`authored`, `configured`) is the control.
+    #[tokio::test]
+    async fn an_endpoint_list_refuses_a_row_its_set_cannot_carry() {
+        use interweave_local_client_api::{EndpointSetKind, EndpointTrustView, TrustedPeer};
+        let fake = Fake::default();
+        let port = fake.admin([].into()).await.expect("port");
+        let counters = Counters::default();
+        let params = serde_json::json!({
+            "endpoint": crate::fake::ep("human").as_str(), "direction": "inbound"
+        });
+        let row = |persisted, source| TrustedPeer {
+            peer: crate::fake::peer(),
+            persisted,
+            source,
+        };
+        for (set, persisted, source, served) in [
+            (EndpointSetKind::Own, true, TrustSource::Administered, true),
+            (
+                EndpointSetKind::Authored,
+                true,
+                TrustSource::Configured,
+                true,
+            ),
+            (
+                EndpointSetKind::Inherited,
+                true,
+                TrustSource::Configured,
+                true,
+            ),
+            (EndpointSetKind::Own, true, TrustSource::Configured, false),
+            (
+                EndpointSetKind::Own,
+                false,
+                TrustSource::Administered,
+                false,
+            ),
+            (
+                EndpointSetKind::Authored,
+                false,
+                TrustSource::Configured,
+                false,
+            ),
+        ] {
+            fake.script().endpoint_view = Some(EndpointTrustView {
+                set,
+                allowed: vec![row(persisted, source)],
+            });
+            let answer = body(
+                admin(
+                    &port,
+                    &counters,
+                    Duration::from_secs(1),
+                    id(),
+                    request(Method::AdminTrustList, &params),
+                )
+                .await,
+            );
+            assert_eq!(
+                answer.contains(r#""ok":true"#),
+                served,
+                "{set:?} persisted {persisted} {source:?}: {answer}"
+            );
+            if !served {
+                assert!(answer.contains("Internal"), "{answer}");
+            }
         }
     }
 

@@ -1745,12 +1745,11 @@ async fn a_peers_restart_is_in_the_connectivity_log_and_third_party_debug_is_not
 /// once B has stopped, the moment its connection closed, inside the
 /// window the stop ran in and unchanged by a later reading; and a peer
 /// A trusts and never saw reads `null`. `transportctl peers list` says
-/// the same in words. A connection that negotiated 2.11 is served the
-/// 1.1 row, with no `last_seen_ms` at all -- and its control, the same
-/// request at 2.12 on the same daemon, carries it. And a restart forgets:
+/// the same in words. Over raw frames at major 3, every row
+/// carries `last_seen_ms` (no earlier row shape is served). And a restart forgets:
 /// A started again, B still down, reads `null` for the B it had seen.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the_1_1_row() {
+async fn peer_list_says_when_each_peer_was_last_seen_and_every_row_carries_it() {
     let ip = interweave_test_support::net::require_private_interface_v4();
     let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
     let (a_peer, b_peer) = (a.write_key(), b.write_key());
@@ -1885,16 +1884,15 @@ async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the
     // Over raw frames: every 3.0 row carries it (2.12 brought it on
     // major 2; 3.0 holds all of 2.13, so no row without it is served).
     {
-        let (minor, carries) = (0_u64, true);
         let mut client = RawClient::connect(&a.admin_socket()).await;
         client
-            .send(&format!(
-                r#"{{"type":"hello","ipc_version":{{"major":3,"minor":{minor}}},"client":{{"kind":"transportctl"}},"requested_capabilities":["admin.status"]}}"#
-            ))
+            .send(
+                r#"{"type":"hello","ipc_version":{"major":3,"minor":0},"client":{"kind":"transportctl"},"requested_capabilities":["admin.status"]}"#,
+            )
             .await;
         match client.next(PATIENCE).await {
             Some(Frame::HelloResponse(response)) => {
-                assert_eq!(response.ipc_version.minor, minor, "negotiated");
+                assert_eq!(response.ipc_version.minor, 0, "negotiated");
             }
             other => panic!("a hello response: {other:?}"),
         }
@@ -1910,11 +1908,7 @@ async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the
         let rows = body["result"]["peers"].as_array().expect("rows");
         assert_eq!(rows.len(), 2, "{body}");
         for row in rows {
-            assert_eq!(
-                row.get("last_seen_ms").is_some(),
-                carries,
-                "minor {minor}: {row}"
-            );
+            assert!(row.get("last_seen_ms").is_some(), "{row}");
         }
     }
 

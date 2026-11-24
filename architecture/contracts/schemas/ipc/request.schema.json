@@ -219,6 +219,22 @@
       "additionalProperties": false,
       "properties": {
         "method": {
+          "const": "admin.trust.seed"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:trust-seed-params"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
           "const": "admin.peers.list"
         },
         "params": {
@@ -323,13 +339,14 @@
   "x-contract": {
     "name": "ipc.request",
     "status": "active",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "adr": [
       "0017",
       "0037",
       "0030",
       "0032",
-      "0062"
+      "0062",
+      "0067"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

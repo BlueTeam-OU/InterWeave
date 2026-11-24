@@ -1937,9 +1937,9 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -3321,6 +3321,7 @@ dependencies = [
  "interweave-local-client-api",
  "interweave-local-client-fake",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "serde_json",
  "tempfile",
@@ -3395,6 +3396,7 @@ version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
  "brotli",
+ "ed25519-dalek",
  "interweave-human-chat-protocol",
  "interweave-local-client-api",
  "interweave-local-client-fake",
@@ -3575,7 +3577,7 @@ dependencies = [
  "interweave-human-ui-slint",
  "interweave-profile-config",
  "interweave-profile-identity",
- "interweave-transport-api",
+ "interweave-test-support",
  "jni 0.22.4",
  "ndk-sys 0.6.0+11769913",
  "rustix 1.1.6",
@@ -3616,6 +3618,7 @@ name = "interweave-human-app-core"
 version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
+ "ed25519-dalek",
  "image",
  "interweave-human-app-core",
  "interweave-human-chat-protocol",
@@ -3627,6 +3630,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "rusqlite",
@@ -3643,6 +3647,7 @@ dependencies = [
  "brotli",
  "bs58",
  "ed25519-dalek",
+ "interweave-test-support",
  "interweave-transport-api",
  "pulldown-cmark",
  "serde",
@@ -3659,6 +3664,7 @@ dependencies = [
  "interweave-human-chat-protocol",
  "interweave-transport-api",
  "jsonschema",
+ "rustix 1.1.6",
  "serde_json",
 ]
 
@@ -3677,6 +3683,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rusqlite",
  "serde_json",
@@ -3719,6 +3726,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rustix 1.1.6",
  "slint",
@@ -3737,6 +3745,7 @@ dependencies = [
  "interweave-local-client-api",
  "interweave-local-client-fake",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rusqlite",
  "tempfile",
@@ -3754,6 +3763,7 @@ dependencies = [
  "interweave-human-core",
  "interweave-human-store",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "rusqlite",
@@ -3776,6 +3786,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "rusqlite",
@@ -3800,6 +3811,7 @@ dependencies = [
  "interweave-human-ui-model",
  "interweave-local-client-fake",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "tempfile",
  "tokio",
@@ -3826,6 +3838,7 @@ dependencies = [
  "interweave-human-ui-model",
  "interweave-human-ui-slint",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "qrcode",
  "rfd",
@@ -3966,6 +3979,7 @@ dependencies = [
 name = "interweave-local-client-api"
 version = "0.4.0"
 dependencies = [
+ "interweave-test-support",
  "interweave-transport-api",
  "serde",
  "serde_json",
@@ -4007,6 +4021,7 @@ dependencies = [
  "interweave-human-core",
  "interweave-human-store",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "tempfile",
 ]
@@ -4254,6 +4269,7 @@ dependencies = [
  "bs58",
  "interweave-discovery-api",
  "interweave-local-client-api",
+ "interweave-test-support",
  "interweave-transport-api",
  "interweave-trust-api",
  "proptest",
@@ -8523,9 +8539,9 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

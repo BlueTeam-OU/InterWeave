@@ -4,11 +4,10 @@
 //! decision 7, `LOCAL-IPC.md` §Version negotiation and phases: "Major 3 is
 //! the IPC of the derived `EndpointId`").
 //!
-//! `EndpointId`'s own `Deserialize` still admits the retired label grammar
-//! on a transitional path (`EndpointId::parse`), for the callers outside
-//! the IPC that have not moved yet. No reader of major 3 tolerates a
-//! label, so every IPC field that holds an `EndpointId` reads through
-//! these, [`EndpointId::parse_derived`]: a label in a request's params is
+//! No reader of major 3 tolerates a label, so every IPC field that holds
+//! an `EndpointId` reads through these, [`EndpointId::parse_derived`]
+//! (also what `EndpointId`'s own `Deserialize` uses, and its only text
+//! constructor): a label in a request's params is
 //! a params error, answered `InvalidArgument`, and one in a server's frame
 //! is the server's violation. `a_label_is_refused_wherever_an_ipc_document_carries_an_endpoint_id`
 //! (`tests/schema_agreement.rs`) feeds a label to every such field.
