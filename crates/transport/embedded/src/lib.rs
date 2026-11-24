@@ -253,7 +253,9 @@ impl From<CompositionError> for EmbeddedRefused {
 
 /// THE START'S HALF OF M3 (ENDPOINTS.md, form 1 to form 2): when
 /// `config.yaml` is form 1 and `endpoint-keys/` holds exactly one sealed
-/// first key, write form 2 for it and say so. Under the profile lock.
+/// first key, write form 2 for it and say so. Under the profile lock, which
+/// the caller holds: [`EmbeddedHost::start`] calls it under its own, and the
+/// app's start without network, which reaches no host, under one it takes.
 ///
 /// The key is whatever `<id>.key` stands there, judged by its HEADER alone
 /// ([`endpoint_key::read_header`]: a custody this build knows, the id its
@@ -267,7 +269,12 @@ impl From<CompositionError> for EmbeddedRefused {
 /// `a_key_naming_another_id_than_its_file_refuses_the_start`). Other
 /// names in the directory (a writer's temporary, a pending key) are not
 /// keys (`endpoint_key::list_key_ids`).
-fn finish_first_identity(paths: &ProfilePaths) -> Result<bool, EmbeddedRefused> {
+///
+/// # Errors
+/// [`EmbeddedRefused::EndpointKeys`] for a key directory or key file it
+/// cannot finish on, [`EmbeddedRefused::ProfileInvalid`] when form 2 cannot
+/// be written; each writes nothing.
+pub fn finish_first_identity(paths: &ProfilePaths) -> Result<bool, EmbeddedRefused> {
     // Form 1 is the document's exact text, as `provision_identity`
     // recognises it; any other document is the person's or form 2, and
     // is judged as it always was. The text is read plainly: `load` has
