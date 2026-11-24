@@ -510,6 +510,118 @@ async fn a_shown_card_is_still_accepted_from_the_sessions_copy() {
     assert_eq!(bob.model().title(&from_alice), "Ada Lovelace");
 }
 
+/// `accept_card`'s stale-context path under ADR-0067, where a route has one
+/// key: two cards from one route (so different names, one key) are both
+/// shown against an empty route and accepted in one take. The first creates
+/// the contact, which makes the second's shown context untrue; it is
+/// refused as `ProposalChanged`, written nowhere, given again as judged
+/// (never as a card received anew) and its copy put back so a later Accept
+/// writes. Mutations: the `ProposalJudged` push dropped; sent as
+/// `ReceivedCard`; the `copies.insert` on that error dropped.
+#[tokio::test]
+async fn two_cards_on_one_route_before_any_accept_refuse_the_second_as_changed_and_keep_its_copy() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.open(&direct(a.peer()), 0).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: Some("Lovelace".to_owned()),
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(1).await;
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(2).await;
+    alice.pump(3).await;
+    // A second card from the same route, the same key, another name.
+    alice.will(Intent::SetOwnCard {
+        name: "Augusta".to_owned(),
+        surname: None,
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(4).await;
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(5).await;
+    alice.pump(6).await;
+    bob.pump(7).await;
+    let from_alice = direct(a.peer());
+    let both = bob.model().proposals(&from_alice);
+    assert_eq!(both.len(), 2, "{:?}", bob.updates);
+    assert!(
+        both.iter().all(|p| p.key == KeyView::New),
+        "both shown against an empty route"
+    );
+    assert_eq!(
+        both[0].fingerprint, both[1].fingerprint,
+        "one route, one key"
+    );
+    let key = both[0].fingerprint.clone();
+    let (one, two) = (both[0].row, both[1].row);
+    // Both accepted before the facade has run: the second goes as it was
+    // shown, new, which the first's Accept made untrue.
+    bob.will(Intent::AcceptCard(one));
+    bob.will(Intent::AcceptCard(two));
+    bob.pump(8).await;
+    assert_eq!(
+        bob.failed()
+            .iter()
+            .filter(|(_, why)| *why == Failure::ProposalChanged)
+            .count(),
+        1,
+        "{:?}",
+        bob.failed()
+    );
+    assert_eq!(bob.model().contacts().len(), 1, "the second wrote nothing");
+    assert_eq!(
+        bob.model().contacts()[0].routes[0].fingerprint.as_deref(),
+        Some(key.as_str())
+    );
+    let again = bob.model().proposals(&from_alice);
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].row, two);
+    assert_eq!(again[0].key, KeyView::Same, "given again as it now stands");
+    // Judged again, never received anew, so a row the model has let go is
+    // not brought back.
+    // Twice: once when the first Accept judged the held copies again, once
+    // by the refusal itself.
+    assert_eq!(
+        bob.updates
+            .iter()
+            .filter(|u| matches!(u, Update::ProposalJudged(p) if p.row == two))
+            .count(),
+        2,
+        "{:?}",
+        bob.updates
+    );
+    assert_eq!(
+        bob.updates
+            .iter()
+            .filter(|u| matches!(u, Update::ReceivedCard(p) if p.row == two))
+            .count(),
+        1,
+        "received once, when it arrived"
+    );
+    // Accepted as shown now, it writes: the copy was put back.
+    bob.will(Intent::AcceptCard(two));
+    bob.pump(9).await;
+    assert_eq!(
+        bob.failed().len(),
+        1,
+        "only the refusal: {:?}",
+        bob.failed()
+    );
+    assert_eq!(
+        bob.model().title(&from_alice),
+        "Augusta",
+        "the second card wrote"
+    );
+    assert!(bob.model().proposals(&from_alice).is_empty());
+    assert_eq!(bob.model().contacts().len(), 1, "the same contact, updated");
+}
+
 #[tokio::test]
 async fn a_keep_of_a_shown_cards_copy_is_refused_and_the_card_stays_decidable() {
     let (a, b) = FakeNetwork::pair(node(), node());
