@@ -439,9 +439,9 @@ that, when that check saved the restore and the person presses Back
 on R2 and then Back on K1, only the end of the process leads on, and
 that no words say so. Before, the note left all three open. §6 (The
 comparison outlasts the bound) now says that a start without network
-does not unlock the node's seed, and names what it can write, none of
-which a PeerId binds (architect-cto's request of 2026-11-24). Before,
-it said that such a start unlocks no identity.
+does not unlock the node's seed, and gives examples of what such a
+start can write, none of which a PeerId binds (architect-cto's request
+of 2026-11-24). Before, §6 said that such a start unlocks no identity.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1339,13 +1339,14 @@ that a PeerId was created.
   A start without network (the start that runs when the person has
   denied the network, `startWithoutNetwork`) opens the store and
   does not unlock the node's seed, so it has no PeerId to compare.
-  Nothing it writes is bound by a PeerId. At a first run (Stage 22) it
-  can write the first user identity's sealed key file and that
-  identity's endpoint entry in the profile's configuration, where
-  onboarding left them undone, and it creates the store, the store's
-  sealed key file and the profile's format marker, where they do not
-  exist yet. On a phone that an earlier release set up, it can also
-  re-seal that release's identity key and remove its old file. Such a start does
+  Nothing it writes is bound by a PeerId. For example, at a first run
+  (Stage 22) it can write the first user identity's sealed key file
+  and that identity's endpoint entry in the profile's configuration,
+  where onboarding did not write them, and it creates the store, the
+  store's sealed key file and the profile's format marker, where they
+  do not exist yet. On a phone that an earlier release set up, it can
+  also reseal that release's identity key and remove the key's old
+  file. Such a start does
   not end the comparison: the next start of that process that unlocks
   the node's seed compares. Where the network prompt's Allow ends the
   process (GrapheneOS, unlock note §11), that is an end of the
