@@ -42,3 +42,6 @@ markdown = ["dep:pulldown-cmark"]
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# TEST-ONLY: a derived EndpointId from a deterministic key (ADR-0067), for
+# the stored-row read of `from_endpoint` (envelope.rs).
+interweave-test-support = { path = "../../../tests/support" }

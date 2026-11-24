@@ -36,8 +36,10 @@ pub(crate) fn limits() -> PageLimits {
 /// `inbound_kind_version` (STATE.md schema v10). A build whose
 /// classification of a stored row differs -- the envelope or card grammar
 /// read another way -- bumps it, and its first listing classifies every
-/// row again before anything is counted.
-pub(crate) const INBOUND_KIND_VERSION: &str = "1";
+/// row again before anything is counted. Version 2 is schema v14's: a
+/// stored row's `from_endpoint` that does not parse is read as absent
+/// ([`decode`]), so a text of the release before stays `text`.
+pub(crate) const INBOUND_KIND_VERSION: &str = "2";
 
 /// A stored row's kind, by the same steps the listing takes to show it: a
 /// message it shows as text, a card it shows as a proposal, and any other
@@ -372,11 +374,14 @@ fn inbound(row: &StoredInbound) -> Option<ListedInbound> {
 
 /// The envelope a stored payload carries: the same steps the facade
 /// takes on receipt (`HUMAN-CHAT.md` §Consumers), so a row that was
-/// shown when it arrived is shown again after a restart.
+/// shown when it arrived is shown again after a restart. Read as a STORED
+/// row (chat-protocol's `parse_stored`, STATE.md schema v14): a
+/// `from_endpoint` that is not a derived id -- the label a row from before
+/// v14 carries -- is absent, and the text stays.
 fn decode(media_type: Option<&MediaType>, payload: &[u8]) -> Option<HumanChatV2> {
     let info = parse_media_type(media_type?.as_str()).ok()?;
     let text = decode_envelope_bytes(payload, info.encoding).ok()?;
-    HumanChatV2::parse(&text).ok()
+    HumanChatV2::parse_stored(&text).ok()
 }
 
 #[cfg(test)]
@@ -385,7 +390,8 @@ mod tests {
     use interweave_human_store::{
         AppMessageId, HumanStore, InboundKind, InboundOrigin, NewInbound, StoreOptions,
     };
-    use interweave_transport_api::{EndpointId, MediaType, TransportIdentity};
+    use interweave_test_support::endpoint_keys::endpoint_id;
+    use interweave_transport_api::{MediaType, TransportIdentity};
 
     fn row(n: u8, payload: &[u8]) -> NewInbound {
         NewInbound {
@@ -395,7 +401,7 @@ mod tests {
                     "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
                 )
                 .expect("a PeerId"),
-                endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+                endpoint: Some(endpoint_id("human")),
                 channel: None,
             },
             media_type: Some(
@@ -415,7 +421,11 @@ mod tests {
     /// version not consulted, every start classifying again.
     #[test]
     fn a_store_classified_by_no_client_is_classified_once() {
-        let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let text = br#"{"v":2,"kind":"text","app_message_id":"00000000000000000000000000000001","text":"hi"}"#;
         store
             .commit_unread_inbound(&row(1, text))
@@ -440,5 +450,36 @@ mod tests {
         let mut again = 0;
         reclassify_if_stale(&mut store, &mut again).expect("the next start");
         assert_eq!(again, 0, "the next start reads no row");
+    }
+
+    /// A text the store holds from before schema v14 names its sender's
+    /// label in `from_endpoint`: it is read as a stored row, the member
+    /// absent, so the text is classified `text` and listed (STATE.md
+    /// §Migrations). A value no `EndpointId` grammar takes, which the wire
+    /// read refuses, reads the same. Mutation: [`super::decode`] reading
+    /// with the wire's `HumanChatV2::parse`.
+    #[test]
+    fn a_stored_text_naming_a_label_stays_a_text() {
+        let mut store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
+        for (n, from) in [(1, "human"), (2, "Not An Id")] {
+            let text = format!(
+                r#"{{"v":2,"kind":"text","app_message_id":"{n:032x}","text":"hi","from_endpoint":"{from}"}}"#
+            );
+            store
+                .commit_unread_inbound(&row(n, text.as_bytes()))
+                .expect("a stored text");
+        }
+        let mut read = 0;
+        reclassify_if_stale(&mut store, &mut read).expect("classified");
+        for row in store.unread_inbound().expect("read") {
+            assert_eq!(row.kind, InboundKind::Text, "{:?}", row.app_message_id);
+            let listed = super::inbound(&row).expect("listed");
+            assert_eq!(listed.envelope.from_endpoint, None);
+            assert_eq!(listed.envelope.text, "hi");
+        }
     }
 }

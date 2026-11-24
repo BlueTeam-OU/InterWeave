@@ -50,8 +50,12 @@ fn child_first_opens() {
             let (dir, paths) = fresh_paths();
             std::thread::spawn(move || {
                 barrier.wait();
-                let opened =
-                    HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default());
+                let opened = HumanStore::open_profile(
+                    &paths,
+                    &FilesystemCustody,
+                    &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                    StoreOptions::default(),
+                );
                 drop(dir);
                 opened.err().map(|e| format!("{e:?}"))
             })

@@ -36,7 +36,7 @@ use interweave_human_store::{
     PageLimits, PageLimitsError, READ_PAIR_CAP, SCHEMA_VERSION, StoreError, StoreOptions, name_key,
 };
 use interweave_transport_api::{
-    ChannelId, DirectDestination, EndpointId, MediaType, MessageId, TransportIdentity,
+    ChannelId, DirectDestination, MediaType, MessageId, TransportIdentity,
 };
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -67,7 +67,9 @@ fn inbound_via(endpoint: &str, id: &str, payload: Vec<u8>) -> NewInbound {
     NewInbound {
         origin: InboundOrigin {
             peer: peer(),
-            endpoint: Some(EndpointId::parse(endpoint).expect("test endpoint is canonical")),
+            endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id(
+                endpoint,
+            )),
             channel: None,
         },
         ..inbound(id, payload)
@@ -134,7 +136,11 @@ fn evict_read_pairs(store: &mut HumanStore) {
 }
 
 fn memory() -> HumanStore {
-    HumanStore::open_in_memory(StoreOptions::default()).expect("in-memory store opens")
+    HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("in-memory store opens")
 }
 
 #[test]
@@ -220,7 +226,12 @@ fn a_zero_record_ceiling_is_refused_rather_than_ending_the_enumeration() {
 fn a_fresh_store_has_exactly_the_allowed_tables() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     drop(store);
 
     let conn = rusqlite::Connection::open(&path).expect("reopen for inspection");
@@ -261,15 +272,26 @@ fn a_conversation_index_with_a_column_beyond_its_shape_is_refused() {
     // forbids, inside a permitted name. Beside the `messages` refusal.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("first open"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("first open"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch("ALTER TABLE conversation_index ADD COLUMN last_message TEXT")
         .expect("add the history-shaped column");
     drop(conn);
 
-    let err = HumanStore::open(&path, StoreOptions::default())
-        .expect_err("an index carrying message text must not open");
+    let err = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect_err("an index carrying message text must not open");
     assert!(
         matches!(&err, StoreError::Migration(d) if d.contains("conversation_index")),
         "unexpected error: {err}"
@@ -281,7 +303,14 @@ fn a_conversation_index_with_a_column_beyond_its_shape_is_refused() {
 fn raw_store() -> (tempfile::TempDir, std::path::PathBuf, rusqlite::Connection) {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("first open"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("first open"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.pragma_update(None, "foreign_keys", true)
         .expect("foreign keys on");
@@ -292,10 +321,10 @@ fn raw_store() -> (tempfile::TempDir, std::path::PathBuf, rusqlite::Connection) 
 fn deleting_a_contact_deletes_its_routes() {
     let (_dir, _path, conn) = raw_store();
     conn.execute_batch(
-        "INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
-             VALUES ('c1', 'one', 0, 0), ('c2', 'two', 0, 0);
-         INSERT INTO contact_routes (contact_id, peer_id, endpoint_id)
-             VALUES ('c1', 'p', 'human'), ('c1', 'q', 'human'), ('c2', 'p', 'human');
+        "INSERT INTO contacts (contact_id, local_endpoint_id, display_name, created_at, updated_at)
+             VALUES ('c1', 'l', 'one', 0, 0), ('c2', 'l', 'two', 0, 0);
+         INSERT INTO contact_routes (contact_id, local_endpoint_id, peer_id, endpoint_id)
+             VALUES ('c1', 'l', 'p', 'human'), ('c1', 'l', 'q', 'human'), ('c2', 'l', 'p', 'h2');
          DELETE FROM contacts WHERE contact_id = 'c1';",
     )
     .expect("writes");
@@ -315,17 +344,17 @@ fn a_contact_or_conversation_without_an_id_is_refused() {
     // is declared; each NULL would be a row no key can reach.
     let (_dir, _path, conn) = raw_store();
     for insert in [
-        "INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
-             VALUES (NULL, 'x', 0, 0)",
-        "INSERT INTO conversation_index (conversation_id, peer_id) VALUES (NULL, 'p')",
+        "INSERT INTO contacts (contact_id, local_endpoint_id, display_name, created_at, updated_at)
+             VALUES (NULL, 'l', 'x', 0, 0)",
+        "INSERT INTO conversation_index (conversation_id, local_endpoint_id, peer_id) VALUES (NULL, 'l', 'p')",
     ] {
         assert!(conn.execute(insert, []).is_err(), "refused: {insert}");
     }
     // The control: the same rows with an id are accepted.
     conn.execute_batch(
-        "INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
-             VALUES ('c', 'x', 0, 0);
-         INSERT INTO conversation_index (conversation_id, peer_id) VALUES ('v', 'p');",
+        "INSERT INTO contacts (contact_id, local_endpoint_id, display_name, created_at, updated_at)
+             VALUES ('c', 'l', 'x', 0, 0);
+         INSERT INTO conversation_index (conversation_id, local_endpoint_id, peer_id) VALUES ('v', 'l', 'p');",
     )
     .expect("with ids");
 }
@@ -336,29 +365,37 @@ fn a_route_table_rebuilt_with_other_foreign_key_actions_is_refused() {
     // actions changed: without the cascade a deleted contact leaves its
     // routes; with ON UPDATE SET NULL a contact's routes can be detached.
     for references in [
-        "REFERENCES contacts(contact_id)",
-        "REFERENCES contacts(contact_id) ON DELETE CASCADE ON UPDATE SET NULL",
+        "REFERENCES contacts(contact_id, local_endpoint_id)",
+        "REFERENCES contacts(contact_id, local_endpoint_id) ON DELETE CASCADE ON UPDATE SET NULL",
     ] {
         let (_dir, path, conn) = raw_store();
         conn.execute_batch(&format!(
             "PRAGMA foreign_keys = OFF;
              DROP TABLE contact_routes;
              CREATE TABLE contact_routes (
-                 contact_id         TEXT NOT NULL {references},
+                 contact_id         TEXT NOT NULL,
+                 local_endpoint_id  TEXT NOT NULL,
                  peer_id            TEXT NOT NULL,
                  endpoint_id        TEXT NOT NULL,
                  device_label       TEXT,
                  verification_note  TEXT,
                  last_seen          INTEGER,
                  identity_key       BLOB,
-                 UNIQUE(contact_id, peer_id, endpoint_id),
-                 UNIQUE(contact_id, peer_id)
-             );"
+                 UNIQUE(local_endpoint_id, peer_id, endpoint_id),
+                 UNIQUE(contact_id, peer_id),
+                 FOREIGN KEY (contact_id, local_endpoint_id) {references}
+             );
+             CREATE INDEX contact_routes_by_route ON contact_routes (peer_id, endpoint_id);
+             CREATE INDEX contact_routes_by_key ON contact_routes (identity_key);"
         ))
         .expect("rebuild with other actions");
         drop(conn);
-        let err = HumanStore::open(&path, StoreOptions::default())
-            .expect_err("a route table with other foreign-key actions must not open");
+        let err = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect_err("a route table with other foreign-key actions must not open");
         assert!(
             matches!(&err, StoreError::Migration(d) if d.contains("contact_routes") && d.contains("foreign keys")),
             "{references}: unexpected error: {err}"
@@ -373,12 +410,22 @@ fn a_pending_row_keeps_the_transport_id_it_was_committed_with() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("open");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("open");
         store
             .commit_pending_outbound(&outbound(ID_A, b"hello".to_vec()))
             .expect("pending");
     }
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     let pending = store.pending_outbound().expect("read");
     assert_eq!(pending.len(), 1);
     assert_eq!(
@@ -390,7 +437,11 @@ fn a_pending_row_keeps_the_transport_id_it_was_committed_with() {
 
 #[test]
 fn one_pending_row_is_read_by_its_id_and_is_gone_once_terminal() {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("open");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("open");
     let a = store
         .commit_pending_outbound(&outbound(ID_A, b"one".to_vec()))
         .expect("a");
@@ -409,7 +460,11 @@ fn one_pending_row_is_read_by_its_id_and_is_gone_once_terminal() {
 
 #[test]
 fn a_second_row_under_a_used_transport_id_is_refused_and_does_not_degrade() {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("open");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("open");
     store
         .commit_pending_outbound(&outbound(ID_A, b"one".to_vec()))
         .expect("first");
@@ -430,7 +485,11 @@ fn a_second_row_under_a_used_transport_id_is_refused_and_does_not_degrade() {
 
 #[test]
 fn a_message_committed_twice_is_refused_as_a_duplicate_and_nothing_else_is() {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("open");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("open");
     store
         .commit_unread_inbound(&inbound(ID_A, b"once".to_vec()))
         .expect("first");
@@ -443,7 +502,14 @@ fn a_message_committed_twice_is_refused_as_a_duplicate_and_nothing_else_is() {
     assert!(!StoreError::Degraded.is_duplicate());
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("open"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("open"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("raw");
     let check = StoreError::from(
         conn.execute(
@@ -466,7 +532,12 @@ fn a_v5_database_gains_transport_ids_keeping_its_rows_and_its_id_high_water() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     let deleted = {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("open");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("open");
         store
             .commit_pending_outbound(&outbound(ID_A, b"kept".to_vec()))
             .expect("first");
@@ -507,11 +578,24 @@ fn a_v5_database_gains_transport_ids_keeping_its_rows_and_its_id_high_water() {
     .expect("back to v5, its high-water mark intact");
     drop(conn);
 
-    let mut store = HumanStore::open(&path, StoreOptions::default())
-        .expect("a v5 database migrates rather than being refused");
-    let pending = store.pending_outbound().expect("read");
-    assert_eq!(pending.len(), 1, "the v5 row survived");
-    assert_eq!(pending[0].payload, b"kept".to_vec());
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("a v5 database migrates rather than being refused");
+    // The v5 row reached v14, which discards every pending row and counts
+    // it (STATE.md §Migrations (e)); the high-water mark outlives both
+    // rebuilds.
+    assert!(store.pending_outbound().expect("read").is_empty());
+    assert_eq!(
+        store
+            .discarded_at_v14()
+            .expect("read")
+            .map(|d| d.pending_never_attempted + d.pending_may_have_reached),
+        Some(1),
+        "the v5 row survived to v14"
+    );
     let fresh = store
         .commit_pending_outbound(&outbound(
             "11111111111111111111111111111111",
@@ -528,13 +612,21 @@ fn a_v5_database_gains_transport_ids_keeping_its_rows_and_its_id_high_water() {
 fn a_transport_id_of_any_length_but_sixteen_is_refused_by_the_column() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("open"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("open"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("raw");
     let insert = |id: &[u8], app: &str| {
         conn.execute(
             "INSERT INTO pending_outbound
-                 (app_message_id, transport_message_id, destination_peer, payload, created_at)
-             VALUES (?1, ?2, 'p', x'00', 0)",
+                 (local_endpoint_id, app_message_id, transport_message_id, destination_peer,
+                  payload, created_at)
+             VALUES ('l', ?1, ?2, 'p', x'00', 0)",
             rusqlite::params![app, id],
         )
     };
@@ -552,7 +644,12 @@ fn a_v4_database_gains_the_three_tables_and_keeps_its_rows() {
     let state = dir.path().join("state");
     let path = state.join("human.sqlite3");
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("first open");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("first open");
         store
             .commit_unread_inbound(&inbound(ID_A, b"before v5".to_vec()))
             .expect("a v4-era row");
@@ -566,8 +663,12 @@ fn a_v4_database_gains_the_three_tables_and_keeps_its_rows() {
     .expect("back to v4");
     drop(conn);
 
-    let store = HumanStore::open(&path, StoreOptions::default())
-        .expect("a v4 database migrates rather than being refused");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("a v4 database migrates rather than being refused");
     let unread = store.unread_inbound().expect("read");
     assert_eq!(unread.len(), 1, "the v4 row survived");
     assert_eq!(unread[0].payload, b"before v5".to_vec());
@@ -595,15 +696,26 @@ fn opening_a_database_with_a_history_table_is_refused() {
     // so it is caught at open rather than left to review.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("first open"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("first open"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch("CREATE TABLE messages (row_id INTEGER PRIMARY KEY, body BLOB)")
         .expect("create the forbidden table");
     drop(conn);
 
-    let err = HumanStore::open(&path, StoreOptions::default())
-        .expect_err("a store containing a general archive must not open");
+    let err = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect_err("a store containing a general archive must not open");
     assert!(
         matches!(&err, StoreError::Migration(d) if d.contains("messages")),
         "unexpected error: {err}"
@@ -614,15 +726,26 @@ fn opening_a_database_with_a_history_table_is_refused() {
 fn a_newer_schema_is_refused_rather_than_downgraded() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("first open"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("first open"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.pragma_update(None, "user_version", 99_i64)
         .expect("bump the version");
     drop(conn);
 
-    let err = HumanStore::open(&path, StoreOptions::default())
-        .expect_err("running old migrations over a newer schema destroys data");
+    let err = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect_err("running old migrations over a newer schema destroys data");
     assert!(
         matches!(&err, StoreError::Migration(d) if d.contains("refusing to downgrade")),
         "unexpected error: {err}"
@@ -634,7 +757,14 @@ fn reopening_is_idempotent() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     for _ in 0..3 {
-        drop(HumanStore::open(&path, StoreOptions::default()).expect("reopen"));
+        drop(
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("reopen"),
+        );
     }
 }
 
@@ -682,7 +812,14 @@ fn a_payload_transport_could_not_carry_is_not_a_pending_row() {
 fn a_store_exactly_at_its_quota_opens_healthy() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("raw");
     conn.execute_batch("VACUUM;").expect("compacted");
     let size: u32 = conn
@@ -691,6 +828,7 @@ fn a_store_exactly_at_its_quota_opens_healthy() {
     drop(conn);
     let store = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(size),
         },
@@ -707,7 +845,12 @@ fn a_store_exactly_at_its_quota_opens_healthy() {
 fn a_zero_quota_is_refused_before_the_open_writes_anything() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     store
         .commit_unread_inbound(&inbound_via("e0", ID_A, vec![1]))
         .expect("committed");
@@ -720,7 +863,11 @@ fn a_zero_quota_is_refused_before_the_open_writes_anything() {
     .expect("back before the index");
     drop(conn);
 
-    let zero = HumanStore::open(&path, StoreOptions { max_pages: Some(0) });
+    let zero = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions { max_pages: Some(0) },
+    );
     assert!(
         matches!(zero, Err(StoreError::QuotaNotApplied { requested: 0, .. })),
         "{zero:?}"
@@ -749,7 +896,12 @@ fn a_zero_quota_is_refused_before_the_open_writes_anything() {
 fn an_open_that_must_write_runs_above_its_quota_and_opens_degraded() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     for n in 0..60_u32 {
         store
             .commit_unread_inbound(&inbound_via(
@@ -775,6 +927,7 @@ fn an_open_that_must_write_runs_above_its_quota_and_opens_degraded() {
 
     let store = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(size),
         },
@@ -803,7 +956,11 @@ fn a_quota_sqlite_would_not_enforce_is_refused_and_a_tighter_one_opens_degraded(
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
 
-    let zero = HumanStore::open(&path, StoreOptions { max_pages: Some(0) });
+    let zero = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions { max_pages: Some(0) },
+    );
     assert!(
         matches!(zero, Err(StoreError::QuotaNotApplied { requested: 0, .. })),
         "a zero quota is refused, not silently no quota: {zero:?}"
@@ -815,9 +972,21 @@ fn a_quota_sqlite_would_not_enforce_is_refused_and_a_tighter_one_opens_degraded(
             .pragma_query_value(None, "page_count", |row| row.get::<_, u32>(0))
             .expect("page_count")
     };
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let empty = pages(&path);
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let big = vec![0_u8; interweave_transport_api::MAX_PAYLOAD_BYTES];
     for n in 1..=2 {
         store
@@ -833,6 +1002,7 @@ fn a_quota_sqlite_would_not_enforce_is_refused_and_a_tighter_one_opens_degraded(
 
     let mut tight = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(quota),
         },
@@ -878,6 +1048,7 @@ fn a_quota_sqlite_would_not_enforce_is_refused_and_a_tighter_one_opens_degraded(
     let size = pages(&path);
     let fits = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(size + 64),
         },
@@ -894,6 +1065,7 @@ fn a_full_medium_degrades_the_store_and_refuses_new_unread() {
     let path = dir.path().join("state").join("human.sqlite3");
     let mut store = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(64),
         },
@@ -999,6 +1171,7 @@ fn recheck_health_clears_degradation_when_the_medium_recovers() {
     let path = dir.path().join("state").join("human.sqlite3");
     let mut store = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(64),
         },
@@ -1287,7 +1460,12 @@ fn the_files_holding_message_content_are_owner_only() {
 
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
 
     // Force the WAL and SHM into existence.
     store
@@ -1335,7 +1513,11 @@ fn an_already_open_state_directory_is_refused_rather_than_tightened() {
     std::fs::create_dir_all(&state).expect("mkdir");
     std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o755)).expect("chmod");
 
-    match HumanStore::open(&state.join("human.sqlite3"), StoreOptions::default()) {
+    match HumanStore::open(
+        &state.join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    ) {
         Err(StoreError::DirectoryNotPrivate { path, detail }) => {
             assert_eq!(path, state);
             assert!(detail.contains("0755"), "the mode is named: {detail}");
@@ -1375,7 +1557,11 @@ fn a_private_state_directory_under_an_ancestor_others_can_write_is_refused_namin
     std::fs::create_dir(&state).expect("mkdir");
     std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).expect("chmod");
 
-    match HumanStore::open(&state.join("human.sqlite3"), StoreOptions::default()) {
+    match HumanStore::open(
+        &state.join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    ) {
         Err(StoreError::DirectoryNotPrivate { path, detail }) => {
             assert_eq!(path, shared, "the failing ancestor is named: {detail}");
             assert!(detail.contains("0777"), "its mode is named: {detail}");
@@ -1395,7 +1581,11 @@ fn a_path_naming_no_file_is_refused_before_any_directory_is_made() {
     // created on the way to that refusal.
     let dir = common::private_tempdir();
     let new = dir.path().join("new");
-    match HumanStore::open(&new.join(".."), StoreOptions::default()) {
+    match HumanStore::open(
+        &new.join(".."),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    ) {
         Err(StoreError::NotAFile { .. }) => {}
         other => panic!("expected the path refused as naming no file, got {other:?}"),
     }
@@ -1418,7 +1608,14 @@ fn a_path_through_a_missing_directory_and_back_opens_as_before() {
     std::fs::set_permissions(&x, std::fs::Permissions::from_mode(0o755)).expect("chmod");
 
     let path = x.join("new").join("..").join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let state = x.join("state");
     assert!(
         state.join("human.sqlite3").is_file(),
@@ -1442,7 +1639,14 @@ fn a_path_through_a_missing_directory_and_back_opens_as_before() {
         .join("wide")
         .join("b")
         .join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     assert!(
         wide.join("b").join("human.sqlite3").is_file(),
         "the store is at x/wide/b"
@@ -1466,7 +1670,11 @@ fn a_state_directory_that_is_not_a_directory_is_refused_by_name() {
     std::os::unix::fs::symlink(dir.path().join("nowhere"), &dangling).expect("link");
 
     for state in [&file, &dangling] {
-        match HumanStore::open(&state.join("human.sqlite3"), StoreOptions::default()) {
+        match HumanStore::open(
+            &state.join("human.sqlite3"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        ) {
             Err(StoreError::DirectoryNotPrivate { path, .. }) => assert_eq!(&path, state),
             other => panic!(
                 "{}: expected a named refusal, got {other:?}",
@@ -1485,7 +1693,11 @@ fn a_refused_state_directory_creates_nothing() {
     let (_dir, shared) = shared_ancestor();
     let state = shared.join("state").join("human");
 
-    match HumanStore::open(&state.join("human.sqlite3"), StoreOptions::default()) {
+    match HumanStore::open(
+        &state.join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    ) {
         Err(StoreError::DirectoryNotPrivate { path, .. }) => assert_eq!(path, shared),
         other => panic!("expected the ancestor refused, got {other:?}"),
     }
@@ -1510,7 +1722,11 @@ fn a_link_above_the_state_directory_is_judged_by_where_it_sits() {
         std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).expect("chmod");
     }
     let open = |state: &std::path::Path| {
-        HumanStore::open(&state.join("human.sqlite3"), StoreOptions::default())
+        HumanStore::open(
+            &state.join("human.sqlite3"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
     };
 
     let sound = dir.path().join("sound");
@@ -1554,7 +1770,14 @@ fn a_companion_that_is_a_link_is_refused_not_followed() {
     for suffix in ["-wal", "-shm", "-journal"] {
         let dir = common::private_tempdir();
         let path = dir.path().join("state").join("human.sqlite3");
-        drop(HumanStore::open(&path, StoreOptions::default()).expect("a fresh store"));
+        drop(
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("a fresh store"),
+        );
 
         let elsewhere = dir.path().join("elsewhere");
         std::fs::write(&elsewhere, b"").expect("target");
@@ -1566,7 +1789,11 @@ fn a_companion_that_is_a_link_is_refused_not_followed() {
         let _ = std::fs::remove_file(&companion);
         std::os::unix::fs::symlink(&elsewhere, &companion).expect("link");
 
-        match HumanStore::open(&path, StoreOptions::default()) {
+        match HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        ) {
             Err(StoreError::NotAFile { what }) => {
                 assert!(what.contains("not a regular file"), "{suffix}: {what}");
             }
@@ -1594,8 +1821,12 @@ fn a_too_open_write_ahead_log_is_refused_and_left_as_it_was() {
     if let Some(path) = std::env::var_os(CHILD) {
         // The child: commit, then end the process with no close, so the
         // WAL keeps its frames and no connection to it survives.
-        let mut store =
-            HumanStore::open(std::path::Path::new(&path), StoreOptions::default()).expect("opens");
+        let mut store = HumanStore::open(
+            std::path::Path::new(&path),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens");
         store
             .commit_unread_inbound(&inbound(ID_A, b"body".to_vec()))
             .expect("commit");
@@ -1620,7 +1851,11 @@ fn a_too_open_write_ahead_log_is_refused_and_left_as_it_was() {
     std::fs::set_permissions(&wal, std::fs::Permissions::from_mode(0o644)).expect("chmod");
 
     for attempt in 1..=2 {
-        match HumanStore::open(&path, StoreOptions::default()) {
+        match HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        ) {
             Err(StoreError::PermissionsTooOpen { mode, .. }) => assert_eq!(mode, 0o644),
             other => panic!("open {attempt}: expected a permissions refusal, got {other:?}"),
         }
@@ -1649,14 +1884,25 @@ fn a_new_column_inside_a_permitted_table_is_a_retention_violation() {
     // it is somewhere a body can be kept.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch("ALTER TABLE unread_inbound ADD COLUMN archive_payload BLOB")
         .expect("the DDL itself is legal SQLite");
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(refused, Err(StoreError::Migration(_))),
         "an added column must be refused, got {refused:?}"
@@ -1668,7 +1914,12 @@ fn a_new_column_inside_a_permitted_table_is_a_retention_violation() {
     conn.execute_batch("ALTER TABLE unread_inbound DROP COLUMN archive_payload")
         .expect("drop");
     drop(conn);
-    HumanStore::open(&path, StoreOptions::default()).expect("opens once it is gone");
+    HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens once it is gone");
 }
 
 #[test]
@@ -1683,7 +1934,14 @@ fn the_unique_key_and_the_autoincrement_are_part_of_the_verified_shape() {
     // handing a caller someone else's body.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     // Rebuild `unread_inbound` with every column identical, the UNIQUE
     // widened back to the id alone, and AUTOINCREMENT dropped. A
@@ -1709,7 +1967,11 @@ fn the_unique_key_and_the_autoincrement_are_part_of_the_verified_shape() {
     .expect("the rebuild is legal SQLite");
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(refused, Err(StoreError::Migration(_))),
         "a widened unique key with no autoincrement must be refused, got {refused:?}"
@@ -1724,7 +1986,14 @@ fn an_unexpected_content_table_is_refused_even_with_an_innocent_name() {
     // ADR-0044 forbids.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     for ddl in [
         "CREATE TABLE chat_archive (row_id INTEGER PRIMARY KEY, payload BLOB)",
@@ -1735,7 +2004,11 @@ fn an_unexpected_content_table_is_refused_even_with_an_innocent_name() {
         conn.execute_batch(ddl).expect("create");
         drop(conn);
 
-        let refused = HumanStore::open(&path, StoreOptions::default());
+        let refused = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        );
         assert!(
             matches!(refused, Err(StoreError::Migration(_))),
             "{ddl} must be refused, got {refused:?}"
@@ -1753,7 +2026,12 @@ fn an_unexpected_content_table_is_refused_even_with_an_innocent_name() {
 
     // And with them gone it opens again, so the refusal was about the
     // extra object and not about the store having been touched.
-    HumanStore::open(&path, StoreOptions::default()).expect("opens once they are gone");
+    HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens once they are gone");
 }
 
 #[test]
@@ -1877,7 +2155,12 @@ fn a_negative_stored_timestamp_is_corruption_and_not_a_zero() {
     // result set, and the caller was handed a short list with no error.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     store
         .commit_pending_outbound(&outbound(ID_A, b"body".to_vec()))
         .expect("queued");
@@ -1894,7 +2177,12 @@ fn a_negative_stored_timestamp_is_corruption_and_not_a_zero() {
     .expect("corrupt one row");
     drop(conn);
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     match store.pending_outbound() {
         Err(StoreError::Corrupt(what)) => {
             assert!(what.contains("created_at"), "must name the field: {what}");
@@ -1910,7 +2198,12 @@ fn a_negative_stored_timestamp_is_corruption_and_not_a_zero() {
     )
     .expect("corrupt the counter");
     drop(conn);
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     match store.pending_outbound() {
         Err(StoreError::Corrupt(what)) => assert!(what.contains("attempts"), "{what}"),
         other => panic!("expected Corrupt, got {other:?}"),
@@ -1922,7 +2215,12 @@ fn a_negative_stored_timestamp_is_corruption_and_not_a_zero() {
     conn.execute_batch("UPDATE pending_outbound SET attempts = 0")
         .expect("repair");
     drop(conn);
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert_eq!(store.pending_outbound().expect("reads").len(), 2);
 }
 
@@ -2161,8 +2459,12 @@ fn a_v3_database_migrates_to_the_channel_scoped_key_without_losing_rows() {
     let path = state.join("human.sqlite3");
     v3_database(&path, &[(1, ID_A)]);
 
-    let mut store = HumanStore::open(&path, StoreOptions::default())
-        .expect("a v3 database migrates rather than being refused");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("a v3 database migrates rather than being refused");
     let unread = store.unread_inbound().expect("read");
     assert_eq!(unread.len(), 1, "the v3 row survived the rebuild");
     assert_eq!(unread[0].payload, b"v3 row".to_vec());
@@ -2180,7 +2482,7 @@ fn a_v3_database_migrates_to_the_channel_scoped_key_without_losing_rows() {
         .commit_unread_inbound(&NewInbound {
             origin: InboundOrigin {
                 peer: peer(),
-                endpoint: Some(EndpointId::parse("human").expect("canonical")),
+                endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
                 channel: Some(ChannelId::parse("channel-b").expect("canonical")),
             },
             ..inbound(ID_A, b"on b".to_vec())
@@ -2224,7 +2526,12 @@ fn a_rebuild_keeps_the_row_id_high_water_mark() {
         assert_eq!(seq, 3, "the fixture allocated three ids");
     }
 
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("migrates");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("migrates");
     let next = store
         .commit_unread_inbound(&inbound_on(
             "channel-b",
@@ -2252,7 +2559,12 @@ fn a_rebuild_keeps_the_row_id_high_water_mark() {
         conn.execute("DELETE FROM unread_inbound", [])
             .expect("empty the table");
     }
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("migrates");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("migrates");
     let next = store
         .commit_unread_inbound(&inbound(ID_A, b"after".to_vec()))
         .expect("commits");
@@ -2327,7 +2639,12 @@ fn a_v1_database_keeps_the_row_id_high_water_mark_through_every_rebuild() {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
         .expect("tighten the fixture database");
 
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("migrates");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("migrates");
     assert_eq!(store.unread_inbound().expect("read").len(), 1);
     let next = store
         .commit_unread_inbound(&inbound(ID_A, b"after".to_vec()))
@@ -2395,10 +2712,14 @@ fn a_v2_database_migrates_to_the_endpoint_scoped_key_without_losing_rows() {
         ",
     )
     .expect("the v2 schema is legal SQLite");
+    // With no endpoint: a direct row's `{peer, label}` names no keyed
+    // route in a v2 store, which has no contacts, so schema v14 would
+    // discard it (STATE.md §Migrations (c)), and this test is about the
+    // rebuilds keeping a row.
     conn.execute(
         "INSERT INTO unread_inbound
             (app_message_id, source_peer, source_endpoint, payload, received_at)
-         VALUES (?1, ?2, 'human', ?3, 2000)",
+         VALUES (?1, ?2, NULL, ?3, 2000)",
         rusqlite::params![ID_A, PEER, b"carried across".to_vec()],
     )
     .expect("seed a v2 row");
@@ -2415,8 +2736,12 @@ fn a_v2_database_migrates_to_the_endpoint_scoped_key_without_losing_rows() {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
         .expect("tighten the fixture database");
 
-    let mut store = HumanStore::open(&path, StoreOptions::default())
-        .expect("a v2 database migrates rather than being refused");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("a v2 database migrates rather than being refused");
 
     let unread = store.unread_inbound().expect("read");
     assert_eq!(unread.len(), 1, "the v2 row survived the rebuild");
@@ -2444,7 +2769,14 @@ fn a_generated_key_with_the_right_name_and_a_different_expression_is_refused() {
     // the suppression migration_3 exists to stop.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
@@ -2452,6 +2784,7 @@ fn a_generated_key_with_the_right_name_and_a_different_expression_is_refused() {
         ALTER TABLE unread_inbound RENAME TO unread_inbound_old;
         CREATE TABLE unread_inbound (
             row_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id TEXT   NOT NULL,
             app_message_id  TEXT    NOT NULL,
             source_peer     TEXT    NOT NULL,
             source_endpoint TEXT,
@@ -2462,7 +2795,7 @@ fn a_generated_key_with_the_right_name_and_a_different_expression_is_refused() {
             kind            TEXT    NOT NULL DEFAULT 'other',
             source_endpoint_key TEXT GENERATED ALWAYS AS ('') VIRTUAL,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
-            UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
+            UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
         );
         DROP TABLE unread_inbound_old;
         ",
@@ -2470,7 +2803,11 @@ fn a_generated_key_with_the_right_name_and_a_different_expression_is_refused() {
     .expect("the rebuild is legal SQLite");
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(&refused, Err(StoreError::Migration(m)) if m.contains("disagrees with")),
         "a generated column with a different expression must be refused BY THE EXPRESSION \
@@ -2486,7 +2823,14 @@ fn a_stored_generated_column_is_not_the_virtual_one_this_build_wrote() {
     // the hidden-column check compares.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
@@ -2494,6 +2838,7 @@ fn a_stored_generated_column_is_not_the_virtual_one_this_build_wrote() {
         ALTER TABLE kept_inbound RENAME TO kept_inbound_old;
         CREATE TABLE kept_inbound (
             row_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id TEXT   NOT NULL,
             app_message_id  TEXT    NOT NULL,
             source_peer     TEXT    NOT NULL,
             source_endpoint TEXT,
@@ -2506,7 +2851,7 @@ fn a_stored_generated_column_is_not_the_virtual_one_this_build_wrote() {
             kind            TEXT    NOT NULL DEFAULT 'other',
             source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) STORED,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
-            UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
+            UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
         );
         DROP TABLE kept_inbound_old;
         ",
@@ -2514,7 +2859,11 @@ fn a_stored_generated_column_is_not_the_virtual_one_this_build_wrote() {
     .expect("the rebuild is legal SQLite");
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(&refused, Err(StoreError::Migration(m)) if m.contains("has generated columns")),
         "a STORED generated column is not what this build wrote, and it is the hidden-column \
@@ -2534,7 +2883,14 @@ fn an_extra_generated_column_is_a_retention_violation_table_info_cannot_see() {
     // is enumerated rather than assumed empty.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
@@ -2544,7 +2900,11 @@ fn an_extra_generated_column_is_a_retention_violation_table_info_cannot_see() {
     .expect("SQLite permits adding a virtual generated column");
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(&refused, Err(StoreError::Migration(m)) if m.contains("has generated columns")),
         "a second view of the body must be refused however it is spelled, by the hidden-column \
@@ -2566,7 +2926,14 @@ fn a_decoy_comment_carrying_the_expected_declaration_does_not_excuse_a_constant(
     // This is why the expression is EVALUATED rather than read.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
@@ -2574,6 +2941,7 @@ fn a_decoy_comment_carrying_the_expected_declaration_does_not_excuse_a_constant(
         ALTER TABLE unread_inbound RENAME TO unread_inbound_old;
         CREATE TABLE unread_inbound (
             row_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id TEXT   NOT NULL,
             app_message_id  TEXT    NOT NULL,
             source_peer     TEXT    NOT NULL,
             source_endpoint TEXT,
@@ -2585,7 +2953,7 @@ fn a_decoy_comment_carrying_the_expected_declaration_does_not_excuse_a_constant(
             source_endpoint_key TEXT GENERATED ALWAYS AS ('') VIRTUAL
                 /* source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL */,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
-            UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
+            UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
         );
         DROP TABLE unread_inbound_old;
         ",
@@ -2607,7 +2975,11 @@ fn a_decoy_comment_carrying_the_expected_declaration_does_not_excuse_a_constant(
     );
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(&refused, Err(StoreError::Migration(m)) if m.contains("disagrees with")),
         "a constant expression must be refused however it is decorated, by the expression \
@@ -2632,13 +3004,21 @@ fn a_channel_key_expression_that_collapses_channels_is_refused() {
     ] {
         let dir = common::private_tempdir();
         let path = dir.path().join("state").join("human.sqlite3");
-        drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+        drop(
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("opens"),
+        );
         let conn = rusqlite::Connection::open(&path).expect("reopen");
         conn.execute_batch(&format!(
             "
             ALTER TABLE unread_inbound RENAME TO unread_inbound_old;
             CREATE TABLE unread_inbound (
                 row_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                local_endpoint_id TEXT   NOT NULL,
                 app_message_id  TEXT    NOT NULL,
                 source_peer     TEXT    NOT NULL,
                 source_endpoint TEXT,
@@ -2649,14 +3029,18 @@ fn a_channel_key_expression_that_collapses_channels_is_refused() {
                 kind            TEXT    NOT NULL DEFAULT 'other',
                 source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL,
                 channel_key         TEXT GENERATED ALWAYS AS ({tampered}) VIRTUAL,
-                UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
+                UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
             );
             DROP TABLE unread_inbound_old;
             "
         ))
         .expect("the rebuild is legal SQLite");
         drop(conn);
-        let refused = HumanStore::open(&path, StoreOptions::default());
+        let refused = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        );
         assert!(
             matches!(&refused, Err(StoreError::Migration(m))
                 if m.contains("disagrees with") && m.contains("`channel_key`")),
@@ -2679,7 +3063,14 @@ fn a_truncating_generated_key_is_refused_even_though_it_matches_short_probes() {
     // EndpointId, so no truncation can hide inside it.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
@@ -2687,6 +3078,7 @@ fn a_truncating_generated_key_is_refused_even_though_it_matches_short_probes() {
         ALTER TABLE unread_inbound RENAME TO unread_inbound_old;
         CREATE TABLE unread_inbound (
             row_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id TEXT   NOT NULL,
             app_message_id  TEXT    NOT NULL,
             source_peer     TEXT    NOT NULL,
             source_endpoint TEXT,
@@ -2698,7 +3090,7 @@ fn a_truncating_generated_key_is_refused_even_though_it_matches_short_probes() {
             source_endpoint_key TEXT
                 GENERATED ALWAYS AS (IFNULL(substr(source_endpoint, 1, 14), '')) VIRTUAL,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
-            UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
+            UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
         );
         DROP TABLE unread_inbound_old;
         ",
@@ -2706,7 +3098,11 @@ fn a_truncating_generated_key_is_refused_even_though_it_matches_short_probes() {
     .expect("the rebuild is legal SQLite");
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(&refused, Err(StoreError::Migration(m)) if m.contains("disagrees with")),
         "a truncating expression must be refused by the expression check, got {refused:?}"
@@ -2721,7 +3117,14 @@ fn a_generated_key_that_drops_a_legal_character_class_is_refused() {
     // legal character class rather than a handful of plausible names.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
 
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
@@ -2729,6 +3132,7 @@ fn a_generated_key_that_drops_a_legal_character_class_is_refused() {
         ALTER TABLE kept_inbound RENAME TO kept_inbound_old;
         CREATE TABLE kept_inbound (
             row_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_endpoint_id TEXT   NOT NULL,
             app_message_id  TEXT    NOT NULL,
             source_peer     TEXT    NOT NULL,
             source_endpoint TEXT,
@@ -2742,7 +3146,7 @@ fn a_generated_key_that_drops_a_legal_character_class_is_refused() {
             source_endpoint_key TEXT
                 GENERATED ALWAYS AS (IFNULL(replace(source_endpoint, '.', ''), '')) VIRTUAL,
             channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL,
-            UNIQUE(source_peer, source_endpoint_key, channel_key, app_message_id)
+            UNIQUE(local_endpoint_id, source_peer, source_endpoint_key, channel_key, app_message_id)
         );
         DROP TABLE kept_inbound_old;
         ",
@@ -2750,7 +3154,11 @@ fn a_generated_key_that_drops_a_legal_character_class_is_refused() {
     .expect("the rebuild is legal SQLite");
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(&refused, Err(StoreError::Migration(m)) if m.contains("disagrees with")),
         "an expression that drops a legal character must be refused by the expression check: \
@@ -2772,7 +3180,11 @@ fn a_bare_relative_path_still_checks_its_directory() {
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755))
         .expect("world-traversable on purpose");
 
-    let explicit = HumanStore::open(&dir.path().join("messages.db"), StoreOptions::default());
+    let explicit = HumanStore::open(
+        &dir.path().join("messages.db"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(explicit, Err(StoreError::DirectoryNotPrivate { .. })),
         "an explicit path into a world-traversable directory is refused: {explicit:?}"
@@ -2799,7 +3211,11 @@ fn a_symlinked_database_path_is_refused_not_followed() {
     let link = dir.path().join("messages.db");
     std::os::unix::fs::symlink(&elsewhere, &link).expect("link created");
 
-    let opened = HumanStore::open(&link, StoreOptions::default());
+    let opened = HumanStore::open(
+        &link,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(opened, Err(StoreError::NotAFile { .. })),
         "a symlinked database path is refused: {opened:?}"
@@ -2931,7 +3347,11 @@ fn the_three_remaining_reachable_timestamp_sites_refuse_rather_than_saturating()
 fn a_fabricated_row_id_names_no_row_and_is_refused() {
     // RowId's constructor is public (it lives in human-core); what holds
     // is that an id the store did not mint names nothing here.
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("open");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("open");
     let real = store
         .commit_unread_inbound(&inbound(ID_A, b"x".to_vec()))
         .expect("a row");
@@ -2954,7 +3374,12 @@ fn unkeep_leaves_a_row_it_cannot_decode_in_place() {
     // destroyed on the way to the error.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let row = store
         .commit_unread_inbound(&inbound(ID_A, b"body".to_vec()))
         .expect("committed");
@@ -2967,7 +3392,12 @@ fn unkeep_leaves_a_row_it_cannot_decode_in_place() {
         .expect("corrupt the row");
     drop(conn);
 
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     match store.unkeep(kept, 3_000) {
         Err(StoreError::Corrupt(_)) => {}
         other => panic!("expected Corrupt, got {other:?}"),
@@ -2987,9 +3417,21 @@ fn a_file_that_is_not_a_database_needs_recovery_and_is_left_as_it_is() {
     let path = dir.path().join("state").join("human.sqlite3");
     // A healthy store first, so the directory and file modes are the
     // store's own; then its content is replaced with something else.
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     std::fs::write(&path, b"this is not a database").expect("overwrite");
-    let error = HumanStore::open(&path, StoreOptions::default()).expect_err("refused");
+    let error = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect_err("refused");
     assert!(error.needs_recovery(), "{error:?}");
     assert_eq!(
         std::fs::read(&path).expect("still there"),
@@ -3005,7 +3447,12 @@ fn a_v6_database_gains_the_read_pairs_keeping_its_rows() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens");
         store
             .commit_unread_inbound(&inbound(ID_A, b"before v7".to_vec()))
             .expect("a v6-era row");
@@ -3015,8 +3462,12 @@ fn a_v6_database_gains_the_read_pairs_keeping_its_rows() {
         .expect("back to v6");
     drop(conn);
 
-    let mut store = HumanStore::open(&path, StoreOptions::default())
-        .expect("a v6 database migrates rather than being refused");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("a v6 database migrates rather than being refused");
     let unread = store.unread_inbound().expect("read");
     assert_eq!(unread.len(), 1, "the v6 row survived");
     store
@@ -3054,7 +3505,12 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     {
-        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+        let mut store = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens");
         for (id, body) in [(ID_A, b"first before v8"), (ID_B, b"later before v8")] {
             store
                 .commit_unread_inbound(&inbound(id, body.to_vec()))
@@ -3073,8 +3529,12 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
     );
     drop(conn);
 
-    let store = HumanStore::open(&path, StoreOptions::default())
-        .expect("a v7 database migrates rather than being refused");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("a v7 database migrates rather than being refused");
     let bodies: Vec<Vec<u8>> = store
         .unread_inbound()
         .expect("read")
@@ -3182,12 +3642,23 @@ fn the_walk_indexes_are_part_of_the_verified_shape() {
     ] {
         let dir = common::private_tempdir();
         let path = dir.path().join("state").join("human.sqlite3");
-        drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+        drop(
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("opens"),
+        );
         let conn = rusqlite::Connection::open(&path).expect("reopen");
         conn.execute_batch(ddl).expect(case);
         drop(conn);
 
-        let refused = HumanStore::open(&path, StoreOptions::default());
+        let refused = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        );
         assert!(
             matches!(&refused, Err(StoreError::Migration(d)) if d.contains(table)),
             "{case}: must refuse the open naming `{table}`, got {refused:?}"
@@ -3203,7 +3674,14 @@ fn a_unique_key_compared_under_another_collation_is_refused() {
     // neither the column check nor a key read by name sees it.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
         "ALTER TABLE settings RENAME TO settings_old;
@@ -3214,7 +3692,11 @@ fn a_unique_key_compared_under_another_collation_is_refused() {
     .expect("the rebuild is legal SQLite");
     drop(conn);
 
-    let refused = HumanStore::open(&path, StoreOptions::default());
+    let refused = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    );
     assert!(
         matches!(&refused, Err(StoreError::Migration(d)) if d.contains("settings") && d.contains("NOCASE")),
         "a NOCASE key must refuse the open by its unique key, got {refused:?}"
@@ -3235,13 +3717,21 @@ fn a_unique_key_over_an_expression_is_not_the_generated_column_this_build_wrote(
     for expression in ["IFNULL(source_endpoint, '')", "('' || '')"] {
         let dir = common::private_tempdir();
         let path = dir.path().join("state").join("human.sqlite3");
-        drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+        drop(
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("opens"),
+        );
         let conn = rusqlite::Connection::open(&path).expect("reopen");
         conn.execute_batch(&format!(
             "
             ALTER TABLE unread_inbound RENAME TO unread_inbound_old;
             CREATE TABLE unread_inbound (
                 row_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                local_endpoint_id TEXT   NOT NULL,
                 app_message_id  TEXT    NOT NULL,
                 source_peer     TEXT    NOT NULL,
                 source_endpoint TEXT,
@@ -3255,14 +3745,18 @@ fn a_unique_key_over_an_expression_is_not_the_generated_column_this_build_wrote(
             );
             DROP TABLE unread_inbound_old;
             CREATE UNIQUE INDEX unread_inbound_key
-                ON unread_inbound (source_peer, {expression}, channel_key, app_message_id);
+                ON unread_inbound (local_endpoint_id, source_peer, {expression}, channel_key, app_message_id);
             CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at, row_id);
             "
         ))
         .expect("the rebuild is legal SQLite");
         drop(conn);
 
-        let refused = HumanStore::open(&path, StoreOptions::default());
+        let refused = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        );
         assert!(
             matches!(&refused, Err(StoreError::Migration(m))
                 if m.contains("unread_inbound") && m.contains("has unique keys") && m.contains("<expression>")),
@@ -3278,7 +3772,14 @@ fn an_index_naming_binary_in_lower_case_is_the_index_this_build_wrote() {
     // spelling and the walk index declared with it is the one v8 writes.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
         "DROP INDEX unread_inbound_by_received;
@@ -3287,7 +3788,12 @@ fn an_index_naming_binary_in_lower_case_is_the_index_this_build_wrote() {
     )
     .expect("recreate");
     drop(conn);
-    HumanStore::open(&path, StoreOptions::default()).expect("the same index opens");
+    HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("the same index opens");
 }
 
 #[test]
@@ -3297,19 +3803,36 @@ fn a_migration_blocked_by_another_writer_is_not_a_file_needing_recovery() {
     // as "needs recovery", a person could move a good file away.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("raw");
     conn.execute_batch(&format!("{UNDO_V10}{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;"))
         .expect("back to v6");
     conn.execute_batch("BEGIN IMMEDIATE;")
         .expect("a writer holds the file");
 
-    let error = HumanStore::open(&path, StoreOptions::default()).expect_err("blocked");
+    let error = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect_err("blocked");
     assert!(!error.needs_recovery(), "{error:?}");
 
     conn.execute_batch("COMMIT;").expect("the writer finishes");
     drop(conn);
-    HumanStore::open(&path, StoreOptions::default()).expect("the next try migrates");
+    HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("the next try migrates");
 }
 
 /// A read-only file is a permission to fix, not a file to recover: told
@@ -3323,7 +3846,14 @@ fn a_migration_of_a_file_this_user_cannot_write_is_not_a_file_needing_recovery()
     for journal in ["WAL", "DELETE"] {
         let dir = common::private_tempdir();
         let path = dir.path().join("state").join("human.sqlite3");
-        drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+        drop(
+            HumanStore::open(
+                &path,
+                &interweave_test_support::endpoint_keys::endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("opens"),
+        );
         let conn = rusqlite::Connection::open(&path).expect("raw");
         conn.execute_batch(&format!(
             "{UNDO_V10}{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6; PRAGMA journal_mode = {journal};"
@@ -3332,7 +3862,12 @@ fn a_migration_of_a_file_this_user_cannot_write_is_not_a_file_needing_recovery()
         drop(conn);
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).expect("read-only");
 
-        let error = HumanStore::open(&path, StoreOptions::default()).expect_err("cannot migrate");
+        let error = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect_err("cannot migrate");
         assert!(!error.needs_recovery(), "{journal}: {error:?}");
 
         // SQLite made the WAL's companion files with the database's own
@@ -3343,7 +3878,12 @@ fn a_migration_of_a_file_this_user_cannot_write_is_not_a_file_needing_recovery()
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600))
                 .expect("writable");
         }
-        HumanStore::open(&path, StoreOptions::default()).expect("migrates once writable");
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("migrates once writable");
     }
 }
 
@@ -3354,14 +3894,26 @@ fn a_file_from_a_newer_build_is_refused_without_a_single_byte_written() {
     // before any connection, so it is left exactly as it was.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("raw");
     conn.execute_batch("PRAGMA journal_mode = DELETE; PRAGMA user_version = 99;")
         .expect("a newer build's file, in rollback mode");
     drop(conn);
     let before = std::fs::read(&path).expect("bytes");
 
-    let error = HumanStore::open(&path, StoreOptions::default()).expect_err("refused");
+    let error = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect_err("refused");
     assert!(error.needs_recovery(), "{error:?}");
     assert_eq!(
         std::fs::read(&path).expect("bytes"),
@@ -3390,12 +3942,16 @@ fn a_v8_database_gains_the_card_columns_keeping_its_rows() {
     // key, the conversation's card_shared_at and each identity's own
     // card (architect-cto's DECISION 01a161b2 Q1). A contact and a route
     // from before keep every value, and their new columns are NULL: a
-    // typed value is the person's, and a typed route has no key.
+    // typed value is the person's, and a typed route has no key. Schema
+    // v14 then discards the typed route, its conversation and its contact,
+    // c1, since no key names its pair (STATE.md §Migrations (c)): what v9
+    // carried is read from the discard counts, and v9's columns from c2, a
+    // contact that held no route and so lost none.
     let (_dir, path, conn) = raw_store();
     conn.execute_batch(&format!(
         "{UNDO_V10}{UNDO_V9}PRAGMA user_version = 8;
          INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
-             VALUES ('c1', 'Ada', 1, 2);
+             VALUES ('c1', 'Ada', 1, 2), ('c2', 'Bea', 1, 2);
          INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, last_seen)
              VALUES ('c1', 'p', 'human', 3);
          INSERT INTO conversation_index (conversation_id, peer_id, endpoint_id, title)
@@ -3405,7 +3961,19 @@ fn a_v8_database_gains_the_card_columns_keeping_its_rows() {
     assert!(!columns_of(&conn, "contacts").contains(&"name_source".to_owned()));
     drop(conn);
 
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("migrates to v9"));
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("migrates to v9");
+    let discarded = store.discarded_at_v14().expect("read").expect("counted");
+    assert_eq!(
+        (discarded.contacts, discarded.conversations),
+        (1, 1),
+        "c1, its route and its conversation, carried by the v9 rebuild, reached v14"
+    );
+    drop(store);
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -3436,19 +4004,13 @@ fn a_v8_database_gains_the_card_columns_keeping_its_rows() {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .expect("the contact");
-    assert_eq!(contact, ("Ada".to_owned(), 1, 2, None, None));
-    let route: (String, i64, Option<Vec<u8>>) = conn
-        .query_row(
-            "SELECT peer_id, last_seen, identity_key FROM contact_routes WHERE contact_id = 'c1'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .expect("the route, carried by the rebuild");
-    assert_eq!(route, ("p".to_owned(), 3, None));
-    let title: String = conn
-        .query_row("SELECT title FROM conversation_index", [], |r| r.get(0))
-        .expect("the conversation");
-    assert_eq!(title, "Ada");
+    assert_eq!(contact, ("Bea".to_owned(), 1, 2, None, None));
+    assert_eq!(
+        conn.query_row("SELECT COUNT(*) FROM contact_routes", [], |r| r
+            .get::<_, i64>(0))
+            .expect("count"),
+        0
+    );
     assert_eq!(
         columns_of(&conn, "own_cards"),
         [
@@ -3468,13 +4030,15 @@ fn a_contact_holds_at_most_one_route_per_peer_id() {
     // never two routes of one.
     let (_dir, _path, conn) = raw_store();
     conn.execute_batch(
-        "INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
-             VALUES ('c1', 'one', 0, 0), ('c2', 'two', 0, 0);
-         INSERT INTO contact_routes (contact_id, peer_id, endpoint_id) VALUES ('c1', 'p', 'human');",
+        "INSERT INTO contacts (contact_id, local_endpoint_id, display_name, created_at, updated_at)
+             VALUES ('c1', 'l', 'one', 0, 0), ('c2', 'l', 'two', 0, 0);
+         INSERT INTO contact_routes (contact_id, local_endpoint_id, peer_id, endpoint_id)
+             VALUES ('c1', 'l', 'p', 'human');",
     )
     .expect("a contact and its route");
     let second = conn.execute(
-        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id) VALUES ('c1', 'p', 'agent')",
+        "INSERT INTO contact_routes (contact_id, local_endpoint_id, peer_id, endpoint_id)
+         VALUES ('c1', 'l', 'p', 'agent')",
         [],
     );
     assert!(
@@ -3483,7 +4047,8 @@ fn a_contact_holds_at_most_one_route_per_peer_id() {
     );
     // The control: the same PeerId under another contact is legal.
     conn.execute(
-        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id) VALUES ('c2', 'p', 'agent')",
+        "INSERT INTO contact_routes (contact_id, local_endpoint_id, peer_id, endpoint_id)
+         VALUES ('c2', 'l', 'p', 'agent')",
         [],
     )
     .expect("another contact may hold it");
@@ -3524,23 +4089,32 @@ fn the_card_columns_and_keys_are_part_of_the_verified_shape() {
             "routes without the one-per-PeerId key",
             "PRAGMA foreign_keys = OFF;
              CREATE TABLE r (
-                 contact_id         TEXT NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,
+                 contact_id         TEXT NOT NULL,
+                 local_endpoint_id  TEXT NOT NULL,
                  peer_id            TEXT NOT NULL,
                  endpoint_id        TEXT NOT NULL,
                  device_label       TEXT,
                  verification_note  TEXT,
                  last_seen          INTEGER,
                  identity_key       BLOB,
-                 UNIQUE(contact_id, peer_id, endpoint_id)
+                 UNIQUE(local_endpoint_id, peer_id, endpoint_id),
+                 FOREIGN KEY (contact_id, local_endpoint_id)
+                     REFERENCES contacts (contact_id, local_endpoint_id) ON DELETE CASCADE
              );
              DROP TABLE contact_routes;
-             ALTER TABLE r RENAME TO contact_routes;",
+             ALTER TABLE r RENAME TO contact_routes;
+             CREATE INDEX contact_routes_by_route ON contact_routes (peer_id, endpoint_id);
+             CREATE INDEX contact_routes_by_key ON contact_routes (identity_key);",
         ),
     ] {
         let (_dir, path, conn) = raw_store();
         conn.execute_batch(sql).expect("the edit is legal SQLite");
         drop(conn);
-        let refused = HumanStore::open(&path, StoreOptions::default());
+        let refused = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        );
         assert!(
             matches!(&refused, Err(StoreError::Migration(_))),
             "{what}: must refuse the open, got {refused:?}"
@@ -3562,13 +4136,22 @@ fn a_v9_database_gains_the_start_window_columns_and_indexes_keeping_its_rows() {
              VALUES ('c1', '\u{ff21}da Lovelace', 1, 2);
          INSERT INTO unread_inbound
              (app_message_id, source_peer, source_endpoint, payload, received_at)
-             VALUES ('{ID_A}', 'p', 'human', x'01', 3);"
+             VALUES ('{ID_A}', 'p', NULL, x'01', 3);"
     ))
+    // No endpoint: a `{peer, label}` no keyed route names would be
+    // discarded by v14 (STATE.md §Migrations (c)).
     .expect("back to v9, with a contact and an unread row");
     assert!(!columns_of(&conn, "contacts").contains(&"name_key".to_owned()));
     drop(conn);
 
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("migrates to v10"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("migrates to v10"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -3617,14 +4200,21 @@ fn a_v9_database_gains_the_start_window_columns_and_indexes_keeping_its_rows() {
 fn name_keys_of_another_version_are_recomputed_at_open() {
     let (_dir, path, conn) = raw_store();
     conn.execute_batch(
-        "INSERT INTO contacts (contact_id, display_name, name_key, shape_key, compat_shape_key,
-                               created_at, updated_at)
-             VALUES ('c1', 'J\u{ff10}hn', 'stale', 'stale', 'stale', 1, 2);
+        "INSERT INTO contacts (contact_id, local_endpoint_id, display_name, name_key, shape_key,
+                               compat_shape_key, created_at, updated_at)
+             VALUES ('c1', 'l', 'J\u{ff10}hn', 'stale', 'stale', 'stale', 1, 2);
          UPDATE settings SET value = '0' WHERE key = 'name_key_version';",
     )
     .expect("keys another version made");
     drop(conn);
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     let keys: (String, String, String) = conn
         .query_row(
@@ -3647,7 +4237,14 @@ fn name_keys_of_another_version_are_recomputed_at_open() {
     conn.execute("UPDATE contacts SET name_key = 'left alone'", [])
         .expect("mark it");
     drop(conn);
-    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     let key: String = conn
         .query_row("SELECT name_key FROM contacts", [], |r| r.get(0))
@@ -3734,7 +4331,11 @@ fn the_start_window_columns_and_indexes_are_part_of_the_verified_shape() {
         let (_dir, path, conn) = raw_store();
         conn.execute_batch(sql).expect("the edit is legal SQLite");
         drop(conn);
-        let refused = HumanStore::open(&path, StoreOptions::default());
+        let refused = HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        );
         assert!(
             matches!(&refused, Err(StoreError::Migration(_))),
             "{what}: must refuse the open, got {refused:?}"
@@ -3772,8 +4373,18 @@ fn the_engine_is_sqlcipher_with_its_crypto_built_in() {
 fn a_second_connection_waits_for_a_write_rather_than_failing() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut first = HumanStore::open(&path, StoreOptions::default()).expect("opens");
-    let mut second = HumanStore::open(&path, StoreOptions::default()).expect("opens twice");
+    let mut first = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
+    let mut second = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens twice");
     second
         .commit_unread_inbound(&inbound(ID_B, b"other".to_vec()))
         .expect("control: the second connection writes");
@@ -3803,7 +4414,12 @@ fn a_second_connection_waits_for_a_write_rather_than_failing() {
 fn a_v10_store_gains_the_wide_kept_kind_index_and_keeps_its_rows() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let row = store
         .commit_unread_inbound(&inbound(ID_A, b"kept across v11".to_vec()))
         .expect("committed");
@@ -3819,7 +4435,12 @@ fn a_v10_store_gains_the_wide_kept_kind_index_and_keeps_its_rows() {
     .expect("back to v10");
     drop(conn);
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates to v11");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("migrates to v11");
     assert_eq!(
         store.kept_inbound().expect("kept").len(),
         1,
@@ -3834,9 +4455,16 @@ fn a_v10_store_gains_the_wide_kept_kind_index_and_keeps_its_rows() {
         .expect("rows")
         .collect::<Result<_, _>>()
         .expect("columns");
+    // As v11 widened it, led by the identity since v14.
     assert_eq!(
         columns,
-        ["kind", "source_peer", "source_endpoint", "channel_id"]
+        [
+            "local_endpoint_id",
+            "kind",
+            "source_peer",
+            "source_endpoint",
+            "channel_id"
+        ]
     );
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))

@@ -43,9 +43,11 @@ pub const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// defaults, so the server judges first.
 pub const CLIENT_SILENCE_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// The transport contract this implementation speaks: Model B is
-/// transport v2. Distinct from the IPC version.
-pub const TRANSPORT_CONTRACT_VERSION: &str = "2.0";
+/// The transport contract this implementation speaks: the derived
+/// `EndpointId` made it transport v3 (ADR-0067 decision 7; `TRANSPORT.md`
+/// §Versioning), as Model B made it v2. Distinct from the IPC version and
+/// negotiated by nothing (`LOCAL-IPC.md` §Version negotiation and phases).
+pub const TRANSPORT_CONTRACT_VERSION: &str = "3.0";
 
 /// The longest `message` a `close` or an error carries, in CHARACTERS
 /// (Unicode code points): `ipc/close` and `ipc/frame` say
@@ -211,6 +213,7 @@ pub struct HelloResponse {
 #[serde(deny_unknown_fields)]
 pub struct GrantedLease {
     /// The endpoint leased.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub endpoint: EndpointId,
     /// Fresh for every grant; not a bearer credential.
     pub endpoint_lease_epoch: Generation,
@@ -271,7 +274,7 @@ impl<'de> Deserialize<'de> for HelloResponse {
             ipc_version: IpcVersion,
             transport_contract_version: String,
             peer: TransportIdentity,
-            #[serde(default, deserialize_with = "absent_or")]
+            #[serde(default, deserialize_with = "crate::derived::absent_or_endpoint")]
             endpoint: Option<EndpointId>,
             #[serde(default, deserialize_with = "absent_or")]
             endpoint_lease_epoch: Option<Generation>,
@@ -281,7 +284,7 @@ impl<'de> Deserialize<'de> for HelloResponse {
         }
         let wire = Wire::deserialize(d)?;
         if wire.ipc_version.major != IPC_MAJOR {
-            return Err(D::Error::custom("a hello_response speaks major 2"));
+            return Err(D::Error::custom("a hello_response speaks major 3"));
         }
         if !is_contract_version(&wire.transport_contract_version) {
             return Err(D::Error::custom(
@@ -710,27 +713,41 @@ mod tests {
     #[test]
     fn a_lease_is_both_halves_or_neither() {
         let base = || {
-            json!({"type": "hello_response", "ipc_version": {"major": 2, "minor": 0},
-                   "transport_contract_version": "2.0", "peer": PEER,
+            json!({"type": "hello_response", "ipc_version": {"major": 3, "minor": 0},
+                   "transport_contract_version": "3.0", "peer": PEER,
                    "granted_capabilities": []})
         };
         assert!(parse(&base()).is_ok());
         let mut half = base();
-        half["endpoint"] = json!("human");
+        half["endpoint"] =
+            json!(interweave_test_support::endpoint_keys::endpoint_id("human").as_str());
         assert!(parse(&half).is_err(), "an endpoint without its epoch");
         let mut other_half = base();
         other_half["endpoint_lease_epoch"] = json!("AAAAAAAAAAAAAAAA");
         assert!(parse(&other_half).is_err(), "an epoch without its endpoint");
         let mut major = base();
-        major["ipc_version"] = json!({"major": 3, "minor": 0});
-        assert!(parse(&major).is_err(), "a hello_response speaks 2");
+        for (major_n, minor) in [(2, 0), (2, 13), (4, 0)] {
+            major["ipc_version"] = json!({"major": major_n, "minor": minor});
+            assert!(
+                parse(&major).is_err(),
+                "a hello_response speaks 3, not {major_n}"
+            );
+        }
+        let mut label = base();
+        label["endpoint"] = json!("human");
+        label["endpoint_lease_epoch"] = json!("AAAAAAAAAAAAAAAA");
+        label["event_queue"] = json!(16);
+        assert!(parse(&label).is_err(), "a label is no endpoint on major 3");
+        label["endpoint"] =
+            json!(interweave_test_support::endpoint_keys::endpoint_id("human").as_str());
+        assert!(parse(&label).is_ok(), "the control: the derived id");
         let mut version = base();
         version["transport_contract_version"] = json!("2");
         assert!(parse(&version).is_err());
     }
 
     #[test]
-    fn a_hello_response_speaks_major_2_whatever_it_is_given() {
+    fn a_hello_response_speaks_major_3_whatever_it_is_given() {
         let outcome = HandshakeOutcome {
             granted_data: BTreeSet::new(),
             granted_admin: BTreeSet::new(),
@@ -759,7 +776,7 @@ mod tests {
             endpoint: None,
         };
         let response = HelloResponse::new(
-            IpcVersion { major: 2, minor: 0 },
+            IpcVersion { major: 3, minor: 0 },
             TransportIdentity::parse(PEER).expect("peer"),
             None,
             &outcome,

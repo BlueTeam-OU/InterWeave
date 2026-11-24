@@ -16,7 +16,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use interweave_human_chat_protocol::{
-    Card, CardFault, CardRoute, Classified, MAX_CARD_NAME_SCALARS, classify,
+    Card, CardFault, CardRoute, Classified, MAX_CARD_NAME_SCALARS, classify, is_card,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -48,7 +48,8 @@ pub enum CardDrop {
     DuplicateMember,
     /// A text the parser cannot hold to one JSON value.
     Unreadable,
-    /// The identity key's encoding or length.
+    /// The identity key's encoding or length, or a key that does not derive
+    /// the `source_endpoint` the card arrived on (ADR-0067 decision 5).
     IdentityKey,
     /// The signature's encoding or length, or its verification.
     Signature,
@@ -108,7 +109,9 @@ impl CardDrop {
     }
 
     /// The reason a parser fault is counted under: a surname with the
-    /// name, both key faults as one, the three signature faults as one,
+    /// name, the three key faults as one (a key that does not derive the
+    /// card's endpoint among them, ADR-0067 decision 5), the three
+    /// signature faults as one,
     /// the envelope-wide faults as one.
     #[must_use]
     pub(crate) const fn of(fault: CardFault) -> Self {
@@ -121,7 +124,9 @@ impl CardDrop {
             CardFault::TextPresent | CardFault::ReplyToPresent => Self::StrayMember,
             CardFault::DuplicateMember => Self::DuplicateMember,
             CardFault::Unreadable => Self::Unreadable,
-            CardFault::IdentityKeyEncoding | CardFault::IdentityKeyLength => Self::IdentityKey,
+            CardFault::IdentityKeyEncoding
+            | CardFault::IdentityKeyLength
+            | CardFault::KeyNotSourceEndpoint => Self::IdentityKey,
             CardFault::SignatureEncoding
             | CardFault::SignatureLength
             | CardFault::SignatureFails => Self::Signature,
@@ -165,20 +170,22 @@ pub fn direct(
     }
 }
 
-/// `text`, a `HumanChatV2` envelope's decoded text, received over broadcast
-/// from `publisher`. A card of any shape is dropped as
-/// [`CardDrop::Broadcast`]: a broadcast has no source endpoint, and
-/// whether a text is a card is decided before the route is read (the
-/// parser's `classify`), so the endpoint given it here only reaches a
-/// signature check whose answer is not used.
+/// `text`, a `HumanChatV2` envelope's decoded text, received over
+/// broadcast. A card of any shape is dropped as [`CardDrop::Broadcast`].
+/// A broadcast has no source endpoint, so the question is asked of
+/// `is_card`, which takes no route and answers as `classify` does for
+/// not-a-card. A route fabricated here was an `EndpointId` of a grammar
+/// that ADR-0067 retires; once it stopped parsing, every broadcast text
+/// would have been dropped as a card
+/// (`a_card_over_broadcast_is_dropped_and_a_text_envelope_is_not`).
 ///
 /// # Errors
 /// [`CardDrop::Broadcast`] for any card, malformed or not.
-pub fn broadcast(text: &str, publisher: &TransportIdentity) -> Result<(), CardDrop> {
-    let unused = EndpointId::parse("broadcast").map_err(|_| CardDrop::Broadcast)?;
-    match direct(text, publisher, &unused) {
-        Ok(Kind::Text) => Ok(()),
-        Ok(Kind::Card(_)) | Err(_) => Err(CardDrop::Broadcast),
+pub fn broadcast(text: &str) -> Result<(), CardDrop> {
+    if is_card(text) {
+        Err(CardDrop::Broadcast)
+    } else {
+        Ok(())
     }
 }
 
@@ -236,6 +243,7 @@ mod tests {
             (F::Unreadable, CardDrop::Unreadable),
             (F::IdentityKeyEncoding, CardDrop::IdentityKey),
             (F::IdentityKeyLength, CardDrop::IdentityKey),
+            (F::KeyNotSourceEndpoint, CardDrop::IdentityKey),
             (F::SignatureEncoding, CardDrop::Signature),
             (F::SignatureLength, CardDrop::Signature),
             (F::SignatureFails, CardDrop::Signature),

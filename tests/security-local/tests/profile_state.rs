@@ -41,8 +41,8 @@ trust: {{ policy: static-allowlist, allowed_peers: [\"{}\"] }}
 endpoints:
   default_direct_endpoint: human
   entries:
-    - {{ id: human, enabled: true, advertise: false }}
-    - {{ id: agent, enabled: true, advertise: false }}
+    - {{ key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key, alias: human, enabled: true, advertise: false }}
+    - {{ key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key, alias: agent, enabled: true, advertise: false }}
 channels: {{ desired: [] }}
 discovery: {{ providers: [] }}
 transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }} }}
@@ -161,7 +161,7 @@ async fn starts(home: &Home) {
 }
 
 fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("an endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id("agent")
 }
 
 // ---------------------------------------------------------------- TM-49
@@ -416,7 +416,20 @@ async fn a_set_whose_overlay_meets_a_full_medium_is_answered_failed_and_changes_
     );
     assert_eq!(
         endpoints(&admin).await,
-        vec![("agent".to_owned(), true), ("human".to_owned(), true)],
+        vec![
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                true
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true
+            )
+        ],
         "the endpoint still enabled"
     );
 
@@ -437,7 +450,12 @@ async fn a_set_whose_overlay_meets_a_full_medium_is_answered_failed_and_changes_
     assert!(trust.is_empty(), "the control revoke survived: {trust:?}");
     assert_eq!(
         rows[0],
-        ("agent".to_owned(), false),
+        (
+            interweave_test_support::endpoint_keys::endpoint_id("agent")
+                .as_str()
+                .to_owned(),
+            false
+        ),
         "the control disable survived"
     );
 }
@@ -562,7 +580,20 @@ async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enabl
     down(daemon, admin).await;
     assert_eq!(mode(&overlay), 0o600, "written owner-only");
     let kept = std::fs::read(&overlay).expect("the overlay");
-    let disabled = vec![("agent".to_owned(), false), ("human".to_owned(), true)];
+    let disabled = vec![
+        (
+            interweave_test_support::endpoint_keys::endpoint_id("agent")
+                .as_str()
+                .to_owned(),
+            false,
+        ),
+        (
+            interweave_test_support::endpoint_keys::endpoint_id("human")
+                .as_str()
+                .to_owned(),
+            true,
+        ),
+    ];
     assert_eq!(
         endpoints_after_start(&home).await,
         disabled,
@@ -578,12 +609,12 @@ async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enabl
             "  default_direct_endpoint: human\n  directory: { max_advertised: 1 }\n",
         )
         .replace(
-            "id: human, enabled: true, advertise: false",
-            "id: human, enabled: true, advertise: true",
+            "alias: human, enabled: true, advertise: false",
+            "alias: human, enabled: true, advertise: true",
         )
         .replace(
-            "id: agent, enabled: true, advertise: false",
-            "id: agent, enabled: false, advertise: true",
+            "alias: agent, enabled: true, advertise: false",
+            "alias: agent, enabled: false, advertise: true",
         );
     for (what, bytes, file_mode, config, rule) in [
         (
@@ -602,7 +633,8 @@ async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enabl
         ),
         (
             "an enable past the advertised bound",
-            br#"{"enabled":{"agent":true}}"#.to_vec(),
+            br#"{"enabled":{"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5":true}}"#
+                .to_vec(),
             0o600,
             Some(bounded.as_str()),
             "not with the endpoint overlay composed over it",
@@ -635,10 +667,26 @@ async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enabl
     assert!(!overlay.exists(), "nothing written");
     assert_eq!(
         endpoints(&admin).await,
-        vec![("agent".to_owned(), false), ("human".to_owned(), true)]
+        vec![
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                false
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true
+            )
+        ]
     );
     admin
-        .set_endpoint_enabled(EndpointId::parse("human").expect("an id"), false)
+        .set_endpoint_enabled(
+            interweave_test_support::endpoint_keys::endpoint_id("human"),
+            false,
+        )
         .await
         .expect("room made");
     admin
@@ -659,7 +707,20 @@ async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enabl
     std::fs::remove_file(&overlay).expect("deleted");
     assert_eq!(
         endpoints_after_start(&home).await,
-        vec![("agent".to_owned(), true), ("human".to_owned(), true)],
+        vec![
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                true
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true
+            )
+        ],
         "deleted, the disable is gone, by design"
     );
 }
@@ -724,7 +785,20 @@ async fn a_set_whose_overlay_cannot_be_written_is_answered_failed_and_changes_no
     );
     assert_eq!(
         endpoints(&admin).await,
-        vec![("agent".to_owned(), true), ("human".to_owned(), true)],
+        vec![
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                true
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true
+            )
+        ],
         "the endpoint still enabled"
     );
 
@@ -745,7 +819,12 @@ async fn a_set_whose_overlay_cannot_be_written_is_answered_failed_and_changes_no
     assert!(trust.is_empty(), "the control revoke survived: {trust:?}");
     assert_eq!(
         rows[0],
-        ("agent".to_owned(), false),
+        (
+            interweave_test_support::endpoint_keys::endpoint_id("agent")
+                .as_str()
+                .to_owned(),
+            false
+        ),
         "the control disable survived"
     );
 }

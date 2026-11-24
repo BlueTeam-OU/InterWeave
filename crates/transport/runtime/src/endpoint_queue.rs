@@ -261,7 +261,7 @@ mod tests {
     }
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn event(destination: &str, body: &[u8]) -> DirectEvent {

@@ -41,7 +41,7 @@ trust: {{ policy: static-allowlist, allowed_peers: [\"{}\"] }}
 endpoints:
   default_direct_endpoint: human
   entries:
-    - {{ id: human, enabled: true, advertise: false }}
+    - {{ key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key, alias: human, enabled: true, advertise: false }}
 channels: {{ desired: [] }}
 discovery: {{ providers: [] }}
 transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }} }}
@@ -852,7 +852,7 @@ async fn the_data_socket_grants_no_admin_authority_to_a_client_calling_itself_tr
     home.write_config(&profile("e2e", &stranger(), ""));
     let mut daemon = home.start(&[]);
     daemon.serving(&home).await;
-    let hello = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+    let hello = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"transportctl"},"requested_capabilities":["admin.status"]}"#;
     match first_answer(&home.data_socket(), hello).await {
         Frame::Close(close) => assert_eq!(close.code, TransportError::CapabilityDenied),
@@ -1121,8 +1121,8 @@ async fn a_daemons_events_validate_against_their_schemas() {
     // keepalive, joined to `general`.
     let mut raw = RawClient::connect(&b.data_socket()).await;
     raw.send(
-        r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
-        "client":{"kind":"human-client"},"endpoint":{"id":"human"},
+        r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
+        "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#,
     )
     .await;
@@ -1346,6 +1346,62 @@ async fn a_trust_change_is_in_the_log_at_every_level() {
     );
 }
 
+/// The daemon holds the lock: the offline identity commands refuse, and
+/// the key is untouched.
+fn the_offline_identity_commands_refuse_while_it_runs(home: &Home, peer: &str) {
+    let key_before = std::fs::read(home.paths.identity_file()).expect("the key");
+    let record = home.root.path().join("record.json");
+    let out = home.transportctl(
+        &[
+            "identity",
+            "backup",
+            "--to-file",
+            record.to_str().expect("utf-8"),
+        ],
+        "",
+    );
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(!record.exists(), "no record written");
+    let out = home.transportctl(
+        &["identity", "restore", "--replace", "--replacing", peer],
+        "not read\n",
+    );
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("lock is held"), "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read(home.paths.identity_file()).expect("the key"),
+        key_before
+    );
+}
+
+/// The two refusals of an endpoint the profile does not configure: the
+/// daemon's for an id (exit 1, its error code) and the client's for an
+/// alias, before anything is sent.
+fn an_unknown_endpoint_is_refused(home: &Home) {
+    // The daemon's refusal is exit 1 with its error code. (A revoke is
+    // idempotent and refuses no endpoint; enabling is what names one.)
+    // The id is a derived one this profile does not configure
+    // (`endpoint_keys::endpoint_id("claude")` in tests/support).
+    let out = home.transportctl(
+        &[
+            "endpoints",
+            "disable",
+            "12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd",
+        ],
+        "",
+    );
+    assert_eq!(out.status.code(), Some(1), "an unknown endpoint is refused");
+    assert!(stderr(&out).contains("EndpointUnknown"), "{}", stderr(&out));
+    // An alias no entry carries is the client's refusal, before a send.
+    let out = home.transportctl(&["endpoints", "disable", "nobody"], "");
+    assert_eq!(out.status.code(), Some(1), "an unknown alias is refused");
+    assert!(
+        stderr(&out).contains("no configured endpoint has the alias 'nobody'"),
+        "{}",
+        stderr(&out)
+    );
+}
+
 /// `transportctl` against a live daemon (plan §16, desktop-e2e): status
 /// and the endpoint list, their `--json` validating against the method's
 /// schema; an endpoint disabled and enabled, the default cleared and set;
@@ -1387,8 +1443,8 @@ async fn transportctl_against_a_live_daemon() {
         "{status}"
     );
     // The two broadcast-loss totals, each kept and so emitted, 0 on a
-    // daemon nothing was published to: transportctl negotiates 2.13, the
-    // minor the refusal total is served from (admin-status 1.2.0).
+    // daemon nothing was published to: transportctl negotiates 3.0, which
+    // serves the refusal total (admin-status 1.2.0).
     assert_eq!(status["ipc"]["events_dropped_total"], 0, "{status}");
     assert_eq!(status["ipc"]["events_refused_total"], 0, "{status}");
 
@@ -1406,13 +1462,40 @@ async fn transportctl_against_a_live_daemon() {
     let human = list(&home);
     assert_eq!(
         (human["id"].as_str(), human["enabled"].as_bool()),
-        (Some("human"), Some(true))
+        (
+            Some("12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"),
+            Some(true)
+        )
     );
 
     for (args, enabled, default) in [
-        (&["endpoints", "disable", "human"][..], false, false),
-        (&["endpoints", "enable", "human"][..], true, false),
-        (&["endpoints", "default", "human"][..], true, true),
+        (
+            &[
+                "endpoints",
+                "disable",
+                "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+            ][..],
+            false,
+            false,
+        ),
+        (
+            &[
+                "endpoints",
+                "enable",
+                "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+            ][..],
+            true,
+            false,
+        ),
+        (
+            &[
+                "endpoints",
+                "default",
+                "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+            ][..],
+            true,
+            true,
+        ),
         (&["endpoints", "default", "--none"][..], true, false),
     ] {
         let out = home.transportctl(args, "");
@@ -1425,43 +1508,9 @@ async fn transportctl_against_a_live_daemon() {
         );
     }
 
-    // The daemon's refusal is exit 1 with its error code. (A revoke is
-    // idempotent and refuses no endpoint; enabling is what names one.)
-    let out = home.transportctl(&["endpoints", "disable", "nobody"], "");
-    assert_eq!(out.status.code(), Some(1), "an unknown endpoint is refused");
-    assert!(stderr(&out).contains("EndpointUnknown"), "{}", stderr(&out));
+    an_unknown_endpoint_is_refused(&home);
 
-    // The daemon holds the lock: the offline identity commands refuse,
-    // and the key is untouched.
-    let key_before = std::fs::read(home.paths.identity_file()).expect("the key");
-    let record = home.root.path().join("record.json");
-    let out = home.transportctl(
-        &[
-            "identity",
-            "backup",
-            "--to-file",
-            record.to_str().expect("utf-8"),
-        ],
-        "",
-    );
-    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-    assert!(!record.exists(), "no record written");
-    let out = home.transportctl(
-        &[
-            "identity",
-            "restore",
-            "--replace",
-            "--replacing",
-            peer.as_str(),
-        ],
-        "not read\n",
-    );
-    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-    assert!(stderr(&out).contains("lock is held"), "{}", stderr(&out));
-    assert_eq!(
-        std::fs::read(home.paths.identity_file()).expect("the key"),
-        key_before
-    );
+    the_offline_identity_commands_refuse_while_it_runs(&home, peer.as_str());
 
     // admin.trust (2.1, rows at 2.3): the list is one `ipc/trust-list`
     // page per line, the profile's one allowed peer -- persisted, from the
@@ -1696,12 +1745,11 @@ async fn a_peers_restart_is_in_the_connectivity_log_and_third_party_debug_is_not
 /// once B has stopped, the moment its connection closed, inside the
 /// window the stop ran in and unchanged by a later reading; and a peer
 /// A trusts and never saw reads `null`. `transportctl peers list` says
-/// the same in words. A connection that negotiated 2.11 is served the
-/// 1.1 row, with no `last_seen_ms` at all -- and its control, the same
-/// request at 2.12 on the same daemon, carries it. And a restart forgets:
+/// the same in words. Over raw frames at major 3, every row
+/// carries `last_seen_ms` (no earlier row shape is served). And a restart forgets:
 /// A started again, B still down, reads `null` for the B it had seen.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the_1_1_row() {
+async fn peer_list_says_when_each_peer_was_last_seen_and_every_row_carries_it() {
     let ip = interweave_test_support::net::require_private_interface_v4();
     let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
     let (a_peer, b_peer) = (a.write_key(), b.write_key());
@@ -1833,20 +1881,18 @@ async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the
         "{line}"
     );
 
-    // The 1.1 row at 2.11, and the control at 2.12, over raw frames.
-    for (minor, carries) in [
-        (interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR - 1, false),
-        (interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR, true),
-    ] {
+    // Over raw frames: every 3.0 row carries it (2.12 brought it on
+    // major 2; 3.0 holds all of 2.13, so no row without it is served).
+    {
         let mut client = RawClient::connect(&a.admin_socket()).await;
         client
-            .send(&format!(
-                r#"{{"type":"hello","ipc_version":{{"major":2,"minor":{minor}}},"client":{{"kind":"transportctl"}},"requested_capabilities":["admin.status"]}}"#
-            ))
+            .send(
+                r#"{"type":"hello","ipc_version":{"major":3,"minor":0},"client":{"kind":"transportctl"},"requested_capabilities":["admin.status"]}"#,
+            )
             .await;
         match client.next(PATIENCE).await {
             Some(Frame::HelloResponse(response)) => {
-                assert_eq!(response.ipc_version.minor, minor, "negotiated");
+                assert_eq!(response.ipc_version.minor, 0, "negotiated");
             }
             other => panic!("a hello response: {other:?}"),
         }
@@ -1862,11 +1908,7 @@ async fn peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the
         let rows = body["result"]["peers"].as_array().expect("rows");
         assert_eq!(rows.len(), 2, "{body}");
         for row in rows {
-            assert_eq!(
-                row.get("last_seen_ms").is_some(),
-                carries,
-                "minor {minor}: {row}"
-            );
+            assert!(row.get("last_seen_ms").is_some(), "{row}");
         }
     }
 

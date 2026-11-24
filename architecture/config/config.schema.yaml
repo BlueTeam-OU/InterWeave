@@ -8,7 +8,11 @@ runtime:
   android:
     # Used only when deployment=embedded-android. The Android foreground service
     # hosts TransportRuntime in-process and owns this configured EndpointId lease.
-    endpoint: EndpointId? = human
+    # An id, not an alias, and no default: the app writes this document and
+    # nobody types the field. Absent while the phone holds no identity yet
+    # (ENDPOINTS.md, the Android document's form 1): such a document loads,
+    # and a start on it is refused, ConfigError::AndroidNoIdentity.
+    endpoint: EndpointId?
     availability_mode: enum[foreground-only,stay-reachable] = foreground-only
     foreground_service_type: literal[remoteMessaging] = remoteMessaging
     key_storage: literal[android-keystore-aesgcm-wrap] = android-keystore-aesgcm-wrap
@@ -56,7 +60,7 @@ transport:
     address_backoff_max: duration[30s..30m] = 30s
     identity_mismatch_quarantine: duration[1m..24h] = 30m
   direct:
-    protocol: literal[/interweave/direct/2.0.0]
+    protocol: literal[/interweave/direct/3.0.0]
     timeout_ms: integer[1000..60000] = 10000
     max_inflight_total: integer[1..512] = 128
     max_inflight_per_peer: integer[1..32] = 8
@@ -213,7 +217,9 @@ trust:
 endpoints:
   # Model B: one profile PeerId, multiple configured local routes.
   registration_policy: literal[configured-only]
-  default_direct_endpoint: EndpointId?
+  # An alias or an id; the loader resolves an alias over the entries below
+  # and the endpoint overlay's added ones (contracts/ENDPOINTS.md).
+  default_direct_endpoint: "(EndpointId | alias)?"
   directory:
     enabled: bool = true
     cache_ttl: duration[10s..5m] = 60s
@@ -222,7 +228,16 @@ endpoints:
     max_inflight_queries: integer[1..64] = 16
   entries: list[EndpointConfig, max=64]
   EndpointConfig:
-    id: string[regex=^[a-z][a-z0-9._-]{0,63}$]
+    # The endpoint's key file NAME under <state_dir>/endpoint-keys/, never a
+    # path and never a bare id (ADR-0067; contracts/ENDPOINTS.md §Configured
+    # endpoint set). The id is derived from the file's header and must equal
+    # the stem; with the file absent the stem is the id and the entry loads
+    # key-missing. An entry with the retired `id` member is refused,
+    # EndpointIdNotDerived.
+    key: string[regex=^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}\.key$]
+    # Local display name, never on the wire; unique within the profile
+    # across authored and added entries (AliasInvalid, AliasTaken).
+    alias: string[regex=^[a-z][a-z0-9._-]{0,63}$]?
     # Required, both of them: the contract schema lists them in
     # `required`, and a default of true for `enabled` turns an omission
     # into a live endpoint.
@@ -239,7 +254,7 @@ endpoints:
     inbound: "inherit_profile_trust | { static_subset: list[PeerId, max=4096] }"
     outbound: "inherit_profile_trust | { static_subset: list[PeerId, max=4096] }"
   # Cross-field validation:
-  #   endpoint IDs are unique
+  #   endpoint IDs (the keys' stems) are unique, and so are aliases
   #   default_direct_endpoint, when set, references an enabled endpoint
   #   static_subset peers are subsets of trust.allowed_peers
   #   endpoint policy can narrow but never widen profile trust
@@ -339,7 +354,7 @@ observability:
 # Runtime cross-field validation:
 #   runtime.deployment=daemon-ipc => ipc.enabled=true
 #   runtime.deployment=embedded-android => ipc.enabled=false
-#   runtime.deployment=embedded-android => runtime.android.endpoint references an enabled configured EndpointId
+#   runtime.deployment=embedded-android => runtime.android.endpoint, when present, is the EndpointId of a configured entry (checked at load); a START needs it present and the composed set to hold one enabled identity, any one and not the named one (ADR-0061 decision 7), ConfigError::AndroidNoIdentity otherwise (ENDPOINTS.md, A 2026-11-21)
 #   runtime.deployment=embedded-android => connectivity AutoNAT/relay server roles are false and Kademlia mode is client
 #   runtime.deployment=embedded-android => every listen address is a wildcard (0.0.0.0 / ::), ConfigError::AndroidListenerNotWildcard otherwise (CONNECTIVITY.md section 14, A 2026-10-09)
 #   runtime.android.availability_mode=stay-reachable => foreground_service_type=remoteMessaging

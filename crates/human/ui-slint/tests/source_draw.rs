@@ -30,12 +30,13 @@ use interweave_human_core::RowId;
 use interweave_human_ui_model::{ConversationKey, RuntimeHost, UiModel, UiText, placeholder_en};
 use interweave_human_ui_slint::View;
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::{ComponentHandle as _, Model as _};
 use unicode_segmentation::UnicodeSegmentation as _;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn received(row: i64, from: &TransportIdentity, text: &str) -> Received {

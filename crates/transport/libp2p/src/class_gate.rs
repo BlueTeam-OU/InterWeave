@@ -956,7 +956,7 @@ mod tests {
         // load-bearing: if a future edit gives `Denied::poll` anything
         // to emit -- a metric, a close signal -- the type system will
         // happily let a gated connection open the inner behaviour's REAL
-        // outbound protocol, `/interweave/direct/2.0.0` or `/meshsub/`,
+        // outbound protocol, `/interweave/direct/3.0.0` or `/meshsub/`,
         // on a connection this wrapper exists to keep bare. No compile
         // error, no other test. Review finding on PR #77.
         let mut denied: ClassGatedHandler<request_response_handler::Stub> =

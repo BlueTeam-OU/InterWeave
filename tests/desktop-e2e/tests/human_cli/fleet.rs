@@ -22,8 +22,16 @@ use serde_json::Value;
 use super::common::{Daemon, Home, PATIENCE, free_port};
 use super::{Listener, runtime_up};
 
-/// The fleet's human endpoint, the one every control child leases.
+/// The fleet's human endpoint's alias, the one every control child leases.
 const CONTROL: &str = "fabric-control";
+
+/// Its derived id (a test-only key): what a control child is told to lease
+/// and what a conversation with it names (ADR-0067).
+fn control_id() -> String {
+    interweave_test_support::endpoint_keys::endpoint_id(CONTROL)
+        .as_str()
+        .to_owned()
+}
 
 /// One account's profile: its home, `PeerId`, loopback port and daemon.
 struct Account {
@@ -65,7 +73,7 @@ trust:
 endpoints:
   default_direct_endpoint: {CONTROL}
   entries:
-    - {{ id: {CONTROL}, enabled: true, advertise: false, allowed_client_kinds: [human-client] }}
+    - {{ key: {id}.key, alias: {CONTROL}, enabled: true, advertise: false, allowed_client_kinds: [human-client] }}
 channels: {{ desired: [] }}
 discovery:
   providers:
@@ -81,6 +89,7 @@ observability: {{ log_level: debug }}
             allowed = allowed.join(", "),
             entries = entries.join(", "),
             port = self.port,
+            id = control_id(),
         ));
     }
 
@@ -101,7 +110,7 @@ observability: {{ log_level: debug }}
                 "--input",
                 "--consume",
                 "--endpoint",
-                CONTROL,
+                &control_id(),
             ],
         );
         listener.until("the session ready", |l| {
@@ -110,9 +119,9 @@ observability: {{ log_level: debug }}
         (listener, input)
     }
 
-    /// `peer/fabric-control`, the conversation a control child addresses.
+    /// `peer/<fabric-control's id>`, the conversation a control child addresses.
     fn control(&self) -> String {
-        format!("{}/{CONTROL}", self.peer.as_str())
+        format!("{}/{}", self.peer.as_str(), control_id())
     }
 }
 

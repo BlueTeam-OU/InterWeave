@@ -190,6 +190,7 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
     let store_dir = tempfile::tempdir().expect("a store directory");
     let store = HumanStore::open(
         &store_dir.path().join("state/human.sqlite"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("a store");

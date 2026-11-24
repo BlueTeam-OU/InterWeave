@@ -499,9 +499,8 @@ where
                 let counters = Arc::clone(&self.shared.counters);
                 let grace = self.shared.config.shutdown_grace;
                 let answer = id.clone();
-                let minor = self.version.minor;
                 self.in_flight.spawn(async move {
-                    dispatch::admin(&*port, &counters, grace, answer, request, minor).await
+                    dispatch::admin(&*port, &counters, grace, answer, request).await
                 })
             }
         };
@@ -669,10 +668,10 @@ where
         // catch it here.
         debug_assert!(events.len() <= reserved, "the port returned more than max");
         for event in events {
-            // Minors are additive: a type -- or a shape, the path notice
-            // with no `previous` (2.4) -- introduced above the negotiated
-            // minor is not this client's to see, so it is skipped without
-            // a number -- a gap would read as a loss (#151 re-review, 2).
+            // Versions are additive: a type introduced after the
+            // negotiated version is not this client's to see, so it is
+            // skipped without a number -- a gap would read as a loss
+            // (#151 re-review, 2).
             // Judged BEFORE the shape, so a refused one of such a type
             // leaves no gap either (#184 review F4).
             if !available_to(&event, self.version) {
@@ -833,7 +832,7 @@ mod tests {
                 state,
             }),
             port: Port::Admin(Arc::new(admin)),
-            version: IpcVersion { major: 2, minor: 0 },
+            version: IpcVersion { major: 3, minor: 0 },
             in_flight: JoinSet::new(),
             outbox: VecDeque::new(),
             tasks: HashMap::new(),
@@ -907,7 +906,7 @@ mod tests {
     async fn a_stop_takes_the_writers_own_count_unless_the_abort_cancelled_it() {
         let event = || {
             Frame::parse(
-                r#"{"type":"event","sequence":0,"event_type":"endpoint.lease_changed","data":{"endpoint":"human","revoked_epoch":"AAAAAAAAAAAAAAAAAAAAAQ"}}"#,
+                r#"{"type":"event","sequence":0,"event_type":"endpoint.lease_changed","data":{"endpoint":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr","revoked_epoch":"AAAAAAAAAAAAAAAAAAAAAQ"}}"#,
             )
             .expect("an event")
         };

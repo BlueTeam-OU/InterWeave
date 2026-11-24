@@ -42,7 +42,8 @@ pub use identities::{
     SwitchSnackbar, SwitchView, Switched, Switcher, SwitcherRow, Transition, TryAgainControl,
 };
 pub use identity_flow::{
-    Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
+    Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, UncheckedRefused,
+    Words,
 };
 /// The store row an intent names, as the model hands it to a view.
 pub use interweave_human_core::RowId;

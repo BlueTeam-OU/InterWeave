@@ -91,12 +91,13 @@ pub struct FacadeSide<B: interweave_human_transport_client::SessionBinding, A: A
     /// is gone, at the wall clock of the write that holds.
     shares_owed: Vec<ConversationKey>,
     /// The identity's own key, which signs its card: opened or made from
-    /// the root's [`crate::KeySource`] ([`Self::set_key_source`]), made
-    /// anew by `MakeNewKey`, or set directly by a test
-    /// ([`Self::set_identity_key`]); without it nothing is shared.
+    /// the root's [`crate::KeySource`] ([`Self::set_key_source`]), or set
+    /// directly by a test ([`Self::set_identity_key`]); without it nothing
+    /// is shared. Not made anew here: the key is the identity (ADR-0067
+    /// decision 5).
     identity: Option<IdentityKey>,
     /// Where the key lives, when the root gave it ([`Self::set_key_source`]):
-    /// what opens it again and makes a new one.
+    /// what opens it again.
     key_source: Option<crate::KeySource>,
     /// Why the key could not be used, while it cannot.
     key_problem: Option<interweave_human_ui_model::KeyProblem>,
@@ -928,14 +929,6 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
             Command::AcceptCard { row, shown } => self.accept_card(*row, shown, &mut updates),
             Command::DeclineCard(row) => self.decline_card(*row, &mut updates),
             Command::UndoCard(row) => self.undo_card(*row, &mut updates),
-            Command::AskNewKey => cards::own_cards_pending(self.client.store_mut())
-                .map(|rows| {
-                    updates.push(Update::NewKeyAsked {
-                        pending: !rows.is_empty(),
-                    });
-                })
-                .map_err(|e| store_failure(&e)),
-            Command::MakeNewKey => self.make_new_key(&mut updates),
             Command::RetryKey => self.retry_key(&mut updates),
             Command::Window(window) => self.window_command(window, &mut updates),
             Command::ForgetCard(row) => {
@@ -1080,145 +1073,6 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
             .ok_or(Failure::NoIdentityKey)?;
         updates.push(Update::KeyRetried(view));
         Ok(())
-    }
-
-    /// Make a new key, as the person confirmed (design/2026-10-24-
-    /// identity-key.md section 5.2): every own card the facade still holds
-    /// unsent is withdrawn first, with no Undo, since it carries a key the
-    /// person no longer has -- a row the transport may hold already is
-    /// left to arrive; where the store cannot withdraw one, no key is
-    /// made. Then the old key goes and the new one is made, and the
-    /// conversations whose counterparts hold or may hold the old key are
-    /// listed for a share again. A failure after the old file went is said
-    /// as missing, and nothing makes a key in its place this session.
-    fn make_new_key(&mut self, updates: &mut Vec<Update>) -> Result<(), Failure> {
-        use interweave_human_ui_model::KeyProblem;
-        // Refused only before the step starts; from here every path ends
-        // it made or not made, so the identity's page never waits on a
-        // step that answered nothing (#423 F1): the start's two reads are
-        // `a_new_key_starts_from_its_two_reads`, a made and a not-made end
-        // the tests/cards.rs key tests, and a refusal the model's
-        // `a_make_the_facade_refuses_ends_the_step_not_made`.
-        if self.key_source.is_none() {
-            return Err(Failure::NoIdentityKey);
-        }
-        // A share owed from an Accepted of the old key's card is written
-        // now, dated before the key changes, so the list below reads it
-        // (#467 F6); one the store still refuses is listed from the owed
-        // set itself (`a_share_owed_when_a_new_key_is_made_is_listed_to_share_again`).
-        self.shares_due(updates);
-        let start = new_key_start(
-            cards::own_cards_pending(self.client.store_mut()),
-            self.client.store_mut().cards_shared(),
-            &self.shares_owed,
-            updates,
-        );
-        let Some((pending, shared)) = start else {
-            self.key_not_made(false, updates);
-            return Ok(());
-        };
-        for (row, _, _) in &pending {
-            // Not sent: the client holds it, so it is withdrawn. Sending
-            // or unconfirmed: the transport may hold it, so it may arrive.
-            let unsent = self.outbound.get(row).is_some_and(|u| {
-                matches!(
-                    u.status,
-                    interweave_human_client_api::OutboundStatus::NeedsAttention { .. }
-                )
-            });
-            if unsent {
-                if self.client.cancel(*row).is_err() {
-                    self.key_not_made(false, updates);
-                    return Ok(());
-                }
-                while let Some(event) = self.client.next_event() {
-                    self.on_event(event, updates);
-                }
-                updates.push(Update::Cancelled {
-                    row: *row,
-                    restorable: false,
-                });
-            }
-        }
-        match self.key_source.as_ref().map(crate::KeySource::replace) {
-            Some(Ok(key)) => {
-                let fingerprint = key.fingerprint().to_string();
-                self.identity = Some(key);
-                self.key_problem = None;
-                // The old key's shares are over: one still owed, or an own
-                // card row still on its way, is not recorded from here,
-                // since a date after the change would read as a share of
-                // the new key; each is in the list instead. A card cancelled
-                // before the step has no Undo after it: confirming the step
-                // closes that snackbar first (ui-model's
-                // `confirming_a_new_key_closes_an_own_cards_cancel_undo`;
-                // #467 F6, R3, R6 F17, #471 R2 F1;
-                // `a_share_owed_when_a_new_key_is_made_is_listed_to_share_again`,
-                // `a_card_accepted_after_a_new_key_records_no_share`).
-                self.shares_owed.clear();
-                self.card_rows.clear();
-                // The step read the pending rows itself: marked read, so a
-                // start read that had failed does not load the old key's rows
-                // back at the next turn (#467 R4 F12; untested, since the
-                // store cannot be made to fail one read and pass the next
-                // within one step).
-                self.card_rows_read = true;
-                let identity = self.own_view_or_said(updates);
-                updates.push(Update::KeyMade {
-                    identity,
-                    fingerprint,
-                    share_again: shared,
-                });
-            }
-            Some(Err(failed)) => {
-                let gone = matches!(
-                    failed,
-                    interweave_human_store::identity_key::NewKeyFailed::Gone(_)
-                );
-                if gone {
-                    // Never opened again here: an identity that never
-                    // shared would be given a key silently, and the person
-                    // asked for one and must learn it was not made.
-                    self.identity = None;
-                    self.key_problem = Some(KeyProblem::Missing);
-                } else {
-                    self.open_key();
-                }
-                self.key_not_made(gone, updates);
-            }
-            None => self.key_not_made(false, updates),
-        }
-        Ok(())
-    }
-
-    /// The step ended with no new key: the identity as its key stands,
-    /// and whether the old file went first.
-    fn key_not_made(&mut self, gone: bool, updates: &mut Vec<Update>) {
-        let problem = self
-            .key_problem
-            .clone()
-            .unwrap_or(interweave_human_ui_model::KeyProblem::NotNow);
-        let identity = self.own_view_or_said(updates);
-        updates.push(Update::KeyNotMade {
-            identity,
-            problem,
-            gone,
-        });
-    }
-
-    /// The identity's view, or `None` with the read's failure said: what a
-    /// step that has ended reports either way.
-    fn own_view_or_said(
-        &mut self,
-        updates: &mut Vec<Update>,
-    ) -> Option<interweave_human_ui_model::IdentityView> {
-        match self.own_view() {
-            Ok(view) => view,
-            Err(e) => {
-                say(updates, Update::CardsNotRead(store_failure(&e)));
-                None
-            }
-        }
     }
 
     /// Decline: the row is read and dropped, which removes its unread copy
@@ -1913,59 +1767,6 @@ fn judged(proposal: Result<Proposal, StoreError>) -> Update {
     }
 }
 
-/// An own card row on its way, with the route it goes to.
-type PendingCard = (RowId, TransportIdentity, EndpointId);
-
-/// The start of Make a new key from its two reads, as the store gave them
-/// (#423 F4, F5): `None` when the own cards on their way cannot be read --
-/// none can be withdrawn, so no key is made -- else those cards and where
-/// to share the card again. The list is every conversation that recorded a
-/// share, newest first, then the conversations of own cards on their way,
-/// then those whose share the store refused to record (`owed`, #467 F6);
-/// when the shares cannot be read there is no list at all, never a part of
-/// one passed off as whole (section 5.3's "those, and nobody else", #467
-/// F8). A read that fails is said in `updates` as [`Update::CardsNotRead`].
-fn new_key_start(
-    pending: Result<Vec<PendingCard>, StoreError>,
-    shared: Result<Vec<(TransportIdentity, EndpointId, u64)>, StoreError>,
-    owed: &[ConversationKey],
-    updates: &mut Vec<Update>,
-) -> Option<(Vec<PendingCard>, Vec<ConversationKey>)> {
-    let pending = match pending {
-        Ok(pending) => pending,
-        Err(e) => {
-            say(updates, Update::CardsNotRead(store_failure(&e)));
-            return None;
-        }
-    };
-    let direct = |peer: &TransportIdentity, endpoint: &EndpointId| ConversationKey::Direct {
-        peer: peer.clone(),
-        endpoint: Some(endpoint.clone()),
-    };
-    let share_again = match shared {
-        Ok(rows) => {
-            let mut list: Vec<ConversationKey> = rows
-                .iter()
-                .map(|(peer, endpoint, _)| direct(peer, endpoint))
-                .collect();
-            let on_their_way = pending
-                .iter()
-                .map(|(_, peer, endpoint)| direct(peer, endpoint));
-            for key in on_their_way.chain(owed.iter().cloned()) {
-                if !list.contains(&key) {
-                    list.push(key);
-                }
-            }
-            list
-        }
-        Err(e) => {
-            say(updates, Update::CardsNotRead(store_failure(&e)));
-            Vec::new()
-        }
-    };
-    Some((pending, share_again))
-}
-
 /// What an Undo of a card's answer reads and writes in the store: the
 /// human store, or a test's that fails at the step it is told to.
 pub(crate) trait CardStore {
@@ -2104,6 +1905,7 @@ fn contacts_now(store: &mut impl CardStore) -> Result<Update, StoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     use interweave_human_client_api::{ClientEvent, Connectivity, OutboundStatus};
     use interweave_human_store::{
@@ -2119,7 +1921,7 @@ mod tests {
     /// counts them. Mutation: `start` without the reclassification.
     #[test]
     fn the_start_classifies_the_stored_rows() {
-        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
+        let human = endpoint_id("human");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()
                 .transport_identity()
@@ -2129,7 +1931,11 @@ mod tests {
             queue_bound: 4,
         };
         let (node, _) = FakeNetwork::pair(config(), config());
-        let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let media =
             MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("media");
         let text = br#"{"v":2,"kind":"text","app_message_id":"000000000000000000000000000000aa","text":"a"}"#;
@@ -2277,7 +2083,7 @@ mod tests {
     /// A facade side whose store holds an unread message and an unread row
     /// it cannot show, as a facade that could not hand them over leaves it.
     fn held_back_side() -> FacadeSide<FakeNode, FakeNode> {
-        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
+        let human = endpoint_id("human");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()
                 .transport_identity()
@@ -2287,7 +2093,11 @@ mod tests {
             queue_bound: 4,
         };
         let (node, _) = FakeNetwork::pair(config(), config());
-        let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let media =
             MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("media");
         let held = br#"{"v":2,"kind":"text","app_message_id":"000000000000000000000000000000aa","text":"held back"}"#;
@@ -2337,7 +2147,7 @@ mod tests {
 
     /// A facade over a fake network, its store empty.
     fn quiet_side() -> FacadeSide<FakeNode, FakeNode> {
-        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
+        let human = endpoint_id("human");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()
                 .transport_identity()
@@ -2347,7 +2157,11 @@ mod tests {
             queue_bound: 4,
         };
         let (node, _) = FakeNetwork::pair(config(), config());
-        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let client = TransportClient::new(
             node.clone(),
             node,
@@ -2513,7 +2327,7 @@ mod tests {
             row: RowId::from_stored(7),
             peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
                 .expect("a PeerId"),
-            endpoint: EndpointId::parse("human").expect("an endpoint"),
+            endpoint: endpoint_id("human"),
             card: Card {
                 app_message_id: "0".repeat(32),
                 name: "Ada".to_owned(),
@@ -2580,64 +2394,6 @@ mod tests {
             run(&mut Failing::default(), false),
             (Ok(true), vec!["restored"])
         );
-    }
-
-    /// #423 F4, F5: Make a new key starts from its two reads -- no key
-    /// when the own cards on their way cannot be read, no list when the
-    /// shares cannot be, each failure said; otherwise every share newest
-    /// first, then the conversations of cards on their way, then the owed
-    /// shares, once each (#467 F8).
-    #[test]
-    fn a_new_key_starts_from_its_two_reads() {
-        use super::new_key_start;
-        let peer = |s: &str| TransportIdentity::parse(s).expect("a PeerId");
-        let (p, q) = (
-            peer("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"),
-            peer("12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5"),
-        );
-        let r = peer("12D3KooWETGXpqbjJk2qkXWxotXiunJn2y4iySRzyCkqKc6DuMdb");
-        let human = EndpointId::parse("human").expect("an endpoint");
-        let key = |p: &TransportIdentity| ConversationKey::Direct {
-            peer: p.clone(),
-            endpoint: Some(human.clone()),
-        };
-        let corrupt = || StoreError::Corrupt("told to".to_owned());
-        let pending = vec![
-            (RowId::from_stored(1), q.clone(), human.clone()),
-            (RowId::from_stored(2), p.clone(), human.clone()),
-        ];
-
-        let mut said = Vec::new();
-        assert_eq!(
-            new_key_start(Err(corrupt()), Ok(Vec::new()), &[], &mut said),
-            None
-        );
-        assert_eq!(said, vec![Update::CardsNotRead(Failure::Corrupt)]);
-
-        let mut said = Vec::new();
-        assert_eq!(
-            new_key_start(Ok(pending.clone()), Err(corrupt()), &[key(&p)], &mut said),
-            Some((pending.clone(), Vec::new())),
-            "no list, never the pending or owed part of one"
-        );
-        assert_eq!(
-            said,
-            vec![Update::CardsNotRead(Failure::Corrupt)],
-            "and said"
-        );
-
-        let mut said = Vec::new();
-        assert_eq!(
-            new_key_start(
-                Ok(pending.clone()),
-                Ok(vec![(p.clone(), human.clone(), 20)]),
-                &[key(&q), key(&r)],
-                &mut said
-            ),
-            Some((pending, vec![key(&p), key(&q), key(&r)])),
-            "every share, then the cards on their way, once each"
-        );
-        assert!(said.is_empty());
     }
 
     /// #467 F4: the unread listing that fails while proposals are judged

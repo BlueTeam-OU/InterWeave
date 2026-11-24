@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use interweave_ipc_client::IpcBinding;
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort, LeaseRecord};
-use interweave_transport_api::TransportError;
+use interweave_transport_api::{EndpointId, TransportError};
 
 use crate::common::{Home, PATIENCE, human};
 
@@ -214,7 +214,14 @@ pub(crate) fn start_binary(binary: &std::path::Path, home: &Home, extra: &[&str]
 
 /// The `human` endpoint's live lease on `home`'s daemon.
 pub(crate) async fn human_lease(binding: &IpcBinding) -> Option<LeaseRecord> {
-    lease_on(&endpoints_admin(binding).await)
+    lease_of(binding, &human()).await
+}
+
+/// `endpoint`'s live lease on `home`'s daemon: for a profile whose human
+/// endpoint is not the test-only key's `human()`, such as a previous
+/// build's tree once `endpoint init` minted its key.
+pub(crate) async fn lease_of(binding: &IpcBinding, endpoint: &EndpointId) -> Option<LeaseRecord> {
+    lease_on(&endpoints_admin(binding).await, endpoint)
         .await
         .expect("the leases")
 }
@@ -226,12 +233,15 @@ async fn endpoints_admin(binding: &IpcBinding) -> impl AdminPort {
         .expect("an admin port")
 }
 
-async fn lease_on(admin: &impl AdminPort) -> Result<Option<LeaseRecord>, TransportError> {
+async fn lease_on(
+    admin: &impl AdminPort,
+    endpoint: &EndpointId,
+) -> Result<Option<LeaseRecord>, TransportError> {
     Ok(admin
         .leases()
         .await?
         .into_iter()
-        .find(|v| v.endpoint == human())
+        .find(|v| v.endpoint == *endpoint)
         .and_then(|v| v.lease))
 }
 
@@ -246,6 +256,16 @@ async fn lease_on(admin: &impl AdminPort) -> Result<Option<LeaseRecord>, Transpo
 /// (`BackendUnavailable`, `ShuttingDown`) is dropped and the next turn
 /// opens another; any other answer to the read fails the wait with it.
 pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
+    until_lease_of(binding, &human(), held, app).await;
+}
+
+/// [`until_lease`] on `endpoint`'s lease.
+pub(crate) async fn until_lease_of(
+    binding: &IpcBinding,
+    endpoint: &EndpointId,
+    held: bool,
+    app: &App,
+) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut admin = None;
     loop {
@@ -253,7 +273,7 @@ pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
             Some(port) => port,
             None => endpoints_admin(binding).await,
         };
-        match lease_on(&port).await {
+        match lease_on(&port, endpoint).await {
             Ok(lease) if lease.is_some() == held => return,
             Ok(_) => admin = Some(port),
             Err(TransportError::BackendUnavailable | TransportError::ShuttingDown) => {}

@@ -17,7 +17,7 @@ transport:
     address_backoff_max: 30s
     identity_mismatch_quarantine: 30m
   direct:
-    protocol: /interweave/direct/2.0.0
+    protocol: /interweave/direct/3.0.0
     timeout_ms: 10000
     max_inflight_total: 128
     max_inflight_per_peer: 8
@@ -67,8 +67,15 @@ endpoints:
   registration_policy: configured-only
   default_direct_endpoint: human
   directory: { enabled: true, cache_ttl: 60s, max_advertised: 16 }
+  # Each `key` names an endpoint's key file under <state_dir>/endpoint-keys/
+  # (ADR-0067). These ids are EXAMPLES, derived from TEST-ONLY keys whose seed
+  # is SHA-256("interweave/test-only/endpoint-key/v1\0" || alias), public by
+  # construction; their key files do not exist, so each entry loads in the
+  # key-missing state. A real profile names the files `transportctl endpoint
+  # init` minted.
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: true
       allowed_client_kinds: [human-client]

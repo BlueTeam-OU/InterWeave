@@ -263,7 +263,13 @@ pub fn parse_call(
                 .map_err(|e| ToolInputError(format!("peer: {e}")))?;
             let endpoint = input
                 .endpoint
-                .map(|e| EndpointId::parse(e).map_err(|e| ToolInputError(format!("endpoint: {e}"))))
+                // A remote endpoint is named by its derived id alone: an alias is a
+                // local name of a profile's configuration (ADR-0067), and the
+                // bridge holds none of the remote's.
+                .map(|e| {
+                    EndpointId::parse_derived(e)
+                        .map_err(|e| ToolInputError(format!("endpoint: {e}")))
+                })
                 .transpose()?;
             ToolCall::Send {
                 destination: DirectDestination { peer, endpoint },
@@ -359,6 +365,7 @@ pub fn error_text(error: TransportError) -> String {
 mod tests {
     #![allow(clippy::expect_used)]
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
     use serde_json::json;
 
     const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -439,7 +446,7 @@ mod tests {
                 parse_call(tool, Some(arguments.clone())).is_ok(),
                 "the control: {tool:?} without it"
             );
-            arguments["source_endpoint"] = json!("claude");
+            arguments["source_endpoint"] = json!(endpoint_id("claude").as_str());
             let refused = parse_call(tool, Some(arguments)).expect_err("refused");
             assert!(refused.0.contains("source_endpoint"), "{tool:?}: {refused}");
         }
@@ -458,7 +465,7 @@ mod tests {
         assert_eq!(destination.endpoint, None);
         let call = parse_call(
             ToolName::Send,
-            Some(json!({"peer": PEER, "endpoint": "human", "content": "hello"})),
+            Some(json!({"peer": PEER, "endpoint": endpoint_id("human").as_str(), "content": "hello"})),
         )
         .expect("ok");
         let ToolCall::Send { destination, .. } = call else {
@@ -466,7 +473,7 @@ mod tests {
         };
         assert_eq!(
             destination.endpoint.as_ref().map(EndpointId::as_str),
-            Some("human")
+            Some(endpoint_id("human").as_str())
         );
     }
 
@@ -482,6 +489,16 @@ mod tests {
             (
                 ToolName::Send,
                 json!({"peer": PEER, "endpoint": "", "content": "x"}),
+                "endpoint",
+            ),
+            (
+                ToolName::Send,
+                json!({"peer": PEER, "endpoint": "human", "content": "x"}),
+                "endpoint",
+            ),
+            (
+                ToolName::Send,
+                json!({"peer": PEER, "endpoint": "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N", "content": "x"}),
                 "endpoint",
             ),
             (
@@ -520,8 +537,11 @@ mod tests {
     fn result_wording_is_the_contracts() {
         assert_eq!(BROADCAST_ACCEPTED, "accepted for local publish");
         assert_eq!(
-            direct_accepted(&EndpointId::parse("human").expect("endpoint")),
-            "remote transport accepted at endpoint human"
+            direct_accepted(&endpoint_id("human")),
+            format!(
+                "remote transport accepted at endpoint {}",
+                endpoint_id("human").as_str()
+            )
         );
         for error in [
             TransportError::RemoteEndpointUnavailable,

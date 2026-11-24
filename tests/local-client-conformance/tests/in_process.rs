@@ -15,9 +15,7 @@ use interweave_local_client_api::{
     TrustChange,
 };
 use interweave_local_client_conformance_tests as suite;
-use interweave_transport_api::{
-    ChannelId, DirectDestination, EndpointId, MessageId, TransportError,
-};
+use interweave_transport_api::{ChannelId, DirectDestination, MessageId, TransportError};
 use interweave_transport_composition::ComposedRuntime;
 
 mod common;
@@ -104,7 +102,7 @@ async fn item_4_local_refusals_map_exactly() {
     suite::local_refusals_map_exactly(
         &a,
         &pair.b_peer,
-        &EndpointId::parse("nowhere").expect("valid"),
+        &interweave_test_support::endpoint_keys::endpoint_id("nowhere"),
     )
     .await;
     pair.stop().await;
@@ -783,27 +781,21 @@ async fn a_drained_message_is_a_route_and_a_path_change_follows_it() {
     pair.stop().await;
 }
 
-/// A session opened `without_route_notices` -- what the IPC server opens
-/// for a connection below 2.4 -- is owed a change that follows its
-/// route's begin with its `previous`, through the in-process binding's
-/// own wiring; the control, a session that takes route notices, is owed
-/// the change merged into the begin. The window is held open the way
-/// pressure holds it: the message taken alone (`events(1)`), the begin's
-/// notice still pending when the change arrives (#245 re-review N2).
+/// A change that arrives while its route's begin is still pending is owed
+/// merged into the begin, with no `previous`, through the in-process
+/// binding's own wiring. The window is held open the way pressure holds
+/// it: the message taken alone (`events(1)`), the begin's notice still
+/// pending when the change arrives (#245 re-review N2).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_session_without_route_notices_is_owed_the_change_with_its_previous() {
+async fn a_change_while_the_begin_is_pending_is_merged_into_the_begin() {
     use interweave_local_client_api::LocalSessionEvent;
     use interweave_transport_api::PeerPath;
     let pair = Pair::start().await;
     let (a, b) = pair.bindings();
     let from = a.open(suite::full(Some(&agent()))).await.expect("leases");
-    for (n, declines) in [(1_u8, true), (2, false)] {
-        let request = if declines {
-            suite::full(Some(&human())).without_route_notices()
-        } else {
-            suite::full(Some(&human()))
-        };
-        let to = b.open(request).await.expect("leases");
+    {
+        let n = 1_u8;
+        let to = b.open(suite::full(Some(&human()))).await.expect("leases");
         let _ = to.events(usize::MAX).await.expect("the open-time state");
         from.send_direct(
             DirectDestination {
@@ -848,12 +840,7 @@ async fn a_session_without_route_notices_is_owed_the_change_with_its_previous() 
                 _ => None,
             })
             .collect();
-        let expected = if declines {
-            (Some(PeerPath::Relayed), PeerPath::Direct)
-        } else {
-            (None, PeerPath::Direct)
-        };
-        assert_eq!(paths, [expected], "declines route notices: {declines}");
+        assert_eq!(paths, [(None, PeerPath::Direct)], "merged into the begin");
         to.close().await.expect("closes");
     }
     drop(from);

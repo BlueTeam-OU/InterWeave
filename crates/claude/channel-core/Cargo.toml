@@ -35,7 +35,11 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 brotli = { workspace = true }
+# TEST-ONLY: signs a card under a key its endpoint does not derive
+# (ADR-0067 decision 5), which no frozen vector carries.
+ed25519-dalek = { workspace = true }
 # Plan §19 P4: the fake is the first harness.
 interweave-local-client-fake = { path = "../../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
+interweave-test-support = { path = "../../../tests/support" }
 tokio = { workspace = true, features = ["macros", "rt"] }

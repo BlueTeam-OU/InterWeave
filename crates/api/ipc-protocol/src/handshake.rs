@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The IPC v2 hello exchange.
+//! The IPC hello exchange (major 3).
 //!
 //! The handshake is where authority is decided, so the types here keep
 //! two facts apart that a single "capabilities" field would blur:
@@ -23,7 +23,7 @@ use interweave_local_client_api::{AdminCapability, DataCapability, MAX_CLIENT_KI
 use interweave_transport_api::{EndpointId, TransportError};
 use serde::{Deserialize, Serialize};
 
-use crate::version::{IPC_MAJOR, IpcVersion};
+use crate::version::{IPC_MAJOR, IpcVersion, Since};
 
 /// Maximum requested capabilities or negotiated features.
 pub const MAX_REQUESTED: usize = 8;
@@ -216,25 +216,31 @@ impl RequestedCapability {
         }
     }
 
-    /// The IPC minor (of major 2) that introduced the capability.
+    /// The IPC version that introduced the capability: every one is
+    /// [`Since::THREE_ZERO`], so a first hello of major 3 may name any of
+    /// them (`LOCAL-IPC.md` §Version negotiation and phases: "every
+    /// capability major 2 reached is a 3.0 capability"). The minor each
+    /// arrived at on major 2 -- `admin.trust` 2.1, `admin.peers` 2.7 -- is
+    /// history.
     #[must_use]
-    pub const fn since_minor(self) -> u64 {
+    pub const fn since(self) -> Since {
         match self {
             Self::Events
             | Self::Commands
             | Self::EndpointsQuery
             | Self::AdminStatus
             | Self::AdminEndpoints
-            | Self::AdminShutdown => 0,
-            Self::AdminTrust => 1,
-            Self::AdminPeers => 7,
+            | Self::AdminShutdown
+            | Self::AdminTrust
+            | Self::AdminPeers => Since::THREE_ZERO,
         }
     }
 
-    /// Whether a hello that negotiates `version` may name the capability.
+    /// Whether a hello that negotiates `version` may name the capability,
+    /// the pair compared as a pair ([`Since::admits`]).
     #[must_use]
     pub const fn available_at(self, version: IpcVersion) -> bool {
-        version.minor >= self.since_minor()
+        self.since().admits(version)
     }
 }
 
@@ -411,13 +417,13 @@ where
 
 impl Hello {
     /// Whether every capability this hello names was introduced at or
-    /// below `version`, the minor it negotiates.
+    /// below `version`, the version it negotiates.
     ///
     /// One that was not is the CLIENT'S protocol violation, answered
     /// `close{ProtocolViolation}` before the hello is judged any further
-    /// (`LOCAL-IPC.md` §Version negotiation): a 2.0 server's closed
-    /// capability parse refuses the same hello, so a client sees one
-    /// result whichever server it reached. Asked separately from
+    /// (`LOCAL-IPC.md` §Version negotiation): a server that predates the
+    /// capability refuses the same hello in its closed capability parse,
+    /// so a client sees one result whichever server it reached. Asked separately from
     /// [`Self::evaluate`] because the domain does not enter into it --
     /// the data socket closes such a hello the same way.
     #[must_use]
@@ -434,11 +440,13 @@ impl Hello {
     /// categorical ones, and each maps to the error the contract names.
     ///
     /// # Errors
-    /// - [`TransportError::VersionIncompatible`] for a major other than 2;
+    /// - [`TransportError::VersionIncompatible`] for a major other than
+    ///   [`IPC_MAJOR`], major 2 among them;
     /// - [`TransportError::InvalidArgument`] for an out-of-range client
     ///   kind or over-cap request lists;
     /// - [`TransportError::InvalidArgument`] for a claimed endpoint outside
-    ///   the `EndpointId` grammar on the data socket, judged first among
+    ///   the derived `EndpointId` grammar on the data socket -- a label of
+    ///   the retired grammar, or an alias, among them -- judged first among
     ///   the claim's checks (`LOCAL-IPC.md` §Handshake's order); on the
     ///   admin socket any claim is `CapabilityDenied` first;
     /// - [`TransportError::CapabilityDenied`] for `admin.*` requested on
@@ -483,7 +491,8 @@ impl Hello {
                     .endpoint
                     .as_ref()
                     .map(|claim| {
-                        EndpointId::parse(&claim.id).map_err(|_| TransportError::InvalidArgument)
+                        EndpointId::parse_derived(&claim.id)
+                            .map_err(|_| TransportError::InvalidArgument)
                     })
                     .transpose()?;
                 // The categorical rule. Not "unlikely", not "policy will
@@ -549,10 +558,23 @@ impl Hello {
 mod tests {
     use super::*;
 
+    /// TEST-ONLY: `interweave_test_support::endpoint_keys::endpoint_id("human")`,
+    /// the derived id of a public test seed
+    /// (`the_test_ids_are_the_support_crates`).
+    const HUMAN: &str = "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr";
+
+    #[test]
+    fn the_test_ids_are_the_support_crates() {
+        assert_eq!(
+            HUMAN,
+            interweave_test_support::endpoint_keys::endpoint_id("human").as_str()
+        );
+    }
+
     fn hello(kind: &str, caps: &[RequestedCapability], endpoint: Option<&str>) -> Hello {
         Hello {
             frame_type: HelloTag::Hello,
-            ipc_version: IpcVersion { major: 2, minor: 0 },
+            ipc_version: IpcVersion { major: 3, minor: 0 },
             client: ClientInfo {
                 kind: kind.to_owned(),
                 version: None,
@@ -568,13 +590,16 @@ mod tests {
         let h = hello(
             "human-client",
             &[RequestedCapability::Events, RequestedCapability::Commands],
-            Some("human"),
+            Some(HUMAN),
         );
         let out = h.evaluate(AuthorityDomain::Data, true).expect("granted");
         assert!(out.granted_data.contains(&DataCapability::Events));
         assert!(out.granted_data.contains(&DataCapability::Commands));
         assert!(out.granted_admin.is_empty());
-        assert_eq!(out.endpoint, Some(EndpointId::parse("human").expect("ok")));
+        assert_eq!(
+            out.endpoint,
+            Some(EndpointId::parse_derived(HUMAN).expect("ok"))
+        );
     }
 
     #[test]
@@ -659,12 +684,60 @@ mod tests {
         assert!(out.granted_admin.contains(&AdminCapability::Endpoints));
     }
 
+    /// Major 2 is not served beside major 3: a 2.0 or a 2.13 hello is
+    /// `VersionIncompatible` on either socket, and the same hello at 3.0
+    /// is admitted.
+    #[test]
+    fn a_major_two_hello_is_version_incompatible() {
+        for (domain, caps, endpoint) in [
+            (
+                AuthorityDomain::Data,
+                &[RequestedCapability::Events][..],
+                Some(HUMAN),
+            ),
+            (
+                AuthorityDomain::Admin,
+                &[RequestedCapability::AdminStatus][..],
+                None,
+            ),
+        ] {
+            let mut h = hello("human-client", caps, endpoint);
+            assert!(h.evaluate(domain, true).is_ok(), "the control, at 3.0");
+            for minor in [0, 13] {
+                h.ipc_version = IpcVersion { major: 2, minor };
+                assert_eq!(
+                    h.evaluate(domain, true),
+                    Err(TransportError::VersionIncompatible),
+                    "2.{minor}"
+                );
+            }
+        }
+    }
+
+    /// A label of the retired grammar, well formed under it and inside
+    /// the claim's 1..=64 characters, is no `EndpointId` on major 3: the
+    /// claim is `InvalidArgument`, and the derived id of the same name is
+    /// the control (ADR-0067 decision 7).
+    #[test]
+    fn a_label_claim_is_invalid_argument() {
+        for label in ["human", "claude.agent-1", &"a".repeat(MAX_CLAIM_CHARS)] {
+            let h = hello("human-client", &[RequestedCapability::Events], Some(label));
+            assert_eq!(
+                h.evaluate(AuthorityDomain::Data, true),
+                Err(TransportError::InvalidArgument),
+                "{label}"
+            );
+        }
+        let derived = hello("human-client", &[RequestedCapability::Events], Some(HUMAN));
+        assert!(derived.evaluate(AuthorityDomain::Data, true).is_ok());
+    }
+
     /// A claimed endpoint outside the grammar is `InvalidArgument`, the
     /// claim's first check: the frame still parses, so the answer is the
     /// handshake's code and not a protocol violation (#165 close review).
     #[test]
     fn a_malformed_endpoint_claim_is_invalid_argument() {
-        let body = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        let body = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"human-client"},"endpoint":{"id":"Not An Id!"},
             "requested_capabilities":["events","commands"],"features":["keepalive"]}"#;
         let parsed: Hello = serde_json::from_str(body).expect("the frame parses");
@@ -708,13 +781,9 @@ mod tests {
         );
         // The control: the same claim well formed is granted.
         assert!(
-            hello(
-                "human-client",
-                &[RequestedCapability::Events],
-                Some("human")
-            )
-            .evaluate(AuthorityDomain::Data, true)
-            .is_ok()
+            hello("human-client", &[RequestedCapability::Events], Some(HUMAN))
+                .evaluate(AuthorityDomain::Data, true)
+                .is_ok()
         );
     }
 
@@ -749,7 +818,7 @@ mod tests {
         let h = hello(
             "human-client",
             &[RequestedCapability::Commands],
-            Some("human"),
+            Some(HUMAN),
         );
         assert!(h.evaluate(AuthorityDomain::Data, true).is_ok());
     }
@@ -759,7 +828,7 @@ mod tests {
         let h = hello(
             "settings",
             &[RequestedCapability::AdminEndpoints],
-            Some("human"),
+            Some(HUMAN),
         );
         assert_eq!(
             h.evaluate(AuthorityDomain::Admin, false),
@@ -774,7 +843,7 @@ mod tests {
         let mut h = hello(
             "human-client",
             &[RequestedCapability::Commands],
-            Some("human"),
+            Some(HUMAN),
         );
         h.features.clear();
         assert_eq!(
@@ -840,7 +909,7 @@ mod tests {
     fn hello_rejects_unknown_fields_and_wrong_tags() {
         let json = serde_json::json!({
             "type": "hello",
-            "ipc_version": { "major": 2, "minor": 0 },
+            "ipc_version": { "major": 3, "minor": 0 },
             "client": { "kind": "x" },
             "surprise": true
         });
@@ -848,7 +917,7 @@ mod tests {
 
         let json = serde_json::json!({
             "type": "goodbye",
-            "ipc_version": { "major": 2, "minor": 0 },
+            "ipc_version": { "major": 3, "minor": 0 },
             "client": { "kind": "x" }
         });
         assert!(serde_json::from_value::<Hello>(json).is_err());
@@ -858,13 +927,13 @@ mod tests {
         // Nine copies violate both `uniqueItems` and `maxItems: 8`, and
         // both violations vanish the instant serde collects into a set.
         // The check has to happen on the sequence or not at all.
-        let nine = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        let nine = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"human-client"},
             "requested_capabilities":["events","events","events","events",
             "events","events","events","events","events"]}"#;
         assert!(serde_json::from_str::<Hello>(nine).is_err());
 
-        let two = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        let two = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"human-client"},
             "requested_capabilities":["events","events"]}"#;
         assert!(
@@ -872,7 +941,7 @@ mod tests {
             "a duplicate within the cap is still a duplicate"
         );
 
-        let ok = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        let ok = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"human-client"},
             "requested_capabilities":["events","commands"]}"#;
         assert!(serde_json::from_str::<Hello>(ok).is_ok());
@@ -882,7 +951,7 @@ mod tests {
     fn feature_names_outside_their_bounds_are_refused() {
         let with = |f: &str| {
             format!(
-                r#"{{"type":"hello","ipc_version":{{"major":2,"minor":0}},
+                r#"{{"type":"hello","ipc_version":{{"major":3,"minor":0}},
                 "client":{{"kind":"human-client"}},"features":["{f}"]}}"#
             )
         };
@@ -902,7 +971,7 @@ mod tests {
         // schema includes it in neither type. Serde's default Option
         // treats them as the same, which is more permissive than every
         // schema-driven implementation this has to interoperate with.
-        let base = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        let base = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"human-client"%EXTRA%}%TAIL%}"#;
         let with_null_version = base
             .replace("%EXTRA%", r#","version":null"#)
@@ -927,7 +996,7 @@ mod tests {
     fn an_oversized_client_version_is_refused() {
         let json = |version: &str| {
             format!(
-                r#"{{"type":"hello","ipc_version":{{"major":2,"minor":0}},
+                r#"{{"type":"hello","ipc_version":{{"major":3,"minor":0}},
                 "client":{{"kind":"human-client","version":"{version}"}}}}"#
             )
         };
@@ -957,21 +1026,28 @@ mod tests {
     }
 
     #[test]
-    fn a_hello_naming_a_capability_above_its_minor_is_found() {
+    fn every_capability_is_a_three_zero_capability() {
         let hello = |caps: serde_json::Value| -> Hello {
             serde_json::from_value(serde_json::json!({
-                "type": "hello", "ipc_version": {"major": 2, "minor": 1},
+                "type": "hello", "ipc_version": {"major": 3, "minor": 0},
                 "client": {"kind": "transportctl"},
                 "requested_capabilities": caps
             }))
             .expect("hello")
         };
-        let at = |minor| IpcVersion { major: 2, minor };
-        let trust = hello(serde_json::json!(["admin.status", "admin.trust"]));
-        assert!(!trust.capabilities_available_at(at(0)));
-        assert!(trust.capabilities_available_at(at(1)));
+        let at = |major, minor| IpcVersion { major, minor };
+        // `admin.trust` arrived at 2.1 and `admin.peers` at 2.7: on major 3
+        // a first hello names them at minor 0, and a 2.13 pair, whose minor
+        // is the higher, is below them.
+        let late = hello(serde_json::json!([
+            "admin.status",
+            "admin.trust",
+            "admin.peers"
+        ]));
+        assert!(late.capabilities_available_at(at(3, 0)));
+        assert!(!late.capabilities_available_at(at(2, 13)));
         let plain = hello(serde_json::json!(["admin.status", "admin.endpoints"]));
-        assert!(plain.capabilities_available_at(at(0)), "the control");
+        assert!(plain.capabilities_available_at(at(3, 0)), "the control");
         assert_eq!(
             RequestedCapability::AdminTrust.as_admin(),
             Some(AdminCapability::Trust)

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The `/interweave/direct/2.0.0` request-response codec.
+//! The `/interweave/direct/3.0.0` request-response codec.
 //!
 //! A thin layer over `transport-api`'s frozen framing, and thin on
 //! purpose: the bytes are decided there and pinned by
-//! `fixtures/direct-v2/`, so this module's whole job is moving them
+//! `fixtures/direct-v3/`, so this module's whole job is moving them
 //! across a substream with a bound on how many it will read.
 //!
 //! # Every read is bounded before it allocates
@@ -17,7 +17,7 @@
 //!
 //! The request limit is the frame ceiling: the largest legal
 //! `DirectMessageV2` is the payload ceiling plus the fixed prefix, both
-//! endpoint labels, and a media type — every one already bounded by its
+//! endpoint ids, and a media type — every one already bounded by its
 //! own type. A frame larger than that cannot be legal, so refusing it at
 //! the read costs nothing a legal sender would notice.
 //!
@@ -35,8 +35,8 @@ use libp2p::StreamProtocol;
 use libp2p::request_response::Codec;
 
 use interweave_transport_api::{
-    DirectMessageV2, DirectRejectReason, EndpointId, MAX_MEDIA_TYPE_BYTES, MAX_PAYLOAD_BYTES,
-    MessageId,
+    DirectMessageV2, DirectRejectReason, ENDPOINT_FIELD_BYTES, EndpointId, MAX_MEDIA_TYPE_BYTES,
+    MAX_PAYLOAD_BYTES, MessageId,
 };
 
 /// One inbound request, which may be a frame this node could not parse.
@@ -69,7 +69,7 @@ pub enum InboundRequest {
     /// and the ingress buckets are consulted first. Parsing a maximum
     /// frame allocates a second payload buffer, and doing that before
     /// admission let an infrastructure-only connection — which is
-    /// excluded from direct v2 outright — or a peer already over its
+    /// excluded from the direct protocol outright — or a peer already over its
     /// rate, choose how much work this node did on its behalf.
     Inbound {
         /// At most `MAX_REQUEST_BYTES + 1`, so the read itself stays
@@ -97,13 +97,20 @@ impl InboundRequest {
     }
 }
 
-/// The protocol this codec speaks (ADR-0030).
+/// The protocol this codec speaks (ADR-0030, ADR-0067 decision 7).
 ///
 /// Versioned in the string. A future incompatible framing is a NEW
 /// protocol id, never a reinterpretation of this one — which is what
 /// makes `UnsupportedProtocols` a usable major-version signal rather
 /// than an ambiguous negotiation failure (SPIKE-002 finding 3).
-pub const DIRECT_PROTOCOL: StreamProtocol = StreamProtocol::new("/interweave/direct/2.0.0");
+///
+/// 3.0.0 because the endpoint fields carry derived ids, and it is the
+/// one id the behaviour lists (`behaviour.rs`): no `2.x` is advertised or
+/// accepted (DIRECT.md §Selected primitive), so a node of a release
+/// before Stage 22's fails at negotiation, `ProtocolUnsupported`, and
+/// never frame by frame. `tests/interoperability/tests/upgrade_matrix_direct.rs`
+/// holds both directions against a raw 2.0.0 peer over real sockets.
+pub const DIRECT_PROTOCOL: StreamProtocol = StreamProtocol::new("/interweave/direct/3.0.0");
 
 /// Largest legal request frame, in bytes.
 ///
@@ -112,17 +119,20 @@ pub const DIRECT_PROTOCOL: StreamProtocol = StreamProtocol::new("/interweave/dir
 /// admit bytes no legal frame can contain.
 pub const MAX_REQUEST_BYTES: usize = 16          // message_id
     + 8                                          // sent_at_ms
-    + 1 + EndpointId::MAX_BYTES                   // source
-    + 1 + EndpointId::MAX_BYTES                   // destination
+    + 1 + ENDPOINT_FIELD_BYTES                    // source
+    + 1 + ENDPOINT_FIELD_BYTES                    // destination
     + 1 + MAX_MEDIA_TYPE_BYTES                    // media type
     + 4 + MAX_PAYLOAD_BYTES; // payload
 
-/// Largest response, in bytes.
+/// Largest response, in bytes: 70, the length of every legal `AcceptedV2`.
 ///
-/// A response is a tag, a message id, and either an endpoint label or a
-/// reason byte. Generous for that and nowhere near the request ceiling,
-/// because a responder has no legitimate reason to send more.
-pub const MAX_RESPONSE_BYTES: usize = 1 + 16 + 1 + EndpointId::MAX_BYTES;
+/// A response is a tag, a message id, and either an endpoint id or a
+/// reason byte. On 3.0.0 the id is exactly [`ENDPOINT_FIELD_BYTES`], so an
+/// acceptance has one legal length, `1 + 16 + 1 + 52`, and it is the
+/// longest legal response (a `RejectedV2` is 18). The read takes one byte
+/// past it, so a longer answer is refused at the read, before decode
+/// (DIRECT.md §Response byte layout; `tests::every_legal_acceptance_is_70_bytes`).
+pub const MAX_RESPONSE_BYTES: usize = 1 + 16 + 1 + ENDPOINT_FIELD_BYTES;
 
 /// The answer to a direct request.
 ///
@@ -294,8 +304,8 @@ pub fn parse_inbound(
         // ONE PARSER, in `transport-api` beside `decode`. A second walk
         // here read each length byte without checking it against its
         // ceiling, so it stepped over a field `decode` would have
-        // refused -- a 200-byte source endpoint, say, past
-        // `EndpointId::MAX_BYTES` -- and could land on a plausible
+        // refused -- a 200-byte source endpoint, say, which is not
+        // `ENDPOINT_FIELD_BYTES` -- and could land on a plausible
         // `payload_len` further in. That reported `too_large` for a frame
         // whose framing was wrong, telling a sender to shrink a payload
         // that was not the problem. Review finding.
@@ -405,9 +415,9 @@ pub fn encode_response(response: &DirectResponse) -> Vec<u8> {
         } => {
             out.push(TAG_ACCEPTED);
             out.extend_from_slice(message_id.as_bytes());
-            let label = resolved_endpoint.as_str().as_bytes();
-            out.push(u8::try_from(label.len()).unwrap_or(u8::MAX));
-            out.extend_from_slice(label);
+            let id = resolved_endpoint.as_str().as_bytes();
+            out.push(u8::try_from(id.len()).unwrap_or(u8::MAX));
+            out.extend_from_slice(id);
         }
         DirectResponse::Rejected { message_id, reason } => {
             out.push(TAG_REJECTED);
@@ -435,31 +445,40 @@ pub fn decode_response(bytes: &[u8]) -> Result<DirectResponse, String> {
 
     match tag {
         TAG_ACCEPTED => {
-            let (&len, label) = rest.split_first().ok_or("an acceptance without a length")?;
+            let (&len, id) = rest.split_first().ok_or("an acceptance without a length")?;
             let len = usize::from(len);
             if len == 0 {
                 // AcceptedV2 always names the endpoint that took it. A
                 // zero length here is not "the default" -- the default
                 // was already resolved, and this field IS the answer.
                 //
-                // `EndpointId::parse` would reject the empty string a few
-                // lines below, so this branch exists for its MESSAGE
-                // rather than for the refusal: "no resolved endpoint" is
-                // a wire-shape problem an operator can act on, where "an
-                // illegal endpoint label: empty" describes the symptom.
-                // The test asserts the wording, which is what makes this
-                // branch load-bearing rather than decorative.
+                // The length check below would refuse it too, so this
+                // branch exists for its MESSAGE rather than for the
+                // refusal: "no resolved endpoint" is a wire-shape problem
+                // an operator can act on. The test asserts the wording,
+                // which is what makes this branch load-bearing rather than
+                // decorative.
                 return Err("an acceptance with no resolved endpoint".to_owned());
             }
-            if label.len() != len {
+            // 3.0.0: the field carries a derived id, so 52 is its one
+            // length (DIRECT.md §Response byte layout).
+            if len != ENDPOINT_FIELD_BYTES {
                 return Err(format!(
-                    "an acceptance declaring {len} label bytes and carrying {}",
-                    label.len()
+                    "an acceptance declaring {len} endpoint bytes; an endpoint id is \
+                     {ENDPOINT_FIELD_BYTES}"
                 ));
             }
-            let text = core::str::from_utf8(label).map_err(|_| "a non-UTF-8 endpoint label")?;
-            let resolved_endpoint =
-                EndpointId::parse(text).map_err(|e| format!("an illegal endpoint label: {e}"))?;
+            if id.len() != len {
+                return Err(format!(
+                    "an acceptance declaring {len} endpoint bytes and carrying {}",
+                    id.len()
+                ));
+            }
+            let text = core::str::from_utf8(id).map_err(|_| "a non-UTF-8 endpoint id")?;
+            // A label of the retired grammar is malformed metadata here: the
+            // derived grammar decides what an id is.
+            let resolved_endpoint = EndpointId::parse_derived(text)
+                .map_err(|e| format!("an illegal endpoint id: {e}"))?;
             Ok(DirectResponse::Accepted {
                 message_id,
                 resolved_endpoint,
@@ -474,7 +493,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<DirectResponse, String> {
             // problem. This coerced it to `Unsupported`, which surfaces
             // as `ProtocolUnsupported` and tells a caller to go looking
             // for a negotiation failure — from a peer that demonstrably
-            // negotiated direct v2 and answered on it. Refused instead,
+            // negotiated the direct protocol and answered on it. Refused instead,
             // so the response decoder reports `InvalidData` and the
             // exchange ends as `ProtocolViolation`.
             let Some(reason) = reason_from_code(code) else {
@@ -494,8 +513,103 @@ mod tests {
         MessageId::from_bytes([3; 16])
     }
 
+    /// A derived id per name: the name's bytes zero-padded into the key.
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        let mut key = [0_u8; 32];
+        key[..name.len()].copy_from_slice(name.as_bytes());
+        EndpointId::from_ed25519_public(&key)
+    }
+
+    /// DIRECT.md §Response byte layout on 3.0.0: every legal `AcceptedV2`
+    /// is 70 bytes (1 + 16 + 1 + 52), the longest legal response, so the
+    /// read bound is 70; an acceptance whose endpoint field is one byte
+    /// shorter or longer is refused, and so is a 71-byte stream at the read.
+    #[tokio::test]
+    async fn every_legal_acceptance_is_70_bytes() {
+        assert_eq!(MAX_RESPONSE_BYTES, 70);
+        for name in ["claude", "human", "a-third"] {
+            let bytes = encode_response(&DirectResponse::Accepted {
+                message_id: message_id(),
+                resolved_endpoint: endpoint(name),
+            });
+            assert_eq!(bytes.len(), 70, "{name}");
+        }
+        let rejected = encode_response(&DirectResponse::Rejected {
+            message_id: message_id(),
+            reason: DirectRejectReason::NoRoute,
+        });
+        assert_eq!(rejected.len(), 18);
+
+        let good = encode_response(&DirectResponse::Accepted {
+            message_id: message_id(),
+            resolved_endpoint: endpoint("claude"),
+        });
+        // A 51- and a 53-byte endpoint field, the length byte agreeing
+        // with what follows: refused by length, not by truncation.
+        let mut short = good.clone();
+        short[17] = 51;
+        short.pop();
+        let error = decode_response(&short).expect_err("a 51-byte id is refused");
+        assert!(error.contains("declaring 51 endpoint bytes;"), "{error}");
+        let mut long = good.clone();
+        long[17] = 53;
+        long.push(b'1');
+        let error = decode_response(&long).expect_err("a 53-byte id is refused");
+        assert!(error.contains("declaring 53 endpoint bytes;"), "{error}");
+
+        // At the read: 70 bytes are read whole, a 71st is past the bound.
+        let mut codec = DirectCodec;
+        let read = codec
+            .read_response(
+                &DIRECT_PROTOCOL,
+                &mut futures::io::Cursor::new(good.clone()),
+            )
+            .await
+            .expect("70 bytes are a response");
+        assert!(matches!(read, DirectResponse::Accepted { .. }));
+        let mut over = good;
+        over.push(0);
+        let error = codec
+            .read_response(&DIRECT_PROTOCOL, &mut futures::io::Cursor::new(over))
+            .await
+            .expect_err("71 bytes are past the bound");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    /// An acceptance whose endpoint field is a label is malformed metadata
+    /// on 3.0.0. A label cannot be built as an `EndpointId`, so the frame
+    /// is written as the peer would write it, byte by byte; the control is
+    /// the same frame carrying a derived id.
+    #[test]
+    fn an_acceptance_naming_a_label_is_refused() {
+        let frame = |field: &[u8]| {
+            let mut bytes = vec![TAG_ACCEPTED];
+            bytes.extend_from_slice(message_id().as_bytes());
+            bytes.push(u8::try_from(field.len()).expect("short"));
+            bytes.extend_from_slice(field);
+            bytes
+        };
+        let derived = endpoint("claude");
+        assert_eq!(
+            decode_response(&frame(derived.as_str().as_bytes())),
+            Ok(DirectResponse::Accepted {
+                message_id: message_id(),
+                resolved_endpoint: derived,
+            }),
+            "the control decodes"
+        );
+        for label in ["claude", &"a".repeat(52)] {
+            assert!(
+                decode_response(&frame(label.as_bytes())).is_err(),
+                "{label}"
+            );
+        }
+    }
+
+    /// The protocol id is 3.0.0 and nothing of 2.x.
+    #[test]
+    fn the_protocol_is_direct_3_0_0() {
+        assert_eq!(DIRECT_PROTOCOL.as_ref(), "/interweave/direct/3.0.0");
     }
 
     #[test]
@@ -559,7 +673,7 @@ mod tests {
         // MALFORMED METADATA, not a version problem. Coercing it to
         // `Unsupported` surfaced as `ProtocolUnsupported` and sent a
         // caller looking for a negotiation failure — from a peer that
-        // had demonstrably negotiated direct v2 and answered on it.
+        // had demonstrably negotiated the direct protocol and answered on it.
         assert!(
             decode_response(&bytes).is_err(),
             "an unassigned reason code is refused, not reinterpreted"
@@ -624,8 +738,8 @@ mod tests {
         let largest = DirectMessageV2 {
             message_id: message_id(),
             sent_at_ms: u64::MAX,
-            source_endpoint: endpoint(&"a".repeat(EndpointId::MAX_BYTES)),
-            destination_endpoint: Some(endpoint(&"b".repeat(EndpointId::MAX_BYTES))),
+            source_endpoint: endpoint("a"),
+            destination_endpoint: Some(endpoint("b")),
             payload: Payload::at_ceiling(
                 Some(MediaType::parse("x".repeat(MAX_MEDIA_TYPE_BYTES)).expect("valid media type")),
                 vec![0; MAX_PAYLOAD_BYTES],
@@ -699,7 +813,7 @@ mod tests {
         // but over the ceiling the body cannot be decoded, and the
         // shortcut that read the header instead walked each length byte
         // WITHOUT checking it against its ceiling. So a 200-byte source
-        // endpoint, which `EndpointId::MAX_BYTES` forbids, was stepped
+        // endpoint, which `ENDPOINT_FIELD_BYTES` forbids, was stepped
         // over and whatever four bytes followed were read as
         // `payload_len`. Made huge here, so the old shortcut answered
         // `too_large` and told a sender to shrink a payload that was not
@@ -707,7 +821,7 @@ mod tests {
         // LAID OUT FOR THE UNCHECKED WALK, so the fixture discriminates:
         // the big `payload_len` sits exactly where a walk that trusts the
         // length byte would look for it, and nowhere a checked parser
-        // would. 200 is past `EndpointId::MAX_BYTES`, so the checked
+        // would. 200 is not `ENDPOINT_FIELD_BYTES`, so the checked
         // parser stops at the field; the unchecked one steps over all 200
         // bytes, reads two zero length bytes, and lands on `u32::MAX`.
         let mut frame = vec![0u8; MessageId::LEN + 8];

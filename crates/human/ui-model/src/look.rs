@@ -214,19 +214,20 @@ fn civil(day: i64) -> (i32, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::{AvatarHue, civil};
-    use interweave_transport_api::EndpointId;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     /// Contact-cards design 5.1: an identity's hue is its `EndpointId`'s,
-    /// by section 5.1's rule over the id's text -- so "human" (bytes
-    /// summing to 537), "work" (451) and "home" (425) take the three
-    /// pairs in order, whatever `PeerId` holds them. Mutation: the hue
-    /// taken from anything but the `EndpointId`'s text.
+    /// by section 5.1's rule over the id's text -- so the derived ids of
+    /// "work", "human" and "zed" (byte sums 0, 1 and 2 modulo 3, as
+    /// measured) take the three pairs in order, whatever `PeerId` holds
+    /// them. Mutation: the hue taken from anything but the `EndpointId`'s
+    /// text.
     #[test]
     fn an_identitys_hue_is_its_endpoint_ids() {
-        let of = |id: &str| AvatarHue::of_identity(&EndpointId::parse(id).expect("an endpoint"));
-        assert_eq!(of("human"), AvatarHue::Teal);
-        assert_eq!(of("work"), AvatarHue::Amber);
-        assert_eq!(of("home"), AvatarHue::Navy);
+        let of = |id: &str| AvatarHue::of_identity(&endpoint_id(id));
+        assert_eq!(of("work"), AvatarHue::Teal);
+        assert_eq!(of("human"), AvatarHue::Amber);
+        assert_eq!(of("zed"), AvatarHue::Navy);
     }
 
     #[test]

@@ -13,7 +13,7 @@
 //! establishment, which would read a connection up for a week as a
 //! peer last seen a week ago. Held in memory: a restart forgets it, and
 //! the row says `null` until the peer connects again
-//! (`peer_list_says_when_each_peer_was_last_seen_and_a_2_11_client_reads_the_1_1_row`
+//! (`peer_list_says_when_each_peer_was_last_seen_and_every_row_carries_it`
 //! in `tests/desktop-e2e/tests/daemon.rs` restarts the daemon and reads it).
 //!
 //! STAMPED ON THE WALL CLOCK AT THE CLOSE, not converted at each

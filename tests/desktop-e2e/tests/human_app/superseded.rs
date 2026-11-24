@@ -391,6 +391,7 @@ impl App {
         let store_dir = tempfile::tempdir().expect("a store directory");
         let store = HumanStore::open(
             &store_dir.path().join("state/human.sqlite"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             StoreOptions::default(),
         )
         .expect("a store");

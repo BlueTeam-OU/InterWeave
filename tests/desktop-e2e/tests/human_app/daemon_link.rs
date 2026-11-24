@@ -213,7 +213,7 @@ async fn the_client_keeps_data_and_admin_apart_on_their_own_sockets() {
     let on_admin = asked(&admin.from(pid));
     let me = i32::try_from(std::process::id()).expect("a pid");
     assert!(
-        on_data.endpoint.as_deref() == Some("human") && !on_data.methods.is_empty(),
+        on_data.endpoint.as_deref() == Some(human().as_str()) && !on_data.methods.is_empty(),
         "control: the tap read the client's lease and its send: {on_data:?}"
     );
     assert!(

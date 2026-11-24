@@ -30,8 +30,9 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use interweave_claude_channel_core::{Delivery, rfc3339_utc};
+use interweave_profile_config::EndpointSelector;
 use interweave_profile_config::PersistError;
-use interweave_transport_api::{EndpointId, TransportError};
+use interweave_transport_api::TransportError;
 use serde_json::{Value, json};
 
 /// The largest the log file grows before it is rotated.
@@ -208,15 +209,22 @@ impl Log {
     /// The log for `endpoint` of the profile whose state directory is
     /// `state_dir`: the directory made owner-only, or judged so when it
     /// is there. A directory that cannot be had leaves stderr alone.
+    ///
+    /// The file is named by `--endpoint` AS GIVEN, alias or id
+    /// (TOOL-SURFACE.md, the Stage 22 paragraph): it is opened
+    /// before the alias is resolved, so a start refused for its alias
+    /// still leaves its line there. Either grammar is a safe file name --
+    /// neither holds a `/`, and an alias cannot start with `.`
+    /// (`EndpointAlias::parse`).
     #[must_use]
-    pub fn open(level: Level, state_dir: &Path, endpoint: &EndpointId) -> Self {
+    pub fn open(level: Level, state_dir: &Path, endpoint: &EndpointSelector) -> Self {
         let dir = state_dir.join(LOG_DIR);
         let made = interweave_profile_config::create_private_dir(&dir)
             .and_then(|()| interweave_profile_config::require_owned_private_dir(&dir));
         match made {
             Ok(()) => Self {
                 level,
-                file: Some(dir.join(format!("{}.log", endpoint.as_str()))),
+                file: Some(dir.join(format!("{endpoint}.log"))),
                 file_error: None,
             },
             Err(e) => Self::stderr_only(level, persist_class(&e)),
@@ -330,6 +338,7 @@ fn wall_ms() -> u64 {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     fn private_state() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -342,8 +351,8 @@ mod tests {
         dir
     }
 
-    fn endpoint() -> EndpointId {
-        EndpointId::parse("claude".to_owned()).expect("an endpoint")
+    fn endpoint() -> EndpointSelector {
+        EndpointSelector::Id(endpoint_id("claude"))
     }
 
     /// Written far past the bound, the file never exceeds it, the

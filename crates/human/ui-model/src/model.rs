@@ -393,9 +393,20 @@ pub enum SessionNotice {
     /// connecting by itself, as [`Self::NoDaemon`] would;
     /// [`Intent::RetryStart`] makes one start.
     StartBusy(StartBusy),
+    /// A start that compared the identity it unlocks with C4's `PeerId`
+    /// after `IdStartUnchecked` was refused after add-a-peer §5.1's bound,
+    /// with Chats already shown: the record opened to another `PeerId`,
+    /// or the platform said nothing of the record
+    /// (design/2026-10-19-android-identity.md §6, An answer after the
+    /// bound). Drawn as `Refused`, in [`Self::StartBusy`]'s place and
+    /// with its Try again, [`Intent::RetryStart`], whose start compares
+    /// too (The comparison outlasts the bound). A mismatch has no words
+    /// of its own. Its [`StartBusy`] says whether that start runs.
+    StartRefused(StartBusy),
 }
 
-/// Where [`SessionNotice::StartBusy`]'s start stands.
+/// Where [`SessionNotice::StartBusy`]'s start stands, and
+/// [`SessionNotice::StartRefused`]'s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartBusy {
     /// Refused: Try again makes one start.
@@ -419,7 +430,7 @@ impl SessionNotice {
             Self::AuthenticationNeeded => Some(Intent::Authenticate),
             // Offered while its start runs too, shown disabled: the
             // model refuses it then ([`UiModel::offers`]).
-            Self::StartBusy(_) => Some(Intent::RetryStart),
+            Self::StartBusy(_) | Self::StartRefused(_) => Some(Intent::RetryStart),
         }
     }
 }
@@ -478,10 +489,15 @@ pub enum Intent {
     /// whose key needs the person. Carried out by the platform, never by
     /// the facade.
     Authenticate,
-    /// Make one service start for [`SessionNotice::StartBusy`]: no seal,
-    /// no restore, no words, and nothing else. Offered only while no
-    /// start runs for the notice. Carried out by the platform, never by
-    /// the facade, which does not run.
+    /// Make one service start for [`SessionNotice::StartBusy`] or
+    /// [`SessionNotice::StartRefused`], the Try again of each: no seal, no
+    /// restore, no words, and nothing else. Offered only while no start
+    /// runs for the notice (`tests/start_busy.rs`:
+    /// `a_busy_start_is_retried_once_until_it_answers` and
+    /// `a_refused_compared_start_is_retried_once_until_it_answers`).
+    /// Carried out by the platform, never by the facade, which does not
+    /// run (app-core's `a_busy_starts_try_again_reaches_the_platform_once`
+    /// and `a_refused_starts_try_again_reaches_the_platform_once`).
     RetryStart,
     /// Read the trust allowlist: the trust settings opened, or a change's
     /// list was not read back ([`crate::TrustSettings::take_reread`]).
@@ -510,17 +526,12 @@ pub enum Intent {
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.
     ShareCard(ConversationKey),
-    /// Ask what making a new key for the identity in front would cancel:
-    /// the facade answers before the confirmation opens
-    /// ([`UiModel::new_key_asked`]).
-    AskNewKey,
-    /// Make a new key for the identity in front, as the person confirmed
-    /// (design/2026-10-24-identity-key.md section 5).
-    MakeNewKey,
-    /// Open the identity in front's key once more (section 6).
+    /// Open the identity in front's key once more
+    /// (design/2026-10-24-identity-key.md section 6). No intent makes a
+    /// new key: the key is the identity (ADR-0067 decision 5).
     RetryKey,
-    /// Close what the card page shows of a key step: the confirmation
-    /// cancelled, or the page left. The model's alone.
+    /// Close what the card page shows of a key step: the page left. The
+    /// model's alone.
     CloseKeyStep,
     /// A photo chosen for the own card, as its file holds it: the facade
     /// side prepares it (contact-cards design section 5.2), and the editor
@@ -800,6 +811,8 @@ pub struct UiModel {
     authentication_needed: bool,
     /// [`SessionNotice::StartBusy`], as the root last said it.
     start_busy: Option<StartBusy>,
+    /// [`SessionNotice::StartRefused`], as the root last said it.
+    start_refused: Option<StartBusy>,
     /// The unlock note's facts, as the platform last said them, with
     /// the start they are from and whether the person saw the Trust
     /// page's line in that start (unlock note sections 3 and 4).
@@ -865,6 +878,7 @@ impl UiModel {
             network_denied: false,
             authentication_needed: false,
             start_busy: None,
+            start_refused: None,
             unlock: None,
             connectivity: Connectivity::Unknown,
             paths: HashMap::new(),
@@ -1201,12 +1215,25 @@ impl UiModel {
         self.start_busy = busy;
     }
 
+    /// A start that compared with C4's `PeerId` was refused after the
+    /// bound, as the root says it (`Some`), or it was not (`None`): while
+    /// it was, the session's notice is [`SessionNotice::StartRefused`],
+    /// where [`SessionNotice::StartBusy`] shows and below the same two
+    /// (`a_refused_compared_start_shows_where_the_busy_notice_does`). Kept
+    /// by the platform for the process, as [`Self::start_busy`]'s is.
+    pub fn start_refused(&mut self, refused: Option<StartBusy>) {
+        self.start_refused = refused;
+    }
+
     /// [`Intent::RetryStart`] was carried out: Try again shows disabled
     /// until the root says the start answered. Nothing while no notice
     /// shows.
     pub fn retry_start_asked(&mut self) {
         if self.start_busy.is_some() {
             self.start_busy = Some(StartBusy::Starting);
+        }
+        if self.start_refused.is_some() {
+            self.start_refused = Some(StartBusy::Starting);
         }
     }
 
@@ -1628,7 +1655,10 @@ impl UiModel {
             Intent::AcceptCard(row) => return self.card_actions(*row).contains(intent),
             // One start at a time: a second while the first runs would be
             // refused with `LockHeld` itself (identity note §6).
-            Intent::RetryStart => return self.start_busy == Some(StartBusy::Shown),
+            Intent::RetryStart => {
+                return self.start_busy == Some(StartBusy::Shown)
+                    || self.start_refused == Some(StartBusy::Shown);
+            }
             _ => return true,
         };
         key.is_some_and(|key| match intent {
@@ -1715,6 +1745,9 @@ impl UiModel {
         // facade that does not run says.
         if let Some(busy) = self.start_busy {
             return Some(SessionNotice::StartBusy(busy));
+        }
+        if let Some(refused) = self.start_refused {
+            return Some(SessionNotice::StartRefused(refused));
         }
         match &self.session {
             SessionState::Ready { .. } | SessionState::Closed => None,

@@ -49,7 +49,7 @@ use interweave_human_chat_protocol::HumanChatV2;
 use interweave_local_client_api::{
     AddressChange, AdminBinding, AdminCapability, AdminPort as _, DataSessionBinding, TrustChange,
 };
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::TransportIdentity;
 use serde_json::{Map, Value};
 
 use crate::{AppClient, DEFAULT_DEADLINE, closing, keys};
@@ -74,8 +74,12 @@ pub fn admin_shaped(stranger: &TransportIdentity) -> Vec<Vec<u8>> {
         format!(
             r#"{{"type":"request","id":"a","method":"admin.trust.set","params":{{"peer":"{peer}","allowed":true}}}}"#
         ),
-        r#"{"type":"request","id":"b","method":"admin.endpoints.revoke","params":{"endpoint":"human"}}"#
-            .to_owned(),
+        // The derived id, never the label: a revoke naming `human` is
+        // refused as malformed whoever runs it, and would show nothing.
+        format!(
+            r#"{{"type":"request","id":"b","method":"admin.endpoints.revoke","params":{{"endpoint":"{}"}}}}"#,
+            crate::human().as_str()
+        ),
         format!(
             r#"{{"type":"request","id":"c","method":"admin.peers.add_address","params":{{"peer":"{peer}","address":"{STRANGER_ADDRESS}{peer}"}}}}"#
         ),
@@ -205,7 +209,7 @@ pub(crate) fn admin_shaped_case<B: DataSessionBinding + AdminBinding>(
         let leased = crate::block_on(port.leases())?
             .map_err(|_| "the endpoint list was refused".to_owned())?
             .iter()
-            .any(|e| e.endpoint.as_str() == "human" && e.lease.is_some());
+            .any(|e| e.endpoint == crate::human() && e.lease.is_some());
         if leased {
             break crate::block_on(state(&port))??;
         }
@@ -321,7 +325,7 @@ pub(crate) fn admin_shaped_case<B: DataSessionBinding + AdminBinding>(
         return Err("the controls' changes were not put back".into());
     }
     // Last, since the facade has to lease `human` again after it.
-    let human = EndpointId::parse("human").map_err(|_| "`human` is an endpoint id".to_owned())?;
+    let human = crate::human();
     crate::block_on(port.revoke_endpoint(human))?
         .map_err(|_| "the control's revoke was refused".to_owned())?;
     let revoked = crate::block_on(state(&port))??;

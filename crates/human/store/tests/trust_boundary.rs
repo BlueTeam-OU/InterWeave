@@ -46,7 +46,12 @@ fn an_embedded_profiles_store_opens_under_its_boundary_and_not_without_it() {
     // The control: the same file judged to `/` is refused, for the wide
     // ancestor above the boundary, and nothing is made.
     assert!(
-        HumanStore::open(&file, StoreOptions::default()).is_err(),
+        HumanStore::open(
+            &file,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default()
+        )
+        .is_err(),
         "judged to /, the wide parent refuses it"
     );
     assert!(
@@ -57,6 +62,7 @@ fn an_embedded_profiles_store_opens_under_its_boundary_and_not_without_it() {
     let store = HumanStore::open_profile(
         &paths,
         &interweave_human_store::key_custody::FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     );
     assert!(store.is_ok(), "under its boundary: {:?}", store.err());
@@ -84,6 +90,7 @@ fn a_desktop_profiles_store_is_the_human_directorys_store_file() {
         HumanStore::open_profile(
             &paths,
             &interweave_human_store::key_custody::FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             StoreOptions::default(),
         )
         .expect("opens"),

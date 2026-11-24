@@ -19,6 +19,7 @@
 #![cfg(feature = "desktop")]
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::time::{Duration, Instant};
 
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
@@ -35,7 +36,7 @@ use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::ComponentHandle as _;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn peer() -> TransportIdentity {

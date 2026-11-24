@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! Stage 6 exit gate: `/interweave/direct/2.0.0` between real peers.
+//! Stage 6 exit gate: the direct protocol between real peers
+//! (`/interweave/direct/3.0.0` since Stage 22, `2.0.0` when the stage closed).
 //!
 //! The network scenarios land with the backend that makes them
 //! possible. What is here at the opening commit is the one claim already
@@ -12,10 +13,10 @@
 
 use interweave_test_support::fixtures;
 
-/// The six framing vectors `fixtures/direct-v2/README.md` describes.
+/// The six framing vectors `fixtures/direct-v3/README.md` describes.
 #[test]
 fn the_frame_vectors_this_stage_is_built_against_exist() {
-    let file = fixtures::load("direct-v2/direct-message-v2-frame.json");
+    let file = fixtures::load("direct-v3/direct-message-v2-frame.json");
     let vectors = file["vectors"].as_array().expect("a vectors array");
     assert_eq!(
         vectors.len(),
@@ -37,7 +38,7 @@ fn the_frame_vectors_this_stage_is_built_against_exist() {
 /// The seven fingerprint vectors, including the ADR-0047 golden.
 #[test]
 fn the_fingerprint_vectors_this_stage_is_built_against_exist() {
-    let file = fixtures::load("direct-v2/direct-content-fingerprint-v1.json");
+    let file = fixtures::load("direct-v3/direct-content-fingerprint-v1.json");
     let vectors = file["vectors"].as_array().expect("a vectors array");
     assert_eq!(
         vectors.len(),

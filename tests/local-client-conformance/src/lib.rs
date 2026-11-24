@@ -1472,9 +1472,9 @@ const ANOTHER_UNLISTED_PEER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjh
 /// to the key B read applies after it.
 ///
 /// What no binding here shows: a write still queued after its connection
-/// closed (the composition's `write_order` tests), the audit line (the
-/// composition's `superseded` tests), and a connection below 2.10, which
-/// is answered `Internal` (`ipc-server`'s dispatch test).
+/// closed (the composition's `write_order` tests) and the audit line (the
+/// composition's `superseded` tests). (Major 2's connections below 2.10
+/// were answered `Internal`; major 3 has none.)
 pub async fn a_later_ports_write_supersedes_an_older_ports<B: AdminBinding>(binding: &B) {
     let a = port(binding, &[AdminCapability::Trust, AdminCapability::Peers]).await;
     let b = port(binding, &[AdminCapability::Trust, AdminCapability::Peers]).await;
@@ -1576,8 +1576,8 @@ fn outside_the_bound(peer: &TransportIdentity) -> [String; 2] {
 /// binding's profile authors -- `refused: authored`.
 ///
 /// What no binding here can show: a port that predates the capability
-/// answers `ProtocolUnsupported` (the trait's default, and ipc-client's
-/// below 2.7, pinned by its scripted daemon), and the special-use
+/// answers `ProtocolUnsupported` (the trait's default; every IPC 3.0
+/// daemon has the methods), and the special-use
 /// classes past loopback (the composition's and the daemon's own tests).
 pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
     binding: &B,
@@ -1735,8 +1735,8 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
 /// single add then sees the list's lines; the add grants no trust.
 ///
 /// What no binding here can show: a port that predates the method
-/// answers `ProtocolUnsupported` (the trait's default, and ipc-client's
-/// below 2.9, pinned by its scripted daemon), the bound and an
+/// answers `ProtocolUnsupported` (the trait's default; every IPC 3.0
+/// daemon has the method), the bound and an
 /// `enabled: false` provider (the composition's own tests).
 pub async fn a_list_is_added_all_or_none_at_every_binding<B: AdminBinding>(
     binding: &B,
@@ -2104,7 +2104,9 @@ pub async fn the_admin_view_and_the_default_overlay<B: DataSessionBinding + Admi
         "the configured default is marked"
     );
 
-    let unknown = EndpointId::parse("nobody-configured").expect("valid");
+    // A derived id no profile configures: over IPC a label would be a
+    // params error, `InvalidArgument`, never the binding's answer.
+    let unknown = EndpointId::from_ed25519_public(&[0x11; 32]);
     assert_eq!(
         endpoints_only.set_default_endpoint(Some(unknown)).await,
         Err(TransportError::EndpointUnknown)

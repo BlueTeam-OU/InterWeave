@@ -94,7 +94,7 @@ mod tests {
         let paths = TrustBoundary::new(&app_data)
             .and_then(|boundary| ProfilePaths::resolve_embedded("default", boundary))
             .expect("paths");
-        let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         let key = interweave_human_store::identity_key::key_path(&paths, &human);
         assert!(
             key.starts_with(&app_data),

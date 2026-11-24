@@ -37,6 +37,8 @@ use serde::{Deserialize, Serialize};
 pub mod availability_overlay;
 pub mod bootstrap_overlay;
 pub mod connectivity;
+pub mod endpoint_alias;
+pub mod endpoint_key;
 pub mod endpoint_overlay;
 pub mod ipc;
 pub mod kademlia;
@@ -52,6 +54,9 @@ pub mod sections;
 pub mod transport;
 pub mod trust_overlay;
 
+pub use endpoint_alias::{
+    AliasError, EndpointAlias, EndpointSelector, ResolveEndpointError, resolve_endpoint,
+};
 pub use load::{LoadError, MAX_PROFILE_BYTES};
 pub use lock::{DAEMON_LOCK_WAIT, HUMAN_CLIENT_LOCK_FILE, HumanClientLock, LOCK_FILE, ProfileLock};
 pub use paths::{HUMAN_DIR, NAMESPACE, PROFILES, ProfilePaths, XdgRoots, absolute_or_none};
@@ -1852,57 +1857,410 @@ impl Default for DirectoryConfig {
     }
 }
 
+/// Whether an endpoint's key file was found, as the load phase read it
+/// (ADR-0067 decisions 3 and 5).
+///
+/// Three values, never two: an entry nobody has looked for the key of is
+/// [`EndpointKeyState::NotRead`], never shown as present or as missing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum EndpointKeyState {
+    /// No load phase read the key file: the entry was parsed
+    /// ([`ProfileConfig::parse_yaml`], serde) or built in code. Pure
+    /// validation reads no file, so this is every entry it judges.
+    #[default]
+    NotRead,
+    /// The key file is there and its header's public key derives this
+    /// entry's id; the custody is the record's byte.
+    Present {
+        /// The record's custody.
+        custody: endpoint_key::Custody,
+    },
+    /// THE KEY-MISSING STATE: the file is absent or could not be read.
+    /// The entry keeps its lease and its routes, and nothing signs for
+    /// it.
+    Missing(KeyMissing),
+}
+
+/// Why an entry is in the key-missing state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyMissing {
+    /// No file, or no `endpoint-keys/` directory.
+    Absent,
+    /// A file is there and its header could not be read: not private, too
+    /// large, an I/O failure, or a record this build does not read.
+    Unreadable(endpoint_key::KeyFileError),
+}
+
+/// Why an endpoint entry was refused `EndpointIdNotDerived` (ADR-0067
+/// decisions 2, 3 and 7): every shape of entry that does not name its
+/// key file as `<EndpointId>.key`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotDerivedEntry {
+    /// The entry carries the retired `id` member. `remedy` is the one
+    /// command that applies, named by the loader from the state directory
+    /// (`None` before a load phase looked, or when the old id is no alias
+    /// a command could take).
+    RetiredId {
+        /// The retired member's value, as written.
+        id: String,
+        /// The command that applies, when the loader named one.
+        remedy: Option<EndpointRemedy>,
+    },
+    /// The `key` value is not `<EndpointId>.key`.
+    KeyName {
+        /// The value as written.
+        key: String,
+        /// What is wrong with it.
+        reason: endpoint_key::KeyNameError,
+    },
+    /// The entry names no key at all.
+    NoKey,
+}
+
+/// The one command that brings an entry with the retired `id` member
+/// over (ENDPOINTS.md section Configured endpoint set, A 2026-11-19),
+/// told apart by whether `<state_dir>/identity-keys/<old id>.key` is
+/// THERE -- its presence alone; nothing of it is read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndpointRemedy {
+    /// The old identity key file exists: adopt it.
+    Adopt {
+        /// The profile.
+        profile: String,
+        /// The old id, now the alias.
+        alias: EndpointAlias,
+    },
+    /// No old key file: mint a new key, and a new id.
+    Init {
+        /// The profile.
+        profile: String,
+        /// The old id, now the alias.
+        alias: EndpointAlias,
+    },
+}
+
+impl EndpointRemedy {
+    /// The command line.
+    #[must_use]
+    pub fn command(&self) -> String {
+        match self {
+            Self::Adopt { profile, alias } => {
+                format!("transportctl endpoint adopt --profile {profile} --alias {alias}")
+            }
+            Self::Init { profile, alias } => {
+                format!("transportctl endpoint init --profile {profile} --alias {alias}")
+            }
+        }
+    }
+
+    /// The alias the entry to write carries.
+    #[must_use]
+    pub const fn alias(&self) -> &EndpointAlias {
+        match self {
+            Self::Adopt { alias, .. } | Self::Init { alias, .. } => alias,
+        }
+    }
+
+    /// The remedy for an entry whose retired `id` is `old_id`, in
+    /// `paths`' profile: `None` when `old_id` is no alias (no command
+    /// takes it), or when whether the old file is there cannot be told --
+    /// an unknown answer is never given as `init`.
+    #[must_use]
+    pub fn for_retired_id(paths: &ProfilePaths, old_id: &str) -> Option<Self> {
+        // The alias grammar first: it has no separator and no leading dot,
+        // so the name below stays one entry of that directory.
+        let alias = EndpointAlias::parse(old_id).ok()?;
+        let old = paths
+            .state_dir()
+            .join(endpoint_key::LEGACY_IDENTITY_KEYS_DIR)
+            .join(format!("{alias}{}", endpoint_key::KEY_FILE_SUFFIX));
+        let profile = paths.profile().to_owned();
+        match std::fs::symlink_metadata(&old) {
+            Ok(_) => Some(Self::Adopt { profile, alias }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Some(Self::Init { profile, alias })
+            }
+            Err(_) => None,
+        }
+    }
+}
+
 /// One configured endpoint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+///
+/// In `config.yaml` an entry names its key file (`key: <EndpointId>.key`)
+/// and an optional `alias`, and no `id` (ADR-0067 decision 3); in memory
+/// it holds the id that name derives, so every reader of `entry.id` reads
+/// a derived id. Serialized, it is written back in the file's shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EndpointConfig {
-    /// The route label.
+    /// The endpoint's id, the stem of its key file's name: derived from
+    /// the endpoint's Ed25519 public key.
     pub id: EndpointId,
-    /// Whether it accepts traffic.
-    ///
-    /// REQUIRED, as the contract declares it. A default of `true` here
-    /// meant an endpoint the operator never mentioned was on, and an
-    /// endpoint they misspelled was on -- the permissive answer arrived
-    /// by omission, which is the shape this whole boundary is meant to
-    /// refuse.
+    /// The local alias, never on the wire.
+    pub alias: Option<EndpointAlias>,
+    /// Whether the key file was found; filled by the load phase
+    /// ([`ProfileConfig::read_endpoint_keys`]).
+    pub key_state: EndpointKeyState,
+    /// Whether it accepts traffic. Required in the file, never defaulted
+    /// (`WireEndpoint` says why).
     pub enabled: bool,
-    /// Whether it may appear in the directory.
-    ///
-    /// Also required. `false` is the safe default and defaulting is
-    /// still wrong: it is the schema's job to say the field must be
-    /// present, and half-honouring `required` is how the two drift.
+    /// Whether it may appear in the directory. Required in the file too.
     pub advertise: bool,
     /// Client kinds permitted to lease it. Hygiene only, never authority.
-    #[serde(
-        default,
-        skip_serializing_if = "Vec::is_empty",
-        deserialize_with = "wire_client_kinds"
-    )]
     pub allowed_client_kinds: Vec<ClientKind>,
     /// Inbound narrowing filter.
-    #[serde(default)]
     pub inbound: EndpointTrustPolicy,
     /// Outbound narrowing filter.
-    #[serde(default)]
     pub outbound: EndpointTrustPolicy,
 }
 
-/// The endpoints block.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl EndpointConfig {
+    /// The entry's `key` value: its key file's name, `<EndpointId>.key`.
+    #[must_use]
+    pub fn key_file_name(&self) -> String {
+        endpoint_key::key_file_name(&self.id)
+    }
+}
+
+/// An endpoint entry as `config.yaml` writes it. The retired `id` member
+/// is accepted HERE only to be refused by name, `EndpointIdNotDerived`,
+/// rather than as an unknown field.
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct WireEndpoint {
+    #[serde(default)]
+    id: Option<serde_json::Value>,
+    #[serde(default)]
+    key: Option<String>,
+    // Absent or a string: an explicit `null` is refused, as the schema
+    // refuses it (`tests/endpoint_entries.rs`,
+    // `an_alias_is_absent_or_a_string_never_null`).
+    #[serde(default, deserialize_with = "present_alias")]
+    alias: Option<String>,
+    // REQUIRED, both of them, as the contract declares them. A default of
+    // `true` for `enabled` meant an endpoint the operator never mentioned
+    // was on, and one they misspelled was on -- the permissive answer by
+    // omission; `false` for `advertise` is the safe default and defaulting
+    // is still wrong: half-honouring `required` is how the two drift.
+    enabled: bool,
+    advertise: bool,
+    #[serde(default, deserialize_with = "wire_client_kinds")]
+    allowed_client_kinds: Vec<ClientKind>,
+    #[serde(default)]
+    inbound: EndpointTrustPolicy,
+    #[serde(default)]
+    outbound: EndpointTrustPolicy,
+}
+
+/// A present `alias` member, which must be a string. Read as a value
+/// first: asked for a string, the YAML reader answers a `null` scalar as
+/// the text "null", which would load as that alias.
+fn present_alias<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(text) => Ok(Some(text)),
+        other => Err(serde::de::Error::invalid_type(
+            serde::de::Unexpected::Other(match other {
+                serde_json::Value::Null => "null",
+                _ => "a non-string",
+            }),
+            &"an alias string",
+        )),
+    }
+}
+
+/// An endpoint entry as it is written back.
+#[derive(Serialize)]
+struct WireEndpointOut<'a> {
+    key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alias: Option<&'a EndpointAlias>,
+    enabled: bool,
+    advertise: bool,
+    #[serde(skip_serializing_if = "<[ClientKind]>::is_empty")]
+    allowed_client_kinds: &'a [ClientKind],
+    inbound: &'a EndpointTrustPolicy,
+    outbound: &'a EndpointTrustPolicy,
+}
+
+/// The text of a retired `id` member's value, as an operator wrote it.
+pub(crate) fn retired_id_text(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map_or_else(|| value.to_string(), str::to_owned)
+}
+
+/// An entry's names judged: the retired `id` (its text), the `key` value
+/// and the `alias`. The id and alias it names, or every refusal of them
+/// -- the one statement of these rules, for the YAML loader's typed
+/// refusals ([`load`]) and for serde's.
+pub(crate) fn judge_entry_names(
+    retired_id: Option<String>,
+    key: Option<&str>,
+    alias: Option<&str>,
+) -> Result<(EndpointId, Option<EndpointAlias>), Vec<ConfigError>> {
+    let mut errors = Vec::new();
+    let id = match (retired_id, key) {
+        (Some(id), _) => {
+            errors.push(ConfigError::EndpointIdNotDerived {
+                found: NotDerivedEntry::RetiredId { id, remedy: None },
+            });
+            None
+        }
+        (None, None) => {
+            errors.push(ConfigError::EndpointIdNotDerived {
+                found: NotDerivedEntry::NoKey,
+            });
+            None
+        }
+        (None, Some(key)) => match endpoint_key::parse_key_file_name(key) {
+            Ok(id) => Some(id),
+            Err(reason) => {
+                errors.push(ConfigError::EndpointIdNotDerived {
+                    found: NotDerivedEntry::KeyName {
+                        key: key.to_owned(),
+                        reason,
+                    },
+                });
+                None
+            }
+        },
+    };
+    let alias = match alias.map(|a| (a, EndpointAlias::parse(a))) {
+        None => None,
+        Some((_, Ok(alias))) => Some(alias),
+        Some((text, Err(reason))) => {
+            errors.push(ConfigError::AliasInvalid {
+                alias: text.to_owned(),
+                reason,
+            });
+            None
+        }
+    };
+    match id {
+        Some(id) if errors.is_empty() => Ok((id, alias)),
+        _ => Err(errors),
+    }
+}
+
+/// The refusals' text for serde, which carries no typed error.
+fn joined(errors: &[ConfigError]) -> String {
+    errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+impl<'de> Deserialize<'de> for EndpointConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let wire = WireEndpoint::deserialize(d)?;
+        let (id, alias) = judge_entry_names(
+            wire.id.as_ref().map(retired_id_text),
+            wire.key.as_deref(),
+            wire.alias.as_deref(),
+        )
+        .map_err(|errors| serde::de::Error::custom(joined(&errors)))?;
+        Ok(Self {
+            id,
+            alias,
+            key_state: EndpointKeyState::NotRead,
+            enabled: wire.enabled,
+            advertise: wire.advertise,
+            allowed_client_kinds: wire.allowed_client_kinds,
+            inbound: wire.inbound,
+            outbound: wire.outbound,
+        })
+    }
+}
+
+impl Serialize for EndpointConfig {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        WireEndpointOut {
+            key: self.key_file_name(),
+            alias: self.alias.as_ref(),
+            enabled: self.enabled,
+            advertise: self.advertise,
+            allowed_client_kinds: &self.allowed_client_kinds,
+            inbound: &self.inbound,
+            outbound: &self.outbound,
+        }
+        .serialize(s)
+    }
+}
+
+/// The endpoints block.
+///
+/// `default_direct_endpoint` is written as an alias or an id and held as
+/// the id it resolves to over the entries (ENDPOINTS.md section Default
+/// direct endpoint); it is written back as that id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EndpointsConfig {
     /// Registration policy.
-    #[serde(default)]
     pub registration_policy: RegistrationPolicy,
-    /// The default direct endpoint, if one is chosen.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The default direct endpoint, if one is chosen: resolved to an id.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_direct_endpoint: Option<EndpointId>,
     /// Directory settings.
-    #[serde(default)]
     pub directory: DirectoryConfig,
     /// The configured endpoints.
-    #[serde(default, deserialize_with = "wire_entries")]
     pub entries: Vec<EndpointConfig>,
+}
+
+/// The endpoints block as `config.yaml` writes it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireEndpoints {
+    #[serde(default)]
+    registration_policy: RegistrationPolicy,
+    #[serde(default)]
+    default_direct_endpoint: Option<String>,
+    #[serde(default)]
+    directory: DirectoryConfig,
+    #[serde(default, deserialize_with = "wire_entries")]
+    entries: Vec<EndpointConfig>,
+}
+
+/// `default_direct_endpoint`'s text resolved over `entries`: a derived id
+/// is taken as written -- one no entry has is
+/// [`ConfigError::DefaultEndpointUnknown`] from `validate`, which can
+/// name it -- and an alias is the id of the entry that carries it.
+///
+/// # Errors
+/// [`ConfigError::DefaultEndpointUnknown`] for an alias no entry carries
+/// and for a text that is neither grammar: no id can hold it.
+pub(crate) fn resolve_default(
+    text: &str,
+    entries: &[EndpointConfig],
+) -> Result<EndpointId, ConfigError> {
+    let unknown = || ConfigError::DefaultEndpointUnknown {
+        selector: text.to_owned(),
+    };
+    match EndpointSelector::parse(text).ok_or_else(unknown)? {
+        EndpointSelector::Id(id) => Ok(id),
+        EndpointSelector::Alias(alias) => entries
+            .iter()
+            .find(|e| e.alias.as_ref() == Some(&alias))
+            .map(|e| e.id.clone())
+            .ok_or_else(unknown),
+    }
+}
+
+impl<'de> Deserialize<'de> for EndpointsConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let wire = WireEndpoints::deserialize(d)?;
+        let default_direct_endpoint = wire
+            .default_direct_endpoint
+            .as_deref()
+            .map(|text| resolve_default(text, &wire.entries))
+            .transpose()
+            .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+        Ok(Self {
+            registration_policy: wire.registration_policy,
+            default_direct_endpoint,
+            directory: wire.directory,
+            entries: wire.entries,
+        })
+    }
 }
 
 /// Broadcast channels this profile holds open.
@@ -2012,6 +2370,36 @@ pub enum ConfigError {
         /// The repeated id.
         id: EndpointId,
     },
+    /// An entry does not name its key file as `<EndpointId>.key`: the
+    /// retired `id` member, a `key` of another shape, no `key`, or a
+    /// label held in code (ADR-0067 decisions 2, 3 and 7).
+    EndpointIdNotDerived {
+        /// What the entry carried instead.
+        found: NotDerivedEntry,
+    },
+    /// An entry's `alias` is not `^[a-z][a-z0-9._-]{0,63}$`.
+    AliasInvalid {
+        /// The alias as written.
+        alias: String,
+        /// The rule it breaks.
+        reason: AliasError,
+    },
+    /// Two entries share an alias: an alias is unique within the profile.
+    AliasTaken {
+        /// The repeated alias.
+        alias: EndpointAlias,
+    },
+    /// An entry's key file is there and its header derives another id
+    /// than the file's name, or names an id its own key does not derive:
+    /// one of the two was written by hand (ENDPOINTS.md section
+    /// Configured endpoint set, the header-mismatch refusal).
+    EndpointKeyMismatch {
+        /// The entry's id, its key file's stem.
+        endpoint: EndpointId,
+        /// The id the header's public key derives; `None` when the
+        /// header's own id is not its key's.
+        header_derives: Option<EndpointId>,
+    },
     /// More entries than the profile may hold.
     TooManyEndpoints {
         /// Entries supplied.
@@ -2032,10 +2420,11 @@ pub enum ConfigError {
         /// Peers supplied.
         got: usize,
     },
-    /// The default names an endpoint that is not configured.
+    /// The default names an endpoint that is not configured: an id no
+    /// entry has, an alias no entry carries, or a text that is neither.
     DefaultEndpointUnknown {
-        /// The named endpoint.
-        id: EndpointId,
+        /// The default as written: an alias or an id.
+        selector: String,
     },
     /// The default names a configured but disabled endpoint.
     DefaultEndpointDisabled {
@@ -2236,12 +2625,20 @@ pub enum ConfigError {
     /// the owner's decision of §7's gate.
     KademliaDefaultEnablementGated,
     /// `runtime.deployment=embedded-android` names an endpoint that is not
-    /// an enabled configured one (the schema's third runtime rule): the
-    /// foreground service would lease an endpoint that does not exist.
+    /// a configured one (the load's half of the schema's third runtime
+    /// rule): the foreground service would lease an endpoint that does not
+    /// exist. Whether any identity is enabled is the start's
+    /// [`ConfigError::AndroidNoIdentity`].
     AndroidEndpointNotEnabled {
-        /// The endpoint named, the default applied.
+        /// The endpoint named.
         endpoint: String,
     },
+    /// An embedded-android START on a profile with no identity yet: no
+    /// `runtime.android.endpoint`, or no enabled endpoint once the
+    /// endpoint overlay is composed over `config.yaml`'s. Never a load's
+    /// refusal -- the first-run document loads without one -- but the
+    /// start's ([`runtime::RuntimeConfig::require_android_identity`]).
+    AndroidNoIdentity,
     /// `runtime.deployment=embedded-android` with an infrastructure
     /// server role on, or Kademlia in server mode (the schema's fourth
     /// runtime rule).
@@ -2415,10 +2812,34 @@ impl core::fmt::Display for ConfigError {
                     "{got} allowed peers exceeds the maximum of {MAX_ALLOWED_PEERS}"
                 )
             }
-            Self::DefaultEndpointUnknown { id } => write!(
+            Self::DefaultEndpointUnknown { selector } => write!(
                 f,
-                "default_direct_endpoint '{}' is not a configured endpoint",
-                id.as_str()
+                "default_direct_endpoint '{selector}' is not a configured endpoint's alias or id"
+            ),
+            Self::EndpointIdNotDerived { found } => write_not_derived(f, found),
+            Self::AliasInvalid { alias, reason } => {
+                write!(f, "AliasInvalid: endpoint alias '{alias}': {reason}")
+            }
+            Self::AliasTaken { alias } => write!(
+                f,
+                "AliasTaken: endpoint alias '{alias}' is configured more than once"
+            ),
+            Self::EndpointKeyMismatch {
+                endpoint,
+                header_derives: Some(other),
+            } => write!(
+                f,
+                "EndpointKeyMismatch: the key file '{}' holds the key of endpoint '{}'",
+                endpoint_key::key_file_name(endpoint),
+                other.as_str()
+            ),
+            Self::EndpointKeyMismatch {
+                endpoint,
+                header_derives: None,
+            } => write!(
+                f,
+                "EndpointKeyMismatch: the key file '{}' names an id its own key does not derive",
+                endpoint_key::key_file_name(endpoint)
             ),
             Self::DefaultEndpointDisabled { id } => write!(
                 f,
@@ -2551,7 +2972,10 @@ impl core::fmt::Display for ConfigError {
             ),
             Self::AndroidEndpointNotEnabled { endpoint } => write!(
                 f,
-                "runtime.android.endpoint '{endpoint}' is not an enabled configured endpoint; an embedded-android profile must lease one"
+                "runtime.android.endpoint '{endpoint}' is not a configured endpoint; an embedded-android profile must lease one"
+            ),
+            Self::AndroidNoIdentity => f.write_str(
+                "the Android profile has no identity to start as: runtime.android.endpoint names none, or no identity is enabled; onboarding seals the first identity, and the profile starts once one is enabled"
             ),
             Self::AndroidServesInfrastructure { field } => write!(
                 f,
@@ -2613,6 +3037,40 @@ impl core::fmt::Display for ConfigError {
     }
 }
 
+/// [`ConfigError::EndpointIdNotDerived`]'s text: what the entry carried,
+/// and for the retired `id` the command and the entry to write -- no
+/// InterWeave program rewrites `config.yaml` (ADR-0067 decision 7).
+fn write_not_derived(
+    f: &mut core::fmt::Formatter<'_>,
+    found: &NotDerivedEntry,
+) -> core::fmt::Result {
+    f.write_str("EndpointIdNotDerived: ")?;
+    match found {
+        NotDerivedEntry::RetiredId {
+            id,
+            remedy: Some(remedy),
+        } => write!(
+            f,
+            "the endpoint entry `id: {id}` carries the retired `id` member; run `{}`, then write \
+             the entry as `key: <the EndpointId it prints>.key` with `alias: {}`",
+            remedy.command(),
+            remedy.alias()
+        ),
+        NotDerivedEntry::RetiredId { id, remedy: None } => write!(
+            f,
+            "the endpoint entry `id: {id}` carries the retired `id` member; an entry names its \
+             key file as `key: <EndpointId>.key`"
+        ),
+        NotDerivedEntry::KeyName { key, reason } => write!(
+            f,
+            "the endpoint entry's key '{key}' is not `<EndpointId>.key`: {reason}"
+        ),
+        NotDerivedEntry::NoKey => {
+            f.write_str("an endpoint entry names no key file (`key: <EndpointId>.key`)")
+        }
+    }
+}
+
 impl core::error::Error for ConfigError {}
 
 impl ProfileConfig {
@@ -2667,11 +3125,23 @@ impl ProfileConfig {
             errors.push(ConfigError::TooManyEndpoints { got: entries.len() });
         }
 
-        // Rule 1 — endpoint ids are unique.
+        // Every id is derived from a key (ADR-0067 decision 2) by
+        // construction: an `EndpointId` holds nothing else, so there is no
+        // rule to check here.
+
+        // Rule 1 — endpoint ids are unique, and so are aliases.
         let mut seen: BTreeSet<&EndpointId> = BTreeSet::new();
         for e in entries {
             if !seen.insert(&e.id) {
                 errors.push(ConfigError::DuplicateEndpointId { id: e.id.clone() });
+            }
+        }
+        let mut aliases: BTreeSet<&EndpointAlias> = BTreeSet::new();
+        for alias in entries.iter().filter_map(|e| e.alias.as_ref()) {
+            if !aliases.insert(alias) {
+                errors.push(ConfigError::AliasTaken {
+                    alias: alias.clone(),
+                });
             }
         }
 
@@ -2680,7 +3150,7 @@ impl ProfileConfig {
         if let Some(default) = &self.endpoints.default_direct_endpoint {
             match entries.iter().find(|e| &e.id == default) {
                 None => errors.push(ConfigError::DefaultEndpointUnknown {
-                    id: default.clone(),
+                    selector: default.as_str().to_owned(),
                 }),
                 Some(e) if !e.enabled => errors.push(ConfigError::DefaultEndpointDisabled {
                     id: default.clone(),
@@ -3064,6 +3534,7 @@ mod tests {
 
     #[test]
     fn a_misspelled_field_is_refused_rather_than_ignored() {
+        let hk = key_name("human");
         // THE FAILURE MODE IS NOT "unexpected configuration". Serde
         // ignores unknown fields by default, and every security-relevant
         // field here defaults toward the PERMISSIVE answer: `enabled` to
@@ -3075,7 +3546,7 @@ mod tests {
         let base = format!(
             r#"{{"schema_version":2,
                  "trust":{{"policy":"static-allowlist","allowed_peers":["{P1}"]}},
-                 "endpoints":{{"entries":[{{"id":"human","advertise":false,"enabled":false"#
+                 "endpoints":{{"entries":[{{"key":"{hk}","advertise":false,"enabled":false"#
         );
 
         // Same document, correct spelling: parses, and the endpoint is
@@ -3091,7 +3562,7 @@ mod tests {
         let typo = format!(
             r#"{{"schema_version":2,
                  "trust":{{"policy":"static-allowlist","allowed_peers":["{P1}"]}},
-                 "endpoints":{{"entries":[{{"id":"human","enabled":true,"advertise":false,"enabeld":false}}]}}}}"#
+                 "endpoints":{{"entries":[{{"key":"{hk}","enabled":true,"advertise":false,"enabeld":false}}]}}}}"#
         );
         let err = serde_json::from_str::<ProfileConfig>(&typo)
             .expect_err("an unknown endpoint field must be refused")
@@ -3103,7 +3574,7 @@ mod tests {
         let typo = format!(
             r#"{{"schema_version":2,
                  "trust":{{"policy":"static-allowlist","allowed_peers":["{P1}"]}},
-                 "endpoints":{{"entries":[{{"id":"human","enabled":true,"advertise":false,
+                 "endpoints":{{"entries":[{{"key":"{hk}","enabled":true,"advertise":false,
                    "inboud":{{"static_subset":["{P1}"]}}}}]}}}}"#
         );
         assert!(
@@ -3138,6 +3609,7 @@ mod tests {
 
     #[test]
     fn a_client_kind_array_is_judged_as_the_array_the_contract_describes() {
+        let hk = key_name("human");
         // `endpoint-config.schema.json`: maxItems 16, uniqueItems, and
         // each item 1..=64 characters. The field was a raw `Vec<String>`
         // with none of that enforced -- and being "hygiene, not
@@ -3148,7 +3620,7 @@ mod tests {
                 r#"{{"schema_version":2,
                      "trust":{{"policy":"static-allowlist","allowed_peers":["{P1}"]}},
                      "endpoints":{{"entries":[
-                       {{"id":"human","enabled":true,"advertise":false,
+                       {{"key":"{hk}","enabled":true,"advertise":false,
                          "allowed_client_kinds":{kinds}}}]}}}}"#
             )
         };
@@ -3238,7 +3710,10 @@ mod tests {
         );
 
         let entries: Vec<String> = (0..=MAX_ENDPOINTS)
-            .map(|i| format!(r#"{{"id":"e{i}","enabled":true,"advertise":false}}"#))
+            .map(|i| {
+                let k = key_name(&format!("e{i}"));
+                format!(r#"{{"key":"{k}","enabled":true,"advertise":false}}"#)
+            })
             .collect();
         let doc = format!(
             r#"{{"schema_version":2,"trust":{{"policy":"static-allowlist"}},
@@ -3249,7 +3724,10 @@ mod tests {
 
         // Exactly the ceiling parses.
         let entries: Vec<String> = (0..MAX_ENDPOINTS)
-            .map(|i| format!(r#"{{"id":"e{i}","enabled":true,"advertise":false}}"#))
+            .map(|i| {
+                let k = key_name(&format!("e{i}"));
+                format!(r#"{{"key":"{k}","enabled":true,"advertise":false}}"#)
+            })
             .collect();
         let doc = format!(
             r#"{{"schema_version":2,"trust":{{"policy":"static-allowlist"}},
@@ -3260,9 +3738,22 @@ mod tests {
         assert_eq!(cfg.endpoints.entries.len(), MAX_ENDPOINTS);
     }
 
-    fn endpoint(id: &str) -> EndpointConfig {
+    /// The key file name of the TEST-ONLY id named `name`.
+    fn key_name(name: &str) -> String {
+        endpoint_key::key_file_name(&eid(name))
+    }
+
+    /// The TEST-ONLY derived id named `name` (tests/support).
+    fn eid(name: &str) -> EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id(name)
+    }
+
+    /// An entry with the derived id named `name`, and `name` as its alias.
+    fn endpoint(name: &str) -> EndpointConfig {
         EndpointConfig {
-            id: EndpointId::parse(id).expect("valid endpoint"),
+            id: eid(name),
+            alias: Some(EndpointAlias::parse(name).expect("an alias")),
+            key_state: EndpointKeyState::NotRead,
             enabled: true,
             advertise: false,
             allowed_client_kinds: Vec::new(),
@@ -3302,23 +3793,23 @@ mod tests {
 
     #[test]
     fn duplicate_endpoint_ids_are_named() {
-        let errors = config(vec![endpoint("human"), endpoint("human")]).validate();
+        let mut twin = endpoint("human");
+        twin.alias = None;
+        let errors = config(vec![endpoint("human"), twin]).validate();
         assert_eq!(
             errors,
-            vec![ConfigError::DuplicateEndpointId {
-                id: EndpointId::parse("human").expect("valid")
-            }]
+            vec![ConfigError::DuplicateEndpointId { id: eid("human") }]
         );
     }
 
     #[test]
     fn the_default_must_name_an_enabled_endpoint() {
         let mut c = config(vec![endpoint("human")]);
-        c.endpoints.default_direct_endpoint = Some(EndpointId::parse("claude").expect("valid"));
+        c.endpoints.default_direct_endpoint = Some(eid("claude"));
         assert_eq!(
             c.validate(),
             vec![ConfigError::DefaultEndpointUnknown {
-                id: EndpointId::parse("claude").expect("valid")
+                selector: eid("claude").as_str().to_owned()
             }]
         );
 
@@ -3327,12 +3818,10 @@ mod tests {
         let mut disabled = endpoint("human");
         disabled.enabled = false;
         let mut c = config(vec![disabled]);
-        c.endpoints.default_direct_endpoint = Some(EndpointId::parse("human").expect("valid"));
+        c.endpoints.default_direct_endpoint = Some(eid("human"));
         assert_eq!(
             c.validate(),
-            vec![ConfigError::DefaultEndpointDisabled {
-                id: EndpointId::parse("human").expect("valid")
-            }]
+            vec![ConfigError::DefaultEndpointDisabled { id: eid("human") }]
         );
     }
 
@@ -3352,7 +3841,7 @@ mod tests {
         assert_eq!(
             errors,
             vec![ConfigError::SubsetWidensTrust {
-                endpoint: EndpointId::parse("human").expect("valid"),
+                endpoint: eid("human"),
                 direction: PolicyDirection::Inbound,
                 peer: stranger,
             }]
@@ -3410,7 +3899,7 @@ mod tests {
         // this avoids.
         let mut c = config(vec![endpoint("human"), endpoint("human")]);
         c.schema_version = 3;
-        c.endpoints.default_direct_endpoint = Some(EndpointId::parse("absent").expect("valid"));
+        c.endpoints.default_direct_endpoint = Some(eid("absent"));
         let errors = c.validate();
         assert!(errors.len() >= 3, "expected several, got {errors:?}");
         assert!(
@@ -4267,10 +4756,8 @@ mod tests {
 
     #[test]
     fn error_messages_name_the_offending_value() {
-        let e = ConfigError::DuplicateEndpointId {
-            id: EndpointId::parse("human").expect("valid"),
-        };
-        assert!(e.to_string().contains("human"));
+        let e = ConfigError::DuplicateEndpointId { id: eid("human") };
+        assert!(e.to_string().contains(eid("human").as_str()));
         let e = ConfigError::TooManyAdvertised { got: 17, max: 16 };
         assert!(e.to_string().contains("17") && e.to_string().contains("16"));
     }

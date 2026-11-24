@@ -1,14 +1,15 @@
 {
   "algorithm": {
-    "id": "ipc-v2-length-prefix-v1",
+    "id": "ipc-v3-length-prefix-v1",
     "specification": "architecture/contracts/LOCAL-IPC.md",
-    "summary": "One IPC v2 frame per vector: a 4-byte unsigned big-endian length N, then N bytes of the body as UTF-8 JSON (LOCAL-IPC.md §Framing). N is at most 131,072 and never zero; the prefix is outside N.",
+    "summary": "One IPC frame of major 3 per vector: a 4-byte unsigned big-endian length N, then N bytes of the body as UTF-8 JSON (LOCAL-IPC.md §Framing). N is at most 131,072 and never zero; the prefix is outside N.",
     "canonical_form": "The body as serde_json's compact writer emits it: no whitespace, keys in the order the vector lists them (preserve_order), non-ASCII written as UTF-8 rather than escaped, integers only. LOCAL-IPC.md pins no canonical JSON form — a reader accepts any object — so this is the form the goldens freeze, not a rule of the wire.",
-    "scope": "Every body validates against ipc/frame 2.0.0 (and a request's (method, params) pair against ipc/request, an event's (event_type, data) pair against ipc/event) at the version these vectors were frozen. Phase and direction rules — hello first, hello_response and close server-only — are asserted by tests/ipc-v2, not here."
+    "scope": "Every body validates against ipc/frame 3.0.0 (and a request's (method, params) pair against ipc/request, an event's (event_type, data) pair against ipc/event) at the version these vectors were frozen. Every EndpointId a body carries is a TEST-ONLY derived id, named in the vector's `test_only_endpoints` ({JSON pointer into the body: name}) and recomputed by the verifier as tests/support `endpoint_keys::endpoint_id(name)`: seed SHA-256(\"interweave/test-only/endpoint-key/v1\\0\" || name), the Ed25519 public key of that seed derived as ENDPOINTS.md §EndpointId states. A hello_response speaks major 3 with transport contract 3.0, and a close's `supported` names major 3. Phase and direction rules — hello first, hello_response and close server-only — are asserted by tests/ipc-v2, not here."
   },
   "adr": [
     "0017",
-    "0037"
+    "0037",
+    "0067"
   ],
   "vectors": [
     {
@@ -16,14 +17,14 @@
       "body": {
         "type": "hello",
         "ipc_version": {
-          "major": 2,
+          "major": 3,
           "minor": 0
         },
         "client": {
           "kind": "transportctl"
         }
       },
-      "frame_hex": "000000557b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a322c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a227472616e73706f727463746c227d7d",
+      "frame_hex": "000000557b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a227472616e73706f727463746c227d7d",
       "note": "The smallest well-formed hello: no endpoint claim, no capabilities, no features — an administrative or diagnostics connection."
     },
     {
@@ -31,7 +32,7 @@
       "body": {
         "type": "hello",
         "ipc_version": {
-          "major": 2,
+          "major": 3,
           "minor": 0
         },
         "client": {
@@ -39,7 +40,7 @@
           "version": "0.1.0"
         },
         "endpoint": {
-          "id": "human"
+          "id": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"
         },
         "requested_capabilities": [
           "events",
@@ -50,7 +51,10 @@
           "keepalive"
         ]
       },
-      "frame_hex": "000000db7b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a322c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a2268756d616e2d636c69656e74222c2276657273696f6e223a22302e312e30227d2c22656e64706f696e74223a7b226964223a2268756d616e227d2c227265717565737465645f6361706162696c6974696573223a5b226576656e7473222c22636f6d6d616e6473222c22656e64706f696e74732e7175657279225d2c226665617475726573223a5b226b656570616c697665225d7d",
+      "test_only_endpoints": {
+        "/endpoint/id": "human"
+      },
+      "frame_hex": "0000010a7b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a2268756d616e2d636c69656e74222c2276657273696f6e223a22302e312e30227d2c22656e64706f696e74223a7b226964223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372227d2c227265717565737465645f6361706162696c6974696573223a5b226576656e7473222c22636f6d6d616e6473222c22656e64706f696e74732e7175657279225d2c226665617475726573223a5b226b656570616c697665225d7d",
       "note": "LOCAL-IPC.md's handshake example with a concrete client version."
     },
     {
@@ -58,27 +62,27 @@
       "body": {
         "type": "hello",
         "ipc_version": {
-          "major": 3,
-          "minor": 0
+          "major": 2,
+          "minor": 13
         },
         "client": {
           "kind": "human-client"
         }
       },
-      "frame_hex": "000000557b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c22636c69656e74223a7b226b696e64223a2268756d616e2d636c69656e74227d7d",
-      "note": "Well-formed under hello 1.1.0 (any positive major): the server answers close-version-incompatible, not a framing error."
+      "frame_hex": "000000567b2274797065223a2268656c6c6f222c226970635f76657273696f6e223a7b226d616a6f72223a322c226d696e6f72223a31337d2c22636c69656e74223a7b226b696e64223a2268756d616e2d636c69656e74227d7d",
+      "note": "Well-formed under hello 2.0.0 (any positive major): a 2.13 hello, the last minor of the major before, is answered close-version-incompatible, not a framing error, and its higher minor does not make it a 3.0."
     },
     {
       "name": "hello-response-leased",
       "body": {
         "type": "hello_response",
         "ipc_version": {
-          "major": 2,
+          "major": 3,
           "minor": 0
         },
-        "transport_contract_version": "2.0",
+        "transport_contract_version": "3.0",
         "peer": "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
-        "endpoint": "human",
+        "endpoint": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
         "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ",
         "event_queue": 256,
         "granted_capabilities": [
@@ -86,8 +90,11 @@
           "commands"
         ]
       },
-      "frame_hex": "000001207b2274797065223a2268656c6c6f5f726573706f6e7365222c226970635f76657273696f6e223a7b226d616a6f72223a322c226d696e6f72223a307d2c227472616e73706f72745f636f6e74726163745f76657273696f6e223a22322e30222c2270656572223a22313244334b6f6f5744704a3741733742574177524d6675315655325743714e6a76713338374a45594b44426a346b78366e58544e222c22656e64706f696e74223a2268756d616e222c22656e64706f696e745f6c656173655f65706f6368223a2241414141414141414141414141414141414141414151222c226576656e745f7175657565223a3235362c226772616e7465645f6361706162696c6974696573223a5b226576656e7473222c22636f6d6d616e6473225d7d",
-      "note": "A data-plane grant with a lease; the epoch is learned here and from no event. The event queue bound comes with the lease (hello-response 1.1.0)."
+      "test_only_endpoints": {
+        "/endpoint": "human"
+      },
+      "frame_hex": "0000014f7b2274797065223a2268656c6c6f5f726573706f6e7365222c226970635f76657273696f6e223a7b226d616a6f72223a332c226d696e6f72223a307d2c227472616e73706f72745f636f6e74726163745f76657273696f6e223a22332e30222c2270656572223a22313244334b6f6f5744704a3741733742574177524d6675315655325743714e6a76713338374a45594b44426a346b78366e58544e222c22656e64706f696e74223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372222c22656e64706f696e745f6c656173655f65706f6368223a2241414141414141414141414141414141414141414151222c226576656e745f7175657565223a3235362c226772616e7465645f6361706162696c6974696573223a5b226576656e7473222c22636f6d6d616e6473225d7d",
+      "note": "A data-plane grant with a lease; the epoch is learned here and from no event. The event queue bound comes with the lease (hello-response 1.1.0; 2.0.0 on major 3, the derived id)."
     },
     {
       "name": "close-version-incompatible",
@@ -96,12 +103,12 @@
         "code": "VersionIncompatible",
         "supported": [
           {
-            "major": 2,
+            "major": 3,
             "minor": 0
           }
         ]
       },
-      "frame_hex": "000000517b2274797065223a22636c6f7365222c22636f6465223a2256657273696f6e496e636f6d70617469626c65222c22737570706f72746564223a5b7b226d616a6f72223a322c226d696e6f72223a307d5d7d",
+      "frame_hex": "000000517b2274797065223a22636c6f7365222c22636f6465223a2256657273696f6e496e636f6d70617469626c65222c22737570706f72746564223a5b7b226d616a6f72223a332c226d696e6f72223a307d5d7d",
       "note": "The connection-fatal reply to hello-unsupported-major."
     },
     {
@@ -146,7 +153,7 @@
         "method": "direct.send",
         "params": {
           "peer": "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
-          "endpoint": "human",
+          "endpoint": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
           "message_id": "018f3c2a5e6d7b8c9dabcdef01234567",
           "payload": {
             "media_type": "text/plain",
@@ -155,8 +162,11 @@
         },
         "deadline_ms": 5000
       },
-      "frame_hex": "0000010b7b2274797065223a2272657175657374222c226964223a22732d37222c226d6574686f64223a226469726563742e73656e64222c22706172616d73223a7b2270656572223a22313244334b6f6f5744704a3741733742574177524d6675315655325743714e6a76713338374a45594b44426a346b78366e58544e222c22656e64706f696e74223a2268756d616e222c226d6573736167655f6964223a223031386633633261356536643762386339646162636465663031323334353637222c227061796c6f6164223a7b226d656469615f74797065223a22746578742f706c61696e222c226279746573223a2261475673624738227d7d2c22646561646c696e655f6d73223a353030307d",
-      "note": "send-params 2.0.0: the caller's message_id is REQUIRED; the payload bytes are unpadded base64url of `hello`."
+      "test_only_endpoints": {
+        "/params/endpoint": "human"
+      },
+      "frame_hex": "0000013a7b2274797065223a2272657175657374222c226964223a22732d37222c226d6574686f64223a226469726563742e73656e64222c22706172616d73223a7b2270656572223a22313244334b6f6f5744704a3741733742574177524d6675315655325743714e6a76713338374a45594b44426a346b78366e58544e222c22656e64706f696e74223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372222c226d6573736167655f6964223a223031386633633261356536643762386339646162636465663031323334353637222c227061796c6f6164223a7b226d656469615f74797065223a22746578742f706c61696e222c226279746573223a2261475673624738227d7d2c22646561646c696e655f6d73223a353030307d",
+      "note": "send-params 2.0.0 (3.0.0 on major 3, the derived id): the caller's message_id is REQUIRED; the payload bytes are unpadded base64url of `hello`."
     },
     {
       "name": "response-ok-empty",
@@ -199,11 +209,14 @@
         "sequence": 0,
         "event_type": "endpoint.lease_changed",
         "data": {
-          "endpoint": "human",
+          "endpoint": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
           "revoked_epoch": "AAAAAAAAAAAAAAAAAAAAAQ"
         }
       },
-      "frame_hex": "000000887b2274797065223a226576656e74222c2273657175656e6365223a302c226576656e745f74797065223a22656e64706f696e742e6c656173655f6368616e676564222c2264617461223a7b22656e64706f696e74223a2268756d616e222c227265766f6b65645f65706f6368223a2241414141414141414141414141414141414141414151227d7d",
+      "test_only_endpoints": {
+        "/data/endpoint": "human"
+      },
+      "frame_hex": "000000b77b2274797065223a226576656e74222c2273657175656e6365223a302c226576656e745f74797065223a22656e64706f696e742e6c656173655f6368616e676564222c2264617461223a7b22656e64706f696e74223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372222c227265766f6b65645f65706f6368223a2241414141414141414141414141414141414141414151227d7d",
       "note": "Revocation only; sequence starts at 0 per connection."
     },
     {

@@ -445,10 +445,8 @@ pub(crate) async fn proposals<
 
 /// The decisions `proposals read` was given, by id.
 pub(crate) struct Decided<'a> {
-    /// `--accept`: none of them a key change.
+    /// `--accept`.
     pub(crate) accept: &'a [String],
-    /// `--accept-key-change`: each of them one.
-    pub(crate) accept_key_change: &'a [String],
     /// `--decline`.
     pub(crate) decline: &'a [String],
 }
@@ -497,11 +495,6 @@ pub(crate) async fn proposals_read<
                 ))
             })
     };
-    let changes_key = |row: RowId| {
-        shown
-            .iter()
-            .any(|p| p.row == row && matches!(p.key, KeyView::Changed { .. }))
-    };
     let mut decisions: Vec<(RowId, bool)> = Vec::new();
     for (n, id) in decided.accept.iter().enumerate() {
         let row = find(id, n, "accept")?;
@@ -511,27 +504,6 @@ pub(crate) async fn proposals_read<
         {
             return Err(Failure::Refused(format!(
                 "--accept number {}: {id} matches its contact and changes nothing; --decline closes it",
-                n + 1
-            )));
-        }
-        // The client never accepts a changed key on its own (ADR-0063
-        // decision 4): a plain --accept of one is refused before anything
-        // is read (`a_key_change_is_accepted_only_by_the_flag_named_for_it`).
-        if changes_key(row) {
-            return Err(Failure::Refused(format!(
-                "--accept number {}: {id} is a key change; --accept-key-change {id} accepts it",
-                n + 1
-            )));
-        }
-        decisions.push((row, true));
-    }
-    // And the flag accepts a key change only: a script that confirmed a
-    // key change never accepts something else under that confirmation.
-    for (n, id) in decided.accept_key_change.iter().enumerate() {
-        let row = find(id, n, "accept-key-change")?;
-        if !changes_key(row) {
-            return Err(Failure::Refused(format!(
-                "--accept-key-change number {}: {id} is not a key change; --accept accepts it",
                 n + 1
             )));
         }

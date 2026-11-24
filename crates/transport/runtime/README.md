@@ -22,7 +22,7 @@ Other decisions worth naming:
 - **One lease per session, not merely one session per endpoint.** A session holding two leases has no single authoritative `source_endpoint` — the value ADR-0030 derives from the lease precisely so a caller cannot choose it.
 - **Disabling an endpoint revokes its lease** and returns the ended epoch. Leaving it would have a session believing it owns a route that no longer accepts traffic.
 - **An unleased endpoint drops, it does not buffer.** `EndpointOffline` creates no queue — there is no mailbox here to accumulate one (ADR-0020).
-- **Outbound authorization delegates to `trust-api`** rather than re-implementing the intersection, so "narrow but never widen" has one implementation.
+- **Endpoint trust delegates to `trust-api`** rather than re-implementing it: inbound resolution, outbound authorization and the directory all ask `decide_at_endpoint`, against the operator's list, with the endpoint's own set (`OwnTrust`, `EndpointRegistry::set_own`, ADR-0067 decision 6) when it has one and its authored filter otherwise, so "an authored filter narrows and never widens; an own set is the whole of what its endpoint trusts" has one implementation.
 
 ## `fingerprint`
 
@@ -30,7 +30,7 @@ Other decisions worth naming:
 
 Absence uses `media_present = 0` and carries no length field at all, which keeps an absent media type distinct from any present one — and is why the empty string is *rejected* rather than encoded. Two spellings of "no media type" would mean one message with two content identities.
 
-`tests/frozen_fingerprints.rs` reproduces all seven vectors in `fixtures/direct-v2/`. Until now nothing in Rust consumed them, so two implementations could have disagreed with only the Python one checked.
+`tests/frozen_fingerprints.rs` reproduces all seven vectors in `fixtures/direct-v3/`. Until now nothing in Rust consumed them, so two implementations could have disagreed with only the Python one checked.
 
 ## `dedup`
 

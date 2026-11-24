@@ -13,6 +13,7 @@
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -40,7 +41,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("an endpoint")
+    endpoint_id("human")
 }
 
 fn envelope(serial: u128, text: &str) -> HumanChatV2 {

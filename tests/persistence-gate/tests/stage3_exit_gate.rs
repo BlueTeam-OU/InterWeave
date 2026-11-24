@@ -67,6 +67,7 @@ fn write_whole_profile(p: &ProfilePaths) {
 
     let mut store = HumanStore::open(
         &p.state_dir().join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("store");
@@ -115,6 +116,7 @@ fn a_whole_profile_reloads_from_its_paths_after_a_restart() {
 
     let store = HumanStore::open(
         &p.state_dir().join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("store");
@@ -148,6 +150,7 @@ fn deleting_the_peer_cache_costs_a_cold_start_and_nothing_else() {
 
     let store = HumanStore::open(
         &p.state_dir().join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("store");
@@ -196,6 +199,7 @@ fn a_corrupt_peer_cache_does_not_stop_a_profile_from_loading() {
 
     let store = HumanStore::open(
         &p.state_dir().join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("the human store is unaffected");
@@ -217,6 +221,7 @@ fn a_full_human_store_degrades_without_touching_the_rest_of_the_profile() {
     create_private_dir(p.state_dir()).expect("state dir");
     let mut store = HumanStore::open(
         &db,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(64),
         },
@@ -266,14 +271,24 @@ fn a_transport_terminal_outbound_is_gone_after_a_restart_while_the_rest_survives
     let db = p.state_dir().join("human.sqlite3");
 
     {
-        let mut store = HumanStore::open(&db, StoreOptions::default()).expect("store");
+        let mut store = HumanStore::open(
+            &db,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store");
         let row = store.pending_outbound().expect("pending")[0].row_id;
         store
             .transport_terminal(row, TerminalCause::Accepted)
             .expect("terminal");
     }
 
-    let store = HumanStore::open(&db, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open(
+        &db,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopen");
     assert!(store.pending_outbound().expect("pending").is_empty());
     assert_eq!(
         store.unread_inbound().expect("unread").len(),

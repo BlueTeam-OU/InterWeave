@@ -8,6 +8,7 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -29,7 +30,7 @@ use crate::verbs::{self, Run};
 const WALL: u64 = 1_792_652_603_000;
 
 fn endpoint() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
 }
 
 fn node() -> FakeConfig {
@@ -51,7 +52,12 @@ fn private_dir() -> tempfile::TempDir {
 }
 
 fn store(dir: &Path) -> HumanStore {
-    HumanStore::open(&dir.join("human.sqlite3"), StoreOptions::default()).expect("store")
+    HumanStore::open(
+        &dir.join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store")
 }
 
 fn session(node: &FakeNode, store: HumanStore) -> Session<FakeNode, FakeNode> {
@@ -460,7 +466,7 @@ async fn status_says_the_session_and_the_endpoint_it_holds() {
     status.expect("status");
     let status = &lines(&out)[0];
     assert_eq!(status["session"], "ready");
-    assert_eq!(status["endpoint"], "human");
+    assert_eq!(status["endpoint"], endpoint().as_str());
     assert_eq!(status["unread"], 0);
 }
 
@@ -541,7 +547,8 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     assert_eq!(message["status"], "unread");
     assert!(message["conversation"].is_string());
     assert_eq!(
-        message["local_endpoint"], "human",
+        message["local_endpoint"],
+        endpoint().as_str(),
         "G6: the endpoint it reached"
     );
 }
@@ -562,7 +569,7 @@ async fn listen_input_sends_each_line_and_answers_with_its_ref() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     // As stdin hands them over: a line that is not UTF-8 among them, and
     // two sends, answered in the order read.
@@ -678,7 +685,7 @@ async fn an_input_line_is_answered_by_one_outbound_line() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     let stdin = format!(
         "{{\"send\":{{\"conversation\":\"{to_alice}\",\"text\":\"once\",\"ref\":\"r\"}}}}\n"
@@ -739,7 +746,7 @@ async fn an_input_sends_outbound_event_names_its_problem() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     b.inject_send(TransportError::UnauthorizedPeer);
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     lines_in
@@ -808,7 +815,7 @@ async fn a_ref_past_its_cap_is_refused_and_one_at_it_is_echoed() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     // A JSON string serialises with its two quotes.
     let at_cap = "a".repeat(verbs::MAX_INPUT_REF_BYTES - 2);
     let over = "b".repeat(verbs::MAX_INPUT_REF_BYTES - 1);
@@ -1419,7 +1426,7 @@ async fn an_input_send_refused_before_a_row_is_answered_and_input_goes_on() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     let (lines_in, input) = tokio::sync::mpsc::channel(verbs::INPUT_QUEUE);
     // Past the payload bound however it is encoded: text that does not
     // compress.
@@ -1757,7 +1764,7 @@ async fn an_input_lines_answers_print_whatever_the_filter() {
         .1
         .expect("status");
     run(&mut bob, Verb::Status, false).await.1.expect("status");
-    let to_alice = format!("{}/human", a.peer().as_str());
+    let to_alice = format!("{}/{}", a.peer().as_str(), endpoint().as_str());
     // The first attempt times out, so the answer is not the row's last
     // status: the retry's `accepted` is a later event (j288: an answer's
     // own status is printed once).

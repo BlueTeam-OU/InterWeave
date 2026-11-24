@@ -62,6 +62,9 @@ test-hooks = ["interweave-transport-embedded/test-hooks"]
 e2e-cases = ["dep:interweave-android-e2e-cases"]
 
 [dev-dependencies]
+# An earlier release's identity key, made from known bytes
+# (tests/first_identity.rs).
+ed25519-dalek = { workspace = true }
 interweave-human-chat-protocol = { path = "../chat-protocol" }
 interweave-human-client-api = { path = "../client-api" }
 interweave-human-core = { path = "../core" }

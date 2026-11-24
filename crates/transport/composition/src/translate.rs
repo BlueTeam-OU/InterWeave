@@ -65,6 +65,15 @@ pub enum CompositionError {
     /// overlay enables or disables. The runtime does not start, and the
     /// overlay is named as the cause.
     EndpointOverlayConflicts(Vec<ConfigError>),
+    /// The operator's list and every endpoint's own set together hold
+    /// more peers than the admission set's bound (ADR-0067 decision 6):
+    /// FATAL at start, naming both numbers, never truncated.
+    AdmissionSetTooLarge {
+        /// Distinct peers in the union.
+        got: usize,
+        /// The bound, `MAX_ALLOWED_PEERS`.
+        max: usize,
+    },
     /// The bootstrap-peers overlay cannot be trusted, holds an entry
     /// outside the grammar, or composes with `config.yaml`'s entries
     /// past the provider's bound of 64: the runtime does not start,
@@ -95,6 +104,11 @@ impl core::fmt::Display for CompositionError {
             ),
             Self::TrustOverlay(e) => write!(f, "{e}"),
             Self::EndpointOverlay(e) => write!(f, "{e}"),
+            Self::AdmissionSetTooLarge { got, max } => write!(
+                f,
+                "the operator's list and the endpoint overlay's sets together trust {got} \
+                 peers; the admission set's bound is {max}"
+            ),
             Self::BootstrapOverlay(e) => write!(f, "{e}"),
             Self::EndpointOverlayConflicts(errors) => {
                 write!(
@@ -155,6 +169,67 @@ impl Composition {
         self.peer_trust = peer_trust;
         Ok(self)
     }
+
+    /// Each endpoint's own sets from the endpoint overlay (ADR-0067
+    /// decision 6), applied over the operator's list [`Self::with_allowed`]
+    /// installed: the trust sources become per endpoint, and
+    /// [`Self::peer_trust`] the ADMISSION SET they derive -- what decides
+    /// a connection, and so what discovery offers and Kademlia populates.
+    ///
+    /// # Errors
+    /// [`CompositionError::AdmissionSetTooLarge`] past the bound.
+    pub fn with_own_sets(
+        mut self,
+        own: std::collections::BTreeMap<
+            interweave_transport_api::EndpointId,
+            interweave_transport_runtime::OwnTrust,
+        >,
+    ) -> Result<Self, CompositionError> {
+        let sources = TrustSources::per_endpoint(
+            self.trust.operator().clone(),
+            own,
+            self.trust.infrastructure.clone(),
+        )
+        .map_err(|e| match e {
+            interweave_trust_api::TrustPolicyError::AllowlistTooLarge { got, max } => {
+                CompositionError::AdmissionSetTooLarge { got, max }
+            }
+            interweave_trust_api::TrustPolicyError::LocalPeer => {
+                CompositionError::Translation("the local peer in an endpoint's set")
+            }
+        })?;
+        self.peer_trust = sources.peers.clone();
+        self.trust = sources;
+        Ok(self)
+    }
+}
+
+/// Each configured endpoint's own sets, as the endpoint overlay holds
+/// them, keyed over `endpoints` (the composed set): a set for an endpoint
+/// that is not configured has nothing to apply to.
+#[must_use]
+pub fn own_sets(
+    overlay: &interweave_profile_config::endpoint_overlay::EndpointOverlay,
+    endpoints: &interweave_profile_config::EndpointsConfig,
+) -> std::collections::BTreeMap<
+    interweave_transport_api::EndpointId,
+    interweave_transport_runtime::OwnTrust,
+> {
+    endpoints
+        .entries
+        .iter()
+        .filter_map(|entry| {
+            overlay.own_sets(&entry.id).map(|(inbound, outbound)| {
+                (
+                    entry.id.clone(),
+                    interweave_transport_runtime::OwnTrust {
+                        inbound: inbound.clone(),
+                        outbound: outbound.clone(),
+                    },
+                )
+            })
+        })
+        .collect()
 }
 
 /// Everything [`crate::ComposedRuntime`] builds from one profile.

@@ -351,11 +351,14 @@ async fn greet(
 /// selected `selected` (LOCAL-IPC.md §Version negotiation):
 /// `min(client minor, server minor)`, never above the client's minor nor
 /// above what this build speaks. Every later method, event and feature is
-/// gated on the selected minor, and the admin port remembers it for the
-/// next hello, so an answer outside that is the server's violation rather
-/// than a version to adopt. The major is not compared here: the
+/// gated on the selected version, so an answer outside that is the
+/// server's violation rather than a version to adopt. The major is not compared here: the
 /// `hello_response` parser refuses any but [`IPC_MAJOR`](interweave_ipc_protocol::IPC_MAJOR),
 /// which is the only one offered.
+#[allow(
+    clippy::absurd_extreme_comparisons,
+    reason = "IPC_MAX_MINOR is 0 at 3.0, so the bound reads as == today; it is the rule for every later minor"
+)]
 fn selectable(offered: IpcVersion, selected: IpcVersion) -> bool {
     selected.minor <= offered.minor && selected.minor <= IPC_MAX_MINOR
 }
@@ -633,8 +636,8 @@ async fn read_loop(
                 let Some((events, inbox)) = &events else {
                     break (TransportError::ProtocolViolation, false, EndedBy::Reader);
                 };
-                // A type above the selected minor is the server's
-                // violation, as an unknown one is.
+                // A type introduced after the selected version is the
+                // server's violation, as an unknown one is.
                 let event = match frame.event(version) {
                     Ok(event) => event.into_session(),
                     Err(code) => break (code, false, EndedBy::Reader),
@@ -1026,7 +1029,7 @@ mod tests {
             let answer = |body: String| encode_frame(&body).expect("a frame");
             write
                 .write_all(&answer(format!(
-                    r#"{{"type":"hello_response","ipc_version":{{"major":2,"minor":0}},"transport_contract_version":"2.0","peer":"{PEER}","granted_capabilities":["commands"]}}"#
+                    r#"{{"type":"hello_response","ipc_version":{{"major":3,"minor":0}},"transport_contract_version":"3.0","peer":"{PEER}","granted_capabilities":["commands"]}}"#
                 )))
                 .await
                 .expect("written");

@@ -32,3 +32,7 @@ the transport derives from the operator's list and those sets, the
 rule bullet saying so. Propagation: the Status line; the decision
 bullet; the narrowing rule bullet; Operational implications; this note; the log row; the
 digest entry.
+
+### Amendment 2026-11-19 — The wire majors are direct `3.0.0` and IPC `3` from the Stage 22 release
+
+The Decision's last bullet read "implementation target becomes `/interweave/direct/2.0.0` and IPC major version 2", which was the wire from Stage 6 and Stage 13 until the Stage 22 release. ADR-0067 decision 7 moves both majors in that release, because every frame and every IPC document that carries an EndpointId carries a derived one from it and no older reader tolerates the value. The bullet keeps what this record set and names what it is now. Nothing else here changes: one exclusive lease per session, one resolved destination, the default on omission, policy that narrows and never widens. Propagation: the bullet; this note; the log row; the digest entry.

@@ -99,7 +99,8 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 channels:
@@ -139,7 +140,7 @@ async fn a_foreign_version_byte_is_not_delivered_beside_a_version_1_control() {
         .open(
             SessionRequest::new(
                 "human-client",
-                Some(interweave_transport_api::EndpointId::parse("human").expect("valid")),
+                Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
                 [DataCapability::Commands, DataCapability::Events],
             )
             .expect("in bounds"),

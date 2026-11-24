@@ -3,7 +3,7 @@
 //! The Stage 6 exit gate: direct v2 between real peers over loopback.
 //!
 //! Two `SwarmRuntime`s, a real TCP transport, a real Noise handshake, and
-//! the real `/interweave/direct/2.0.0` codec. Nothing here is mocked,
+//! the real `/interweave/direct/3.0.0` codec. Nothing here is mocked,
 //! because every property under test is one a mock would grant for free:
 //! "the queue admitted it before `AcceptedV2` was sent" is a statement
 //! about ordering across a socket, and a stub responder answers in the
@@ -50,7 +50,7 @@ fn trusting(peers: &[&TransportIdentity]) -> TrustSources {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(name)
 }
 
 /// Claim each named endpoint for a session of the same name.
@@ -105,6 +105,8 @@ fn profile_with(entries: Vec<EndpointConfig>, default: Option<&str>) -> ProfileC
 fn entry(name: &str) -> EndpointConfig {
     EndpointConfig {
         id: endpoint(name),
+        alias: None,
+        key_state: interweave_profile_config::EndpointKeyState::NotRead,
         enabled: true,
         advertise: false,
         allowed_client_kinds: Vec::new(),

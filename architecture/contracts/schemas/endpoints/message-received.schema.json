@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:endpoints:message-received",
   "title": "Direct MessageReceived event",
-  "description": "The normalized event delivered to exactly one local data-plane session after the receiver resolved a single endpoint. destination_endpoint is NEVER absent — resolution happened before acceptance. Broadcast events deliberately carry no endpoint routing metadata (ADR-0030), so two endpoints under one PeerId are indistinguishable as transport-level broadcast originators.",
+  "description": "The normalized event delivered to exactly one local data-plane session after the receiver resolved a single endpoint. destination_endpoint is NEVER absent — resolution happened before acceptance. Broadcast events deliberately carry no endpoint routing metadata (ADR-0030), so two endpoints under one PeerId are indistinguishable as transport-level broadcast originators.\n\n2.0.0 (ADR-0067 decision 7): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major.",
   "type": "object",
   "required": [
     "message_id",
@@ -26,7 +26,7 @@
     },
     "source_endpoint": {
       "$ref": "urn:interweave:schemas:endpoints:endpoint-id",
-      "description": "Peer-asserted. Proves only that the authenticated PeerId claimed this route label."
+      "description": "Peer-asserted. Proves only that the authenticated PeerId claimed this endpoint."
     },
     "destination_endpoint": {
       "$ref": "urn:interweave:schemas:endpoints:endpoint-id",
@@ -64,16 +64,17 @@
   "x-contract": {
     "name": "endpoints.message-received",
     "status": "active",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "adr": [
       "0030",
       "0018",
-      "0026"
+      "0026",
+      "0067"
     ],
     "specification": "architecture/contracts/ENDPOINTS.md",
-    "wire-protocol": "/interweave/direct/2.0.0",
+    "wire-protocol": "/interweave/direct/3.0.0",
     "fixtures": [
-      "fixtures/direct-v2/direct-content-fingerprint-v1.json"
+      "fixtures/direct-v3/direct-content-fingerprint-v1.json"
     ]
   }
 }

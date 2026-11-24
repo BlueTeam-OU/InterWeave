@@ -930,6 +930,7 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::{Edge, edge_id, edge_of};
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     /// A direction is the person's since the last take: taking the
     /// reports takes it, so a later gap reached with no move goes lower
@@ -937,14 +938,14 @@ mod tests {
     #[test]
     fn taking_the_reports_takes_the_direction() {
         use interweave_human_ui_model::ConversationKey;
-        use interweave_transport_api::{EndpointId, TransportIdentity};
+        use interweave_transport_api::TransportIdentity;
         i_slint_backend_testing::init_no_event_loop();
         let mut view =
             crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
         let key = ConversationKey::Direct {
             peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
                 .expect("a PeerId"),
-            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+            endpoint: Some(endpoint_id("human")),
         };
         view.shared.borrow_mut().window_view.moved_up = Some(false);
         let _ = view.reach_events(&key);
@@ -962,14 +963,14 @@ mod tests {
         use interweave_human_ui_model::{
             Anchor, ConversationKey, ItemKey, MarkPlace, WindowEvent, WindowInput,
         };
-        use interweave_transport_api::{EndpointId, TransportIdentity};
+        use interweave_transport_api::TransportIdentity;
         i_slint_backend_testing::init_no_event_loop();
         let mut view =
             crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
         let key = ConversationKey::Direct {
             peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
                 .expect("a PeerId"),
-            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+            endpoint: Some(endpoint_id("human")),
         };
         let mut model = interweave_human_ui_model::UiModel::new();
         for n in [1_i64, 9] {
@@ -980,7 +981,7 @@ mod tests {
                         "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
                     )
                     .expect("a PeerId"),
-                    endpoint: EndpointId::parse("human").expect("an endpoint"),
+                    endpoint: endpoint_id("human"),
                 },
                 envelope: interweave_human_chat_protocol::HumanChatV2 {
                     v: 2,
@@ -1132,14 +1133,14 @@ mod tests {
     #[test]
     fn focus_the_app_placed_is_the_persons_once_it_moved() {
         use interweave_human_ui_model::ConversationKey;
-        use interweave_transport_api::{EndpointId, TransportIdentity};
+        use interweave_transport_api::TransportIdentity;
         i_slint_backend_testing::init_no_event_loop();
         let mut view =
             crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
         let key = ConversationKey::Direct {
             peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
                 .expect("a PeerId"),
-            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+            endpoint: Some(endpoint_id("human")),
         };
         view.marks.app_placed("earlier-unread:t");
         // Before the request lands focus is still where it was: not yet a
@@ -1168,14 +1169,14 @@ mod tests {
     #[test]
     fn connect_in_the_conversations_place_closes_its_window() {
         use interweave_human_ui_model::{ConversationKey, WindowEvent, WindowInput};
-        use interweave_transport_api::{EndpointId, TransportIdentity};
+        use interweave_transport_api::TransportIdentity;
         i_slint_backend_testing::init_no_event_loop();
         let mut view =
             crate::View::new(interweave_human_ui_model::RuntimeHost::Daemon).expect("a window");
         let key = ConversationKey::Direct {
             peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
                 .expect("a PeerId"),
-            endpoint: Some(EndpointId::parse("human").expect("an endpoint")),
+            endpoint: Some(endpoint_id("human")),
         };
         view.marks.windowed = true;
         view.shown = Some(key.clone());

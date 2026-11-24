@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The desktop IPC v2 server (`LOCAL-IPC.md`; plan §16 (1), (5)-(9)).
+//! The desktop IPC server, major 3 (`LOCAL-IPC.md`; plan §16 (1), (5)-(9)).
 //!
 //! A library, generic over the neutral binding traits of
 //! `interweave-local-client-api`: it serializes `DataSessionPort` and

@@ -231,7 +231,7 @@ pub enum SwarmCommand {
     /// Ask a trusted, connected peer which endpoints it advertises.
     ///
     /// Answered from the cache when a fresh entry exists, otherwise by one
-    /// exchange over `/interweave/endpoints/1.0.0`. The result is
+    /// exchange over `/interweave/endpoints/2.0.0`. The result is
     /// advisory: it gates no send and grants no trust (ADR-0031).
     QueryEndpoints {
         /// Whose directory.
