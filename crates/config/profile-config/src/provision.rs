@@ -290,7 +290,8 @@ impl core::error::Error for ProvisionIdentityError {
 /// it is there so that the strict rule never strands one.
 ///
 /// # Errors
-/// [`ProvisionIdentityError`], nothing written.
+/// [`ProvisionIdentityError`]. On a `Write` error the overlay carry may
+/// already be made; it is idempotent and a rerun finishes the form-2 write.
 pub fn provision_identity(
     paths: &ProfilePaths,
     endpoint: &EndpointId,
