@@ -435,8 +435,13 @@ bound, it shows K1, with focus on its heading. Acceptance 12 gains a
 sixth run, for
 Back on R2 after K1 after a check that showed `IdStorageUnknown`, and
 a seventh, for the two decisions above. §12 says
-that after that Back only the end of the process leads on, and that
-no words say so. Before, the note left all three open.
+that, when that check saved the restore and the person presses Back
+on R2 and then Back on K1, only the end of the process leads on, and
+that no words say so. Before, the note left all three open. §6 (The
+comparison outlasts the bound) now says that a start without network
+does not unlock the node's seed, and names what it can write, none of
+which a PeerId binds (architect-cto's request of 2026-11-24). Before,
+it said that such a start unlocks no identity.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1333,11 +1338,14 @@ that a PeerId was created.
   answer after the bound says, and nothing runs as that other PeerId.
   A start without network (the start that runs when the person has
   denied the network, `startWithoutNetwork`) opens the store and
-  does not unlock the node's seed, so it has no PeerId to compare. At
-  a first run (Stage 22), a start without network can write two things
-  and nothing else: the first user identity's sealed key file, and the
-  endpoint entry for that identity in the profile's configuration. No
-  PeerId binds the key file or the endpoint entry. Such a start does
+  does not unlock the node's seed, so it has no PeerId to compare.
+  Nothing it writes is bound by a PeerId. At a first run (Stage 22) it
+  can write the first user identity's sealed key file and that
+  identity's endpoint entry in the profile's configuration, where
+  onboarding left them undone, and it creates the store, the store's
+  sealed key file and the profile's format marker, where they do not
+  exist yet. On a phone that an earlier release set up, it can also
+  re-seal that release's identity key and remove its old file. Such a start does
   not end the comparison: the next start of that process that unlocks
   the node's seed compares. Where the network prompt's Allow ends the
   process (GrapheneOS, unlock note §11), that is an end of the
@@ -2509,7 +2517,7 @@ landscape:
     next start runs `startWithoutNetwork`: the custody records no
     `unlock` call for that start (the `unlock` count above; this run
     is blocked until that count exists), and the next start that
-    unlocks the identity compares and is answered as in the first
+    unlocks the node's seed compares and is answered as in the first
     run. In a fifth run, the held start is answered after the bound with
     `RecoveryRequired`, and the double's record names a PeerId other
     than C4's: K1 shows over Chats with that PeerId. The phrase of that
