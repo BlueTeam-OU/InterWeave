@@ -30,6 +30,7 @@ use interweave_human_ui_model::{
 };
 use interweave_human_ui_slint::{INPUT_CAP, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle as _, Model as _};
@@ -41,7 +42,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("an endpoint")
+    endpoint_id("human")
 }
 
 fn envelope(serial: u128, text: &str) -> HumanChatV2 {
@@ -1181,7 +1182,7 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
         all(&view)
             .iter()
             .filter_map(ElementHandle::accessible_label)
-            .filter(|l| l.contains("human"))
+            .filter(|l| l.contains(human().as_str()))
             .all(|l| l.contains(short.as_str())),
         "no route line"
     );
@@ -2811,7 +2812,8 @@ fn details_shows_the_identifier_whole_and_copy_closes_with_its_confirmation() {
             .any(|e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Text)),
         "the PeerId whole, as text, not a field"
     );
-    let route = interweave_human_ui_model::fill(text(UiText::DetailsRoute), &[("route", "human")]);
+    let route =
+        interweave_human_ui_model::fill(text(UiText::DetailsRoute), &[("route", human().as_str())]);
     assert_eq!(labelled(&view, &route).len(), 1, "the route, as named");
     assert_eq!(labelled(&view, text(UiText::Close)).len(), 1);
 

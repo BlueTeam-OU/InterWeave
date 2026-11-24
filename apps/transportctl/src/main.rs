@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! `transportctl`: the admin client of a running daemon, over its admin
-//! socket, and the offline identity commands, which never touch a socket
-//! (plan §16 (10), ADR-0033).
+//! socket, and the offline identity and endpoint-key commands, which never
+//! touch a socket (plan §16 (10), ADR-0033, ADR-0067 decision 4).
 //!
 //! Exit codes (plan §16 (11)): 0 done, 1 refused (the reason or the
 //! daemon's error code printed), 2 a usage error, 3 the daemon
@@ -13,6 +13,7 @@
 
 mod admin;
 mod cli;
+mod endpoint;
 mod identity;
 mod phrase;
 
@@ -71,6 +72,7 @@ fn main() -> ExitCode {
             ))),
         },
         cli::Command::Identity(command) => identity::run(command),
+        cli::Command::Endpoint(command) => endpoint::run(command),
     };
     match outcome {
         Ok(out) => {

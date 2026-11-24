@@ -134,3 +134,36 @@ the send loop's `available_to` refuses a `previous`-less notice below
 property of a closed PARAMS shape, or a removed property anywhere, is a
 major; the pre-release exception of 2026-10-01; the result-shape
 exception of 2026-10-07 and its first use.
+
+### Amendment 2026-11-19 — The server speaks IPC major 3 from the Stage 22 release, and a `Since` is a (major, minor) pair
+
+ADR-0067 decision 7 moves the IPC to major 3 in the release that builds Stage 22: every IPC document that carries an EndpointId carries a derived one, a value no major-2 reader tolerates, which is this record's own case for a major (the Amendment of 2026-09-28: "the server speaks 2"). What the major is, ruled 2026-11-19 for the builders: it starts at minor 0 and holds everything 2.13 held, nothing added and nothing removed but the id's grammar; the server speaks major 3 alone and answers a major-2 hello `close{VersionIncompatible}` with major 3 in `supported`; a `Since` is a (major, minor) pair and a gate that compared the minor alone, correct while one major existed, would refuse a 3.0 connection what 2.1 brought; a result or event shape that widened behind a major-2 minor is served on major 3 in its newest shape alone, and the widening rule applies again from 3.0; every capability major 2 reached may be named in a first major-3 hello; the closed-shape major binds from 3.0, the Stage 22 release being major 3's first production build. The body's statements of the additive rule are unchanged. Propagation: the Decision's sentence on the major; this note; the log row; the digest entry; `LOCAL-IPC.md` (the opening, §Handshake, §Version negotiation and phases, §IPC v1 compatibility); `TRANSPORT.md` §Versioning.
+
+### Amendment 2026-11-22 — The option to decline route notices leaves the session request with IPC major 2
+
+The Amendment of 2026-10-09 named, as its first use's mechanism, a
+session request option: the IPC server opened a connection below 2.4 as
+a session that declined route notices, so that the emitter took no
+`previous`-less instance for a client that could not read one. Major 3
+(the Amendment of 2026-11-19) holds everything 2.13 held in one shape,
+so no IPC connection is below 2.4 and the server's hello, the option's
+only production caller, no longer asked for it; as major 3 was built the
+IPC client refused the option unsent and the in-process binding still
+honoured it, with no caller there either. Asked whether the option
+should stay under a stage-dated exemption for the in-process binding,
+the ruling of 2026-11-22 was that it leaves with its field in the Stage
+22 batch. The reason: the option existed for a client that cannot read
+the widened shape, and an in-process client is compiled against the
+crate that defines the shape, so no client of either binding can need
+it; keeping it would mean inventing a caller, and a dated exemption
+would only move the same question to the stage's close. What stands is
+the rule, not its first mechanism: an event shape's bound holds on the
+stream, and a shape that widens behind a 3.n minor names its own means
+of keeping new-only instances from a connection below it. A client that
+one day needs to decline route notices over IPC gets a `hello` feature
+at a 3.n minor under its own decision, as ADR-0026's note of 2026-10-24
+already said. Propagation: the Decision's first-use sentence; this
+note; the log row; the digest entry; `LOCAL-IPC.md` §Push events and
+overload and §Version negotiation and phases (the major-3 rule, which
+before this said the in-process binding honoured the request);
+`LOCAL-CLIENT.md` §2's `PeerPathChanged` and §7 item 15.

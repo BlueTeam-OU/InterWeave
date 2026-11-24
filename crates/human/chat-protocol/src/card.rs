@@ -141,6 +141,11 @@ pub enum CardFault {
     /// The signature failed strict verification under the identity key
     /// over the canonical bytes of the route the card arrived on.
     SignatureFails,
+    /// The identity key does not derive the `source_endpoint` the card
+    /// arrived on: the key is the sending endpoint's own, and a card
+    /// presenting one endpoint's name under another's key is malformed
+    /// (ADR-0067 decision 5, HUMAN-CHAT.md §Contact card).
+    KeyNotSourceEndpoint,
 }
 
 impl CardFault {
@@ -167,6 +172,7 @@ impl CardFault {
             Self::SignatureEncoding => "signature-encoding",
             Self::SignatureLength => "signature-length",
             Self::SignatureFails => "signature-fails",
+            Self::KeyNotSourceEndpoint => "key-not-source-endpoint",
         }
     }
 }
@@ -199,7 +205,7 @@ pub enum Classified {
 /// never [`Classified::NotCard`].
 #[must_use]
 pub fn classify(text: &str, route: CardRoute<'_>) -> Classified {
-    if !any_top_level_kind_is_card(text) {
+    if !is_card(text) {
         return Classified::NotCard;
     }
     match parse_card(text, route) {
@@ -248,10 +254,13 @@ pub fn canonical_card_bytes(
     Some(out)
 }
 
-/// Whether `text` is a contact card at all, by the same rule [`classify`]
-/// uses and before any of its faults is judged: a consumer that only
-/// discards cards (a card received over broadcast, which is ignored)
-/// asks this, with no route to verify a signature over.
+/// Whether `text` is a contact card at all, before any of its faults is
+/// judged: `false` exactly when [`classify`] answers
+/// [`Classified::NotCard`], which `classify` makes so by asking this
+/// first (`frozen_cards.rs`, `is_card_is_exactly_what_classify_calls_a_card`).
+/// It takes no [`CardRoute`]: a consumer that only discards cards (a
+/// card received over broadcast, which is ignored) asks it with no
+/// `EndpointId` or `PeerId` to build.
 #[must_use]
 pub fn is_card(text: &str) -> bool {
     any_top_level_kind_is_card(text)
@@ -291,7 +300,7 @@ pub struct OwnCardFields {
 /// `the_own_reader_refuses_what_classify_refuses_before_the_signature`).
 #[must_use]
 pub fn read_own_card_unverified(text: &str) -> Option<OwnCardFields> {
-    if !any_top_level_kind_is_card(text) {
+    if !is_card(text) {
         return None;
     }
     parse_fields(text).ok().map(|(fields, _)| fields.own)
@@ -352,10 +361,13 @@ pub fn check_draft(draft: CardDraft<'_>) -> Result<(), CardBuildError> {
 /// sent on: `sender` is this node's `PeerId` and `endpoint` the identity
 /// the conversation speaks as, which the receiver takes from the
 /// connection and verifies the signature over. `sign` is the identity
-/// key's, and `identity_key` its public half.
+/// key's, and `identity_key` its public half, the key `endpoint` derives
+/// from (ADR-0067 decision 5).
 ///
 /// What it returns is the raw JSON text, which [`classify`] answers with
-/// [`Classified::Card`] on that route, and only there.
+/// [`Classified::Card`] on that route, and only there; built under a key
+/// that does not derive `endpoint`, with
+/// [`CardFault::KeyNotSourceEndpoint`] everywhere.
 ///
 /// # Errors
 /// [`CardBuildError`] for a draft a receiver would refuse.
@@ -539,6 +551,11 @@ fn parse_card(text: &str, route: CardRoute<'_>) -> Result<Card, CardFault> {
     if !verifies_strictly(&identity_key, &signature, &message) {
         return Err(CardFault::SignatureFails);
     }
+    // After the signature, as the fixture verifier orders its rules: a
+    // signature vector's verdict never turns on its route's endpoint.
+    if EndpointId::from_ed25519_public(&identity_key) != *route.source_endpoint {
+        return Err(CardFault::KeyNotSourceEndpoint);
+    }
 
     Ok(Card {
         app_message_id,
@@ -594,7 +611,7 @@ fn parse_fields(text: &str) -> Result<(ParsedFields, [u8; 64]), CardFault> {
         None => None,
         Some(v) => Some(
             v.as_str()
-                .and_then(|s| EndpointId::parse(s).ok())
+                .and_then(|s| EndpointId::parse_derived(s).ok())
                 .ok_or(CardFault::FromEndpoint)?,
         ),
     };

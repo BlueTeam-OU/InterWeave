@@ -59,7 +59,12 @@ fn in_files(path: &Path, needle: &[u8]) -> (bool, bool) {
 /// reached the database file (written, then a close checkpointed it), and
 /// the kept marker as a kept message. Returns the released row's id.
 fn store_with_both(path: &Path) -> interweave_human_store::RowId {
-    let mut store = HumanStore::open(path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let kept = store
         .commit_unread_inbound(&inbound(2, KEPT))
         .expect("kept commits");
@@ -85,7 +90,12 @@ fn released_content_is_absent_from_both_files_after_a_clean_close() {
     let dir = common::private_tempdir();
     let path = state(&dir);
     let row = store_with_both(&path);
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     store.mark_read(row, 4_000).expect("released");
     drop(store);
     assert_eq!(
@@ -104,7 +114,12 @@ fn released_content_leaves_both_files_before_the_release_returns() {
     let dir = common::private_tempdir();
     let path = state(&dir);
     let row = store_with_both(&path);
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     store.mark_read(row, 4_000).expect("released");
     // The store is still open: the bound is one release.
     assert_eq!(
@@ -144,7 +159,12 @@ fn an_unclean_close_by_a_build_without_secure_delete_is_scrubbed_at_the_next_ope
     // No close: the process ends without checkpointing.
     std::mem::forget(legacy);
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("the next open");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("the next open");
     assert_eq!(
         in_files(&path, RELEASED),
         (false, false),
@@ -162,7 +182,12 @@ fn an_unclean_close_by_a_build_without_secure_delete_is_scrubbed_at_the_next_ope
 fn unkept_content_leaves_both_files_before_the_unkeep_returns() {
     let dir = common::private_tempdir();
     let path = state(&dir);
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let kept = store
         .commit_unread_inbound(&inbound(2, KEPT))
         .expect("control commits");
@@ -178,7 +203,12 @@ fn unkept_content_leaves_both_files_before_the_unkeep_returns() {
         in_files(&path, RELEASED).0,
         "the setup: kept content reached the file"
     );
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     store.unkeep(kept_row, 4_000).expect("unkept");
     assert_eq!(
         in_files(&path, RELEASED),
@@ -200,7 +230,12 @@ fn terminal_outbound_content_leaves_both_files_before_the_call_returns() {
     use interweave_transport_api::{DirectDestination, MessageId};
     let dir = common::private_tempdir();
     let path = state(&dir);
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let kept = store
         .commit_unread_inbound(&inbound(2, KEPT))
         .expect("control commits");
@@ -223,7 +258,12 @@ fn terminal_outbound_content_leaves_both_files_before_the_call_returns() {
         in_files(&path, RELEASED).0,
         "the setup: pending content reached the file"
     );
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     store
         .transport_terminal(row, TerminalCause::Accepted)
         .expect("terminal");
@@ -249,7 +289,12 @@ fn terminal_outbound_content_leaves_both_files_before_the_call_returns() {
 fn a_never_checkpointed_store_released_and_killed_is_scrubbed_at_the_next_open() {
     let dir = common::private_tempdir();
     let path = dir.path().join("fresh").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     store
         .commit_unread_inbound(&inbound(2, KEPT))
         .expect("control commits");
@@ -278,7 +323,12 @@ fn a_never_checkpointed_store_released_and_killed_is_scrubbed_at_the_next_open()
         "the setup: the released content is in the WAL"
     );
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("the next open");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("the next open");
     assert_eq!(
         in_files(&path, RELEASED),
         (false, false),
@@ -302,7 +352,12 @@ fn a_held_log_is_not_mistaken_for_a_truncated_one() {
     let dir = common::private_tempdir();
     let path = state(&dir);
     let row = store_with_both(&path);
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     store.mark_read(row, 4_000).expect("released");
     std::mem::forget(store);
     // Frames in the log, never checkpointed, for the truncate to need.
@@ -315,7 +370,12 @@ fn a_held_log_is_not_mistaken_for_a_truncated_one() {
     reader
         .execute_batch("BEGIN; SELECT count(*) FROM settings;")
         .expect("a read snapshot held");
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     assert_eq!(
         store.health(),
         interweave_human_core::retention::StorageHealth::Degraded,

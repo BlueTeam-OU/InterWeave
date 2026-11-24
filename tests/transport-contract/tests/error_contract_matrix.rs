@@ -146,7 +146,7 @@ const MATRIX: &[Clause] = &[
         doc: ENDPOINTS,
         text: "malformed/noncanonical endpoint input is `InvalidArgument`",
         error: "InvalidArgument",
-        proof: Proof::Unrepresentable("endpoint_id_rejects_everything_outside_the_grammar"),
+        proof: Proof::Unrepresentable("parse_derived_refuses_text_that_is_not_the_canonical_form"),
     },
     Clause {
         doc: ENDPOINTS,
@@ -210,9 +210,28 @@ const MATRIX: &[Clause] = &[
     },
     Clause {
         doc: DIRECT,
-        text: "connection/protocol negotiation failure -> `PeerUnreachable`",
+        text: "connection failure -> `PeerUnreachable`",
         error: "PeerUnreachable",
         proof: Proof::Test("an_unknown_peer_and_an_unreachable_one_are_told_apart"),
+    },
+    // --- direct 3.0.0 (ADR-0067 decision 7) ----------------------------
+    Clause {
+        doc: DIRECT,
+        text: "an endpoint length that is neither 52 nor, for the destination alone, 0 is `malformed`",
+        error: "malformed",
+        proof: Proof::Test("an_endpoint_length_other_than_52_is_malformed"),
+    },
+    Clause {
+        doc: DIRECT,
+        text: "speaks `/interweave/direct/2.0.0` alone (§Protocol family) -> `ProtocolUnsupported`",
+        error: "ProtocolUnsupported",
+        proof: Proof::Test("direct_2_0_0_is_refused_both_ways_beside_a_3_0_0_control"),
+    },
+    Clause {
+        doc: DIRECT,
+        text: "the dialer's send fails `UnsupportedProtocols` and is reported `ProtocolUnsupported`",
+        error: "ProtocolUnsupported",
+        proof: Proof::Test("direct_2_0_0_is_refused_both_ways_beside_a_3_0_0_control"),
     },
 
     // --- coarse wire rejections -------------------------------------
@@ -672,6 +691,36 @@ const PROSE: &[(&str, &str, &str, &str)] = &[
         "rather than its own `Timeout`",
         "Timeout",
         "says which code the sender does NOT read; the error is PeerUnreachable",
+    ),
+    (
+        DIRECT,
+        "a `2.0.0` reader refuses a derived id as malformed",
+        "malformed",
+        "says why the protocol id changed: what the retired reader would do",
+    ),
+    (
+        DIRECT,
+        "each answering `malformed` to a peer that sent what its own contract told it to",
+        "malformed",
+        "describes the frame-by-frame failure the new id exists to avoid",
+    ),
+    (
+        DIRECT,
+        "the unsupported-major outcome",
+        "unsupported",
+        "names the negotiation failure's shape, not the reject reason",
+    ),
+    (
+        DIRECT,
+        "is that unsupported-major shape",
+        "unsupported",
+        "names the negotiation failure's shape, not the reject reason",
+    ),
+    (
+        DIRECT,
+        "never a `malformed` answer to a frame",
+        "malformed",
+        "says which answer the 2.0.0 peer does NOT get; the error is ProtocolUnsupported",
     ),
     (
         DIRECT,

@@ -134,7 +134,7 @@ mod tests {
         let (reply, answer) = oneshot::channel();
         let frame = DirectMessageV2 {
             message_id: MessageId::from_bytes([7; 16]),
-            source_endpoint: EndpointId::parse("human").expect("valid"),
+            source_endpoint: EndpointId::from_ed25519_public(&[1; 32]),
             destination_endpoint: None,
             sent_at_ms: 0,
             payload: Payload::at_ceiling(None, b"x".to_vec()).expect("within the ceiling"),
@@ -143,7 +143,7 @@ mod tests {
             HeldSend {
                 peer: TransportIdentity::parse(peer).expect("valid"),
                 lease: interweave_local_client_api::EndpointLease {
-                    endpoint: EndpointId::parse("human").expect("valid"),
+                    endpoint: EndpointId::from_ed25519_public(&[1; 32]),
                     epoch: interweave_local_client_api::Generation::parse("0123456789abcdef")
                         .expect("valid"),
                 },

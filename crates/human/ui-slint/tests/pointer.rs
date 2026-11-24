@@ -12,6 +12,7 @@
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::time::Duration;
 
 use i_slint_backend_testing::ElementHandle;
@@ -36,7 +37,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("an endpoint")
+    endpoint_id("human")
 }
 
 fn direct(peer: &TransportIdentity) -> ConversationKey {

@@ -26,6 +26,7 @@
 
 #[cfg(feature = "e2e")]
 pub mod e2e;
+pub mod endpoint_keys;
 pub mod fixtures;
 pub mod hex;
 pub mod net;

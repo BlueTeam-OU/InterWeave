@@ -2708,7 +2708,7 @@ mod tests {
         );
         let serving = StreamProtocol::try_from_owned(state.protocol.clone()).expect("legal");
         let other =
-            StreamProtocol::try_from_owned("/interweave/direct/2.0.0".to_owned()).expect("legal");
+            StreamProtocol::try_from_owned("/interweave/direct/3.0.0".to_owned()).expect("legal");
         let mut out = Vec::new();
 
         observe_identify(
@@ -2833,7 +2833,7 @@ mod tests {
         // `Withdrawn` arm's seat removal — the consequence that actually
         // matters — still left it green.
         let other =
-            StreamProtocol::try_from_owned("/interweave/direct/2.0.0".to_owned()).expect("legal");
+            StreamProtocol::try_from_owned("/interweave/direct/3.0.0".to_owned()).expect("legal");
         let mut behaviour = build_behaviour(&settings, PeerId::random()).expect("buildable");
         let mut out = Vec::new();
         observe_identify(

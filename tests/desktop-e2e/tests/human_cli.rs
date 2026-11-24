@@ -17,16 +17,52 @@
 mod common;
 #[path = "human_cli/fleet.rs"]
 mod fleet;
+/// The store crate's own undo of schema v14, to fake a file at v13.
+#[path = "../../../crates/human/store/tests/common/mod.rs"]
+mod store_common;
 
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use interweave_transport_api::TransportIdentity;
+use interweave_transport_api::{EndpointId, TransportIdentity};
 use serde_json::Value;
 
-use common::{Daemon, Home, PATIENCE, example, free_port, workspace_binary};
+use common::{
+    Daemon, Home, PATIENCE, example, free_port, human as human_endpoint, workspace_binary,
+};
+
+/// The derived id (ADR-0067) of the example's endpoint with the alias
+/// `name`: a test-only key, `tests/support`'s `endpoint_keys`.
+fn id_of(name: &str) -> String {
+    interweave_test_support::endpoint_keys::endpoint_id(name)
+        .as_str()
+        .to_owned()
+}
+
+/// The example's `human` endpoint's id, which a daemon's reply and a
+/// client's output carry in place of the alias.
+fn human_id() -> String {
+    human_endpoint().as_str().to_owned()
+}
+
+/// The start of the example's `claude` entry, which the cases that add an
+/// endpoint put theirs before.
+fn claude_row() -> String {
+    format!("    - {{ key: {}.key,", id_of("claude"))
+}
+
+/// A profile entry keyed by `alias`'s test-only key and carrying the
+/// alias, open to a human client.
+fn human_entry(alias: &str) -> String {
+    format!(
+        "    - {{ key: {}.key, alias: {alias}, enabled: true, advertise: true, \
+         allowed_client_kinds: [human-client], inbound: inherit_profile_trust, \
+         outbound: inherit_profile_trust }}\n",
+        id_of(alias)
+    )
+}
 
 /// The binary under test: the installed package's when
 /// `INTERWEAVE_PACKAGE_BIN` names one, as `human_app`'s cases take theirs
@@ -201,6 +237,47 @@ async fn two_daemons() -> (
     Daemon,
     TransportIdentity,
 ) {
+    let (a, a_daemon, a_peer, b, b_daemon, b_peer, _) = two_daemons_keyed(false).await;
+    (a, a_daemon, a_peer, b, b_daemon, b_peer)
+}
+
+/// `config` with the example's test-only `human` endpoint replaced by a
+/// key made in `home`'s `endpoint-keys/`, and that key's id: no client makes
+/// a key now (ADR-0067 decision 5), so a case that needs one has it made
+/// before the daemon or the client starts.
+fn key_the_human_endpoint(home: &Home, config: &str) -> (String, EndpointId) {
+    let key = interweave_human_store::identity_key::create(
+        &home.paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+    )
+    .expect("a key for the human endpoint");
+    let test_only = human_endpoint();
+    assert_eq!(
+        config.matches(test_only.as_str()).count(),
+        1,
+        "its one name, the key file"
+    );
+    (
+        config.replace(test_only.as_str(), key.endpoint().as_str()),
+        key.endpoint().clone(),
+    )
+}
+
+/// [`two_daemons`], and the id of A's first human endpoint: with `key_a`,
+/// the id of a key made in A's `endpoint-keys/` before the daemon starts
+/// and named by A's profile in place of the example's test-only one, since
+/// no client makes a key now (ADR-0067 decision 5).
+async fn two_daemons_keyed(
+    key_a: bool,
+) -> (
+    Home,
+    Daemon,
+    TransportIdentity,
+    Home,
+    Daemon,
+    TransportIdentity,
+    EndpointId,
+) {
     let ip = interweave_test_support::net::require_private_interface_v4();
     let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
     let (a_peer, b_peer) = (a.write_key(), b.write_key());
@@ -208,12 +285,17 @@ async fn two_daemons() -> (
     let at = |port: u16| format!("/ip4/{ip}/tcp/{port}");
     let route_to =
         |port: u16, peer: &TransportIdentity| format!("{}/p2p/{}", at(port), peer.as_str());
-    a.write_config(&example(
+    let mut a_config = example(
         "human-desktop.yaml",
         &b_peer,
         &at(a_port),
         Some(&route_to(b_port, &b_peer)),
-    ));
+    );
+    let mut a_human = human_endpoint();
+    if key_a {
+        (a_config, a_human) = key_the_human_endpoint(&a, &a_config);
+    }
+    a.write_config(&a_config);
     b.write_config(&example(
         "human-desktop.yaml",
         &a_peer,
@@ -226,7 +308,7 @@ async fn two_daemons() -> (
     let mut b_daemon = b.start(&[]);
     b_daemon.serving(&b).await;
     runtime_up(&mut b_daemon).await;
-    (a, a_daemon, a_peer, b, b_daemon, b_peer)
+    (a, a_daemon, a_peer, b, b_daemon, b_peer, a_human)
 }
 
 /// Send until accepted: the two daemons' connection may still be coming
@@ -253,14 +335,14 @@ fn send_accepted(a: &Home, to: &str, text: &str) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_batch_one_verb_against_two_daemons() {
     let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
-    let to_b = format!("{}/human", b_peer.as_str());
+    let to_b = format!("{}/{}", b_peer.as_str(), human_id());
 
     // status: ready, on the profile's human endpoint.
     let out = human(&a, &["status", "--json"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let status = &lines(&out)[0];
     assert_eq!(status["session"], "ready", "{}", said(&out));
-    assert_eq!(status["endpoint"], "human");
+    assert_eq!(status["endpoint"], human_id().as_str());
 
     // identities: the human endpoint, enabled; disabled, enabled and made
     // the default again over the admin socket.
@@ -268,11 +350,13 @@ async fn every_batch_one_verb_against_two_daemons() {
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let rows = lines(&out);
     assert_eq!(rows.len(), 1, "{}", said(&out));
-    assert_eq!(rows[0]["endpoint"], "human");
+    assert_eq!(rows[0]["endpoint"], human_id().as_str());
     assert_eq!(rows[0]["enabled"], true);
+    // The alias and the id name the one endpoint: the verbs take either.
+    let id = human_id();
     for args in [
         ["identities", "disable", "human"],
-        ["identities", "enable", "human"],
+        ["identities", "enable", id.as_str()],
         ["identities", "default", "human"],
     ] {
         let out = human(&a, &args, "");
@@ -293,10 +377,10 @@ async fn every_batch_one_verb_against_two_daemons() {
             .as_array()
             .expect("rows")
             .iter()
-            .any(|row| row["id"] == "claude" && row["default"] == true),
+            .any(|row| row["id"] == id_of("claude").as_str() && row["default"] == true),
         "claude is still the default: {listed}"
     );
-    let out = human(&a, &["identities", "default", "human"], "");
+    let out = human(&a, &["identities", "default", &human_id()], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
 
     // trust: B is configured; revoked and allowed again.
@@ -400,11 +484,12 @@ async fn every_batch_one_verb_against_two_daemons() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
-    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
-    let to_b = format!("{}/human", b_peer.as_str());
-    let to_a = format!("{}/human", a_peer.as_str());
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer, a_human) = two_daemons_keyed(true).await;
+    let to_b = format!("{}/{}", b_peer.as_str(), human_id());
+    let to_a = format!("{}/{}", a_peer.as_str(), a_human.as_str());
 
-    // A's own card, its key made at A's first run.
+    // A's own card, signed by the key A's endpoint was given before the
+    // daemon started: no run makes one.
     let out = human(&a, &["card", "set", "Ada", "Lovelace"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&a, &["card", "show", "--json"], "");
@@ -672,7 +757,7 @@ async fn peers_state_says_which_trusted_peer_is_connected_and_when_each_was_seen
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_listen_filtered_to_session_events_leaves_a_message_unread() {
     let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
-    let to_b = format!("{}/human", b_peer.as_str());
+    let to_b = format!("{}/{}", b_peer.as_str(), human_id());
     let (listener, _stdin) = Listener::with(
         &b,
         &["listen", "--json", "--consume", "--events", "session"],
@@ -694,7 +779,11 @@ async fn a_listen_filtered_to_session_events_leaves_a_message_unread() {
     listener.stop();
     let out = human(
         &b,
-        &["messages", &format!("{}/human", a_peer.as_str()), "--json"],
+        &[
+            "messages",
+            &format!("{}/{}", a_peer.as_str(), human_id()),
+            "--json",
+        ],
         "",
     );
     assert_eq!(code(&out), Some(0), "{}", said(&out));
@@ -734,23 +823,24 @@ fn share_heard(a: &Home, b: &Home, to_b: &str) -> Value {
 
 /// ADR-0063 decisions 4 and 6, and ADR-0059 decision 9's route deletion,
 /// as a shell runs them across two daemons: A's identity shows its
-/// fingerprint, B accepts A's card, A's key is damaged and A makes a new
-/// one only on its confirmation flag, and B accepts the changed key only
-/// with the flag named for it. B's contact has one route, A's, so its
-/// deletion is refused as a contact delete and nothing changes: no flow
-/// makes a second route yet (moving one is Stage 22's).
+/// fingerprint, B accepts A's first card (the withdrawn --accept-key-change is a usage error), A's key
+/// file is damaged and `identity show` reports it, leaving the file as it
+/// was. B's contact has one route, A's, so its deletion is refused as a
+/// contact delete and nothing changes: no flow makes a second route yet
+/// (moving one is Stage 22's). No verb makes or changes a key now, so the
+/// key-change half this case once held is gone with that flow.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons() {
-    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
-    let to_b = format!("{}/human", b_peer.as_str());
-    let to_a = format!("{}/human", a_peer.as_str());
+async fn a_first_card_is_accepted_the_only_route_is_kept_and_a_damaged_key_file_is_shown() {
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer, a_human) = two_daemons_keyed(true).await;
+    let to_b = format!("{}/{}", b_peer.as_str(), human_id());
+    let to_a = format!("{}/{}", a_peer.as_str(), a_human.as_str());
 
     let out = human(&a, &["card", "set", "Ada"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&a, &["identity", "show", "--json"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let shown = &lines(&out)[0];
-    assert_eq!(shown["endpoint"], "human");
+    assert_eq!(shown["endpoint"], a_human.as_str());
     let old = shown["fingerprint"]
         .as_str()
         .expect("fingerprint")
@@ -763,8 +853,6 @@ async fn a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons(
     );
     let out = human(&a, &["identity", "show", "claude"], "");
     assert_eq!(code(&out), Some(1), "not a human endpoint: {}", said(&out));
-    let out = human(&a, &["identity", "new-key", "--confirm", "key-change"], "");
-    assert_eq!(code(&out), Some(1), "a usable key stays: {}", said(&out));
 
     let heard = share_heard(&a, &b, &to_b);
     assert_eq!(heard["key"]["state"], "new");
@@ -774,12 +862,7 @@ async fn a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons(
         &["proposals", "read", &to_a, "--accept-key-change", &id],
         "",
     );
-    assert_eq!(
-        code(&out),
-        Some(1),
-        "a first card is no key change: {}",
-        said(&out)
-    );
+    assert_eq!(code(&out), Some(2), "the flag is withdrawn: {}", said(&out));
     let out = human(&b, &["proposals", "read", &to_a, "--accept", &id], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&b, &["contacts", "--json"], "");
@@ -798,75 +881,19 @@ async fn a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons(
     assert_eq!(routes.as_array().map(Vec::len), Some(1), "{}", said(&out));
     assert_eq!(routes[0]["fingerprint"], old.as_str());
 
-    // A's key file damaged: shown as such, and a new key made only once
-    // confirmed.
-    let file = a.paths.state_dir().join("identity-keys").join("human.key");
+    // A's key file damaged, where the store keeps it: shown as such, and
+    // left as it was.
+    let file = interweave_human_store::identity_key::key_path(&a.paths, &a_human);
+    assert!(file.is_file(), "control: the key is at {}", file.display());
     std::fs::write(&file, "not a record\n").expect("damaged");
     let damaged = std::fs::read(&file).expect("read");
     let out = human(&a, &["identity", "show", "--json"], "");
     assert_eq!(code(&out), Some(1), "{}", said(&out));
     assert_eq!(lines(&out)[0]["key_problem"], "damaged", "{}", said(&out));
-    let out = human(&a, &["identity", "new-key", "--json"], "");
-    assert_eq!(code(&out), Some(1), "{}", said(&out));
-    assert_eq!(lines(&out)[0]["deletes_old_key"], true, "{}", said(&out));
     assert_eq!(
         std::fs::read(&file).expect("read"),
         damaged,
         "nothing removed"
-    );
-    let out = human(
-        &a,
-        &["identity", "new-key", "--confirm", "key-change", "--json"],
-        "",
-    );
-    assert_eq!(code(&out), Some(0), "{}", said(&out));
-    let made = &lines(&out)[0];
-    let new = made["fingerprint"]
-        .as_str()
-        .expect("fingerprint")
-        .to_owned();
-    assert_ne!(new, old);
-    assert_eq!(made["share_again"][0], to_b.as_str(), "{}", said(&out));
-
-    // B is told the key changed, and accepts it only with the flag.
-    let heard = share_heard(&a, &b, &to_b);
-    assert_eq!(heard["key"]["state"], "changed");
-    assert_eq!(heard["key"]["recorded"], old.as_str());
-    assert_eq!(heard["fingerprint"], new.as_str());
-    let id = heard["id"].as_str().expect("id").to_owned();
-    let out = human(&b, &["proposals", "read", &to_a, "--accept", &id], "");
-    assert_eq!(code(&out), Some(1), "{}", said(&out));
-    assert!(
-        String::from_utf8_lossy(&out.stderr).contains("--accept-key-change"),
-        "{}",
-        said(&out)
-    );
-    let out = human(&b, &["proposals", "--json"], "");
-    assert_eq!(
-        lines(&out)[0]["status"],
-        "unread",
-        "refused before the read"
-    );
-    let out = human(
-        &b,
-        &[
-            "proposals",
-            "read",
-            &to_a,
-            "--accept-key-change",
-            &id,
-            "--json",
-        ],
-        "",
-    );
-    assert_eq!(code(&out), Some(0), "{}", said(&out));
-    assert_eq!(lines(&out)[0]["status"], "accepted", "{}", said(&out));
-    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
-    assert_eq!(
-        lines(&out)[0]["routes"][0]["fingerprint"],
-        new.as_str(),
-        "{}",
-        said(&out)
     );
 
     a_daemon.terminate().await;
@@ -943,14 +970,12 @@ fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon
         &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
         None,
     );
-    let claude = "    - { id: claude,";
-    assert_eq!(shipped.matches(claude).count(), 1, "the example's shape");
-    home.write_config(&shipped.replace(
-        claude,
-        "    - { id: human-spare, enabled: true, advertise: true, \
-         allowed_client_kinds: [human-client], inbound: inherit_profile_trust, \
-         outbound: inherit_profile_trust }\n    - { id: claude,",
-    ));
+    let claude = claude_row();
+    assert_eq!(shipped.matches(&claude).count(), 1, "the example's shape");
+    let (shipped, _human) = key_the_human_endpoint(&home, &shipped);
+    home.write_config(
+        &shipped.replace(&claude, &format!("{}{claude}", human_entry("human-spare"))),
+    );
 
     let out = human(&home, &["identity", "show", "--json"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
@@ -967,13 +992,19 @@ fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon
     let out = human(&home, &["identity", "show", "human-spare", "--json"], "");
     assert_eq!(code(&out), Some(1), "{}", said(&out));
     assert_eq!(lines(&out)[0]["key_problem"], "absent", "{}", said(&out));
+    assert_eq!(lines(&out)[0]["endpoint"], id_of("human-spare").as_str());
+    let by_id = human(
+        &home,
+        &["identity", "show", &id_of("human-spare"), "--json"],
+        "",
+    );
+    assert_eq!(
+        by_id.stdout, out.stdout,
+        "the id names it as the alias does"
+    );
+    let spare = interweave_test_support::endpoint_keys::endpoint_id("human-spare");
     assert!(
-        !home
-            .paths
-            .state_dir()
-            .join("identity-keys")
-            .join("human-spare.key")
-            .exists(),
+        !interweave_human_store::identity_key::key_path(&home.paths, &spare).exists(),
         "no key is made for it"
     );
     let out = human(&home, &["identity", "show", "claude"], "");
@@ -1002,6 +1033,93 @@ fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon
         "the control: a list it takes needs the daemon: {}",
         said(&out)
     );
+}
+
+/// A profile with two human endpoints, `human` first, and no daemon.
+fn two_human_endpoints_home() -> Home {
+    let home = Home::new("human-desktop");
+    let peer = Home::new("human-desktop").write_key();
+    home.write_key();
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let shipped = example(
+        "human-desktop.yaml",
+        &peer,
+        &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
+        None,
+    );
+    let claude = claude_row();
+    assert_eq!(shipped.matches(&claude).count(), 1, "the example's shape");
+    home.write_config(
+        &shipped.replace(&claude, &format!("{}{claude}", human_entry("human-spare"))),
+    );
+    home
+}
+
+/// `home`'s store as a build before v14 left it: the file this build makes,
+/// faked back to v13 and given an own card keyed by a label, which v14
+/// rekeys to the identity the store is opened as (STATE.md §Migrations).
+fn plant_v13_store(home: &Home) {
+    use interweave_human_store::{HumanStore, STORE_FILE, StoreOptions};
+    let path = home.paths.human_dir().join(STORE_FILE);
+    drop(HumanStore::open(&path, &human_endpoint(), StoreOptions::default()).expect("a store"));
+    let conn = rusqlite::Connection::open(&path).expect("the file");
+    conn.execute_batch(store_common::UNDO_V14)
+        .expect("back to v13");
+    conn.execute(
+        "INSERT INTO own_cards (endpoint_id, name, surname, photo, created_at, updated_at)
+         VALUES ('human', 'Old', NULL, NULL, 1, 1)",
+        [],
+    )
+    .expect("an own card");
+}
+
+/// The endpoints holding the planted own card (named `Old`), and the store version.
+fn own_card_owners(home: &Home) -> (Vec<String>, i64) {
+    use interweave_human_store::at_rest;
+    use interweave_human_store::key_custody::FilesystemCustody;
+    let conn = at_rest::open_read_only(&home.paths, &FilesystemCustody)
+        .expect("the store opens read-only under its key");
+    let owners = conn
+        .prepare("SELECT endpoint_id FROM own_cards WHERE name = 'Old' ORDER BY endpoint_id")
+        .expect("prepare")
+        .query_map([], |r| r.get(0))
+        .expect("rows")
+        .map(|r| r.expect("a row"))
+        .collect();
+    let version = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("the version");
+    (owners, version)
+}
+
+/// Schema v14 gives every row an older store holds to the profile's FIRST
+/// identity, as the desktop opens it (STATE.md §Migrations v14 (a)); a
+/// `--endpoint` only selects what the command speaks as, so the first run
+/// after an upgrade through the second identity migrates as the first.
+/// Mutation: opening the store as the narrowed endpoint.
+#[test]
+fn the_upgrade_gives_the_rows_to_the_first_identity_whatever_endpoint_is_named() {
+    // `--endpoint` is `listen`'s and `send`'s alone; with no daemon the
+    // send is refused (exit 3) after the store has opened and migrated.
+    let to = format!(
+        "{}/{}",
+        Home::new("human-desktop").write_key().as_str(),
+        human_id()
+    );
+    for (extra, case) in [
+        (&[][..], "the control, no --endpoint"),
+        (&["--endpoint", "human-spare"][..], "--endpoint the second"),
+    ] {
+        let home = two_human_endpoints_home();
+        plant_v13_store(&home);
+        let mut args = vec!["--wait", "200", "send", to.as_str(), "hello"];
+        args.extend_from_slice(extra);
+        let out = human(&home, &args, "");
+        assert_eq!(code(&out), Some(3), "{case}: no daemon: {}", said(&out));
+        let (owners, version) = own_card_owners(&home);
+        assert_eq!(version, 14, "{case}: migrated");
+        assert_eq!(owners, [human_id()], "{case}: the first identity's card");
+    }
 }
 
 /// ADR-0060 decision 6 as a shell runs it: a store whose key is gone is
@@ -1207,15 +1325,14 @@ fn picture_file(dir: &std::path::Path) -> std::path::PathBuf {
     path
 }
 
-/// The forms the secret of `home`'s first identity's key could take
+/// The forms the secret of `home`'s `human` identity's key could take
 /// anywhere else: its bytes, their base64 and their hex. The record's last
 /// 32 bytes are the secret at the desktop's filesystem floor (IDK1).
-fn key_forms(home: &Home) -> Vec<Vec<u8>> {
+fn key_forms(home: &Home, human: &EndpointId) -> Vec<Vec<u8>> {
     use base64::Engine as _;
-    let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
     let line = std::fs::read_to_string(interweave_human_store::identity_key::key_path(
         &home.paths,
-        &human,
+        human,
     ))
     .expect("the key file");
     let record = base64::engine::general_purpose::STANDARD
@@ -1303,9 +1420,9 @@ fn holds(haystack: &[u8], forms: &[Vec<u8>]) -> bool {
 /// decoded from its payload, the card's name.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_file() {
-    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
-    let to_b = format!("{}/human", b_peer.as_str());
-    let to_a = format!("{}/human", a_peer.as_str());
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer, a_human) = two_daemons_keyed(true).await;
+    let to_b = format!("{}/{}", b_peer.as_str(), human_id());
+    let to_a = format!("{}/{}", a_peer.as_str(), a_human.as_str());
     let scratch = tempfile::tempdir().expect("scratch");
     let picture = picture_file(scratch.path());
     let picture = picture.to_str().expect("a UTF-8 path");
@@ -1365,7 +1482,7 @@ async fn a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_fi
     tap.stop();
     a_daemon.terminate().await;
     b_daemon.terminate().await;
-    let forms = key_forms(&a);
+    let forms = key_forms(&a, &a_human);
     assert!(
         holds(&traffic, &[b"direct.send".to_vec()]) && holds(&traffic, &[b"Lovelace".to_vec()]),
         "the control: the tap carried the share and its card was read back ({} bytes)",
@@ -1440,18 +1557,17 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
     use interweave_local_client_api::{
         DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionEvent, SessionRequest,
     };
-    use interweave_transport_api::EndpointId;
 
-    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
-    let (human_id, claude_id) = (
-        EndpointId::parse("human").expect("valid"),
-        EndpointId::parse("claude").expect("valid"),
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer, a_human) = two_daemons_keyed(true).await;
+    let (b_front, claude_id) = (
+        human_endpoint(),
+        interweave_test_support::endpoint_keys::endpoint_id("claude"),
     );
     let out = human(&a, &["card", "set", "Ada", "Lovelace"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
-    let key = identity_key::open(&a.paths, &human_id, &FilesystemCustody)
+    let key = identity_key::open(&a.paths, &a_human, &FilesystemCustody)
         .expect("opens")
-        .expect("made with the card");
+        .expect("the key A's endpoint was given before the start");
 
     // B's two identities, each held by a session of the kind its entry
     // admits, so what arrives at each is read as the daemon handed it over.
@@ -1466,14 +1582,14 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
             .expect("bounds"),
         )
     };
-    let at_human = open("human-client", &human_id).await.expect("B's human");
-    let at_claude = open("claude-channel", &claude_id)
+    let human_session = open("human-client", &b_front).await.expect("B's human");
+    let claude_session = open("claude-channel", &claude_id)
         .await
         .expect("B's claude");
 
     let tap = Tap::start(&a);
     let mut arrived = Vec::new();
-    for (to, session) in [(&human_id, &at_human), (&claude_id, &at_claude)] {
+    for (to, session) in [(&b_front, &human_session), (&claude_id, &claude_session)] {
         let conversation = format!("{}/{}", b_peer.as_str(), to.as_str());
         let deadline = Instant::now() + PATIENCE;
         loop {
@@ -1517,7 +1633,7 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
     for (conversation, direct) in &arrived {
         assert_eq!(direct.source_peer, a_peer, "{conversation}");
         assert_eq!(
-            direct.source_endpoint, human_id,
+            direct.source_endpoint, a_human,
             "{conversation}: from the identity A's client holds"
         );
         let media = direct.payload.media_type().expect("a media type");
@@ -1528,7 +1644,7 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
             info.encoding,
         )
         .expect("decodes");
-        let Classified::Card(card) = as_identity(&text, &human_id) else {
+        let Classified::Card(card) = as_identity(&text, &a_human) else {
             panic!("{conversation}: not A's human card: {text}");
         };
         assert_eq!(card.name, "Ada", "{conversation}");
@@ -1552,14 +1668,14 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
     );
     for text in &sent {
         assert!(
-            matches!(as_identity(text, &human_id), Classified::Card(_)),
+            matches!(as_identity(text, &a_human), Classified::Card(_)),
             "a card A's client sent is not its human identity's: {text}"
         );
         let envelope: Value = serde_json::from_str(text).expect("JSON");
         assert!(
             envelope
                 .get("from_endpoint")
-                .is_none_or(|e| e == human_id.as_str()),
+                .is_none_or(|e| e == a_human.as_str()),
             "a card names another identity: {text}"
         );
     }
@@ -1579,8 +1695,8 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
 async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
     use std::io::Write as _;
     let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
-    let to_a = format!("{}/human", a_peer.as_str());
-    let to_b = format!("{}/human", b_peer.as_str());
+    let to_a = format!("{}/{}", a_peer.as_str(), human_id());
+    let to_b = format!("{}/{}", b_peer.as_str(), human_id());
 
     let (listener, mut input) = Listener::with(&b, &["listen", "--json", "--input", "--consume"]);
     listener.until("the session ready", |l| {
@@ -1629,7 +1745,7 @@ async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
     let message = listener.until("the message", |l| {
         l["event"] == "message" && l["text"] == "consumed by the carrier"
     });
-    assert_eq!(message["local_endpoint"], "human", "G6");
+    assert_eq!(message["local_endpoint"], human_id().as_str(), "G6");
     // Read as printed, before listen looks at the stop: no wait here.
     drop(input);
     listener.stop();
@@ -1673,7 +1789,16 @@ async fn the_control_plane_carrier_sends_consumes_and_names_its_endpoint() {
     holder.until("the holder's session ready", |l| {
         l["event"] == "session" && l["session"] == "ready"
     });
-    let out = human(&a, &["listen", "--endpoint", "not-offered"], "");
+    // A configured endpoint of another client's kind is not one a human
+    // client may use; an alias no entry carries is refused as unknown.
+    let unknown = human(&a, &["listen", "--endpoint", "not-offered"], "");
+    assert_eq!(code(&unknown), Some(1), "{}", said(&unknown));
+    assert!(
+        said(&unknown).contains("no configured endpoint has the alias 'not-offered'"),
+        "{}",
+        said(&unknown)
+    );
+    let out = human(&a, &["listen", "--endpoint", "claude"], "");
     assert_eq!(
         code(&out),
         Some(1),
@@ -1711,21 +1836,15 @@ async fn listen_with_endpoint_leases_the_one_named() {
     a.write_key();
     // A peer the profile names, never started.
     let other = Home::new("human-desktop").write_key();
-    let claude = "    - { id: claude,";
+    let claude = claude_row();
     let config = example(
         "human-desktop.yaml",
         &other,
         &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
         None,
     );
-    assert!(config.contains(claude), "the example's claude row");
-    a.write_config(&config.replacen(
-        claude,
-        &format!(
-            "    - {{ id: control, enabled: true, advertise: true, allowed_client_kinds: [human-client], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n{claude}"
-        ),
-        1,
-    ));
+    assert!(config.contains(&claude), "the example's claude row");
+    a.write_config(&config.replacen(&claude, &format!("{}{claude}", human_entry("control")), 1));
     let mut a_daemon = a.start(&[]);
     a_daemon.serving(&a).await;
     runtime_up(&mut a_daemon).await;
@@ -1743,7 +1862,7 @@ async fn listen_with_endpoint_leases_the_one_named() {
         .filter(|row| !row["lease"].is_null())
         .map(|row| &row["id"])
         .collect();
-    assert_eq!(leased, [&Value::from("control")], "{listed}");
+    assert_eq!(leased, [&Value::from(id_of("control"))], "{listed}");
     listener.stop();
     a_daemon.terminate().await;
 }

@@ -44,7 +44,9 @@ async fn no_body_name_or_card_field_reaches_the_clients_log() {
     let received = envelope(46, &format!("the inbound {RECEIVED}"));
     peer.deliver(&world.a_peer, Some(human()), &received, || world.logs())
         .await;
-    let key = ed25519_dalek::SigningKey::from_bytes(&[45; 32]);
+    // `human`'s TEST-ONLY key, the one its id derives from: a card's key is
+    // its endpoint's own (ADR-0067 decision 5).
+    let key = interweave_test_support::endpoint_keys::signing_key("human");
     let card = interweave_human_chat_protocol::build_card(
         &format!("{:032x}", 47),
         interweave_human_chat_protocol::CardDraft {

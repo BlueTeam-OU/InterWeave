@@ -41,8 +41,6 @@ pub(crate) struct Script {
     pub(crate) leased: BTreeSet<String>,
     /// Sessions closed.
     pub(crate) closed: usize,
-    /// Each opened session's `SessionRequest::route_notices`, in order.
-    pub(crate) route_notices: Vec<bool>,
     /// When set, `send_direct` waits for this before answering.
     pub(crate) hold_send: Option<Arc<tokio::sync::Notify>>,
     /// The status `admin.status` reports.
@@ -73,6 +71,10 @@ pub(crate) struct Script {
     pub(crate) peers: Vec<interweave_local_client_api::PeerGateView>,
     /// The rows `leases()` answers with.
     pub(crate) endpoints: Vec<EndpointAdminView>,
+    /// What `endpoint_trust` answers, for either direction.
+    pub(crate) endpoint_view: Option<interweave_local_client_api::EndpointTrustView>,
+    /// What `seed_endpoint_trust` answers.
+    pub(crate) seed: Option<interweave_local_client_api::TrustSeed>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -92,6 +94,25 @@ pub(crate) fn peer() -> TransportIdentity {
     TransportIdentity::parse(PEER).expect("peer")
 }
 
+/// The endpoints this fake knows, by the names its script and its call
+/// log use. Each id is the TEST-ONLY derived id of its name
+/// (`interweave_test_support::endpoint_keys`): major 3 carries no label.
+const NAMES: [&str; 5] = ["human", "agent", "off", "remote", "bot"];
+
+/// The derived id the fake knows `name` by.
+pub(crate) fn ep(name: &str) -> EndpointId {
+    interweave_test_support::endpoint_keys::endpoint_id(name)
+}
+
+/// The name of an id this fake knows, so the script and the call log read
+/// as names; an id of no known name is written as itself.
+pub(crate) fn name(id: &EndpointId) -> String {
+    NAMES
+        .into_iter()
+        .find(|n| ep(n) == *id)
+        .map_or_else(|| id.as_str().to_owned(), str::to_owned)
+}
+
 pub(crate) fn connectivity() -> ConnectivitySummary {
     ConnectivitySummary {
         direct_inbound: DirectInboundState::Unknown,
@@ -109,17 +130,16 @@ impl DataSessionBinding for Fake {
     type Session = FakeSession;
 
     async fn open(&self, request: SessionRequest) -> Result<FakeSession, TransportError> {
-        self.script().route_notices.push(request.route_notices());
         let lease = match request.endpoint() {
             None => None,
             Some(endpoint) => {
                 let mut script = self.script();
-                match endpoint.as_str() {
+                match name(endpoint).as_str() {
                     "human" | "agent" => {}
                     "off" => return Err(TransportError::EndpointDisabled),
                     _ => return Err(TransportError::EndpointUnknown),
                 }
-                if !script.leased.insert(endpoint.as_str().to_owned()) {
+                if !script.leased.insert(name(endpoint)) {
                     return Err(TransportError::EndpointInUse);
                 }
                 script.epochs += 1;
@@ -190,7 +210,7 @@ impl DataSessionPort for FakeSession {
         if let Some(hold) = hold {
             hold.notified().await;
         }
-        Ok(EndpointId::parse("remote").expect("endpoint"))
+        Ok(ep("remote"))
     }
 
     async fn losses(&self) -> Result<interweave_local_client_api::SessionLosses, TransportError> {
@@ -224,7 +244,7 @@ impl DataSessionPort for FakeSession {
         Ok(EndpointDirectoryV1 {
             generated_at_ms: 0,
             ttl_ms: 1000,
-            endpoints: vec![EndpointId::parse("agent").expect("endpoint")],
+            endpoints: vec![ep("agent")],
         })
     }
 
@@ -234,7 +254,7 @@ impl DataSessionPort for FakeSession {
         let mut script = self.fake.script();
         script.closed += 1;
         if let Some(lease) = self.session.endpoint_lease() {
-            script.leased.remove(lease.endpoint.as_str());
+            script.leased.remove(&name(&lease.endpoint));
         }
         Ok(())
     }
@@ -288,7 +308,7 @@ impl AdminPort for FakeAdmin {
     }
 
     async fn revoke_endpoint(&self, endpoint: EndpointId) -> Result<(), TransportError> {
-        self.fake.call(format!("revoke {}", endpoint.as_str()));
+        self.fake.call(format!("revoke {}", name(&endpoint)));
         Ok(())
     }
 
@@ -298,7 +318,7 @@ impl AdminPort for FakeAdmin {
         enabled: bool,
     ) -> Result<Option<Generation>, TransportError> {
         self.fake
-            .call(format!("set_enabled {} {enabled}", endpoint.as_str()));
+            .call(format!("set_enabled {} {enabled}", name(&endpoint)));
         Ok(None)
     }
 
@@ -306,7 +326,8 @@ impl AdminPort for FakeAdmin {
         &self,
         endpoint: Option<EndpointId>,
     ) -> Result<(), TransportError> {
-        self.fake.call(format!("set_default {endpoint:?}"));
+        self.fake
+            .call(format!("set_default {:?}", endpoint.as_ref().map(name)));
         Ok(())
     }
 
@@ -361,6 +382,49 @@ impl AdminPort for FakeAdmin {
             interweave_local_client_api::TrustChange::Set,
             interweave_local_client_api::TrustChange::Refused,
         ))
+    }
+
+    async fn endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        direction: interweave_local_client_api::TrustDirection,
+    ) -> Result<interweave_local_client_api::EndpointTrustView, TransportError> {
+        self.fake.call(format!(
+            "endpoint_trust {} {}",
+            name(&endpoint),
+            direction.as_str()
+        ));
+        self.fake
+            .script()
+            .endpoint_view
+            .clone()
+            .ok_or(TransportError::EndpointUnknown)
+    }
+
+    async fn set_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<interweave_local_client_api::TrustChange, TransportError> {
+        self.fake.call(format!(
+            "set_endpoint_trust {} {} {allowed}",
+            name(&endpoint),
+            peer.as_str()
+        ));
+        Ok(interweave_local_client_api::TrustChange::Set)
+    }
+
+    async fn seed_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+    ) -> Result<interweave_local_client_api::TrustSeed, TransportError> {
+        self.fake
+            .call(format!("seed_endpoint_trust {}", name(&endpoint)));
+        self.fake
+            .script()
+            .seed
+            .ok_or(TransportError::EndpointUnknown)
     }
 
     async fn add_bootstrap_address(

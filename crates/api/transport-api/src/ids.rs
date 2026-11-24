@@ -49,6 +49,9 @@ pub enum IdError {
     },
     /// A transport identity was not a canonical `PeerId` string.
     NotCanonicalPeerId,
+    /// An endpoint id was not derived from an Ed25519 public key: the
+    /// contract's `EndpointIdNotDerived` refusal (ENDPOINTS.md, section `EndpointId`).
+    NotDerived,
 }
 
 impl fmt::Display for IdError {
@@ -71,6 +74,11 @@ impl fmt::Display for IdError {
                     "value is {got} characters; exactly {expected} are required"
                 )
             }
+            Self::NotDerived => write!(
+                f,
+                "EndpointIdNotDerived: an endpoint id is the canonical PeerId text of an \
+                 Ed25519 public key (12D3KooW followed by 44 base58btc characters)"
+            ),
             Self::NotCanonicalPeerId => write!(
                 f,
                 "not a canonical PeerId: expected 12D3KooW or Qm followed by 44 base58btc characters"
@@ -81,49 +89,118 @@ impl fmt::Display for IdError {
 
 impl core::error::Error for IdError {}
 
-/// A routing selector beneath one `PeerId` — `^[a-z][a-z0-9._-]{0,63}$`.
+/// The name of an endpoint's own Ed25519 key pair, derived from the public
+/// key exactly as a libp2p `PeerId` is from the node's (ADR-0067 decision 2,
+/// ENDPOINTS.md §EndpointId): the identity multihash over the protobuf-encoded
+/// key, in canonical base58btc, 52 characters matching
+/// `^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$`.
 ///
-/// Not a second cryptographic identity, not a person, not a role, and not
-/// an authorization principal (ADR-0030). Received from the network it is
-/// peer-asserted metadata: a remote `source_endpoint` proves only that the
-/// authenticated peer claimed that label.
+/// Not a second `PeerId`, not a person, not a role, and not an authorization
+/// principal. Received from the network it is peer-asserted routing metadata:
+/// a remote `source_endpoint` proves only that the authenticated peer claimed
+/// it.
+///
+/// [`Self::parse_derived`] and [`Self::from_ed25519_public`] are its only
+/// constructors, so no value of this type holds a retired label
+/// (`^[a-z][a-z0-9._-]{0,63}$`, refused as `parse_derived_refuses_a_label`
+/// shows).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct EndpointId(String);
+
+/// Every byte of a derived id before the key: the identity multihash code
+/// and length (`0x00`, 36), then the libp2p public-key protobuf header
+/// (field 1 varint `Ed25519`, field 2 bytes of length 32).
+const DERIVED_PREFIX: [u8; 6] = [0x00, 0x24, 0x08, 0x01, 0x12, 0x20];
+const DERIVED_BYTES: usize = 38;
+/// Text length of a derived id: base58btc of 38 bytes that start `0x00`.
+const DERIVED_TEXT_LEN: usize = 52;
 
 impl EndpointId {
     /// Maximum length in bytes (ADR-0026).
     pub const MAX_BYTES: usize = 64;
 
-    /// Parse an `EndpointId`, enforcing the contract grammar.
+    /// Derive the id of an endpoint from its Ed25519 public key.
+    #[must_use]
+    pub fn from_ed25519_public(key: &[u8; 32]) -> Self {
+        let mut bytes = [0_u8; DERIVED_BYTES];
+        bytes[..DERIVED_PREFIX.len()].copy_from_slice(&DERIVED_PREFIX);
+        bytes[DERIVED_PREFIX.len()..].copy_from_slice(key);
+        Self(bs58::encode(bytes).into_string())
+    }
+
+    /// Parse a derived id strictly.
+    ///
+    /// Accepts exactly the text [`Self::from_ed25519_public`] writes: it must
+    /// decode to the 38 bytes `00 24 08 01 12 20 ‖ key` and re-encode to the
+    /// input byte for byte, so there is one canonical form.
     ///
     /// # Errors
-    /// Returns [`IdError`] when the value is empty, longer than
-    /// [`Self::MAX_BYTES`], does not begin with `a-z`, or contains a byte
-    /// outside `[a-z0-9._-]`.
-    pub fn parse(value: impl Into<String>) -> Result<Self, IdError> {
+    /// [`IdError::Empty`] for an empty value, [`IdError::TooLong`] past
+    /// [`Self::MAX_BYTES`], [`IdError::IllegalByte`] for a byte outside the
+    /// base58btc alphabet, [`IdError::WrongLength`] for any other length than
+    /// 52 characters, and [`IdError::NotDerived`] for a `Qm…` sha256 `PeerId`
+    /// and for 52 characters that are not the canonical encoding of an
+    /// Ed25519 key.
+    pub fn parse_derived(value: impl Into<String>) -> Result<Self, IdError> {
         let value = value.into();
         let bytes = value.as_bytes();
-        let Some(&first) = bytes.first() else {
+        if bytes.is_empty() {
             return Err(IdError::Empty);
-        };
+        }
         if bytes.len() > Self::MAX_BYTES {
             return Err(IdError::TooLong {
                 got: bytes.len(),
                 max: Self::MAX_BYTES,
             });
         }
-        if !first.is_ascii_lowercase() {
-            return Err(IdError::IllegalLeadingByte { byte: first });
-        }
         for (index, &b) in bytes.iter().enumerate() {
-            let ok =
-                b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-');
+            let ok = b.is_ascii_alphanumeric() && !matches!(b, b'0' | b'O' | b'I' | b'l');
             if !ok {
                 return Err(IdError::IllegalByte { index, byte: b });
             }
         }
-        Ok(Self(value))
+        // A `Qm…` PeerId is well-formed text of another multihash, not a
+        // short derived id: it gets the contract's refusal, not a length one.
+        if value.starts_with("Qm") && bytes.len() == 46 {
+            return Err(IdError::NotDerived);
+        }
+        if bytes.len() != DERIVED_TEXT_LEN {
+            return Err(IdError::WrongLength {
+                got: bytes.len(),
+                expected: DERIVED_TEXT_LEN,
+            });
+        }
+        let mut buf = [0_u8; 64];
+        let len = bs58::decode(bytes)
+            .onto(&mut buf[..])
+            .map_err(|_| IdError::NotDerived)?;
+        let decoded = &buf[..len];
+        if decoded.len() != DERIVED_BYTES || decoded[..DERIVED_PREFIX.len()] != DERIVED_PREFIX {
+            return Err(IdError::NotDerived);
+        }
+        let mut key = [0_u8; 32];
+        key.copy_from_slice(&decoded[DERIVED_PREFIX.len()..]);
+        let canonical = Self::from_ed25519_public(&key);
+        if canonical.0 != value {
+            return Err(IdError::NotDerived);
+        }
+        Ok(canonical)
+    }
+
+    /// The Ed25519 public key the id names. Every constructed id is derived,
+    /// so this answers `Some`; `None` would mean bytes that are not a
+    /// derived id, which no constructor admits.
+    #[must_use]
+    pub fn ed25519_public(&self) -> Option<[u8; 32]> {
+        let mut buf = [0_u8; 64];
+        let len = bs58::decode(self.0.as_bytes()).onto(&mut buf[..]).ok()?;
+        if len != DERIVED_BYTES || buf[..DERIVED_PREFIX.len()] != DERIVED_PREFIX {
+            return None;
+        }
+        let mut key = [0_u8; 32];
+        key.copy_from_slice(&buf[DERIVED_PREFIX.len()..len]);
+        Some(key)
     }
 
     /// The identifier as a string slice.
@@ -429,11 +506,22 @@ macro_rules! deserialize_via_parse {
     };
 }
 
-// Deserialization goes through `parse` for every one of these. A derived
-// impl would build a value that never satisfied its grammar, which is the
-// whole failure mode these newtypes exist to prevent — and JSON arriving
-// over IPC is exactly the untrusted path where it would happen.
-deserialize_via_parse!(EndpointId);
+// Deserialization goes through each type's parser. A derived impl would
+// build a value that never satisfied its grammar, which is the whole
+// failure mode these newtypes exist to prevent — and JSON arriving over
+// IPC is exactly the untrusted path where it would happen.
+//
+// An `EndpointId` deserializes by `parse_derived`: every schema that
+// carries one demands the derived grammar (ADR-0067), so a retired label
+// is refused at every JSON or YAML boundary
+// (`a_label_does_not_deserialize_as_an_endpoint_id`,
+// `negative_conformance`).
+impl<'de> Deserialize<'de> for EndpointId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::parse_derived(s).map_err(serde::de::Error::custom)
+    }
+}
 deserialize_via_parse!(ChannelId);
 deserialize_via_parse!(TransportIdentity);
 
@@ -499,52 +587,168 @@ impl DirectDestination {
 mod tests {
     use super::*;
 
+    /// TEST-ONLY keys: three fixed 32-byte patterns, not real identities.
+    const KEYS: [[u8; 32]; 3] = [[0x00; 32], [0x7f; 32], [0xff; 32]];
+
     #[test]
-    fn endpoint_id_accepts_the_conventional_names() {
-        for name in [
-            "human",
-            "claude",
-            "automation.build",
-            "a_b-c.d",
-            "a",
-            &"e".repeat(64),
-        ] {
-            assert!(EndpointId::parse(name).is_ok(), "{name} should parse");
+    fn a_derived_id_has_the_peer_id_shape_and_round_trips_its_key() {
+        for key in KEYS {
+            let id = EndpointId::from_ed25519_public(&key);
+            let text = id.as_str();
+            assert_eq!(text.len(), 52);
+            assert!(text.starts_with("12D3KooW"), "{text}");
+            assert_eq!(EndpointId::parse_derived(text), Ok(id.clone()));
+            assert_eq!(id.ed25519_public(), Some(key));
         }
     }
 
     #[test]
-    fn endpoint_id_rejects_everything_outside_the_grammar() {
-        assert_eq!(EndpointId::parse(""), Err(IdError::Empty));
+    fn parse_derived_refuses_a_sha256_peer_id_as_not_derived() {
+        // A real-shaped Qm PeerId (sha256 multihash of 32 bytes).
+        let mut bytes = vec![0x12, 0x20];
+        bytes.extend_from_slice(&[0x5a; 32]);
+        let qm = bs58::encode(bytes).into_string();
+        assert!(qm.starts_with("Qm"), "{qm}");
         assert_eq!(
-            EndpointId::parse("e".repeat(65)),
-            Err(IdError::TooLong { got: 65, max: 64 })
+            EndpointId::parse_derived(qm.as_str()),
+            Err(IdError::NotDerived)
         );
-        // A leading digit is reported as a LEADING error, not a generic
-        // illegal byte: digits are legal everywhere else, so the position
-        // is the whole explanation.
-        assert_eq!(
-            EndpointId::parse("1human"),
-            Err(IdError::IllegalLeadingByte { byte: b'1' })
+        assert!(
+            EndpointId::parse_derived(EndpointId::from_ed25519_public(&KEYS[1]).as_str()).is_ok()
         );
+    }
+
+    #[test]
+    fn parse_derived_refuses_a_different_key_type_or_prefix() {
+        // Identity multihash, but KeyType 2 (secp256k1), or a key length of
+        // 33: the 52-character text exists, the bytes are not ours.
+        for prefix in [
+            [0x00, 0x24, 0x08, 0x02, 0x12, 0x20],
+            [0x00, 0x24, 0x08, 0x01, 0x12, 0x21],
+        ] {
+            let mut bytes = prefix.to_vec();
+            bytes.extend_from_slice(&[0x11; 32]);
+            let text = bs58::encode(bytes).into_string();
+            assert_eq!(text.len(), 52, "{text}");
+            assert_eq!(
+                EndpointId::parse_derived(text.as_str()),
+                Err(IdError::NotDerived),
+                "{text}"
+            );
+        }
+        // Without the leading zero byte the text is not even 52 characters.
+        let mut bytes = vec![0x01, 0x24, 0x08, 0x01, 0x12, 0x20];
+        bytes.extend_from_slice(&[0x11; 32]);
+        let text = bs58::encode(bytes).into_string();
+        assert!(EndpointId::parse_derived(text).is_err());
+        let good = EndpointId::from_ed25519_public(&[0x11; 32]);
+        assert!(EndpointId::parse_derived(good.as_str()).is_ok());
+    }
+
+    #[test]
+    fn parse_derived_refuses_a_body_of_the_wrong_length() {
+        // 52 characters that decode to something other than 38 bytes.
+        let text = "1".repeat(52);
         assert_eq!(
-            EndpointId::parse("-human"),
-            Err(IdError::IllegalLeadingByte { byte: b'-' })
+            EndpointId::parse_derived(text.as_str()),
+            Err(IdError::NotDerived)
         );
-        assert_eq!(
-            EndpointId::parse("Human"),
-            Err(IdError::IllegalLeadingByte { byte: b'H' })
+        // The right prefix but 39 bytes encodes to a different text length.
+        let mut bytes = DERIVED_PREFIX.to_vec();
+        bytes.extend_from_slice(&[0x11; 33]);
+        let long = bs58::encode(bytes).into_string();
+        assert!(EndpointId::parse_derived(long.as_str()).is_err());
+        assert!(
+            EndpointId::parse_derived(EndpointId::from_ed25519_public(&[0x11; 32]).as_str())
+                .is_ok()
         );
+    }
+
+    #[test]
+    fn parse_derived_keeps_the_shape_errors() {
+        let good = EndpointId::from_ed25519_public(&KEYS[1]);
+        let t = good.as_str();
+        assert_eq!(EndpointId::parse_derived(""), Err(IdError::Empty));
         assert_eq!(
-            EndpointId::parse("huMan"),
-            Err(IdError::IllegalByte {
-                index: 2,
-                byte: b'M'
+            EndpointId::parse_derived(&t[..51]),
+            Err(IdError::WrongLength {
+                got: 51,
+                expected: 52
             })
         );
-        assert!(EndpointId::parse("human client").is_err());
-        assert!(EndpointId::parse("human/main").is_err());
-        assert!(EndpointId::parse("hüman").is_err());
+        assert_eq!(
+            EndpointId::parse_derived(format!("{t}1")),
+            Err(IdError::WrongLength {
+                got: 53,
+                expected: 52
+            })
+        );
+        assert_eq!(
+            EndpointId::parse_derived("1".repeat(65)),
+            Err(IdError::TooLong { got: 65, max: 64 })
+        );
+        let mut zero = t.to_owned();
+        zero.replace_range(10..11, "0");
+        assert_eq!(
+            EndpointId::parse_derived(zero),
+            Err(IdError::IllegalByte {
+                index: 10,
+                byte: b'0'
+            })
+        );
+        assert!(EndpointId::parse_derived(t).is_ok());
+    }
+
+    #[test]
+    fn parse_derived_refuses_text_that_is_not_the_canonical_form() {
+        let good = EndpointId::from_ed25519_public(&KEYS[1]);
+        // A case change of the prefix is another number, never the same id.
+        let lowered = good.as_str().replacen("12D3KooW", "12D3Koow", 1);
+        assert_eq!(EndpointId::parse_derived(lowered), Err(IdError::NotDerived));
+        // An extra leading '1' (one more zero byte) is another byte string.
+        let padded = format!("1{}", &good.as_str()[..51]);
+        assert!(EndpointId::parse_derived(padded).is_err());
+        assert_eq!(
+            EndpointId::parse_derived(good.as_str()).expect("control"),
+            good
+        );
+    }
+
+    #[test]
+    fn parse_derived_refuses_a_label() {
+        // The derived id beside it is the control: the same constructor
+        // accepts it.
+        for label in ["human", "claude", "automation.build", "a"] {
+            assert!(EndpointId::parse_derived(label).is_err(), "{label}");
+        }
+        assert!(
+            EndpointId::parse_derived(EndpointId::from_ed25519_public(&KEYS[1]).as_str()).is_ok()
+        );
+    }
+
+    #[test]
+    fn a_derived_id_deserializes_through_parse() {
+        let id = EndpointId::from_ed25519_public(&KEYS[1]);
+        let json = serde_json::to_string(&id).expect("ser");
+        assert_eq!(serde_json::from_str::<EndpointId>(&json).expect("de"), id);
+        let bad = format!("\"{}\"", "Qm".to_owned() + &"1".repeat(44));
+        assert!(serde_json::from_str::<EndpointId>(&bad).is_err());
+    }
+
+    /// The retired grammar does not come in through serde: a label, and a
+    /// 52-character string that is not a derived id, are refused where the
+    /// derived id beside them (the control) round-trips.
+    #[test]
+    fn a_label_does_not_deserialize_as_an_endpoint_id() {
+        let id = EndpointId::from_ed25519_public(&KEYS[1]);
+        let control = serde_json::to_string(&id).expect("ser");
+        assert_eq!(
+            serde_json::from_str::<EndpointId>(&control).expect("de"),
+            id
+        );
+        for bad in ["\"human\"".to_owned(), format!("\"{}\"", "x".repeat(52))] {
+            assert!(serde_json::from_str::<EndpointId>(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
@@ -614,7 +818,7 @@ mod tests {
         let peer = TransportIdentity::parse(TEST_PEER).expect("valid");
         let d = DirectDestination::to_default(peer.clone());
         assert!(d.endpoint.is_none());
-        let e = EndpointId::parse("human").expect("valid");
+        let e = EndpointId::from_ed25519_public(&KEYS[1]);
         assert_eq!(
             DirectDestination::to_endpoint(peer, e.clone()).endpoint,
             Some(e)
@@ -731,7 +935,9 @@ mod tests {
         let omitted = format!(r#"{{"peer":"{TEST_PEER}"}}"#);
         let d: DirectDestination = serde_json::from_str(&omitted).expect("parses");
         assert_eq!(d.endpoint, None);
-        let named = format!(r#"{{"peer":"{TEST_PEER}","endpoint":"human"}}"#);
-        assert!(serde_json::from_str::<DirectDestination>(&named).is_ok());
+        let id = EndpointId::from_ed25519_public(&KEYS[1]);
+        let named = format!(r#"{{"peer":"{TEST_PEER}","endpoint":"{}"}}"#, id.as_str());
+        let d: DirectDestination = serde_json::from_str(&named).expect("parses");
+        assert_eq!(d.endpoint, Some(id));
     }
 }

@@ -24,8 +24,15 @@ endpoints:
   registration_policy: configured-only
   default_direct_endpoint: claude
   directory: { enabled: true, cache_ttl: 60s, max_advertised: 16 }
+  # Each `key` names an endpoint's key file under <state_dir>/endpoint-keys/
+  # (ADR-0067). These ids are EXAMPLES, derived from TEST-ONLY keys whose seed
+  # is SHA-256("interweave/test-only/endpoint-key/v1\0" || alias), public by
+  # construction; their key files do not exist, so each entry loads in the
+  # key-missing state. A real profile names the files `transportctl endpoint
+  # init` minted.
   entries:
-    - id: claude
+    - key: 12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd.key
+      alias: claude
       enabled: true
       advertise: true
       allowed_client_kinds: [claude-channel]

@@ -38,6 +38,18 @@ tokio = { workspace = true, features = ["rt", "signal"] }
 rpassword = "7.5.4"
 # Already in the graph; held here so what rpassword returns is zeroed.
 zeroize = "1.9.0"
+# `endpoint adopt` (ADR-0067 decision 4) derives the public key from the
+# secret a filesystem-custody record holds, to check it against the
+# header before the record is copied. The workspace's version and the
+# feature profile-config already compiles: no crate enters the graph.
+ed25519-dalek = { workspace = true, features = ["zeroize"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# The scripted admin socket of `tests/endpoint.rs`: the frame codec, so
+# the script reads what the client really wrote. A types-and-codec crate.
+interweave-ipc-protocol = { path = "../../crates/api/ipc-protocol" }
+# TEST-ONLY: the old identity-key records `tests/endpoint.rs` plants are
+# encoded byte by byte, as the human store wrote them, not through the
+# encoder under test.
+base64 = { workspace = true }

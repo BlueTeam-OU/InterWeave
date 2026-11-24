@@ -12,8 +12,8 @@ TCP
  -> DCUtR (mandatory)
  -> optional configured AutoNAT v2 server / Circuit Relay v2 server roles
  -> GossipSub (broadcast)
- -> request-response /direct/2.0.0 (endpoint-addressed direct)
- -> request-response /endpoints/1.0.0 (optional trusted route directory)
+ -> request-response /direct/3.0.0 (endpoint-addressed direct)
+ -> request-response /endpoints/2.0.0 (optional trusted route directory)
  -> Kademlia behaviour when configured (peer-routing only; default enabled, explicit opt-out)
 ```
 
@@ -59,7 +59,7 @@ This prevents libp2p code from deciding which local process represents `human` o
 
 ## Endpoint directory
 
-Backend exposes `/endpoints/1.0.0` as a separate bounded request-response protocol. It requests a snapshot from runtime EndpointRegistry and returns only active, advertise=true, requester-admissible EndpointIds.
+Backend exposes `/endpoints/2.0.0` as a separate bounded request-response protocol. It requests a snapshot from runtime EndpointRegistry and returns only active, advertise=true, requester-admissible EndpointIds.
 
 No endpoint descriptors are stored in Identify, GossipSub, Kademlia, peer cache, relay service metadata, or AutoNAT.
 

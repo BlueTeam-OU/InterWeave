@@ -186,6 +186,7 @@ impl Peer {
         }
         let store = HumanStore::open(
             &store_dir.path().join("state/human.sqlite"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             StoreOptions::default(),
         )
         .expect("a store");
@@ -433,6 +434,7 @@ pub(crate) fn seed_pending_to(
     let mut store = HumanStore::open_profile(
         &home.paths,
         &interweave_human_store::key_custody::FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("the app's store");
@@ -500,6 +502,7 @@ pub(crate) fn seed_inbound(home: &Home, rows: &[Seeded<'_>]) {
     let mut store = HumanStore::open_profile(
         &home.paths,
         &interweave_human_store::key_custody::FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("the app's store");

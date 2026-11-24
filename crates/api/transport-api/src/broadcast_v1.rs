@@ -29,7 +29,7 @@
 //! # What it does carry that the direct frame does not
 //!
 //! A **version byte**, in band. Direct takes its version from the
-//! negotiated protocol name `/interweave/direct/2.0.0`; a GossipSub topic
+//! negotiated protocol name `/interweave/direct/3.0.0`; a GossipSub topic
 //! negotiates nothing, so this is the only place a reader can learn what
 //! it is holding. A frame declaring any other version is refused here
 //! rather than guessed at.

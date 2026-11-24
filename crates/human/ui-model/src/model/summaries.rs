@@ -278,6 +278,7 @@ mod tests {
     use interweave_human_chat_protocol::{Card, HumanChatV2, MessageKind};
     use interweave_human_client_api::{Destination, Origin, Received};
     use interweave_human_core::RowId;
+    use interweave_test_support::endpoint_keys::endpoint_id;
     use interweave_transport_api::{EndpointId, TransportIdentity};
 
     use super::super::cards::{KeyView, Proposal, ProposalContext, ValueChanges};
@@ -293,7 +294,7 @@ mod tests {
     }
 
     fn human() -> EndpointId {
-        EndpointId::parse("human").expect("an endpoint")
+        endpoint_id("human")
     }
 
     fn direct(p: &str) -> ConversationKey {

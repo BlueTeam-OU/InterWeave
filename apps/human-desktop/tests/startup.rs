@@ -23,7 +23,7 @@ use interweave_human_desktop::run::{
 };
 use interweave_profile_config::{HumanClientLock, ProfilePaths, XdgRoots};
 use interweave_profile_identity::ProfileIdentity;
-use interweave_transport_api::EndpointId;
+use interweave_test_support::endpoint_keys::endpoint_id;
 
 const PROFILE: &str = "desk";
 
@@ -68,7 +68,8 @@ impl Home {
         self.write_entries(
             "human",
             &format!(
-                "    - {{ id: human, enabled: true, advertise: true, allowed_client_kinds: [{kinds}], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n"
+                "    - {{ key: {human}.key, alias: human, enabled: true, advertise: true, allowed_client_kinds: [{kinds}], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n",
+                human = endpoint_id("human").as_str(),
             ),
         );
     }
@@ -181,7 +182,8 @@ fn every_endpoint_open_to_this_client_is_offered_whatever_the_file_says_of_enabl
     let home = Home::new();
     let entry = |id: &str, enabled: bool, kinds: &str| {
         format!(
-            "    - {{ id: {id}, enabled: {enabled}, advertise: true, allowed_client_kinds: [{kinds}], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n"
+            "    - {{ key: {key}.key, alias: {id}, enabled: {enabled}, advertise: true, allowed_client_kinds: [{kinds}], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n",
+            key = endpoint_id(id).as_str(),
         )
     };
     home.write_entries(
@@ -199,9 +201,16 @@ fn every_endpoint_open_to_this_client_is_offered_whatever_the_file_says_of_enabl
     };
     let profile =
         interweave_human_desktop::startup::resolve(&launch, &home.roots()).expect("resolves");
-    let ids: Vec<&str> = profile.endpoints.iter().map(EndpointId::as_str).collect();
-    // Reverse alphabetical in the file, so a sort would show.
-    assert_eq!(ids, ["human-z", "human-a"]);
+    let in_file = [endpoint_id("human-z"), endpoint_id("human-a")];
+    // The file's order is not the sorted one, by alias or by id, so a sort
+    // would show.
+    let mut sorted = in_file.clone();
+    sorted.sort();
+    assert_ne!(
+        sorted, in_file,
+        "the names must not sort as the file lists them"
+    );
+    assert_eq!(profile.endpoints, in_file);
 }
 
 #[test]
@@ -334,4 +343,36 @@ fn a_lock_that_cannot_be_made_is_an_io_failure_not_a_privacy_one() {
     let (code, message) = code_and_message(&home.run(&["--profile", PROFILE]));
     std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).expect("restore");
     assert_eq!(code, i32::from(EX_IOERR), "{message}");
+}
+
+/// The window reads the profile document alone, nothing under
+/// `endpoint-keys/` (ENDPOINTS.md, an alias is resolved by the client, A
+/// 2026-11-21): a key file whose header derives another id, which the
+/// daemon's load refuses, does not stop it. The control: `load`, which
+/// reads the headers, refuses the same profile. Mutation: `resolve`
+/// back on `ProfileConfig::load`.
+#[test]
+fn a_key_file_only_the_daemon_reads_does_not_stop_the_window() {
+    use interweave_profile_config::{ProfileConfig, endpoint_key};
+    let home = Home::new();
+    home.write_config("human-client");
+    let paths = home.paths();
+    let minted = endpoint_key::mint_filesystem(&paths).expect("minted");
+    std::fs::rename(
+        endpoint_key::key_path(&paths, &minted),
+        endpoint_key::key_path(&paths, &endpoint_id("human")),
+    )
+    .expect("the minted key under the entry's name");
+    let control = ProfileConfig::load(&paths).expect_err("the daemon's load refuses it");
+    assert!(
+        format!("{control:?}").contains("EndpointKeyMismatch"),
+        "the control: {control:?}"
+    );
+    let launch = interweave_human_desktop::startup::Launch {
+        profile: PROFILE.to_owned(),
+        store_max_pages: None,
+    };
+    let profile =
+        interweave_human_desktop::startup::resolve(&launch, &home.roots()).expect("resolves");
+    assert_eq!(profile.endpoints, [endpoint_id("human")]);
 }

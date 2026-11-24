@@ -15,8 +15,8 @@ The project display name is **InterWeave**. Machine-facing project identifiers u
 The canonical network identifiers are:
 
 ```text
-/interweave/direct/2.0.0
-/interweave/endpoints/1.0.0
+/interweave/direct/3.0.0
+/interweave/endpoints/2.0.0
 /interweave/kad/1.0.0/<network-hash>
 
 interweave/direct-content-fingerprint/v1\0
@@ -125,3 +125,5 @@ Full notes: [`history/0047-amendments.md`](./history/0047-amendments.md).
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-08-17 | HumanChat media type advanced to v=2 | The application-identifier list names `;v=2` per ADR-0050; the vendor prefix and namespace rules are unchanged |
+| 2026-11-19 | The direct protocol id is `/interweave/direct/3.0.0` from the Stage 22 release | The canonical network identifier list names `/interweave/direct/3.0.0` (ADR-0067 decision 7; `2.0.0` until that release); the namespace, the prefixes and every hash-participating identifier are unchanged, and no golden moves by this amendment. |
+| 2026-11-22 | The endpoint directory protocol id is `/interweave/endpoints/2.0.0` from the Stage 22 release | The canonical network identifier list names `/interweave/endpoints/2.0.0` (ADR-0067 decision 7; `1.0.0` until that release); the namespace, the prefixes and every hash-participating identifier are unchanged, and no golden moves by this amendment. |

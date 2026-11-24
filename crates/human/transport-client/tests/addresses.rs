@@ -247,7 +247,11 @@ fn facade<A: AdminBinding>(admin: A) -> TransportClient<FakeNode, A> {
     TransportClient::new(
         node(),
         admin,
-        HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
+        HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("store"),
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: Vec::new(),

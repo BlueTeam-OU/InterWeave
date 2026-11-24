@@ -22,6 +22,8 @@ use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_transport_embedded::EmbeddedRefused;
 
+mod common;
+
 const PROFILE: &str = "human";
 const WAIT: Duration = Duration::from_secs(20);
 const GRACE: Duration = Duration::from_secs(1);
@@ -58,7 +60,7 @@ fn launch(app: &App) -> ServiceLaunch {
 }
 
 fn started(app: &App) -> ServiceHost {
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     service.start(launch(app)).expect("started");
     service
@@ -175,7 +177,7 @@ const PENDING: UnlockStatus = UnlockStatus {
 #[test]
 fn the_unlock_status_is_the_last_start_that_ran() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     assert_eq!(service.unlock_status(), None);
     assert_eq!(
@@ -255,7 +257,7 @@ fn the_unlock_status_is_the_last_start_that_ran() {
 fn say_unlock_hands_the_view_the_four_facts_by_start() {
     use interweave_human_ui_model::{KeyUnlock, ResealLeft, UnlockFacts, UnlockReason};
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     let mut link = service.hub().attach(std::sync::Arc::new(|| {}));
     let said = |link: &mut interweave_human_android_platform::ViewLink| {
@@ -315,7 +317,7 @@ fn say_unlock_hands_the_view_the_four_facts_by_start() {
 #[test]
 fn a_lock_at_the_activitys_check_gives_the_locked_view_its_status() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     service.locked_before_start(Some(PENDING));
     assert_eq!(service.unlock_status(), Some(PENDING), "no start ran");
@@ -515,7 +517,7 @@ fn a_facade_past_its_stop_publishes_nothing_and_holds_the_store_until_it_ends() 
 #[test]
 fn a_network_report_never_waits_on_a_start() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = Arc::new(ServiceHost::new());
     let _ = service.network_report(NetworkReport::Watching);
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -537,7 +539,16 @@ fn a_network_report_never_waits_on_a_start() {
     std::thread::sleep(Duration::from_millis(5));
     let mut during_the_start = 0_u32;
     let network = 1;
-    while !done.load(std::sync::atomic::Ordering::SeqCst) {
+    // A start that panics never sets `done`, and one that never returns
+    // would spin this loop for ever: end on the thread's own end, and
+    // fail at a deadline rather than hang the suite.
+    let start_bound = Duration::from_secs(120);
+    let deadline = Instant::now() + start_bound;
+    while !done.load(std::sync::atomic::Ordering::SeqCst) && !starting.is_finished() {
+        assert!(
+            Instant::now() < deadline,
+            "the start did not return within {start_bound:?}"
+        );
         let _ = service.network_report(NetworkReport::Link {
             network,
             link: Link {
@@ -570,7 +581,7 @@ fn the_log_level_is_the_profiles_and_none_without_one() {
         None,
         "no profile yet"
     );
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let paths = ProfilePaths::resolve_embedded(
         PROFILE,
         TrustBoundary::new(&app.dir).expect("the boundary"),
@@ -599,7 +610,7 @@ fn the_log_level_is_the_profiles_and_none_without_one() {
 #[test]
 fn the_running_log_level_is_the_one_the_runtime_loaded() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     assert_eq!(service.log_level(), None, "nothing runs");
     service.start(launch(&app)).expect("started");
@@ -629,7 +640,7 @@ fn the_running_log_level_is_the_one_the_runtime_loaded() {
 #[test]
 fn a_profile_no_endpoint_admits_is_refused_and_leaves_nothing_running() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let human = common::provision_first_identity(&app.dir, PROFILE);
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
     let good = std::fs::read_to_string(paths.config_file()).expect("read");
@@ -649,7 +660,11 @@ fn a_profile_no_endpoint_admits_is_refused_and_leaves_nothing_running() {
     // The endpoint the Android profile names for its service decides,
     // not the first entry open to the kind; one that names no enabled
     // entry is refused by the profile's own validation, before the kind.
-    let elsewhere = good.replace("\n    endpoint: human\n", "\n    endpoint: phone\n");
+    let phone = interweave_test_support::endpoint_keys::endpoint_id("phone");
+    let elsewhere = good.replace(
+        &format!("\n    endpoint: {}\n", human.as_str()),
+        &format!("\n    endpoint: {}\n", phone.as_str()),
+    );
     assert_ne!(
         good, elsewhere,
         "the control: the document names the service's endpoint"
@@ -662,8 +677,11 @@ fn a_profile_no_endpoint_admits_is_refused_and_leaves_nothing_running() {
     // Nor does another entry open to the kind stand in for it.
     let other = bad.replace(
         "discovery:",
-        "    - id: other\n      enabled: true\n      advertise: false\n      \
-         allowed_client_kinds: [human-client]\ndiscovery:",
+        &format!(
+            "    - key: {}.key\n      alias: other\n      enabled: true\n      \
+             advertise: false\n      allowed_client_kinds: [human-client]\ndiscovery:",
+            interweave_test_support::endpoint_keys::endpoint_id("other").as_str()
+        ),
     );
     assert_ne!(bad, other, "the control: the second entry was added");
     std::fs::write(paths.config_file(), &other).expect("write");
@@ -828,21 +846,144 @@ fn the_first_run_profile_is_written_once_and_never_rewritten() {
 }
 
 /// No identity's endpoint is in the directory: the app has no control
-/// that would take it out (`human-client-ui.md` §13).
+/// that would take it out (`human-client-ui.md` §13). Form 1 names no
+/// endpoint at all; form 2, which the first identity's seal writes,
+/// names it unadvertised.
 #[test]
 fn the_first_run_profile_advertises_no_endpoint() {
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("form 1");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let form_1 = ProfileConfig::load(&paths).expect("form 1 loads");
+    assert!(
+        form_1.endpoints.entries.is_empty(),
+        "form 1 names an endpoint"
+    );
+    let id = interweave_transport_api::EndpointId::from_ed25519_public(&[7; 32]);
+    interweave_profile_config::provision::provision_identity(&paths, &id).expect("form 2");
+    let form_2 = ProfileConfig::load(&paths).expect("form 2 loads");
+    assert!(
+        !form_2.endpoints.entries.is_empty(),
+        "form 2 names the identity"
+    );
+    for endpoint in &form_2.endpoints.entries {
+        assert!(!endpoint.advertise, "{:?} is advertised", endpoint.id);
+    }
+}
+
+/// M1 writes form 1 and nothing else: no endpoint key exists before the
+/// person chose Create or Restore (ADR-0067 decision 4), so the
+/// Activity's identity check, which provisions before Welcome, leaves
+/// the state root without one. Mutation: a key directory made by the
+/// provisioning fails it.
+#[test]
+fn provisioning_makes_no_endpoint_key_and_names_no_identity() {
     let app = app();
     provision_profile(&app.dir, PROFILE).expect("provisioned");
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
-    let profile = ProfileConfig::load(&paths).expect("the first-run profile loads");
-    assert!(
-        !profile.endpoints.entries.is_empty(),
-        "an endpoint is written"
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        interweave_profile_config::provision::embedded_document(PROFILE),
+        "M1 writes form 1"
     );
-    for endpoint in &profile.endpoints.entries {
-        assert!(!endpoint.advertise, "{:?} is advertised", endpoint.id);
+    let config = ProfileConfig::load(&paths).expect("form 1 loads");
+    assert_eq!(config.runtime.android.endpoint, None, "no identity named");
+    for dir in [
+        interweave_profile_config::endpoint_key::ENDPOINT_KEYS_DIR,
+        interweave_profile_config::endpoint_key::LEGACY_IDENTITY_KEYS_DIR,
+    ] {
+        assert!(
+            !paths.state_dir().join(dir).exists(),
+            "{dir}/ exists before Create or Restore"
+        );
     }
+}
+
+/// An earlier release's first-run document (the marker, `- id: human`)
+/// is replaced by form 1 at the next provisioning, which every start
+/// runs before any load, and only once: what it wrote is kept after.
+/// The same text without the marker is the person's, and stays.
+/// Mutation: the early return on an existing file restored fails the
+/// replacement; a replacement on every call fails the second read.
+#[test]
+fn an_earlier_releases_document_is_replaced_once_by_form_1() {
+    let app = app();
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    stand_in::provision_replacing(&app.dir, PROFILE, &earlier_release_document())
+        .expect("the earlier release's document");
+    assert!(
+        ProfileConfig::load(&paths).is_err(),
+        "the control: the loader refuses the earlier release's entry"
+    );
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let form_1 = interweave_profile_config::provision::embedded_document(PROFILE);
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        form_1,
+        "replaced by form 1"
+    );
+    ProfileConfig::load(&paths).expect("form 1 loads");
+    let id = interweave_transport_api::EndpointId::from_ed25519_public(&[9; 32]);
+    interweave_profile_config::provision::provision_identity(&paths, &id).expect("form 2");
+    let form_2 = std::fs::read_to_string(paths.config_file()).expect("read");
+    provision_profile(&app.dir, PROFILE).expect("again");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        form_2,
+        "form 2 is kept: the replacement happens once"
+    );
+
+    let unmarked = earlier_release_document().replacen("# Written on first run", "# Mine", 1);
+    stand_in::provision_replacing(&app.dir, PROFILE, &unmarked).expect("a person's document");
+    provision_profile(&app.dir, PROFILE).expect("kept");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        unmarked,
+        "a document without the marker is never replaced"
+    );
+}
+
+/// The document every release before ADR-0067 wrote at first run, as
+/// `main` at 86627ed46 has it.
+fn earlier_release_document() -> String {
+    format!(
+        "{}: the embedded-android
+# defaults. Trust, relays and AutoNAT servers arrive through the admin
+# trust surface or onboarding, not here.
+schema_version: 2
+profile:
+  name: {PROFILE}
+runtime:
+  deployment: embedded-android
+  android:
+    endpoint: human
+ipc:
+  enabled: false
+transport:
+  listen:
+    addresses: [\"/ip4/0.0.0.0/tcp/0\"]
+trust:
+  policy: static-allowlist
+  allowed_peers: []
+endpoints:
+  default_direct_endpoint: human
+  entries:
+    - id: human
+      enabled: true
+      advertise: false
+      allowed_client_kinds: [human-client]
+discovery:
+  providers:
+    - type: peer-cache
+      enabled: true
+      priority: 10
+      config: {{}}
+",
+        interweave_profile_config::provision::EMBEDDED_DOCUMENT_MARKER
+    )
 }
 
 /// The android-e2e cases' provisioning replaces what is there -- the
@@ -892,7 +1033,7 @@ fn the_cases_provisioning_replaces_the_profile_where_the_apps_keeps_it() {
 #[test]
 fn without_network_the_store_opens_and_no_runtime_runs() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     service
         .start_without_network(
@@ -992,11 +1133,12 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     use interweave_transport_api::MediaType;
 
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let me = common::provision_first_identity(&app.dir, PROFILE);
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
     // A first posture start lays the profile's directories out; the store
-    // is then seeded with two unread messages while nothing holds it.
+    // is then seeded with two unread messages while nothing holds it,
+    // opened as the identity the start opens it as.
     let service = ServiceHost::new();
     service
         .start_without_network(
@@ -1010,6 +1152,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
         let mut store = HumanStore::open_profile(
             &paths,
             &interweave_human_store::key_custody::FilesystemCustody,
+            &me,
             StoreOptions::default(),
         )
         .expect("the store");
@@ -1036,9 +1179,9 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
                     // as the facade writes one.
                     origin: InboundOrigin {
                         peer: peer.clone(),
-                        endpoint: Some(
-                            interweave_transport_api::EndpointId::parse("human").expect("endpoint"),
-                        ),
+                        endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id(
+                            "human",
+                        )),
                         channel: None,
                     },
                     media_type: Some(MediaType::parse(&encoded.media_type).expect("media type")),
@@ -1144,6 +1287,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     let store = HumanStore::open_profile(
         &paths,
         &interweave_human_store::key_custody::FilesystemCustody,
+        &me,
         StoreOptions::default(),
     )
     .expect("the store");
@@ -1296,7 +1440,7 @@ impl interweave_human_store::key_custody::KeyCipher for StoreKeystore {
 fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() {
     use interweave_human_store::at_rest::DiscardScope;
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
     });
@@ -1495,7 +1639,7 @@ fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
         ]
     );
 
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     service
         .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started");
@@ -1518,7 +1662,7 @@ fn a_start_refused_elsewhere_answers_so_and_never_as_an_opened_store() {
 #[test]
 fn a_start_refused_for_the_person_answers_locked() {
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&app.dir, PROFILE);
     let service = ServiceHost::new();
     let mut link = service.hub().attach(Arc::new(|| {}));
     service.refused_locked(Some(PENDING));
@@ -1549,6 +1693,20 @@ fn a_start_refused_for_the_person_answers_locked() {
     let _ = service.stop(GRACE);
 }
 
+/// The first run with the first identity's key sealed under `keystore`,
+/// as onboarding seals it before form 2 names it; its id.
+fn keystore_first_identity(
+    app_data_dir: &std::path::Path,
+    keystore: &StoreKeystore,
+) -> interweave_transport_api::EndpointId {
+    common::provision_first_identity_with(app_data_dir, PROFILE, |paths| {
+        interweave_human_store::identity_key::create(paths, keystore)
+            .expect("the key sealed")
+            .endpoint()
+            .clone()
+    })
+}
+
 /// The identity in front as the first windowed start after a start
 /// reports it.
 fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::IdentityView> {
@@ -1568,25 +1726,27 @@ fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::I
     identity.expect("listed")
 }
 
-/// ADR-0063 decision 2 on Android: the first start makes the identity's
-/// key sealed under the platform's custody, beside the store and outside
-/// it, and every later start opens that key, never a new one; the record
-/// is the Keystore's, which the desktop's filesystem floor cannot read.
+/// ADR-0063 decision 2 on Android, as ADR-0067 decision 5 left it: the
+/// identity's key is sealed under the platform's custody at onboarding,
+/// beside the store and outside it, and every start opens that key, the
+/// same one each time; the record is the Keystore's, which the desktop's
+/// filesystem floor cannot read.
 #[test]
-fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
+fn the_service_opens_the_identitys_key_sealed_under_the_keystore_at_every_start() {
     use interweave_human_store::identity_key::{
         self, FilesystemCustody, IdentityKeyError, IdentityKeyFileError,
     };
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
     let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
     });
+    let sealed = keystore_first_identity(&app.dir, &keystore);
     let service = ServiceHost::new();
     service
         .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started");
     let first = listed_identity(&service).expect("the identity has its key");
+    assert_eq!(first.endpoint, sealed, "the identity onboarding sealed");
     let _ = service.stop(GRACE);
 
     service
@@ -1614,10 +1774,10 @@ fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
 fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
     use interweave_human_store::identity_key;
     let app = app();
-    provision_profile(&app.dir, PROFILE).expect("provisioned");
     let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
     });
+    keystore_first_identity(&app.dir, &keystore);
     let service = ServiceHost::new();
     service
         .start_without_network(&app.dir, PROFILE, keystore.clone())
@@ -1658,4 +1818,47 @@ fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
         .expect("started");
     assert_eq!(service.identity_key_refused(), None, "cleared");
     let _ = service.stop(GRACE);
+}
+
+/// The start without network reaches no embedded host, so it finishes M3
+/// itself: form 1 beside one sealed first key (onboarding sealed it and
+/// was cut short before writing form 2) starts on that key's identity
+/// and leaves form 2; the control, form 1 with no key, is still refused.
+#[test]
+fn a_start_without_network_finishes_m3_beside_one_sealed_key() {
+    use interweave_profile_config::endpoint_key;
+    use interweave_profile_config::provision::embedded_identity_document;
+    let control = app();
+    provision_profile(&control.dir, PROFILE).expect("form 1");
+    let service = ServiceHost::new();
+    assert!(
+        service
+            .start_without_network(
+                &control.dir,
+                PROFILE,
+                Arc::new(interweave_human_store::key_custody::FilesystemCustody),
+            )
+            .is_err(),
+        "form 1 with no key does not start"
+    );
+
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("form 1");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let id = endpoint_key::mint_filesystem(&paths).expect("a sealed first key");
+    let service = ServiceHost::new();
+    service
+        .start_without_network(
+            &app.dir,
+            PROFILE,
+            Arc::new(interweave_human_store::key_custody::FilesystemCustody),
+        )
+        .expect("form 1 beside one key starts");
+    service.stop(GRACE).expect("it ran");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("config"),
+        embedded_identity_document(PROFILE, &id),
+        "form 2 names the key's id"
+    );
 }

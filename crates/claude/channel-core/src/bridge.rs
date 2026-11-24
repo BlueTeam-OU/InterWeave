@@ -338,7 +338,7 @@ fn broadcast(message: &ReceivedBroadcast) -> Result<Converted, ConvertError> {
         &message.message_id.to_string(),
         message.received_at_ms,
         &message.payload,
-        Origin::Broadcast(&message.source_peer),
+        Origin::Broadcast,
     )?;
     let route = ReplyRoute::Broadcast {
         channel: message.channel.clone(),
@@ -383,8 +383,9 @@ enum Origin<'a> {
         &'a interweave_transport_api::TransportIdentity,
         &'a EndpointId,
     ),
-    /// The authenticated publisher.
-    Broadcast(&'a interweave_transport_api::TransportIdentity),
+    /// A broadcast: no route, since a card is dropped there whatever its
+    /// shape (`card::broadcast`).
+    Broadcast,
 }
 
 /// The keys both modes carry, and the content: a `HumanChatV2` contact card
@@ -404,8 +405,8 @@ fn common(
                 Ok(card::Kind::Text) => None,
                 Err(reason) => return Err(ConvertError::Card(reason)),
             },
-            Origin::Broadcast(publisher) => {
-                card::broadcast(&content.text, publisher).map_err(ConvertError::Card)?;
+            Origin::Broadcast => {
+                card::broadcast(&content.text).map_err(ConvertError::Card)?;
                 None
             }
         }
@@ -441,6 +442,7 @@ fn is_human_chat(payload: &Payload) -> bool {
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
     use interweave_transport_api::{
         MAX_PAYLOAD_BYTES, MediaType, MessageId, Payload, TransportIdentity,
     };
@@ -449,7 +451,7 @@ mod tests {
     const NOW: u64 = 1_791_227_222_497;
 
     fn endpoint(s: &str) -> EndpointId {
-        EndpointId::parse(s).expect("endpoint")
+        endpoint_id(s)
     }
     fn channel(s: &str) -> ChannelId {
         ChannelId::parse(s).expect("channel")
@@ -502,13 +504,14 @@ mod tests {
             .expect("a notification");
         assert_eq!(n.content, "hello");
         let entries: Vec<_> = n.meta.entries().collect();
+        let (human, claude) = (endpoint_id("human"), endpoint_id("claude"));
         assert_eq!(
             entries,
             [
                 ("delivery_mode", "direct"),
                 ("source_peer", PEER),
-                ("source_endpoint", "human"),
-                ("destination_endpoint", "claude"),
+                ("source_endpoint", human.as_str()),
+                ("destination_endpoint", claude.as_str()),
                 ("message_id", "000102030405060708090a0b0c0d0e0f"),
                 ("received_at", "2026-10-05T19:07:02.497Z"),
                 ("reply_token", "BwcHBwcHBwcHBwcHBwcHBw"),

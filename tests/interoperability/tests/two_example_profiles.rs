@@ -39,7 +39,7 @@ use interweave_profile_config::ProfileConfig;
 use interweave_profile_identity::ProfileIdentity;
 use interweave_test_support::{fixtures, hex};
 use interweave_transport_api::{
-    BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload,
+    BroadcastMessageV1, ChannelId, DirectDestination, MediaType, MessageId, Payload,
     TransportEvent, TransportIdentity, TransportRuntime,
 };
 use interweave_transport_composition::{ComposedRuntime, CompositionOptions};
@@ -143,7 +143,7 @@ async fn pair() -> Pair {
 fn human_session() -> SessionRequest {
     SessionRequest::new(
         "human-client",
-        Some(EndpointId::parse("human").expect("valid")),
+        Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
         [DataCapability::Commands, DataCapability::Events],
     )
     .expect("in bounds")
@@ -185,7 +185,7 @@ async fn every_frozen_direct_vector_crosses_two_example_profiles_intact() {
         .await
         .expect("the Android human session leases");
 
-    let file = fixtures::load("direct-v2/direct-message-v2-frame.json");
+    let file = fixtures::load("direct-v3/direct-message-v2-frame.json");
     let vectors = file["vectors"].as_array().expect("a vectors array");
     assert!(!vectors.is_empty());
     for (index, v) in vectors.iter().enumerate() {

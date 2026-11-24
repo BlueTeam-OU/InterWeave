@@ -22,7 +22,8 @@ use std::time::{Duration, Instant};
 use interweave_local_client_api::{
     AdminBinding as _, AdminCapability, AdminPort as _, TrustChange,
 };
-use interweave_profile_config::provision::provision_embedded;
+use interweave_profile_config::endpoint_key::mint_filesystem;
+use interweave_profile_config::provision::{provision_embedded, provision_identity};
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
@@ -97,6 +98,10 @@ fn a_trust_change_reaches_a_sink_stricter_than_info() {
         ProfilePaths::resolve_embedded("work", TrustBoundary::new(&app).expect("a boundary"))
             .expect("paths");
     provision_embedded(&paths).expect("provisioned");
+    // The first identity, as onboarding seals it: form 1 has none, and a
+    // start on it is refused.
+    let id = mint_filesystem(&paths).expect("a key minted");
+    provision_identity(&paths, &id).expect("the first identity");
     let host = EmbeddedHost::start(EmbeddedLaunch {
         app_data_dir: app.clone(),
         profile: "work".to_owned(),

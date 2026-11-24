@@ -265,8 +265,6 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::AcceptCard { .. } => "accept card",
         Command::DeclineCard(_) => "decline card",
         Command::UndoCard(_) => "undo card",
-        Command::AskNewKey => "ask new key",
-        Command::MakeNewKey => "make new key",
         Command::RetryKey => "retry key",
         Command::Window(interweave_human_app_core::WindowCommand::FetchPage(_)) => "fetch page",
         Command::Window(interweave_human_app_core::WindowCommand::ReadContacts) => "read contacts",
@@ -308,14 +306,14 @@ fn session_class(state: &SessionState) -> String {
 #[cfg(test)]
 mod tests {
     use interweave_human_transport_client::{SessionProblem, SessionState};
-    use interweave_transport_api::EndpointId;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     use super::session_class;
 
     /// The log names a state's class and attempt, and no endpoint.
     #[test]
     fn a_session_state_is_logged_as_its_class() {
-        let endpoint = EndpointId::parse("human-secret-label").expect("an endpoint");
+        let endpoint = endpoint_id("human-secret-label");
         let ready = session_class(&SessionState::Ready {
             endpoint: Some(endpoint),
         });

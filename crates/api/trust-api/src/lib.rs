@@ -13,10 +13,15 @@
 //! - **Deny by default.** [`PeerTrustPolicy::default`] is an empty
 //!   allowlist that admits nobody. A policy that fails to load is not a
 //!   policy that admits everyone.
-//! - **Narrowing only.** [`EndpointTrustPolicy`] can subtract from profile
-//!   trust and can never add to it. The intersection happens inside
+//! - **Narrowing only, inside the admission set.** An authored
+//!   [`EndpointTrustPolicy`] can subtract from the operator's list and can
+//!   never add to it; the intersection happens inside
 //!   [`PeerTrustPolicy::decide_for_endpoint`], so no call site can invert
-//!   the order and widen (ADR-0012, `contracts/ENDPOINTS.md`).
+//!   the order and widen (ADR-0012, `contracts/ENDPOINTS.md`). An
+//!   endpoint's own set ([`EndpointSet`], ADR-0067 decision 6) replaces
+//!   the operator's list at that endpoint, and is part of the admission
+//!   set ([`PeerTrustPolicy::admission`]) that decides the connection, so
+//!   no endpoint admits a peer that set refuses.
 //! - **Infrastructure is not data-plane trust.** [`InfrastructureSet`] is a
 //!   separate type, not a flag on the same one, because a relay or AutoNAT
 //!   server is authorized for reachability control and nothing else
@@ -68,6 +73,10 @@ pub enum DenyReason {
     NotAllowlisted,
     /// On the profile allowlist, but excluded by endpoint narrowing.
     NarrowedByEndpoint,
+    /// Not in the endpoint's own set, which is the whole of what that
+    /// endpoint trusts (ADR-0067 decision 6): the operator's list does
+    /// not reach it.
+    NotInEndpointSet,
     /// The local profile's own identity, which is never a remote peer.
     SelfIdentity,
 }
@@ -239,6 +248,140 @@ impl PeerTrustPolicy {
             }
         }
     }
+
+    /// Decide trust for a peer at one endpoint, `self` being the
+    /// OPERATOR'S LIST, in ADR-0067 decision 6's order: the endpoint's own
+    /// set when it has one, else its authored policy over the operator's
+    /// list ([`Self::decide_for_endpoint`]). An own set is the whole of
+    /// what the endpoint trusts -- the operator's list neither adds to it
+    /// nor narrows it -- and the local identity is refused under either.
+    ///
+    /// `self` is never the admission set: an inheriting endpoint trusts
+    /// what the operator trusts, and nothing a person trusted in an
+    /// identity (`a_peer_in_another_endpoints_set_is_not_inherited`).
+    #[must_use]
+    pub fn decide_at_endpoint(
+        &self,
+        peer: &TransportIdentity,
+        endpoint: EndpointTrust<'_>,
+    ) -> TrustDecision {
+        match endpoint {
+            EndpointTrust::Authored(policy) => self.decide_for_endpoint(peer, policy),
+            EndpointTrust::Own(set) => {
+                if self.local_peer.as_ref() == Some(peer) {
+                    TrustDecision::Denied(DenyReason::SelfIdentity)
+                } else if set.peers.contains(peer) {
+                    TrustDecision::Allowed
+                } else {
+                    TrustDecision::Denied(DenyReason::NotInEndpointSet)
+                }
+            }
+        }
+    }
+
+    /// The admission set: this policy (the operator's list) united with
+    /// every endpoint's own set, the local identity bound and never in it,
+    /// bounded as ONE set by [`Self::MAX_ALLOWED_PEERS`] (ADR-0067 decision
+    /// 6). It is what decides a connection; it is derived, never stored.
+    ///
+    /// # Errors
+    ///
+    /// [`TrustPolicyError::AllowlistTooLarge`] when the union holds more
+    /// than [`Self::MAX_ALLOWED_PEERS`] peers.
+    pub fn admission<'a>(
+        &self,
+        sets: impl IntoIterator<Item = &'a EndpointSet>,
+    ) -> Result<Self, TrustPolicyError> {
+        let mut allowed_peers = self.allowed_peers.clone();
+        for set in sets {
+            allowed_peers.extend(set.peers.iter().cloned());
+        }
+        if let Some(local) = &self.local_peer {
+            allowed_peers.remove(local);
+        }
+        if allowed_peers.len() > Self::MAX_ALLOWED_PEERS {
+            return Err(TrustPolicyError::AllowlistTooLarge {
+                got: allowed_peers.len(),
+                max: Self::MAX_ALLOWED_PEERS,
+            });
+        }
+        Ok(Self {
+            allowed_peers,
+            local_peer: self.local_peer.clone(),
+        })
+    }
+}
+
+/// The most rows all endpoints' own sets may hold together, both
+/// directions counted: two identities each holding a full admission set
+/// both ways (ADR-0067 decision 6, the row bound ruled 2026-11-22). The
+/// endpoint overlay enforces it at load and at every write.
+pub const MAX_ENDPOINT_SET_ROWS: usize = 4 * PeerTrustPolicy::MAX_ALLOWED_PEERS;
+
+/// One endpoint's own trusted set in one direction, held by the endpoint
+/// overlay (ADR-0067 decision 6). Unlike an authored
+/// [`EndpointTrustPolicy::StaticSubset`] it is not a subset of the
+/// operator's list: it may hold a peer the operator never trusted, which
+/// is why it enters [`PeerTrustPolicy::admission`].
+///
+/// An empty set is a set -- "own and empty", the state an added identity
+/// starts in -- and trusts nobody; it is not "no own set", which is
+/// [`EndpointTrust::Authored`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EndpointSet {
+    peers: BTreeSet<TransportIdentity>,
+}
+
+impl EndpointSet {
+    /// Build a set, bounded by [`PeerTrustPolicy::MAX_ALLOWED_PEERS`]: a
+    /// set larger than the admission set it belongs to could never load.
+    ///
+    /// # Errors
+    ///
+    /// [`TrustPolicyError::AllowlistTooLarge`] past the bound.
+    pub fn new(
+        peers: impl IntoIterator<Item = TransportIdentity>,
+    ) -> Result<Self, TrustPolicyError> {
+        let peers: BTreeSet<_> = peers.into_iter().collect();
+        if peers.len() > PeerTrustPolicy::MAX_ALLOWED_PEERS {
+            return Err(TrustPolicyError::AllowlistTooLarge {
+                got: peers.len(),
+                max: PeerTrustPolicy::MAX_ALLOWED_PEERS,
+            });
+        }
+        Ok(Self { peers })
+    }
+
+    /// The peers, sorted.
+    #[must_use]
+    pub fn peers(&self) -> &BTreeSet<TransportIdentity> {
+        &self.peers
+    }
+
+    /// How many peers the set holds.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.peers.len()
+    }
+
+    /// Whether the set is own and empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.peers.is_empty()
+    }
+}
+
+/// What one endpoint trusts in one direction, borrowed for a decision:
+/// its own set when the endpoint overlay carries one, else what its
+/// configuration authored. A view, so a decision on the routing path
+/// copies no set; the only way to an answer is
+/// [`PeerTrustPolicy::decide_at_endpoint`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointTrust<'a> {
+    /// No own set: the authored policy over the operator's list.
+    Authored(&'a EndpointTrustPolicy),
+    /// The endpoint's own set, which replaces the operator's list here.
+    Own(&'a EndpointSet),
 }
 
 /// Why a trust policy could not be built.
@@ -1212,5 +1355,119 @@ mod tests {
         }))
         .expect("a policy");
         assert_eq!(read, policy);
+    }
+
+    fn own(peers: &[&str]) -> EndpointSet {
+        EndpointSet::new(peers.iter().map(|p| peer(p))).expect("bounded")
+    }
+
+    const INHERIT: EndpointTrust<'static> =
+        EndpointTrust::Authored(&EndpointTrustPolicy::InheritProfileTrust);
+
+    #[test]
+    fn an_own_set_admits_its_peers_and_not_the_operators() {
+        let operator = allowlist(&[P1]);
+        let set = own(&[P2]);
+        let at = EndpointTrust::Own(&set);
+        assert_eq!(
+            operator.decide_at_endpoint(&peer(P2), at),
+            TrustDecision::Allowed
+        );
+        assert_eq!(
+            operator.decide_at_endpoint(&peer(P1), at),
+            TrustDecision::Denied(DenyReason::NotInEndpointSet)
+        );
+        // The control: with no own set the operator's peer is admitted.
+        assert_eq!(
+            operator.decide_at_endpoint(&peer(P1), INHERIT),
+            TrustDecision::Allowed
+        );
+    }
+
+    #[test]
+    fn an_own_empty_set_trusts_nobody() {
+        let operator = allowlist(&[P1]);
+        assert_eq!(
+            operator.decide_at_endpoint(&peer(P1), EndpointTrust::Own(&own(&[]))),
+            TrustDecision::Denied(DenyReason::NotInEndpointSet)
+        );
+    }
+
+    #[test]
+    fn a_peer_in_another_endpoints_set_is_not_inherited() {
+        let operator = allowlist(&[P1]);
+        let identity = EndpointSet::new([peer(P2)]).expect("bounded");
+        let admission = operator.admission([&identity]).expect("bounded");
+        // P2 may connect: the admission set holds it ...
+        assert!(admission.decide(&peer(P2)).is_allowed());
+        // ... and an inheriting endpoint, judged against the OPERATOR'S
+        // list, still refuses it; P1 is the control.
+        assert_eq!(
+            operator.decide_at_endpoint(&peer(P2), INHERIT),
+            TrustDecision::Denied(DenyReason::NotAllowlisted)
+        );
+        assert!(operator.decide_at_endpoint(&peer(P1), INHERIT).is_allowed());
+    }
+
+    #[test]
+    fn an_authored_subset_still_narrows_the_operators_list() {
+        let operator = allowlist(&[P1, P2]);
+        let subset = EndpointTrustPolicy::StaticSubset {
+            allowed_peers: [peer(P1)].into(),
+        };
+        let at = EndpointTrust::Authored(&subset);
+        assert!(operator.decide_at_endpoint(&peer(P1), at).is_allowed());
+        assert_eq!(
+            operator.decide_at_endpoint(&peer(P2), at),
+            TrustDecision::Denied(DenyReason::NarrowedByEndpoint)
+        );
+    }
+
+    #[test]
+    fn the_local_identity_is_refused_under_an_own_set() {
+        let operator = PeerTrustPolicy::default().with_local_peer(peer(P1));
+        assert_eq!(
+            operator.decide_at_endpoint(&peer(P1), EndpointTrust::Own(&own(&[P1]))),
+            TrustDecision::Denied(DenyReason::SelfIdentity)
+        );
+        let admission = operator
+            .admission([&EndpointSet::new([peer(P1), peer(P2)]).expect("bounded")])
+            .expect("bounded");
+        assert_eq!(
+            admission.allowed_peers().len(),
+            1,
+            "the local peer is never admitted"
+        );
+        assert!(admission.decide(&peer(P2)).is_allowed());
+    }
+
+    #[test]
+    fn the_admission_set_is_the_union_bounded_as_one_set() {
+        let half = PeerTrustPolicy::MAX_ALLOWED_PEERS / 2;
+        let operator = PeerTrustPolicy::new((0..half).map(synthetic_peer)).expect("bounded");
+        let same = EndpointSet::new((0..half).map(synthetic_peer)).expect("bounded");
+        let rest = EndpointSet::new((half..2 * half).map(synthetic_peer)).expect("bounded");
+        // Overlap counts once: at the bound exactly.
+        let full = operator.admission([&same, &rest]).expect("at the bound");
+        assert_eq!(full.len(), PeerTrustPolicy::MAX_ALLOWED_PEERS);
+        let one_more = EndpointSet::new([synthetic_peer(2 * half)]).expect("bounded");
+        assert_eq!(
+            operator.admission([&same, &rest, &one_more]),
+            Err(TrustPolicyError::AllowlistTooLarge {
+                got: PeerTrustPolicy::MAX_ALLOWED_PEERS + 1,
+                max: PeerTrustPolicy::MAX_ALLOWED_PEERS,
+            })
+        );
+    }
+
+    #[test]
+    fn an_endpoint_set_is_bounded_by_the_admission_bound() {
+        let max = PeerTrustPolicy::MAX_ALLOWED_PEERS;
+        assert!(EndpointSet::new((0..max).map(synthetic_peer)).is_ok());
+        assert_eq!(
+            EndpointSet::new((0..=max).map(synthetic_peer)),
+            Err(TrustPolicyError::AllowlistTooLarge { got: max + 1, max })
+        );
+        assert_eq!(MAX_ENDPOINT_SET_ROWS, 16_384);
     }
 }

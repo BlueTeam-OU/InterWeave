@@ -1,0 +1,5 @@
+# ADR-0005 — amendment history
+
+### Amendment 2026-11-19 — The direct protocol id is `/interweave/direct/3.0.0` from the Stage 22 release
+
+ADR-0067 decision 7 moves the direct protocol to `/interweave/direct/3.0.0` in the release that builds Stage 22, so that a node of the release before it and a node after it fail at protocol negotiation, by name, and never frame by frame over an EndpointId one of them reads as malformed. The Decision read "with the endpoint-aware implementation target: `/interweave/direct/2.0.0`"; it now names `3.0.0` and says what `2.0.0` was. Nothing this record decided changes: request-response, one bounded request per message, `AcceptedV2` with the resolved endpoint or a coarse `RejectedV2`, reused connections, no automatic retry. The frame names keep their `V2`, which names the layout and not the protocol's major (`transport/libp2p/DIRECT.md` §Selected primitive). Propagation: the Decision; this note; the log row; the digest entry and its supersession row; the index row.

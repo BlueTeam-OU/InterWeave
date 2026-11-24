@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:frame",
   "title": "IPC frame body",
-  "description": "The JSON object inside one length-prefixed frame, after the 4-byte big-endian length. This schema covers the BODY only: the length prefix, the 131,072-byte ceiling on it, and the rule that zero length is invalid are framing concerns outside JSON Schema and are asserted by the codec (LOCAL-IPC.md §Framing).\n\n2.0.0 (A 2026-09-28): ONE envelope over ten mutually exclusive classes — `hello` (the client's first frame), `hello_response` and `close` (server-only), `request`, `response`, `cancel`, `event`, `server_state`, `ping`, `pong`. Phase and direction rules (no request before hello_response; close ends the connection) are prose plus tests/ipc-v2, because JSON Schema cannot express order. A `request`'s (method, params) pair validates against `ipc:request`; an `event`'s (event_type, data) pair against `ipc:event`.",
+  "description": "The JSON object inside one length-prefixed frame, after the 4-byte big-endian length. This schema covers the BODY only: the length prefix, the 131,072-byte ceiling on it, and the rule that zero length is invalid are framing concerns outside JSON Schema and are asserted by the codec (LOCAL-IPC.md §Framing).\n\n2.0.0 (A 2026-09-28): ONE envelope over ten mutually exclusive classes — `hello` (the client's first frame), `hello_response` and `close` (server-only), `request`, `response`, `cancel`, `event`, `server_state`, `ping`, `pong`. Phase and direction rules (no request before hello_response; close ends the connection) are prose plus tests/ipc-v2 (the crate keeps its name on major 3), because JSON Schema cannot express order. A `request`'s (method, params) pair validates against `ipc:request`; an `event`'s (event_type, data) pair against `ipc:event`.\n\n3.0.0 (ADR-0067 decision 7, IPC major 3): the frame carries `ipc/hello` 2.0.0 and `ipc/hello-response` 2.0.0, so it takes the major with them (LOCAL-IPC.md §Version negotiation and phases, \"The schemas take their majors once\").",
   "oneOf": [
     {
       "$ref": "urn:interweave:schemas:ipc:hello"
@@ -271,12 +271,13 @@
   "x-contract": {
     "name": "ipc.frame",
     "status": "active",
-    "version": "2.1.0",
+    "version": "3.0.0",
     "adr": [
       "0017",
-      "0026"
+      "0026",
+      "0067"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md",
-    "fixtures": ["fixtures/ipc-v2/ipc-v2-frame-golden.json"]
+    "fixtures": ["fixtures/ipc-v3/ipc-v3-frame-golden.json"]
   }
 }

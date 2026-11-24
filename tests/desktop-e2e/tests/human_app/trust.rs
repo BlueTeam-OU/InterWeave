@@ -20,6 +20,7 @@ use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
 
 use crate::a11y::{Bus, Element};
+use crate::common::human;
 use crate::daemon_link::{Tap, asked};
 use crate::display;
 use crate::harness::{self as app, until_lease};
@@ -171,7 +172,7 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
     );
     assert_eq!(
         on_data.endpoint.as_deref(),
-        Some("human"),
+        Some(human().as_str()),
         "control: the data tap read the client's lease: {on_data:?}"
     );
     let administrative =

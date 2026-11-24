@@ -273,6 +273,9 @@ fn refusal(why: &StartRefused) -> jint {
         StartRefused::StoreNotPrivate(_) => refused::STORE_PRIVATE,
         StartRefused::StoreUnavailable(_) => refused::STORE_UNAVAILABLE,
         StartRefused::Thread(_) => refused::THREAD,
+        // The first identity's key or form 2: retried at the next start,
+        // as an identity the record cannot give now is.
+        StartRefused::FirstIdentity(_) => refused::IDENTITY_UNAVAILABLE,
     }
 }
 

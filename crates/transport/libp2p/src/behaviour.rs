@@ -206,7 +206,7 @@ pub struct SubstrateBehaviour {
     /// told of this node's listen addresses less those ADR-0052 rule 10
     /// withholds (`listen_scope`).
     pub identify: ListenScope<identify::Behaviour>,
-    /// Directed messaging, `/interweave/direct/2.0.0`.
+    /// Directed messaging, `/interweave/direct/3.0.0`.
     ///
     /// LAST, and after both gates, because the derive calls each field's
     /// handlers in declaration order. This behaviour originates outbound
@@ -231,7 +231,7 @@ pub struct SubstrateBehaviour {
     /// connection admission at all, so an untrusted peer never reaches it
     /// only because the gated swarm refused the connection first.
     pub broadcast: ClassGated<gossipsub::Behaviour>,
-    /// The endpoint directory, `/interweave/endpoints/1.0.0` (ADR-0031).
+    /// The endpoint directory, `/interweave/endpoints/2.0.0` (ADR-0031).
     ///
     /// After both gates for the same reason `direct` is: `send_request`
     /// dials an unconnected peer, so this behaviour sits in a Swarm where

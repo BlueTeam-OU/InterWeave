@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:lease-changed",
   "title": "IPC endpoint lease changed",
-  "description": "The data of an `endpoint.lease_changed` event: the holder's lease was revoked — by an administrative revoke, by the endpoint being disabled, or at shutdown. A grant is learned from `hello_response`, never from this event, which therefore carries revocation only (matching `LocalSessionEvent::EndpointLeaseChanged`).",
+  "description": "The data of an `endpoint.lease_changed` event: the holder's lease was revoked — by an administrative revoke, by the endpoint being disabled, or at shutdown. A grant is learned from `hello_response`, never from this event, which therefore carries revocation only (matching `LocalSessionEvent::EndpointLeaseChanged`).\n\n2.0.0 (ADR-0067 decision 7, IPC major 3): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major.",
   "type": "object",
   "required": [
     "endpoint",
@@ -23,11 +23,12 @@
   "x-contract": {
     "name": "ipc.lease-changed",
     "status": "active",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "adr": [
       "0017",
       "0030",
-      "0037"
+      "0037",
+      "0067"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

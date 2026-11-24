@@ -12,23 +12,52 @@
 use std::path::{Path, PathBuf};
 
 use interweave_profile_config::endpoint_overlay::{
-    ENDPOINT_OVERLAY_FILE, EndpointOverlay, EndpointOverlayError, MAX_ENDPOINT_OVERLAY_BYTES,
-    Normalised,
+    Carried, ENDPOINT_OVERLAY_FILE, EndpointOverlay, EndpointOverlayError,
+    MAX_ENDPOINT_OVERLAY_BYTES, Normalised, OverlayMember,
 };
 use interweave_profile_config::{EndpointsConfig, MAX_ENDPOINTS, TrustBoundary};
 use interweave_transport_api::EndpointId;
 
+/// The TEST-ONLY derived id named `s` (tests/support): the entries below
+/// carry `s` as their alias.
 fn id(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("a valid endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(s)
 }
 
-/// `a` and `b` enabled, `c` disabled; the default `default`.
+/// The names the overlay texts below write in place of ids, so that each
+/// reads as the case it is. The one rewrite that names two endpoints
+/// names `a` and `b`, whose ids sort as the names do, so the rewrite the
+/// overlay orders by id reads in the same order.
+const NAMES: [&str; 4] = ["a", "b", "c", "gone"];
+
+/// `text` with each quoted name replaced by its quoted id: what is put on
+/// disk.
+fn sub(text: &str) -> String {
+    NAMES.iter().fold(text.to_owned(), |t, n| {
+        t.replace(&format!("\"{n}\""), &format!("\"{}\"", id(n).as_str()))
+    })
+}
+
+/// [`sub`] undone: what a file read back says, in names.
+fn unsub(text: &str) -> String {
+    NAMES.iter().fold(text.to_owned(), |t, n| {
+        t.replace(&format!("\"{}\"", id(n).as_str()), &format!("\"{n}\""))
+    })
+}
+
+#[test]
+fn the_ids_of_a_and_b_sort_as_the_names_do() {
+    assert!(id("a") < id("b"), "the two-endpoint rewrite's order");
+}
+
+/// `a` and `b` enabled, `c` disabled; the default `default`, an alias.
 fn config(default: Option<&str>) -> EndpointsConfig {
+    let key = |n: &str| interweave_profile_config::endpoint_key::key_file_name(&id(n));
     serde_json::from_value(serde_json::json!({
         "entries": [
-            {"id": "a", "enabled": true, "advertise": false},
-            {"id": "b", "enabled": true, "advertise": false},
-            {"id": "c", "enabled": false, "advertise": false},
+            {"key": key("a"), "alias": "a", "enabled": true, "advertise": false},
+            {"key": key("b"), "alias": "b", "enabled": true, "advertise": false},
+            {"key": key("c"), "alias": "c", "enabled": false, "advertise": false},
         ],
         "default_direct_endpoint": default,
     }))
@@ -44,7 +73,7 @@ fn state() -> (tempfile::TempDir, PathBuf) {
 
 /// Write `text` at `path` as the daemon would: owner-only.
 fn put(path: &Path, text: &str) {
-    std::fs::write(path, text).expect("written");
+    std::fs::write(path, sub(text)).expect("written");
     chmod(path, 0o600);
 }
 
@@ -61,7 +90,7 @@ fn load(
 }
 
 fn read(path: &Path) -> String {
-    std::fs::read_to_string(path).expect("read")
+    unsub(&std::fs::read_to_string(path).expect("read"))
 }
 
 /// One normalisation case: what it is, the configured default, the file
@@ -210,6 +239,49 @@ fn a_normalised_overlay_is_not_rewritten() {
         let effective = overlay.effective(&config(Some("a")));
         assert_eq!(effective.default, Some(id(default)), "{text}");
     }
+}
+
+/// The READ-ONLY reader (a client that resolves aliases writes nothing
+/// in the profile): on a file `load_within` rewrites -- the control,
+/// which does -- `read_within` returns the same normalised overlay and
+/// the same changes, and leaves the file byte-identical, its inode and
+/// mode unchanged.
+#[test]
+fn read_within_normalises_in_memory_and_writes_nothing() {
+    use std::os::unix::fs::MetadataExt as _;
+    let text = r#"{"enabled":{"a":true,"c":true},"default":"a"}"#;
+    let (_dir, path) = state();
+    put(&path, text);
+    let before = std::fs::read(&path).expect("read");
+    let meta = std::fs::metadata(&path).expect("present");
+    let (read_only, read_changes) =
+        EndpointOverlay::read_within(&path, &config(Some("a")), &TrustBoundary::root())
+            .expect("reads");
+    assert!(!read_changes.is_empty(), "a case normalising changes");
+    assert_eq!(
+        std::fs::read(&path).expect("read"),
+        before,
+        "byte-identical"
+    );
+    let after = std::fs::metadata(&path).expect("present");
+    assert_eq!(
+        (after.ino(), after.mode(), after.mtime_nsec(), after.mtime()),
+        (meta.ino(), meta.mode(), meta.mtime_nsec(), meta.mtime()),
+        "not replaced"
+    );
+    // The control: `load_within` on the same file does rewrite it, to
+    // the overlay the reader returned in memory.
+    let (loaded, load_changes) = load(&path, &config(Some("a"))).expect("loads");
+    assert_eq!((loaded, load_changes), (read_only, read_changes));
+    assert_ne!(std::fs::read(&path).expect("read"), before, "rewritten");
+    assert_eq!(read(&path), "{\n  \"enabled\": {\n    \"c\": true\n  }\n}");
+    // And an absent file is the empty overlay, not created.
+    let (_dir, absent) = state();
+    let (empty, none) =
+        EndpointOverlay::read_within(&absent, &config(Some("a")), &TrustBoundary::root())
+            .expect("reads");
+    assert_eq!((empty, none), (EndpointOverlay::default(), Vec::new()));
+    assert!(!absent.exists());
 }
 
 /// An absent overlay is the empty one and is not created.
@@ -390,6 +462,8 @@ fn a_present_overlay_that_cannot_be_trusted_stops_the_load() {
         let (_dir, path) = state();
         let bound = usize::try_from(MAX_ENDPOINT_OVERLAY_BYTES).expect("fits");
         // At the bound it loads (the control); one byte past, refused.
+        // Measured on the text as put, ids in place of names.
+        let good = sub(good);
         put(&path, &format!("{good}{}", " ".repeat(bound - good.len())));
         assert!(load(&path, &config).is_ok(), "at the bound");
         put(
@@ -431,27 +505,39 @@ fn a_failed_normalisation_rewrite_stops_the_load() {
     }
 }
 
-/// The largest overlay a normalised file can hold -- every configured
-/// endpoint at the id bound, each flipped, the default `null` -- fits
-/// well inside the size bound and loads as itself, so the bound refuses
-/// only what no set could have written.
+/// The largest overlay of `enabled` and `default` alone -- every
+/// configured endpoint, each flipped, the default `null` -- is under 7
+/// KiB and loads as itself; the members past them (sets, added entries)
+/// are sized by `the_largest_legal_overlay_fits_its_bound_and_the_bound_is_not_loose`
+/// in `endpoint_overlay_members.rs`, which holds the size bound. Every id
+/// is derived, so every id is 52 bytes: the longest an overlay can name,
+/// under `EndpointId::MAX_BYTES`.
 #[test]
 fn the_largest_overlay_fits_its_bound() {
-    let ids: Vec<String> = (0..MAX_ENDPOINTS).map(|i| format!("e{i:0>63}")).collect();
-    assert!(ids.iter().all(|s| s.len() == EndpointId::MAX_BYTES));
+    let ids: Vec<EndpointId> = (0..MAX_ENDPOINTS).map(|i| id(&format!("e{i}"))).collect();
+    assert!(
+        ids.iter()
+            .all(|s| s.as_str().len() == 52 && s.as_str().len() <= EndpointId::MAX_BYTES)
+    );
     let entries: Vec<_> = ids
         .iter()
-        .map(|s| serde_json::json!({"id": s, "enabled": true, "advertise": false}))
+        .map(|s| {
+            serde_json::json!({
+                "key": interweave_profile_config::endpoint_key::key_file_name(s),
+                "enabled": true,
+                "advertise": false,
+            })
+        })
         .collect();
     let config: EndpointsConfig = serde_json::from_value(serde_json::json!({
         "entries": entries,
-        "default_direct_endpoint": ids[0],
+        "default_direct_endpoint": ids[0].as_str(),
     }))
     .expect("an endpoints block");
     let mut overlay = EndpointOverlay::default();
     for s in &ids {
         overlay = overlay
-            .set_enabled(&config, &id(s), false)
+            .set_enabled(&config, s, false)
             .expect("known")
             .expect("a change");
     }
@@ -465,6 +551,280 @@ fn the_largest_overlay_fits_its_bound() {
     let (back, changes) = load(&path, &config).expect("loads");
     assert_eq!(back, overlay);
     assert!(changes.is_empty(), "{changes:?}");
+}
+
+/// `config()` plus a fourth entry aliased `claude`, enabled: the entry a
+/// release before Stage 22's overlay named by its label.
+fn config_with_claude() -> EndpointsConfig {
+    let mut config = config(Some("a"));
+    let key = interweave_profile_config::endpoint_key::key_file_name(&id("claude"));
+    let extra: EndpointsConfig = serde_json::from_value(serde_json::json!({
+        "entries": [{"key": key, "alias": "claude", "enabled": true, "advertise": false}],
+    }))
+    .expect("an endpoints block");
+    config.entries.extend(extra.entries);
+    config
+}
+
+/// Write `text` AS IS (no name substitution): a label overlay.
+fn put_raw(path: &Path, text: &str) {
+    std::fs::write(path, text).expect("written");
+    chmod(path, 0o600);
+}
+
+fn claude() -> interweave_profile_config::EndpointAlias {
+    interweave_profile_config::EndpointAlias::parse("claude").expect("an alias")
+}
+
+/// A label equal to a configured alias is REFUSED, by `load_within` and
+/// `read_within` alike, in `enabled` and in `default`, naming the label
+/// and the command; the file is left as it was -- a refusal that dropped
+/// the member would lose the operator's disable. Controls: the same
+/// disable under the id loads and is effective.
+#[test]
+fn a_label_member_naming_a_configured_alias_is_refused_by_name() {
+    let config = config_with_claude();
+    let claude_id = id("claude");
+    for (what, text, member) in [
+        (
+            "enabled",
+            r#"{"enabled":{"claude":false}}"#.to_owned(),
+            OverlayMember::Enabled,
+        ),
+        (
+            "default",
+            r#"{"enabled":{},"default":"claude"}"#.to_owned(),
+            OverlayMember::Default,
+        ),
+    ] {
+        let (_dir, path) = state();
+        put_raw(&path, &text);
+        let before = std::fs::read(&path).expect("read");
+        let refused = [
+            load(&path, &config).expect_err("load refuses"),
+            EndpointOverlay::read_within(&path, &config, &TrustBoundary::root())
+                .expect_err("read refuses"),
+        ];
+        for e in refused {
+            let shown = e.to_string();
+            assert!(
+                matches!(&e, EndpointOverlayError::LabelMember { label, member: m }
+                    if label == "claude" && *m == member),
+                "{what}: {e:?}"
+            );
+            assert!(shown.contains("'claude'"), "{what}: {shown}");
+            assert!(
+                shown.contains("transportctl endpoint adopt --profile <profile> --alias claude"),
+                "{what}: {shown}"
+            );
+        }
+        assert_eq!(std::fs::read(&path).expect("read"), before, "{what}: kept");
+    }
+    // The control: the same disable written under the id.
+    let (_dir, path) = state();
+    put_raw(
+        &path,
+        &format!(r#"{{"enabled":{{"{}":false}}}}"#, claude_id.as_str()),
+    );
+    let (overlay, changes) = load(&path, &config).expect("loads");
+    assert!(changes.is_empty(), "{changes:?}");
+    assert!(!overlay.effective(&config).enabled[&claude_id]);
+}
+
+/// A label equal to NO configured alias is the retired endpoint's: it
+/// leaves as an unconfigured id does, reported with its own words, and
+/// `load_within` rewrites. Control: what stands beside it is kept.
+#[test]
+fn a_label_member_naming_no_alias_is_dropped_and_reported() {
+    let (_dir, path) = state();
+    put(
+        &path,
+        r#"{"enabled":{"claude":false,"b":false},"default":"claude"}"#,
+    );
+    let (overlay, changes) = load(&path, &config(Some("a"))).expect("loads");
+    assert_eq!(
+        changes,
+        vec![
+            Normalised::LabelWithoutAliasDropped {
+                label: "claude".to_owned(),
+                member: OverlayMember::Enabled
+            },
+            Normalised::LabelWithoutAliasDropped {
+                label: "claude".to_owned(),
+                member: OverlayMember::Default
+            },
+        ]
+    );
+    assert!(
+        changes[0]
+            .to_string()
+            .contains("a label, and no configured endpoint has that alias"),
+        "{}",
+        changes[0]
+    );
+    assert_eq!(read(&path), "{\n  \"enabled\": {\n    \"b\": false\n  }\n}");
+    assert!(!overlay.effective(&config(Some("a"))).enabled[&id("b")]);
+}
+
+/// A member in neither grammar is still a parse refusal, and a label is
+/// judged by the derived grammar: a `Qm` text is not a label.
+#[test]
+fn a_member_in_neither_grammar_is_a_parse_refusal() {
+    let config = config(Some("a"));
+    for text in [
+        r#"{"enabled":{"Claude":false}}"#,
+        r#"{"enabled":{"Qm":false}}"#,
+        r#"{"enabled":{},"default":"Not An Id"}"#,
+    ] {
+        let (_dir, path) = state();
+        put_raw(&path, text);
+        assert!(
+            matches!(load(&path, &config), Err(EndpointOverlayError::Parse(_))),
+            "{text}"
+        );
+    }
+}
+
+/// The carry moves the label's members to the id and the load is then
+/// accepted, with the entry disabled -- the operator's disable survived.
+#[test]
+fn after_the_carry_the_load_gives_the_entry_disabled() {
+    let config = config_with_claude();
+    let claude_id = id("claude");
+    let (_dir, path) = state();
+    put_raw(&path, r#"{"enabled":{"claude":false},"default":"claude"}"#);
+    load(&path, &config).expect_err("refused before the carry");
+    assert_eq!(
+        EndpointOverlay::carry_label_within(&path, &TrustBoundary::root(), &claude(), &claude_id)
+            .expect("carried"),
+        Carried::Moved
+    );
+    let on_disk = std::fs::read_to_string(&path).expect("read");
+    assert!(on_disk.contains(claude_id.as_str()) && !on_disk.contains("\"claude\""));
+    let (overlay, changes) = load(&path, &config).expect("loads");
+    let effective = overlay.effective(&config);
+    assert!(!effective.enabled[&claude_id], "disabled");
+    // The default named `claude`, which the overlay disables: the
+    // predicate drops it, as it would any disabled default.
+    assert_eq!(
+        changes,
+        vec![Normalised::DisabledDefaultDropped(claude_id.clone())]
+    );
+    assert_eq!(effective.default, Some(id("a")));
+}
+
+fn json_of(path: &Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(path).expect("read")).expect("json")
+}
+
+/// The carry: idempotent, only the label's members move, the rest of the
+/// file is as it was, a file with no member and an absent file are not
+/// written, and equal states merge while different ones refuse.
+#[test]
+fn the_carry_moves_the_labels_members_and_nothing_else() {
+    use std::os::unix::fs::MetadataExt as _;
+    let claude_id = id("claude");
+    let other = id("b");
+    let carry = |path: &Path| {
+        EndpointOverlay::carry_label_within(path, &TrustBoundary::root(), &claude(), &claude_id)
+    };
+
+    // Absent: nothing, and not created.
+    let (_dir, path) = state();
+    assert_eq!(carry(&path).expect("absent"), Carried::Nothing);
+    assert!(!path.exists());
+
+    // Moved, other members (an id, another label) untouched.
+    put_raw(
+        &path,
+        &format!(
+            r#"{{"enabled":{{"claude":false,"retired":true,"{}":false}}}}"#,
+            other.as_str()
+        ),
+    );
+    assert_eq!(carry(&path).expect("carried"), Carried::Moved);
+    assert_eq!(
+        json_of(&path),
+        serde_json::json!({"enabled": {
+            claude_id.as_str(): false, "retired": true, other.as_str(): false}})
+    );
+    // Idempotent: nothing the second time, the file not rewritten.
+    let text = std::fs::read(&path).expect("read");
+    let first = std::fs::metadata(&path).expect("meta");
+    assert_eq!(carry(&path).expect("again"), Carried::Nothing);
+    let second = std::fs::metadata(&path).expect("meta");
+    assert_eq!(
+        (first.ino(), first.mtime_nsec()),
+        (second.ino(), second.mtime_nsec())
+    );
+    assert_eq!(std::fs::read(&path).expect("read"), text);
+
+    // A default of the label moves; any other default stays.
+    put_raw(&path, r#"{"enabled":{},"default":"claude"}"#);
+    assert_eq!(carry(&path).expect("carried"), Carried::Moved);
+    assert_eq!(
+        json_of(&path),
+        serde_json::json!({"enabled": {}, "default": claude_id.as_str()})
+    );
+    put_raw(&path, r#"{"enabled":{},"default":"retired"}"#);
+    let before = std::fs::read(&path).expect("read");
+    assert_eq!(carry(&path).expect("nothing"), Carried::Nothing);
+    assert_eq!(std::fs::read(&path).expect("read"), before);
+
+    // Both named, the same state: the label goes, the id's stays.
+    put_raw(
+        &path,
+        &format!(
+            r#"{{"enabled":{{"claude":false,"{}":false}}}}"#,
+            claude_id.as_str()
+        ),
+    );
+    assert_eq!(carry(&path).expect("merged"), Carried::Moved);
+    assert_eq!(
+        json_of(&path),
+        serde_json::json!({"enabled": {claude_id.as_str(): false}})
+    );
+
+    // Both named, different states: refused, the file untouched.
+    put_raw(
+        &path,
+        &format!(
+            r#"{{"enabled":{{"claude":false,"{}":true}}}}"#,
+            claude_id.as_str()
+        ),
+    );
+    let before = std::fs::read(&path).expect("read");
+    let refused = carry(&path).expect_err("conflict");
+    assert!(
+        matches!(&refused, EndpointOverlayError::CarryConflict { label, id }
+            if label == "claude" && *id == claude_id),
+        "{refused:?}"
+    );
+    assert_eq!(std::fs::read(&path).expect("read"), before, "untouched");
+}
+
+/// The carry reads as the load does: a file readable by others is
+/// refused, a duplicate key is refused; the control is the same text
+/// private.
+#[test]
+fn the_carry_refuses_an_untrusted_file() {
+    let claude_id = id("claude");
+    let carry = |path: &Path| {
+        EndpointOverlay::carry_label_within(path, &TrustBoundary::root(), &claude(), &claude_id)
+    };
+    let (_dir, path) = state();
+    put_raw(&path, r#"{"enabled":{"claude":false}}"#);
+    chmod(&path, 0o644);
+    let e = carry(&path).expect_err("not private");
+    assert!(
+        matches!(e, EndpointOverlayError::NotPrivate { .. }),
+        "{e:?}"
+    );
+    chmod(&path, 0o600);
+    assert_eq!(carry(&path).expect("the control"), Carried::Moved);
+    put_raw(&path, r#"{"enabled":{"claude":false,"claude":true}}"#);
+    let e = carry(&path).expect_err("named twice");
+    assert!(matches!(e, EndpointOverlayError::Parse(_)), "{e:?}");
 }
 
 fn private_tempdir() -> std::io::Result<tempfile::TempDir> {

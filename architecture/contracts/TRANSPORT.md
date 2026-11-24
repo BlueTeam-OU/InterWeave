@@ -115,7 +115,7 @@ This exposes reachability state without exposing AutoNAT server identities, rela
 
 ## Local endpoint context
 
-Direct-capable local clients operate under an exclusive configured EndpointId lease established by the platform's `LOCAL-CLIENT` binding. Desktop obtains it through IPC v2; Android embedded mode obtains it through the in-process local-session adapter. The generic command dispatcher receives that EndpointId as trusted local session context; callers do not provide an arbitrary `source_endpoint` argument.
+Direct-capable local clients operate under an exclusive configured EndpointId lease established by the platform's `LOCAL-CLIENT` binding. Desktop obtains it through the IPC; Android embedded mode obtains it through the in-process local-session adapter. The generic command dispatcher receives that EndpointId as trusted local session context; callers do not provide an arbitrary `source_endpoint` argument.
 
 A client without an endpoint lease may use diagnostics and broadcast operations if otherwise authorized, but direct `send` fails `EndpointNotRegistered`.
 
@@ -355,7 +355,7 @@ v2 intentionally provides:
 
 ## Versioning
 
-The **transport contract version** is a semantic major/minor pair. Endpoint addressing changes caller context, direct destination, and direct event semantics and therefore starts transport contract major **v2**.
+The **transport contract version** is a semantic major/minor pair. Endpoint addressing changes caller context, direct destination, and direct event semantics and therefore started transport contract major **v2**. The derived EndpointId (ADR-0067) changes the value every one of those carries — a caller's endpoint, a direct destination and a direct event's source are a key's name where they were a label, and a consumer written against v2 holds ids no node of the Stage 22 release accepts — and therefore starts transport contract major **v3**, `"3.0"` in `hello_response.transport_contract_version`, with that release. Nothing else of the contract changed with the major; where this document and those under it say "transport v2" of a rule ADR-0030 introduced, the rule stands in v3.
 
 Backend protocol versions and IPC versions are negotiated separately. Because no production v1 plugin/daemon exists, the implementation roadmap targets v2 directly rather than requiring a legacy fan-out compatibility layer.
 

@@ -8,6 +8,7 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -31,8 +32,31 @@ use crate::verbs_tests::{Shared, after, held_for, unread_count};
 
 const WALL: u64 = 1_792_652_603_000;
 
+/// The identity every side leases: the id its TEST-ONLY key derives
+/// (ADR-0067), so a side holding that key may sign as it.
 fn endpoint() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    endpoint_id("human")
+}
+
+/// Write `endpoint()`'s TEST-ONLY key at filesystem custody, as
+/// `transportctl endpoint init` would mint a key: the record laid out by
+/// profile-config, its body the secret.
+fn install_test_key(paths: &ProfilePaths) {
+    use interweave_profile_config::endpoint_key;
+    let signing = interweave_test_support::endpoint_keys::signing_key("human");
+    let header = endpoint_key::header_bytes(
+        endpoint_key::Custody::FilesystemOnly,
+        endpoint().as_str().as_bytes(),
+        &signing.verifying_key().to_bytes(),
+    )
+    .expect("a header");
+    let line = endpoint_key::encode_record(&header, &signing.to_bytes());
+    interweave_profile_config::create_private_exclusive_within(
+        &interweave_human_store::identity_key::key_path(paths, &endpoint()),
+        line.as_bytes(),
+        paths.boundary(),
+    )
+    .expect("installed");
 }
 
 fn node() -> FakeConfig {
@@ -54,7 +78,12 @@ fn private_dir() -> tempfile::TempDir {
 }
 
 fn store(dir: &Path) -> HumanStore {
-    HumanStore::open(&dir.join("human.sqlite3"), StoreOptions::default()).expect("store")
+    HumanStore::open(
+        &dir.join("human.sqlite3"),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store")
 }
 
 /// A side: its node, and its store directory, under which its identity's
@@ -81,10 +110,16 @@ impl Side {
         .expect("paths")
     }
 
+    /// The side's one key: installed the first time, as `transportctl
+    /// endpoint init` would mint it (no client mints one, ADR-0067
+    /// decision 5), and opened by app-core's rule every time.
     fn key(&self) -> IdentityKey {
         let paths = self.paths();
+        if !interweave_human_store::identity_key::key_path(&paths, &endpoint()).exists() {
+            install_test_key(&paths);
+        }
         interweave_human_app_core::identity_key(&paths, &[endpoint()], &store(self.dir.path()))
-            .expect("opened or made")
+            .expect("opened")
             .expect("a key")
     }
 
@@ -117,10 +152,18 @@ impl Side {
         let mut facade = self.facade();
         facade.set_key_source(interweave_human_app_core::KeySource::new(
             self.paths(),
-            endpoint(),
+            self.key_id(),
             Box::new(interweave_human_store::identity_key::FilesystemCustody),
         ));
         Session::new(facade, || Some(true)).expect("session")
+    }
+
+    /// The id the side's key derives, installing the key if it has none.
+    fn key_id(&self) -> EndpointId {
+        if !interweave_human_store::identity_key::key_path(&self.paths(), &endpoint()).exists() {
+            install_test_key(&self.paths());
+        }
+        endpoint()
     }
 
     fn facade(&self) -> FacadeSide<FakeNode, FakeNode> {
@@ -215,7 +258,7 @@ async fn the_own_card_is_set_and_shown_with_its_fingerprint() {
     shown.expect("shown");
     let card = &lines(&out)[0];
     assert_eq!(card["name"], "Ada Lovelace");
-    assert_eq!(card["endpoint"], "human");
+    assert_eq!(card["endpoint"], endpoint().as_str());
     assert_eq!(card["has_photo"], false);
     let fingerprint = card["fingerprint"].as_str().expect("a fingerprint");
     assert_eq!(fingerprint.len(), 16);
@@ -240,7 +283,6 @@ async fn a_shared_card_is_a_proposal_that_accept_makes_a_contact() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -259,7 +301,7 @@ async fn a_shared_card_is_a_proposal_that_accept_makes_a_contact() {
     shown.expect("shown");
     let route = &lines(&out)[0]["routes"][0];
     assert_eq!(route["peer"], alice.node.peer().as_str());
-    assert_eq!(route["endpoint"], "human");
+    assert_eq!(route["endpoint"], endpoint().as_str());
     assert_eq!(route["fingerprint"], held[0]["fingerprint"]);
 }
 
@@ -271,7 +313,6 @@ async fn a_proposal_shown_and_left_undecided_is_gone_from_the_next_run() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -297,7 +338,6 @@ async fn decline_writes_nothing() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
-            accept_key_change: vec![],
             decline: vec![id],
         },
         true,
@@ -321,7 +361,6 @@ async fn a_decision_naming_no_proposal_refuses_before_anything_is_read() {
             Verb::ProposalsRead {
                 conversation: alice.route(),
                 accept,
-                accept_key_change: vec![],
                 decline,
             },
             false,
@@ -338,7 +377,6 @@ async fn a_decision_naming_no_proposal_refuses_before_anything_is_read() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id.clone()],
-            accept_key_change: vec![],
             decline: vec![id],
         },
         false,
@@ -364,7 +402,6 @@ async fn a_decision_that_fails_after_the_read_still_prints_the_proposals() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -386,7 +423,6 @@ async fn a_contact_is_renamed_its_photo_removed_and_deleted_by_the_person() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
-            accept_key_change: vec![],
             decline: vec![],
         },
         false,
@@ -664,7 +700,6 @@ async fn an_accept_made_before_another_fails_is_printed_accepted() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: ids.clone(),
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -689,7 +724,6 @@ async fn proposals_are_read_on_a_route_naming_its_endpoint() {
                 endpoint: None,
             },
             accept: vec![],
-            accept_key_change: vec![],
             decline: vec![],
         },
         false,
@@ -714,7 +748,6 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
     let accept = |id: String| Verb::ProposalsRead {
         conversation: alice.route(),
         accept: vec![id],
-        accept_key_change: vec![],
         decline: vec![],
     };
     run(&mut b_run, accept(id), true).await.1.expect("accepted");
@@ -738,7 +771,6 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
-            accept_key_change: vec![],
             decline: vec![id],
         },
         true,
@@ -748,76 +780,13 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
     assert_eq!(lines(&out)[0]["status"], "declined");
 }
 
-fn read_with(conversation: ConversationKey, accept: &[&str], key_change: &[&str]) -> Verb {
+fn read_with(conversation: ConversationKey, accept: &[&str]) -> Verb {
     let ids = |ids: &[&str]| ids.iter().map(|s| (*s).to_owned()).collect();
     Verb::ProposalsRead {
         conversation,
         accept: ids(accept),
-        accept_key_change: ids(key_change),
         decline: vec![],
     }
-}
-
-#[tokio::test]
-async fn a_key_change_is_accepted_only_by_the_flag_named_for_it() {
-    let (alice, bob, mut b_run) = Box::pin(shared()).await;
-    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
-    let first = lines(&out)[0]["id"].as_str().expect("id").to_owned();
-    assert_eq!(lines(&out)[0]["key"]["state"], "new");
-    // The flag names a key change, and a first card is none.
-    let (out, refused) = run(&mut b_run, read_with(alice.route(), &[], &[&first]), false).await;
-    assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
-    assert!(out.is_empty(), "refused before anything is read: {out}");
-    run(&mut b_run, read_with(alice.route(), &[&first], &[]), false)
-        .await
-        .1
-        .expect("the first card accepted");
-
-    // Alice's identity gets a new key and shares her card again.
-    let old = alice.key().fingerprint().to_string();
-    let new = interweave_human_store::identity_key::replace(
-        &alice.paths(),
-        &endpoint(),
-        &interweave_human_store::identity_key::FilesystemCustody,
-    )
-    .expect("a new key")
-    .fingerprint()
-    .to_string();
-    let mut a_run = alice.session();
-    run(&mut a_run, Verb::CardShare(bob.route()), true)
-        .await
-        .1
-        .expect("shared again");
-    a_run.close().await;
-
-    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
-    let change = &lines(&out)[0];
-    assert_eq!(change["key"]["state"], "changed", "{out}");
-    assert_eq!(change["key"]["recorded"], old.as_str());
-    let id = change["id"].as_str().expect("id").to_owned();
-    // A plain --accept of a key change is refused, and reads nothing.
-    let (out, refused) = run(&mut b_run, read_with(alice.route(), &[&id], &[]), false).await;
-    match &refused {
-        Err(Failure::Refused(why)) => {
-            assert!(why.contains("--accept-key-change"), "{why}");
-        }
-        other => panic!("{other:?}"),
-    }
-    assert!(out.is_empty(), "{out}");
-    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
-    assert_eq!(lines(&out)[0]["status"], "unread", "still unread");
-
-    let (out, accepted) = run(&mut b_run, read_with(alice.route(), &[], &[&id]), true).await;
-    accepted.expect("the key change accepted");
-    assert_eq!(lines(&out)[0]["status"], "accepted", "{out}");
-    let (out, _) = run(&mut b_run, Verb::Contacts, true).await;
-    let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
-    let (out, _) = run(&mut b_run, Verb::ContactShow(contact), true).await;
-    assert_eq!(
-        lines(&out)[0]["routes"][0]["fingerprint"],
-        new.as_str(),
-        "the route holds the new key"
-    );
 }
 
 #[tokio::test]
@@ -829,13 +798,16 @@ async fn identity_show_prints_the_fingerprint_of_the_identity_in_front() {
     let (out, shown) = run(&mut s, Verb::IdentityShow(None), true).await;
     shown.expect("shown");
     let line = &lines(&out)[0];
-    assert_eq!(line["endpoint"], "human");
+    assert_eq!(line["endpoint"], endpoint().as_str());
     assert_eq!(line["fingerprint"], fingerprint.as_str());
     assert_eq!(line["key_problem"], Value::Null);
     let (out, _) = run(&mut s, Verb::IdentityShow(None), false).await;
     assert_eq!(
         out,
-        format!("identity     human\nfingerprint  {fingerprint}\n")
+        format!(
+            "identity     {}\nfingerprint  {fingerprint}\n",
+            endpoint().as_str()
+        )
     );
 }
 
@@ -844,21 +816,14 @@ fn damage(path: &Path) {
     std::fs::write(path, "not a record\n").expect("damaged");
 }
 
+/// `identity show` of a damaged key: named by its kind, no fingerprint,
+/// exit 1, and the file left as it is -- no verb makes a key in its place
+/// (ADR-0067 decision 5).
 #[tokio::test]
-async fn a_new_key_is_made_only_when_confirmed_and_offered() {
+async fn a_damaged_key_is_shown_by_its_kind_and_left_as_it_is() {
     let (a, _b) = FakeNetwork::pair(node(), node());
     let alice = Side::new(a);
-    let old = alice.key().fingerprint().to_string();
-    let file = interweave_human_store::identity_key::key_path(&alice.paths(), &endpoint());
-
-    // A usable key is never replaced, confirmed or not.
-    let mut s = alice.session_from_file();
-    let (out, refused) = run(&mut s, Verb::IdentityNewKey { confirm: true }, false).await;
-    assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
-    assert!(out.is_empty(), "{out}");
-    s.close().await;
-    assert_eq!(alice.key().fingerprint().to_string(), old, "the key stays");
-
+    let file = interweave_human_store::identity_key::key_path(&alice.paths(), &alice.key_id());
     damage(&file);
     let damaged = std::fs::read(&file).expect("read");
     let mut s = alice.session_from_file();
@@ -866,37 +831,11 @@ async fn a_new_key_is_made_only_when_confirmed_and_offered() {
     assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
     assert_eq!(lines(&out)[0]["key_problem"], "damaged", "{out}");
     assert_eq!(lines(&out)[0]["fingerprint"], Value::Null);
-
-    // Unconfirmed: what it would do, and nothing done.
-    let (out, listed) = run(&mut s, Verb::IdentityNewKey { confirm: false }, true).await;
-    match &listed {
-        Err(Failure::Refused(why)) => assert!(why.contains("--confirm key-change"), "{why}"),
-        other => panic!("{other:?}"),
-    }
-    let would = &lines(&out)[0];
-    assert_eq!(would["key_problem"], "damaged");
-    assert_eq!(would["deletes_old_key"], true);
-    assert_eq!(would["cancels_pending_cards"], false);
+    s.close().await;
     assert_eq!(
         std::fs::read(&file).expect("read"),
         damaged,
-        "nothing removed"
-    );
-    s.close().await;
-
-    let mut s = alice.session_from_file();
-    let (out, made) = run(&mut s, Verb::IdentityNewKey { confirm: true }, true).await;
-    made.expect("made");
-    let new = lines(&out)[0]["fingerprint"]
-        .as_str()
-        .expect("a fingerprint")
-        .to_owned();
-    assert_ne!(new, old);
-    s.close().await;
-    assert_eq!(
-        alice.key().fingerprint().to_string(),
-        new,
-        "the new key is the one the next run opens"
+        "the refused file is left as it is"
     );
 }
 
@@ -908,7 +847,8 @@ fn another_identitys_key_is_read_and_never_made() {
         TrustBoundary::new(dir.path()).expect("a boundary"),
     )
     .expect("paths");
-    let second = EndpointId::parse("second").expect("valid");
+    let key = interweave_human_store::identity_key::IdentityKey::generate().expect("a key");
+    let second = key.endpoint().clone();
     let mut out = String::new();
     let shown = crate::identity::show_file(&paths, &second, true, &mut out);
     assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
@@ -917,12 +857,12 @@ fn another_identitys_key_is_read_and_never_made() {
         !interweave_human_store::identity_key::key_path(&paths, &second).exists(),
         "no key is made for it"
     );
-    let key = interweave_human_store::identity_key::create(
+    interweave_human_store::identity_key::install(
         &paths,
-        &second,
+        &key,
         &interweave_human_store::identity_key::FilesystemCustody,
     )
-    .expect("made");
+    .expect("installed");
     let mut out = String::new();
     crate::identity::show_file(&paths, &second, true, &mut out).expect("shown");
     assert_eq!(
@@ -936,7 +876,7 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     let (alice, bob, mut b_run) = Box::pin(shared()).await;
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
-    run(&mut b_run, read_with(alice.route(), &[&id], &[]), false)
+    run(&mut b_run, read_with(alice.route(), &[&id]), false)
         .await
         .1
         .expect("accepted");
@@ -944,15 +884,22 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
     b_run.close().await;
     // No flow makes a second route yet (moving one is Stage 22's): it is
-    // seeded as the store's writer inserts one.
+    // seeded as the store's writer inserts one, under bob's identity --
+    // his profile's first endpoint, `endpoint()` as the route's is.
     let other = ProfileIdentity::generate()
         .transport_identity()
         .expect("peer id");
     let conn = rusqlite::Connection::open(bob.dir.path().join("human.sqlite3")).expect("open");
     conn.execute(
-        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
-         VALUES (?1, ?2, 'human', ?3)",
-        rusqlite::params![contact, other.as_str(), [7_u8; 32].as_slice()],
+        "INSERT INTO contact_routes
+             (contact_id, local_endpoint_id, peer_id, endpoint_id, identity_key)
+         VALUES (?1, ?3, ?2, ?3, ?4)",
+        rusqlite::params![
+            contact,
+            other.as_str(),
+            endpoint().as_str(),
+            [7_u8; 32].as_slice()
+        ],
     )
     .expect("seeded");
     drop(conn);
@@ -961,7 +908,7 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     let delete = |peer: &TransportIdentity, endpoint: &str| Verb::RouteDelete {
         contact: contact.clone(),
         peer: peer.clone(),
-        endpoint: EndpointId::parse(endpoint).expect("valid"),
+        endpoint: endpoint_id(endpoint),
     };
     let (_, unknown) = run(&mut s, delete(&other, "other"), false).await;
     assert!(matches!(unknown, Err(Failure::Refused(_))), "{unknown:?}");
@@ -969,7 +916,11 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     deleted.expect("deleted");
     assert_eq!(
         out,
-        format!("{}/human deleted from {contact}\n", other.as_str())
+        format!(
+            "{}/{} deleted from {contact}\n",
+            other.as_str(),
+            endpoint().as_str()
+        )
     );
     let (out, _) = run(&mut s, Verb::ContactShow(contact.clone()), true).await;
     let routes = lines(&out)[0]["routes"].clone();
@@ -995,33 +946,23 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
 }
 
 #[tokio::test]
-async fn a_key_folder_not_safe_is_refused_naming_the_folder() {
+async fn a_key_folder_not_safe_is_shown_as_such_and_left() {
     let (a, _b) = FakeNetwork::pair(node(), node());
     let alice = Side::new(a);
     let fingerprint = alice.key().fingerprint().to_string();
-    // identity-keys/ made a link to the real folder: not one this account
+    // endpoint-keys/ made a link to the real folder: not one this account
     // alone owns as a folder, which the client never follows or changes.
-    let keys = alice.paths().state_dir().join("identity-keys");
-    let real = alice.paths().state_dir().join("identity-keys.real");
+    let keys = alice.paths().state_dir().join("endpoint-keys");
+    let real = alice.paths().state_dir().join("endpoint-keys.real");
     std::fs::rename(&keys, &real).expect("moved");
     std::os::unix::fs::symlink(&real, &keys).expect("linked");
-    let file = real.join("human.key");
+    let file = real.join(format!("{}.key", endpoint().as_str()));
     let before = std::fs::read(&file).expect("read");
 
     let mut s = alice.session_from_file();
     let (out, shown) = run(&mut s, Verb::IdentityShow(None), true).await;
     assert!(matches!(shown, Err(Failure::Refused(_))), "{shown:?}");
     assert_eq!(lines(&out)[0]["key_problem"], "key-folder-unsafe", "{out}");
-    let (out, refused) = run(&mut s, Verb::IdentityNewKey { confirm: true }, false).await;
-    match &refused {
-        Err(Failure::Refused(why)) => {
-            assert!(why.contains("key-folder-unsafe"), "{why}");
-            assert!(why.contains("identity-keys"), "the folder named: {why}");
-            assert!(!why.contains("later"), "{why}");
-        }
-        other => panic!("{other:?}"),
-    }
-    assert!(out.is_empty(), "{out}");
     s.close().await;
     assert_eq!(std::fs::read(&file).expect("read"), before, "the key stays");
     std::fs::remove_file(&keys).expect("unlinked");
@@ -1308,7 +1249,7 @@ async fn contacts_are_printed_in_the_collated_order() {
     {
         let mut held = store(bob.dir.path());
         for (i, name) in fixture.iter().enumerate() {
-            let at = EndpointId::parse(format!("e{i}")).expect("a label");
+            let at = endpoint_id(&format!("e{i}"));
             held.accept_card(
                 &interweave_human_store::AcceptedCard {
                     peer: alice.node.peer(),
@@ -1426,7 +1367,6 @@ async fn proposals_read_finds_a_card_older_than_the_held_row_ceiling() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![format!("u{}", card_row(&bob))],
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -1451,7 +1391,6 @@ async fn contacts_refuse_when_the_start_could_not_read_them() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
-            accept_key_change: vec![],
             decline: vec![],
         },
         false,

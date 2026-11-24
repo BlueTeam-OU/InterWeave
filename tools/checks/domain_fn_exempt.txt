@@ -189,13 +189,14 @@ LocalDataSession::event_queue                    call  let lane = session.sessio
 Payload::at_ceiling                              call  Self::at_ceiling(raw.media_type, bytes)
 RequestedCapability::as_admin                    call  .any(|c| c.as_admin().is_some());
 RequestedCapability::as_data                     call  .filter_map(|c| c.as_data())
+RequestedCapability::since                       call  self.since().admits(version)
 Event::decode                                    call  Event::decode(&self.event_type, self.data.as_deref(), version)
 Event::event_type                                call  self.event_type().as_str()
 EventType::as_str                                call  self.event_type().as_str()
-EventType::available_at                          call  if !kind.available_at(version) {
-EventType::of_session                            call  let Some(kind) = EventType::of_session(event) else {
+EventType::available_at                          call  EventType::of_session(event).is_none_or(|kind| kind.available_at(version))
+EventType::of_session                            call  EventType::of_session(event).is_none_or(|kind| kind.available_at(version))
 EventType::parse                                 call  EventType::parse(event_type)
-EventType::since_minor                           call  version.minor >= self.since_minor()
+EventType::since                                 call  self.since().admits(version)
 Frame::to_body                                   call  encode_frame(&self.to_body())
 Request::method                                  call  self.method().as_str()
 Request::params                                  call  Some(self.params())

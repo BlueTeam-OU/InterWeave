@@ -1581,6 +1581,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                         &o.app_data_dir,
                         PROFILE,
                         o.cipher.as_ref(),
+                        o.cipher.as_ref(),
                         creation,
                         o.lock.as_ref(),
                     ) {
@@ -1588,7 +1589,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                             prompt_for(o, Effect::Seal);
                             return Vec::new();
                         }
-                        sealed => sealed.map_err(|why| failed(&why)),
+                        sealed => sealed.map(first_identity_said).map_err(|why| failed(&why)),
                     },
                     None => Err(StepFailed::Storage),
                 };
@@ -1635,6 +1636,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                     &o.app_data_dir,
                     PROFILE,
                     o.cipher.as_ref(),
+                    o.cipher.as_ref(),
                     text,
                     Expected::Recorded,
                     o.lock.as_ref(),
@@ -1643,7 +1645,9 @@ fn one(effect: Effect) -> Vec<Effect> {
                         prompt_for(o, retry);
                         return Vec::new();
                     }
-                    restored => restored.map_err(|why| failed(&why)),
+                    restored => restored
+                        .map(first_identity_said)
+                        .map_err(|why| failed(&why)),
                 };
                 if outcome.is_ok() {
                     connect_owed(o);
@@ -1656,6 +1660,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                     &o.app_data_dir,
                     PROFILE,
                     o.cipher.as_ref(),
+                    o.cipher.as_ref(),
                     text,
                     Expected::Confirmed(&peer),
                     o.lock.as_ref(),
@@ -1664,7 +1669,9 @@ fn one(effect: Effect) -> Vec<Effect> {
                         prompt_for(o, retry);
                         return Vec::new();
                     }
-                    restored => restored.map_err(|why| failed(&why)),
+                    restored => restored
+                        .map(first_identity_said)
+                        .map_err(|why| failed(&why)),
                 };
                 if outcome.is_ok() {
                     connect_owed(o);
@@ -1733,6 +1740,25 @@ fn sealed_now(o: &mut Onboarding) {
     }
     #[cfg(feature = "ui-trace")]
     log(&start_line(TracedStart::Sealed));
+}
+
+/// What the seal's or the restore's step did for the first identity's
+/// key, said in the log alone: the seed is the step's outcome, and a key
+/// left undone is the next start's (`first_identity`).
+fn first_identity_said(done: onboarding::Onboarded) {
+    use interweave_human_android_platform::first_identity::Finished;
+    match done.first_identity {
+        Ok(Finished::Minted(_)) => {
+            log("the first identity's key was sealed and the profile names it");
+        }
+        Ok(Finished::Resealed(_)) => {
+            log("the earlier release's identity key was sealed again and the profile names it");
+        }
+        Ok(Finished::NotForm1 | Finished::NoSeed | Finished::LeftToHost | Finished::Held) => {}
+        Err(why) => log(&format!(
+            "the first identity's key is left for the next start: {why:?}"
+        )),
+    }
 }
 
 /// A new or restored identity owes onboarding's Connect on the first

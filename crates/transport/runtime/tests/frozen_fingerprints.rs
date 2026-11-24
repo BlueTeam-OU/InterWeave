@@ -19,7 +19,7 @@ fn fixture() -> serde_json::Value {
         .ancestors()
         .nth(3)
         .expect("crates/transport/<crate> is three levels below the root")
-        .join("fixtures/direct-v2/direct-content-fingerprint-v1.json");
+        .join("fixtures/direct-v3/direct-content-fingerprint-v1.json");
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()))

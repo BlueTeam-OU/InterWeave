@@ -92,6 +92,14 @@ as the design proposed. Propagation: `human-client-ui.md` §10 and
 §13's notification and lock-screen bullets, the plan's §30 exit gate,
 this note, the log row, the digest entry.
 
+### Amendment 2026-11-21 — On the phone the first identity is the entry the app writes after its key is sealed
+
+Decision 1 named the first identity as the profile's "authored human endpoint (`human-client-ui.md` §2 step 4; `runtime.android.endpoint` on the phone)". Under ADR-0067 that endpoint is named by its key, and on the phone no key exists when the app first writes its profile document, so the document holds no identity until onboarding seals the first key (ADR-0067 A 2026-11-21 has the ruling and what it refused). The parenthesis now says what the phone's first identity is: the entry `runtime.android.endpoint` names in the app's own document, an entry of `config.yaml` as the desktop's is and never one of the overlay's `added`. Nothing of the decision changes; making the first identity an added one was the alternative refused, since decision 7's rule for it (never removed, only turned off) rests on its standing.
+
+### Amendment 2026-11-22 — A removal that is a replacement keeps the list of routes to share the new card with
+
+Decision 7's Remove deletes an added identity's conversations, contacts and card, and (A 2026-11-04) the client keeps no record of removals. ADR-0067 decision 5 removes an added identity whose key is lost once its replacement exists, and the replacement's design needs two records that sentence seemed to forbid: which identity the new one replaces, so that a replacement cut between its steps is finished and never repeated into a third identity, and the list of conversations to share the new card in, whose source rows the Remove deletes. Both are allowed as bounded: the replaces record exists only while both identities do and is deleted with the removed one; the list is remote routes alone, held by the new identity, and the Remove's confirmation says it is kept, since the confirmation is the list of what goes. See ADR-0067's note of the same day for the reason.
+
 ### Amendment 2026-11-23 — Remove has one order, and the administrative remove is last
 
 Decision 7 listed what Remove takes and fixed no order. ADR-0063
@@ -213,3 +221,29 @@ digest entry. `LOCAL-IPC.md`'s remove text, not
 on `main`, gains the reading of a remove while the overlay is ahead
 and of one applied late, on its own supply. The design notes
 (identities sections 1 and 7 and acceptance 13) follow on #751.
+
+### Amendment 2026-11-24 — The add, remove and set_advertise methods are IPC 3.0 methods, not a minor (ii)
+
+Decision 2 said the administrative methods that add a configured
+endpoint, remove an added one and set an endpoint's `advertise` come
+"under ADR-0017's minor rule". It was written on 2026-10-21, when the
+IPC was major 2 and three new methods would have been a minor of it.
+ADR-0067 decision 7 then moved the IPC to major 3 in the Stage 22
+release, and `LOCAL-IPC.md` §Version negotiation and phases states the
+major's rule: no production build speaks major 3 before that release
+is tagged, so a method the stage adds is a 3.0 method and
+`IPC_MAX_MINOR` is 0 at the release. ADR-0067's note of 2026-11-19
+corrected the same phrase for the trust methods' endpoint dimension
+and did not reach this record; the review of the Stage 22 batch found
+the two texts apart (p2p-network-dev-01, 2026-11-24). Decision 2 now
+names IPC 3.0 and the pre-release rule. What follows for a builder:
+no client gates the three methods on a minor, a mirror that did would
+refuse them to every 3.0 connection, and the release is not tagged
+with any of them missing, since a build that spoke 3.0 without them
+would leave them to arrive as 3.1. Nothing else a reader was told to
+build changes: the methods, their capability and their overlay are as
+decided. The history notes of ADR-0028 that call these methods "an
+IPC minor under ADR-0017" stand as written, being what was true on
+their day. Propagation: decision 2; this note; the log row; this
+record's digest entry and ADR-0028's, which carried the same phrase;
+plan §30 Activate.

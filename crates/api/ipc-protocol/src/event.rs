@@ -17,7 +17,7 @@ use interweave_transport_api::{
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
-use crate::version::IpcVersion;
+use crate::version::{IpcVersion, Since};
 
 /// Maximum CHARACTERS in a `peer.disconnected` reason class
 /// (`ipc/event.schema.json` `maxLength`, which counts code points).
@@ -37,37 +37,23 @@ pub enum Event {
     LeaseChanged(LeaseChanged),
     /// `peer.disconnected`: to every connection with `events`.
     PeerDisconnected(PeerDisconnected),
-    /// `peer.path_changed` (2.1): to every connection with `events` that
-    /// has a route to the peer; without `previous` from 2.4 only
-    /// ([`available_to`]).
+    /// `peer.path_changed`: to every connection with `events` that has a
+    /// route to the peer, with or without `previous` (on major 3 the shape
+    /// 2.4 brought is the only one).
     PathChanged(PathChanged),
 }
 
-/// The minor from which a `peer.path_changed` with no `previous` -- a
-/// route's begin, a routed peer's reconnect -- is sent (`ipc.path-changed`
-/// 1.1.0, A 2026-10-09). Below it the connection is sent nothing at those
-/// moments, so a client that knows only 1.0.0's shape never meets one it
-/// cannot decode.
-pub const ROUTE_NOTICE_SINCE_MINOR: u64 = 4;
-
 /// Whether a connection at `version` may be sent `event` at all: its
-/// catalogue type's minor ([`EventType::available_at`]), and for a path
-/// notice with no `previous`, [`ROUTE_NOTICE_SINCE_MINOR`]. ONE predicate,
+/// catalogue type's version ([`EventType::available_at`]). ONE predicate,
 /// judged before the shape, so a skipped event takes no sequence number
-/// whichever rule skipped it (the server's send loop).
+/// (the server's send loop). A path notice without `previous` -- a route's
+/// begin, a routed peer's reconnect -- is no longer judged apart: 2.4
+/// brought it, and every 3.0 connection is past 2.4 (`LOCAL-IPC.md`
+/// §Version negotiation and phases).
 #[must_use]
 pub fn available_to(event: &SessionEvent, version: IpcVersion) -> bool {
-    let Some(kind) = EventType::of_session(event) else {
-        // The runtime's state is the `server_state` frame's, on every minor.
-        return true;
-    };
-    if !kind.available_at(version) {
-        return false;
-    }
-    !matches!(
-        event,
-        SessionEvent::Local(LocalSessionEvent::PeerPathChanged { previous: None, .. })
-    ) || version.minor >= ROUTE_NOTICE_SINCE_MINOR
+    // The runtime's state is the `server_state` frame's, on every version.
+    EventType::of_session(event).is_none_or(|kind| kind.available_at(version))
 }
 
 /// The event types, as the catalogue names them.
@@ -119,16 +105,17 @@ impl EventType {
         Self::ALL.into_iter().find(|t| t.as_str() == name)
     }
 
-    /// The IPC minor (of major 2) that introduced the type: it is emitted
-    /// only on a connection that negotiated at least this.
+    /// The IPC version that introduced the type: it is emitted only on a
+    /// connection that negotiated this pair or a later one. Every type is
+    /// [`Since::THREE_ZERO`]; `peer.path_changed`'s 2.1 is its history.
     #[must_use]
-    pub const fn since_minor(self) -> u64 {
+    pub const fn since(self) -> Since {
         match self {
             Self::MessageDirect
             | Self::MessageBroadcast
             | Self::LeaseChanged
-            | Self::PeerDisconnected => 0,
-            Self::PathChanged => 1,
+            | Self::PeerDisconnected
+            | Self::PathChanged => Since::THREE_ZERO,
         }
     }
 
@@ -153,10 +140,11 @@ impl EventType {
         }
     }
 
-    /// Whether a connection at `version` may be sent this type.
+    /// Whether a connection at `version` may be sent this type, the pair
+    /// compared as a pair ([`Since::admits`]).
     #[must_use]
     pub const fn available_at(self, version: IpcVersion) -> bool {
-        version.minor >= self.since_minor()
+        self.since().admits(version)
     }
 }
 
@@ -186,9 +174,11 @@ pub struct DirectReceived {
     pub mode: DirectMode,
     /// The authenticated remote peer.
     pub source_peer: TransportIdentity,
-    /// PEER-ASSERTED: proves only that the peer claimed this route label.
+    /// PEER-ASSERTED: proves only that the peer claimed this endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub source_endpoint: EndpointId,
     /// The local endpoint that accepted it. Never absent.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub destination_endpoint: EndpointId,
     /// The application bytes and their advisory media type.
     pub payload: Payload,
@@ -246,6 +236,7 @@ impl From<ReceivedBroadcast> for BroadcastReceived {
 #[serde(deny_unknown_fields)]
 pub struct LeaseChanged {
     /// The endpoint whose lease ended.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub endpoint: EndpointId,
     /// The epoch that is no longer valid.
     pub revoked_epoch: Generation,
@@ -259,7 +250,7 @@ pub struct PathChanged {
     pub peer: TransportIdentity,
     /// The path before: the pending notice's, when one was replaced.
     /// ABSENT, never `null`, when the route began or the routed peer
-    /// connected again (1.1.0, sent from [`ROUTE_NOTICE_SINCE_MINOR`]).
+    /// connected again.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -353,13 +344,11 @@ impl Event {
     ///
     /// # Errors
     /// [`TransportError::ProtocolViolation`] for a type outside the
-    /// catalogue, one introduced above `version`'s minor (LOCAL-IPC.md
-    /// §Version negotiation: a type is accepted only at or above the
-    /// minor that introduced it), a missing `data`, or data not of the
-    /// type's shape -- a `peer.path_changed` without `previous` below
-    /// [`ROUTE_NOTICE_SINCE_MINOR`] included: the catalogue is closed, so
-    /// each is the server's fault
-    /// (`an_event_above_the_negotiated_minor_is_the_servers_violation`).
+    /// catalogue, one introduced after `version` (LOCAL-IPC.md §Version
+    /// negotiation: a type is accepted only at or after the version that
+    /// introduced it), a missing `data`, or data not of the type's shape:
+    /// the catalogue is closed, so each is the server's fault
+    /// (`an_event_before_its_version_is_the_servers_violation`).
     pub fn decode(
         event_type: &str,
         data: Option<&RawValue>,
@@ -377,13 +366,7 @@ impl Event {
             EventType::MessageBroadcast => Self::MessageBroadcast(typed(data)?),
             EventType::LeaseChanged => Self::LeaseChanged(typed(data)?),
             EventType::PeerDisconnected => Self::PeerDisconnected(typed(data)?),
-            EventType::PathChanged => {
-                let changed: PathChanged = typed(data)?;
-                if changed.previous.is_none() && version.minor < ROUTE_NOTICE_SINCE_MINOR {
-                    return Err(TransportError::ProtocolViolation);
-                }
-                Self::PathChanged(changed)
-            }
+            EventType::PathChanged => Self::PathChanged(typed(data)?),
         })
     }
 
@@ -512,8 +495,8 @@ mod tests {
         TransportIdentity::parse(PEER).expect("peer")
     }
 
-    fn ep(id: &str) -> EndpointId {
-        EndpointId::parse(id).expect("endpoint")
+    fn ep(name: &str) -> EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     fn payload() -> Payload {
@@ -629,35 +612,49 @@ mod tests {
         }
     }
 
-    /// Minors are additive in both directions: a type the server may
-    /// not emit below its minor, the client may not accept below it
-    /// either -- each type at the minor before its own is refused, and
-    /// at its own minor read.
+    /// Versions are additive in both directions: a type the server may
+    /// not emit before its version, the client may not accept before it
+    /// either. Every type is 3.0's, so each is read at 3.0 and refused at
+    /// 2.13 -- whose minor is the higher, the case a comparison of the
+    /// minor alone reads.
     #[test]
-    fn an_event_above_the_negotiated_minor_is_the_servers_violation() {
-        let at = |minor| IpcVersion {
-            major: crate::IPC_MAJOR,
-            minor,
-        };
-        let mut gated = 0;
+    fn an_event_before_its_version_is_the_servers_violation() {
+        let at = |major, minor| IpcVersion { major, minor };
         for session in every_session_event() {
-            let event = Event::from_session(session)
+            let event = Event::from_session(session.clone())
                 .expect("maps")
                 .expect("an event");
-            let since = event.event_type().since_minor();
+            assert_eq!(event.event_type().since(), Since::THREE_ZERO);
             let frame = event.clone().into_frame(0);
-            assert_eq!(frame.event(at(since)), Ok(event), "read at its own minor");
-            if let Some(below) = since.checked_sub(1) {
-                gated += 1;
+            assert_eq!(frame.event(at(3, 0)), Ok(event), "read at 3.0");
+            assert!(available_to(&session, at(3, 0)));
+            for below in [at(2, 13), at(2, 0)] {
                 assert_eq!(
-                    frame.event(at(below)),
+                    frame.event(below),
                     Err(TransportError::ProtocolViolation),
-                    "{} refused at minor {below}",
+                    "{} refused at {below:?}",
                     frame.event_type
                 );
+                assert!(!available_to(&session, below));
             }
         }
-        assert!(gated > 0, "a type above minor 0 was judged");
+    }
+
+    /// A route's begin, `previous` absent, is read and sent at 3.0: the
+    /// shape 2.4 brought is the one 3.0 holds.
+    #[test]
+    fn a_route_notice_without_previous_is_a_three_zero_event() {
+        let begun = SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
+            peer: peer(),
+            previous: None,
+            current: interweave_transport_api::PeerPath::Relayed,
+            reason_class: "route_established".into(),
+            observed_at: 9,
+        });
+        let version = crate::supported()[0];
+        assert!(available_to(&begun, version));
+        let event = Event::from_session(begun).expect("maps").expect("an event");
+        assert_eq!(event.clone().into_frame(0).event(version), Ok(event));
     }
 
     /// The runtime's state is no catalogue event: it is the

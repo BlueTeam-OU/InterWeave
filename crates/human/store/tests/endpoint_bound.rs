@@ -26,7 +26,7 @@ fn peer(s: &str) -> TransportIdentity {
 }
 
 fn endpoint(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("an endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id(s)
 }
 
 fn id(n: u32) -> AppMessageId {
@@ -66,7 +66,12 @@ fn to(n: u32, p: &str, e: Option<&str>) -> NewOutbound {
 fn store() -> (tempfile::TempDir, std::path::PathBuf, HumanStore) {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     (dir, path, store)
 }
 
@@ -167,7 +172,12 @@ fn rows_stored_before_the_index_are_indexed_at_open() {
     .expect("back before the index");
     drop(conn);
 
-    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert_eq!(store.remote_endpoints(&peer(P)).expect("count"), 3);
 }
 
@@ -219,7 +229,12 @@ fn routes_kept_before_the_accept_indexed_them_are_indexed_at_open() {
     .expect("back to version 1");
     drop(conn);
 
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("reopens");
     assert!(store.delete_contact(&ada.contact_id).expect("deleted"));
     assert_eq!(store.remote_endpoints(&p).expect("count"), 1);
 }

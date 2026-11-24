@@ -1000,6 +1000,20 @@ impl SwarmCommander {
             .await
     }
 
+    /// Replace the trust sources, as [`SwarmRuntime::set_trust`] does,
+    /// from a commander: the endpoint overlay's writes publish through
+    /// one, after the write and before the answer (ADR-0067 decision 6).
+    ///
+    /// # Errors
+    /// [`SubstrateError::Stopped`] if the task is gone.
+    pub async fn set_trust(&self, trust: TrustSources) -> Result<usize, SubstrateError> {
+        self.ask(|reply| SwarmCommand::SetTrust {
+            trust: Box::new(trust),
+            reply,
+        })
+        .await
+    }
+
     /// Enable or disable `endpoint` in the running substrate. What
     /// survives a restart is not kept here: the composition writes its
     /// endpoint overlay before it calls this (ADR-0028 A 2026-10-11).

@@ -5,7 +5,8 @@
 //!
 //! The admin commands speak to a running daemon over its admin socket;
 //! the identity commands never touch a socket (ADR-0033) and are parsed
-//! here as their own family. A recovery phrase is never an argument --
+//! here as their own family, as are the endpoint-key commands (ADR-0067
+//! decision 4), offline too. A recovery phrase is never an argument --
 //! nothing in this grammar can carry one. And no USAGE error repeats a
 //! value it was given -- a phrase typed in the wrong place would otherwise
 //! be copied into whatever logs stderr. Past the parser no REFUSAL repeats
@@ -16,7 +17,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_profile_config::{EndpointAlias, EndpointSelector};
+use interweave_transport_api::TransportIdentity;
 
 /// The usage text.
 pub(crate) const USAGE: &str = "\
@@ -26,13 +28,15 @@ usage:
   transportctl --profile <name> endpoints list [--json]
   transportctl --profile <name> endpoints revoke|enable|disable <endpoint>
   transportctl --profile <name> endpoints default <endpoint>|--none
-  transportctl --profile <name> trust list [--json]
-  transportctl --profile <name> trust allow|revoke <peer>
+  transportctl --profile <name> trust list [--endpoint <endpoint>] [--json]
+  transportctl --profile <name> trust allow|revoke <peer> [--endpoint <endpoint>]
   transportctl --profile <name> peers list [--json]
   transportctl --profile <name> peers add|remove <multiaddr-with-peer-id>
   transportctl --profile <name> peers addresses [--json]
   transportctl --profile <name> peers show [--json]
   transportctl --profile <name> shutdown [--grace <ms>]
+  transportctl --profile <name> endpoint init [--alias <alias>] [--json]
+  transportctl --profile <name> endpoint adopt --alias <label> [--json]
   transportctl --profile <name> identity init
   transportctl --profile <name> identity show
   transportctl --profile <name> identity backup [--to-file <new path>]
@@ -40,6 +44,10 @@ usage:
   transportctl --profile <name> identity restore --new [--expected-peer-id <peer>]
   transportctl --profile <name> identity restore --replace --replacing <peer> [--expected-peer-id <peer>]
 
+An <endpoint> is its EndpointId or its alias, resolved from config.yaml and the endpoint overlay.
+With --endpoint, trust reads or writes that endpoint's own set: list prints both directions
+(--json: the inbound pages, then the outbound ones, a page without `next` ending a direction), and
+allow|revoke writes both.
 The recovery phrase, or a recovery record, is read from stdin -- hidden on a terminal.";
 
 /// The workspace version with the commit as build metadata (ADR-0065
@@ -64,6 +72,33 @@ pub(crate) enum Command {
     },
     /// An offline identity command.
     Identity(Identity),
+    /// An offline endpoint-key command.
+    Endpoint(Endpoint),
+}
+
+/// An offline endpoint-key command (ADR-0067 decision 4): never over
+/// IPC, and never a write to `config.yaml`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Endpoint {
+    /// Mint an endpoint key pair and print its id and the entry naming it.
+    Init {
+        /// The profile the key is minted for.
+        profile: String,
+        /// The entry's alias, when one is given.
+        alias: Option<EndpointAlias>,
+        /// Print one JSON object instead of the lines.
+        json: bool,
+    },
+    /// Bring over the key a release before Stage 22's sealed under a
+    /// label, and print the entry naming it.
+    Adopt {
+        /// The profile.
+        profile: String,
+        /// The label the old file is named by, the entry's alias.
+        alias: EndpointAlias,
+        /// Print one JSON object instead of the lines.
+        json: bool,
+    },
 }
 
 /// An admin method (plan §16 (10)).
@@ -73,30 +108,34 @@ pub(crate) enum Admin {
     Status,
     /// `admin.endpoints.list`.
     EndpointsList,
-    /// `admin.endpoints.revoke`.
-    Revoke(EndpointId),
+    /// `admin.endpoints.revoke`. Each endpoint below is an id or an
+    /// alias, resolved by `admin::run` before anything is sent.
+    Revoke(EndpointSelector),
     /// `admin.endpoints.set_enabled`.
-    SetEnabled(EndpointId, bool),
+    SetEnabled(EndpointSelector, bool),
     /// `admin.endpoints.set_default`; `None` clears it.
-    SetDefault(Option<EndpointId>),
+    SetDefault(Option<EndpointSelector>),
     /// `admin.shutdown`, with the grace if one was given.
     Shutdown(Option<Duration>),
-    /// `admin.trust.list`, every page.
-    TrustList,
-    /// `admin.trust.set`: allow the peer, or revoke it.
-    SetTrust(TransportIdentity, bool),
-    /// `admin.peers.list`, every page (IPC 2.2).
+    /// `admin.trust.list`, every page: the operator's list, or with an
+    /// endpoint (resolved by `admin::run` before anything is sent) both
+    /// directions of that endpoint's set (3.0).
+    TrustList(Option<EndpointSelector>),
+    /// `admin.trust.set`: allow the peer, or revoke it; for an endpoint's
+    /// own set when one is given (3.0).
+    SetTrust(TransportIdentity, bool, Option<EndpointSelector>),
+    /// `admin.peers.list`, every page (3.0; IPC 2.2 on major 2).
     PeersList,
-    /// `admin.peers.add_address` (IPC 2.7). The address is the daemon's
+    /// `admin.peers.add_address` (3.0; IPC 2.7 on major 2). The address is the daemon's
     /// to judge -- its grammar and its special-use floor are the
     /// method's, whoever the caller (ADR-0062) -- so it is passed as
     /// typed.
     AddAddress(String),
-    /// `admin.peers.remove_address` (IPC 2.7).
+    /// `admin.peers.remove_address` (3.0; IPC 2.7 on major 2).
     RemoveAddress(String),
-    /// `admin.peers.list_addresses` (IPC 2.7).
+    /// `admin.peers.list_addresses` (3.0; IPC 2.7 on major 2).
     ListAddresses,
-    /// `admin.peers.own_addresses` (IPC 2.8): this node's own addresses,
+    /// `admin.peers.own_addresses` (3.0; IPC 2.8 on major 2): this node's own addresses,
     /// one per line, as the show screen's code carries them.
     ShowAddresses,
 }
@@ -166,6 +205,8 @@ struct Flags {
     to_file: Option<String>,
     expected: Option<String>,
     replacing: Option<String>,
+    alias: Option<String>,
+    endpoint: Option<String>,
     new: bool,
     replace: bool,
 }
@@ -204,6 +245,8 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             "--to-file" => value(&mut flags.to_file, "--to-file")?,
             "--expected-peer-id" => value(&mut flags.expected, "--expected-peer-id")?,
             "--replacing" => value(&mut flags.replacing, "--replacing")?,
+            "--alias" => value(&mut flags.alias, "--alias")?,
+            "--endpoint" => value(&mut flags.endpoint, "--endpoint")?,
             "--json" => flags.json = true,
             "--none" => flags.none = true,
             "--new" => flags.new = true,
@@ -215,6 +258,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     match words.as_slice() {
         ["identity", rest @ ..] => identity(rest, flags).map(Command::Identity),
+        ["endpoint", rest @ ..] => endpoint(rest, flags).map(Command::Endpoint),
         [] => Err("a command is required".to_owned()),
         _ => admin(&words, flags),
     }
@@ -222,8 +266,23 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
 
 fn admin(words: &[&str], mut flags: Flags) -> Result<Command, String> {
     let profile = flags.profile.take().ok_or("--profile <name> is required")?;
-    let endpoint = |id: &str| EndpointId::parse(id).map_err(|e| format!("the endpoint: {e}"));
+    // An id or an alias; the text itself is not repeated, as no usage
+    // error here repeats a value.
+    let endpoint = |text: &str| {
+        EndpointSelector::parse(text)
+            .ok_or_else(|| "the endpoint: neither an EndpointId nor an alias".to_owned())
+    };
     let peer = |id: &str| TransportIdentity::parse(id).map_err(|e| format!("the peer: {e}"));
+    // Only the trust commands take it; `refuse_leftovers` refuses it on the rest.
+    let trust_endpoint = if matches!(words, ["trust", ..]) {
+        flags
+            .endpoint
+            .take()
+            .map(|text| endpoint(&text))
+            .transpose()?
+    } else {
+        None
+    };
     let (action, json_allowed) = match words {
         ["status"] => (Admin::Status, true),
         ["endpoints", "list"] => (Admin::EndpointsList, true),
@@ -234,9 +293,9 @@ fn admin(words: &[&str], mut flags: Flags) -> Result<Command, String> {
             (Admin::SetDefault(None), false)
         }
         ["endpoints", "default", id] => (Admin::SetDefault(Some(endpoint(id)?)), false),
-        ["trust", "list"] => (Admin::TrustList, true),
-        ["trust", "allow", id] => (Admin::SetTrust(peer(id)?, true), false),
-        ["trust", "revoke", id] => (Admin::SetTrust(peer(id)?, false), false),
+        ["trust", "list"] => (Admin::TrustList(trust_endpoint), true),
+        ["trust", "allow", id] => (Admin::SetTrust(peer(id)?, true, trust_endpoint), false),
+        ["trust", "revoke", id] => (Admin::SetTrust(peer(id)?, false, trust_endpoint), false),
         ["peers", "list"] => (Admin::PeersList, true),
         ["peers", "add", address] => (Admin::AddAddress((*address).to_owned()), false),
         ["peers", "remove", address] => (Admin::RemoveAddress((*address).to_owned()), false),
@@ -331,6 +390,35 @@ fn identity(words: &[&str], mut flags: Flags) -> Result<Identity, String> {
     Ok(command)
 }
 
+/// An alias's grammar, said without the value given.
+const NOT_AN_ALIAS: &str = "--alias: not an alias (a lowercase letter, then lowercase letters, \
+digits, '.', '_' or '-', at most 64 bytes)";
+
+fn endpoint(words: &[&str], mut flags: Flags) -> Result<Endpoint, String> {
+    let profile = flags.profile.take().ok_or("--profile <name> is required")?;
+    let alias = flags
+        .alias
+        .take()
+        .map(|text| EndpointAlias::parse(text).map_err(|_| NOT_AN_ALIAS.to_owned()))
+        .transpose()?;
+    let json = std::mem::take(&mut flags.json);
+    let command = match words {
+        ["init"] => Endpoint::Init {
+            profile,
+            alias,
+            json,
+        },
+        ["adopt"] => Endpoint::Adopt {
+            profile,
+            alias: alias.ok_or("adopt needs --alias <the label its key was sealed under>")?,
+            json,
+        },
+        _ => return Err("an unknown endpoint command (see --help)".to_owned()),
+    };
+    refuse_leftovers(&flags)?;
+    Ok(command)
+}
+
 /// A flag the chosen command does not take is a usage error, never
 /// silently ignored.
 fn refuse_leftovers(flags: &Flags) -> Result<(), String> {
@@ -342,6 +430,8 @@ fn refuse_leftovers(flags: &Flags) -> Result<(), String> {
         ("--to-file", flags.to_file.is_some()),
         ("--expected-peer-id", flags.expected.is_some()),
         ("--replacing", flags.replacing.is_some()),
+        ("--alias", flags.alias.is_some()),
+        ("--endpoint", flags.endpoint.is_some()),
         ("--new", flags.new),
         ("--replace", flags.replace),
     ];
@@ -355,6 +445,7 @@ fn refuse_leftovers(flags: &Flags) -> Result<(), String> {
 mod tests {
     #![allow(clippy::expect_used)]
     use super::*;
+    use interweave_transport_api::EndpointId;
 
     const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
@@ -376,8 +467,91 @@ mod tests {
         }
     }
 
-    fn human() -> EndpointId {
-        EndpointId::parse("human").expect("valid")
+    /// TEST-ONLY: a derived id (`endpoint_keys::endpoint_id("human")` in
+    /// tests/support), the shape a 3.0 daemon takes.
+    const HUMAN: &str = "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr";
+
+    fn human() -> EndpointSelector {
+        EndpointSelector::Id(EndpointId::parse_derived(HUMAN).expect("valid"))
+    }
+
+    fn alias(text: &str) -> EndpointSelector {
+        EndpointSelector::Alias(EndpointAlias::parse(text).expect("an alias"))
+    }
+
+    /// An `<endpoint>` is an id or an alias, told apart by grammar; the
+    /// alias is resolved past the parser, by `admin::run`.
+    #[test]
+    fn an_endpoint_argument_is_an_id_or_an_alias() {
+        assert_eq!(
+            admin_of("--profile p endpoints revoke human"),
+            (Admin::Revoke(alias("human")), false)
+        );
+        assert_eq!(
+            admin_of("--profile p endpoints disable fabric-control"),
+            (Admin::SetEnabled(alias("fabric-control"), false), false)
+        );
+        assert_eq!(
+            admin_of("--profile p endpoints default claude"),
+            (Admin::SetDefault(Some(alias("claude"))), false)
+        );
+        for line in [
+            "--profile p endpoints revoke Human",
+            "--profile p endpoints enable 12D3KooW",
+            "--profile p endpoints default 0abc",
+        ] {
+            let refused = parse_str(line).expect_err(line);
+            assert!(refused.contains("neither"), "{line}: {refused}");
+        }
+    }
+
+    #[test]
+    fn every_endpoint_command_parses() {
+        let human = EndpointAlias::parse("human").expect("alias");
+        assert_eq!(
+            parse_str("--profile p endpoint init").expect("parses"),
+            Command::Endpoint(Endpoint::Init {
+                profile: "p".into(),
+                alias: None,
+                json: false
+            })
+        );
+        assert_eq!(
+            parse_str("endpoint init --alias human --json --profile p").expect("parses"),
+            Command::Endpoint(Endpoint::Init {
+                profile: "p".into(),
+                alias: Some(human.clone()),
+                json: true
+            })
+        );
+        assert_eq!(
+            parse_str("--profile p endpoint adopt --alias human").expect("parses"),
+            Command::Endpoint(Endpoint::Adopt {
+                profile: "p".into(),
+                alias: human,
+                json: false
+            })
+        );
+        for line in [
+            "endpoint init",
+            "--profile p endpoint",
+            "--profile p endpoint adopt",
+            "--profile p endpoint frob",
+            "--profile p endpoint init extra",
+            "--profile p endpoint init --alias",
+            "--profile p endpoint init --alias Human",
+            "--profile p endpoint init --alias a/b",
+            "--profile p endpoint adopt --alias human --alias claude",
+            "--profile p endpoint init --none",
+            "--profile p endpoint adopt --alias human --to-file f",
+            "--profile p identity init --alias human",
+            "--profile p status --alias human",
+        ] {
+            assert!(parse_str(line).is_err(), "{line:?} should be refused");
+        }
+        // An invalid alias is refused without being repeated.
+        let refused = parse_str("--profile p endpoint init --alias Secret!").expect_err("bad");
+        assert!(!refused.contains("Secret"), "{refused}");
     }
 
     #[test]
@@ -389,19 +563,19 @@ mod tests {
             (Admin::EndpointsList, true)
         );
         assert_eq!(
-            admin_of("--profile p endpoints revoke human"),
+            admin_of(&format!("--profile p endpoints revoke {HUMAN}")),
             (Admin::Revoke(human()), false)
         );
         assert_eq!(
-            admin_of("--profile p endpoints enable human"),
+            admin_of(&format!("--profile p endpoints enable {HUMAN}")),
             (Admin::SetEnabled(human(), true), false)
         );
         assert_eq!(
-            admin_of("--profile p endpoints disable human"),
+            admin_of(&format!("--profile p endpoints disable {HUMAN}")),
             (Admin::SetEnabled(human(), false), false)
         );
         assert_eq!(
-            admin_of("--profile p endpoints default human"),
+            admin_of(&format!("--profile p endpoints default {HUMAN}")),
             (Admin::SetDefault(Some(human())), false)
         );
         assert_eq!(
@@ -414,7 +588,7 @@ mod tests {
         };
         assert_eq!(
             admin_of("--profile p trust list --json"),
-            (Admin::TrustList, true)
+            (Admin::TrustList(None), true)
         );
         assert_eq!(
             admin_of("--profile p peers list --json"),
@@ -455,14 +629,59 @@ mod tests {
             admin_of(
                 "--profile p trust allow 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
             ),
-            (Admin::SetTrust(peer(), true), false)
+            (Admin::SetTrust(peer(), true, None), false)
         );
         assert_eq!(
             admin_of(
                 "--profile p trust revoke 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
             ),
-            (Admin::SetTrust(peer(), false), false)
+            (Admin::SetTrust(peer(), false, None), false)
         );
+        // The endpoint dimension (IPC 3.0): `--endpoint` is an id or an
+        // alias on each trust command, the operator's form beside it.
+        let alias = || EndpointSelector::Alias(EndpointAlias::parse("human").expect("alias"));
+        assert_eq!(
+            admin_of(&format!("--profile p trust list --endpoint {HUMAN} --json")),
+            (Admin::TrustList(Some(human())), true)
+        );
+        assert_eq!(
+            admin_of("--profile p trust list --endpoint human"),
+            (Admin::TrustList(Some(alias())), false)
+        );
+        assert_eq!(
+            admin_of(&format!("--profile p trust allow {PEER} --endpoint human")),
+            (
+                Admin::SetTrust(
+                    TransportIdentity::parse(PEER).expect("peer"),
+                    true,
+                    Some(alias())
+                ),
+                false
+            )
+        );
+        assert_eq!(
+            admin_of(&format!(
+                "--endpoint {HUMAN} --profile p trust revoke {PEER}"
+            )),
+            (
+                Admin::SetTrust(
+                    TransportIdentity::parse(PEER).expect("peer"),
+                    false,
+                    Some(human())
+                ),
+                false
+            )
+        );
+        for bad in [
+            "--profile p trust list --endpoint",
+            "--profile p trust list --endpoint 1bad!",
+            "--profile p trust list --endpoint human --endpoint human",
+            "--profile p status --endpoint human",
+            "--profile p peers list --endpoint human",
+            "--profile p endpoints revoke human --endpoint human",
+        ] {
+            assert!(parse_str(bad).is_err(), "{bad}");
+        }
         assert_eq!(
             admin_of("--profile p shutdown"),
             (Admin::Shutdown(None), false)
@@ -565,6 +784,7 @@ mod tests {
             "--profile p endpoints",
             "--profile p endpoints revoke",
             "--profile p endpoints revoke not/an/id",
+            "--profile p endpoints revoke human extra",
             "--profile p endpoints default",
             "--profile p endpoints default human --none",
             "--profile p endpoints revoke human --json",

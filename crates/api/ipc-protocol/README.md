@@ -1,6 +1,6 @@
 # ipc-protocol
 
-IPC v2 frame codec, handshake, and the typed mirror of the IPC catalogue.
+IPC frame codec (major 3, ADR-0067 decision 7), handshake, and the typed mirror of the IPC catalogue.
 
 **Current status:** active workspace member since Stage 1 (the codec and the handshake); Stage 13 (B1) added the typed mirror of the approved `contracts/schemas/ipc` catalogue: `Frame` over the ten classes, version negotiation, the method table, `Request` and its admission, the results and the event catalogue. Wire models only — no socket, stream, async runtime, or platform type.
 
@@ -24,15 +24,15 @@ The four-byte prefix arrives from the other side of a socket, so it is untrusted
 
 Two related rules land in the same place: an admin connection may not claim an endpoint, and a lease claim without negotiated keepalive is denied *at claim time* rather than granted and revoked a moment later — a lease that exists for one round trip is a lease no other client could take.
 
-`tests/schema_agreement.rs` holds all of this to `ipc/hello.schema.json` and `ipc/capability.schema.json`, and cross-checks the frame ceiling against the frozen `fixtures/ipc-v2/ipc-v2-payload-fit.json` vectors — including that the codec emits the exact length prefix each vector recorded.
+`tests/schema_agreement.rs` holds all of this to `ipc/hello.schema.json` and `ipc/capability.schema.json`, and cross-checks the frame ceiling against the frozen `fixtures/ipc-v3/ipc-v3-payload-fit.json` vectors — including that the codec emits the exact length prefix each vector recorded.
 
 ## The catalogue is contract; the Rust mirrors it
 
 Every method, event, frame class, result and error code is a schema in `architecture/contracts/schemas/ipc/` first (plan §16 (3); `approved` until the Stage 13 close, `active` since 2026-10-01), and this crate mirrors it:
 
-- `Method` is the closed eleven-name catalogue, and `Method::entry` is the ONE table of method → authority domain → required capability → minor. The capability a method needs is not in the schema (the contract meta-schema admits no such annotation), so it lives in that table and in `LOCAL-IPC.md` §Method catalogue, and a test binds the two.
-- A request's envelope keeps the method as TEXT and the params as the bytes that arrived, because an unknown method (`ProtocolUnsupported`) and malformed params (`InvalidArgument`) are answers on a connection that stays, not frames that failed to parse. `RequestFrame::admit` judges in the contract's order: the name, the negotiated minor, the other domain's method (counted as cross-domain), the capability, then the params — authority before shape.
-- `negotiate` answers any positive major: an unsupported one is a well-formed hello answered `close{VersionIncompatible, supported}`. A version number deserializes saturating, since the schema bounds it below only.
+- `Method` is the closed eleven-name catalogue, and `Method::entry` is the ONE table of method → authority domain → required capability → `Since`, the (major, minor) pair that introduced it, compared as a pair: every method is 3.0's on major 3, which holds all of 2.13 (ADR-0067 decision 7). The capability a method needs is not in the schema (the contract meta-schema admits no such annotation), so it lives in that table and in `LOCAL-IPC.md` §Method catalogue, and a test binds the two.
+- A request's envelope keeps the method as TEXT and the params as the bytes that arrived, because an unknown method (`ProtocolUnsupported`) and malformed params (`InvalidArgument`) are answers on a connection that stays, not frames that failed to parse. `RequestFrame::admit` judges in the contract's order: the name, the negotiated version, the other domain's method (counted as cross-domain), the capability, then the params — authority before shape.
+- `negotiate` answers any positive major: an unsupported one -- major 2 among them -- is a well-formed hello answered `close{VersionIncompatible, supported}`. Every EndpointId an IPC document carries is read as the derived id (`EndpointId::parse_derived`), so a label is a params error (`InvalidArgument`) or the server's violation, never a value. A version number deserializes saturating, since the schema bounds it below only.
 - Envelope fields stay raw (`serde_json`'s `raw_value`), so a frame re-encodes byte-exact without `preserve_order`, which nothing in the workspace enables.
 
-`tests/schema_agreement.rs` binds every vocabulary both ways, reading the enums' variants from their serde derives rather than from a hand-typed list; validates every frame, request, event and result this crate emits against the frozen schemas with `jsonschema`, each beside a control the validator refuses; names every `ipc/*` schema; round-trips the golden frames of `fixtures/ipc-v2/ipc-v2-frame-golden.json` byte-exact; and checks that the largest legal payload fits under the ceiling with its whole envelope.
+`tests/schema_agreement.rs` binds every vocabulary both ways, reading the enums' variants from their serde derives rather than from a hand-typed list; validates every frame, request, event and result this crate emits against the frozen schemas with `jsonschema`, each beside a control the validator refuses; names every `ipc/*` schema; round-trips the golden frames of `fixtures/ipc-v3/ipc-v3-frame-golden.json` byte-exact; and checks that the largest legal payload fits under the ceiling with its whole envelope.

@@ -29,13 +29,14 @@ use interweave_human_ui_model::{ConversationKey, RuntimeHost, UiText, placeholde
 use interweave_human_ui_slint::View;
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::ComponentHandle as _;
 
 type Desktop = App<SlintSurface, NoLinks>;
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("endpoint")
+    endpoint_id("human")
 }
 
 fn peer() -> TransportIdentity {
@@ -78,7 +79,11 @@ impl Opener for NoLinks {
 
 /// A store holding `count` unread text rows from `from`, the newest last.
 fn flooded(from: &TransportIdentity, count: u32) -> HumanStore {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     flood(&mut store, from, 1..=count);
     store
 }

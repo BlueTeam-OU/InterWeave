@@ -3321,6 +3321,7 @@ dependencies = [
  "interweave-local-client-api",
  "interweave-local-client-fake",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "serde_json",
  "tempfile",
@@ -3380,6 +3381,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "serde",
@@ -3394,10 +3396,12 @@ version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
  "brotli",
+ "ed25519-dalek",
  "interweave-human-chat-protocol",
  "interweave-local-client-api",
  "interweave-local-client-fake",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "serde",
  "serde_json",
@@ -3551,6 +3555,7 @@ dependencies = [
  "interweave-local-client-api",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "interweave-transport-libp2p",
  "interweave-transport-runtime",
@@ -3572,6 +3577,7 @@ dependencies = [
  "interweave-human-ui-slint",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "jni 0.22.4",
  "ndk-sys 0.6.0+11769913",
@@ -3587,6 +3593,7 @@ name = "interweave-human-android-platform"
 version = "0.4.0"
 dependencies = [
  "bip39",
+ "ed25519-dalek",
  "interweave-android-e2e-cases",
  "interweave-human-android-platform",
  "interweave-human-app-core",
@@ -3613,6 +3620,7 @@ name = "interweave-human-app-core"
 version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
+ "ed25519-dalek",
  "image",
  "interweave-human-app-core",
  "interweave-human-chat-protocol",
@@ -3624,6 +3632,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "rusqlite",
@@ -3640,6 +3649,7 @@ dependencies = [
  "brotli",
  "bs58",
  "ed25519-dalek",
+ "interweave-test-support",
  "interweave-transport-api",
  "pulldown-cmark",
  "serde",
@@ -3675,6 +3685,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rusqlite",
  "serde_json",
@@ -3717,6 +3728,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rustix 1.1.6",
  "slint",
@@ -3735,6 +3747,7 @@ dependencies = [
  "interweave-local-client-api",
  "interweave-local-client-fake",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rusqlite",
  "tempfile",
@@ -3752,6 +3765,7 @@ dependencies = [
  "interweave-human-core",
  "interweave-human-store",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "rusqlite",
@@ -3774,6 +3788,7 @@ dependencies = [
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "rusqlite",
@@ -3798,6 +3813,7 @@ dependencies = [
  "interweave-human-ui-model",
  "interweave-local-client-fake",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "tempfile",
  "tokio",
@@ -3824,6 +3840,7 @@ dependencies = [
  "interweave-human-ui-model",
  "interweave-human-ui-slint",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "qrcode",
  "rfd",
@@ -3879,6 +3896,7 @@ version = "0.4.0"
 dependencies = [
  "interweave-ipc-protocol",
  "interweave-local-client-api",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "serde",
@@ -3892,6 +3910,7 @@ name = "interweave-ipc-protocol"
 version = "0.4.0"
 dependencies = [
  "interweave-local-client-api",
+ "interweave-test-support",
  "interweave-transport-api",
  "jsonschema",
  "serde",
@@ -3904,6 +3923,7 @@ version = "0.4.0"
 dependencies = [
  "interweave-ipc-protocol",
  "interweave-local-client-api",
+ "interweave-test-support",
  "interweave-transport-api",
  "rand 0.10.3",
  "serde_json",
@@ -3961,6 +3981,7 @@ dependencies = [
 name = "interweave-local-client-api"
 version = "0.4.0"
 dependencies = [
+ "interweave-test-support",
  "interweave-transport-api",
  "serde",
  "serde_json",
@@ -4002,6 +4023,7 @@ dependencies = [
  "interweave-human-core",
  "interweave-human-store",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
  "tempfile",
 ]
@@ -4010,21 +4032,26 @@ dependencies = [
 name = "interweave-profile-config"
 version = "0.4.0"
 dependencies = [
+ "base64 0.23.1",
  "bs58",
+ "ed25519-dalek",
  "interweave-discovery-api",
  "interweave-discovery-cache",
  "interweave-ipc-protocol",
  "interweave-kademlia-control-api",
+ "interweave-test-support",
  "interweave-transport-api",
  "interweave-transport-runtime",
  "interweave-trust-api",
  "libc",
  "nix 0.30.1",
+ "rand 0.10.3",
  "rustix 1.1.6",
  "serde",
  "serde_json",
  "serde_norway",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]
@@ -4098,6 +4125,7 @@ dependencies = [
 name = "interweave-test-support"
 version = "0.4.0"
 dependencies = [
+ "ed25519-dalek",
  "futures",
  "interweave-ipc-client",
  "interweave-local-client-api",
@@ -4111,6 +4139,7 @@ dependencies = [
  "libp2p",
  "rustix 1.1.6",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
 ]
@@ -4195,6 +4224,7 @@ dependencies = [
  "interweave-local-client-api",
  "interweave-profile-config",
  "interweave-profile-identity",
+ "interweave-test-support",
  "interweave-transport-api",
  "interweave-transport-composition",
  "interweave-transport-embedded",
@@ -4241,6 +4271,7 @@ dependencies = [
  "bs58",
  "interweave-discovery-api",
  "interweave-local-client-api",
+ "interweave-test-support",
  "interweave-transport-api",
  "interweave-trust-api",
  "proptest",
@@ -4252,7 +4283,10 @@ dependencies = [
 name = "interweave-transportctl"
 version = "0.4.0"
 dependencies = [
+ "base64 0.23.1",
+ "ed25519-dalek",
  "interweave-ipc-client",
+ "interweave-ipc-protocol",
  "interweave-local-client-api",
  "interweave-profile-config",
  "interweave-profile-identity",

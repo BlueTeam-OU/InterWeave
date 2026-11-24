@@ -295,7 +295,6 @@ mod tests {
     use interweave_human_core::RowId;
     use interweave_human_ui_model::{SessionNotice, StartBusy, UiModel, ViewEvent};
     use interweave_profile_identity::ProfileIdentity;
-    use interweave_transport_api::EndpointId;
 
     use super::*;
 
@@ -327,7 +326,7 @@ mod tests {
             row: RowId::from_stored(1),
             origin: Origin::Direct {
                 peer,
-                endpoint: EndpointId::parse("human").expect("an endpoint"),
+                endpoint: interweave_test_support::endpoint_keys::endpoint_id("human"),
             },
             envelope: HumanChatV2 {
                 v: 2,

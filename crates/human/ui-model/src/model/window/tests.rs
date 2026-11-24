@@ -6,6 +6,7 @@
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::Origin;
 use interweave_human_core::RowId;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use super::{
@@ -25,7 +26,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("an endpoint")
+    endpoint_id("human")
 }
 
 fn conversation() -> ConversationKey {

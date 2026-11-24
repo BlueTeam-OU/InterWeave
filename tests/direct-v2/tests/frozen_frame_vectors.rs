@@ -2,7 +2,7 @@
 // Copyright 2026 Andrea Benetton
 //! The codec against the frozen bytes.
 //!
-//! `fixtures/direct-v2/direct-message-v2-frame.json` is the
+//! `fixtures/direct-v3/direct-message-v2-frame.json` is the
 //! cross-implementation contract for `DirectMessageV2` framing: an
 //! Android or third-party client agrees with this codec byte for byte or
 //! it does not interoperate. So the test is `encode() == frame_hex`, not
@@ -14,9 +14,14 @@
 //! vectors are protocol assets shared with clients outside this
 //! workspace, and `architecture/docs/architecture/testing.md` requires
 //! frozen fixtures not to be hidden inside a Rust test module.
+//!
+//! Every endpoint id in the file is a derived TEST-ONLY id that names the
+//! key it came from (`<field>_test_key`); each is checked against
+//! `endpoint_keys::endpoint_id(name)`, so the fixture, the Python verifier
+//! and this crate's key rule agree on one id per name.
 #![allow(clippy::expect_used, clippy::panic)]
 
-use interweave_test_support::{fixtures, hex};
+use interweave_test_support::{endpoint_keys, fixtures, hex};
 use interweave_transport_api::{
     DirectMessageV2, EndpointId, MAX_PAYLOAD_BYTES, MediaType, MessageId, Payload,
 };
@@ -30,7 +35,7 @@ struct Vector {
 }
 
 fn vectors() -> Vec<Vector> {
-    let file = fixtures::load("direct-v2/direct-message-v2-frame.json");
+    let file = fixtures::load("direct-v3/direct-message-v2-frame.json");
     file["vectors"]
         .as_array()
         .expect("a vectors array")
@@ -47,13 +52,17 @@ fn vectors() -> Vec<Vector> {
                     message_id: MessageId::parse_hex(v["message_id"].as_str().expect("message_id"))
                         .expect("fixture message id parses"),
                     sent_at_ms: v["sent_at_ms"].as_u64().expect("sent_at_ms"),
-                    source_endpoint: EndpointId::parse(
-                        v["source_endpoint"].as_str().expect("source_endpoint"),
+                    source_endpoint: test_id(
+                        "source_endpoint",
+                        v["source_endpoint"].as_str(),
+                        v["source_endpoint_test_key"].as_str(),
                     )
-                    .expect("fixture source endpoint parses"),
-                    destination_endpoint: v["destination_endpoint"]
-                        .as_str()
-                        .map(|d| EndpointId::parse(d).expect("fixture destination parses")),
+                    .expect("a source is always present"),
+                    destination_endpoint: test_id(
+                        "destination_endpoint",
+                        v["destination_endpoint"].as_str(),
+                        v["destination_endpoint_test_key"].as_str(),
+                    ),
                     payload: Payload::at_ceiling(media, payload_bytes)
                         .expect("fixture payload within the ceiling"),
                 },
@@ -63,6 +72,17 @@ fn vectors() -> Vec<Vector> {
             }
         })
         .collect()
+}
+
+/// A vector's endpoint `field`, parsed strictly as a derived id and checked
+/// against the test-only `key` the vector names for it. `None` when the
+/// field is null, the destination's default.
+fn test_id(field: &str, text: Option<&str>, key: Option<&str>) -> Option<EndpointId> {
+    let text = text?;
+    let id = EndpointId::parse_derived(text).expect("a derived fixture id");
+    let key = key.expect("every fixture id names its test key");
+    assert_eq!(id, endpoint_keys::endpoint_id(key), "{field} of key {key}");
+    Some(id)
 }
 
 /// ENCODE IS BYTE-IDENTICAL. The direction that pins interoperability.
@@ -171,24 +191,22 @@ fn two_vectors_differing_only_in_sent_at_ms_produce_different_frames() {
     );
 }
 
-/// Both endpoint labels at the 64-byte ceiling still encode, and the
-/// single-byte length fields hold them.
+/// On 3.0.0 every endpoint field of every vector is 52 bytes, the one
+/// legal length, and its length byte in the frozen frame says 52.
 #[test]
-fn the_maximum_endpoint_vector_encodes_at_the_ceiling() {
-    let all = vectors();
-    let max = all
-        .iter()
-        .find(|v| v.name == "max-endpoints-64")
-        .expect("max-endpoints-64");
-    assert_eq!(max.message.source_endpoint.as_str().len(), 64);
-    assert_eq!(
-        max.message
-            .destination_endpoint
-            .as_ref()
-            .expect("an explicit destination")
-            .as_str()
-            .len(),
-        64
-    );
-    assert_eq!(hex::encode(&max.message.encode()), hex::encode(&max.frame));
+fn every_endpoint_field_in_the_vectors_is_52_bytes() {
+    for v in vectors() {
+        let source = v.message.source_endpoint.as_str().len();
+        assert_eq!(source, 52, "{}", v.name);
+        // The source length byte follows message_id and sent_at_ms.
+        assert_eq!(usize::from(v.frame[16 + 8]), 52, "{}", v.name);
+        let destination = v.frame[16 + 8 + 1 + 52];
+        match &v.message.destination_endpoint {
+            Some(d) => {
+                assert_eq!(d.as_str().len(), 52, "{}", v.name);
+                assert_eq!(destination, 52, "{}", v.name);
+            }
+            None => assert_eq!(destination, 0, "{}", v.name),
+        }
+    }
 }

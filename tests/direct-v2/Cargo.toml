@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
 #
-# The Stage 6 exit gate: `/interweave/direct/2.0.0` between real Rust
+# The Stage 6 exit gate: the direct protocol (`/interweave/direct/3.0.0`
+# since Stage 22) between real Rust
 # peers over loopback. TEST-ONLY; nothing depends on this package.
 #
 # Every clause here is about what the WIRE does — a frame that decodes,

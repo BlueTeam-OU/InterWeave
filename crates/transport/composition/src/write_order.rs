@@ -124,6 +124,10 @@ impl Drop for Alive {
 pub(crate) enum WriteKey {
     Peer(TransportIdentity),
     Address(String),
+    /// A peer in one endpoint's own set: a set for one endpoint never
+    /// supersedes a set for another or for the operator's list
+    /// (`LOCAL-IPC.md`, the endpoint dimension).
+    EndpointPeer(interweave_transport_api::EndpointId, TransportIdentity),
 }
 
 /// Per key, the stamp of the admission whose write was last applied.
