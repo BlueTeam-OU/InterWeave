@@ -142,7 +142,7 @@ expect_names_agents() {
   local name="$1" dir="$2" out
   out="$(bash "$GUARD" --root "$dir" 2>&1)"
   local got=$?
-  if [ "$got" -eq 1 ] && printf '%s\n' "$out" | grep -q '^AGENTS\.md: '; then ok "$name"
+  if [ "$got" -eq 1 ] && printf '%s\n' "$out" | grep '^AGENTS\.md: ' >/dev/null; then ok "$name"
   else bad "$name (exit $got, wanted 1 with a line reporting AGENTS.md)"; fi
 }
 expect_names_agents "a stale AGENTS.md fails, and is the file named" "$TMP/agents-stale"
@@ -187,7 +187,7 @@ echo "check_stage_status: a missing tree is an invocation error"
 expect "no such directory" "$TMP/does-not-exist" 2
 
 echo "check_stage_status: --help works and says nothing about failure"
-if bash "$GUARD" --help | grep -q "single source of truth"; then
+if bash "$GUARD" --help | grep "single source of truth" >/dev/null; then
   ok "--help prints the help block"
 else
   bad "--help did not print the help block"

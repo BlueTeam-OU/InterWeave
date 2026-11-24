@@ -39,8 +39,11 @@ assert_rc() {
     if [[ "$RUN_RC" == "$2" ]]; then pass "$1"
     else fail "$1 (expected exit $2, got $RUN_RC)" "$RUN_OUT"; fi
 }
+# Not `grep -q`: -q exits at the first match, the producer's next write(2)
+# then takes SIGPIPE, and pipefail reports the pipeline as "no match" even
+# though the needle was there (seen under CI load). Reading to EOF avoids it.
 assert_contains() {
-    if printf '%s' "$RUN_OUT" | grep -qF -- "$2"; then pass "$1"
+    if printf '%s' "$RUN_OUT" | grep -F -- "$2" >/dev/null; then pass "$1"
     else fail "$1 (output did not contain: $2)" "$RUN_OUT"; fi
 }
 
@@ -269,6 +272,12 @@ assert_contains "--help states the gap it does not check" "DELIBERATELY DOES NOT
 # the paragraph explaining why the guard exists, so an assertion on it
 # passed whether or not the help named any replacement at all.
 assert_contains "--help names the test that replaced the construction search" "tests/dns_transport.rs"
+
+# assert_contains must find a needle on the FIRST line of an output far
+# larger than the 64 KiB pipe buffer: with `grep -q` the producer is still
+# writing when grep exits, so the pipeline fails under pipefail every time.
+RUN_OUT="$( printf 'needle first\n'; seq 1 200000 )"
+assert_contains "assert_contains finds a first-line needle in a large output" "needle first"
 
 # AND IT RUNS AGAINST THE REAL TREE, which is the case CI runs.
 RUN_OUT="$( cd "$SCRIPT_DIR/../.." && bash tools/checks/check_dialable_hosts.sh 2>&1 )"

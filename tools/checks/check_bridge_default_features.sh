@@ -104,7 +104,7 @@ for d in $(printf '%s\n' "${!member_pkg[@]}" | sort); do
     fi
     found=""
     for p in "${PARSERS[@]}"; do
-        if cut -d' ' -f1 <<<"$tree" | grep -qxF -- "$p"; then found+=" $p"; fi
+        if cut -d' ' -f1 <<<"$tree" | grep -xF -- "$p" >/dev/null; then found+=" $p"; fi
     done
     if [[ -n "$found" ]]; then
         echo "FAIL: $d ($pkg) names a CommonMark parser under default features:$found"

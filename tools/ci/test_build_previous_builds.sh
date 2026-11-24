@@ -152,7 +152,7 @@ if [[ "$n" -eq 2 ]] && grep -q -- '--manifest-path apps/transport-daemon/Cargo.t
    && grep -q -- '--manifest-path apps/transportctl/Cargo.toml --bin transportctl' "$SANDBOX/log"; then
     pass "each app is built release, --locked, by its manifest path"
 else fail "each app is built release, --locked, by its manifest path" "$(cat "$SANDBOX/log")"; fi
-if grep '^cargo ' "$SANDBOX/log" | grep -q "target=$SANDBOX/tmp/previous-build\.[^/]*/target"; then
+if grep '^cargo ' "$SANDBOX/log" | grep "target=$SANDBOX/tmp/previous-build\.[^/]*/target" >/dev/null; then
     pass "cargo's target directory is the run's own scratch"
 else fail "cargo's target directory is the run's own scratch" "$(cat "$SANDBOX/log")"; fi
 if grep -qx "git -C [^ ]* fetch --quiet --no-tags --depth 1 origin $SHA_A" "$SANDBOX/log"; then

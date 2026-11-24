@@ -179,7 +179,7 @@ podman exec -d "$PROBER" sh -c \
   "socat -u UDP-RECVFROM:$PROBE_PORT,fork SYSTEM:'echo \$SOCAT_PEERADDR \$SOCAT_PEERPORT >> /seen.txt'" \
   >/dev/null
 waited=0
-while ! podman exec "$PROBER" ss -uln 2>/dev/null | grep -q ":$PROBE_PORT "; do
+while ! podman exec "$PROBER" ss -uln 2>/dev/null | grep ":$PROBE_PORT " >/dev/null; do
   waited=$((waited + 1))
   [ "$waited" -le 100 ] \
     || { echo "$PROBER: never bound UDP $PROBE_PORT" >&2; exit 1; }
@@ -219,7 +219,7 @@ esac
 # THE LISTENER GOES AWAY so its port can be a SOURCE.
 podman exec "$PROBER" sh -c 'pkill socat' >/dev/null 2>&1 || true
 waited=0
-while podman exec "$PROBER" ss -uln 2>/dev/null | grep -q ":$PROBE_PORT "; do
+while podman exec "$PROBER" ss -uln 2>/dev/null | grep ":$PROBE_PORT " >/dev/null; do
   waited=$((waited + 1))
   [ "$waited" -le 100 ] \
     || { echo "$PROBER: UDP $PROBE_PORT never freed" >&2; exit 1; }
@@ -235,7 +235,7 @@ podman exec -d "$PEER" sh -c \
 # standing in for it: the socket has to be bound before a probe is aimed
 # at the mapping, or the probe races the bind.
 waited=0
-while ! podman exec "$PEER" ss -uln 2>/dev/null | grep -q ":$SRC_PORT "; do
+while ! podman exec "$PEER" ss -uln 2>/dev/null | grep ":$SRC_PORT " >/dev/null; do
   waited=$((waited + 1))
   [ "$waited" -le 100 ] \
     || { echo "$PEER: the holding socket never bound UDP $SRC_PORT" >&2; exit 1; }
@@ -296,7 +296,7 @@ arrived=$(podman exec "$PEER" sh -c 'cat /filtered.txt')
   printf 'peer received  : %s\n' "$(echo "$arrived" | tr '\n' ' ' | sed 's/ *$//')"
 } >&2
 
-have() { printf '%s' "$arrived" | grep -q "^$1$"; }
+have() { printf '%s' "$arrived" | grep "^$1$" >/dev/null; }
 
 # THE CONTROL DECIDES WHETHER ANYTHING BELOW IS A MEASUREMENT. Without
 # it, "nothing arrived" reads as strict filtering when it is equally

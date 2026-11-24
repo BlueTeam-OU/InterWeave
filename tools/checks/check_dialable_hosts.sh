@@ -188,8 +188,8 @@ dialable="$(
     exit 2
 }
 
-has_feature() { printf '%s\n' "$features" | grep -qx "$1"; }
-is_dialable() { printf '%s\n' "$dialable" | grep -qx "$1"; }
+has_feature() { printf '%s\n' "$features" | grep -x "$1" >/dev/null; }
+is_dialable() { printf '%s\n' "$dialable" | grep -x "$1" >/dev/null; }
 
 # THE FEATURE IS NOT THE TRANSPORT, which is the half a first version of
 # this guard missed. `libp2p`'s `dns` feature only makes the resolving

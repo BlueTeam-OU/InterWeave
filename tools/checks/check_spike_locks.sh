@@ -240,7 +240,7 @@ for lock in "${locks[@]}"; do
     dir="$( dirname -- "$lock" )"
     if output="$( cd "$dir" && "${CARGO:-cargo}" metadata --locked --format-version 1 2>&1 >/dev/null )"; then
         echo "check_spike_locks: $lock resolves."
-    elif printf '%s' "$output" | grep -q -- '--locked was passed'; then
+    elif printf '%s' "$output" | grep -- '--locked was passed' >/dev/null; then
         echo "check_spike_locks: $lock is STALE — cargo metadata --locked fails." >&2
         # The first line of cargo's complaint names what is missing or
         # what would have to change; the rest is a backtrace nobody needs
@@ -568,8 +568,8 @@ if (( PROVENANCE == 1 )); then
                     files="$( git show --stat --format='' --name-only "$candidate" | grep -v '^$' )"
                     [[ -n "$files" ]] || continue
                     outside="$( printf '%s\n' "$files" | grep -cv "^$spike_dir/" )"
-                    if [[ -n "$others" ]] && ! printf '%s\n' "$files" | grep -q "^$area/" \
-                       && printf '%s\n' "$files" | grep -qF -f <( sed 's#$#/#' <<<"$others" ); then
+                    if [[ -n "$others" ]] && ! printf '%s\n' "$files" | grep "^$area/" >/dev/null \
+                       && printf '%s\n' "$files" | grep -F -f <( sed 's#$#/#' <<<"$others" ) >/dev/null; then
                         continue
                     fi
                     if [[ "$outside" -eq 0 ]]; then
@@ -577,7 +577,7 @@ if (( PROVENANCE == 1 )); then
                         if [[ -n "$parent" && "$parent" == "$pin_sha" ]]; then
                             recording="$candidate"; shape="parent of"; break
                         fi
-                    elif printf '%s\n' "$files" | grep -q '^crates/'; then
+                    elif printf '%s\n' "$files" | grep '^crates/' >/dev/null; then
                         if [[ "$candidate" == "$pin_sha" ]]; then
                             recording="$candidate"; shape="itself,"; break
                         fi
@@ -689,7 +689,7 @@ for lock in "${locks[@]}"; do
     # rustc's own diagnostic and settles the question; only then is a
     # signal allowed to reclassify a `could not compile` as something
     # cargo never got an answer for.
-    elif printf '%s' "$output" | grep -q -e 'error\[E'; then
+    elif printf '%s' "$output" | grep -e 'error\[E' >/dev/null; then
         echo "check_spike_locks: $dir DOES NOT COMPILE at the revisions it pins." >&2
         # rustc's own first lines name the import or the type; the rest
         # is a wall this guard's output does not need.
@@ -704,12 +704,12 @@ for lock in "${locks[@]}"; do
     # an environment failure and the real finding lost. So the signal
     # branch also requires that cargo printed no `error:` line other
     # than its own `could not compile` summary (audit, PR #110).
-    elif printf '%s' "$output" | grep -q '(signal:' \
+    elif printf '%s' "$output" | grep '(signal:' >/dev/null \
          && [[ "$( printf '%s\n' "$output" | grep -c '^error' )" -le 1 ]]; then
         echo "check_spike_locks: cannot ask whether $dir compiles — the compiler was killed." >&2
         printf '%s\n' "$output" | grep -e '(signal:' | head -2 | sed 's/^/    /' >&2
         exit 2
-    elif printf '%s' "$output" | grep -q -e 'could not compile'; then
+    elif printf '%s' "$output" | grep -e 'could not compile' >/dev/null; then
         echo "check_spike_locks: $dir DOES NOT COMPILE at the revisions it pins." >&2
         printf '%s\n' "$output" | grep -e '^error' | head -3 | sed 's/^/    /' >&2
         broken=$((broken + 1))

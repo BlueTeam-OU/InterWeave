@@ -115,7 +115,7 @@ else
         if [ "$rc" -eq 3 ]; then
             fail "tests/root_funnel.rs defines no fn $name — rename it in PRUNES and PINNED only if that was deliberate"
         # A commented-out call is no call: drop // comments first.
-        elif ! sed 's#//.*##' <<<"$body" | grep -q 'RootFunnel::new('; then
+        elif ! sed 's#//.*##' <<<"$body" | grep 'RootFunnel::new(' >/dev/null; then
             fail "tests/root_funnel.rs: $name never builds its Swarm through RootFunnel::new( — the prune side of the measurement is gone"
         fi
     done

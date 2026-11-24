@@ -230,7 +230,7 @@ up() {
 # container actually holds and fails closed when it never appears.
 await_listener() {
   local ctr="$1" waited=0
-  while ! podman exec "$ctr" ss -uln 2>/dev/null | grep -q ':9000 '; do
+  while ! podman exec "$ctr" ss -uln 2>/dev/null | grep ':9000 ' >/dev/null; do
     waited=$((waited + 1))
     # BOUNDED IN ATTEMPTS, not seconds: each one is a `podman exec`,
     # which costs far more than the sleep beside it, so a deadline in

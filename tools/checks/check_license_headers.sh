@@ -167,7 +167,7 @@ for f in "${TRACKED[@]}"; do
 
     # MISSING — only for file types that can carry a header.
     if needs_header "$f"; then
-        if ! head -n "$HEADER_LINES" "$f" 2>/dev/null | grep -q "SPDX-License-Identifier:[[:space:]]*$EXPECTED_SPDX"; then
+        if ! head -n "$HEADER_LINES" "$f" 2>/dev/null | grep "SPDX-License-Identifier:[[:space:]]*$EXPECTED_SPDX" >/dev/null; then
             report "$f" "no 'SPDX-License-Identifier: $EXPECTED_SPDX' in the first $HEADER_LINES lines"
         fi
     fi

@@ -81,7 +81,7 @@ run)
     ok=
     for _ in $(seq 30); do
         adb connect "$SERIAL" >/dev/null
-        adb devices | grep -qF "$SERIAL	device" && { ok=1; break; }
+        adb devices | grep -F "$SERIAL	device" >/dev/null && { ok=1; break; }
         sleep 1
     done
     [ -n "$ok" ] || { echo "no device at $SERIAL" >&2; exit 4; }
