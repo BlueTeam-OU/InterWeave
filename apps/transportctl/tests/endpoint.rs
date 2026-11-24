@@ -345,6 +345,59 @@ fn init_refuses_an_alias_config_yaml_already_carries() {
     );
 }
 
+/// A profile whose only holder of the alias `human` is an entry the
+/// endpoint overlay `added` (config.yaml carries a different one).
+fn plant_added_human(home: &Home) {
+    let authored = EndpointId::from_ed25519_public(&test_key(1).1);
+    let added = EndpointId::from_ed25519_public(&test_key(2).1);
+    home.write_config(&format!(
+        "    - {{ key: {}.key, alias: other, enabled: true, advertise: false }}",
+        authored.as_str()
+    ));
+    home.plant_overlay(&format!(
+        r#"{{"enabled":{{}},"added":[{{"key":"{}.key","alias":"human","enabled":true,"advertise":false}}]}}"#,
+        added.as_str()
+    ));
+}
+
+/// The alias is resolved over the composed configuration: one only an
+/// overlay `added` entry carries is refused before anything is minted;
+/// the control, a fresh alias on the same profile, mints.
+#[test]
+fn init_refuses_an_alias_only_the_overlay_carries() {
+    let home = Home::new();
+    plant_added_human(&home);
+    let out = home.run(&["endpoint", "init", "--alias", "human"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stderr));
+    assert!(
+        text(&out.stderr).contains("'human' is taken"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(home.minted().is_empty(), "nothing minted, no pending file");
+
+    let (_, lines) = printed(&home.run(&["endpoint", "init", "--alias", "claude"]));
+    assert_eq!(lines.last().map(String::as_str), Some("alias: claude"));
+    assert_eq!(home.minted().len(), 1);
+}
+
+/// `adopt` of an alias an overlay `added` entry carries is refused naming
+/// that entry's key, not told to mint another one with `init`.
+#[test]
+fn adopt_of_an_alias_only_the_overlay_carries_names_that_entry() {
+    let home = Home::new();
+    plant_added_human(&home);
+    let added = EndpointId::from_ed25519_public(&test_key(2).1);
+    let out = home.run(&["endpoint", "adopt", "--alias", "human"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stderr));
+    let err = text(&out.stderr);
+    assert!(
+        err.contains(&format!("already names key {}.key", added.as_str())),
+        "{err}"
+    );
+    assert!(home.minted().is_empty());
+}
+
 /// Neither command takes the profile lock: a key is minted and one
 /// adopted beside a holder of it, as beside a running daemon.
 #[test]

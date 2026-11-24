@@ -121,15 +121,27 @@ fn carry(paths: &ProfilePaths, alias: &EndpointAlias, id: &EndpointId) -> Result
     .map_err(|e| refused("carrying the endpoint overlay", &e))
 }
 
-/// The entry of `config` carrying `alias`.
-fn entry_with_alias<'a>(
-    config: &'a ProfileConfig,
+/// The entry of the composed configuration carrying `alias`: `config.yaml`
+/// with the endpoint overlay applied, as `admin.rs` composes it, so an
+/// entry the overlay `added` is seen as well as an authored one. An overlay
+/// that does not read leaves `config.yaml`'s entries alone, with a note.
+fn entry_with_alias(
+    paths: &ProfilePaths,
+    config: &ProfileConfig,
     alias: &EndpointAlias,
-) -> Option<&'a EndpointConfig> {
-    config
-        .endpoints
+) -> Option<EndpointConfig> {
+    let endpoints = match crate::admin::composed(paths) {
+        Ok((composed, overlay)) => overlay.apply(&composed.endpoints),
+        Err(why) => {
+            eprintln!(
+                "transportctl: note: the alias was not checked against the endpoint overlay: {why}"
+            );
+            config.endpoints.clone()
+        }
+    };
+    endpoints
         .entries
-        .iter()
+        .into_iter()
         .find(|e| e.alias.as_ref() == Some(alias))
 }
 
@@ -158,7 +170,7 @@ fn init(name: &str, alias: Option<&EndpointAlias>, json: bool) -> Result<String,
     };
     match ProfileConfig::load_document(&paths) {
         Ok(config) => {
-            if let Some(taken) = entry_with_alias(&config, alias) {
+            if let Some(taken) = entry_with_alias(&paths, &config, alias) {
                 let refusal = Failure::Refused(format!(
                     "the alias '{alias}' is taken: the entry with key {} carries it",
                     taken.key_file_name()
@@ -462,7 +474,7 @@ fn nothing_to_adopt(
     json: bool,
 ) -> Result<String, Failure> {
     let configured = ProfileConfig::load_document(paths).ok().and_then(|config| {
-        entry_with_alias(&config, alias).map(|e| (e.id.clone(), e.key_file_name()))
+        entry_with_alias(paths, &config, alias).map(|e| (e.id.clone(), e.key_file_name()))
     });
     match configured {
         Some((id, key)) => carry_for_entry(

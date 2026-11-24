@@ -208,7 +208,7 @@ fn resolve(paths: &ProfilePaths, selector: &EndpointSelector) -> Result<Endpoint
 
 /// The profile's configuration, read without its keys, and its endpoint
 /// overlay, read without a write back: what an alias is resolved over.
-fn composed(paths: &ProfilePaths) -> Result<(ProfileConfig, EndpointOverlay), String> {
+pub(crate) fn composed(paths: &ProfilePaths) -> Result<(ProfileConfig, EndpointOverlay), String> {
     let config = ProfileConfig::load_document(paths)
         .map_err(|e| format!("the profile {}: {e}", paths.config_file().display()))?;
     let (overlay, _) = EndpointOverlay::read_within(
