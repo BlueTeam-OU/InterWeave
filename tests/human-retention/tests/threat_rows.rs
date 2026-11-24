@@ -400,7 +400,7 @@ async fn tm_46_a_device_restored_from_backup_sends_nothing_the_original_had_pend
             a.clone(),
             a.clone(),
             store,
-            config(agent()),
+            config(human()),
             Box::new(|| WALL),
             0,
         )
@@ -485,7 +485,7 @@ async fn run_client_on(a: &FakeNode, b: &FakeNode, store: HumanStore) -> usize {
         a.clone(),
         a.clone(),
         store,
-        config(agent()),
+        config(human()),
         Box::new(|| WALL),
         0,
     )
