@@ -74,8 +74,12 @@ pub fn admin_shaped(stranger: &TransportIdentity) -> Vec<Vec<u8>> {
         format!(
             r#"{{"type":"request","id":"a","method":"admin.trust.set","params":{{"peer":"{peer}","allowed":true}}}}"#
         ),
-        r#"{"type":"request","id":"b","method":"admin.endpoints.revoke","params":{"endpoint":"human"}}"#
-            .to_owned(),
+        // The derived id, never the label: a revoke naming `human` is
+        // refused as malformed whoever runs it, and would show nothing.
+        format!(
+            r#"{{"type":"request","id":"b","method":"admin.endpoints.revoke","params":{{"endpoint":"{}"}}}}"#,
+            crate::human().as_str()
+        ),
         format!(
             r#"{{"type":"request","id":"c","method":"admin.peers.add_address","params":{{"peer":"{peer}","address":"{STRANGER_ADDRESS}{peer}"}}}}"#
         ),
@@ -205,7 +209,7 @@ pub(crate) fn admin_shaped_case<B: DataSessionBinding + AdminBinding>(
         let leased = crate::block_on(port.leases())?
             .map_err(|_| "the endpoint list was refused".to_owned())?
             .iter()
-            .any(|e| e.endpoint.as_str() == "human" && e.lease.is_some());
+            .any(|e| e.endpoint == crate::human() && e.lease.is_some());
         if leased {
             break crate::block_on(state(&port))??;
         }
