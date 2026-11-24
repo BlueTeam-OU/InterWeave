@@ -409,9 +409,9 @@ built it, with the internal error's words for both a mismatch and
 `Unavailable`; before this revision, §6 named a notice on Chats, for
 a refused start, that the build did not have. A start without network
 compares nothing and does not end the comparison. A start made from
-C4 answers on C4 before the bound; a compared start from R2 after K1,
-from R3, or from R4 when R4 was not reached after K1, answered
-`Unavailable` or a mismatch before the bound, opens Chats and shows
+C4 answers on C4 before the bound. If a compared start from R2 after
+K1, from R3, or from R4 when R4 was not reached after K1 is answered
+`Unavailable` or a mismatch before the bound, Chats opens and shows
 `Refused`. R4's Continue after K1 ends the
 comparison, and no earlier step of the restore ends it
 (architect-cto's answer to Q17, REPLY 01a20c86, §11f). Before this
@@ -1341,11 +1341,13 @@ that a PeerId was created.
   comparison either. A build cannot reach that Continue there: K1
   offers R2 only with the record's own PeerId. If a build reaches that
   Continue anyway, the another-identity row applies, and the start of
-  that Continue compares and is answered as An answer after the bound
-  says after the bound; before the bound, it is answered as that
-  bullet's last paragraph says for a compared start from R2 after K1
-  (`Unavailable` or a mismatch: Chats and `Refused`; `LockHeld` and a
-  cancelled or denied prompt: their own rows). To end the comparison
+  that Continue compares. After the bound, it is answered as An answer
+  after the bound says. Before the bound, it is answered as the end of
+  An answer after the bound says for a compared start from R2 after
+  K1: an answer of
+  `Unavailable` or a mismatch opens Chats, and `Refused` shows there;
+  `LockHeld` keeps the profile-in-use row, and a cancelled or denied
+  prompt keeps the Authentication needed row. To end the comparison
   there, the notice would have
   to say that the words written down on C4 do not restore the PeerId
   below it, and
@@ -3511,18 +3513,19 @@ here; the first was already answered on this branch.
   have just entered, an end of the comparison, as the end of the
   process is?
 - **Q18. What this revision leaves open.** Open, ux-designer's to
-  decide (review of #753). Three things: where focus goes when Chats
-  opens after a compared start from R2 after K1, R3 or R4 that is
-  refused before the bound (§6, An answer after the bound); what a
-  compared start from those screens that answers `RecoveryRequired`
-  before the bound shows, which no row of §6 describes; and a run
-  of acceptance 12 that walks Back on R2 after K1 after a check that
-  did not open R4, `IdStorageUnknown` first. The first two are
-  reachable only when the record changes under the app (another
-  writer), as `IdRestoreOther` on R2 after K1 is; the third is
-  reachable on any build. Until Q18 is answered, a build is not
-  checked on the first two, and §6 states the rule the third run
-  would check.
+  decide (review of #753). Three things are open. First, where focus
+  goes when Chats opens because a compared start from R2 after K1,
+  from R3, or from R4 when R4 was not reached after K1 is answered
+  `Unavailable` or a mismatch before the bound (§6, An answer after
+  the bound). Second, what the app shows when a compared start from
+  those screens answers `RecoveryRequired` before the bound; no row of
+  §6 describes that case. Third, a run of acceptance 12 that walks
+  Back on R2 after K1 after a check that did not open R4,
+  `IdStorageUnknown` first. The first two are reachable only when
+  another writer changes the record, like `IdRestoreOther` on R2
+  after K1; the third is reachable on any build. Until Q18 is
+  answered, a build is not checked on the first two, and §6 states
+  the rule that the third run would check.
 
 ## 12. Deliberately left out
 
