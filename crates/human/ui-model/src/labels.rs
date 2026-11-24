@@ -651,7 +651,6 @@ ui_texts! {
     /// `TryAgain`, which reads back before it writes. Never says that
     /// nothing changed.
     IdStorageUnknown => "The app does not know whether your PeerId was saved. Try again to check.",
-    // PLACEHOLDER (en)
     /// ANDROID, identity screens: C4's text button under Try again while
     /// `IdStorageUnknown` shows after a failed read-back and it is offered
     /// (section 6, A start from C4 after a failed read-back). Says that
@@ -659,13 +658,12 @@ ui_texts! {
     /// or saved (`start_unchecked_says_the_peer_id_shown_and_not_saved`);
     /// "Go online" is `IdStartBusy`'s verb for the same start.
     IdStartUnchecked => "Go online with this PeerId",
-    // PLACEHOLDER (en)
     /// ANDROID, identity screens: C4's line under `IdStartUnchecked`
     /// (section 6), text that takes no focus: what the person does if the
     /// start leads to K1, and that the phrase restores the `PeerId`
     /// (section 11d, Q15). It names K1 by what K1 asks for (`IdQTitle`);
     /// "then" is the press of `IdStartUnchecked` above it.
-    IdStorageUnknownRestore => "If the app then asks for your recovery phrase, enter the phrase you just wrote down. It restores this PeerId.",
+    IdStorageUnknownRestore => "If the app then asks for your recovery phrase, enter the phrase you just wrote down. That phrase restores this PeerId.",
     /// ANDROID, identity screens: section 6's another-identity-on-record
     /// notice at a restore, three lines on R3 and R2 after K1, the
     /// record's `PeerId` in full under it, then `IdContinue`; its last
