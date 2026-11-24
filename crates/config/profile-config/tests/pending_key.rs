@@ -11,7 +11,7 @@
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
 use interweave_profile_config::endpoint_key::{
-    KeyHeader, key_path, mint_filesystem, mint_filesystem_at, pending_key_path,
+    KeyHeader, key_path, list_key_ids, mint_filesystem, mint_filesystem_at, pending_key_path,
 };
 use interweave_profile_config::persist::rename_private_no_replace_within;
 use interweave_profile_config::{EndpointAlias, PersistError, ProfilePaths, TrustBoundary};
@@ -92,4 +92,24 @@ fn the_ordinary_mint_writes_the_id_named_file() {
     let id = mint_filesystem(&paths).expect("minted");
     assert!(key_path(&paths, &id).exists());
     assert!(!pending_key_path(&paths, &alias()).exists());
+}
+
+/// The listing names `<id>.key` files and reads none: absent is empty,
+/// a pending file, a stray name and a writer's temporary are skipped, a
+/// minted key is named; and a directory open to others is refused, not listed.
+#[test]
+fn a_key_directory_is_listed_by_name_only() {
+    use interweave_profile_config::endpoint_key::{ENDPOINT_KEYS_DIR, KeyFileError};
+    let (_root, paths) = app();
+    assert_eq!(list_key_ids(&paths).expect("absent"), Vec::new());
+    let pending = pending_key_path(&paths, &alias());
+    mint_filesystem_at(&paths, |_| pending.clone()).expect("pending");
+    assert!(list_key_ids(&paths).expect("pending only").is_empty());
+    let id = mint_filesystem(&paths).expect("a key");
+    let dir = paths.state_dir().join(ENDPOINT_KEYS_DIR);
+    std::fs::write(dir.join("zz"), "not a record").expect("stray");
+    std::fs::write(dir.join(format!("{}.key.123.0.abc.tmp", id.as_str())), "t").expect("temp");
+    assert_eq!(list_key_ids(&paths).expect("lists"), vec![id]);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert_eq!(list_key_ids(&paths).err(), Some(KeyFileError::NotPrivate));
 }

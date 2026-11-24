@@ -469,6 +469,44 @@ pub fn read_header(
         .map_err(KeyFileError::Record)
 }
 
+/// The ids of the key files in `endpoint-keys/`, sorted: the entries named
+/// exactly `<derived EndpointId>.key` ([`parse_key_file_name`]), whatever
+/// they are, so a directory or a link by that name counts and is judged by
+/// the reader that opens it ([`read_header`]). Every other name is
+/// skipped, never refused: a private writer's temporary
+/// (`<id>.key.<pid>.<n>.<hash>.tmp`) and [`pending_key_path`]'s file
+/// (an interrupted `init`) are no sealed key. Empty when the directory is
+/// absent.
+///
+/// The directory is judged first as [`read_header`]'s is -- private under
+/// the boundary -- and only names are read, never a file
+/// (`tests/pending_key.rs`, `a_key_directory_is_listed_by_name_only`).
+///
+/// # Errors
+/// [`KeyFileError::NotPrivate`] for a directory that fails that
+/// judgement; [`KeyFileError::Io`] for a listing that failed.
+pub fn list_key_ids(paths: &ProfilePaths) -> Result<Vec<EndpointId>, KeyFileError> {
+    let dir = paths.state_dir().join(ENDPOINT_KEYS_DIR);
+    let dir = match crate::persist::resolve_private_dir_within(&dir, paths.boundary()) {
+        Ok(dir) => dir,
+        Err(PersistError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Vec::new());
+        }
+        Err(PersistError::Io(e)) => return Err(KeyFileError::Io(e.kind())),
+        Err(_) => return Err(KeyFileError::NotPrivate),
+    };
+    let io = |e: std::io::Error| KeyFileError::Io(e.kind());
+    let mut ids = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(io)? {
+        let name = entry.map_err(io)?.file_name();
+        if let Some(id) = name.to_str().and_then(|n| parse_key_file_name(n).ok()) {
+            ids.push(id);
+        }
+    }
+    ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    Ok(ids)
+}
+
 /// Why [`mint_filesystem`] made no key.
 #[derive(Debug)]
 pub enum MintError {
@@ -520,9 +558,9 @@ pub fn mint_filesystem(paths: &ProfilePaths) -> Result<EndpointId, MintError> {
 /// The file a key is minted into under `alias` before its id has a name
 /// anyone reads: `<state_dir>/endpoint-keys/.pending-<alias>.key`.
 ///
-/// Nothing enumerates `endpoint-keys/` -- the daemon opens the one file
-/// an entry names, by [`key_path`] -- and an alias has no leading dot, so
-/// this is no key's name; `transportctl endpoint init --alias` finds a
+/// Only [`list_key_ids`] enumerates `endpoint-keys/`, and it names
+/// only `<id>.key` (the daemon opens the one file an entry names, by
+/// [`key_path`]); an alias has no leading dot, so this is no key's name; `transportctl endpoint init --alias` finds a
 /// run it interrupted by this name, and publishes the file under its id
 /// ([`crate::persist::rename_private_no_replace_within`]).
 #[must_use]

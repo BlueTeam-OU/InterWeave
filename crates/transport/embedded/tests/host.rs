@@ -332,7 +332,7 @@ fn an_endpoint_set_leaving_no_identity_enabled_is_refused() {
 /// A FRESH INSTALL: nothing has written `config.yaml`, so the start is
 /// refused naming the read, until the Service provisions the profile
 /// (`profile-config`'s `provision_embedded`, the seam agreed with
-/// rust-ui-dev). Form 1 has no identity: its start is refused
+/// rust-ui-dev). Form 1 beside no key file has no identity: its start is refused
 /// `AndroidNoIdentity` by name, with nothing under the root written --
 /// the profile-format marker not raised, `config.yaml` as it was. Once
 /// onboarding has sealed the first identity (a key minted at filesystem
@@ -379,6 +379,107 @@ fn a_start_on_form_1_is_refused_no_identity() {
         .expect("status");
     assert_eq!(status.peer, peer);
     host.stop(Duration::from_secs(1)).expect("stops");
+}
+
+/// M3, the start's half (ENDPOINTS.md): form 1 beside one sealed key
+/// whose header reads and names its file starts, writes form 2 for that
+/// id first, and a second start finds nothing left to finish.
+#[test]
+fn a_start_finishes_m3_beside_one_sealed_key() {
+    use interweave_profile_config::endpoint_key::{key_path, mint_filesystem};
+    use interweave_profile_config::provision::{embedded_identity_document, provision_embedded};
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let id = mint_filesystem(&paths).expect("a key");
+    let key = std::fs::read(key_path(&paths, &id)).expect("key");
+    for _ in 0..2 {
+        EmbeddedHost::start(launch(&app.dir))
+            .expect("form 1 beside one sealed key starts")
+            .stop(Duration::from_secs(1))
+            .expect("stops");
+        assert_eq!(
+            std::fs::read_to_string(paths.config_file()).expect("config"),
+            embedded_identity_document(PROFILE, &id),
+            "form 2 for the key's id"
+        );
+        assert_eq!(
+            std::fs::read(key_path(&paths, &id)).expect("key"),
+            key,
+            "the key is as it was"
+        );
+    }
+}
+
+/// A writer's temporary beside the one key (`<id>.key.<pid>.<n>.<hash>.tmp`)
+/// and a pending key are no keys: the finish is not stopped by them.
+#[test]
+fn a_temporary_and_a_pending_key_beside_the_key_do_not_stop_m3() {
+    use interweave_profile_config::endpoint_key::{key_path, mint_filesystem};
+    use interweave_profile_config::provision::provision_embedded;
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let id = mint_filesystem(&paths).expect("a key");
+    let dir = key_path(&paths, &id).parent().expect("dir").to_path_buf();
+    std::fs::write(dir.join(format!("{}.key.123.0.abc.tmp", id.as_str())), "t").expect("tmp");
+    std::fs::write(dir.join(".pending-claude.key"), "p").expect("pending");
+    EmbeddedHost::start(launch(&app.dir))
+        .expect("starts")
+        .stop(Duration::from_secs(1))
+        .expect("stops");
+}
+
+/// Control: form 1 and no key file is still refused `AndroidNoIdentity`;
+/// two key files refuse by name, and a key naming another id than its
+/// file refuses by name -- each leaving the document form 1 and the
+/// files as they were.
+#[test]
+fn a_start_on_form_1_refuses_what_it_cannot_finish() {
+    use interweave_profile_config::ConfigError;
+    use interweave_profile_config::endpoint_key::{key_path, mint_filesystem};
+    use interweave_profile_config::provision::provision_embedded;
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let form_1 = std::fs::read(paths.config_file()).expect("form 1");
+    let unchanged = || {
+        assert_eq!(std::fs::read(paths.config_file()).expect("config"), form_1);
+    };
+    assert_eq!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::NoIdentity(ConfigError::AndroidNoIdentity)),
+        "no key file"
+    );
+    unchanged();
+
+    let a = mint_filesystem(&paths).expect("a key");
+    let b = mint_filesystem(&paths).expect("another");
+    assert!(matches!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::EndpointKeys(ref d)) if d.contains("2 key files")
+    ));
+    unchanged();
+
+    // One file left, named for `a` and holding `b`'s record.
+    std::fs::remove_file(key_path(&paths, &a)).expect("rm");
+    let b_record = std::fs::read(key_path(&paths, &b)).expect("b");
+    std::fs::remove_file(key_path(&paths, &b)).expect("rm");
+    std::fs::write(key_path(&paths, &a), &b_record).expect("swap");
+    std::fs::set_permissions(key_path(&paths, &a), std::fs::Permissions::from_mode(0o600))
+        .expect("chmod");
+    assert!(matches!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::EndpointKeys(_))
+    ));
+    unchanged();
+    assert_eq!(std::fs::read(key_path(&paths, &a)).expect("kept"), b_record);
 }
 
 /// An overlay a release before Stage 22 keyed by the label `human` does

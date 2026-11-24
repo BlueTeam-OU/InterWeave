@@ -45,12 +45,13 @@ pub use interweave_profile_config::availability_overlay::StayReachable;
 use interweave_profile_config::availability_overlay::{self, AvailabilityError};
 use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
 use interweave_profile_config::profile_format::{self, ProfileFormatError};
+use interweave_profile_config::provision::{embedded_document, provision_identity};
 pub use interweave_profile_config::runtime::AvailabilityMode;
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::trust_overlay::OverlayError;
 use interweave_profile_config::{
     ConfigError, LoadError, PersistError, ProfileConfig, ProfileLock, ProfilePaths, TrustBoundary,
-    runtime::Deployment,
+    endpoint_key, runtime::Deployment,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_composition::Ended as ComposedEnded;
@@ -109,11 +110,18 @@ pub enum EmbeddedRefused {
     LockHeld(String),
     /// The profile's `runtime.deployment` is not `embedded-android`.
     NotEmbedded,
-    /// The profile has no identity yet -- the first-run document before
-    /// onboarding sealed one: always
+    /// The profile has no identity yet -- the first-run document with no
+    /// sealed key beside it, onboarding not having made one: always
     /// [`ConfigError::AndroidNoIdentity`], carried so the cause is the
     /// configuration's own by name. The person's remedy is onboarding.
     NoIdentity(ConfigError),
+    /// The first-run document stands beside key files the start cannot
+    /// finish the first identity from (ENDPOINTS.md M3): more than one
+    /// `<id>.key`, or the one whose header does not read, names a custody
+    /// this build does not know, or names another id than its file's, or
+    /// a key directory that is not private. Nothing was written and the
+    /// text names the fault, never anything read from a key file.
+    EndpointKeys(String),
     /// `config.yaml` is missing, unreadable or fails validation, or it
     /// fails validation with the endpoint overlay composed over it (the
     /// text names the overlay).
@@ -144,6 +152,7 @@ impl std::fmt::Display for EmbeddedRefused {
             Self::LockHeld(detail) => write!(f, "the profile is held by another host: {detail}"),
             Self::NotEmbedded => f.write_str("the profile's deployment is not embedded-android"),
             Self::NoIdentity(e) => write!(f, "the profile cannot start: {e}"),
+            Self::EndpointKeys(detail) => write!(f, "the endpoint keys are refused: {detail}"),
             Self::ProfileInvalid(detail) => write!(f, "the profile cannot be used: {detail}"),
             Self::DirectoryRefused(detail) => write!(f, "a directory is refused: {detail}"),
             Self::IdentityRejected => f.write_str("the identity has no transport identity"),
@@ -242,6 +251,58 @@ impl From<CompositionError> for EmbeddedRefused {
     }
 }
 
+/// THE START'S HALF OF M3 (ENDPOINTS.md, form 1 to form 2): when
+/// `config.yaml` is form 1 and `endpoint-keys/` holds exactly one sealed
+/// first key, write form 2 for it and say so. Under the profile lock.
+///
+/// The key is whatever `<id>.key` stands there, judged by its HEADER alone
+/// ([`endpoint_key::read_header`]: a custody this build knows, the id its
+/// public key derives) and by its name being that id; the host reads no
+/// body and mints nothing -- onboarding made and sealed the key. No key
+/// leaves form 1 for the caller's `AndroidNoIdentity`; more than one, or
+/// a key that fails its header or its name, refuses by name
+/// ([`EmbeddedRefused::EndpointKeys`]); a refusal writes nothing
+/// (`a_start_finishes_m3_beside_one_sealed_key`,
+/// `two_key_files_beside_form_1_refuse_the_start`,
+/// `a_key_naming_another_id_than_its_file_refuses_the_start`). Other
+/// names in the directory (a writer's temporary, a pending key) are not
+/// keys (`endpoint_key::list_key_ids`).
+fn finish_first_identity(paths: &ProfilePaths) -> Result<bool, EmbeddedRefused> {
+    // Form 1 is the document's exact text, as `provision_identity`
+    // recognises it; any other document is the person's or form 2, and
+    // is judged as it always was. The text is read plainly: `load` has
+    // already judged the file's place and size, and a read that fails
+    // here is no form 1 for the start to finish.
+    let is_form_1 = std::fs::read_to_string(paths.config_file())
+        .is_ok_and(|text| text == embedded_document(paths.profile()));
+    if !is_form_1 {
+        return Ok(false);
+    }
+    let fault = |e: endpoint_key::KeyFileError| EmbeddedRefused::EndpointKeys(e.to_string());
+    let ids = endpoint_key::list_key_ids(paths).map_err(fault)?;
+    let id = match ids.as_slice() {
+        [] => return Ok(false),
+        [id] => id,
+        many => {
+            return Err(EmbeddedRefused::EndpointKeys(format!(
+                "{} key files stand beside the first-run document, and the first identity is one",
+                many.len()
+            )));
+        }
+    };
+    match endpoint_key::read_header(paths, id).map_err(fault)? {
+        Some(header) if header.endpoint() == id => {}
+        Some(_) => {
+            return Err(EmbeddedRefused::EndpointKeys(
+                "the key file's header names another id than its file".to_owned(),
+            ));
+        }
+        None => return Ok(false),
+    }
+    provision_identity(paths, id).map_err(|e| EmbeddedRefused::ProfileInvalid(e.to_string()))?;
+    Ok(true)
+}
+
 /// The prefix every first-party target begins with: the crates' module
 /// paths (`interweave_*`) and the named targets (`interweave::audit`,
 /// `interweave::connectivity`).
@@ -338,7 +399,7 @@ impl EmbeddedHost {
             .map_err(|_| EmbeddedRefused::IdentityRejected)?;
         let boundary = TrustBoundary::new(&app_data_dir)?;
         let paths = ProfilePaths::resolve_embedded(&profile, boundary)?;
-        let config = ProfileConfig::load(&paths)?;
+        let mut config = ProfileConfig::load(&paths)?;
         if config.runtime.deployment != Deployment::EmbeddedAndroid {
             return Err(EmbeddedRefused::NotEmbedded);
         }
@@ -356,9 +417,14 @@ impl EmbeddedHost {
         // app's private profile at once; it is kept as the ruling's
         // under-lock read, not as a tested path.
         profile_format::require_supported(&paths)?;
+        if finish_first_identity(&paths)? {
+            config = ProfileConfig::load(&paths)?;
+        }
         // THE START'S HALF OF THE LEASE RULE (architect-cto's ruling for
         // j185): the first-run document loads without an identity, and
-        // a start on it is refused by name before anything is written,
+        // a start on it that finds no sealed first key beside it (M3 above
+        // finishes one that does) is refused by name before anything is
+        // written,
         // judged on the endpoints the runtime would compose -- the
         // overlay read under the lock, in memory, as composition reads
         // it below (`a_start_on_form_1_is_refused_no_identity`).
