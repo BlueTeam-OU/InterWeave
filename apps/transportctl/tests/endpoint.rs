@@ -632,6 +632,48 @@ fn a_failed_write_leaves_the_old_file() {
     assert!(!old.exists());
 }
 
+/// A resumed adopt syncs `endpoint-keys/` before it removes the old file:
+/// the new file an earlier run published is found, never re-created, and
+/// the exclusive create does not sync for it. With the directory unable
+/// to be opened for the sync (mode 0o300; reading a file in it still
+/// works) the old file is kept; a control with the directory ordinary
+/// finishes. That the sync reaches the disk is not observable here.
+#[test]
+fn a_resumed_adopt_that_cannot_sync_the_directory_keeps_the_old_file() {
+    let home = Home::new();
+    let (secret, public) = test_key(15);
+    let id = EndpointId::from_ed25519_public(&public);
+    let old = home.plant_legacy("human", &record(1, b"human", &public, &secret));
+    private_dir(&home.keys_dir());
+    let new = home.keys_dir().join(format!("{}.key", id.as_str()));
+    write_private(
+        &new,
+        record(1, id.as_str().as_bytes(), &public, &secret).as_bytes(),
+    );
+    std::fs::set_permissions(home.keys_dir(), std::fs::Permissions::from_mode(0o300))
+        .expect("chmod");
+    let blocked = std::fs::File::open(home.keys_dir()).is_err();
+    let out = home.run(&["endpoint", "adopt", "--alias", "human"]);
+    std::fs::set_permissions(home.keys_dir(), std::fs::Permissions::from_mode(0o700))
+        .expect("chmod back");
+    if !blocked {
+        println!("skipped: 0o300 did not block opening the directory here");
+        return;
+    }
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert!(
+        text(&out.stderr).contains("a second run finishes"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(old.exists(), "the old file is kept");
+
+    // CONTROL: the same state with an ordinary directory finishes.
+    let (printed_id, _) = printed(&home.run(&["endpoint", "adopt", "--alias", "human"]));
+    assert_eq!(printed_id, id);
+    assert!(!old.exists(), "a resumed adopt removes the old file");
+}
+
 /// Run again once it finished: the old file is gone, so there is nothing
 /// to adopt and it refuses -- naming `endpoint init` while `config.yaml`
 /// names no entry with the alias, and naming the entry's key once it

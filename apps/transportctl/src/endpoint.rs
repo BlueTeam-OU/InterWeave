@@ -377,6 +377,7 @@ fn adopt(name: &str, alias: &EndpointAlias, json: bool) -> Result<String, Failur
     .map_err(|e| refused("the new record's header", &e))?;
     let record = endpoint_key::encode_record(&header, secret.as_slice());
     let new = endpoint_key::key_path(&paths, &id);
+    let mut resumed = false;
     match interweave_profile_config::create_private_exclusive_within(
         &new,
         record.as_bytes(),
@@ -384,7 +385,8 @@ fn adopt(name: &str, alias: &EndpointAlias, json: bool) -> Result<String, Failur
     ) {
         // A file already there is a run interrupted after its write:
         // judged below, never replaced.
-        Ok(()) | Err(PersistError::AlreadyExists) => {}
+        Ok(()) => {}
+        Err(PersistError::AlreadyExists) => resumed = true,
         Err(e) => {
             return Err(Failure::Refused(format!(
                 "writing {}: {e}; {shown} is kept, and a second run finishes",
@@ -403,6 +405,21 @@ fn adopt(name: &str, alias: &EndpointAlias, json: bool) -> Result<String, Failur
         )),
         other @ Failure::Unreachable(_) => other,
     })?;
+    if resumed {
+        // The exclusive create answers AlreadyExists BEFORE it syncs the
+        // directory, so a file an earlier run published may never have
+        // had its name made durable (that run was refused Unsynced, or
+        // was killed between the publish and the sync). Nothing else
+        // syncs it, and the old file goes next: sync here, or keep the
+        // old file. Tested for the refusal (a_resumed_adopt_that_cannot_sync_...);
+        // that the sync reaches the disk is not something a test can see.
+        if let Err(e) = sync_dir(new.parent().unwrap_or(Path::new("."))) {
+            return Err(Failure::Refused(format!(
+                "syncing {}: {e}; {shown} is kept, and a second run finishes",
+                new.display()
+            )));
+        }
+    }
     match interweave_profile_config::persist::remove_private_within(&old, paths.boundary()) {
         Ok(_) => {}
         // The old file is gone and its absence may not survive a crash;
@@ -419,6 +436,13 @@ fn adopt(name: &str, alias: &EndpointAlias, json: bool) -> Result<String, Failur
         }
     }
     Ok(entry(&id, Some(alias), json))
+}
+
+/// fsync the directory `dir`, the one `profile-config` does not export a
+/// way to sync on its own. `dir` is the parent of a file `same_key` has
+/// just read through the boundary.
+fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::File::open(dir)?.sync_all()
 }
 
 /// The file at `new` holds exactly the adopted key: its header derives
