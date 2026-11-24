@@ -26,7 +26,8 @@ use interweave_human_ui_model::{
 };
 use interweave_human_ui_slint::{View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_test_support::endpoint_keys::endpoint_id;
+use interweave_transport_api::TransportIdentity;
 use slint::ComponentHandle as _;
 use slint::platform::{Key, WindowEvent};
 
@@ -65,7 +66,7 @@ fn model_with(tags: &[&str]) -> (UiModel, ConversationKey) {
     let peer: TransportIdentity = ProfileIdentity::generate()
         .transport_identity()
         .expect("a peer id");
-    let human = EndpointId::parse("human").expect("an endpoint");
+    let human = endpoint_id("human");
     model.received(Received {
         row: RowId::from_stored(1),
         origin: Origin::Direct {
