@@ -45,6 +45,7 @@ use serde_json::{Map, Value};
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{
     ProfileConfig, ProfilePaths, TrustBoundary, create_private_dir_within,
+    write_private_atomic_within,
 };
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_test_support::e2e;
@@ -619,7 +620,11 @@ pub fn try_provision(app_data_dir: &Path, config: &str) -> Result<(), String> {
         ProfilePaths::resolve_embedded(PROFILE, boundary).map_err(|e| format!("paths: {e}"))?;
     create_private_dir_within(paths.config_dir(), paths.boundary())
         .map_err(|e| format!("the config directory: {e}"))?;
-    std::fs::write(paths.config_file(), config).map_err(|e| format!("config.yaml: {e}"))
+    // Owner-only, as the app writes it (`provision_embedded`): the start's
+    // M3 step reads the document with the private reader, which refuses a
+    // file open to others.
+    write_private_atomic_within(&paths.config_file(), config.as_bytes(), paths.boundary())
+        .map_err(|e| format!("config.yaml: {e}"))
 }
 
 /// The desktop side: a `transport-daemon` in an XDG home of its own,
