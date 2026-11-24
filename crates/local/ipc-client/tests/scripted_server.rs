@@ -1329,7 +1329,7 @@ async fn an_endpoint_row_is_read_only_in_the_shape_three_zero_serves() {
             server
                 .write(
                     &json!({"type": "response", "id": request.id.as_str(), "ok": true,
-                    "result": {"endpoints": [{"id": HUMAN, "enabled": false,
+                    "result": {"endpoints": [{"id": HUMAN, "source": "authored", "advertise": false, "enabled": false,
                         "default": false, "persisted": persisted}]}}),
                 )
                 .await;
@@ -1352,7 +1352,7 @@ async fn an_endpoint_row_is_read_only_in_the_shape_three_zero_serves() {
                 server
                     .write(
                         &json!({"type": "response", "id": request.id.as_str(), "ok": true,
-                        "result": {"endpoints": [{"id": HUMAN, "enabled": false,
+                        "result": {"endpoints": [{"id": HUMAN, "source": "authored", "advertise": false, "enabled": false,
                             "default": false, "persisted": persisted}]}}),
                     )
                     .await;
@@ -1915,6 +1915,152 @@ async fn session_losses_is_sent_at_three_zero() {
         Ok(interweave_local_client_api::SessionLosses {
             queue_overflow: 2,
             ingress_refused: 7,
+        })
+    );
+}
+
+/// One exchange of `the_endpoint_set_methods_round_trip`: the request's
+/// method and params, answered `ok` with `result`, or with the error
+/// `code` when one is given.
+async fn exchange(
+    server: &mut Server,
+    result: serde_json::Value,
+    code: Option<&str>,
+) -> (String, serde_json::Value) {
+    let Some(Frame::Request(request)) = server.read().await else {
+        panic!("a request");
+    };
+    let params = request
+        .params
+        .as_ref()
+        .map_or(serde_json::Value::Null, |p| {
+            serde_json::from_str(p.get()).expect("json")
+        });
+    let reply = match code {
+        Some(code) => json!({"type": "response", "id": request.id.as_str(), "ok": false,
+            "error": {"code": code}}),
+        None => json!({"type": "response", "id": request.id.as_str(), "ok": true,
+            "result": result}),
+    };
+    server.write(&reply).await;
+    (request.method.clone(), params)
+}
+
+/// The endpoint set's four methods (IPC 3.0) round trip: each sends its
+/// method with its params and reads its result back -- a refusal as the
+/// answer naming its rule, never an error; an error frame as the error.
+#[tokio::test]
+async fn the_endpoint_set_methods_round_trip() {
+    use interweave_local_client_api::{
+        AdminBinding as _, AdminCapability, AdminPort as _, AliasChange, AliasRefusal,
+        EndpointAddChange, EndpointAddRefusal, EndpointRemoveChange,
+    };
+    use interweave_transport_api::{EndpointId, TransportError};
+    let script = Script::new();
+    let (admin, mut server) = tokio::join!(
+        script.binding.admin([AdminCapability::Endpoints].into()),
+        async {
+            let (mut server, _) = admin_hello(&script).await;
+            admin_response(&mut server, 0, &["admin.endpoints"]).await;
+            server
+        }
+    );
+    let admin = admin.expect("a port");
+    let human = EndpointId::parse_derived(HUMAN).expect("derived");
+    let key = format!("{HUMAN}.key");
+
+    let (added, sent) = tokio::join!(
+        admin.add_endpoint(key.clone(), "work".into(), vec!["human-client".into()]),
+        exchange(
+            &mut server,
+            json!({"outcome": "added", "endpoint": HUMAN}),
+            None
+        )
+    );
+    assert_eq!(added, Ok(EndpointAddChange::Added(human.clone())));
+    assert_eq!(
+        sent,
+        (
+            "admin.endpoints.add".to_owned(),
+            json!({"key": key, "alias": "work", "allowed_client_kinds": ["human-client"]})
+        )
+    );
+    let (refused, _) = tokio::join!(
+        admin.add_endpoint(key.clone(), "work".into(), vec![]),
+        exchange(
+            &mut server,
+            json!({"outcome": "refused", "refused": "key_missing", "detail": "gone"}),
+            None
+        )
+    );
+    assert_eq!(
+        refused,
+        Ok(EndpointAddChange::Refused {
+            reason: EndpointAddRefusal::KeyMissing,
+            detail: "gone".into()
+        })
+    );
+
+    let (removed, sent) = tokio::join!(
+        admin.remove_endpoint(human.clone()),
+        exchange(
+            &mut server,
+            json!({"outcome": "removed", "revoked_epoch": "AAAAAAAAAAAAAAAA"}),
+            None
+        )
+    );
+    assert_eq!(
+        sent,
+        (
+            "admin.endpoints.remove".to_owned(),
+            json!({"endpoint": HUMAN})
+        )
+    );
+    assert!(matches!(
+        removed,
+        Ok(EndpointRemoveChange::Removed {
+            revoked_epoch: Some(_)
+        })
+    ));
+    let (unknown, _) = tokio::join!(
+        admin.remove_endpoint(human.clone()),
+        exchange(&mut server, json!(null), Some("EndpointUnknown"))
+    );
+    assert_eq!(unknown, Err(TransportError::EndpointUnknown));
+
+    let (advertised, sent) = tokio::join!(
+        admin.set_endpoint_advertise(human.clone(), true),
+        exchange(&mut server, json!({}), None)
+    );
+    assert_eq!(advertised, Ok(()));
+    assert_eq!(
+        sent,
+        (
+            "admin.endpoints.set_advertise".to_owned(),
+            json!({"endpoint": HUMAN, "advertise": true})
+        )
+    );
+
+    let (renamed, sent) = tokio::join!(
+        admin.set_endpoint_alias(human.clone(), "office".into()),
+        exchange(
+            &mut server,
+            json!({"outcome": "refused", "refused": "authored"}),
+            None
+        )
+    );
+    assert_eq!(
+        sent,
+        (
+            "admin.endpoints.set_alias".to_owned(),
+            json!({"endpoint": HUMAN, "alias": "office"})
+        )
+    );
+    assert_eq!(
+        renamed,
+        Ok(AliasChange::Refused {
+            reason: AliasRefusal::Authored,
+            detail: String::new()
         })
     );
 }
