@@ -1584,6 +1584,48 @@ async fn a_busy_starts_try_again_reaches_the_platform_once() {
     );
 }
 
+/// `Refused`'s Try again (identity note §6, An answer after the bound)
+/// reaches the platform as `IdStartBusy`'s does: nothing while no notice
+/// shows, one start per answer and never the facade, none while that
+/// start runs, and one again once it is refused the same way.
+///
+/// Mutation: `command_for`'s `RetryStart` arm not marking the start
+/// asked (two asks), or the model's `offers` not reading the refused
+/// notice (no start), fails here.
+#[tokio::test]
+async fn a_refused_starts_try_again_reaches_the_platform_once() {
+    use interweave_human_ui_model::{SessionNotice, StartBusy};
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut alice, opened) = Root::new(facade(&a, memory()));
+    alice.settled(0).await;
+    alice.will(vec![ViewEvent::Intent(Intent::RetryStart)]);
+    alice.pump(1).await;
+    assert!(opened.0.borrow().is_empty(), "no notice: nothing asked");
+    alice.model.start_refused(Some(StartBusy::Shown));
+    alice.will(vec![
+        ViewEvent::Intent(Intent::RetryStart),
+        ViewEvent::Intent(Intent::RetryStart),
+    ]);
+    alice.pump(2).await;
+    assert_eq!(*opened.0.borrow(), [START_RETRIED], "one start");
+    assert!(alice.commands.is_empty(), "{:?}", alice.commands);
+    assert_eq!(
+        alice.model().session_notice(),
+        Some(SessionNotice::StartRefused(StartBusy::Starting))
+    );
+    alice.will(vec![ViewEvent::Intent(Intent::RetryStart)]);
+    alice.pump(3).await;
+    assert_eq!(*opened.0.borrow(), [START_RETRIED], "none while it runs");
+    alice.model.start_refused(Some(StartBusy::Shown));
+    alice.will(vec![ViewEvent::Intent(Intent::RetryStart)]);
+    alice.pump(4).await;
+    assert_eq!(
+        *opened.0.borrow(),
+        [START_RETRIED, START_RETRIED],
+        "refused again: Try again again"
+    );
+}
+
 /// A session ready reads the trust and address lists once, for the
 /// no-reach notice, and both are read in. (A runtime without the address
 /// methods is the facade's own test: `a_runtime_without_the_methods_is_incompatible`.)

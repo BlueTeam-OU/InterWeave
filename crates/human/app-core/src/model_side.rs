@@ -73,12 +73,15 @@ pub trait Opener {
     fn unlock_line_seen(&mut self, _start: u64) {}
 
     /// Make one service start for the notice of a start refused with the
-    /// profile in use (`SessionNotice::StartBusy`), by the path a granted
-    /// Unlock uses (design/2026-10-19-android-identity.md §11d, Q12).
-    /// Raised only while the model offers it -- the notice shows and no
-    /// start for it runs -- so at most once per answer; a platform that
-    /// never says the notice never raises it
-    /// (`a_busy_starts_try_again_reaches_the_platform_once`).
+    /// profile in use (`SessionNotice::StartBusy`), or of a start that
+    /// compared with C4's `PeerId` and was refused after the bound
+    /// (`SessionNotice::StartRefused`), by the path a granted Unlock uses
+    /// (design/2026-10-19-android-identity.md §11d, Q12; §6, An answer
+    /// after the bound). Raised only while the model offers it -- either
+    /// notice shows and no start for it runs -- so at most once per
+    /// answer; a platform that never says either notice never raises it
+    /// (`a_busy_starts_try_again_reaches_the_platform_once`,
+    /// `a_refused_starts_try_again_reaches_the_platform_once`).
     fn retry_start(&mut self) {}
 }
 
