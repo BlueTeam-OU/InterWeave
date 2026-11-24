@@ -1290,9 +1290,9 @@ that a PeerId was created.
   before the bound to a PeerId other than C4's, Chats opens, and
   `Refused` shows there. `LockHeld` keeps its own row, the profile-in-use
   row, and a cancelled or denied prompt keeps the Authentication needed
-  row. Where focus goes when Chats opens in this way, and what such a
-  start shows when it is answered `RecoveryRequired` before the
-  bound, are not specified yet (Q18, §11f).
+  row. Where focus goes when Chats opens in this way, and what the
+  app shows when such a start is answered `RecoveryRequired` before
+  the bound, are not specified yet (Q18, §11f).
 - **The comparison outlasts the bound.** Until a start
   opens the record to C4's PeerId, until the person presses R4's
   Continue after K1 (below), or until the process ends, every
@@ -1348,8 +1348,9 @@ that a PeerId was created.
   K1: an answer of
   `Unavailable` or a mismatch opens Chats, and `Refused` shows there;
   `LockHeld` keeps the profile-in-use row, and a cancelled or denied
-  prompt keeps the Authentication needed row; what an answer of
-  `RecoveryRequired` shows there is not specified yet (Q18). To end
+  prompt keeps the Authentication needed row. What the app shows when
+  the start of that Continue is answered `RecoveryRequired` before
+  the bound is not specified yet (Q18). To end
   the comparison there, the notice would have
   to say that the words written down on C4 do not restore the PeerId
   below it, and
@@ -3522,13 +3523,14 @@ here; the first was already answered on this branch.
   the bound). Second, what the app shows when a compared start from
   those screens answers `RecoveryRequired` before the bound; no row of
   §6 describes that case. Third, a run of acceptance 12 that walks
-  Back on R2 after K1 after a check that did not open R4, with a
-  check that showed `IdStorageUnknown` as its first case, since after
-  that check the restored PeerId may have been saved. The first two are reachable only when
+  Back on R2 after K1 after a check that did not open R4. That run's
+  first case is a check that showed `IdStorageUnknown`, because after
+  that check the restored PeerId may have been saved. Of the three
+  open things, the first two are reachable only when
   another writer changes the record, like `IdRestoreOther` on R2
   after K1; the third is reachable on any build. Until Q18 is
   answered, a build is not checked on the first two, and §6 states
-  the rule that the third run would check.
+  the rule that the third item's run would check.
 
 ## 12. Deliberately left out
 
