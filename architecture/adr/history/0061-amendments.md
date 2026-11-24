@@ -99,3 +99,151 @@ Decision 1 named the first identity as the profile's "authored human endpoint (`
 ### Amendment 2026-11-22 — A removal that is a replacement keeps the list of routes to share the new card with
 
 Decision 7's Remove deletes an added identity's conversations, contacts and card, and (A 2026-11-04) the client keeps no record of removals. ADR-0067 decision 5 removes an added identity whose key is lost once its replacement exists, and the replacement's design needs two records that sentence seemed to forbid: which identity the new one replaces, so that a replacement cut between its steps is finished and never repeated into a third identity, and the list of conversations to share the new card in, whose source rows the Remove deletes. Both are allowed as bounded: the replaces record exists only while both identities do and is deleted with the removed one; the list is remote routes alone, held by the new identity, and the Remove's confirmation says it is kept, since the confirmation is the list of what goes. See ADR-0067's note of the same day for the reason.
+
+### Amendment 2026-11-23 — Remove has one order, and the administrative remove is last
+
+Decision 7 listed what Remove takes and fixed no order. ADR-0063
+decision 2 had put the key path first that day, and said a failure
+after it leaves the identity listed, to be finished by Remove again.
+The second review of InterWeave #751 found that false once the
+administrative remove has committed (F7): the endpoint is gone, so the
+identity is, and a connection lost after the commit, or a store
+deletion that failed after it, left rows or a report of failure for an
+identity no list showed. Ruled by architect-cto on ux-designer-01's
+proposal: the key path, the platform key, the store's rows, then the
+administrative remove last. Every failure before that remove commits
+then leaves the endpoint configured, so the identity is listed, the
+person is told what was removed, and Remove again completes; the one
+state after a commit is a lost answer, which the client reads back
+from `admin.endpoints.list`, as the add's is: the id absent is Remove
+done, and the id present, or a list that does not answer, is a Remove
+that did not finish. A remove of an id no entry holds is the daemon's
+`EndpointUnknown` in the method's contract text, read as done once the
+list confirms it.
+
+One constraint comes with the order. The endpoint keeps its lease
+until the remove commits, so a message could arrive after the store's
+rows were deleted; were it stored and the remove then committed, the
+store would hold rows of an identity no list shows. So the client
+admits nothing to its store for that identity from the deletion until
+Remove completes or the client next starts. That also covers ADR-0028's
+overlay left ahead of the runtime: the remove is answered `Internal`,
+the identity is still served until the next start and gone after it,
+and nothing of it is left by then. How the client declines, and what
+the sender is answered, is rust-ui-dev's to build inside the
+contracts, and theirs to report if no mechanism holds it. Rejected:
+the remove before the store's deletion, which leaves rows of an
+identity no screen shows whenever the deletion fails. As this was
+ruled, Remove was not built and `admin.endpoints.remove` was not on
+`main`.
+
+Propagation: decision 7; ADR-0063 decision 2 with its note, log row
+and digest entry; this note; the log row; the digest entry. The design
+notes (identities section 7 and its acceptance, contact-cards 5.2)
+follow on #751.
+
+### Amendment 2026-11-24 — An unfinished Remove needs no special case: rows follow the endpoint and the key
+
+The third review of InterWeave #751 found the amendment of 2026-11-23
+wrong in its clause for ADR-0028's overlay left ahead (F10), and
+ux-designer-01 showed why in three parts, each read against the tree
+before this ruling. The client could not tell that case from a write
+that failed: the composition answered `Internal` for both. On the
+desktop the client's start is not the daemon's, so a window that ended
+"when the client next starts" ended while the daemon still served the
+endpoint; rows arrived again, and at the daemon's start the endpoint
+went and left rows of an identity no list showed, the state the note
+above rejects. And `admin.endpoints.list` answered the runtime's view,
+so while the overlay was ahead the read-back found the id present and
+Remove again could not complete before the daemon started again.
+
+Ruled by architect-cto on ux-designer-01's four-part proposal, with
+one condition added to its third part:
+
+1. The overlay left ahead is no case of its own. Every failure of the
+   administrative remove, `Internal` included, is a Remove that did
+   not finish.
+2. The no-admission window is the running client's: it ends when
+   Remove completes, when a list that answered does not hold the id,
+   or with the client's process. No mark is stored, so the client
+   still keeps no record that a Remove began (A 2026-11-04 for
+   removals). After a restart the identity receives as any identity
+   whose key is missing does, and part 3 is what leaves nothing.
+3. At its start, after every reconnection to the daemon and whenever
+   `admin.endpoints.list` answers, the client deletes the store rows
+   of an identity whose EndpointId the list does not hold and whose
+   key path holds no key file. Nothing is deleted on a list that
+   failed. The condition on the key is the addition: rows are deleted
+   because the identity cannot come back (an EndpointId is derived
+   from its key, ADR-0067 decision 2), not because one list lacked an
+   id. An endpoint taken out of the configuration by other hands, its
+   key still on disk, can be configured again, and its rows are left.
+   Remove takes the key path first, so every Remove this decision
+   describes meets the condition.
+4. While the overlay is ahead the list still holds the id, and Remove
+   again ends not finished each time; the identity goes at the
+   daemon's next start, by part 3 with nothing of it left.
+
+The same review asked whether a remove the client stopped waiting for
+commits before any later answer or never (F12). It does not, and
+neither does the add: `LOCAL-IPC.md` (A 2026-10-23) says a lost admin
+write may follow a later read, and the endpoint set's methods are not
+ordered by connection. So the id present after a lost answer is a
+Remove not known to have finished, and the words shown for it must
+stay true if the identity goes a moment later. A remove applied late
+is the remove the person confirmed; part 3 takes the identity from
+the list at the next answer. What the add leans on instead is its own
+refusal: an add applied after the client deleted the key file is
+refused `key_missing`.
+
+Rejected: a distinct answer for the overlay left ahead, which would
+give the client a state it can do nothing with before the daemon
+starts again; a stored mark that a Remove began, which part 3 makes
+unnecessary; and deleting rows on the list alone, which turns an
+edit of the configuration into the loss of an identity's
+conversations while its key still exists. As this was ruled, Remove
+was not built and `admin.endpoints.remove` was not on `main`.
+
+The fourth review of #751 found part 4 not carried through (F10,
+again). Decision 7's earlier clause still said a Remove that stops
+before the remove commits "is finished by Remove again", the digest
+entry said "Remove again finishes it", and ADR-0063 decision 2, which
+this note had left unchanged, said Remove "stays offered and
+completes". Each was true of every failure but the overlay left
+ahead, where part 4 says Remove again ends not finished each time.
+Each of the three now names that exception and what finishes the
+Remove there, the daemon's next start. Nothing in the ruling changed.
+
+Propagation: decision 7; this note; the log row; the digest entry.
+ADR-0063 decision 2 was left unchanged as this was first written, and
+gained the exception on the fourth review, with its note, log row and
+digest entry. `LOCAL-IPC.md`'s remove text, not
+on `main`, gains the reading of a remove while the overlay is ahead
+and of one applied late, on its own supply. The design notes
+(identities sections 1 and 7 and acceptance 13) follow on #751.
+
+### Amendment 2026-11-24 — The add, remove and set_advertise methods are IPC 3.0 methods, not a minor (ii)
+
+Decision 2 said the administrative methods that add a configured
+endpoint, remove an added one and set an endpoint's `advertise` come
+"under ADR-0017's minor rule". It was written on 2026-10-21, when the
+IPC was major 2 and three new methods would have been a minor of it.
+ADR-0067 decision 7 then moved the IPC to major 3 in the Stage 22
+release, and `LOCAL-IPC.md` §Version negotiation and phases states the
+major's rule: no production build speaks major 3 before that release
+is tagged, so a method the stage adds is a 3.0 method and
+`IPC_MAX_MINOR` is 0 at the release. ADR-0067's note of 2026-11-19
+corrected the same phrase for the trust methods' endpoint dimension
+and did not reach this record; the review of the Stage 22 batch found
+the two texts apart (p2p-network-dev-01, 2026-11-24). Decision 2 now
+names IPC 3.0 and the pre-release rule. What follows for a builder:
+no client gates the three methods on a minor, a mirror that did would
+refuse them to every 3.0 connection, and the release is not tagged
+with any of them missing, since a build that spoke 3.0 without them
+would leave them to arrive as 3.1. Nothing else a reader was told to
+build changes: the methods, their capability and their overlay are as
+decided. The history notes of ADR-0028 that call these methods "an
+IPC minor under ADR-0017" stand as written, being what was true on
+their day. Propagation: decision 2; this note; the log row; this
+record's digest entry and ADR-0028's, which carried the same phrase;
+plan §30 Activate.
