@@ -43,6 +43,13 @@ internal object Native {
      */
     const val REFUSED_USER_NOT_AUTHENTICATED = -10
 
+    /**
+     * start's refusal with the profile in use (the runtime's `LockHeld`):
+     * a return or a recreation retries it (identity note section 6), and
+     * the window shows `IdStartBusy` with Try again.
+     */
+    const val REFUSED_LOCK_HELD = -14
+
     /** startWithoutNetwork's answer: the posture runs. */
     const val NETWORK_DENIED = 2
 
@@ -169,7 +176,11 @@ internal object Native {
      * already running is asked nothing. When the person must authenticate,
      * the native side asks the prompt ([Ask.UNLOCK]) or focuses the locked
      * notice itself; a prompt it asked for a refused start in this showing,
-     * not yet answered, answers the check too.
+     * not yet answered, answers the check too. While an identity flow
+     * lives -- in the window, or kept from the window a recreation ended
+     * -- the record is not read and the flow answers: [IDENTITY_FLOW]
+     * (4) before its screen shows a service start, [IDENTITY_FLOW_STARTED]
+     * (5) while it does.
      */
     @JvmStatic external fun identityState(appDataDir: String, ready: Boolean): Int
 
@@ -183,6 +194,27 @@ internal object Native {
      * of the prompt the native side asks binds or restarts the service.
      */
     const val IDENTITY_AUTHENTICATION_NEEDED = 3
+
+    /**
+     * An identity flow shows -- in the window, or kept from the window a
+     * recreation ended, for this one -- and its screen shows no service
+     * start: set `FLAG_SECURE`, and bind or start nothing, as for the
+     * identity screens of a first run. The record is not read: the flow
+     * decides it.
+     */
+    const val IDENTITY_FLOW = 4
+
+    /**
+     * An identity flow shows -- in the window, or kept from the window a
+     * recreation ended, for this one -- and asked its service start (a
+     * held C4 or R4, R2 or R3 held after `IdRestoreOther`'s Continue, or
+     * `IdStartBusy` on C4, R4, R3 or R2 after K1): set
+     * `FLAG_SECURE`, then decide a start as for [IDENTITY_READY], a busy
+     * or locked one retried and one running left alone (identity note
+     * section 6, A return to a screen showing `IdStartBusy`). A flow whose
+     * screen shows no start answers [IDENTITY_FLOW].
+     */
+    const val IDENTITY_FLOW_STARTED = 5
 
     /**
      * The identity screens' next ask of the Activity ([Ask]) in its low
@@ -215,6 +247,23 @@ internal object Native {
     @JvmStatic external fun settingsReturned()
 
     /**
+     * The PeerId an identity screen's Copy asked to put on the clipboard
+     * under [mark] ([Ask.CLIP_COPY]), taken once; empty when a later copy
+     * replaced it. Never waits.
+     */
+    @JvmStatic external fun peerIdClip(mark: Long): String
+
+    /**
+     * The removal of the copy marked [mark] ([Ask.CLIP_REMOVE]) found the
+     * window unfocused, the device locked, or no clip description from
+     * the platform: it waits again. Never waits.
+     */
+    @JvmStatic external fun peerIdRemovalDeferred(mark: Long)
+
+    /** `KeyguardManager.isDeviceLocked`, read again. Never waits. */
+    @JvmStatic external fun deviceLocked(locked: Boolean)
+
+    /**
      * The photo picker's answer to [Ask.PICK_PHOTO]'s request: empty when
      * what was chosen could not be opened, null when nothing was chosen.
      */
@@ -242,8 +291,19 @@ internal object Native {
     /** An Activity's window started (true) or stopped (false) showing. */
     @JvmStatic external fun shown(shown: Boolean)
 
+    /**
+     * The Activity's onDestroy, before super.onDestroy(): whether it is
+     * [finishing] -- isFinishing and not changing configurations. An
+     * identity flow its window showed ends at a finish, and is kept for
+     * the next window otherwise (onboard.rs, window_ended).
+     */
+    @JvmStatic external fun windowEnding(finishing: Boolean)
+
     /** The Activity was created anew -- a launch -- not recreated in this process. */
     @JvmStatic external fun launched()
+
+    /** The showing onStart began starts the service again, right after this call (onStart decides it). */
+    @JvmStatic external fun showingStarts()
 
     /** The person's network grant restarts the service: a lock then prompts. */
     @JvmStatic external fun restartAsked()
@@ -277,6 +337,13 @@ internal object Ask {
     // K1 raised over a running window: FLAG_SECURE on before R2 can draw
     // a word, off by SECURE_OFF as at a launch.
     const val SECURE_ON = 16
+    // Copy PeerId on an identity screen: Native.peerIdClip(arg) on the
+    // clipboard, the mark arg in the clip's label (identity note 5, 6).
+    const val CLIP_COPY = 17
+    // IdAlreadyCreated after that copy: the clip cleared if its
+    // description's label still carries the mark arg, its content never
+    // read (identity note 6).
+    const val CLIP_REMOVE = 18
 
     // The bits of a waited ask that name it: src/ask_word.rs's ASK_BITS,
     // which its test holds to this line.

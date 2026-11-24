@@ -22,7 +22,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use interweave_human_app_core::{Command, Update};
-use interweave_human_ui_model::UnlockFacts;
+use interweave_human_ui_model::{StartBusy, UnlockFacts};
 
 use crate::notice::Notices;
 
@@ -73,6 +73,20 @@ pub enum ToView {
     /// sections 3 and 4): sent at an attach once said, and at every
     /// change.
     Unlock(UnlockSaid),
+    /// `IdStartBusy` as a session notice, as the process holds it: shown
+    /// from a start refused with the profile in use until any other
+    /// answer, and whether a start for it runs (identity note §6, A start
+    /// refused with the profile in use after the bound). Sent at an
+    /// attach and at every change, so a reattach -- a foreground-only
+    /// return -- shows it, and the return's start with it.
+    StartBusy(Option<StartBusy>),
+    /// `Refused` as a session notice, as the process holds it: shown from
+    /// a start that compared with C4's `PeerId` and was refused -- another
+    /// `PeerId`, or a refusal that says nothing of the record -- until
+    /// any other answer, and whether a start for it runs (identity note
+    /// §6, An answer after the bound). Kept and sent as
+    /// [`Self::StartBusy`] is.
+    StartRefused(Option<StartBusy>),
 }
 
 /// The unlock note's facts with the start they are from and whether its
@@ -100,6 +114,13 @@ pub enum StoreAnswer {
     /// identity, the runtime, the profile, the endpoint -- so nothing says
     /// the store opened (#377 review r3, pre-existing).
     OtherRefusal,
+    /// The runtime refused the start with the profile in use
+    /// (`EmbeddedRefused::LockHeld`): a refusal no store screen shows,
+    /// told apart from [`Self::OtherRefusal`] because nothing retries it
+    /// while the person stays, so the window says so and offers Try again
+    /// (`IdStartBusy`, design/2026-10-19-android-identity.md §6 and §11d
+    /// Q12).
+    ProfileBusy,
     /// The start was refused until the person authenticates
     /// (`UserNotAuthenticated`): the store was not reached, and the next
     /// start the person's Unlock runs may open it. A discard's notice
@@ -169,6 +190,10 @@ struct Slot {
     generation: StoreGeneration,
     /// The unlock facts, once said.
     unlock: Option<UnlockSaid>,
+    /// `IdStartBusy`'s notice, as [`ToView::StartBusy`] says it.
+    busy: Option<StartBusy>,
+    /// `Refused`'s, as [`ToView::StartRefused`] says it.
+    refused: Option<StartBusy>,
 }
 
 impl Default for Slot {
@@ -182,6 +207,8 @@ impl Default for Slot {
             store: None,
             generation: StoreGeneration::default(),
             unlock: None,
+            busy: None,
+            refused: None,
         }
     }
 }
@@ -387,6 +414,12 @@ impl Hub {
         }
         if let Some(unlock) = slot.unlock {
             viewer.send(ToView::Unlock(unlock));
+        }
+        if slot.busy.is_some() {
+            viewer.send(ToView::StartBusy(slot.busy));
+        }
+        if slot.refused.is_some() {
+            viewer.send(ToView::StartRefused(slot.refused));
         }
         slot.viewer = Some(viewer);
         ViewLink {
@@ -698,12 +731,80 @@ impl Hub {
     /// under the start lock (`ServiceHost`), so the count orders answers
     /// against a discard.
     pub(crate) fn set_store_answer(&self, answer: StoreAnswer) {
+        self.answer(answer, false);
+    }
+
+    /// [`set_store_answer`](Self::set_store_answer) of
+    /// [`StoreAnswer::OtherRefusal`] by a start that compared with C4's
+    /// `PeerId` and was refused (identity note §6, An answer after the
+    /// bound): `Refused` shows, with Try again enabled, until another
+    /// answer takes it away.
+    pub(crate) fn set_compared_refusal(&self) {
+        self.answer(StoreAnswer::OtherRefusal, true);
+    }
+
+    fn answer(&self, answer: StoreAnswer, compared: bool) {
         let mut slot = self.slot();
         slot.store = Some(answer);
         slot.generation = StoreGeneration(slot.generation.0 + 1);
         let generation = slot.generation;
         if let Some(viewer) = slot.viewer.as_ref()
             && !viewer.send(ToView::Store(answer, generation))
+        {
+            slot.viewer = None;
+        }
+        // Every answer ends the start the notice waited on: refused with
+        // the profile in use again, it shows with Try again enabled;
+        // anything else takes it away (identity note §6, Its results; How
+        // long).
+        let busy = (answer == StoreAnswer::ProfileBusy).then_some(StartBusy::Shown);
+        Self::say_busy(&mut slot, busy);
+        Self::say_refused(&mut slot, compared.then_some(StartBusy::Shown));
+    }
+
+    /// A start was asked, `for_notice` when it is one `IdStartBusy`
+    /// waits on: its Try again, or a return's retry while it shows
+    /// (identity note §6, Try again; A return or a recreation). Its notice
+    /// then stays, its start running, until that start answers. Any other
+    /// start -- a launch, a held identity screen's -- takes the notice
+    /// away: a new launch shows its own start's answer, never this
+    /// notice, and a held screen shows its own (§6, How long). Nothing
+    /// changes for a retry asked while no notice shows.
+    pub fn start_asked(&self, for_notice: bool) {
+        let mut slot = self.slot();
+        let running = |shown: Option<StartBusy>| match (for_notice, shown) {
+            (true, Some(_)) => Some(StartBusy::Starting),
+            (true, None) | (false, _) => None,
+        };
+        let busy = running(slot.busy);
+        Self::say_busy(&mut slot, busy);
+        // `Refused`'s Try again is the same one start (§6, The comparison
+        // outlasts the bound).
+        let refused = running(slot.refused);
+        Self::say_refused(&mut slot, refused);
+    }
+
+    /// `refused`, kept and said to the attached view when it changed.
+    fn say_refused(slot: &mut MutexGuard<'_, Slot>, refused: Option<StartBusy>) {
+        if slot.refused == refused {
+            return;
+        }
+        slot.refused = refused;
+        if let Some(viewer) = slot.viewer.as_ref()
+            && !viewer.send(ToView::StartRefused(refused))
+        {
+            slot.viewer = None;
+        }
+    }
+
+    /// `busy`, kept and said to the attached view when it changed.
+    fn say_busy(slot: &mut MutexGuard<'_, Slot>, busy: Option<StartBusy>) {
+        if slot.busy == busy {
+            return;
+        }
+        slot.busy = busy;
+        if let Some(viewer) = slot.viewer.as_ref()
+            && !viewer.send(ToView::StartBusy(busy))
         {
             slot.viewer = None;
         }
@@ -1111,8 +1212,7 @@ mod tests {
             row: interweave_human_core::RowId::from_stored(1),
             origin: Origin::Direct {
                 peer,
-                endpoint: interweave_transport_api::EndpointId::parse("human")
-                    .expect("an endpoint"),
+                endpoint: interweave_test_support::endpoint_keys::endpoint_id("human"),
             },
             envelope: HumanChatV2 {
                 v: 2,

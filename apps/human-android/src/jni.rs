@@ -13,10 +13,11 @@ use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
     EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, Resealed, ServiceHost,
     ServiceLaunch, StartRefused, Started, Told, Transports, UnlockStatus, addresses_from_wire,
-    locked_status, start_resealed,
+    locked_status, start_resealed, start_resealed_expecting,
 };
-use interweave_human_ui_model::{UiText, fill, placeholder_en};
+use interweave_human_ui_model::{UiText, UncheckedRefused, fill, placeholder_en};
 use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
+use interweave_transport_api::TransportIdentity;
 use jni::{Env, EnvUnowned};
 
 use crate::keystore::{KeystoreCipher, StoreKeystore};
@@ -52,6 +53,18 @@ mod refused {
     /// The Keystore invalidated the store key (ADR-0060 decision 6): the
     /// window shows the key-lost screen.
     pub(super) const STORE_KEY_INVALIDATED: jint = -13;
+    /// Native.kt's `REFUSED_LOCK_HELD`: the runtime refused the start with
+    /// the profile in use (`EmbeddedRefused::LockHeld`). A return or a
+    /// recreation retries it (identity note section 6, A return or a
+    /// recreation); the window's notice is `IdStartBusy`, told apart by
+    /// the hub's `StoreAnswer::ProfileBusy`.
+    pub(super) const LOCK_HELD: jint = -14;
+    /// The record opened to another `PeerId` than C4's
+    /// (`IdentityRefused::NotExpected`): nothing runs, and the held C4
+    /// answers it (identity note section 6, A start from C4 after a
+    /// failed read-back). Native.kt names no constant for it: the Service
+    /// answers it as any refusal it does not tell apart.
+    pub(super) const NOT_EXPECTED: jint = -15;
 }
 
 /// One line to the platform's log, under the app's tag. A started
@@ -147,10 +160,14 @@ extern "system" fn JNI_OnLoad(
 /// -- or the refusal code of why there is none, after logging it, with
 /// what the refused start learnt of the policy in force. A first run is
 /// provisioned here in the debug build alone (android-platform's
-/// `identity`); a release first run is onboarding's.
+/// `identity`); a release first run is onboarding's. A start told to
+/// `expect` a `PeerId` -- C4's `IdStartUnchecked` -- is refused before
+/// the reseal when the record opens to another, and provisions nothing
+/// in any build (android-platform's `start_resealed_expecting`).
 fn identity(
     env: &mut Env<'_>,
     app_data_dir: &str,
+    expect: Option<&TransportIdentity>,
 ) -> Result<Started, (jint, Learnt, IdentityRefused)> {
     let cipher = KeystoreCipher::new(env).map_err(|e| {
         log(&format!("the Keystore cipher could not be reached: {e}"));
@@ -172,9 +189,10 @@ fn identity(
     // The reseal runs before the host takes the profile's lock: one log
     // line when it did something or could not, never a word to the
     // person but the status.
-    let resealed = match crate::identity_hook::take() {
-        Some(why) => Err(why),
-        None => start_resealed(dir, PROFILE, &cipher, first_run),
+    let resealed = match (crate::identity_hook::take(), expect) {
+        (Some(why), _) => Err(why),
+        (None, Some(expected)) => start_resealed_expecting(dir, PROFILE, &cipher, expected),
+        (None, None) => start_resealed(dir, PROFILE, &cipher, first_run),
     };
     let started = resealed.map_err(|why| {
         let unlock = (why == IdentityRefused::UserNotAuthenticated)
@@ -221,6 +239,7 @@ fn refused_identity(why: &IdentityRefused) -> jint {
         IdentityRefused::Paths(_)
         | IdentityRefused::Unavailable(_)
         | IdentityRefused::Provisioning(_) => refused::IDENTITY_UNAVAILABLE,
+        IdentityRefused::NotExpected(_) => refused::NOT_EXPECTED,
     }
 }
 
@@ -246,6 +265,7 @@ fn refusal(why: &StartRefused) -> jint {
     log(&format!("the network service did not start: {why:?}"));
     match why {
         StartRefused::Runtime(EmbeddedRefused::NetworkDenied(_)) => refused::NETWORK_DENIED,
+        StartRefused::Runtime(EmbeddedRefused::LockHeld(_)) => refused::LOCK_HELD,
         StartRefused::Runtime(_) => refused::RUNTIME,
         StartRefused::NoHumanEndpoint => refused::ENDPOINT,
         StartRefused::StoreNeedsRecovery => refused::STORE_RECOVERY,
@@ -253,6 +273,9 @@ fn refusal(why: &StartRefused) -> jint {
         StartRefused::StoreNotPrivate(_) => refused::STORE_PRIVATE,
         StartRefused::StoreUnavailable(_) => refused::STORE_UNAVAILABLE,
         StartRefused::Thread(_) => refused::THREAD,
+        // The first identity's key or form 2: retried at the next start,
+        // as an identity the record cannot give now is.
+        StartRefused::FirstIdentity(_) => refused::IDENTITY_UNAVAILABLE,
     }
 }
 
@@ -307,7 +330,10 @@ fn log_key_refused(host: &ServiceHost) {
     }
 }
 
-fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
+/// The start `Native.start` makes, told to `expect` a `PeerId` once C4's
+/// `IdStartUnchecked` was pressed in this process (onboard's
+/// `expected_start`).
+fn start(env: &mut Env<'_>, app_data_dir: &str, expect: Option<&TransportIdentity>) -> jint {
     // The debug build's start hook: a start that has not answered yet
     // (add-a-peer §8 item 12). Off the Service's main thread, as all of
     // this is.
@@ -322,11 +348,37 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     // The profile first: a first run's identity is provisioned under the
     // unlock policy it configures.
     if let Err(code) = provision(app_data_dir) {
+        // A refusal that says nothing of the record: a start that compares
+        // answers it as `Unavailable` (identity note section 6, Its
+        // results; An answer after the bound).
+        if let Some(answer) = crate::unchecked_start::unprovisioned_answer(expect) {
+            crate::onboard::unchecked_refused(answer);
+            ServiceHost::global().refused_compared(None, false);
+            return code;
+        }
         return refused_early(code);
     }
-    let started = match identity(env, app_data_dir) {
+    let started = match identity(env, app_data_dir, expect) {
         Ok(started) => started,
         Err((code, learnt, why)) => {
+            let answer = crate::unchecked_start::unchecked_answer(expect, &why, |cause| {
+                crate::onboard::recovery_start(std::path::Path::new(app_data_dir), cause)
+            });
+            // Another PeerId, or nothing said of the record: `Refused` with
+            // Try again on Chats once no flow screen shows (section 6, An
+            // answer after the bound). A C4 held for this start answers it
+            // first, and that screen's next ask takes the notice away
+            // (`Hub::start_asked`). K1 and the prompt answer the other two
+            // as for any start.
+            let compared = matches!(
+                answer,
+                Some(UncheckedRefused::OtherIdentity | UncheckedRefused::Unavailable)
+            );
+            // Before the hub hears the answer: the turn it wakes finds the
+            // held C4's answer there (onboard's `start_decided`).
+            if let Some(answer) = answer {
+                crate::onboard::unchecked_refused(answer);
+            }
             let host = ServiceHost::global();
             match learnt {
                 // The store was not reached and Unlock's start may open
@@ -334,7 +386,9 @@ fn start(env: &mut Env<'_>, app_data_dir: &str) -> jint {
                 Learnt::Status(unlock) if code == refused::USER_NOT_AUTHENTICATED => {
                     host.refused_locked(unlock);
                 }
+                Learnt::Status(unlock) if compared => host.refused_compared(unlock, true),
                 Learnt::Status(unlock) => host.refused_before_start_with(unlock),
+                Learnt::Nothing if compared => host.refused_compared(None, false),
                 Learnt::Nothing => host.refused_before_start(),
             }
             // K1 over whatever the window shows, as at a launch (identity
@@ -397,7 +451,13 @@ extern "system" fn Java_org_interweave_human_Native_start<'caller>(
 ) -> jint {
     env.with_env(|env| -> Result<jint, jni::errors::Error> {
         let app_data_dir = app_data_dir.try_to_string(env)?;
-        let code = start(env, &app_data_dir);
+        // What the process expects of every start since C4's
+        // `IdStartUnchecked` was pressed, read once so that the comparison
+        // and its answer below name the one PeerId (`ExpectedStart`).
+        let expect = crate::onboard::expected_start();
+        let code = start(env, &app_data_dir, expect.as_ref());
+        // Opened to that PeerId and running: no later start compares.
+        crate::onboard::expected_answered(expect.as_ref(), code >= 0);
         // What the start left of the unlock policy, whatever it answered
         // (unlock note section 3).
         ServiceHost::global().say_unlock(std::path::Path::new(&app_data_dir), PROFILE);
@@ -617,6 +677,60 @@ extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextIdentity<'call
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::identity_hook::arm();
         log("identity hook: the next start answers that recovery is required");
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `DebugHooks.answerNextSealAlreadyProvisioned()`, the debug build's hook
+/// for the Pixel 9a check of identity note section 10 item 18, armed from
+/// the launch's extras (`DebugHooks.fromLaunch`): C4's next seal is
+/// answered `AlreadyProvisioned`, nothing sealed, once. Debug only, as
+/// [`Java_org_interweave_human_DebugHooks_refuseNextStoreOpen`].
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_answerNextSealAlreadyProvisioned<
+    'caller,
+>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::seal_hook::arm();
+        log("seal hook: C4's next seal answers AlreadyProvisioned");
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `DebugHooks.refuseNextStartsBusy(starts)`, the debug build's hook for
+/// identity note section 9's acceptance 12 and 15 (`IdStartBusy`), armed
+/// from the launch's extras (`DebugHooks.fromLaunch`): each of the next
+/// `starts` service starts is refused with the profile in use
+/// (`EmbeddedRefused::LockHeld`) after its custody step, as a profile
+/// another host holds refuses it. With `holdStartMs` the refusal comes
+/// after the bound. Debug only, as
+/// [`Java_org_interweave_human_DebugHooks_refuseNextStoreOpen`].
+#[cfg(feature = "dev-stand-ins")]
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_DebugHooks_refuseNextStartsBusy<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    starts: jint,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        ServiceHost::global().refuse_next_starts_busy(u32::try_from(starts).unwrap_or(0));
+        log(&format!(
+            "busy-start hook: the next {starts} starts answer LockHeld"
+        ));
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();
@@ -998,6 +1112,43 @@ extern "system" fn Java_org_interweave_human_Native_shown<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
+/// `Native.windowEnding(finishing)`: the Activity's `onDestroy`, before
+/// its window's thread ends, says whether it is finishing.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_windowEnding<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    finishing: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::window_ending(finishing);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.showingStarts()`: the showing `onStart` began starts the
+/// service again, just after this returns.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_showingStarts<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::showing_starts();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `Native.launched()`: the Activity was created anew, not recreated.
 #[allow(
     unsafe_code,
@@ -1216,6 +1367,68 @@ extern "system" fn Java_org_interweave_human_Native_cameraClosed<'caller>(
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::activity::camera_closed();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.peerIdClip(mark)`: the `PeerId` an identity screen's Copy asked
+/// to put on the clipboard under `mark` (`ask::CLIP_COPY`), taken once;
+/// empty when a later copy replaced it.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_peerIdClip<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    mark: jlong,
+) -> JString<'caller> {
+    env.with_env(|env| -> Result<JString<'caller>, jni::errors::Error> {
+        let text =
+            u64::try_from(mark).map_or_else(|_| String::new(), |m| crate::activity::CLIP.take(m));
+        JString::from_str(env, text)
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `Native.peerIdRemovalDeferred(mark)`: the removal of the copy marked
+/// `mark` (`ask::CLIP_REMOVE`) found the window unfocused, the device
+/// locked, or no clip description from the platform, and waits again.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_peerIdRemovalDeferred<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    mark: jlong,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        if let Ok(mark) = u64::try_from(mark) {
+            crate::activity::peer_id_removal_deferred(mark);
+        }
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.deviceLocked(locked)`: `KeyguardManager.isDeviceLocked`, read
+/// again by the Activity.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_deviceLocked<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    locked: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::device_locked(locked);
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();

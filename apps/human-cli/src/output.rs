@@ -295,6 +295,7 @@ pub(crate) fn conversation(summary: &ConversationSummary, json: bool) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     #[test]
     fn a_field_never_splits_its_line() {
@@ -338,7 +339,7 @@ mod tests {
         .expect("a PeerId");
         let key = ConversationKey::Direct {
             peer,
-            endpoint: Some(interweave_transport_api::EndpointId::parse("human").expect("valid")),
+            endpoint: Some(endpoint_id("human")),
         };
         let mut model = UiModel::new();
         model.card_queued(
@@ -372,7 +373,7 @@ mod tests {
             "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
         )
         .expect("a PeerId");
-        let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
+        let human = endpoint_id("human");
         let key = ConversationKey::Direct {
             peer: peer.clone(),
             endpoint: Some(human.clone()),

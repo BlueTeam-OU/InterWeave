@@ -16,6 +16,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use interweave_claude_channel::host_input::MAX_HOST_LINE_BYTES;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use serde_json::Value;
 
 /// Generous against a loaded host; an answer to `ping` is immediate.
@@ -36,7 +37,7 @@ fn bridge(scratch: &std::path::Path) -> Child {
             "--profile",
             "host-line",
             "--endpoint",
-            "claude",
+            endpoint_id("claude").as_str(),
             "--delivery",
             "push",
         ])

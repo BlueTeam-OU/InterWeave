@@ -5,13 +5,14 @@ topic: "interweave-spec-prose-wording"
 description: "InterWeave design/ specs: English conventions for the prose (dates, stale references, test steps, acceptance items, defined terms)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 0cf3c82fae54a703
   - 69b7bf5976a078d5
 ---
 
@@ -29,8 +30,19 @@ InterWeave design/ specs: the prose's English, as set in language-culture's pass
 - A withheld swipe moves the pointer, not the row: a test "starts a right drag on the row" and "moves the pointer past the threshold"; never "drags the row" (#432, 64391450).
 - "once" closing a clause before a comma ("press X at the row once, open Y") reads as the conjunction "once [you] open"; write "a single time" (#513, 2026-10-30). In a spec that uses "page" for screens and for loads of rows, a load is "a page of older rows".
 - In a spec that defines "held" as "holds and shows", say a hidden row "stays in memory", never "is held", in the same sentence that counts it as not held (#518, 2026-10-31).
-Related: [[solution-carried-2026-10-10]]
+- A time window in a test step is "between <event noun> and <event noun>" ("between the clear of the log at the start of this step and R4's continue"). "after the log was cleared at the start of this step and before R4's continue" lets the second bound bind to the first clause's verb (#633, 3860f1db0, 2026-11-12).
+- One verb for two acts in one step reads as one act: "a failed clear of the marker" next to "the log was cleared". Name the marker's act by what the code does ("fails to remove the marker"), and keep "clear" for the log (#633, 3860f1db0).
+- A participle after a quoted text attaches to the quote: "a line containing `X` logged after ..." -> "a line that contains `X` and was logged ..." (#633, 3860f1db0).
+- "the identity note's marker" was ambiguous: design/2026-10-19-android-identity.md has two markers, the void-paper marker and the connect-owed marker. Name the marker every time (add-a-peer §5.1, j292, c0e25c5de, 2026-11-12).
+- A test step that holds a read back for N s is checked against the clock its rule counts from. In add-a-peer item 12, "held back 0.5 s, nothing shows" sits next to a 1 s that counts from the press and includes the service start. Ask the author about it; do not reword it (j292).
+- A test step that times something from an event (a grant, a seal's success) needs a trace line for that event. Check that item 12's dependency names one. If it does not, ask the author; do not add one (j297, 5819762fe: the grant).
+- A sighting cited by a time of day ("01:49 phone time") needs its date and its record file. Take the date from the record (the ux-designer thread file), and ask the author when the run crossed midnight (#659, 81ffb562b, 2026-11-13).
+- "the prompt cancelled leaves the screen X" reads as "goes away from X". Write "When the prompt is cancelled, X stays" (#659, 81ffb562b).
+- "left up" for a system prompt is an idiom. Write "stays on screen for N s and is then granted" (j297).
+Related: [[solution-carried-2026-10-10]] [[that-is-and-only-once]]
 
-*References: solution-carried-2026-10-10*
+*References: solution-carried-2026-10-10, that-is-and-only-once*
 
-*Observed 2026-11-03 (language-culture)*
+*Anchors: `design/2026-10-19-android-identity.md::fails to remove the marker`*
+
+*Observed 2026-11-13 (language-culture)*

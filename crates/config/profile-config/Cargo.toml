@@ -47,6 +47,17 @@ serde_json = { workspace = true }
 # owner-local profile document, capped at MAX_PROFILE_BYTES before
 # parsing.
 serde_norway = "0.9.42"
+# The endpoint key file (`endpoint_key.rs`, ADR-0067): an endpoint's
+# Ed25519 key pair minted at filesystem custody from the system's CSPRNG
+# (`rand`'s `SysRng`, never a seed), its secret zeroized on drop
+# (`zeroize`, and the signing key's own `zeroize` feature), and the IDK1
+# record's one base64 line. Each is the workspace's version the human
+# store already compiles, so no crate enters the graph; the human store
+# keeps the Keystore cipher. `legacy_compatibility` stays off.
+ed25519-dalek = { workspace = true, features = ["zeroize"] }
+rand = { workspace = true }
+base64 = { workspace = true }
+zeroize = { version = "1", default-features = false, features = ["alloc"] }
 
 # `O_NOFOLLOW` for the profile lock (`lock.rs`): its value differs by
 # ABI, and a hand-typed table got aarch64 wrong. Already in the graph
@@ -88,3 +99,7 @@ interweave-transport-runtime = { path = "../../transport/runtime" }
 # the protocol to learn a number, but the two copies must not drift.
 interweave-ipc-protocol = { path = "../../api/ipc-protocol" }
 tempfile = { workspace = true }
+# Deterministic TEST-ONLY endpoint keys and the derived ids they name
+# (ADR-0067), for the entries tests build. Without features, so it does
+# not depend back on this crate.
+interweave-test-support = { path = "../../../tests/support" }

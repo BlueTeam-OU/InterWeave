@@ -153,6 +153,16 @@
       "status": "approved"
     },
     {
+      "name": "trust-seed-params",
+      "file": "trust-seed-params.schema.json",
+      "status": "active"
+    },
+    {
+      "name": "trust-seed-result",
+      "file": "trust-seed-result.schema.json",
+      "status": "active"
+    },
+    {
       "name": "peer-list-params",
       "file": "peer-list-params.schema.json",
       "status": "approved"

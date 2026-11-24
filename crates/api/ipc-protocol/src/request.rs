@@ -14,7 +14,9 @@
 
 use std::collections::BTreeSet;
 
-use interweave_local_client_api::{AdminCapability, DataCapability, MAX_ADDRESSES_PER_ADD};
+use interweave_local_client_api::{
+    AdminCapability, DataCapability, MAX_ADDRESSES_PER_ADD, TrustDirection,
+};
 use interweave_transport_api::{
     ChannelId, EndpointId, MAX_PAYLOAD_BYTES, MessageId, Payload, TransportError, TransportIdentity,
 };
@@ -139,7 +141,7 @@ pub struct SendParams {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "absent_or_endpoint"
+        deserialize_with = "crate::derived::absent_or_endpoint"
     )]
     pub endpoint: Option<EndpointId>,
     /// The application's message id.
@@ -161,6 +163,7 @@ pub struct QueryParams {
 #[serde(deny_unknown_fields)]
 pub struct EndpointParams {
     /// The configured endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub endpoint: EndpointId,
 }
 
@@ -169,6 +172,7 @@ pub struct EndpointParams {
 #[serde(deny_unknown_fields)]
 pub struct SetEnabledParams {
     /// The configured endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
     pub endpoint: EndpointId,
     /// Disabling revokes a live lease at once and never auto-rebinds.
     pub enabled: bool,
@@ -180,7 +184,7 @@ pub struct SetEnabledParams {
 pub struct SetDefaultParams {
     /// The new default, or `null` to clear it. The key is REQUIRED:
     /// absent is not "clear", it is a malformed request.
-    #[serde(deserialize_with = "required_nullable_endpoint")]
+    #[serde(deserialize_with = "crate::derived::nullable_endpoint")]
     pub endpoint: Option<EndpointId>,
 }
 
@@ -198,19 +202,83 @@ pub struct ShutdownParams {
     pub grace_ms: Option<u32>,
 }
 
-/// `admin.trust.list` params: which page (2.1).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// `admin.trust.list` params: which page (2.1), and from IPC 3.0 of which
+/// set (ADR-0067 decision 6, `LOCAL-IPC.md` §The endpoint dimension).
+///
+/// `endpoint` and `direction` are present together or not at all: a
+/// document with one and not the other is refused `InvalidArgument` by
+/// [`Deserialize`], the schema's `dependentRequired` both ways
+/// (`the_trust_list_params_hold_the_endpoint_dimension`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct TrustListParams {
     /// The last peer of the previous page, exclusive; absent for the
     /// first. A position, not a row: a peer no longer listed still names
     /// the page that follows it in order.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "absent_or_peer"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub after: Option<TransportIdentity>,
+    /// The configured endpoint whose effective set is read; absent reads
+    /// the operator's list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<EndpointId>,
+    /// Which direction of that set; present exactly when `endpoint` is.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_direction"
+    )]
+    pub direction: Option<TrustDirection>,
+}
+
+#[expect(
+    clippy::ref_option,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the signature serde's serialize_with calls"
+)]
+fn serialize_direction<S: serde::Serializer>(
+    direction: &Option<TrustDirection>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    // `skip_serializing_if` takes the `None` before this is called.
+    match direction {
+        Some(d) => s.serialize_str(d.as_str()),
+        None => s.serialize_none(),
+    }
+}
+
+impl<'de> Deserialize<'de> for TrustListParams {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            #[serde(default, deserialize_with = "absent_or_peer")]
+            after: Option<TransportIdentity>,
+            #[serde(default, deserialize_with = "crate::derived::absent_or_endpoint")]
+            endpoint: Option<EndpointId>,
+            #[serde(default, deserialize_with = "absent_or_direction")]
+            direction: Option<TrustDirection>,
+        }
+        let wire = Wire::deserialize(d)?;
+        if wire.endpoint.is_some() != wire.direction.is_some() {
+            return Err(serde::de::Error::custom(
+                "endpoint and direction are given together or not at all",
+            ));
+        }
+        Ok(Self {
+            after: wire.after,
+            endpoint: wire.endpoint,
+            direction: wire.direction,
+        })
+    }
+}
+
+fn absent_or_direction<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<TrustDirection>, D::Error> {
+    let name = String::deserialize(d)?;
+    TrustDirection::ALL
+        .into_iter()
+        .find(|known| known.as_str() == name)
+        .map(Some)
+        .ok_or_else(|| serde::de::Error::custom("direction is inbound or outbound"))
 }
 
 /// `admin.peers.list` params: which page (2.2), a position as
@@ -228,15 +296,34 @@ pub struct PeerListParams {
     pub after: Option<TransportIdentity>,
 }
 
-/// `admin.trust.set` params (2.1).
+/// `admin.trust.set` params (2.1); from IPC 3.0 an optional `endpoint`
+/// (ADR-0067 decision 6) makes the write that endpoint's own set's, both
+/// directions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrustSetParams {
     /// The peer.
     pub peer: TransportIdentity,
     /// `true` adds it to the allowlist, `false` removes it and closes
-    /// every connection it holds.
+    /// every connection it holds that no other set still admits.
     pub allowed: bool,
+    /// The configured endpoint whose own set is written; absent writes
+    /// the operator's list.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::derived::absent_or_endpoint"
+    )]
+    pub endpoint: Option<EndpointId>,
+}
+
+/// `admin.trust.seed` params (IPC 3.0, ADR-0067 decision 6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrustSeedParams {
+    /// The configured endpoint to give its own set.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
+    pub endpoint: EndpointId,
 }
 
 /// `admin.peers.add_address` and `admin.peers.remove_address` params
@@ -328,6 +415,8 @@ pub enum Request {
     AdminTrustList(TrustListParams),
     /// `admin.trust.set` (2.1).
     AdminTrustSet(TrustSetParams),
+    /// `admin.trust.seed` (3.0).
+    AdminTrustSeed(TrustSeedParams),
     /// `admin.peers.list` (2.2).
     AdminPeersList(PeerListParams),
     /// `admin.peers.add_address` (2.7).
@@ -362,6 +451,7 @@ impl Request {
             Self::AdminShutdown(_) => Method::AdminShutdown,
             Self::AdminTrustList(_) => Method::AdminTrustList,
             Self::AdminTrustSet(_) => Method::AdminTrustSet,
+            Self::AdminTrustSeed(_) => Method::AdminTrustSeed,
             Self::AdminPeersList(_) => Method::AdminPeersList,
             Self::AdminPeersAddAddress(_) => Method::AdminPeersAddAddress,
             Self::AdminPeersRemoveAddress(_) => Method::AdminPeersRemoveAddress,
@@ -415,6 +505,7 @@ impl Request {
             Method::AdminShutdown => Self::AdminShutdown(typed(params)?),
             Method::AdminTrustList => Self::AdminTrustList(typed(params)?),
             Method::AdminTrustSet => Self::AdminTrustSet(typed(params)?),
+            Method::AdminTrustSeed => Self::AdminTrustSeed(typed(params)?),
             Method::AdminPeersList => Self::AdminPeersList(typed(params)?),
             Method::AdminPeersAddAddress => Self::AdminPeersAddAddress(typed(params)?),
             Method::AdminPeersRemoveAddress => Self::AdminPeersRemoveAddress(typed(params)?),
@@ -453,6 +544,7 @@ impl Request {
             Self::AdminShutdown(p) => serde_json::value::to_raw_value(p),
             Self::AdminTrustList(p) => serde_json::value::to_raw_value(p),
             Self::AdminTrustSet(p) => serde_json::value::to_raw_value(p),
+            Self::AdminTrustSeed(p) => serde_json::value::to_raw_value(p),
             Self::AdminPeersList(p) => serde_json::value::to_raw_value(p),
             Self::AdminPeersAddAddress(p) | Self::AdminPeersRemoveAddress(p) => {
                 serde_json::value::to_raw_value(p)
@@ -571,18 +663,6 @@ fn absent_or_u64<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, 
     u64::deserialize(d).map(Some)
 }
 
-fn absent_or_endpoint<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Option<EndpointId>, D::Error> {
-    EndpointId::deserialize(d).map(Some)
-}
-
-fn required_nullable_endpoint<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Option<EndpointId>, D::Error> {
-    Option::<EndpointId>::deserialize(d)
-}
-
 fn absent_or_grace<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
     let grace = u32::deserialize(d)?;
     if grace > MAX_SHUTDOWN_GRACE_MS {
@@ -612,7 +692,7 @@ mod tests {
         static NONE: BTreeSet<AdminCapability> = BTreeSet::new();
         Admission {
             domain: AuthorityDomain::Data,
-            version: IpcVersion { major: 2, minor: 0 },
+            version: IpcVersion { major: 3, minor: 0 },
             granted_data: granted,
             granted_admin: &NONE,
         }
@@ -622,7 +702,7 @@ mod tests {
         static NONE: BTreeSet<DataCapability> = BTreeSet::new();
         Admission {
             domain: AuthorityDomain::Admin,
-            version: IpcVersion { major: 2, minor: 0 },
+            version: IpcVersion { major: 3, minor: 0 },
             granted_data: &NONE,
             granted_admin: granted,
         }
@@ -696,8 +776,7 @@ mod tests {
         ]
         .into();
         // At the highest minor, so every method is a name the connection
-        // knows and the refusal is the domain's, not the version's: a
-        // data method introduced after 2.0 is one too (`session.losses`).
+        // knows and the refusal is the domain's, not the version's.
         let mut conn = admin(&caps);
         conn.version.minor = crate::IPC_MAX_MINOR;
         for method in Method::ALL {
@@ -712,19 +791,73 @@ mod tests {
     }
 
     #[test]
-    fn a_method_above_the_negotiated_minor_is_unsupported() {
-        // Every 2.0 method is available at 2.0; a connection at a minor
-        // below a method's is refused as if the name were unknown.
+    fn a_method_above_the_negotiated_version_is_unsupported() {
+        // Every method is available at 3.0; a connection at a version
+        // before a method's is refused as if the name were unknown -- at
+        // 2.13 too, whose minor is the higher.
         let caps = commands();
         let conn = data(&caps);
-        assert!(
+        let leave = || {
             frame(
                 &json!({"type": "request", "id": "1", "method": "channel.leave",
-                         "params": {"channel": "ops"}})
+                           "params": {"channel": "ops"}}),
             )
-            .admit(&conn)
-            .is_ok()
+        };
+        assert!(leave().admit(&conn).is_ok(), "the control, at 3.0");
+        let old = Admission {
+            version: IpcVersion {
+                major: 2,
+                minor: 13,
+            },
+            ..conn
+        };
+        assert_eq!(leave().admit(&old), Err(Refusal::Unsupported));
+    }
+
+    /// Every params field that holds an `EndpointId` takes the derived id
+    /// alone: a label of the retired grammar is a params error,
+    /// `InvalidArgument`, and the derived id is the control.
+    #[test]
+    fn a_label_endpoint_in_params_is_invalid_argument() {
+        let derived = interweave_test_support::endpoint_keys::endpoint_id("human");
+        let send = |endpoint: &str| {
+            json!({"type": "request", "id": "1", "method": "direct.send", "params": {
+                "peer": PEER, "endpoint": endpoint,
+                "message_id": "07070707070707070707070707070707",
+                "payload": {"bytes": "aGk"}}})
+        };
+        let caps = commands();
+        assert!(frame(&send(derived.as_str())).admit(&data(&caps)).is_ok());
+        assert_eq!(
+            frame(&send("human")).admit(&data(&caps)),
+            Err(Refusal::Params(TransportError::InvalidArgument))
         );
+        let admin_caps: BTreeSet<AdminCapability> = [AdminCapability::Endpoints].into();
+        for (method, params) in [
+            ("admin.endpoints.revoke", json!({"endpoint": "%"})),
+            (
+                "admin.endpoints.set_enabled",
+                json!({"endpoint": "%", "enabled": true}),
+            ),
+            ("admin.endpoints.set_default", json!({"endpoint": "%"})),
+        ] {
+            let with = |id: &str| {
+                let text = params.to_string().replace('%', id);
+                json!({"type": "request", "id": "1", "method": method,
+                       "params": serde_json::from_str::<serde_json::Value>(&text).expect("json")})
+            };
+            assert!(
+                frame(&with(derived.as_str()))
+                    .admit(&admin(&admin_caps))
+                    .is_ok(),
+                "{method}"
+            );
+            assert_eq!(
+                frame(&with("human")).admit(&admin(&admin_caps)),
+                Err(Refusal::Params(TransportError::InvalidArgument)),
+                "{method}"
+            );
+        }
     }
 
     #[test]
@@ -860,7 +993,7 @@ mod tests {
     fn every_request_round_trips_through_its_frame() {
         let payload = || Payload::at_ceiling(None, b"hi".to_vec()).expect("payload");
         let peer = || TransportIdentity::parse(PEER).expect("peer");
-        let ep = || EndpointId::parse("human").expect("endpoint");
+        let ep = || interweave_test_support::endpoint_keys::endpoint_id("human");
         let channel = || ChannelId::parse("ops").expect("channel");
         let id = MessageId::from_bytes([7; 16]);
         let requests = [
@@ -891,7 +1024,9 @@ mod tests {
             Request::AdminTrustSet(TrustSetParams {
                 peer: peer(),
                 allowed: true,
+                endpoint: Some(ep()),
             }),
+            Request::AdminTrustSeed(TrustSeedParams { endpoint: ep() }),
             Request::AdminPeersList(PeerListParams::default()),
             Request::AdminPeersAddAddress(AddressParams {
                 address: "/ip4/192.168.1.20/tcp/4001/p2p/x".to_owned(),
@@ -961,7 +1096,7 @@ mod tests {
         let list = |v| Request::decode(Method::AdminTrustList, Some(&raw(v)));
         assert_eq!(
             list(json!({})),
-            Ok(Request::AdminTrustList(TrustListParams { after: None })),
+            Ok(Request::AdminTrustList(TrustListParams::default())),
             "the first page"
         );
         assert!(list(json!({"after": PEER})).is_ok());
@@ -982,5 +1117,72 @@ mod tests {
         ] {
             assert_eq!(set(bad), Err(TransportError::InvalidArgument));
         }
+    }
+
+    /// The endpoint dimension (IPC 3.0): `endpoint` and `direction` are
+    /// given together or not at all, every shape beside a control.
+    #[test]
+    fn the_trust_list_params_hold_the_endpoint_dimension() {
+        let raw = |v: serde_json::Value| serde_json::value::to_raw_value(&v).expect("raw");
+        let list = |v| Request::decode(Method::AdminTrustList, Some(&raw(v)));
+        let ep = || interweave_test_support::endpoint_keys::endpoint_id("human");
+        assert_eq!(
+            list(json!({"endpoint": ep().as_str(), "direction": "inbound"})),
+            Ok(Request::AdminTrustList(TrustListParams {
+                after: None,
+                endpoint: Some(ep()),
+                direction: Some(TrustDirection::Inbound),
+            })),
+            "the control, and the paging member beside them"
+        );
+        assert!(
+            list(json!({"after": PEER, "endpoint": ep().as_str(), "direction": "outbound"}))
+                .is_ok()
+        );
+        for bad in [
+            json!({"endpoint": ep().as_str()}),
+            json!({"direction": "inbound"}),
+            json!({"endpoint": ep().as_str(), "direction": "sideways"}),
+            json!({"endpoint": ep().as_str(), "direction": null}),
+            json!({"endpoint": null, "direction": "inbound"}),
+            json!({"endpoint": "human", "direction": "inbound"}),
+            json!({"endpoint": ep().as_str(), "direction": "inbound", "set": "own"}),
+        ] {
+            assert_eq!(
+                list(bad.clone()),
+                Err(TransportError::InvalidArgument),
+                "{bad}"
+            );
+        }
+        let set = |v| Request::decode(Method::AdminTrustSet, Some(&raw(v)));
+        assert!(set(json!({"peer": PEER, "allowed": true, "endpoint": ep().as_str()})).is_ok());
+        for bad in [
+            json!({"peer": PEER, "allowed": true, "endpoint": null}),
+            json!({"peer": PEER, "allowed": true, "endpoint": "human"}),
+        ] {
+            assert_eq!(
+                set(bad.clone()),
+                Err(TransportError::InvalidArgument),
+                "{bad}"
+            );
+        }
+        let seed = |v| Request::decode(Method::AdminTrustSeed, Some(&raw(v)));
+        assert!(seed(json!({"endpoint": ep().as_str()})).is_ok());
+        for bad in [
+            json!({}),
+            json!({"endpoint": null}),
+            json!({"endpoint": "human"}),
+        ] {
+            assert_eq!(
+                seed(bad.clone()),
+                Err(TransportError::InvalidArgument),
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            Request::decode(Method::AdminTrustSeed, None),
+            Err(TransportError::InvalidArgument),
+            "the params are required"
+        );
     }
 }

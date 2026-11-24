@@ -1033,12 +1033,22 @@ async fn paths(binding: &impl DataSessionBinding, args: &PathsArgs) -> Result<Pe
 
 /// The `human` endpoint, which the profiles of both sides lease.
 ///
-/// # Panics
-/// Never: the literal is a valid endpoint id.
+/// The id the shipped examples name for `human`
+/// (`architecture/config/examples/human-{desktop,android}.yaml`), derived
+/// (ADR-0067) from the TEST-ONLY key whose seed is public by construction
+/// (`interweave-test-support`'s `endpoint_keys`), `12D3KooWK26ch85c…`.
+/// Its public key is written out because this crate may not depend on
+/// `interweave-test-support` (the graph test);
+/// `interweave-android-e2e-tests`'
+/// `the_cases_human_endpoint_is_the_one_the_examples_lease` holds the two
+/// equal, since a case on another id is answered `EndpointUnknown`.
 #[must_use]
 pub fn human() -> EndpointId {
-    #[allow(clippy::expect_used, reason = "a literal checked by every case")]
-    EndpointId::parse("human").expect("endpoint")
+    EndpointId::from_ed25519_public(&[
+        0x88, 0xba, 0x91, 0x0f, 0x99, 0x3b, 0x43, 0x3c, 0x8a, 0xe8, 0xa1, 0x15, 0x7b, 0xe8, 0x67,
+        0x12, 0x34, 0x4b, 0xb2, 0xb5, 0xee, 0x92, 0x62, 0x22, 0x82, 0xb1, 0x8a, 0xb7, 0x55, 0x07,
+        0xf0, 0xb7,
+    ])
 }
 
 /// A human client's session on the `human` endpoint, with events and
@@ -1477,6 +1487,17 @@ mod tests {
         "interweave-transport-composition",
         "interweave-transport-embedded",
     ];
+
+    /// The endpoint the cases name is one every boundary accepts: a
+    /// derived id, read back by the strict parser.
+    #[test]
+    fn the_human_endpoint_is_a_derived_id() {
+        let id = human();
+        assert_eq!(
+            interweave_transport_api::EndpointId::parse_derived(id.as_str()),
+            Ok(id)
+        );
+    }
 
     #[test]
     fn the_crate_reaches_no_libp2p_harness_daemon_or_runtime() {

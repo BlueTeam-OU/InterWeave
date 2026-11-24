@@ -9,8 +9,8 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, Intent, TrustInput, UiModel, UnlockFacts, ViewEvent, WindowEvent,
-    WindowInput,
+    ConnectGate, ConversationKey, Intent, StartBusy, TrustInput, UiModel, UnlockFacts, ViewEvent,
+    WindowEvent, WindowInput,
 };
 
 use crate::facade::CANCELLED_CAP;
@@ -71,6 +71,18 @@ pub trait Opener {
     /// that start's facts ([`ModelSide::unlock_facts`]); a platform with
     /// no unlock policy never says any.
     fn unlock_line_seen(&mut self, _start: u64) {}
+
+    /// Make one service start for the notice of a start refused with the
+    /// profile in use (`SessionNotice::StartBusy`), or of a start that
+    /// compared with C4's `PeerId` and was refused after the bound
+    /// (`SessionNotice::StartRefused`), by the path a granted Unlock uses
+    /// (design/2026-10-19-android-identity.md §11d, Q12; §6, An answer
+    /// after the bound). Raised only while the model offers it -- either
+    /// notice shows and no start for it runs -- so at most once per
+    /// answer; a platform that never says either notice never raises it
+    /// (`a_busy_starts_try_again_reaches_the_platform_once`,
+    /// `a_refused_starts_try_again_reaches_the_platform_once`).
+    fn retry_start(&mut self) {}
 }
 
 /// An action still being carried out, so a second press of the same one
@@ -262,6 +274,20 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.model.authentication_needed(needed);
     }
 
+    /// Whether the last start was refused with the profile in use after
+    /// the bound, and whether a start for its notice runs, as the root
+    /// learns it from the platform.
+    pub fn start_busy(&mut self, busy: Option<StartBusy>) {
+        self.model.start_busy(busy);
+    }
+
+    /// Whether the last start compared with C4's `PeerId` and was refused
+    /// after the bound, and whether a start for its notice runs, as the
+    /// root learns it from the platform ([`UiModel::start_refused`]).
+    pub fn start_refused(&mut self, refused: Option<StartBusy>) {
+        self.model.start_refused(refused);
+    }
+
     /// The unlock note's facts as the platform says them, the count of
     /// the start they are from, and whether its P-up line was seen.
     pub fn unlock_facts(&mut self, facts: Option<UnlockFacts>, start: u64, seen: bool) {
@@ -396,17 +422,6 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::ContactUndoWithdrawn(hold) => self.model.contact_undo_withdrawn(hold),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
             Update::OwnPhotoPrepared { seq, photo } => self.model.own_photo_prepared(seq, photo),
-            Update::NewKeyAsked { pending } => self.model.new_key_asked(pending),
-            Update::KeyMade {
-                identity,
-                fingerprint,
-                share_again,
-            } => self.model.key_made(identity, fingerprint, share_again),
-            Update::KeyNotMade {
-                identity,
-                problem,
-                gone,
-            } => self.model.key_not_made(identity, problem, gone),
             Update::KeyRetried(identity) => self.model.key_retried(identity),
             Update::CardShared { key, at } => self.model.card_shared(key, at),
             // Its own card row (contact-cards section 5.5); a queued card
@@ -494,11 +509,6 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 if let (Command::Keep { item, .. }, Failure::CopyGone) = (&command, why) {
                     // The content is gone: stop offering what cannot work.
                     self.model.copy_gone(*item);
-                }
-                // A key step the facade refused ends here: never one the
-                // page waits on for good (#423 F1).
-                if matches!(command, Command::AskNewKey | Command::MakeNewKey) {
-                    self.model.key_command_refused();
                 }
                 if let (
                     Command::AcceptCard { row, .. } | Command::DeclineCard(row),
@@ -836,6 +846,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 self.opener.authenticate();
                 return None;
             }
+            // Disabled from here until the platform says the start
+            // answered: the model offers no second one meanwhile.
+            Intent::RetryStart => {
+                self.model.retry_start_asked();
+                self.opener.retry_start();
+                return None;
+            }
             Intent::Send { key, draft } => Command::Send { key, draft },
             Intent::MarkRead(row) => Command::MarkRead(row),
             Intent::Keep { item, from } => {
@@ -897,14 +914,6 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::UndoCard(row) => Command::UndoCard(row),
             // Each is the model's step before it is the facade's: a press
             // the model does not offer now asks nothing.
-            Intent::AskNewKey => {
-                self.model.ask_new_key()?;
-                Command::AskNewKey
-            }
-            Intent::MakeNewKey => {
-                self.model.confirm_new_key()?;
-                Command::MakeNewKey
-            }
             Intent::RetryKey => {
                 self.model.retry_key()?;
                 Command::RetryKey
@@ -988,6 +997,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use interweave_test_support::endpoint_keys::endpoint_id;
 
     use interweave_human_store::RowId;
 
@@ -1163,10 +1173,10 @@ mod tests {
         use interweave_human_ui_model::{
             CardOutcome, ContactView, KeyView, Proposal, ProposalContext,
         };
-        use interweave_transport_api::{EndpointId, TransportIdentity};
+        use interweave_transport_api::TransportIdentity;
         let peer = TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
             .expect("a PeerId");
-        let endpoint = EndpointId::parse("human").expect("an endpoint");
+        let endpoint = endpoint_id("human");
         let row = RowId::from_stored(3);
         let key = ConversationKey::Direct {
             peer: peer.clone(),

@@ -114,19 +114,19 @@ All materialized, and recomputed on every CI run by `tools/checks/verify_fixture
 
 | Fixture | Derivation source | File |
 |---|---|---|
-| DirectContentFingerprintV1 | `contracts/ENDPOINTS.md`; golden in ADR-0047 | `fixtures/direct-v2/direct-content-fingerprint-v1.json` |
-| DirectMessageV2 request framing (byte order pinned big-endian in `transport/libp2p/DIRECT.md`) | `transport/libp2p/DIRECT.md` §Request | `fixtures/direct-v2/direct-message-v2-frame.json` |
+| DirectContentFingerprintV1 | `contracts/ENDPOINTS.md`; golden in ADR-0047 | `fixtures/direct-v3/direct-content-fingerprint-v1.json` |
+| DirectMessageV2 request framing (byte order pinned big-endian in `transport/libp2p/DIRECT.md`) | `transport/libp2p/DIRECT.md` §Request | `fixtures/direct-v3/direct-message-v2-frame.json` |
 | BIP-39 entropy/checksum mnemonic + Ed25519 secret -> public key -> PeerId | `contracts/IDENTITY-RECOVERY.md` | `fixtures/identity/ed25519-bip39-entropy-v1.json` |
 | GossipSubMessageIdV1 | `transport/libp2p/PUBSUB.md`; golden re-frozen by ADR-0047 | `fixtures/gossipsub/gossipsub-message-id-v1.json` |
 | GossipSub topic key | `transport/libp2p/PUBSUB.md` topic mapping; golden in ADR-0047 | `fixtures/gossipsub/gossipsub-topic-key-v1.json` |
 | Kademlia network hash / protocol namespace | `docs/architecture/kademlia-integration.md`; golden in ADR-0047 | `fixtures/kademlia/kad-network-namespace-v1.json` |
-| IPC v2 maximum payload/frame (payload-fit invariant) | `contracts/LOCAL-IPC.md` §Framing | `fixtures/ipc-v2/ipc-v2-payload-fit.json` |
-| EndpointId grammar vectors | `contracts/ENDPOINTS.md` + `contracts/schemas/endpoints/` | `fixtures/endpoints/endpoint-id-grammar-v1.json` |
+| IPC maximum payload/frame (payload-fit invariant; major 3 from the Stage 22 release, ADR-0067 decision 7) | `contracts/LOCAL-IPC.md` §Framing | `fixtures/ipc-v3/ipc-v3-payload-fit.json` |
+| EndpointId derivation and grammar vectors (ADR-0067: the id is derived from the endpoint's key, and the file's `verdict-*` vectors are the derived grammar's) | `contracts/ENDPOINTS.md` + `contracts/schemas/endpoints/` | `fixtures/endpoints/endpoint-id-derivation-v2.json` |
 | Endpoint directory v1 framing (byte order pinned big-endian in `transport/libp2p/ENDPOINTS.md`) | `transport/libp2p/ENDPOINTS.md` §Endpoint directory protocol | `fixtures/endpoints/endpoint-directory-v1-frame.json` |
 | HumanChatV2 envelope vectors | `clients/human/HUMAN-CHAT.md` + `contracts/schemas/human-chat/` | `fixtures/human-chat-v2/human-chat-v2-envelope.json` |
 | configuration-v2 vectors | `architecture/config/config.schema.yaml` + examples | `fixtures/config/config-v2-cross-field.json` |
 
-Distinctness is a per-algorithm property. Derivation vectors must not collide — two edge cases sharing a digest means they stopped distinguishing anything. Verdict sets (`endpoint-id-grammar-v1`, `human-chat-v2-envelope`, `config-v2-cross-field`) repeat `true` and `false` by design, so the collision rule is off for them.
+Distinctness is a per-algorithm property. Derivation vectors must not collide — two edge cases sharing a digest means they stopped distinguishing anything. Verdict sets (`endpoint-id-derivation-v2`, checked as one set with the derivations it holds beside its verdicts, `human-chat-v2-envelope`, `config-v2-cross-field`) repeat `true` and `false` by design, so the collision rule is off for them.
 
 ### Exit gate
 
@@ -5773,7 +5773,8 @@ profile's invalidated-key case (the A40 run of
 2026-11-04, `device-runs/2026-11-04-samsung-a40.md`, showed a PIN change
 and a fingerprint enrolment invalidate none of the app's keys, none
 being bound to authentication, and the six cases of 2026-11-05 do not
-reach it); the Recents
+reach it; passed since, 2026-11-23, on the same A40, with the limits
+§30's dated note names); the Recents
 thumbnail's content; notification arrival at API 33+ (measured since,
 2026-10-31, `device-runs/2026-10-31-pixel-9a.md`, 3 runs of 3 under
 the person's grant, with that record's bounds); device transfer
@@ -6397,7 +6398,10 @@ none is the status value's, which stays on this stage.
   and S21-12's step reads `owner`, its cases named and one item owed,
   a `user-presence` seed key invalidated on a device, which needs the
   owner's hand and their word to wipe the phone and is carried at the
-  close if that window does not come.
+  close if that window does not come (A 2026-11-23: it was carried to
+  §30 on 2026-11-21, the case passed on the A40 on 2026-11-23 and the
+  step cell reads `—` since #745; §30's carried paragraph has the dated note and its
+  limits).
 - **TM-45's owed cases** (step S10 (02, with rust-ui-dev)): the
   notification content and the clients' own logs as a shadow archive
   (`apps/human-desktop`, `apps/human-android`), the one `owed` item
@@ -6416,7 +6420,8 @@ none is the status value's, which stays on this stage.
   by them. Nothing is owed on either (p2p-network-dev-01, 2026-10-25,
   REPLY 01a17547-1407 to QUESTION 01a17545-9d3b, read at e31760d0: the
   limit cell's open points are stated limits, not owed work); both
-  cells move to `—` on that lane's next pull request. One item touches
+  cells move to `—` on that lane's next pull request (A 2026-11-21:
+  both read `—` in the matrix at the census of that day). One item touches
   the row's tests without being owed work: a one-off failure of
   `hostile_routers_seat_no_stranger_and_their_poison_costs_its_address`
   under a full workspace run, held by p2p-network-dev-01 as test
@@ -6557,11 +6562,99 @@ none is the status value's, which stays on this stage.
   store's protection; the item asked no hold on a release and this note
   asks no re-cut, and the first release cut from a `main` at or after
   fd4679a7f carries the fix.
+- **Rust-ui-dev's carry, the rendered relayed-path indicator live on
+  the Android↔desktop path** (the Stage 15 carry above, §20's closing
+  record, the split of 2026-11-11). This list omitted it until the
+  census of 2026-11-21 (architect-cto, read at 68f856f41). The desktop
+  ↔ Android matrix ran on 2026-11-11
+  (`tests/android-e2e/runs/2026-11-11-pixel-9a-desktop-android-matrix.md`)
+  and says by name what it leaves: its relayed row proves the path,
+  and the phone's indicator was read from the UI model, not from the
+  drawn window. Asked of rust-ui-dev-01 on 2026-11-21 (REQUEST
+  01a20011-73dc); a proof the close does not reach is re-carried in
+  the closing record with the section it goes to.
 - **The closing record itself**: on the owner's word, the `Met.` block
   in §28's shape, the status to Stage 19's value since §20 has closed,
   the three prose status sites with it. The keepalive rules' promotion
   from §14 into one ADR, once carried here, was done earlier: ADR-0068
   (2026-11-14).
+
+**Met (2026-11-21; the closing record).** Stage 18 closed on the owner's
+word of 2026-11-21, given in session ("close 18 and 19 on named
+carries, keep 22 open") after architect-cto's census of this gate read
+at `main` 68f856f41, having run beside Stage 17 from 2026-10-11 and as
+the status value's stage from 2026-10-22. The gate is
+`tests/SECURITY-MATRIX.md`, and it is read here clause by clause.
+
+(a) Every test the matrix names exists: `check_security_matrix.py
+--strict` at the census, 379 named tests, no row empty, and after this
+record's own rows two carried whole (C-04, C-06), S21-12 keeping its
+tests beside its one carried item. The guard runs
+in the `tree checks` job. "Green on `main`" is the required contexts'
+word on the merge that lands this record and not a reading of each
+test; the device cases are `#[ignore]`d and are green only through
+their run records, named in each row's limit cell. (b) Every
+threat-model row and every item of this section's list has a row;
+the one item that had none, rust-ui-dev's carry, has C-06 from this
+record. TM-52 to TM-58 are rows the matrix holds for threats §29 and
+later amendments added; threat-model.md's tables end at TM-51. That
+departed from the matrix's grammar, which defined a TM id as a
+threat-model.md row, and the grammar says so from this record; it is
+a difference of numbering and no missing row. (c) The eclipse row states its figures: N = 6, M = 3,
+none of 12 eclipsed (S21-06). (d) SPIKE-005's residual cites decided
+(3) (C-02) and the Windows carry cites decided (5) (C-04). (e) Every
+limit is a cell, and those that are open work are re-carried below.
+(f) The ledger holds no `stage-18` entry and no test a
+`Proof::Stage(18)`.
+
+Steps S0 to S11 and S13 are met as the Record above says, each in its
+lane's pull requests. The desktop ↔ Android platform matrix, both
+directions, plain and `;ce=br`, direct and relayed, ran on the Pixel
+9a on 2026-11-11
+(`tests/android-e2e/runs/2026-11-11-pixel-9a-desktop-android-matrix.md`).
+No unresolved P1 or P2 finding is recorded in this section, in
+threat-model.md or in the matrix.
+
+**Carried by name.** S21-12's case and C-06 go to §30, the one stage
+open after this close, held by the lane named and not by that stage's
+own gate; C-04 stays where decided (5) put it:
+
+- **S21-12's owed case** (p2p-network-dev-02): a `user-presence` seed
+  key invalidated on a device, and what the app shows for it. Every
+  other case of the row passed on the Samsung A40. The invalidation
+  needs the owner's hand at the phone and the owner's word for the
+  wipe that follows; neither had come by this record.
+- **C-06, the rendered relayed-path indicator live on the
+  Android↔desktop path** (rust-ui-dev-01, their REPLY 01a20014-0232):
+  the relayed path is proved on Android↔desktop at the presentation
+  model; the indicator as drawn on the phone is unverified, because
+  the device case renders no view (its phone half runs under a view
+  stand-in whose render does nothing, so a capture of the screen
+  during it shows no conversation) and Slint on Android exposes no
+  accessibility tree. What proves it is the app in its normal mode, in
+  a conversation reached only through a relay, or a device case that
+  draws the real view; neither existed at the close (their REPLY
+  01a2002b-f6a4).
+- **C-04, the Windows binding and the BSL-1.0 decision**: carried whole
+  to §22 by decided (5), and held there by §22's closing record with no
+  date.
+
+S21-12's run was ordered on the phone the owner gave on the day of
+this record (DECISION 01a20025-e80d); a proof that lands is a dated
+note under §30's carried paragraph and moves its row's step cell to
+`—`.
+
+Stated limits that are no owed work stay in their cells: TM-26's
+device-transfer case on API 31, the timing residual of the `no_route`
+causes, the valid broadcast flood, and the rest the matrix words. One
+item of test reliability is not a row: the one-off failure of
+`hostile_routers_seat_no_stranger_and_their_poison_costs_its_address`
+under a full workspace run (p2p-network-dev-01's j130), with no record
+of a recurrence in the tree.
+
+The status value moves with this record and §22's, which closes Stage
+19 the same day: to `stage-22-several-user-identities`, Stage 22 being
+the lowest stage open, and the three prose status sites with it.
 
 ## 22. Stage 19 — packaging, migration, and release
 
@@ -6701,9 +6794,110 @@ The second release, `v0.2.0`, was the owner's tag on 32ade966 (the run 405684341
 
 **The first two published Android releases could not onboard a new user** (`v0.1.0` and `v0.2.0`, the two published when the defect was found, 2026-11-05; `v0.3.0`, published 2026-11-12, does, below; fixed on `main` by #569, below; found 2026-11-05 by p2p-network-dev-01 on the Pixel 9a at API 37, in j141's window on the owner's word, OBSERVATION 01a1aba7-300a; verified by architect-cto on `main` c9ba8c215 and at the two tags, which carry the same code; reproduced the same day on the Samsung A40 at API 30, the app's `minSdk`, so the defect was the release build's and not the API level's: `v0.1.0`'s APK, taken through Create, reached "Identity created" and was refused at its Continue with the same Storage refusal, `packaging/android/evidence/2026-11-05-samsung-a40-update-and-downgrade.md`, #570, p2p-network-dev-01's INFO 01a1ac5a-9727): a fresh install of `v0.1.0`'s or `v0.2.0`'s APK, taken through Create, ended in "the app could not save your identity", because the release build wrote no first-run profile: `apps/human-android/src/jni.rs`'s `provision`, which `Native.identityState` runs before Welcome, wrote the stand-in profile under the debug-only `dev-stand-ins` feature and nothing otherwise, so Create's seal (`android-platform/src/onboarding.rs`'s `seal`) refused at its first step, the profile load, with no `config.yaml` to read; profile-config's `provision_embedded`, which `android-platform/src/stand_in.rs` named as what replaces the stand-in, was called only from tests (its own crate's and the embedded transport's) and from no production code. Onboarding itself asks `start_identity` with `FirstRun::Refuse` in every build on purpose (`onboard.rs`), so the `dev-stand-ins` choice between `Create` and `Refuse` in jni.rs's `identity`, which only the service start reaches, was not on the failing path, and flipping it would have fixed nothing: the missing profile was the whole cause. The control was the debug APK, which creates identities on both phones (every device run on `main` before 2026-11-05 was a debug build; the A40 record of 2026-11-04 says the release was not measured, and the A40 record of 2026-11-05 above measured it). **Fixed on `main` by #569** (rust-ui-dev-02, merged fab74dd40, stamped 2026-11-05T17:39Z): `provision` calls android-platform's `provision_profile` in every build, which calls `provision_embedded`; the stand-in document is gone; the Gradle release build's `verifyReleaseNative` refuses a release library that does not carry the first-run writer's marker (`EMBEDDED_DOCUMENT_MARKER`), so `v0.2.0`'s library would not pass it; `apps/human-android/README.md`'s status sentence and `identity`'s comment, which asserted the old behaviour, were corrected there (architect-cto's DECISION 01a1abb3-22f5). What that fix measured: a fresh install of the RELEASE variant of 9aba4c441, its head when measured (the merged head differs from it only in docs and the marker constant; aligned and signed with a test-only key, since the release key is the owner's) onboarded on the A40 at API 30 and the service started on the first-run document (`apps/human-android/device-runs/2026-11-05-samsung-a40.md`); what it did not, then: the release key's signing, Restore on a release build, an update in place from `v0.2.0` onto the fixed release, and the Pixel 9a at API 37. **Two of those four were measured on 2026-11-08** by p2p-network-dev-01 with the owner at the phones, `packaging/android/evidence/2026-11-08-v0-2-1-release-gate.md` (the device half of the next release's gate that can run before the cut — named `v0.2.1` when the record was taken, `v0.3.0` by the owner's word below — step 1 of fabric-coordinator's phone order of that day): the RELEASE variant of `main` 4c4cf3587, built as `release.yml` steps 2–4 build it and aligned and signed with a test-only key, taken on a fresh install through Create and, after the app's data was cleared, through Restore from a test-only 24-word phrase the host had checked against its PeerId, on the Pixel 9a at API 37 and the Samsung A40 at API 30 — every Continue sealed and started the service (`start answered 0`, which a release build answers only once the identity record exists; no identity-write refusal logged), and R3 showed the PeerId the host derives from the same phrase, the owner reading a fragment at each end (the first 12 and last 6 characters on the Pixel, 8 and 8 on the A40, never the whole). Left by name, the two the record cannot reach: the release key's signing, which the release run checks (`tools/ci/release_android_apk.sh`) and which changes nothing the native library does; and the update in place from `v0.2.0` onto the fixed release, and that a phone so updated then onboards, which needs `v0.3.0`'s published APK — Android refuses any signer but the release key over `v0.2.0`, and `release.yml` signs only on a tag, while a hand-signed APK outside it would break ADR-0057 decision 1 (the APK is signed by the project's Android key in the tagged release run) and pass by ADR-0066's check of the tag before the sign job — and so runs on the published asset straight after the cut (architect-cto's ruling of 2026-11-08, REPLY 01a1ba06-bafa to p2p-network-dev-01's QUESTION 01a1ba06-1145: Restore on the release build and the Pixel 9a at API 37 gate the cut, the update in place does not), a post-cut case of its own and not the Validate row's update half: a `v0.2.0` install holds no identity, so that run can show the package updating in place across the fix and the updated phone then onboarding, and nothing of the same PeerId from the same store, which stays on the baseline rule below, from `v0.3.0` to its successor. The record also names what it does not show beyond those two — that the restored identity is reachable from a peer, since the start says the runtime is up and not that a peer met that PeerId, and what the person saw after Continue past the next screen's title, the window being `FLAG_SECURE` — and what it left on the phones: both carry that test-signed build with the TEST identity, and a build under any other signer needs an uninstall first. By ADR-0065 decision 2 the fix alone corrects behaviour and changes nothing a previous version's peer, client, profile or script relies on, so on its own it would be a PATCH, which is what architect-cto recommended to the owner on 2026-11-05 as `v0.2.1`; but the release carries `main` since `v0.2.0`, and three of its surfaces move the number by decision 4, read against the `v0.2.0` tag on 2026-11-08: the human store's schema rose from 10 to 13 (`crates/human/store/src/schema.rs`, migrations v11 to v13), and a `v0.2.0` build refuses to open a store written at 13 (`migrate` refuses a higher `user_version`), which is decision 4's "a change that a conforming reader of the previous release cannot take" — the store is decision 2's public API, so the raise is MINOR before `1.0.0` and said in the notes as breaking; IPC v2's negotiated minor rose from 2.11 to 2.12 (`crates/api/ipc-protocol/src/version.rs`'s `IPC_MAX_MINOR`); and the IPC schema `peer-list` rose from 1.1.0 to 1.2.0 for `last_seen_ms` (`admin-status` stayed 1.1.0 at that reading: its `events_dropped_total` gained a description and no minor, `LOCAL-IPC.md`). Two more moved after that reading and before the cut, with #613 on 2026-11-10: IPC v2's negotiated minor rose again, to 2.13, and the IPC schema `admin-status` rose from 1.1.0 to 1.2.0 for `ipc.events_refused_total`, served on a connection that negotiated 2.13 or later (`LOCAL-IPC.md`'s `admin.status` row, ADR-0026 A 2026-11-10); both are additive, a `v0.2.0` client negotiating its own minor and reading the 1.1 block unchanged, so the number stands. **The release is `v0.3.0`** (the owner's word of 2026-11-08 on the reading of that day; the profile-format marker stays 3 and nothing found breaks a `v0.2.0` peer on the wire), its notes naming the store raise as breaking, the IPC minor from 2.11 to 2.13 and the `peer-list` and `admin-status` schema minors; the cut is the owner's act, and its order is the owner's word of 2026-11-10: the tag follows the merge of #613, which carries the last of what the notes name and reached `main` that day at e4b58c7b6. **The tag is `v0.3.0` on c0bbe40a9**, the owner's, made and pushed 2026-11-11 at 12:43Z, the third release and the first signed by the second tag key (7FB9C27BAA313CAE4C1F9485ACCFA5D9BC9B4F61, pinned by #621 after the first key's passphrase was lost, ADR-0066 A 2026-11-10): `tools/ci/release_verify_tag.sh v0.3.0 c0bbe40a9becf3d0a862df6066b044063a776019` passed against that commit's own pin, which is `main`'s. Between #613 and the tag, `main` took what the notes also name (#615, #617, #618, #619) and the pin (#621), with a spike's record (#612) and documentation (#616, #620) the notes do not name; #608, #622 and #623 after it are tests and one ui-model setter. The release run 43022897948 started on the push and all six of its jobs passed: the tag check, the APK build, the archive and the archive's run at glibc 2.35 on 2026-11-11 by 12:55Z, and, once the owner had approved the `release` environment, the APK signing on 2026-11-12 at 12:23Z and the publish job after it. The page, "InterWeave 0.3.0", was published 2026-11-12 at 12:24Z with eight assets: the archive `interweave-0.3.0-x86_64-unknown-linux-gnu.tar.gz` (SHA-256 b58f27d4919b57d1f14d6926bb3b1d769aa09e1f6c5fbd7f4c5e3b50dfb148b9) with its `.minisig`, `.sha256` and `.sha256.minisig`, the APK `interweave-0.3.0-arm64-v8a.apk` (3b89be89c161fd4ed372fbacf22b627c11fe21701e6405dbc45b9be410553c5e) with its `.sha256`, and `THIRD-PARTY-NOTICES-android.md` (8bcf9cc508c4b86e5b9b337419b15f56aaaa288fbf0409c39866732073781975) with its `.sha256`. Read from the page by architect-cto that day: the three downloaded files hash to what their `.sha256` files state, and the archive's `.minisig` and its `.sha256.minisig` both verify against the archive key the tagged commit pins (`packaging/release-keys.toml`); not read there by architect-cto: the APK's signing certificate, whose SHA-256 the page states, which the run's signing job holds to the release key's fingerprint (`tools/ci/release_android_apk.sh`) and which the device record below reads from both APKs with `apksigner verify --print-certs` as one signer, `a7f38b5e32aec4b8…`, the value the page states and `v0.2.0`'s; and an install of the archive from the page. **The post-cut case named above ran the same day**, p2p-network-dev-01's with the owner at the phones, `packaging/android/evidence/2026-11-12-v0-3-0-update-in-place-from-v0-2-0.md` (#640): on the Pixel 9a at API 37 and the Samsung A40 at API 30, each first cleared of the app, the published `v0.3.0` APK installed over the published `v0.2.0` in place (the installer's `Success`, `versionCode` 2 to 3, one signer before and after, the first-install time kept), and each phone so updated was taken through Create, whose Continue sealed and started the service (`start answered 0`) on the release key's build, which the 2026-11-08 record could show only on a test-signed one. That measures the two the 2026-11-08 record left by name; what the run does not show, its own list naming more: the same PeerId from the same store across an update, which stays on the baseline rule below; that the identity it made is reachable from a peer; Restore on the release key's build, which ran on the test-signed build only; and whether the service runs in the foreground once the activity leaves. What the defect does to the Android update/reinstall Validate row (`packaging/android/README.md`'s "What the tests show", its two results and the two device records under `packaging/android/evidence/` p2p-network-dev-01's, on `main` by #570): its downgrade case is MET on both phones (`v0.1.0` over `v0.2.0`, with and without `-r`, refused as `INSTALL_FAILED_VERSION_DOWNGRADE`, `v0.2.0` staying installed) and its update-in-place case is met for the package on both (`versionCode` 1 to 2, the first-install time unchanged, one signer) and NOT RUN for the same PeerId from the same store, since neither release can hold one. **The baseline rule for that half:** a Validate case that updates "the previous release" needs a previous release that can hold the state the case follows, so its baseline is the first published release that onboards a new user — `v0.3.0` above, cut 2026-11-11 and published 2026-11-12 — and the half runs from that release to its successor, on the test phone in the next window; it is a limit of this row by name until then, never a case run against `v0.2.0`. The owner's versioning word of the same day, given in p2p-network-dev-01's session at about 15:33Z, "no need to maintain compatibility with 0.1.0", is ADR-0065's (A 2026-11-05): no later release owes `v0.1.0` anything, the word alone carrying the rule — the APK's failed onboarding occasioned it, so no `v0.1.0` APK install holds an identity a person made, and the fleet's installed `v0.1.0` Linux programs, which do hold profiles, are owed nothing by the same word — which is consistent with the baseline rule.
 
-**The fourth release is `v0.4.0`** (the owner's word of 2026-11-18, in session: the release follows the merges of #712 and #714, both on `main` that day at ce09a6239; recorded before the cut, when the tag, the owner's act by hand under ADR-0066, was not yet made; made the same day, below). The version commit is p2p-network-dev-01's 4ca50d15f, cut from ce09a6239: the workspace version 0.3.0 to 0.4.0 with the lock's 57 workspace members, and the APK's `versionCode` 3 to 4. It is a MINOR by ADR-0065 decision 3, and its notes name one change as breaking: `transport.connection_policy.address_backoff_max` defaults to 30 s where `v0.3.0` had 5 minutes (#674, ADR-0011 A 2026-11-14) while the composition root still refuses the key off its default, so a profile that spells out the old default starts under `v0.3.0` and is refused at start under `v0.4.0`, among them one copied from `v0.3.0`'s own `architecture/config/examples/internet-reachability.yaml`, which wrote `address_backoff_max: 5m` (line 17 at the tag; the example and the schema's default say 30 s on `main`); no packaging file writes the key (p2p-network-dev-01's reading, REPLY 01a1ef63-91c9, correcting the first, which had missed `architecture/config/`; the example at the tag read by architect-cto). Read by architect-cto on `v0.3.0..ce09a6239`, a diff of the public surfaces and not a line audit: no file under `architecture/contracts/schemas/` or `fixtures/` changed, the IPC minor stays 2.13 and the store's schema 13, so a `v0.3.0` store opens unchanged and nothing found breaks a `v0.3.0` peer on the wire. What the notes name beside it: one direct data-plane connection per peer held open and pinged (#657, #666), the redial of a returned peer within 30 s (#674), the retry ladder after the loss of a connection that held (#709, ADR-0011 A 2026-11-17), a peer held through two relays retried at the first admitted circuit (#685), the stop that refuses inbound direct and hands each session its queue, the embedded binding's included (#709, #717), the direct global ingress bucket honoured from the profile where `v0.3.0` refused it (#717), `interweave-human` as an automated client (#701), the bridge's stale-lease reply tokens (#706), and `rusqlite` 0.42 for RUSTSEC-2026-0502 (#637). **The tag is `v0.4.0` on 1b2858449** (#718's merge, which carries the version commit and this record), the owner's, made by hand on 2026-11-18 at 17:05Z in the owner's own account with the tag key 7FB9C27BAA313CAE4C1F9485ACCFA5D9BC9B4F61, the tagging script prepared there by fabric-coordinator, who did not run it: `tools/ci/release_verify_tag.sh v0.4.0 1b285844952b0bacee8867fdab69714ea98be765`, the check the release run makes, exited 0 naming that signer, run by fabric-coordinator in that account after the push (REPLY 01a1efa0-394a) and by architect-cto from `origin` the same day against `main`'s pin, which is the tagged commit's. The release run 44354889876 started on the push and all six of its jobs passed between 17:06Z and 17:22Z that day, read by architect-cto from the run: the tag check, the APK build, the archive and the archive's run at glibc 2.35, and, the owner's account having approved the `release` environment, the APK signing and the publish job. The page, "InterWeave 0.4.0", was published 2026-11-18 at 17:21Z with eight assets: the archive `interweave-0.4.0-x86_64-unknown-linux-gnu.tar.gz` (SHA-256 22108168ae5c29a7336015f83eb9b0164efc77993c63ab8c819704cd0f65a2e9) with its `.minisig`, `.sha256` and `.sha256.minisig`, the APK `interweave-0.4.0-arm64-v8a.apk` (7166e88f06700ea2a45cd0a99423a879d9292e19987f4055574a6d54a4076d5c) with its `.sha256`, and `THIRD-PARTY-NOTICES-android.md` (495c9546807f988ec33a2bb2dba961b387f857a37ce6bc91e103341c252451c3) with its `.sha256`. Read from the page by architect-cto that day: the three downloaded files hash to what their `.sha256` files state, and the archive's `.minisig` and its `.sha256.minisig` both verify against the archive key the tagged commit pins (`packaging/release-keys.toml`); not read there: the APK's signing certificate, which the run's signing job holds to the recorded SHA-256 (`tools/ci/release_android_apk.sh`), and no program of the archive was run. Still owed, a dated note here when it is run: the Android update in place from `v0.3.0` — the baseline the row above names — on the test phone in the next window.
+**The fourth release is `v0.4.0`** (the owner's word of 2026-11-18, in session: the release follows the merges of #712 and #714, both on `main` that day at ce09a6239; recorded before the cut, when the tag, the owner's act by hand under ADR-0066, was not yet made; made the same day, below). The version commit is p2p-network-dev-01's 4ca50d15f, cut from ce09a6239: the workspace version 0.3.0 to 0.4.0 with the lock's 57 workspace members, and the APK's `versionCode` 3 to 4. It is a MINOR by ADR-0065 decision 3, and its notes name one change as breaking: `transport.connection_policy.address_backoff_max` defaults to 30 s where `v0.3.0` had 5 minutes (#674, ADR-0011 A 2026-11-14) while the composition root still refuses the key off its default, so a profile that spells out the old default starts under `v0.3.0` and is refused at start under `v0.4.0`, among them one copied from `v0.3.0`'s own `architecture/config/examples/internet-reachability.yaml`, which wrote `address_backoff_max: 5m` (line 17 at the tag; the example and the schema's default say 30 s on `main`); no packaging file writes the key (p2p-network-dev-01's reading, REPLY 01a1ef63-91c9, correcting the first, which had missed `architecture/config/`; the example at the tag read by architect-cto). Read by architect-cto on `v0.3.0..ce09a6239`, a diff of the public surfaces and not a line audit: no file under `architecture/contracts/schemas/` or `fixtures/` changed, the IPC minor stays 2.13 and the store's schema 13, so a `v0.3.0` store opens unchanged and nothing found breaks a `v0.3.0` peer on the wire. What the notes name beside it: one direct data-plane connection per peer held open and pinged (#657, #666), the redial of a returned peer within 30 s (#674), the retry ladder after the loss of a connection that held (#709, ADR-0011 A 2026-11-17), a peer held through two relays retried at the first admitted circuit (#685), the stop that refuses inbound direct and hands each session its queue, the embedded binding's included (#709, #717), the direct global ingress bucket honoured from the profile where `v0.3.0` refused it (#717), `interweave-human` as an automated client (#701), the bridge's stale-lease reply tokens (#706), and `rusqlite` 0.42 for RUSTSEC-2026-0502 (#637). **The tag is `v0.4.0` on 1b2858449** (#718's merge, which carries the version commit and this record), the owner's, made by hand on 2026-11-18 at 17:05Z in the owner's own account with the tag key 7FB9C27BAA313CAE4C1F9485ACCFA5D9BC9B4F61, the tagging script prepared there by fabric-coordinator, who did not run it: `tools/ci/release_verify_tag.sh v0.4.0 1b285844952b0bacee8867fdab69714ea98be765`, the check the release run makes, exited 0 naming that signer, run by fabric-coordinator in that account after the push (REPLY 01a1efa0-394a) and by architect-cto from `origin` the same day against `main`'s pin, which is the tagged commit's. The release run 44354889876 started on the push and all six of its jobs passed between 17:06Z and 17:22Z that day, read by architect-cto from the run: the tag check, the APK build, the archive and the archive's run at glibc 2.35, and, the owner's account having approved the `release` environment, the APK signing and the publish job. The page, "InterWeave 0.4.0", was published 2026-11-18 at 17:21Z with eight assets: the archive `interweave-0.4.0-x86_64-unknown-linux-gnu.tar.gz` (SHA-256 22108168ae5c29a7336015f83eb9b0164efc77993c63ab8c819704cd0f65a2e9) with its `.minisig`, `.sha256` and `.sha256.minisig`, the APK `interweave-0.4.0-arm64-v8a.apk` (7166e88f06700ea2a45cd0a99423a879d9292e19987f4055574a6d54a4076d5c) with its `.sha256`, and `THIRD-PARTY-NOTICES-android.md` (495c9546807f988ec33a2bb2dba961b387f857a37ce6bc91e103341c252451c3) with its `.sha256`. Read from the page by architect-cto that day: the three downloaded files hash to what their `.sha256` files state, and the archive's `.minisig` and its `.sha256.minisig` both verify against the archive key the tagged commit pins (`packaging/release-keys.toml`); not read there: the APK's signing certificate, which the run's signing job holds to the recorded SHA-256 (`tools/ci/release_android_apk.sh`), and no program of the archive was run. Still owed, a dated note here when it is run: the Android update in place from `v0.3.0` — the baseline the row above names — on the test phone in the next window. **2026-11-23: run on the Pixel 9a (API 37), and the PeerId is the same after the update.** p2p-network-dev-01, with the owner at the phone (`packaging/android/evidence/2026-11-23-v0-4-0-update-in-place-from-v0-3-0.md`): over the published `v0.3.0` with an identity made by Create, the published `v0.4.0` APK installed in place (`Success`, versionCode 3 to 4, one signer, the first-install time kept), the updated app started its runtime with no onboarding, and the owner read the same PeerId in the app before and after. Its limits, by name, are in §30's note of that date.
 
 Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). The standard-v1 release matrix is Linux and Android (the owner's word of 2026-10-28, the opening record above): `packaging/windows` is conditional on a Windows runner and the binding, and macOS, which this stage once owed a runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a runner, is postponed with it, indefinitely, an option after the whole plan is complete; both stay carries held by architect-cto by name with no date, and the v1 build claim is Linux and Android. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows and macOS rows are postponed with the carry above.
+
+**Met (2026-11-21; the closing record).** Stage 19 closed on the owner's
+word of 2026-11-21, given in session ("close 18 and 19 on named
+carries, keep 22 open") after architect-cto's census of this section
+read at `main` 68f856f41, having run beside Stages 17 and 18 from
+2026-10-20. Four releases were cut in it from signed tags, `v0.1.0`,
+`v0.2.0`, `v0.3.0` and `v0.4.0`, each a Linux archive and an Android
+APK under ADR-0057 and ADR-0065, and from `v0.2.0` under ADR-0066:
+`v0.1.0` was cut before that record, its archive the one release with
+no signature of its own and its tag signed with the owner's personal
+key (ADR-0066, A 2026-11-10). No store listing exists and none is
+planned. The gate reads every Validate row as a green test on
+`main` or a limit naming its reason, and every carry as met or
+re-carried here.
+
+The Validate rows:
+
+- **Service/autostart lifecycle; uninstall semantics** (p2p-network-dev):
+  met, `tests/desktop-e2e/tests/user_units.rs`, run by CI against the
+  installed units; no login is shown, a limit `packaging/linux/README.md`
+  words.
+- **Fresh install, upgrade, rollback, PeerId preservation, the recovery
+  drill** (rust-ui-dev): each has its test in
+  `tests/desktop-e2e/tests/human_app/release.rs`, green in CI against
+  the workspace's build. Limit: as this record was written no run of
+  them against a released archive was on `main`, CI leaving
+  `INTERWEAVE_PACKAGE_BIN` unset; "against a packaged build" in the
+  split above was therefore not met by CI. The run against `v0.4.0`'s
+  archive is rust-ui-dev-02's (their j131, REPLY 01a20016-8756), carried
+  below. The rollback axis holds one previous build, no published
+  release among them, and no older `human-desktop`. The start-up
+  refusal screen the rollback and drill rows cite landed in this stage
+  (`tests/desktop-e2e/tests/human_app/refusal.rs`), so the limit "until
+  it lands" above ended with it.
+- **Profile/config migration** (rust-ui-dev): limit, in rust-ui-dev-02's
+  words: upgrade is proved over the committed previous-build tree,
+  whose formats are this build's own. No tree with an older format is
+  on the axis, so an upgrade across a format change is proved for each
+  artefact in isolation (the store's migrations in `crates/human/store`,
+  the profile-format marker), not end to end.
+- **Android update/reinstall** (p2p-network-dev): the downgrade refused
+  on both phones (2026-11-05), the package updated in place from
+  `v0.2.0` to `v0.3.0` (2026-11-12). Limit: the update in place from
+  `v0.3.0` to `v0.4.0`, the same PeerId from the same store, was not
+  run by this record for want of a phone window; `v0.4.0`'s APK was
+  published on 2026-11-18 and the case needs nothing else
+  (p2p-network-dev-01, REPLY 01a20022-eccf). Carried below (A
+  2026-11-23: run on the Pixel 9a that day, the PeerId the same after
+  the update; §30's note of that date has it with its limits). Not run on
+  Android by its own records: Restore on a release-key build, and the
+  foreground service after the activity leaves.
+
+The items carried here, met: the SIGHUP carry and the units' CI cover
+(Stage 13); the Android release run, the Skia archive pinned by
+checksum, and the Slint attribution on the release page (ADR-0057,
+Stage 15); the plugin from a marketplace on the development-flag path
+(Stage 16); the glibc 2.35 floor, built and gated, with
+`packaging/linux/DEPLOYING.md`'s requirements sentence, which the
+paragraph of 2026-10-25 above called owed and which is on `main`.
+
+**Carried by name.** To §30, the one stage open after this close, held
+by the lane named and not by that stage's own gate:
+
+- the run of the host Validate rows against `v0.4.0`'s archive
+  (rust-ui-dev-02);
+- the Android update in place from `v0.3.0` to `v0.4.0`
+  (p2p-network-dev-01), ordered on the Pixel the owner gave on the day
+  of this record (DECISION 01a20025-e80d); run there on 2026-11-23
+  (A 2026-11-23, §30's note of that date).
+
+Held with no date, a row of no stage's close:
+
+- **`--channels` with a published plugin** (Stage 16): a
+  Team/Enterprise subscription login and a valid Console key not
+  measured, the owner's account holding both; a fleet host's own
+  `/etc` never written, root's at deployment; the remotely served
+  allowlist not asked for (rust-services-dev-02, REPLY 01a20022-daad).
+- **Client autostart of the daemon** (Stage 15, §18 (9)): an option the
+  owner may ask for (`packaging/linux/README.md`, the ruling of
+  2026-11-03); the service/autostart lifecycle row it was carried to
+  is p2p-network-dev's, and who builds a client-side launch is decided
+  when it is asked.
+- **`flock` on NFS homes** (Stage 13, p2p-network-dev's): a stated
+  limit by reason in `packaging/linux/README.md`, owing no work.
+- **The Windows binding with the BSL-1.0 decision, the macOS
+  runtime-directory rule and runner, `packaging/macos` and
+  `packaging/windows`**: postponed on the owner's word of 2026-10-28,
+  an option after the whole plan is complete, held by architect-cto
+  (matrix row C-04).
+- **The one line on `v0.1.0`'s release page**, that its GUI needs glibc
+  2.43: the owner's, and not on that page when this record was written.
+
+**ADR-0034 §7's release gate is no row of this stage.** Whether
+configured Kademlia entries ship default-enabled is still undecided;
+all four releases compose Kademlia only from an entry stating `enabled:
+true`, which is what validation enforces, and that decision stays the
+owner's, separate from this close.
+
+No P1 or P2 finding is recorded in this section. The status value
+moves with §21's record of the same day to
+`stage-22-several-user-identities`.
 
 ## 23. Parallel workstreams
 
@@ -8048,13 +8242,15 @@ the client asserts at every acquisition of the identity's lease, a
 reconnect after a daemon restart included, before it takes that lease,
 through `set_advertise` or the embedded host (ADR-0028 A 2026-10-21),
 `config.yaml` unrewritten and the desktop upgrade test's no-rewrite
-assertion widened in step 1 to allow exactly that delta — and, across the Stage 22 release itself, the case rewritten for the clean break (ruled 2026-11-19): on the previous release's profile the daemon refuses the start by name, `EndpointIdNotDerived`, naming `transportctl endpoint adopt` and the entry to write; after the adopt and the one entry written by the test as the operator it starts, and the assertion is that no program wrote `config.yaml`, which differs from before by that entry alone; the daemon's half rides p2p-network-dev's first batch, and the half that opens a store of the release before rides rust-ui-dev's schema v14, the case saying in its own comment which PR completes it; an identity the person creates on either platform lands in the
+assertion widened in step 1 to allow exactly that delta — and, across the Stage 22 release itself, the case rewritten for the clean break (ruled 2026-11-19): on the previous release's profile the daemon refuses the start by name, `EndpointIdNotDerived`, naming for each entry the command that applies and the entry to write — `transportctl endpoint init` for both entries of the committed tree (`test-data/upgrade/d3a193e9`, `human` and `claude`), which holds no `identity-keys/` (corrected 2026-11-22: this sentence named `endpoint adopt`, a path no committed tree proves, none holding an `identity-keys/<label>.key`; adopt is a limit of this case by name, proved by `apps/transportctl/tests/endpoint.rs`'s `adopt_*` cases and the loader's `the_retired_id_names_adopt_or_init_by_the_old_files_presence`, not end to end); after the named commands and the entries written by the test as the operator it starts, the endpoint the tree's overlay turned off by its label reads disabled under its new id, the test having written nothing in that file (`ENDPOINTS.md` §Configured endpoint set, A 2026-11-22), and the assertion is that no program wrote `config.yaml`, which differs from before by those entries alone; the daemon's half rides p2p-network-dev's first batch, and the half that opens a store of the release before rides rust-ui-dev's schema v14, the case saying in its own comment which PR completes it; an identity the person creates on either platform lands in the
 endpoint overlay's `added` member, never in the authored file), the overlay's
 `added` and `advertise` members in the runtime's loader — their
 normalisation and the profile's 64-endpoint bound over authored and
 added together
 (ADR-0028 A 2026-10-21) — and — in
-p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
+p2p-network-dev's lane, in IPC 3.0 itself under ADR-0017's pre-release
+rule, no minor, and so built before the stage's release is tagged
+(ADR-0061 A 2026-11-24 (ii)) — the
 administrative methods that add a configured endpoint, remove an
 added one and set an endpoint's `advertise` (`admin.endpoints.*`,
 LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
@@ -8078,7 +8274,7 @@ sentence gaining the administrative path in the same change.
    that share it; the client operating as one identity at a time, named from the second
    identity on on every acting
    surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
-   chooser; `human-client-ui.md` §3 and §4 as amended. The 64 remote endpoints per PeerId are counted per identity from this step (HUMAN-CHAT.md, A 2026-11-19), so the texts that count them over every identity change with it: `design/2026-10-27-start-window.md` §3, its §9 `NotSentEndpointLimit` row and its acceptance item 11b (ux-designer's), and the string in `crates/human/ui-model/src/labels.rs` ("the limit for all its identities and contacts together"). Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)). Carried from §29 (ruled 2026-10-31, DECISION 01a19125-9eb5): the conversation's record that a card of the identity may have left this device (ADR-0063 decision 1, A 2026-10-27, `Cancelled { may_have_reached: true }`), read by a replacement identity's share-again list over the old EndpointId's conversations, and the old-key own-card row across a restart (#467 R5), the old identity's by its conversation's `local_endpoint_id`; neither needs a key epoch per row.
+   chooser; `human-client-ui.md` §3 and §4 as amended. The 64 remote endpoints per PeerId are counted per identity from this step (HUMAN-CHAT.md, A 2026-11-19), so the texts that count them over every identity change with it: `design/2026-10-27-start-window.md` §3, its §9 `NotSentEndpointLimit` row and its acceptance item 11b (ux-designer's), and the string in `crates/human/ui-model/src/labels.rs` ("the limit for all its identities and contacts together"). Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)). Carried from §29 (ruled 2026-10-31, DECISION 01a19125-9eb5): the conversation's record that a card of the identity may have left this device (ADR-0063 decision 1, A 2026-10-27, `Cancelled { may_have_reached: true }`), read by a replacement identity's share-again list over the old EndpointId's conversations, and the old-key own-card row across a restart (#467 R5), the old identity's by its conversation's `local_endpoint_id`; neither needs a key epoch per row. Not built as of 2026-11-23 (rust-ui-dev-02's INFO 01a20a42; their store supply at cf88710ed, folded into the batch at e876e4f7e): the replacement of an identity whose key is lost or refused (`design/2026-10-24-identity-key.md` §5, its part 2; `human-client-ui.md` §13's bullet for it; STATE.md's replaces record and share-again list). No act of the client minted a replacement's key, the store held neither record, and the design's Q-bound (its §12) was open; until the act lands, such an identity shows `KeyNoNewKey` and offers no action, the design's part 1. The §13 bullet is a criterion of step 4 and so of exit gate (a), which it holds open until its tests are green on `main` or the owner carries it by name.
 3. **Android** (rust-ui-dev): one in-process session and lease per
    identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
    identity switch in the app, identities created through the embedded
@@ -8142,6 +8338,107 @@ discard of the store the first identity and every added one still
 held, named by their labels; a data session that
 names an unconfigured endpoint is refused as today; every action of
 steps 1–3 driven from the command-line client in a shell with no display.
+
+Carried here on 2026-11-21 from the closes of Stage 18 (§21) and Stage
+19 (§22), as the one stage then open. None is a clause of this stage's
+exit gate; each is held by the lane named, and a run that lands is a
+dated note in this paragraph: S21-12's owed case, a `user-presence`
+seed key invalidated on a device (p2p-network-dev-02, with the owner
+at the phone); C-06, the rendered relayed-path indicator live on the
+Android↔desktop path (rust-ui-dev-01); the host Validate rows run
+against `v0.4.0`'s archive (rust-ui-dev-02); the Android update in
+place from `v0.3.0` to `v0.4.0`, the same PeerId from the same store
+(p2p-network-dev-01).
+
+**2026-11-23, S21-12's owed case: passed on the Samsung A40 (API 30).**
+`an_invalidated_user_presence_key_opens_on_k1_and_mints_nothing`
+(`tests/android-e2e/tests/identity_lines.rs`), run by p2p-network-dev-02
+with the owner at the phone
+(`tests/android-e2e/runs/2026-11-23-samsung-a40-s21-12-invalidated-key.md`,
+#745). With a `user-presence` identity made for the run, the owner
+removed the screen lock and set the same PIN again; the seed key's
+alias stayed and was refused (`UnrecoverableKeyException`), and a cold
+launch opened on K1, the recovery page with ADR-0043's warning, with no
+credential prompt and no service, the identity record byte-equal to the
+one read before the change. The row's step cell reads `—` since that
+pull request, and the item is no longer owed. Its limits, by name: the
+pass is the case as at `4ef7723fc`; the wait for a quiet window before
+the K1 reads and the lock reader bounded to user 0's block, both added
+in the review of #745, have run on no phone. One phone: an A40, API 30,
+One UI, no StrongBox. The invalidating change was the PIN's removal,
+not a biometric enrolment or removal. No phone at API 31 or later ran
+it, where the alias may be deleted instead of kept; the app opens K1
+for a missing key and an invalidated one alike, and the run did not
+read which of the two the app itself saw. No restore from the recovery
+phrase followed K1. What the person sees on K1 is not shown: the window
+is `FLAG_SECURE`, so K1 and its warning were read from the app's trace
+and not from the frame.
+
+**2026-11-23, the Android update in place from `v0.3.0` to `v0.4.0`:
+run on the Pixel 9a (API 37), the PeerId the same after it.** Run by
+p2p-network-dev-01 with the owner at the phone
+(`packaging/android/evidence/2026-11-23-v0-4-0-update-in-place-from-v0-3-0.md`).
+The phone's app was uninstalled with its data first (DECISION
+01a20039, for this run), the published `v0.3.0` APK installed, and the
+owner took Create and read the PeerId in the app. The published
+`v0.4.0` APK then installed over it (`adb install -r`, `Success`,
+versionCode 3 to 4, the release signer before and after, the
+first-install time kept), the updated app started its runtime within a
+second of its first start with nothing tapped and no onboarding, and
+the owner read the same PeerId again. Both APKs are the release assets,
+checked against their `.sha256` assets. The item is no longer owed as
+§22 carried it. Its limits, by name. One phone: the Samsung A40 held
+`v0.4.0` already and nothing was installed or run on it. Create only:
+no Restore ran before or across the update. The store held only the
+identity Create made, no conversation and no contact, so "the same
+store" is shown for the identity record and for nothing else a
+`v0.3.0` store can hold. No peer was reached before or after: the
+start says the runtime is up, not that a peer met that PeerId. Both
+PeerIds are as the owner read them on the phone, the window being
+`FLAG_SECURE` and a release build not debuggable; the host read the
+log and `dumpsys`, and what else the person saw after the update was
+not read. The runtime stopped shortly after each start, cleanly, and
+the record does not say why.
+
+**2026-11-24, owed before this stage closes: the key-change flow's
+removal.** ADR-0067 decision 5 withdrew the key change, and since
+rust-ui-dev-02's supply `7b641aa38` a card whose key does not derive
+the `source_endpoint` it arrived on is malformed
+(`KeyNotSourceEndpoint`), so no card reaches the proposal. The flow's
+code and its tests were still in the tree at that commit, and
+`tests/SECURITY-MATRIX.md`'s TM-52 and TM-55 rows name them as guarding
+nothing. Their removal is rust-ui-dev-02's own pull request after the
+Stage 22 batch merges. With it goes the second half of
+`a_key_change_is_made_and_accepted_only_on_its_flags_across_two_daemons`
+(`tests/desktop-e2e/tests/human_cli.rs`), which makes a new key under
+the same endpoint and shares the card again: the check refuses that
+send, so the half fails by construction once the case's earlier
+failure, a missing key file at the batch's base (rust-ui-dev-02's
+report, REPLY 01a20abb; not run for this note), is fixed. The cut is
+made no later than the change that fixes that key path. The test's
+name in §29's record above and in `apps/human-cli/README.md` changes
+with it, as a dated note there.
+
+**2026-11-24, owed before this stage closes and before any release
+from a tree that runs schema v14: the migration notice.** The Stage 22
+batch's store writes the `v14_discarded` row with what the migration
+discarded and has its read and its delete
+(`HumanStore::discarded_at_v14`, `forget_discarded_at_v14`), and at the
+batch's head no client calls either: only tests read the row (the
+blind review of the batch, finding C-F2; grep of that head). So a
+person whose store the upgrade cut is told nothing by that tree, which
+is what `human-client-ui.md` §13's first Stage 22 criterion and
+`clients/human/STATE.md` §Migrations ask for ("at each open until the
+person acknowledges"). The notice is deferred from the batch by name
+and is rust-ui-dev's own pull request, on ux-designer's
+`design/2026-11-19-stage22-migration-notice.md`, a proposal until that
+change. The order loses no notice: the row is deleted on the
+acknowledgement and on nothing else, so the build that brings the
+notice finds the row an earlier build wrote. What binds until then: no
+release is cut from a tree that runs v14 and shows no notice, since a
+released upgrade that discards a person's pending messages without a
+word is the case the criterion exists for; and the stage does not
+close without it.
 
 ### Record
 

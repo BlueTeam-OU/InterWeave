@@ -24,7 +24,7 @@ use interweave_local_client_api::{
     DataSessionPort as _, SessionRequest,
 };
 use interweave_profile_config::{
-    ProfilePaths, TrustBoundary, create_private_dir_within, provision::embedded_document,
+    ProfilePaths, TrustBoundary, create_private_dir_within, provision::embedded_identity_document,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
@@ -60,12 +60,13 @@ fn app() -> App {
 }
 
 fn endpoint(id: &str) -> EndpointId {
-    EndpointId::parse(id).expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id(id)
 }
 
 /// The peer: an embedded host trusting the phone, leasing `agent`,
 /// listening on the wildcard for the phone to dial.
 fn peer(app: &App, phone: &TransportIdentity, identity: ProfileIdentity) -> EmbeddedHost {
+    let agent = endpoint("agent");
     let document = format!(
         "schema_version: 2
 profile:
@@ -73,7 +74,7 @@ profile:
 runtime:
   deployment: embedded-android
   android:
-    endpoint: agent
+    endpoint: {agent}
 ipc:
   enabled: false
 transport:
@@ -85,7 +86,8 @@ trust:
 endpoints:
   default_direct_endpoint: agent
   entries:
-    - id: agent
+    - key: {agent}.key
+      alias: agent
       enabled: true
       advertise: true
 discovery:
@@ -95,7 +97,8 @@ discovery:
       priority: 10
       config: {{}}
 ",
-        phone.as_str()
+        phone.as_str(),
+        agent = agent.as_str(),
     );
     let paths = ProfilePaths::resolve_embedded(
         PEER_PROFILE,
@@ -112,10 +115,11 @@ discovery:
     .expect("the peer starts")
 }
 
-/// The phone's profile: the app's own first-run document, trusting the
-/// peer and bootstrapping from `address`.
+/// The phone's profile: the app's own document once onboarding has run
+/// (form 2) for the test key `human`, the endpoint the peer sends to,
+/// trusting the peer and bootstrapping from `address`.
 fn provision_phone(app: &App, peer: &TransportIdentity, address: &str) {
-    let document = embedded_document(PROFILE)
+    let document = embedded_identity_document(PROFILE, &endpoint("human"))
         .replace(
             "allowed_peers: []",
             &format!("allowed_peers: [\"{}\"]", peer.as_str()),
@@ -290,6 +294,7 @@ fn a_message_admitted_before_the_stop_is_unread_after_it() {
     let store = HumanStore::open_profile(
         &paths,
         &interweave_human_store::key_custody::FilesystemCustody,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions::default(),
     )
     .expect("the store");

@@ -180,3 +180,31 @@ pub(crate) async fn status_peer(home: &Home) -> TransportIdentity {
         .expect("an admin port");
     port.status().await.expect("status").peer
 }
+
+/// The `PeerId` a PREVIOUS build's daemon reports, read with that build's
+/// own `transportctl status`: this build's IPC client is refused by an
+/// older major at the hello (`VersionIncompatible`), so it cannot read
+/// an old daemon. Retried within `PATIENCE`, the socket accepting a
+/// connection a moment before the daemon answers.
+pub(crate) fn status_peer_of(bin: &Path, home: &Home) -> String {
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let out = transportctl_of(bin, home, &["status"], "");
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        if out.status.success()
+            && let Some(at) = text.find("12D3KooW")
+        {
+            return text[at..]
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{}: status names no peer: {text}\n{}",
+            bin.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}

@@ -1,10 +1,11 @@
 # Several identities in one client: the identity in front, Add, Remove, trust, notifications and a contact's routes — desktop and Android
 
-Status: proposal, 2026-11-04. **This note opens no stage.** Stage 22
-(plan §30, several user identities in one client) is roadmap only: it
-opens on the owner's word alone, and nothing here may be built before
-that word. A design is the one part of the stage that can go first, and
-this is it.
+Status: proposal, 2026-11-04. **This note opened no stage.** Stage 22
+(plan §30, several user identities in one client) was roadmap only when
+this note was written, and only the owner's word could open it; the
+design was the one part of the stage that could go first. The owner opened the
+stage on 2026-11-19 (plan §30's opening record), so the stage's steps
+now build what follows.
 
 Asked by architect-cto (REQUEST 01a1a689, job j89), read against
 `origin/main` b563dd00c, for four things: how every acting screen names
@@ -88,12 +89,25 @@ acceptance case in §14 that needs one says so:
   the same three on Android. §6.2 relies on one behaviour of the add
   that D1 must name: an add whose key derives an EndpointId the profile
   already holds answers that the id exists, distinguishable from a
-  refusal, and creates nothing new. And one property the key's cleanup
-  relies on (§6.2): an add the client stopped waiting for is either
-  committed before the daemon answers any later call, or never commits;
-  and a refusal means no add of that key will commit. Without it, a key
-  deleted on a list that answered could belong to an endpoint created
-  afterwards.
+  refusal, and creates nothing new. The key's cleanup (§6.2) relies on
+  one more answer of the add: an add whose key file is absent when the
+  daemon applies it is refused (`key_missing`) and creates nothing, so
+  an add the client stopped waiting for cannot create an endpoint after
+  the client deleted its key on a list that answered; and a refusal
+  means no add of that key will commit. Neither the add nor the remove
+  promises more about an answer that was lost: a write the client
+  stopped waiting for may still commit after a later list has answered
+  (`LOCAL-IPC.md`, A 2026-10-23; ADR-0061 decision 7, A 2026-11-24).
+  §7's Remove is written for that: when an id is read back present
+  after a lost answer, the Remove is not known to have finished, and
+  what the person is told stays true if the device removes the endpoint
+  a moment later. §7 relies on two answers of the remove and on one
+  behaviour: a remove of an id the device does not
+  hold answers `EndpointUnknown`, told apart from a refusal; a remove
+  that leaves the configuration ahead of the running device (ADR-0028)
+  answers `Internal`, as a write that failed does; and the remove takes
+  the identity's trusted set (its `inbound` and `outbound` members,
+  ADR-0028) out of the endpoint overlay with the endpoint.
 - **D2** the endpoint dimension of `admin.trust.set` and
   `admin.trust.list` (p2p-network-dev's IPC minor, contract text
   architect-cto's; ADR-0067 d. 6).
@@ -246,7 +260,8 @@ front, and only that identity admits the peer at the route. So:
 - **Peers rows** (add-a-peer §5.2): the trust state is that of the identity
   in front. `PeerStateTrusted` stays with one identity ("this device
   tries to connect to this address": true, since the device dials every
-  peer any identity trusts), and with two or more reads
+  peer in its admission set, the union of every identity's set and
+  the device's own list; ADR-0067 d. 6), and with two or more reads
   `PeerStateTrustedAs`, the same claim after "Trusted by {identity}". `PeerStateNeedsTrust` today adds "this device does not
   connect to this address", which is false when another identity trusts
   that peer and would tell the person so. With two or more identities
@@ -494,6 +509,109 @@ where focus lands — with its dialog changed for ADR-0067:
 - **Cancel** first focus, **Remove** filled in `error`, no Undo.
 - **Its trusted peers** leave the device's admission set when no other
   set holds them; nothing on the remaining identities' screens changes.
+- **Its key path** is the first thing Remove takes, as ADR-0063
+  decision 2 says (identity-key §5.3 step 5): a directory that holds
+  anything is left and Remove goes on; where nothing is at the path
+  (the key file is already missing), there is nothing to take, and
+  Remove goes on; every other failure to remove the entry stops
+  Remove before anything else is removed, and the
+  snackbar is `IdentityChangeFailed`'s Remove text; its words "Nothing
+  was changed" are then true. Remove never reports done while the key file
+  is still there.
+- **Remove's order, and a Remove that does not finish** (ADR-0061
+  decision 7 and ADR-0063 decision 2, as ruled on #751): Remove takes
+  its key path first, then the platform key (the Keystore alias, on
+  Android only), then the identity's rows in the store (its
+  conversations, contacts and card), and asks the device to remove the
+  endpoint last. Its trusted set is the device's, kept in the endpoint
+  overlay (ADR-0028), and goes with the endpoint at the device's remove
+  (D1); a Remove that did not finish leaves it unchanged. A failure at
+  any step after the key path, before the device has removed the
+  endpoint, is a Remove that did not finish, whatever the device
+  answered: a refusal, and `Internal` too, since the client cannot tell
+  a write that failed from a configuration left ahead of the running
+  device (ADR-0028, D1). The first five items below say what follows
+  such a failure; the sixth says how the client reads a lost answer,
+  and the last says when nothing of the identity is left:
+  - The snackbar is `IdentityRemoveUnfinishedRows` when the
+    identity's rows were deleted before the failure, and
+    `IdentityRemoveUnfinished` when they were not (a failure at the
+    Keystore alias), so that it says what was removed (ADR-0061
+    decision 7). Neither is ever `IdentityChangeFailed`, and neither
+    has an Undo. Each names the identity by
+    the name the Remove dialog showed. The dialog has closed and focus
+    is on the overflow button of the identity's page, as after a refused
+    Remove (cards §5.2). `IdentityRemoveUnfinishedRows` never says that
+    the identity is still here, nor that choosing Remove again will
+    finish removing it: it is also shown when the device may still
+    remove the endpoint a moment later, or only at the device's own next
+    start (the items below).
+  - The identity stays listed, and its page shows the missing key
+    (`KeyMissing`, identity-key §4.1). If its rows were deleted before
+    the failure, it has no card, conversations or contacts, and the
+    list and its page name it by its alias, as they name any identity
+    with no card (§6.2). From the deletion of its rows it receives
+    nothing (no message to it is kept or shown) until Remove finishes,
+    until a list that answered does not hold its id, or until the app's
+    process ends (ADR-0061 decision 7). If Remove failed before its rows
+    were deleted, the rows stay, and the identity still receives messages,
+    like any other identity whose key is missing (identity-key §1).
+  - After a restart of the app, the list and its page show the same as
+    before, because nothing stores that a Remove began, and the
+    identity receives messages again, like any other identity whose key
+    is missing; when the identity leaves by the last item, the
+    messages it received after the restart go with the rest of its
+    rows.
+  - Remove stays offered on that page. If the person chooses Remove
+    again, that Remove completes once the device removes the endpoint,
+    because
+    the key path now holds nothing to take. The Remove dialog is the
+    same as before: its key item (`IdentityRemoveKey`) still says that
+    no one can use this identity again.
+  - **The configuration is left ahead of the running device** (the
+    desktop's daemon wrote it and could not apply it, ADR-0028): the
+    device still serves the endpoint and lists its id until its own
+    next start, so each time Remove is chosen again until then, that
+    Remove ends as above, with `IdentityRemoveUnfinishedRows`. The
+    client cannot tell this case from a write that failed, and the
+    snackbar does not name it. At the device's next start the endpoint
+    is gone, and the identity leaves the list by the last item.
+  - **The device's answer to the remove is lost** (the connection
+    drops, or the answer never comes): the client reads the endpoint
+    list back (`admin.endpoints.list`), as Add does (§6.2). If the
+    identity's id is absent from the list, Remove is done, as when the
+    device answers done (cards §5.2). If the id is present, or the list
+    does not answer, the Remove is not known to have finished, since
+    the remove may still be applied after that list answered (D1), and
+    it ends as in the items above. If Remove is chosen again for an id
+    that the device no longer holds, the device answers
+    `EndpointUnknown` (D1), and Remove ends as done once the list shows
+    the id absent.
+  - **An identity that cannot come back leaves with nothing of it
+    left** (ADR-0061 decision 7, A 2026-11-24): at the app's start,
+    after every reconnection to the device, and whenever
+    `admin.endpoints.list` answers, the client deletes the store rows of
+    an identity whose id that list does not hold and whose key path
+    holds no key file. Nothing is deleted on a list that failed, and an
+    identity whose key file is still there keeps its rows, since it can
+    be configured again. The identity leaves Your identities, the
+    switcher and the switch, as one that Remove ended as done leaves
+    them (cards §5.2), with no snackbar of its own: after a Remove, the
+    person already chose to remove it, and
+    `IdentityRemoveUnfinishedRows` did not say it was staying. An
+    identity whose key file and endpoint were removed by other means,
+    with no Remove chosen, also leaves with no snackbar, like any
+    endpoint that is taken out of the configuration. In one case there is a
+    snackbar: when that identity was in front, the default comes in
+    front, and the snackbar is `ConfirmIdentityRemovedSwitched` when
+    two or more identities are left, or `ConfirmIdentityRemoved` when
+    one is left, as after a Remove done (cards §5.2). While two or more
+    identities are left, the identity in use never changes without the
+    person being told which one it now is; with one left, the identity
+    in use is shown only where the person asks for it (cards §5.2).
+    Where its page or one of its screens was shown, the app lands as
+    after a Remove done (cards §5.2, "Where it lands"); focus is F22's
+    (§11).
 
 **Turn off this identity** (the first identity) stands as cards §5.2
 says. One addition: its trust stays. Turned off, it admits nothing
@@ -657,7 +775,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
 
 - Tab and Shift+Tab follow the reading order below; arrows move within
   a menu, a sheet's choice rows and a dialog's buttons, as the toolkit's
-  menus already do, and do not leave them.
+  menus already do, and do not leave them. The reading order is the
+  logical one: a right-to-left window mirrors where the controls stand,
+  but their Tab order is not mirrored.
 - Enter and Space press the focused control. In a text field, Enter
   presses the form's primary (Create on the add form, Save on a card)
   and Space types a space.
@@ -711,6 +831,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
 | F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
 | F21 | the identity in front becomes Starting or Could not start while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted |
+| F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each of the four runs, a reconnection to the device makes `admin.endpoints.list` answer |
 
 ## 12. Accessibility beyond focus
 
@@ -742,6 +863,61 @@ can, and the TalkBack rows of §14 are blocked until it does.
   avatar and three graphemes; every "as" line wraps rather than truncates, so
   the whole name is always read; at 200 % text each line still fits
   the 360 dp width by wrapping.
+- **The Chats bar when the switch does not fit beside the title**
+  (rust-ui-dev-02's question, 2026-11-21: the desktop's 280 px list
+  pane cut "Conversations" to "Conversa…" beside the switch). The bar
+  keeps one row when the whole title, the switch at its minimum and
+  the ⋮ fit on it at the current text size. The switch's minimum here
+  is the avatar, three graphemes and the ▾. This minimum is measured
+  for each identity held, and the widest of those minimums counts,
+  whichever identity is in front. So adding or removing an identity
+  can change the bar's rows, and switching identity cannot. When the
+  title, the switch at its minimum and the ⋮ do not all fit, the bar
+  takes two rows. The first row holds the title and the network-state
+  line under it, across the whole width. The second row holds the
+  switch at its start and the ⋮ at its end, the switch's name taking
+  the width between them and ellipsising as above. Whether the bar
+  has one row or two depends on the width, the text size, the title
+  and the widest minimum among the identities held, never on which
+  identity is in front, so switching identity never reflows the bar.
+  The order stays §11's for Chats: the title, the switch, the ⋮, in
+  reading order and in Tab order, in both
+  layouts. Neither the title nor the switch ellipsises to make room for
+  the other. In the two-row bar the title wraps at word boundaries, and
+  a single word wider than its row breaks inside the word: no part of
+  the title is ever ellipsised or hidden, and its accessible name is
+  always whole. (This rule was first written as "a single word wider
+  than its row ellipsises". It was changed on 2026-11-23, for two
+  reasons. rust-ui-dev-02 found that the toolkit cannot ellipsise one
+  word of a wrapped text. And an ellipsis hides part of the heading
+  from a person who enlarged the text to read it (WCAG 1.4.4), while a
+  break inside the word keeps all of it, which reflow allows (WCAG
+  1.4.10). The cost: at 200 % text on the 280 px pane, "Conversations"
+  may show split between two letters, with no hyphen.) The build sets
+  each row's height: at least the height that the Targets item above
+  gives, and more when the row's content needs it. With one identity
+  held there is no switch, and the bar is one row as today.
+  **Alternatives named:**
+  - (a) Wrap the title beside the switch. Rejected: "Conversations" is
+    one word, so at the default text size every desktop with two or
+    more identities would show the title broken inside the word, on
+    two lines in a third of the bar's width. The two-row bar breaks a word
+    only when the word is wider than the whole row, which can happen,
+    for example, at 200 % text on the 280 px pane.
+  - (b) Drop the switch to the avatar alone. Rejected: §5 names the
+    identity in front in words. Two identities without photos show the
+    same placeholder, so the bar would no longer say who acts.
+  - (c) Let the title ellipsise, as first built. Rejected: the desktop's
+    list pane is 280 px at every wide width, so every desktop with two
+    or more identities would show a cut heading at the default text
+    size.
+  - Material's medium top app bar (the controls on the first row, the
+    title under them). Rejected: it puts the heading after the switch
+    and the ⋮ in reading order, and §11's order and every focus return
+    to the heading would change with it.
+  (Hypothesis, from the platform convention that a top app bar's title
+  is read before its controls; falsified if people at 280 px miss the ⋮
+  on the second row more often than on the first.)
 
 ## 13. Strings
 
@@ -785,6 +961,8 @@ front.
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
 | `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
+| `IdentityRemoveUnfinished` | Could not finish removing {identity}. Its key was removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken and before its rows were deleted (§7) | the key is gone, the identity is still there; Remove chosen again finishes it |
+| `IdentityRemoveUnfinishedRows` | Could not finish removing {identity}. Its key, conversations, contacts and card were removed. If this identity is still listed, choose Remove again. | snackbar after a Remove that failed after its rows were deleted, or whose answer from the device was lost, and before the device was known to have removed the endpoint (§7) | the key, conversations, contacts and card are gone; the identity may still be listed, or may leave the list a moment later or at the device's next start, so the text never says it is still here or that Remove again will finish it; while it is listed, Remove again is the way on |
 | `IdentityRemoveOthersKeep` | People who saved {identity} as a contact still have its name and photo. Their messages to it reach no one. To them, an identity that you add later is a different one. | Remove dialog | others keep its name and photo, their messages reach no one, a new identity is a different one to them |
 | `MessagesWaitingLocked` | New messages | lock screen | new messages, no count, no name; the same text as `MessagesChannel`, so the key may be that one |
 | `NotificationIdentityLine` | {identity}: 1 new message / {identity}: {count} new messages | the group summary's lines (§9), one an identity; the first for a count of one, the second for any other | the identity and its count; plural forms language-culture's |
@@ -923,7 +1101,60 @@ pass before it lands.
     its conversations, pending outbound (tried no further), contacts,
     trusted set and card are gone, and a may-have-reached count was
     shown when one existed. Not offered on the first identity or the
-    default. Needs D1. *(`human-client-ui.md` §13 bullets 17, 36; exit gate.)*
+    default. With the unlink of the key file made to fail (identity-key
+    acceptance 14's fifth run): the snackbar is `IdentityChangeFailed`'s
+    Remove text, the identity is still listed, and its conversations,
+    contacts, trusted set, card and key are all still there. With the
+    key file deleted before Remove is chosen (the page shows
+    `KeyMissing`), Remove completes: the identity and everything that
+    the first part of this item lists are gone, and no snackbar shows
+    `IdentityChangeFailed`. With the key file of a listed identity
+    deleted, no Remove chosen, and `admin.endpoints.list` made to fail
+    at the app's start and at a reconnection: its conversations,
+    contacts and card are all still there, and are still there after a
+    list that answers and holds the identity's id. With a seam that
+    fails Remove after the key file is unlinked, in one run on each
+    client at the device's administrative remove (a refusal) and, on
+    Android only, in one more run at the Keystore alias's retirement:
+    the snackbar is
+    `IdentityRemoveUnfinishedRows` in the run at the administrative
+    remove and `IdentityRemoveUnfinished` in the run at the alias,
+    never `IdentityChangeFailed`; in each run focus is
+    on the overflow button; the key file is gone; the identity is still
+    listed, and its page shows `KeyMissing`, and still does after the
+    app is restarted; in the run at the administrative remove, its
+    conversations, contacts and card are gone and it is named by its
+    alias, its trusted set is unchanged (D2), and a message sent to it
+    before the restart is not shown;
+    Remove chosen again completes as above, with no snackbar of
+    failure. With a seam that drops the connection after the device has
+    removed the endpoint and before the device's answer arrives: the
+    list is read back, and Remove ends as done, with no snackbar of
+    failure. With a seam that drops the connection before the device
+    applies the remove: the snackbar is `IdentityRemoveUnfinishedRows`,
+    as in the refusal run. With a seam that holds the remove until after
+    the read-back has answered and then applies it (the late-remove
+    run): the snackbar is `IdentityRemoveUnfinishedRows`; at the next
+    list that answers (Your identities opened again) the identity is
+    gone with no snackbar, and focus is as F22 says; in a run with three
+    or more identities held and that identity in front when the remove
+    is applied, the default comes in
+    front with `ConfirmIdentityRemovedSwitched` naming the default; in
+    one more run with that identity in front and two identities held,
+    so that one is left, the snackbar is `ConfirmIdentityRemoved` and
+    names only the removed identity. On the desktop, with
+    the daemon's configuration write made to succeed and both its apply
+    and the restore made to fail (`Internal`): the snackbar is
+    `IdentityRemoveUnfinishedRows`, and Remove chosen again ends the
+    same way; after the app is restarted with the daemon still running,
+    a message sent to the identity is admitted as to any identity whose
+    key is missing; after the daemon is restarted, the identity is gone
+    from the list, and the store holds no row of it, not even that
+    message's row. In a run where something other than this client
+    takes an identity's endpoint out of the configuration, and its key
+    file is not deleted, the identity's rows are still there after
+    the next list that answers. Needs D1. *(`human-client-ui.md` §13
+    bullets 17, 36; exit gate.)*
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
@@ -983,13 +1214,47 @@ pass before it lands.
     and its post in a channel the person reads is still shown, which the
     confirmation's text does not contradict. With two identities, the
     same with `ConfirmRevokeAs`. Needs D2. *(§16 Q9, Q10.)*
+26. With two identities held, on the desktop's wide layout (the 280 px
+    list pane), Chats' bar has two rows: "Conversations" whole on the
+    first row, with the network-state line under it; the switch and the
+    ⋮ on the second row. The same holds with a 40-grapheme name in
+    front and with a 3-grapheme name in front, and switching between
+    those two names leaves the bar's height and the title's place
+    unchanged. At 200 % text every letter of the title is shown, on one
+    line or wrapped (inside the word when the word is wider than its row),
+    never ellipsised, and its accessible name is "Conversations"
+    either way. On a 360 dp phone at 100 % text, the
+    test first measures, in the build, the width of the whole title, of
+    the switch at its minimum (the avatar, three graphemes and the ▾,
+    the widest of those minimums over the identities held) and of the
+    ⋮, with the bar's paddings and gaps, and records which
+    layout the sum asks for: one row when it is at most the bar's
+    width, two rows otherwise. The bar then has that layout, and keeps
+    it with a 40-grapheme name and with a 3-grapheme name in front.
+    The widest minimum is checked on the desktop's narrow layout at
+    100 % text, with three identities: the first, named "iii…", and
+    two added ones, named "WWW…" and "ill…", neither of them the
+    default. The three-grapheme minimum of "WWW" differs in width
+    from those of "iii" and "ill". The window width is one where the
+    title, the minimum of "iii" or of "ill", and the ⋮ fit on one row,
+    and the title, the minimum of "WWW" and the ⋮ do not. In two runs,
+    one with "WWW…" in front and one with "iii…" in front, the bar has
+    two rows. Once "WWW…" is removed, two identities are left and the
+    switch is still shown, and the bar has one row.
+    Tab from the title reaches the switch, then the ⋮, in both
+    layouts, and in a right-to-left window too, where the controls
+    stand mirrored. *(§12 "The Chats bar when the switch does
+    not fit"; §11 Keys.)*
 
 ## 15. Deliberately left out
 
 - **Replacing an identity whose key is lost** (ADR-0067 d. 5: a new
-  identity, never a new key under the old name). It changes
-  `design/2026-10-24-identity-key.md` whole and is asked for as its own
-  revision; nothing here builds "make a new key".
+  identity, never a new key under the old name). It is
+  `design/2026-10-24-identity-key.md`'s own revision: part 1 (the
+  interim, no Make a new key) on 2026-11-22, and part 2 (the
+  replacement, in that note's §5) the same day, as a proposal to be
+  built once an identity can be created and removed; nothing here
+  builds "make a new key".
 - **Per-conversation notifications** and any inline reply: the build
   has a count notification, and cards §5.7.5's rule (an inline reply
   names the identity it replies as) stands for later.
@@ -1006,10 +1271,10 @@ pass before it lands.
   (`labels.rs`) still call it "identity", which with two identities
   reads as one of them; `design/2026-10-19-android-identity.md` already
   says PeerId in all eight, so that gap is the build's, rust-ui-dev's.
-  `IdR1NewKeys` ("each identity gets a new key") contradicts ADR-0067
-  d. 5 in that note and in the build alike; it is that note's to
-  revise, with the identity-key revision above, the words
-  language-culture's.
+  `IdR1NewKeys` ("each identity gets a new key") contradicted ADR-0067
+  d. 5 in that note and in the build alike; that note revised it on
+  2026-11-22 with the identity-key note's part 1 (job j159), the words
+  language-culture's, and the build's string is rust-ui-dev's.
 
 ## 16. Questions
 

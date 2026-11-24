@@ -8,7 +8,7 @@ Endpoint-addressed direct delivery is usable with out-of-band endpoint names, bu
 
 ## Decision
 
-Add an optional request-response endpoint-directory protocol `/interweave/endpoints/1.0.0`.
+Add an optional request-response endpoint-directory protocol `/interweave/endpoints/2.0.0` (`1.0.0` until the Stage 22 release; ADR-0067 decision 7 gives it the major, its entries being derived EndpointIds).
 
 A query is accepted only from a profile-trusted peer. The response contains at most 32 lexicographically sorted EndpointIds that are simultaneously:
 
@@ -44,3 +44,11 @@ Add a small separate request-response behavior/control path, bounded response co
 ## Revisit conditions
 
 Revisit if application capability negotiation, cryptographically signed endpoint descriptors, privacy-preserving presence, or large endpoint populations become requirements.
+
+## Amendments
+
+Full notes: [`history/0031-amendments.md`](./history/0031-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-11-22 | The directory protocol id is `/interweave/endpoints/2.0.0` from the Stage 22 release | The decision names `/interweave/endpoints/2.0.0` (ADR-0067 decision 7); the trust gate, the four conditions of a listed endpoint, the 32-entry bound and the rate and concurrency bounds are unchanged. The byte layout and its 1710-byte ceiling are `ENDPOINTS.md`'s. |

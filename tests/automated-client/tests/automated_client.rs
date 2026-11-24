@@ -40,7 +40,11 @@ const CLIENT_KIND: &str = "automated-test-client";
 const CHANNEL: &str = "example:automation";
 
 fn config() -> ClientConfig {
-    ClientConfig::new(ENDPOINT, CLIENT_KIND, CHANNEL)
+    ClientConfig::new(
+        interweave_test_support::endpoint_keys::endpoint_id(ENDPOINT).as_str(),
+        CLIENT_KIND,
+        CHANNEL,
+    )
 }
 
 fn endpoint() -> EndpointId {
@@ -107,13 +111,15 @@ impl Profile {
             .map(|o| format!("\"{}\"", o.address()))
             .collect::<Vec<_>>()
             .join(", ");
+        let endpoint_id = interweave_test_support::endpoint_keys::endpoint_id(ENDPOINT);
+        let endpoint_id = endpoint_id.as_str();
         self.home.write_config(&format!(
             "schema_version: 2
 profile: {{ name: {name} }}
 trust: {{ policy: static-allowlist, allowed_peers: [{allowed}] }}
 endpoints:
   entries:
-    - {{ id: {ENDPOINT}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
+    - {{ key: {endpoint_id}.key, alias: {ENDPOINT}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
 channels: {{ desired: [] }}
 discovery:
   providers:
@@ -525,8 +531,8 @@ const BURST: u32 = 200;
 /// delivery, silently -- no refusal reaches A, and
 /// `ipc.events_dropped_total` does not count it, since it counts copies
 /// a session queue dropped, not what the ingress gate refused
-/// (`LOCAL-IPC.md` A 2026-11-04). B's `ipc.events_refused_total` (IPC
-/// 2.13) does: it rises by at least one and by no more than were
+/// (`LOCAL-IPC.md` A 2026-11-04). B's `ipc.events_refused_total` (a 3.0
+/// member; 2.13's on major 2) does: it rises by at least one and by no more than were
 /// published and not received, plus the mesh probes after the first, any
 /// of which may arrive late and be refused -- GossipSub may drop a copy
 /// before the gate, uncounted -- while the dropped total stays where it
@@ -593,7 +599,7 @@ async fn a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket() {
         burst.len()
     );
     let after = b.status().await;
-    let refused = |s: &AdminStatus| s.events_refused.expect("kept, and read at 2.13");
+    let refused = |s: &AdminStatus| s.events_refused.expect("kept, and served at 3.0");
     let unseen = u64::from(BURST) - u64::try_from(burst.len()).expect("n");
     let counted = refused(&after) - refused(&before);
     // Each mesh probe is a message of its own on the mesh, so one still

@@ -1,0 +1,119 @@
+{
+  "algorithm": {
+    "id": "endpoint-id-derivation-v2",
+    "specification": "architecture/contracts/ENDPOINTS.md",
+    "summary": "EndpointId = base58btc(00 24 08 01 12 20 || ed25519_public_key), the libp2p PeerId derivation. `derive-*` vectors map a public key to the id (`expected_endpoint_id`); `verdict-*` vectors say whether a text is a canonical derived id (`valid`): it must base58btc-decode to exactly those 38 bytes and re-encode to itself."
+  },
+  "adr": [
+    "0067"
+  ],
+  "WARNING": "TEST-ONLY KEY MATERIAL. Every seed here is public and fixed; none is, or may ever be, a real identity key.",
+  "vectors": [
+    {
+      "name": "derive-zero-seed",
+      "description": "Ed25519 public key from the stated TEST-ONLY seed; the id is the PeerId derivation of that key.",
+      "seed_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "public_key_hex": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+      "expected_endpoint_id": "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+    },
+    {
+      "name": "derive-seed-0x01-repeated",
+      "description": "Ed25519 public key from the stated TEST-ONLY seed; the id is the PeerId derivation of that key.",
+      "seed_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "public_key_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+      "expected_endpoint_id": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5"
+    },
+    {
+      "name": "derive-seed-0xff-repeated",
+      "description": "Ed25519 public key from the stated TEST-ONLY seed; the id is the PeerId derivation of that key.",
+      "seed_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "public_key_hex": "76a1592044a6e4f511265bca73a604d90b0529d1df602be30a19a9257660d1f5",
+      "expected_endpoint_id": "12D3KooWHoSyTgntm77sXShoeX9uNkqKNMhHxKtskaHqnA54SrSG"
+    },
+    {
+      "name": "derive-seed-sha256-of-interweave-endpoint-id-vector-1",
+      "description": "Ed25519 public key from the stated TEST-ONLY seed; the id is the PeerId derivation of that key.",
+      "seed_hex": "8be8e09e96c798a95778990dacc4361cecb30c2c801bd4cb6e8f9aac11ab4aa6",
+      "public_key_hex": "626a67849ee87a05662d9c6b85684f6799c9942af8b9230aa2cb67806c74d3c6",
+      "expected_endpoint_id": "12D3KooWGSYEAQyVSAEakfgQWU7xF7p7gkF8fnsK485i6ERULV2u"
+    },
+    {
+      "name": "derive-all-zero-key",
+      "description": "The derivation is byte-level and does not validate that the key is a curve point.",
+      "public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expected_endpoint_id": "12D3KooW9pNAk8aiBuGVQtWRdbkLmo5qVL3e2h5UxbN2Nz9ttwiw"
+    },
+    {
+      "name": "derive-all-ff-key",
+      "description": "The derivation is byte-level and does not validate that the key is a curve point.",
+      "public_key_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_endpoint_id": "12D3KooWT3gYEvLJyx1FyyHqrmvdy1tMjpgxmu9aSeKMEuafQtyC"
+    },
+    {
+      "name": "verdict-derived",
+      "description": "A derived id.",
+      "text": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5",
+      "valid": true
+    },
+    {
+      "name": "verdict-derived-zero-key",
+      "description": "A derived id of the all-zero key.",
+      "text": "12D3KooW9pNAk8aiBuGVQtWRdbkLmo5qVL3e2h5UxbN2Nz9ttwiw",
+      "valid": true
+    },
+    {
+      "name": "verdict-qm-peer-id",
+      "description": "A sha256 PeerId: PeerId-shaped, not derived from an Ed25519 key (EndpointIdNotDerived).",
+      "text": "QmURMJzEuRzqD29nvrJ65AqxBeUmniGNMVN2zuwNSESg6d",
+      "valid": false
+    },
+    {
+      "name": "verdict-legacy-label",
+      "description": "The retired label grammar is not a derived id.",
+      "text": "human",
+      "valid": false
+    },
+    {
+      "name": "verdict-empty",
+      "description": "Empty.",
+      "text": "",
+      "valid": false
+    },
+    {
+      "name": "verdict-one-char-short",
+      "description": "51 characters.",
+      "text": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH",
+      "valid": false
+    },
+    {
+      "name": "verdict-one-char-long",
+      "description": "53 characters.",
+      "text": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH51",
+      "valid": false
+    },
+    {
+      "name": "verdict-prefix-lowercased",
+      "description": "Case changed: another number, not the canonical text.",
+      "text": "12D3KoowK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5",
+      "valid": false
+    },
+    {
+      "name": "verdict-illegal-glyph-zero",
+      "description": "0 is outside the base58btc alphabet.",
+      "text": "12D3KooWK90VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5",
+      "valid": false
+    },
+    {
+      "name": "verdict-other-key-type",
+      "description": "Identity multihash of a protobuf whose KeyType is 2, not Ed25519.",
+      "text": "12D3KubARxXbZYNcQ2iogxe5RaZPNAM6hDFafiJZ5DLUqJWZsvwr",
+      "valid": false
+    },
+    {
+      "name": "verdict-extra-leading-one",
+      "description": "An extra leading zero byte: not the 38 bytes.",
+      "text": "112D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH",
+      "valid": false
+    }
+  ]
+}

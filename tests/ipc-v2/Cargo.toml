@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
 #
-# The IPC v2 wire suite (plan §16 required suites): raw frames over real
+# The IPC wire suite, major 3 (plan §16 required suites): raw frames over real
 # Unix sockets to the ipc-server, serving a runtime composed from a
 # profile. What a client sees on the wire, not what the server's types
 # say. TEST-ONLY and Unix-only; nothing depends on this package.
@@ -9,7 +9,7 @@
 name = "interweave-ipc-v2-tests"
 version.workspace = true
 publish = false
-description = "IPC v2 wire, handshake, authority and keepalive tests for InterWeave."
+description = "IPC wire, handshake, authority and keepalive tests for InterWeave."
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true

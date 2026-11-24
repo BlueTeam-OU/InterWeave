@@ -24,8 +24,7 @@ use interweave_profile_config::ProfileConfig;
 use interweave_profile_config::bootstrap_overlay::BOOTSTRAP_OVERLAY_FILE;
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
-    DirectDestination, EndpointId, MessageId, Payload, TransportEvent, TransportIdentity,
-    TransportRuntime as _,
+    DirectDestination, MessageId, Payload, TransportEvent, TransportIdentity, TransportRuntime as _,
 };
 use interweave_transport_composition::{ComposedRuntime, CompositionError, CompositionOptions};
 
@@ -74,7 +73,8 @@ trust:
   allowed_peers: [{peers}]
 endpoints:
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 discovery:
@@ -602,7 +602,7 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
         .open(
             SessionRequest::new(
                 "human-client",
-                Some(EndpointId::parse("human").expect("valid")),
+                Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
                 [DataCapability::Commands],
             )
             .expect("in bounds"),
@@ -613,7 +613,7 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
         .send_direct(
             DirectDestination {
                 peer: b.clone(),
-                endpoint: Some(EndpointId::parse("human").expect("valid")),
+                endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
             },
             MessageId::from_bytes([7; 16]),
             Payload::at_ceiling(None, b"to a removed address".to_vec()).expect("in bounds"),
@@ -884,4 +884,143 @@ async fn a_later_line_of_an_added_list_is_dialled() {
     wait_connected(&mut subject, &b).await;
     subject.shutdown().await.expect("clean shutdown");
     target.shutdown().await.expect("clean shutdown");
+}
+
+/// Whether `peer` connects within `within`, one discovery round asked
+/// for every quarter second: under a long tick it is the round's
+/// reconnect, reading the book, that dials. The deadline is read before
+/// each round, so no round is asked for after it; a connect seen in the
+/// last round's quarter second still counts, up to 250 ms past it.
+async fn connects_driving_rounds(
+    runtime: &mut ComposedRuntime,
+    peer: &TransportIdentity,
+    within: Duration,
+) -> bool {
+    let deadline = tokio::time::Instant::now() + within;
+    while tokio::time::Instant::now() < deadline {
+        runtime.discovery_round().await.expect("answered");
+        let step = tokio::time::Instant::now() + Duration::from_millis(250);
+        loop {
+            let remaining = step.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, runtime.next_event()).await {
+                Ok(Some(TransportEvent::PeerConnected { peer: got, .. })) if &got == peer => {
+                    return true;
+                }
+                Ok(Some(_)) => {}
+                Ok(None) => panic!("the runtime stopped"),
+                Err(_) => break,
+            }
+        }
+    }
+    false
+}
+
+/// The subject's side of [`a_kept_removal_added_back_stays_in_the_book`]:
+/// connected to a far end through an added address, the far end gone,
+/// the removal kept by the book and held, and -- with `add_back` -- the
+/// address added back; then the far end back at the same address and
+/// discovery rounds, whose reconnect dials only from the book. Answers how
+/// long the subject took to connect again, or `None` when it did not
+/// within `window`.
+async fn connect_after_a_kept_removal(add_back: bool, window: Duration) -> Option<Duration> {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (b_id, b) = id();
+    let (a_id, a) = id();
+    let start_target = |listen: String| {
+        let profile = profile(&[&a], Provider::None);
+        let b_id = &b_id;
+        async move {
+            ComposedRuntime::start(
+                b_id,
+                &profile,
+                CompositionOptions {
+                    listen: vec![listen],
+                    ..CompositionOptions::default()
+                },
+            )
+            .await
+            .expect("b composes")
+        }
+    };
+    let target = start_target(format!("/ip4/{ip}/tcp/0")).await;
+    let bound = target.listening()[0].clone();
+    let b_addr = format!("{bound}/p2p/{}", b.as_str());
+    // A ROUND RUNS ONLY WHEN THE TEST ASKS: under the default tick a
+    // round between the removal and the add-back would ask the removal
+    // before the add, and the case would pass whatever the retry reads.
+    let mut subject = ComposedRuntime::start(
+        &a_id,
+        &profile(&[&b], Provider::None),
+        CompositionOptions {
+            listen: vec![format!("/ip4/{ip}/tcp/0")],
+            discovery_interval: Duration::from_secs(3600),
+            ..CompositionOptions::default()
+        },
+    )
+    .await
+    .expect("a composes");
+    assert_eq!(add(&subject, &b_addr).await, AddressChange::Added);
+    assert!(
+        connects_driving_rounds(&mut subject, &b, PATIENCE).await,
+        "the added address is dialled"
+    );
+    // Down before the removal, so no Identify teaches the route again
+    // (#367 re-review F6).
+    target.shutdown().await.expect("clean shutdown");
+    wait_disconnected(&mut subject, &b).await;
+
+    subject.keep_forgets(1).await.expect("answered");
+    assert_eq!(remove(&subject, &b_addr).await, AddressChange::Removed);
+    assert_eq!(
+        subject.held_forgets().await.expect("answered"),
+        1,
+        "the book kept the removal, and it is held for the round"
+    );
+    if add_back {
+        assert_eq!(add(&subject, &b_addr).await, AddressChange::Added);
+    }
+    // BACK BEFORE THE ROUND, so the round's reconnect meets a far end that
+    // answers rather than a refused dial and a backoff. Within one round
+    // the retry comes first (`Driver::discovery_round`): a retry that took
+    // the route out leaves the reconnect nothing to dial, and with no
+    // connection no Identify can teach it again.
+    let target = start_target(bound).await;
+    let returned = tokio::time::Instant::now();
+    let connected = connects_driving_rounds(&mut subject, &b, window)
+        .await
+        .then(|| returned.elapsed());
+    assert_eq!(
+        subject.held_forgets().await.expect("answered"),
+        0,
+        "the round took the removal out of the set, asked or dropped"
+    );
+    subject.shutdown().await.expect("clean shutdown");
+    target.shutdown().await.expect("clean shutdown");
+    connected
+}
+
+/// A REMOVAL THE BOOK KEPT IS JUDGED AT ITS RETRY (#737 review F1): an
+/// address added back before the next round is the operator's again, and
+/// the retry leaves it in the book, so the peer is dialled there when it
+/// returns (`PendingForgets::due` given the inputs as they are at the
+/// round). The control, the same without the add-back: the round asks the
+/// removal again, the address leaves the book, and nothing dials it
+/// within three times the time the case took.
+///
+/// The book's refusal is the driver's stand-in (`keep_forgets`): a live
+/// quarantine the table has no room for, which a composed runtime cannot
+/// fill its table to reach; the stand-in leaves the door as well as the
+/// book, which the add-back opens either way, and the control's retry
+/// reaches the real removal of both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_removal_added_back_stays_in_the_book() {
+    let took = connect_after_a_kept_removal(true, PATIENCE)
+        .await
+        .expect("added back before the round, the address is dialled");
+    let window = (took * 3).max(Duration::from_secs(10));
+    assert_eq!(
+        connect_after_a_kept_removal(false, window).await,
+        None,
+        "the control: not added back, the retried removal took the address out of the book"
+    );
 }

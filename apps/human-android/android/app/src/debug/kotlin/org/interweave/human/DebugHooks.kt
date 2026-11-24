@@ -55,6 +55,33 @@ import android.util.Log
  *
  *     adb shell am start -n org.interweave.human/.MainActivity --ei holdReadsMs 2000
  *     adb shell am start -n org.interweave.human/.MainActivity --ei holdStartMs 12000
+ *
+ * [SEAL_ALREADY_PROVISIONED], from the launch too, answers C4's next seal
+ * `AlreadyProvisioned` without sealing, once, so `IdAlreadyCreated`
+ * shows (identity note section 10 item 18, the Pixel 9a clipboard
+ * check). On a profile with no identity (a fresh install, or the
+ * app's storage cleared), launch with it, go through creation to C4,
+ * press Copy PeerId, then Continue: the notice shows, and pasting in
+ * another app by a long press and Paste -- not the keyboard's own
+ * clipboard history -- must no longer give the PeerId, with no notice
+ * from the platform that InterWeave read the clipboard. Copy something
+ * else in another app between Copy and Continue, and that must stay.
+ * Nothing was sealed and no identity is on record, so what the notice's
+ * own Continue does next is not part of the check. A launch arms it, not
+ * a return to a running Activity, so stop the app first:
+ *
+ *     adb shell am force-stop org.interweave.human
+ *     adb shell am start -n org.interweave.human/.MainActivity --ez sealAlreadyProvisioned true
+ *
+ * [BUSY_STARTS], from the launch too, refuses each of the next that many
+ * service starts with the profile in use (the runtime's `LockHeld`), so
+ * `IdStartBusy` shows (identity note section 9, acceptance 12 and 15).
+ * Alone, the start after C4's, R4's or `IdRestoreOther`'s Continue is
+ * refused before the bound; with [HOLD_START_MS] past the 10 s bound,
+ * after it, on Chats:
+ *
+ *     adb shell am start -n org.interweave.human/.MainActivity --ei busyStarts 2
+ *     adb shell am start -n org.interweave.human/.MainActivity --ei busyStarts 1 --ei holdStartMs 12000
  */
 internal object DebugHooks {
     const val RESTART = "org.interweave.human.debug.RESTART"
@@ -63,6 +90,8 @@ internal object DebugHooks {
     const val REFUSE_IDENTITY = "org.interweave.human.debug.REFUSE_IDENTITY"
     const val HOLD_READS_MS = "holdReadsMs"
     const val HOLD_START_MS = "holdStartMs"
+    const val SEAL_ALREADY_PROVISIONED = "sealAlreadyProvisioned"
+    const val BUSY_STARTS = "busyStarts"
     private const val TAG = "interweave"
 
     /** The native side of [REFUSE_STORE]: the debug library's alone. */
@@ -80,12 +109,21 @@ internal object DebugHooks {
     /** The native side of [HOLD_START_MS]: the debug library's alone. */
     @JvmStatic private external fun holdNextStart(ms: Int)
 
+    /** The native side of [SEAL_ALREADY_PROVISIONED]: the debug library's alone. */
+    @JvmStatic private external fun answerNextSealAlreadyProvisioned()
+
+    /** The native side of [BUSY_STARTS]: the debug library's alone. */
+    @JvmStatic private external fun refuseNextStartsBusy(starts: Int)
+
     /** Arm the launch's hooks from [intent]'s extras, before anything starts. */
     fun fromLaunch(intent: Intent?) {
         val reads = intent?.getIntExtra(HOLD_READS_MS, 0) ?: 0
         val start = intent?.getIntExtra(HOLD_START_MS, 0) ?: 0
         if (reads > 0) holdNextStartReads(reads)
         if (start > 0) holdNextStart(start)
+        if (intent?.getBooleanExtra(SEAL_ALREADY_PROVISIONED, false) == true) answerNextSealAlreadyProvisioned()
+        val busy = intent?.getIntExtra(BUSY_STARTS, 0) ?: 0
+        if (busy > 0) refuseNextStartsBusy(busy)
     }
 
     /** Hear the hooks on the main thread while [service] runs; the unregistration. */

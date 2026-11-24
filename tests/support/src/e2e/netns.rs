@@ -64,8 +64,9 @@
 //! it passed, and returns `false`; the inner copy gets `true` and runs the
 //! body. Where user namespaces, `iproute2`, util-linux's `unshare` (with
 //! `--kill-child`) and `setpriv` (with `--pdeathsig`), or -- for the NATs'
-//! topology -- `nft` are unavailable the test FAILS, never skips (decided
-//! (7), ADR-0053 rule 9): a skip is a green check that asserted nothing.
+//! topology and [`drop_outbound`] -- `nft` are unavailable the test FAILS,
+//! never skips (decided (7), ADR-0053 rule 9): a skip is a green check
+//! that asserted nothing.
 
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
@@ -201,11 +202,29 @@ for n in A B; do ip netns add $n; ip -n $n link set lo up; done
 /// The overlay's link, made: by the setup, and by [`overlay_up`] from the
 /// pivoted root, where `ip -n` is refused -- so every step in a namespace
 /// is `nsenter`'s.
+///
+/// IN THE ORDER A LINK THAT RETURNS WHOLE WOULD BE SEEN: both ends up,
+/// then B's address, then A's. A daemon reads an address arriving as the
+/// network returning and redials at once (`network_added` lifts its
+/// backoff). An address added before its own link is up is a redial
+/// with no route: it fails at once and holds the peer off 30 s
+/// (ADR-0011). That was a load-only failure of the cases that wait for
+/// A's redial, while A's address went in a process before
+/// `ip link set w0 up`; the run record
+/// `tests/automated-client/runs/2026-11-19-link-order.md` has it, and
+/// the `sleep 1` mutation to rerun against a change here, since no test
+/// pins this order. A redial racing a far end that is not up yet is the
+/// backoff's design, not what these cases ask, so A -- the side holding
+/// the entry -- gets its address last. B's address before it is a redial
+/// too where B holds an entry: over a link that is up, so it waits on
+/// ARP, which A's address answers or which gives up seconds later, and
+/// no case waits on it.
 const OVERLAY_UP: &str = r"
 ip link add w0 type veth peer name w1
 ip link set w0 netns A; ip link set w1 netns B
-nsenter --net=/run/netns/A sh -c 'ip addr add 100.64.0.1/30 dev w0 && ip link set w0 up'
-nsenter --net=/run/netns/B sh -c 'ip addr add 100.64.0.2/30 dev w1 && ip link set w1 up'
+nsenter --net=/run/netns/A ip link set w0 up
+nsenter --net=/run/netns/B sh -c 'ip link set w1 up && ip addr add 100.64.0.2/30 dev w1'
+nsenter --net=/run/netns/A ip addr add 100.64.0.1/30 dev w0
 ";
 
 /// The overlay's link, deleted: a veth goes with both its ends.
@@ -325,6 +344,110 @@ pub fn add_unrouted_address(net: Net, cidr: &str) {
     );
 }
 
+/// Remove an address [`add_unrouted_address`] added: the namespace no
+/// longer holds it, so its wildcard listener stops reporting it.
+///
+/// # Panics
+/// When `net` does not hold `cidr` on its loopback, or `ip` refuses.
+pub fn remove_unrouted_address(net: Net, cidr: &str) {
+    shell(
+        "removing an unrouted address",
+        &format!(
+            "nsenter --net={} ip addr del {cidr} dev lo",
+            net.path().display()
+        ),
+    );
+}
+
+/// A's end of [`second_link`].
+pub const SECOND_LINK_A: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 1);
+/// B's end of [`second_link`].
+pub const SECOND_LINK_B: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 2);
+
+/// A second link between the overlay's two namespaces, on
+/// `10.77.0.0/30` ([`SECOND_LINK_A`], [`SECOND_LINK_B`]), with B routing
+/// `cidr` over it to A: a path from B to an address A holds on its
+/// loopback ([`add_unrouted_address`]), as a host at another site reaches
+/// a host's LAN through a router. Its own addresses are new to both
+/// ends, so a peer that learned the other's addresses before it was made
+/// learned neither of these. It outlives [`overlay_down`], which deletes
+/// the overlay's link alone. Made in [`OVERLAY_UP`]'s order for the same
+/// reason, with B -- the side that redials here -- last: its route goes
+/// in `onlink` before its address, so the address arriving finds the
+/// whole path to A already there.
+///
+/// # Panics
+/// Outside the overlay, when the link is already made, or when `ip`
+/// refuses.
+pub fn second_link(cidr: &str) {
+    shell(
+        "making the second link",
+        &format!(
+            "set -e
+ip link add l0 type veth peer name l1
+ip link set l0 netns A; ip link set l1 netns B
+nsenter --net=/run/netns/A ip link set l0 up
+nsenter --net=/run/netns/B ip link set l1 up
+nsenter --net=/run/netns/A ip addr add {SECOND_LINK_A}/30 dev l0
+nsenter --net=/run/netns/B sh -c 'ip route add {cidr} via {SECOND_LINK_A} dev l1 onlink && \
+             ip addr add {SECOND_LINK_B}/30 dev l1'
+"
+        ),
+    );
+}
+
+/// Drop, silently and counted, every packet `net` sends to `to`: an
+/// `nft` output rule in `net`'s own table, so a connect there gets no
+/// answer and no error -- its SYNs leave the socket and vanish, as on a
+/// path a middlebox or a dead route swallows. Read the count with
+/// [`outbound_drops`].
+///
+/// # Panics
+/// Outside the namespaces, or when `nft` refuses.
+pub fn drop_outbound(net: Net, to: Ipv4Addr) {
+    shell(
+        "dropping outbound packets",
+        &format!(
+            "nsenter --net={} nft -f - <<NFT
+table ip silent {{
+  chain out {{
+    type filter hook output priority 0; policy accept
+    ip daddr {to} counter drop
+  }}
+}}
+NFT",
+            net.path().display()
+        ),
+    );
+}
+
+/// How many packets [`drop_outbound`]'s rule has matched in `net`: what
+/// it dropped. Read from the rule's counter whatever its verdict, so a
+/// case whose drop is mutated into an accept still reads a count and
+/// fails at its own assertion, not here.
+///
+/// # Panics
+/// When `net` holds no such rule, or `nft` cannot be read.
+#[must_use]
+pub fn outbound_drops(net: Net) -> u64 {
+    let out = Command::new("nsenter")
+        .arg(format!("--net={}", net.path().display()))
+        .args(["--", "nft", "list", "chain", "ip", "silent", "out"])
+        .output()
+        .expect("nft runs");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines()
+        .find(|l| l.contains("ip daddr") && l.contains("counter"))
+        .and_then(|l| l.split_whitespace().skip_while(|w| *w != "packets").nth(1))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("no counter on the rule in:\n{text}"))
+}
+
 fn shell(what: &str, script: &str) {
     let out = Command::new("sh")
         .args(["-c", script])
@@ -405,7 +528,8 @@ fn inside(network: &str, pivoted: &str, test: &str, deadline: Duration) -> bool 
             panic!(
                 "cannot run `setpriv --pdeathsig KILL unshare -rnm` ({e}): this test needs \
                  util-linux's setpriv and unshare, an unprivileged user namespace, iproute2 \
-                 and, for the NATs' topology, nft (plan section 21, decided (7)); it fails \
+                 and, for the NATs' topology and drop_outbound, nft (plan section 21, \
+                 decided (7)); it fails \
                  rather than skips where they are unavailable"
             )
         });

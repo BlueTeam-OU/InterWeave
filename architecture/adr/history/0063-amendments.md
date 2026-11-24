@@ -124,3 +124,222 @@ under the old name. Propagation: the Status line; decisions 1, 2, 4, 5,
 6, the Security and Operational implications (each with a tombstone
 in place); this note; the log row; the digest entry; STATE.md's
 `contact_routes` and key-file sentences; the README row.
+
+### Amendment 2026-11-23 — A refusal for the key directory's mode alone ends when the directory is private
+
+Decision 2 said a new identity follows "a refused, exposed or
+invalidated record" without saying what exposed covers. The desktop
+read refused two different things under one name: a key file that is
+itself not private, and a key file that is private inside an
+`endpoint-keys/` directory this user owns at a loose mode. The design
+note for the refusals treated both as "the key may already have been
+read, so it is not used again", and then found that the second case
+could not be resolved at all: a new key cannot be written into a
+non-private directory, and making the directory private lets every key
+in it open again (ux-designer's question of 2026-11-23, review of the
+identity-key note).
+
+Ruled: exposed is the file's own state. A directory this user owns at
+a loose mode shows other users the entries' names where it gives them
+the read bit, and where it gives them the search bit the metadata of
+each entry whose name they know; the names are EndpointIds and public,
+so the search bit alone, which lists nothing, is enough for that
+(corrected by the second amendment of this day, below). It gives
+no other user a read of an owner-only file, and no other user can
+change the mode of a file they do not own. Where the loose mode gives
+another user both the write bit and the search bit, that user could
+have removed or swapped a file, and each such swap is refused at open
+on its own: another owner's
+file and a link by the file's rule, this user's other key file by the
+envelope's EndpointId against the file's name; a removal is the
+key-missing state. So the directory's refusal needs no memory: no key
+opens while the directory is loose, each opens once it is private, and
+nothing is stored to outlast the fix. This is how the node's own key
+already behaves under ADR-0028's directory rule. The directory is
+judged first, because the read stops at it and never sees the file: a
+file that is itself not private, or missing, inside a loose directory
+shows as the directory's refusal until the directory is private, and as
+its own state after.
+
+Rejected: a stored mark that keeps the refusal after the directory is
+fixed. It records a state no other user could have used, and costs the
+store a record whose only reader is this case.
+
+Propagation: decision 2 (the sentence after the ADR-0067 one); this
+note; the log row; the digest entry. The identity-key design note's
+section 3 and its criterion for a directory at mode 0755 follow in the
+note's own pull request.
+
+### Amendment 2026-11-23 — A loose key directory is the person's to fix, and what is not a file at the key path is not a record
+
+Three texts carried from the review of the identity-key note's pull
+request (#746, ux-designer's request of 2026-11-23), and one question.
+The two reviews of the pull request that carried this note (#748) then
+added to it, each in place below: round 1 a correction of the second
+text (the three refusals) and a second question (F4); round 2 two
+corrections of F4's ruling (F5, F7) and one reading (another user's
+regular file that the open refuses).
+
+Decision 1 still said, from the 2026-10-24 amendment, that "an
+`identity-keys/` directory the client's own user owns with a loose mode
+it makes owner-only itself before that step". The first amendment of
+this day ruled that a refusal for the directory's mode alone ends when
+the directory is private, and narrowed decision 2 only. The two could
+not both hold: a client that tightens the directory itself opens every
+key in it again without the person having seen that the directory was
+loose, the replaced identity's key among them. The clause is withdrawn.
+The client refuses a loose key directory of its own user with the fix
+named and does not change its mode; the person makes it private, each
+key then shows its own state, and a new identity is offered on that
+state alone. As this was written the store's `identity_key::replace`
+still tightened the directory, as the Stage 21 text had it; the code
+that conforms is rust-ui-dev's.
+
+Decision 2's three causes of "exposed" did not cover a key path that
+holds neither a regular file nor a link. Ruled (Q-kind): a directory,
+a FIFO, a socket or a device at the key path is not a record and not
+exposed, whoever owns it. No key was there to be read, and "other users
+may have read this key" would be untrue of this user's own directory at
+mode 0700. The client shows it as a record that is not valid (the
+design note's "damaged"), resolved by a new identity. The three causes
+now say "regular file" where they meant one. An entry of that kind that
+another user placed can only have arrived while the directory gave that
+user the write and search bits, and it is judged, like every file, only
+once the directory is private.
+
+As first written this paragraph said the read "refuses such an entry by
+its kind, before it looks at an owner or a mode (`open_private_as`),
+under the same error as a file that is not private". The review of the
+design note's pull request (#748, round 1) measured three refusals, not
+one, and the paragraph is corrected in place. An entry that opens
+read-only and non-blocking (a directory at 0700, a FIFO at 0600, a
+device with a driver behind it) reaches the kind check and is refused
+as not a regular file, ahead of its owner and mode. A socket, or a
+device with no driver behind it, does not open at all: the open fails
+with `ENXIO` (`ENODEV` is possible for a device), ahead of the kind
+check. An entry whose own mode keeps this user out (a directory at
+0000, a FIFO at 0200, a socket at 0000) fails the open with `EACCES`,
+so there the mode is met first. All three are the same state, a record
+that is not valid: repeating the read repeats the refusal, so none of
+them is offered as a key to try again. As the review found it, the
+store answered the second as "temporarily unusable" (`ENXIO` fell
+under the general read error in `IdentityKeyFileError::unusable`); the
+code that conforms is rust-ui-dev's.
+
+One reading from the second review of #748: the permission failure
+above is about entries that are not regular files. Another user's
+regular file that the open refuses with `EACCES` before any owner check
+(a root-owned file at 0600) is exposed, as decision 2's third cause
+says, and not an invalid record: the record is classed by what the
+file is, not by which refusal the read met first, and the client finds
+the case by the file's owner. Decision 2 now says so in the definition.
+
+One question from the same review (F4): "resolved by a new identity"
+did not say what happens to the entry itself. Ruled: Remove or Replace
+of an added identity does not wait on it. One unlink, or one removal
+of an empty directory, takes what is at the key path, whether a file,
+a FIFO, a socket, a device or an empty directory. A directory that
+holds anything is left where it is: the client does not delete
+recursively what it did not write, and the step completes with it
+there. What the person is told about an entry left behind is the
+design note's.
+
+As first written that paragraph ended "The step completes either way,
+because an EndpointId is derived from its key, so no later identity
+takes that file name and a leftover blocks nothing". The second review
+of #748 found two gaps in the sentence, and it is corrected in place.
+"Either way" named two outcomes, taken and left as a non-empty
+directory, and an unlink or a removal that failed for any other reason
+(`EPERM`, `EBUSY`, `EROFS`, `EIO`) was in neither: read literally,
+Remove reported done with a key file still on disk (F5). Ruled: the
+non-empty directory is the one failure passed over, and a path that
+holds nothing has nothing to take; any other failure stops the step,
+whatever the entry is. Remove takes the key path first, so a Remove
+that stops there has changed nothing and says it failed; a Replace
+that stops there is unfinished and offered to be finished, as at any
+other refused step of it. And "no later identity takes that file name"
+held for new keys only (F7): ADR-0064 decision 7 (Proposed) restores
+the same key, hence the same EndpointId and the same path, where a
+directory left behind would be in its way. No record in force brings a
+key back, so nothing is decided here; what that restore does with the
+entry is ADR-0064's to decide before it is accepted. As the first review
+found it, the store removed the key path with an unlink alone, which
+fails on a directory (`EISDIR`), so Replace stayed unfinished and
+repeated the refusal; the code that conforms is rust-ui-dev's.
+
+The first review of #751 found a third gap in the same sentences (F1).
+"A Remove that stops there has changed nothing" covered a failure at
+the key path, and nothing covered a failure after it: the platform
+key's retirement, the configuration, the daemon's refusal or a lost
+connection to it, the store's deletion. The key was then gone, the
+identity still listed with its key missing, and the design note's
+snackbar for a failed Remove said "Nothing was changed". Ruled, on
+ux-designer-01's request (their alternative A): the key path stays
+first, and a failure after it is a Remove that did not finish, not one
+that changed nothing. It says the key is removed and that Remove did
+not finish; the identity stays listed in the missing state decision 1
+already gives a key file that is gone, with no stored mark of the
+Remove; Remove stays offered and completes, since a path that holds
+nothing has nothing to take. Rejected: taking the key path last. A
+failure there would come after the identity had left the configuration
+and the store, so the private key would stay on disk under an identity
+no list shows, and no screen would be left to finish from. With the
+key first, every state a failed Remove leaves is one the person sees
+and can finish, and the one Remove that leaves a private key on disk
+is the one that says nothing was changed. The words are the design note's
+(identities section 7, with language-culture's read) and the code that
+conforms is rust-ui-dev's; as this was ruled, Remove was not built.
+
+The second review of #751 found that ruling too wide (F7). As first
+written it said the identity stays listed and Remove again completes
+after a failure at "whichever later step", the daemon's refusal or a
+lost connection among them. Once the administrative remove has
+committed, the endpoint is gone and so is the identity, and nothing
+had fixed the order of the steps after the key path. Ruled the same
+day in ADR-0061 decision 7 (its amendment of 2026-11-23): the platform
+key, then the store's deletion, then the administrative remove last,
+and a lost answer read back from the endpoint list. Decision 2's
+sentence, the log row and the digest entry now say "until the
+administrative remove commits" and point there.
+
+The first amendment's note gave two bounds that were wrong, and its
+paragraph is corrected in place. It said a loose directory "shows
+other users at most the file names (where it gives them the read bit;
+a search bit alone lists nothing)". With the search bit another user
+can also read the size, times, owner and mode of any file whose name
+they know, and the names are EndpointIds, which are public, so a mode
+of 0711 or 0701 lists nothing and still gives that much. (That list is
+itself short, as the review of #748 found: the read bit gives each
+entry's kind and inode number with its name, and the search bit gives
+the whole of a named entry's metadata. The bound is the entries'
+metadata, not a list of fields.) It said
+"Where the loose mode is a write bit, another user could have removed
+or swapped a file"; removing or placing an entry needs the search bit
+as well, so 0720 or 0702 allows neither. Neither correction changes
+the ruling: no bit of the directory gives a read of an owner-only
+file's contents, and nothing in an entry's metadata is key material.
+
+Propagation: decision 1 (the clause, with its tombstone in place);
+decision 2 (the definition of exposed, the sentence after it with the
+three refusals, and the Remove or Replace sentences); the
+first 2026-11-23 note's second paragraph; this note; the log row; the
+digest entry. The identity-key design note already reads so (its
+sections 3 and 5, its section 11 for the entry left behind, which
+decision 2 hands to it, and criterion 14), and the identities design
+note's section 7 for Remove taking the key path first. The ruling on a
+Remove that fails after the key path adds a sentence to decision 2, to
+the log row and to the digest entry; identities section 7 and its
+acceptance run follow on #751.
+
+The fourth review of #751 found one of those sentences behind ADR-0061
+decision 7 (F10). That decision's amendment of 2026-11-24 ruled that
+while ADR-0028's overlay is left ahead of the runtime the endpoint
+list still holds the id, so Remove again ends not finished each time
+until the daemon's next start; its note left decision 2 unchanged,
+and decision 2 went on saying Remove "stays offered and completes".
+That was true of every other failure before the administrative remove
+commits and false of this one. Decision 2's sentence, the log row and
+the digest entry now carry the exception and point to ADR-0061
+decision 7: Remove stays offered, and what finishes it while the
+overlay is ahead is the daemon's next start. Nothing in this record's
+ruling changed.

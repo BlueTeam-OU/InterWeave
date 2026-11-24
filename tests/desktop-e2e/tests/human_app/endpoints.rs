@@ -24,7 +24,7 @@ use crate::harness::{self as app, until_lease};
 use crate::world::{self, Peer, envelope, two_daemons};
 
 fn claude() -> EndpointId {
-    EndpointId::parse("claude").expect("an endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id("claude")
 }
 
 /// A Claude session on `home`'s daemon, holding the `claude` lease.

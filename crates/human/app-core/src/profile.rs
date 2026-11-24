@@ -13,7 +13,10 @@ use interweave_human_store::identity_key::{
 
 use interweave_human_store::HumanStore;
 use interweave_human_ui_model::KeyProblem;
-use interweave_profile_config::{ProfileConfig, ProfilePaths};
+use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
+use interweave_profile_config::{
+    EndpointSelector, ProfileConfig, ProfilePaths, ResolveEndpointError, resolve_endpoint,
+};
 use interweave_transport_api::EndpointId;
 
 /// The client kind a human client leases under. A profile's endpoint
@@ -39,10 +42,85 @@ pub fn leasable_endpoints(config: &ProfileConfig) -> Vec<EndpointId> {
         .collect()
 }
 
-/// The own key of the identity in front (ADR-0063): the first leasable
-/// endpoint's, opened from its file, or made with the identity the first
-/// time a desktop-hosted client runs, at the desktop's filesystem floor
-/// (ADR-0060 decision 3). `Ok(None)` when the profile offers no endpoint.
+/// Why [`resolve_identity`] named no endpoint: each a refused start, named
+/// for what the person typed, never a hello sent with it (ENDPOINTS.md,
+/// an alias is resolved by the client).
+#[derive(Debug)]
+pub enum IdentityRefused {
+    /// An alias was given and the endpoint overlay, which it resolves
+    /// over, did not read.
+    Overlay(EndpointOverlayError),
+    /// No configured endpoint has this alias or this id.
+    Unknown(ResolveEndpointError),
+    /// The endpoint it names is configured, and does not admit
+    /// [`CLIENT_KIND`]: another client's, `transportctl`'s to administer.
+    NotLeasable(EndpointId),
+}
+
+impl core::fmt::Display for IdentityRefused {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Overlay(e) => write!(f, "an alias needs the endpoint overlay: {e}"),
+            Self::Unknown(e) => e.fmt(f),
+            Self::NotLeasable(_) => {
+                f.write_str("that endpoint is not one a human client may use in this profile")
+            }
+        }
+    }
+}
+
+/// The `EndpointId` of the human endpoint `selector` names -- an alias or
+/// an id, as a person types it -- in `config`: the one place a human
+/// client turns what it was given into the id its session claims, called
+/// once per identity (ADR-0067 decision 3). Every wire field takes the
+/// id it returns, never the alias.
+///
+/// The endpoint overlay is read for an alias alone, read-only
+/// ([`EndpointOverlay::read_within`]): an alias resolves in the set the
+/// daemon composes, so an entry the overlay adds is found once overlays
+/// add entries, and a client leaves the overlay as it found it. An id is
+/// judged against `config.yaml`'s entries and never waits on the overlay
+/// (`an_id_resolves_without_reading_the_overlay`). No file under
+/// `endpoint-keys/` is read: an entry names its id in its `key` value.
+///
+/// # Errors
+/// [`IdentityRefused`]: the overlay unread for an alias, an alias or id
+/// no entry carries, an endpoint that does not admit [`CLIENT_KIND`].
+pub fn resolve_identity(
+    paths: &ProfilePaths,
+    config: &ProfileConfig,
+    selector: &EndpointSelector,
+) -> Result<EndpointId, IdentityRefused> {
+    let overlay = match selector {
+        EndpointSelector::Id(_) => EndpointOverlay::default(),
+        EndpointSelector::Alias(_) => EndpointOverlay::read_within(
+            &EndpointOverlay::path_for(paths),
+            &config.endpoints,
+            paths.boundary(),
+        )
+        .map(|(overlay, _normalised)| overlay)
+        .map_err(IdentityRefused::Overlay)?,
+    };
+    let id = resolve_endpoint(&config.endpoints, &overlay, &selector.to_string())
+        .map_err(IdentityRefused::Unknown)?;
+    let composed = overlay.apply(&config.endpoints);
+    let leasable = composed.entries.iter().any(|e| {
+        e.id == id
+            && e.allowed_client_kinds
+                .iter()
+                .any(|k| k.as_str() == CLIENT_KIND)
+    });
+    if leasable {
+        Ok(id)
+    } else {
+        Err(IdentityRefused::NotLeasable(id))
+    }
+}
+
+/// The own key of the identity in front (ADR-0063, ADR-0067): the first
+/// leasable endpoint's, opened from its file at the desktop's filesystem
+/// floor (ADR-0060 decision 3). `Ok(None)` when the profile offers no
+/// endpoint.
 ///
 /// # Errors
 /// As [`identity_key_under`]'s.
@@ -55,47 +133,44 @@ pub fn identity_key(
 }
 
 /// The own key of the identity in front under `cipher`'s custody: the
-/// first of `endpoints`', opened from its file, or made when it has none
-/// and no conversation holds or may hold its card (a share `store`
-/// records, or an own card row it holds pending). The desktop's custody is
+/// first of `endpoints`', opened from its file. The desktop's custody is
 /// [`identity_key`]'s; Android's service passes the Keystore, whose alias
 /// is the identity's own (ADR-0063 decision 2). `Ok(None)` when
 /// `endpoints` is empty.
 ///
+/// NO KEY IS MADE HERE (ADR-0067 decision 5): the identity's id derives
+/// from its key, so a key minted here would name an id the configuration
+/// does not. The desktop's key is minted by `transportctl endpoint init`
+/// or brought over by `endpoint adopt`, Android's at onboarding; a
+/// missing file is the key-missing state whatever `store` holds.
+/// `store` is kept for the callers' shape.
+///
 /// # Errors
 /// A file this build refuses -- another identity's, a seed record, one
 /// below or above `cipher`'s custody, one whose wrapping key is gone --
-/// or one that cannot be made; [`IdentityKeyFileError::Missing`] when the
-/// file is gone after a share or while a card is on its way, or the
-/// store cannot say neither (architect-cto's rulings of 2026-10-24 and
-/// 2026-10-27: counterparties hold or may receive that key, so a new
-/// one is the person's confirmed act). The file is left as it
-/// is: a new key is the person's act, never this function's
-/// (`a_key_file_this_build_refuses_is_left_as_it_is`,
+/// and [`IdentityKeyFileError::Missing`] when there is no file. The file
+/// is left as it is (`a_key_file_this_build_refuses_is_left_as_it_is`,
 /// `a_record_below_the_platforms_custody_is_refused_and_left`,
-/// `a_key_file_gone_after_a_share_is_missing_and_none_is_made`,
-/// and `tests/cards.rs`'s `a_key_file_gone_while_a_card_is_pending_is_missing`).
+/// `a_missing_key_file_is_missing_and_none_is_made`).
 pub fn identity_key_under(
     paths: &ProfilePaths,
     endpoints: &[EndpointId],
     cipher: &dyn KeyCipher,
-    store: &HumanStore,
+    _store: &HumanStore,
 ) -> Result<Option<IdentityKey>, IdentityKeyFileError> {
     let Some(endpoint) = endpoints.first() else {
         return Ok(None);
     };
-    if let Some(key) = identity_key::open(paths, endpoint, cipher)? {
-        return Ok(Some(key));
-    }
-    if crate::cards::card_may_be_held(store) {
-        return Err(IdentityKeyFileError::Missing);
-    }
-    identity_key::create(paths, endpoint, cipher).map(Some)
+    identity_key::open(paths, endpoint, cipher)?
+        .map(Some)
+        .ok_or(IdentityKeyFileError::Missing)
 }
 
 /// Where the identity in front's key lives and under whose custody: what
-/// lets the facade open it again and make a new one
-/// (design/2026-10-24-identity-key.md sections 5 and 6).
+/// lets the facade open it again (design/2026-10-24-identity-key.md
+/// section 6). Nothing here makes a key in the identity's place: its id
+/// derives from the key, so a new key is a new identity (ADR-0067
+/// decision 5).
 pub struct KeySource {
     paths: ProfilePaths,
     endpoint: EndpointId,
@@ -123,8 +198,7 @@ impl KeySource {
         &self.endpoint
     }
 
-    /// Open the key, or make the first one, by [`identity_key_under`]'s
-    /// rule.
+    /// Open the key by [`identity_key_under`]'s rule.
     ///
     /// # Errors
     /// As [`identity_key_under`]'s.
@@ -136,15 +210,6 @@ impl KeySource {
             store,
         )?
         .ok_or(IdentityKeyFileError::Missing)
-    }
-
-    /// Replace the key, on the person's confirmation
-    /// ([`identity_key::replace`]).
-    ///
-    /// # Errors
-    /// As [`identity_key::replace`]'s.
-    pub fn replace(&self) -> Result<IdentityKey, identity_key::NewKeyFailed> {
-        identity_key::replace(&self.paths, &self.endpoint, &*self.cipher)
     }
 
     /// The person's terms for a refusal: its kind, the key folder named
@@ -164,7 +229,7 @@ impl KeySource {
                 folder: self
                     .paths
                     .state_dir()
-                    .join(identity_key::IDENTITY_KEYS_DIR)
+                    .join(identity_key::ENDPOINT_KEYS_DIR)
                     .display()
                     .to_string(),
             },
@@ -180,9 +245,12 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn every_entry_naming_the_human_kind_in_file_order_disabled_too() {
-        let config = ProfileConfig::parse_yaml(
+    use interweave_test_support::endpoint_keys::endpoint_id;
+
+    /// A profile of three entries by key: `second` and `human` open to
+    /// the human client, `claude` the bridge's alone.
+    fn three() -> ProfileConfig {
+        let text = format!(
             "schema_version: 2
 profile:
   name: test
@@ -199,18 +267,144 @@ trust:
 endpoints:
   registration_policy: configured-only
   entries:
-    - { id: second, enabled: false, advertise: false, allowed_client_kinds: [human-client] }
-    - { id: claude, enabled: true, advertise: true, allowed_client_kinds: [claude-channel] }
-    - { id: human, enabled: true, advertise: true, allowed_client_kinds: [claude-channel, human-client] }
-channels: { desired: [] }
+    - {{ key: {second}.key, alias: second, enabled: false, advertise: false, allowed_client_kinds: [human-client] }}
+    - {{ key: {claude}.key, alias: claude, enabled: true, advertise: true, allowed_client_kinds: [claude-channel] }}
+    - {{ key: {human}.key, alias: human, enabled: true, advertise: true, allowed_client_kinds: [claude-channel, human-client] }}
+channels: {{ desired: [] }}
 ",
+            second = endpoint_id("second").as_str(),
+            claude = endpoint_id("claude").as_str(),
+            human = endpoint_id("human").as_str(),
+        );
+        ProfileConfig::parse_yaml(&text).expect("parses")
+    }
+
+    /// Paths whose state directory holds `overlay`, when given, as the
+    /// endpoint overlay; the directory is private, as a profile's is.
+    fn paths_with(dir: &std::path::Path, overlay: Option<&str>) -> ProfilePaths {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        let paths = ProfilePaths::resolve_embedded(
+            "default",
+            interweave_profile_config::TrustBoundary::new(dir).expect("a boundary"),
         )
-        .expect("parses");
-        let ids: Vec<String> = leasable_endpoints(&config)
-            .into_iter()
-            .map(|e| e.as_str().to_owned())
-            .collect();
-        assert_eq!(ids, ["second", "human"]);
+        .expect("paths");
+        if let Some(text) = overlay {
+            let file = EndpointOverlay::path_for(&paths);
+            let state = file.parent().expect("a state dir");
+            std::fs::create_dir_all(state).expect("mkdir");
+            std::fs::set_permissions(state, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+            std::fs::write(&file, text).expect("writes");
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+        }
+        paths
+    }
+
+    fn selector(text: &str) -> EndpointSelector {
+        EndpointSelector::parse(text).expect("a selector")
+    }
+
+    #[test]
+    fn every_entry_naming_the_human_kind_in_file_order_disabled_too() {
+        assert_eq!(
+            leasable_endpoints(&three()),
+            [endpoint_id("second"), endpoint_id("human")]
+        );
+    }
+
+    /// An alias and the id it stands for name the same endpoint; the id
+    /// returned is the entry's derived one, never the alias.
+    #[test]
+    fn an_alias_and_its_id_resolve_to_the_same_derived_id() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), None);
+        let config = three();
+        let human = endpoint_id("human");
+        assert_eq!(
+            resolve_identity(&paths, &config, &selector("human")).expect("resolves"),
+            human
+        );
+        assert_eq!(
+            resolve_identity(&paths, &config, &selector(human.as_str())).expect("resolves"),
+            human
+        );
+        // A disabled entry resolves: whether it may be leased is the
+        // daemon's to answer at open.
+        assert_eq!(
+            resolve_identity(&paths, &config, &selector("second")).expect("resolves"),
+            endpoint_id("second")
+        );
+    }
+
+    #[test]
+    fn an_unknown_alias_or_id_is_refused_by_name() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), None);
+        let config = three();
+        assert!(matches!(
+            resolve_identity(&paths, &config, &selector("nobody")),
+            Err(IdentityRefused::Unknown(
+                ResolveEndpointError::UnknownAlias(_)
+            ))
+        ));
+        assert!(matches!(
+            resolve_identity(&paths, &config, &selector(endpoint_id("nobody").as_str())),
+            Err(IdentityRefused::Unknown(ResolveEndpointError::UnknownId(_)))
+        ));
+    }
+
+    /// The bridge's endpoint is configured and resolves, and is not one a
+    /// human client may claim, by its alias or by its id.
+    #[test]
+    fn another_clients_endpoint_is_not_leasable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), None);
+        let config = three();
+        let claude = endpoint_id("claude");
+        for given in ["claude", claude.as_str()] {
+            match resolve_identity(&paths, &config, &selector(given)) {
+                Err(IdentityRefused::NotLeasable(id)) => assert_eq!(id, claude),
+                other => panic!("{given}: {other:?}"),
+            }
+        }
+    }
+
+    /// An overlay that does not read refuses an alias, which resolves over
+    /// it, and never an id, which is judged on `config.yaml` alone.
+    #[test]
+    fn an_id_resolves_without_reading_the_overlay() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), Some("not an overlay: ["));
+        let config = three();
+        assert!(matches!(
+            resolve_identity(&paths, &config, &selector("human")),
+            Err(IdentityRefused::Overlay(_))
+        ));
+        assert_eq!(
+            resolve_identity(&paths, &config, &selector(endpoint_id("human").as_str()))
+                .expect("an id needs no overlay"),
+            endpoint_id("human")
+        );
+    }
+
+    /// Resolving writes nothing in the profile: an overlay normalising
+    /// would change is left byte for byte as it was.
+    #[test]
+    fn resolving_an_alias_leaves_the_overlay_as_it_found_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // `enabled` naming an endpoint the profile lacks: normalising
+        // drops it, and a load would write that back.
+        let text = format!(
+            "{{\"enabled\": {{\"{}\": true}}}}",
+            endpoint_id("gone").as_str()
+        );
+        let paths = paths_with(dir.path(), Some(&text));
+        let before = std::fs::read(EndpointOverlay::path_for(&paths)).expect("reads");
+        resolve_identity(&paths, &three(), &selector("human")).expect("resolves");
+        assert_eq!(
+            std::fs::read(EndpointOverlay::path_for(&paths)).expect("reads"),
+            before
+        );
     }
 }
 
@@ -243,26 +437,59 @@ mod identity_tests {
         std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).expect("chmod");
         HumanStore::open(
             &state.join("human.sqlite3"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             interweave_human_store::StoreOptions::default(),
         )
         .expect("opens")
     }
 
-    fn human() -> Vec<EndpointId> {
-        vec![EndpointId::parse("human").expect("an endpoint")]
+    /// A key minted as `transportctl endpoint init` does, under `cipher`,
+    /// and the endpoint list naming its derived id.
+    fn minted(paths: &ProfilePaths, cipher: &dyn KeyCipher) -> (IdentityKey, Vec<EndpointId>) {
+        let key = identity_key::create(paths, cipher).expect("minted");
+        let endpoints = vec![key.endpoint().clone()];
+        (key, endpoints)
     }
 
+    /// ADR-0067 decision 5: a first run with no key file is the
+    /// key-missing state, and no key is made under the configured id.
     #[test]
-    fn the_first_start_makes_the_identitys_key_and_every_later_one_opens_it() {
+    fn a_missing_key_file_is_missing_and_none_is_made() {
         let dir = private_dir();
         let paths = paths(dir.path());
         let store = store(dir.path());
-        let first = identity_key(&paths, &human(), &store)
-            .expect("made")
+        let unminted = vec![IdentityKey::generate().expect("a key").endpoint().clone()];
+        assert_eq!(
+            identity_key(&paths, &unminted, &store).expect_err("missing"),
+            IdentityKeyFileError::Missing
+        );
+        assert!(
+            !identity_key::key_path(&paths, &unminted[0]).exists(),
+            "no key made in its place"
+        );
+        assert_eq!(
+            identity_key_under(&paths, &unminted, &PadKeystore, &store).expect_err("missing"),
+            IdentityKeyFileError::Missing,
+            "under a wrapping key too"
+        );
+        assert_eq!(
+            identity_key::sealed(&paths).expect("listed"),
+            Vec::<EndpointId>::new(),
+            "no key file anywhere"
+        );
+    }
+
+    #[test]
+    fn a_minted_key_is_opened_and_every_later_start_opens_the_same() {
+        let dir = private_dir();
+        let paths = paths(dir.path());
+        let store = store(dir.path());
+        let (minted, endpoints) = minted(&paths, &FilesystemCustody);
+        let first = identity_key(&paths, &endpoints, &store)
+            .expect("opened")
             .expect("a key");
-        let file = identity_key::key_path(&paths, &human()[0]);
-        assert!(file.is_file(), "under the state root, beside the store");
-        let again = identity_key(&paths, &human(), &store)
+        assert_eq!(first.public_key(), minted.public_key());
+        let again = identity_key(&paths, &endpoints, &store)
             .expect("opened")
             .expect("a key");
         assert_eq!(
@@ -277,18 +504,18 @@ mod identity_tests {
         let dir = private_dir();
         let paths = paths(dir.path());
         let store = store(dir.path());
-        identity_key(&paths, &human(), &store).expect("made");
-        let file = identity_key::key_path(&paths, &human()[0]);
+        let (_, endpoints) = minted(&paths, &FilesystemCustody);
+        let file = identity_key::key_path(&paths, &endpoints[0]);
         std::fs::write(&file, "not a record\n").expect("overwrite");
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).expect("chmod");
         assert!(
-            identity_key(&paths, &human(), &store).is_err(),
+            identity_key(&paths, &endpoints, &store).is_err(),
             "refused, so nothing is signed"
         );
         assert_eq!(
             std::fs::read_to_string(&file).expect("read"),
             "not a record\n",
-            "nothing replaces a refused file: a new key is the person's act"
+            "nothing replaces a refused file: a new key is a new identity"
         );
     }
 
@@ -327,19 +554,18 @@ mod identity_tests {
     }
 
     #[test]
-    fn under_a_wrapping_key_the_first_start_makes_a_sealed_key_and_later_ones_open_it() {
+    fn under_a_wrapping_key_a_sealed_key_opens_and_the_filesystem_floor_cannot_read_it() {
         let dir = private_dir();
         let paths = paths(dir.path());
         let store = store(dir.path());
-        let first = identity_key_under(&paths, &human(), &PadKeystore, &store)
-            .expect("made")
-            .expect("a key");
-        let again = identity_key_under(&paths, &human(), &PadKeystore, &store)
+        let (minted, endpoints) = minted(&paths, &PadKeystore);
+        let first = identity_key_under(&paths, &endpoints, &PadKeystore, &store)
             .expect("opened")
             .expect("a key");
-        assert_eq!(again.public_key(), first.public_key());
-        assert!(
-            identity_key(&paths, &human(), &store).is_err(),
+        assert_eq!(first.public_key(), minted.public_key());
+        assert_eq!(
+            identity_key(&paths, &endpoints, &store).expect_err("sealed"),
+            IdentityKeyFileError::Key(IdentityKeyError::SealedUnreadableHere),
             "the record is sealed: the filesystem floor cannot read it"
         );
     }
@@ -349,11 +575,11 @@ mod identity_tests {
         let dir = private_dir();
         let paths = paths(dir.path());
         let store = store(dir.path());
-        identity_key(&paths, &human(), &store).expect("a filesystem-only record");
-        let file = identity_key::key_path(&paths, &human()[0]);
+        let (_, endpoints) = minted(&paths, &FilesystemCustody);
+        let file = identity_key::key_path(&paths, &endpoints[0]);
         let before = std::fs::read(&file).expect("read");
         assert_eq!(
-            identity_key_under(&paths, &human(), &PadKeystore, &store).expect_err("a downgrade"),
+            identity_key_under(&paths, &endpoints, &PadKeystore, &store).expect_err("a downgrade"),
             IdentityKeyFileError::Key(IdentityKeyError::CustodyDowngrade),
         );
         assert_eq!(
@@ -363,34 +589,29 @@ mod identity_tests {
         );
     }
 
-    /// architect-cto's ruling of 2026-10-24: once any conversation
-    /// recorded a share of the card, a missing file is the key-missing
-    /// state and no key is made; before any share it is a first key.
+    /// The key folder a `DirUnsafe` refusal names is `endpoint-keys/`, the
+    /// directory the key is read from.
     #[test]
-    fn a_key_file_gone_after_a_share_is_missing_and_none_is_made() {
+    fn an_unsafe_key_folder_is_named_as_endpoint_keys() {
         let dir = private_dir();
         let paths = paths(dir.path());
-        let mut store = store(dir.path());
-        identity_key(&paths, &human(), &store).expect("a first key");
-        let file = identity_key::key_path(&paths, &human()[0]);
-        std::fs::remove_file(&file).expect("lost");
-        identity_key(&paths, &human(), &store).expect("never shared: a first key again");
-        store
-            .mark_card_shared(
-                &interweave_transport_api::TransportIdentity::parse(
-                    "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
-                )
-                .expect("a PeerId"),
-                &human()[0],
-                10,
-            )
-            .expect("shared");
-        std::fs::remove_file(&file).expect("lost again");
-        assert_eq!(
-            identity_key(&paths, &human(), &store).expect_err("missing"),
-            IdentityKeyFileError::Missing
+        let (_, endpoints) = minted(&paths, &FilesystemCustody);
+        let source = KeySource::new(
+            paths.clone(),
+            endpoints[0].clone(),
+            Box::new(FilesystemCustody),
         );
-        assert!(!file.exists(), "no key made in its place");
+        let refused = IdentityKeyFileError::Read(identity_key::KeyFileRead::DirUnsafe);
+        assert_eq!(
+            source.problem(&refused),
+            KeyProblem::DirUnsafe {
+                folder: paths
+                    .state_dir()
+                    .join("endpoint-keys")
+                    .display()
+                    .to_string()
+            }
+        );
     }
 
     #[test]

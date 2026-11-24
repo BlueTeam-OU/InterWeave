@@ -54,6 +54,9 @@ profile:
   name: {PROFILE}
 runtime:
   deployment: {deployment}
+  # By id: the field takes a derived id and has no default (ADR-0067).
+  android:
+    endpoint: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr
 ipc:
   enabled: {ipc}
 trust:
@@ -61,7 +64,8 @@ trust:
   allowed_peers: []
 endpoints:
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 transport:
@@ -180,9 +184,9 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
     // endpoint the embedded profile must lease.
     let text = document("embedded-android", false).replace(
         "endpoints:\n  entries:\n",
-        "endpoints:\n  entries:\n    - id: agent\n      enabled: true\n      advertise: false\n",
+        "endpoints:\n  entries:\n    - key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key\n      alias: agent\n      enabled: true\n      advertise: false\n",
     );
-    assert!(text.contains("id: agent"), "{text}");
+    assert!(text.contains("alias: agent"), "{text}");
     provision(&app.dir, &text);
     let rows = |host: &EmbeddedHost| {
         let port = host
@@ -199,19 +203,6 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
 
     let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
     let overlay = EndpointOverlay::path_for(host.paths());
-    // A set disabling the endpoint the profile must lease is refused, as
-    // the next start would refuse the composed profile; nothing written.
-    let port = host
-        .runtime()
-        .block_on(host.binding().admin([AdminCapability::Endpoints].into()))
-        .expect("an admin port");
-    let human = interweave_transport_api::EndpointId::parse("human").expect("an id");
-    assert_eq!(
-        host.runtime()
-            .block_on(port.set_endpoint_enabled(human, false)),
-        Err(interweave_transport_api::TransportError::InvalidArgument)
-    );
-    drop(port);
     assert!(
         overlay.starts_with(app.dir.join("interweave")),
         "{}",
@@ -220,21 +211,49 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
     assert_eq!(
         rows(&host),
         vec![
-            ("agent".to_owned(), true, true),
-            ("human".to_owned(), true, true)
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                true,
+                true
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true,
+                true
+            )
         ]
     );
     assert!(!overlay.exists(), "loaded absent, and not created");
     host.stop(Duration::from_secs(1)).expect("stops");
 
-    std::fs::write(&overlay, r#"{"enabled":{"agent":false}}"#).expect("written");
+    std::fs::write(
+        &overlay,
+        r#"{"enabled":{"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5":false}}"#,
+    )
+    .expect("written");
     std::fs::set_permissions(&overlay, std::fs::Permissions::from_mode(0o600)).expect("chmod");
     let host = EmbeddedHost::start(launch(&app.dir)).expect("restarts");
     assert_eq!(
         rows(&host),
         vec![
-            ("agent".to_owned(), false, true),
-            ("human".to_owned(), true, true)
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("agent")
+                    .as_str()
+                    .to_owned(),
+                false,
+                true
+            ),
+            (
+                interweave_test_support::endpoint_keys::endpoint_id("human")
+                    .as_str()
+                    .to_owned(),
+                true,
+                true
+            )
         ]
     );
     host.stop(Duration::from_secs(1)).expect("stops");
@@ -248,25 +267,81 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
         }
         other => panic!("refused as not private: {:?}", other.map(|_| ())),
     }
-    // Disabling the endpoint the embedded profile must lease: config.yaml
-    // validates alone, the composed profile does not, and the refusal
-    // names the overlay.
-    std::fs::write(&overlay, r#"{"enabled":{"human":false}}"#).expect("written");
+    // The named endpoint disabled beside an enabled one starts: any
+    // enabled identity will do (ADR-0061 decision 7) -- the control for
+    // the refusal below.
+    std::fs::write(
+        &overlay,
+        r#"{"enabled":{"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr":false}}"#,
+    )
+    .expect("written");
+    std::fs::set_permissions(&overlay, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    EmbeddedHost::start(launch(&app.dir))
+        .expect("another identity is enabled")
+        .stop(Duration::from_secs(1))
+        .expect("stops");
+    // Both disabled: config.yaml validates alone, and the composed set
+    // holds no enabled identity to start as -- the start's rule
+    // (`ENDPOINTS.md`, A 2026-11-21).
+    std::fs::write(
+        &overlay,
+        r#"{"enabled":{"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr":false,"12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5":false}}"#,
+    )
+    .expect("written");
     std::fs::set_permissions(&overlay, std::fs::Permissions::from_mode(0o600)).expect("chmod");
     match EmbeddedHost::start(launch(&app.dir)) {
-        Err(EmbeddedRefused::ProfileInvalid(detail)) => {
-            assert!(detail.contains("endpoint overlay"), "{detail}");
-        }
-        other => panic!("refused naming the overlay: {:?}", other.map(|_| ())),
+        Err(EmbeddedRefused::NoIdentity(
+            interweave_profile_config::ConfigError::AndroidNoIdentity,
+        )) => {}
+        other => panic!("refused AndroidNoIdentity: {:?}", other.map(|_| ())),
     }
 }
 
-/// A FRESH INSTALL: nothing has written `config.yaml`, so the start is
-/// refused naming the read -- the control -- until the Service provisions
-/// the profile once (`profile-config`'s `provision_embedded`, the seam
-/// agreed with rust-ui-dev); then the host starts and serves on it.
+/// An admin set that would leave no identity enabled is refused, as the
+/// next start would refuse the composed profile (`ENDPOINTS.md`,
+/// A 2026-11-21), and nothing is written; the same set re-enabling it is
+/// the control that the port answers sets at all.
 #[test]
-fn a_fresh_install_is_provisioned_once_then_starts() {
+fn an_endpoint_set_leaving_no_identity_enabled_is_refused() {
+    let app = app();
+    provision(&app.dir, &document("embedded-android", false));
+    let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+    let overlay = EndpointOverlay::path_for(host.paths());
+    let port = host
+        .runtime()
+        .block_on(host.binding().admin([AdminCapability::Endpoints].into()))
+        .expect("an admin port");
+    let human = interweave_test_support::endpoint_keys::endpoint_id("human");
+    assert_eq!(
+        host.runtime()
+            .block_on(port.set_endpoint_enabled(human.clone(), false)),
+        Err(interweave_transport_api::TransportError::InvalidArgument),
+        "the only identity, disabled"
+    );
+    assert!(!overlay.exists(), "nothing written");
+    assert!(
+        host.runtime()
+            .block_on(port.set_endpoint_enabled(human, true))
+            .is_ok(),
+        "the control: a set the next start accepts is answered"
+    );
+    drop(port);
+    host.stop(Duration::from_secs(1)).expect("stops");
+}
+
+/// A FRESH INSTALL: nothing has written `config.yaml`, so the start is
+/// refused naming the read, until the Service provisions the profile
+/// (`profile-config`'s `provision_embedded`, the seam agreed with
+/// rust-ui-dev). Form 1 beside no key file has no identity: its start is refused
+/// `AndroidNoIdentity` by name, with nothing under the root written --
+/// the profile-format marker not raised, `config.yaml` as it was. Once
+/// onboarding has sealed the first identity (a key minted at filesystem
+/// custody here) and `provision_identity` wrote form 2 -- the positive
+/// control -- the same start serves.
+#[test]
+fn a_start_on_form_1_is_refused_no_identity() {
+    use interweave_profile_config::ConfigError;
+    use interweave_profile_config::provision::{provision_embedded, provision_identity};
     let app = app();
     assert!(
         matches!(
@@ -278,7 +353,23 @@ fn a_fresh_install_is_provisioned_once_then_starts() {
     let paths =
         ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
             .expect("paths");
-    interweave_profile_config::provision::provision_embedded(&paths).expect("provisioned");
+    provision_embedded(&paths).expect("form 1");
+    let form_1 = std::fs::read(paths.config_file()).expect("form 1");
+    assert_eq!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::NoIdentity(ConfigError::AndroidNoIdentity)),
+        "form 1: no identity"
+    );
+    assert_eq!(
+        profile_format::read_within(&profile_format::path_for(&paths), paths.boundary())
+            .expect("reads"),
+        0,
+        "a refused start raised no marker"
+    );
+    assert_eq!(std::fs::read(paths.config_file()).expect("kept"), form_1);
+
+    let id = interweave_profile_config::endpoint_key::mint_filesystem(&paths).expect("a key");
+    provision_identity(&paths, &id).expect("form 2");
     let launched = launch(&app.dir);
     let peer = launched.identity.transport_identity().expect("peer");
     let host = EmbeddedHost::start(launched).expect("starts on the provisioned profile");
@@ -288,6 +379,149 @@ fn a_fresh_install_is_provisioned_once_then_starts() {
         .expect("status");
     assert_eq!(status.peer, peer);
     host.stop(Duration::from_secs(1)).expect("stops");
+}
+
+/// M3, the start's half (ENDPOINTS.md): form 1 beside one sealed key
+/// whose header reads and names its file starts, writes form 2 for that
+/// id first, and a second start finds nothing left to finish.
+#[test]
+fn a_start_finishes_m3_beside_one_sealed_key() {
+    use interweave_profile_config::endpoint_key::{key_path, mint_filesystem};
+    use interweave_profile_config::provision::{embedded_identity_document, provision_embedded};
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let id = mint_filesystem(&paths).expect("a key");
+    let key = std::fs::read(key_path(&paths, &id)).expect("key");
+    for _ in 0..2 {
+        EmbeddedHost::start(launch(&app.dir))
+            .expect("form 1 beside one sealed key starts")
+            .stop(Duration::from_secs(1))
+            .expect("stops");
+        assert_eq!(
+            std::fs::read_to_string(paths.config_file()).expect("config"),
+            embedded_identity_document(PROFILE, &id),
+            "form 2 for the key's id"
+        );
+        assert_eq!(
+            std::fs::read(key_path(&paths, &id)).expect("key"),
+            key,
+            "the key is as it was"
+        );
+    }
+}
+
+/// A writer's temporary beside the one key (`<id>.key.<pid>.<n>.<hash>.tmp`)
+/// and a pending key are no keys: the finish is not stopped by them.
+#[test]
+fn a_temporary_and_a_pending_key_beside_the_key_do_not_stop_m3() {
+    use interweave_profile_config::endpoint_key::{key_path, mint_filesystem};
+    use interweave_profile_config::provision::provision_embedded;
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let id = mint_filesystem(&paths).expect("a key");
+    let dir = key_path(&paths, &id).parent().expect("dir").to_path_buf();
+    std::fs::write(dir.join(format!("{}.key.123.0.abc.tmp", id.as_str())), "t").expect("tmp");
+    std::fs::write(dir.join(".pending-claude.key"), "p").expect("pending");
+    EmbeddedHost::start(launch(&app.dir))
+        .expect("starts")
+        .stop(Duration::from_secs(1))
+        .expect("stops");
+}
+
+/// Control: form 1 and no key file is still refused `AndroidNoIdentity`;
+/// two key files refuse by name, and a key naming another id than its
+/// file refuses by name -- each leaving the document form 1 and the
+/// files as they were.
+#[test]
+fn a_start_on_form_1_refuses_what_it_cannot_finish() {
+    use interweave_profile_config::ConfigError;
+    use interweave_profile_config::endpoint_key::{key_path, mint_filesystem};
+    use interweave_profile_config::provision::provision_embedded;
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let form_1 = std::fs::read(paths.config_file()).expect("form 1");
+    let unchanged = || {
+        assert_eq!(std::fs::read(paths.config_file()).expect("config"), form_1);
+    };
+    assert_eq!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::NoIdentity(ConfigError::AndroidNoIdentity)),
+        "no key file"
+    );
+    unchanged();
+
+    let a = mint_filesystem(&paths).expect("a key");
+    let b = mint_filesystem(&paths).expect("another");
+    assert!(matches!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::EndpointKeys(ref d)) if d.contains("2 key files")
+    ));
+    unchanged();
+
+    // One file left, named for `a` and holding `b`'s record.
+    std::fs::remove_file(key_path(&paths, &a)).expect("rm");
+    let b_record = std::fs::read(key_path(&paths, &b)).expect("b");
+    std::fs::remove_file(key_path(&paths, &b)).expect("rm");
+    std::fs::write(key_path(&paths, &a), &b_record).expect("swap");
+    std::fs::set_permissions(key_path(&paths, &a), std::fs::Permissions::from_mode(0o600))
+        .expect("chmod");
+    assert!(matches!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::EndpointKeys(_))
+    ));
+    unchanged();
+    assert_eq!(std::fs::read(key_path(&paths, &a)).expect("kept"), b_record);
+}
+
+/// An overlay a release before Stage 22 keyed by the label `human` does
+/// not turn the form-1 refusal into an overlay one: form 1 has no entry,
+/// so no alias matches and the member is dropped in memory (the start
+/// only READS the overlay), and the start is refused `AndroidNoIdentity`
+/// as without it. The overlay file is left as it was, for
+/// `provision_identity`'s carry. Control: the same overlay beside an
+/// entry aliased `human` -- form 2 -- is refused for the label.
+#[test]
+fn a_label_overlay_beside_form_1_is_still_no_identity() {
+    use interweave_profile_config::ConfigError;
+    use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+    use interweave_profile_config::provision::{provision_embedded, provision_identity};
+    let app = app();
+    let paths =
+        ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("a boundary"))
+            .expect("paths");
+    provision_embedded(&paths).expect("form 1");
+    let overlay = EndpointOverlay::path_for(&paths);
+    let text = br#"{"enabled":{"human":false}}"#;
+    interweave_profile_config::write_private_atomic_within(&overlay, text, paths.boundary())
+        .expect("planted");
+    assert_eq!(
+        EmbeddedHost::start(launch(&app.dir)).map(|_| ()),
+        Err(EmbeddedRefused::NoIdentity(ConfigError::AndroidNoIdentity)),
+        "form 1 beside a label overlay: no identity, not an overlay refusal"
+    );
+    assert_eq!(std::fs::read(&overlay).expect("kept"), text);
+
+    // The control: with an entry aliased `human` the same overlay is
+    // refused for its label. A hand-written form 2, with no carry run.
+    let id = interweave_profile_config::endpoint_key::mint_filesystem(&paths).expect("a key");
+    std::fs::remove_file(&overlay).expect("removed");
+    provision_identity(&paths, &id).expect("form 2");
+    interweave_profile_config::write_private_atomic_within(&overlay, text, paths.boundary())
+        .expect("planted");
+    let refused = EmbeddedHost::start(launch(&app.dir)).map(|_| ());
+    assert!(
+        matches!(&refused, Err(EmbeddedRefused::Internal(m)) if m.contains("'human'")),
+        "{refused:?}"
+    );
 }
 
 /// A second start in the same process while a host holds the profile is
@@ -579,6 +813,58 @@ fn a_host_dropped_in_an_async_context_releases_the_profile() {
         .expect("starts after the drop")
         .stop(Duration::from_secs(1))
         .expect("stops");
+}
+
+/// A KILLED HOST RUNS NO SHUTDOWN, as a dead process runs none
+/// (`EmbeddedHost::kill_for_test`, j128): with the peer cache on, a kill
+/// leaves no cache file, at its return or after. A drop in its place ran
+/// the driver's shutdown, whose flush writes the file whatever the
+/// debounce says, on a worker the drop did not wait for: the file
+/// appeared after the drop returned in 3 kills of 40 on this host. The
+/// rounds are many because that race is: with the kill replaced by a
+/// drop this test failed (measured, j128).
+#[test]
+fn a_killed_host_writes_no_peer_cache_after_it_returns() {
+    let cached = document("embedded-android", false).replace(
+        "transport:\n",
+        "discovery:\n  providers:\n    - { type: peer-cache, enabled: true, priority: 10, \
+         config: { ttl: 7d, max_entries: 1024 } }\ntransport:\n",
+    );
+    for round in 0..60 {
+        let app = app();
+        let paths = provision(&app.dir, &cached);
+        let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+        host.kill_for_test();
+        // A run this short reaches nothing, so nothing dirties the cache
+        // and only a shutdown's flush writes the file: absent at the
+        // kill's return, no shutdown ran before it; absent after, none
+        // runs after it (#740 review F1).
+        let file = paths.peer_cache_file();
+        assert!(
+            !file.exists(),
+            "round {round}: {} was written before the kill returned",
+            file.display()
+        );
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(
+            !file.exists(),
+            "round {round}: {} was written after the kill returned",
+            file.display()
+        );
+        // THE POSITIVE CONTROL: a stop runs the shutdown the kill does
+        // not, and its flush writes the file this test reads, at this
+        // path -- so an absent file above is the kill's, not a wrong path
+        // or a cache that never writes.
+        EmbeddedHost::start(launch(&app.dir))
+            .expect("starts after the kill: the lock was released")
+            .stop(Duration::from_secs(1))
+            .expect("stops");
+        assert!(
+            file.exists(),
+            "round {round}: a stop's shutdown flush did not write {}",
+            file.display()
+        );
+    }
 }
 
 /// THE EMBEDDED HOST'S ADD (ADR-0062): the seam that writes the other

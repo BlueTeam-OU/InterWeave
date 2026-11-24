@@ -37,7 +37,7 @@ pub mod status;
 
 pub use base64url::Base64Error;
 pub use broadcast_v1::{BroadcastFrameError, BroadcastMessageV1};
-pub use direct_v2::{AcceptedV2, DirectMessageV2, FrameError, RejectedV2};
+pub use direct_v2::{AcceptedV2, DirectMessageV2, ENDPOINT_FIELD_BYTES, FrameError, RejectedV2};
 pub use endpoint_directory::{
     DEFAULT_INFLIGHT_QUERIES, DEFAULT_QUERIES_PER_PEER_PER_MINUTE, DirectoryRefusal,
     EndpointDirectoryV1, MAX_DIRECTORY_ENTRIES, MAX_DIRECTORY_TTL_MS, MAX_INFLIGHT_QUERIES,

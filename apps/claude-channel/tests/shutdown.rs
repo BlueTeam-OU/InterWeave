@@ -10,6 +10,8 @@
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use interweave_test_support::endpoint_keys::endpoint_id;
+
 /// Generous against a loaded host; the host's own SIGTERM follows the
 /// SIGINT after about 100 ms, so a pass well inside this is the claim.
 const PROMPT: Duration = Duration::from_secs(2);
@@ -22,7 +24,7 @@ fn bridge(scratch: &std::path::Path) -> Child {
             "--profile",
             "shutdown",
             "--endpoint",
-            "claude",
+            endpoint_id("claude").as_str(),
             "--delivery",
             "push",
         ])

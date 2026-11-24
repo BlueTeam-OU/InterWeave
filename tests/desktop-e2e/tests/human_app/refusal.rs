@@ -285,7 +285,7 @@ async fn a_store_whose_key_is_lost_is_discarded_and_recreated_on_the_persons_wor
                 .expect("the profile's folder"),
         );
         kept.extend(tree(
-            &home.paths.state_dir().join(identity_key::IDENTITY_KEYS_DIR),
+            &home.paths.state_dir().join(identity_key::ENDPOINT_KEYS_DIR),
         ));
         for overlay in [
             interweave_profile_config::trust_overlay::TRUST_OVERLAY_FILE,

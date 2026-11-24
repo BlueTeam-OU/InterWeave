@@ -27,6 +27,25 @@ mod store;
     )
 )]
 mod store_follow;
+// On every target, so the host tests what C4's start after a failed
+// read-back expects and how its refusal answers the flow.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs and jni.rs use it on Android"
+    )
+)]
+mod unchecked_start;
+// On every target, so the host tests which start a held screen waits on.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs holds it on Android"
+    )
+)]
+mod start_wait;
 // On every target, so the host tests what answers a locked start.
 #[cfg_attr(
     not(target_os = "android"),
@@ -94,10 +113,27 @@ mod identity_hook;
     not(target_os = "android"),
     allow(
         dead_code,
+        reason = "the host only tests it; onboard.rs takes it on Android"
+    )
+)]
+mod seal_hook;
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
         reason = "the host only tests it; jni.rs takes it on Android"
     )
 )]
 mod start_hook;
+// On every target, so the host tests a copy's marks and its slot.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; activity.rs and jni.rs use it on Android"
+    )
+)]
+mod clip_slot;
 // On every target, so the host tests what a check answers for a kept K1.
 #[cfg_attr(
     not(target_os = "android"),
@@ -107,3 +143,12 @@ mod start_hook;
     )
 )]
 mod ready_check;
+// On every target, so the host tests what a window's end does with a flow.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs parks with it on Android"
+    )
+)]
+mod flow_park;

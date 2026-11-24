@@ -54,8 +54,10 @@ use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-use interweave_transport_api::TransportIdentity;
-use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
+use std::collections::BTreeMap;
+
+use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy, TrustPolicyError};
 
 use crate::connection_policy::{
     ConnectionClass, ConnectionPolicy, DialDenial, DialOrigin, DialRequest,
@@ -72,7 +74,10 @@ use crate::loss_ladder::LossLadder;
 /// application messages with.
 #[derive(Debug, Clone, Default)]
 pub struct TrustSources {
-    /// Peers authorized for the application data plane.
+    /// Peers authorized for the application data plane: the ADMISSION
+    /// SET, which decides the connection (ADR-0067 decision 6). Built by
+    /// [`Self::new`] it is the one list; by [`Self::per_endpoint`] it is
+    /// derived from the operator's list and the own sets, never supplied.
     pub peers: PeerTrustPolicy,
     /// Peers authorized for reachability control only.
     pub infrastructure: InfrastructureSet,
@@ -84,6 +89,11 @@ pub struct TrustSources {
     /// could also name a different one, which is the confusion this
     /// exists to prevent rather than a flexibility worth offering.
     local_peer: Option<TransportIdentity>,
+    /// The operator's list when it differs from the admission set;
+    /// `None` when [`Self::new`] built one list that is both.
+    operator: Option<PeerTrustPolicy>,
+    /// Each endpoint's own sets, from the endpoint overlay.
+    own: BTreeMap<EndpointId, crate::endpoint_registry::OwnTrust>,
 }
 
 impl TrustSources {
@@ -102,7 +112,47 @@ impl TrustSources {
             peers,
             infrastructure,
             local_peer: None,
+            operator: None,
+            own: BTreeMap::new(),
         }
+    }
+
+    /// Build the trust sources of ADR-0067 decision 6: the operator's
+    /// list, each endpoint's own sets, and the admission set DERIVED from
+    /// them -- their union, bounded as one set ([`PeerTrustPolicy::admission`])
+    /// -- so no caller supplies an admission set that disagrees with its
+    /// parts (`the_admission_set_is_derived_from_its_parts`).
+    ///
+    /// # Errors
+    ///
+    /// [`TrustPolicyError::AllowlistTooLarge`] when the union is past
+    /// [`PeerTrustPolicy::MAX_ALLOWED_PEERS`].
+    pub fn per_endpoint(
+        operator: PeerTrustPolicy,
+        own: BTreeMap<EndpointId, crate::endpoint_registry::OwnTrust>,
+        infrastructure: InfrastructureSet,
+    ) -> Result<Self, TrustPolicyError> {
+        let peers = operator.admission(own.values().flat_map(|o| [&o.inbound, &o.outbound]))?;
+        Ok(Self {
+            peers,
+            infrastructure,
+            local_peer: None,
+            operator: Some(operator),
+            own,
+        })
+    }
+
+    /// The operator's list: what an inheriting or authored endpoint, and
+    /// broadcast admission, judge against -- never the admission set.
+    #[must_use]
+    pub fn operator(&self) -> &PeerTrustPolicy {
+        self.operator.as_ref().unwrap_or(&self.peers)
+    }
+
+    /// Each endpoint's own sets.
+    #[must_use]
+    pub fn own(&self) -> &BTreeMap<EndpointId, crate::endpoint_registry::OwnTrust> {
+        &self.own
     }
 
     /// The class this profile grants `peer`, right now.
@@ -1305,11 +1355,9 @@ impl ConnectionManager {
                 let policy = &self.policy;
                 let state = |a: &String| policy.address(peer, a);
                 let last_success = |a: &String| state(a).and_then(|s| s.last_success_ms);
-                let newest_proven = k
-                    .iter()
-                    .filter(|a| last_success(a).is_some())
-                    .max_by_key(|a| (last_success(a), std::cmp::Reverse((*a).clone())))
-                    .cloned();
+                // One selection with the entry a network addition clears
+                // (ADR-0011 A 2026-11-19).
+                let newest_proven = policy.newest_proven(peer);
                 let victim = k
                     .iter()
                     .filter(|a| {
@@ -2140,7 +2188,11 @@ impl ConnectionManager {
     /// [`Self::take_due_retries`] never hands a claimed entry out
     /// whatever its due time. Address
     /// quarantines stay: a new network does not make an address that
-    /// authenticated the wrong peer any better. Not for a removal,
+    /// authenticated the wrong peer any better. Of address state one count
+    /// moves: a lifted peer's MOST RECENTLY PROVEN book entry has its
+    /// consecutive failures set to zero, its last success kept, so the
+    /// route that last worked is the one the due retry dials (ADR-0011
+    /// A 2026-11-19); every other entry keeps its count. Not for a removal,
     /// which can only make fewer routes work.
     ///
     /// ONCE PER LIFT FLOOR (ADR-0011 A 2026-10-09): additions can repeat
@@ -2183,6 +2235,12 @@ impl ConnectionManager {
             if backoff || retry {
                 lifted += 1;
                 self.network_lifts.insert(peer.clone(), now_ms);
+                // The failures the lift reads as stale also took "recently
+                // good" from the route that last worked; clearing that
+                // entry's count ranks it first for the dial just made due
+                // (ADR-0011 A 2026-11-19). The lifted peer only, under the
+                // same floor (`an_addition_that_lifts_nothing_clears_no_count`).
+                self.policy.clear_newest_proven_failures(peer);
             }
         }
         if lifted > 0 {
@@ -2510,7 +2568,7 @@ impl ConnectionManager {
     /// The delay before this peer is retried, given what it has already
     /// cost.
     ///
-    /// The cadence `CONNECTIVITY.md` §11 states: the loss ladder's step
+    /// The cadence `CONNECTIVITY.md` §12 states: the loss ladder's step
     /// for a peer on it (ADR-0011 A 2026-11-17: 1, 2, 4, 8, 16 s after
     /// the loss of a connection that held), else 30 seconds whatever the
     /// attempt count (ADR-0011 A 2026-11-14). THE ONE READER of the
@@ -2674,7 +2732,7 @@ pub struct PeerGateState {
 }
 
 /// The gate's retry delay for a data-plane peer that would not connect
-/// and is not on the loss ladder: 30 seconds (`CONNECTIVITY.md` §11). A
+/// and is not on the loss ladder: 30 seconds (`CONNECTIVITY.md` §12). A
 /// peer this runtime has not been connected to keeps it from the first
 /// failure; the short steps after the loss of a connection that held are
 /// [`crate::LOSS_LADDER_MS`] (ADR-0011 A 2026-11-17).
@@ -4766,7 +4824,7 @@ mod tests {
 
     #[test]
     fn the_retry_cadence_is_the_one_connectivity_md_states() {
-        // `architecture/transport/libp2p/CONNECTIVITY.md` §11 under
+        // `architecture/transport/libp2p/CONNECTIVITY.md` §12 under
         // ADR-0011 A 2026-11-14: 30 s after every failure, however many
         // came before. Restated as numbers in this module, so this test
         // is what turns a drift into a failure.
@@ -6324,6 +6382,205 @@ mod tests {
         );
     }
 
+    /// The count of `address`'s consecutive failures for P1, 0 for none.
+    fn failures_of(m: &ConnectionManager, address: &str) -> u32 {
+        m.policy
+            .address(&peer(P1), address)
+            .map_or(0, |s| s.consecutive_failures)
+    }
+
+    /// P1 proven at A1 and holding A2 untried; A1's dial then fails at
+    /// 1 s, while this host has no address of its own (ADR-0011
+    /// A 2026-11-19). Asserts the starting order: A2 first.
+    fn proven_route_failed_offline() -> ConnectionManager {
+        let mut m = manager(8);
+        assert!(m.learn_address(&peer(P1), A1, 0));
+        assert!(m.learn_address(&peer(P1), A2, 0));
+        let worked = m.handle().admit(&request(P1, A1), 0).expect("admitted");
+        drop(m.record_success(worked, 0));
+        let failed = m.handle().admit(&request(P1, A1), 1_000).expect("admitted");
+        m.record_failure(failed, 1_000);
+        assert_eq!(
+            m.dial_candidates(&peer(P1), 2_000)
+                .first()
+                .map(String::as_str),
+            Some(A2),
+            "the control: the offline failure ranks the untried entry first"
+        );
+        m
+    }
+
+    #[test]
+    fn an_addition_dials_the_route_that_last_worked_before_an_untried_one() {
+        // ADR-0011 A 2026-11-19: the failure the addition reads as stale
+        // is cleared on the proven route, so the retry it makes due dials
+        // that route and not the address this host never reached.
+        let mut m = proven_route_failed_offline();
+        assert_eq!(m.network_added(5_000), 1, "the peer is lifted");
+        assert_eq!(m.take_due_retries(5_000, 8), vec![peer(P1)], "due now");
+        assert_eq!(
+            m.dial_candidates(&peer(P1), 5_000)
+                .first()
+                .map(String::as_str),
+            Some(A1),
+            "the retry dials the route that last worked"
+        );
+        assert_eq!(failures_of(&m, A1), 0);
+        assert_eq!(
+            m.policy
+                .address(&peer(P1), A1)
+                .and_then(|s| s.last_success_ms),
+            Some(0),
+            "its proof is kept"
+        );
+        assert_eq!(
+            m.retries.get(&peer(P1)).map(|r| r.attempts),
+            Some(1),
+            "the attempt count is kept"
+        );
+    }
+
+    #[test]
+    fn after_the_reset_a_moved_peers_stale_route_costs_one_attempt() {
+        // The #137 control beside the reset: a peer that really moved
+        // has its stale proven route dialled once after the addition,
+        // which fails, and the untried address is next.
+        let mut m = proven_route_failed_offline();
+        assert_eq!(m.network_added(5_000), 1);
+        assert_eq!(m.take_due_retries(5_000, 8), vec![peer(P1)]);
+        assert_eq!(
+            m.dial_candidates(&peer(P1), 5_000)
+                .first()
+                .map(String::as_str),
+            Some(A1)
+        );
+        let failed = m.handle().admit(&request(P1, A1), 5_000).expect("admitted");
+        m.record_failure(failed, 6_000);
+        assert_eq!(
+            m.dial_candidates(&peer(P1), 40_000)
+                .first()
+                .map(String::as_str),
+            Some(A2),
+            "one failed attempt and the stale route falls behind the untried one"
+        );
+    }
+
+    #[test]
+    fn an_addition_clears_the_newest_proof_and_no_older_one() {
+        // Two proven routes, the older failed once (the peer moved from
+        // it), the newer failed twice while this host had no address.
+        // Before the addition the older ranks first by its fewer
+        // failures; after it the newer does, and the older keeps its
+        // count -- clearing both would rank the older first by spelling
+        // (A1 < A2). A3, which never succeeded and failed once, keeps its
+        // count too: it is never the proven entry the reset clears.
+        let a3 = "/ip4/192.0.2.3/tcp/4001";
+        let mut m = manager(8);
+        assert!(m.learn_address(&peer(P1), a3, 0));
+        let failed = m.handle().admit(&request(P1, a3), 0).expect("admitted");
+        m.record_failure(failed, 0);
+        assert!(m.learn_address(&peer(P1), A1, 0));
+        let now = prove_then_fail(&mut m, A1, 0, 1);
+        assert!(m.learn_address(&peer(P1), A2, now));
+        let now = prove_then_fail(&mut m, A2, now, 2);
+        assert_eq!(
+            m.dial_candidates(&peer(P1), now)
+                .first()
+                .map(String::as_str),
+            Some(A1),
+            "the control: the older proof ranks first before the addition"
+        );
+        // `prove_then_fail` returns 400 s past the last failure; the
+        // addition comes 1 s after it, while its retry still holds.
+        let at = now - 400_000 + 1_000;
+        assert_eq!(m.network_added(at), 1, "the peer is lifted");
+        assert_eq!(
+            m.dial_candidates(&peer(P1), at).first().map(String::as_str),
+            Some(A2),
+            "the newer proof ranks first after it"
+        );
+        assert_eq!(failures_of(&m, A1), 1, "the older proof keeps its count");
+        assert_eq!(failures_of(&m, a3), 1, "and the never-proven entry its own");
+    }
+
+    #[test]
+    fn an_addition_that_lifts_nothing_clears_no_count() {
+        // Under the lift floor: the second addition does not lift the
+        // peer, so the failure after the first lift keeps its count.
+        let mut m = proven_route_failed_offline();
+        assert_eq!(m.network_added(5_000), 1);
+        assert_eq!(failures_of(&m, A1), 0, "the control: the lift clears it");
+        assert_eq!(m.take_due_retries(5_000, 8), vec![peer(P1)]);
+        let failed = m.handle().admit(&request(P1, A1), 5_000).expect("admitted");
+        m.record_failure(failed, 6_000);
+        assert_eq!(m.network_added(7_000), 0, "inside the floor");
+        assert_eq!(failures_of(&m, A1), 1, "and nothing is cleared");
+        // A peer the addition VISITS and does not lift keeps its count:
+        // P2's proven A1 failed at 2 s, so at 40 s its retry (due 32 s)
+        // is already due and its backoff has run out -- it is in the
+        // call's input and nothing of it is held off. P1, past its floor
+        // by then with its own retry due at 36 s, is the same.
+        assert!(m.learn_address(&peer(P2), A1, 0));
+        let worked = m.handle().admit(&request(P2, A1), 0).expect("admitted");
+        drop(m.record_success(worked, 0));
+        let failed = m.handle().admit(&request(P2, A1), 2_000).expect("admitted");
+        m.record_failure(failed, 2_000);
+        assert!(
+            m.retries.contains_key(&peer(P2)) && m.policy.peer(&peer(P2)).is_some(),
+            "the control: the addition's loop visits P2"
+        );
+        assert_eq!(m.network_added(40_000), 0, "and lifts nobody");
+        assert_eq!(
+            m.policy
+                .address(&peer(P2), A1)
+                .map_or(0, |s| s.consecutive_failures),
+            1,
+            "a visited peer the addition does not lift keeps its count"
+        );
+        assert_eq!(failures_of(&m, A1), 1, "as does P1");
+    }
+
+    #[test]
+    fn an_addition_between_the_floor_and_the_due_retry_clears_the_count_again() {
+        // The limit ADR-0011 A 2026-11-19 records, measured: the lift's
+        // dial settles d after the lift (10 s here), so for a peer off the
+        // loss ladder, as P1 is, its retry is due at lift + d + 30 s while
+        // the floor ends at lift + 30 s (on the ladder it is due at lift +
+        // d + step, inside the floor unless d + step passes 30 s); an
+        // addition in that window of d lifts the peer again and clears
+        // the stale proof's count again, and the untried A2 is not the
+        // next dial. Past the due retry nothing is held off and an
+        // addition clears nothing (the control).
+        let mut m = proven_route_failed_offline();
+        assert_eq!(m.network_added(5_000), 1);
+        assert_eq!(m.take_due_retries(5_000, 8), vec![peer(P1)]);
+        let failed = m.handle().admit(&request(P1, A1), 5_000).expect("admitted");
+        let _ = m.record_failure(failed, 15_000);
+        let floor_end = 5_000 + RETRY_BASE_MS;
+        assert!(floor_end < 15_000 + RETRY_BASE_MS, "the window is open");
+        assert_eq!(m.network_added(floor_end), 1, "lifted again in the window");
+        assert_eq!(failures_of(&m, A1), 0, "and the count cleared again");
+        assert_eq!(
+            m.dial_candidates(&peer(P1), floor_end)
+                .first()
+                .map(String::as_str),
+            Some(A1),
+            "the stale proof is dialled again before the untried route"
+        );
+        assert_eq!(m.take_due_retries(floor_end, 8), vec![peer(P1)]);
+        let failed = m
+            .handle()
+            .admit(&request(P1, A1), floor_end)
+            .expect("admitted");
+        let _ = m.record_failure(failed, floor_end);
+        assert_eq!(
+            m.network_added(floor_end + RETRY_BASE_MS),
+            0,
+            "the control: an addition once the retry is due lifts nothing"
+        );
+        assert_eq!(failures_of(&m, A1), 1, "and clears nothing");
+    }
+
     #[test]
     fn a_known_good_address_is_offered_first() {
         // `preferred_addresses` has existed since Stage 2 and was
@@ -6997,5 +7254,42 @@ mod tests {
                  the dot."
             );
         }
+    }
+
+    #[test]
+    fn the_admission_set_is_derived_from_its_parts() {
+        use crate::endpoint_registry::OwnTrust;
+        use interweave_trust_api::EndpointSet;
+        let operator = PeerTrustPolicy::new([peer(P1)]).expect("bounded");
+        let endpoint = interweave_test_support::endpoint_keys::endpoint_id("human");
+        let own = BTreeMap::from([(
+            endpoint,
+            OwnTrust {
+                inbound: EndpointSet::default(),
+                // A peer in one direction alone still enters the union.
+                outbound: EndpointSet::new([peer(P2)]).expect("bounded"),
+            },
+        )]);
+        let sources = TrustSources::per_endpoint(operator, own, InfrastructureSet::default())
+            .expect("bounded");
+        assert_eq!(
+            sources.classify(&peer(P2)),
+            ConnectionClass::DataPlaneTrusted
+        );
+        assert_eq!(
+            sources.classify(&peer(P1)),
+            ConnectionClass::DataPlaneTrusted
+        );
+        // The operator's list is kept apart: it holds P1 alone.
+        assert!(sources.operator().decide(&peer(P1)).is_allowed());
+        assert!(!sources.operator().decide(&peer(P2)).is_allowed());
+        // The control: one list built by `new` is both.
+        let one = TrustSources::new(
+            PeerTrustPolicy::new([peer(P1)]).expect("bounded"),
+            InfrastructureSet::default(),
+        );
+        assert_eq!(one.classify(&peer(P2)), ConnectionClass::Unauthorized);
+        assert!(one.operator().decide(&peer(P1)).is_allowed());
+        assert!(one.own().is_empty());
     }
 }

@@ -16,7 +16,7 @@ use interweave_ipc_protocol::{DecodedFrame, Frame, FrameError, decode_frame, enc
 use interweave_local_client_api::{
     DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionRequest,
 };
-use interweave_transport_api::{ChannelId, EndpointId};
+use interweave_transport_api::ChannelId;
 use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{UnixListener, UnixStream};
@@ -107,15 +107,15 @@ impl Server {
         self.grant_at(0, bound, capabilities).await;
     }
 
-    /// Grant as [`Server::grant_with`], selecting IPC 2.`minor`.
+    /// Grant as [`Server::grant_with`], selecting IPC 3.`minor`.
     async fn grant_at(&mut self, minor: u64, bound: u32, capabilities: &[&str]) {
         assert!(matches!(self.read().await, Some(Frame::Hello(_))));
         self.write(&json!({
             "type": "hello_response",
-            "ipc_version": {"major": 2, "minor": minor},
-            "transport_contract_version": "2.0",
+            "ipc_version": {"major": 3, "minor": minor},
+            "transport_contract_version": "3.0",
             "peer": PEER,
-            "endpoint": "human",
+            "endpoint": HUMAN,
             "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ",
             "event_queue": bound,
             "granted_capabilities": capabilities
@@ -140,10 +140,23 @@ impl Server {
     }
 }
 
+/// TEST-ONLY: the derived id `endpoint_keys::endpoint_id("human")`, the
+/// endpoint `request()` claims and the scripted server grants
+/// (`the_scripted_human_is_the_support_crates`).
+const HUMAN: &str = "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr";
+
+#[test]
+fn the_scripted_human_is_the_support_crates() {
+    assert_eq!(
+        interweave_test_support::endpoint_keys::endpoint_id("human").as_str(),
+        HUMAN
+    );
+}
+
 fn request() -> SessionRequest {
     SessionRequest::new(
         "k",
-        Some(EndpointId::parse("human").expect("endpoint")),
+        Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
         [DataCapability::Events, DataCapability::Commands],
     )
     .expect("a request")
@@ -502,8 +515,8 @@ async fn a_dropped_admin_port_ends_its_connection() {
             server
                 .write(&json!({
                     "type": "hello_response",
-                    "ipc_version": {"major": 2, "minor": 0},
-                    "transport_contract_version": "2.0",
+                    "ipc_version": {"major": 3, "minor": 0},
+                    "transport_contract_version": "3.0",
                     "peer": PEER,
                     "granted_capabilities": ["admin.status"]
                 }))
@@ -686,8 +699,8 @@ async fn the_status_result_carries_the_servers_counters() {
             server
                 .write(&json!({
                     "type": "hello_response",
-                    "ipc_version": {"major": 2, "minor": 0},
-                    "transport_contract_version": "2.0",
+                    "ipc_version": {"major": 3, "minor": 0},
+                    "transport_contract_version": "3.0",
                     "peer": PEER,
                     "granted_capabilities": ["admin.status"]
                 }))
@@ -754,8 +767,8 @@ async fn a_shutdown_without_a_grace_leaves_it_to_the_daemon() {
             server
                 .write(&json!({
                     "type": "hello_response",
-                    "ipc_version": {"major": 2, "minor": 0},
-                    "transport_contract_version": "2.0",
+                    "ipc_version": {"major": 3, "minor": 0},
+                    "transport_contract_version": "3.0",
                     "peer": PEER,
                     "granted_capabilities": ["admin.shutdown"]
                 }))
@@ -944,7 +957,7 @@ async fn a_path_change_reads_back_as_the_sessions_notice() {
     use interweave_local_client_api::{LocalSessionEvent, SessionEvent};
     use interweave_transport_api::PeerPath;
     let script = Script::new();
-    let (session, mut server) = opened_at(&script, 1).await;
+    let (session, mut server) = opened_at(&script, 0).await;
     server.write(&path_changed()).await;
     settled(&mut server).await;
     let taken = session.events(usize::MAX).await.expect("events");
@@ -963,54 +976,37 @@ async fn a_path_change_reads_back_as_the_sessions_notice() {
     );
 }
 
-/// The same event on a connection that selected 2.0 ends it as the
-/// server's violation: a type is accepted only at or above the minor
-/// that introduced it (LOCAL-IPC.md §Version negotiation).
+/// A route's begin -- `peer.path_changed` with no `previous` -- reads
+/// back on a 3.0 connection: the shape 2.4 brought is the one 3.0 holds.
 #[tokio::test]
-async fn a_path_change_on_a_2_0_connection_is_the_servers_violation() {
+async fn a_route_notice_reads_back_on_a_three_zero_connection() {
+    use interweave_local_client_api::{LocalSessionEvent, SessionEvent};
+    use interweave_transport_api::PeerPath;
     let script = Script::new();
     let (session, mut server) = opened_at(&script, 0).await;
-    server.write(&path_changed()).await;
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    let ended = loop {
-        match session.events(usize::MAX).await {
-            Err(code) => break code,
-            Ok(taken) => assert!(taken.is_empty(), "nothing read: {taken:?}"),
-        }
-        assert!(tokio::time::Instant::now() < deadline, "never ended");
-        tokio::task::yield_now().await;
-    };
-    assert_eq!(
-        ended,
-        interweave_transport_api::TransportError::ProtocolViolation
+    server
+        .write(&json!({
+            "type": "event", "sequence": 0, "event_type": "peer.path_changed",
+            "data": {"peer": PEER, "current": "relayed",
+                     "reason_class": "route_established", "observed_at": 7}
+        }))
+        .await;
+    settled(&mut server).await;
+    let taken = session.events(usize::MAX).await.expect("events");
+    assert!(
+        matches!(
+            taken.as_slice(),
+            [SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
+                previous: None,
+                current: PeerPath::Relayed,
+                ..
+            })]
+        ),
+        "{taken:?}"
     );
 }
 
-/// A session opened with events, the server selecting IPC 2.`minor`.
-/// A request that declines route notices asks for the minor below them,
-/// so the server opens it without them; the control asks for the
-/// client's maximum (#245 re-review N5).
-#[tokio::test]
-async fn a_request_declining_route_notices_proposes_the_minor_below_them() {
-    use interweave_ipc_protocol::{IPC_MAX_MINOR, ROUTE_NOTICE_SINCE_MINOR};
-    for (declines, minor) in [(false, IPC_MAX_MINOR), (true, ROUTE_NOTICE_SINCE_MINOR - 1)] {
-        let script = Script::new();
-        let request = if declines {
-            request().without_route_notices()
-        } else {
-            request()
-        };
-        let (_, proposed) = tokio::join!(script.binding.open(request), async {
-            let mut server = Server::accept(&script.listener).await;
-            let Some(Frame::Hello(hello)) = server.read().await else {
-                panic!("a hello first");
-            };
-            hello.ipc_version.minor
-        });
-        assert_eq!(proposed, minor, "declines: {declines}");
-    }
-}
-
+/// A session opened with events, the server selecting IPC 3.`minor`.
 async fn opened_at(script: &Script, minor: u64) -> (interweave_ipc_client::IpcSession, Server) {
     let (session, server) = tokio::join!(script.binding.open(request()), async {
         let mut server = Server::accept(&script.listener).await;
@@ -1061,59 +1057,32 @@ async fn admin_response(server: &mut Server, minor: u64, granted: &[&str]) {
     server
         .write(&json!({
             "type": "hello_response",
-            "ipc_version": {"major": 2, "minor": minor},
-            "transport_contract_version": "2.0",
+            "ipc_version": {"major": 3, "minor": minor},
+            "transport_contract_version": "3.0",
             "peer": PEER,
             "granted_capabilities": granted
         }))
         .await;
 }
 
-/// `admin.trust` is 2.1's (LOCAL-IPC.md §Version negotiation): the first
-/// hello names only 2.0 capabilities, and the real one follows once the
-/// daemon has said it selects 2.1. A second port on the same binding asks
-/// directly; when that hello is closed `ProtocolViolation` -- the daemon
-/// restarted at 2.0 -- the minor is learnt again and the port opened
-/// without the capability, which it then does not hold.
+/// `admin.trust` (2.1 on major 2) is a 3.0 capability (LOCAL-IPC.md
+/// §Version negotiation and phases): a port names it in its first hello,
+/// with no probe connection, and holds it; a second port on the same
+/// binding asks the same way.
 #[tokio::test]
-async fn a_trust_port_probes_once_and_relearns_after_a_refusal() {
+async fn a_trust_port_asks_in_its_first_hello() {
     use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
     let script = Script::new();
     let wanted = || [AdminCapability::Status, AdminCapability::Trust].into();
-
-    let (admin, _held) = tokio::join!(script.binding.admin(wanted()), async {
-        let (mut probe, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status"], "the probe names only 2.0's");
-        admin_response(&mut probe, 1, &["admin.status"]).await;
-        assert!(probe.read().await.is_none(), "the probe is closed");
-        drop(probe);
-        let (mut real, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status", "admin.trust"]);
-        admin_response(&mut real, 1, &["admin.status", "admin.trust"]).await;
-        real
-    });
-    assert!(admin.expect("a port").port().holds(AdminCapability::Trust));
-
-    let (admin, _held) = tokio::join!(script.binding.admin(wanted()), async {
-        let (mut stale, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status", "admin.trust"], "learnt: no probe");
-        stale
-            .write(&json!({"type": "close", "code": "ProtocolViolation"}))
-            .await;
-        drop(stale);
-        let (mut probe, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status"], "learnt again");
-        admin_response(&mut probe, 0, &["admin.status"]).await;
-        assert!(probe.read().await.is_none());
-        drop(probe);
-        let (mut real, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status"], "a 2.0 daemon is not asked for it");
-        admin_response(&mut real, 0, &["admin.status"]).await;
-        real
-    });
-    let admin = admin.expect("a port");
-    assert!(!admin.port().holds(AdminCapability::Trust));
-    assert!(admin.port().holds(AdminCapability::Status), "the control");
+    for _ in 0..2 {
+        let (admin, _held) = tokio::join!(script.binding.admin(wanted()), async {
+            let (mut real, asked) = admin_hello(&script).await;
+            assert_eq!(asked, ["admin.status", "admin.trust"], "no probe first");
+            admin_response(&mut real, 0, &["admin.status", "admin.trust"]).await;
+            real
+        });
+        assert!(admin.expect("a port").port().holds(AdminCapability::Trust));
+    }
 }
 
 /// `trust` reads every page through its cursor and joins them, the local
@@ -1129,12 +1098,8 @@ async fn trust_reads_every_page_and_refuses_a_cursor_that_does_not_move() {
     let (admin, mut server) = tokio::join!(
         script.binding.admin([AdminCapability::Trust].into()),
         async {
-            let (mut probe, _) = admin_hello(&script).await;
-            admin_response(&mut probe, 3, &[]).await;
-            assert!(probe.read().await.is_none());
-            drop(probe);
             let (mut real, _) = admin_hello(&script).await;
-            admin_response(&mut real, 3, &["admin.trust"]).await;
+            admin_response(&mut real, 0, &["admin.trust"]).await;
             real
         }
     );
@@ -1198,52 +1163,25 @@ async fn trust_reads_every_page_and_refuses_a_cursor_that_does_not_move() {
     );
 }
 
-/// A binding that learnt 2.0 is not stuck with it: the next port that
-/// wants `admin.trust` probes again, and once the daemon -- upgraded --
-/// selects 2.1, asks for it.
-#[tokio::test]
-async fn a_daemon_upgraded_since_the_probe_is_asked_again() {
-    use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
-    let script = Script::new();
-    let wanted = || [AdminCapability::Status, AdminCapability::Trust].into();
-    let (admin, _held) = tokio::join!(script.binding.admin(wanted()), async {
-        let (mut probe, _) = admin_hello(&script).await;
-        admin_response(&mut probe, 0, &["admin.status"]).await;
-        assert!(probe.read().await.is_none());
-        drop(probe);
-        let (mut real, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status"], "a 2.0 daemon is not asked");
-        admin_response(&mut real, 0, &["admin.status"]).await;
-        real
-    });
-    assert!(!admin.expect("a port").port().holds(AdminCapability::Trust));
-
-    let (admin, _held) = tokio::join!(script.binding.admin(wanted()), async {
-        let (mut probe, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status"], "probed again, not taken as 2.0");
-        admin_response(&mut probe, 1, &["admin.status"]).await;
-        assert!(probe.read().await.is_none());
-        drop(probe);
-        let (mut real, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status", "admin.trust"]);
-        admin_response(&mut real, 1, &["admin.status", "admin.trust"]).await;
-        real
-    });
-    assert!(admin.expect("a port").port().holds(AdminCapability::Trust));
-}
-
 /// The selected version is checked, not adopted (LOCAL-IPC.md §Version
-/// negotiation): the client offers 2.`IPC_MAX_MINOR`, so a server may
+/// negotiation): the client offers 3.`IPC_MAX_MINOR`, so a server may
 /// select that major and a minor no higher. A minor above the offer
-/// (refused by the client) or another major (refused by the frame's
-/// parser) opens nothing and is the server's violation; the controls,
-/// 2.0 and 2.1, open.
+/// (refused by the client) or another major -- major 2 among them, 2.13
+/// included -- (refused by the frame's parser) opens nothing and is the
+/// server's violation; the controls, every minor up to the offer, open.
 #[tokio::test]
 async fn a_selected_version_the_client_did_not_offer_is_a_protocol_violation() {
     use interweave_ipc_protocol::IPC_MAX_MINOR;
     use interweave_transport_api::TransportError;
     let script = Script::new();
-    for (major, minor) in [(2, IPC_MAX_MINOR + 1), (3, 0), (1, 0), (2, u64::MAX)] {
+    for (major, minor) in [
+        (3, IPC_MAX_MINOR + 1),
+        (2, 0),
+        (2, 13),
+        (4, 0),
+        (1, 0),
+        (3, u64::MAX),
+    ] {
         let (session, ()) = tokio::join!(script.binding.open(request()), async {
             let mut server = Server::accept(&script.listener).await;
             assert!(matches!(server.read().await, Some(Frame::Hello(_))));
@@ -1251,9 +1189,9 @@ async fn a_selected_version_the_client_did_not_offer_is_a_protocol_violation() {
                 .write(&json!({
                     "type": "hello_response",
                     "ipc_version": {"major": major, "minor": minor},
-                    "transport_contract_version": "2.0",
+                    "transport_contract_version": "3.0",
                     "peer": PEER,
-                    "endpoint": "human",
+                    "endpoint": HUMAN,
                     "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ",
                     "event_queue": 8,
                     "granted_capabilities": ["events", "commands"]
@@ -1273,30 +1211,26 @@ async fn a_selected_version_the_client_did_not_offer_is_a_protocol_violation() {
     }
 }
 
-/// An admin probe answered with a minor above the offer is refused, and
-/// nothing is learnt from it: the next port probes again.
+/// An admin hello answered with a minor above the offer is refused; the
+/// next port on the binding is opened as any other (the control).
 #[tokio::test]
-async fn an_admin_answer_above_the_offer_is_refused_and_not_learnt() {
+async fn an_admin_answer_above_the_offer_is_refused() {
     use interweave_ipc_protocol::IPC_MAX_MINOR;
     use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
     use interweave_transport_api::TransportError;
     let script = Script::new();
     let wanted = || [AdminCapability::Status, AdminCapability::Trust].into();
     let (admin, ()) = tokio::join!(script.binding.admin(wanted()), async {
-        let (mut probe, _) = admin_hello(&script).await;
-        admin_response(&mut probe, IPC_MAX_MINOR + 1, &["admin.status"]).await;
-        assert!(probe.read().await.is_none(), "ended");
+        let (mut first, _) = admin_hello(&script).await;
+        admin_response(&mut first, IPC_MAX_MINOR + 1, &["admin.status"]).await;
+        assert!(first.read().await.is_none(), "ended");
     });
     assert_eq!(admin.err(), Some(TransportError::ProtocolViolation));
 
     let (admin, _held) = tokio::join!(script.binding.admin(wanted()), async {
-        let (mut probe, asked) = admin_hello(&script).await;
-        assert_eq!(asked, ["admin.status"], "probed again: nothing was learnt");
-        admin_response(&mut probe, 1, &["admin.status"]).await;
-        assert!(probe.read().await.is_none());
-        drop(probe);
-        let (mut real, _) = admin_hello(&script).await;
-        admin_response(&mut real, 1, &["admin.status", "admin.trust"]).await;
+        let (mut real, asked) = admin_hello(&script).await;
+        assert_eq!(asked, ["admin.status", "admin.trust"]);
+        admin_response(&mut real, 0, &["admin.status", "admin.trust"]).await;
         real
     });
     assert!(
@@ -1307,18 +1241,18 @@ async fn an_admin_answer_above_the_offer_is_refused_and_not_learnt() {
     );
 }
 
-/// `peers` reads every page through its cursor on a 2.2 connection and
-/// joins them; on a 2.1 connection it is answered `ProtocolUnsupported`
-/// and nothing is sent -- the daemon would answer the name as unknown.
+/// `peers` reads every page through its cursor on a 3.0 connection and
+/// joins them (`admin.peers.list` was 2.2's on major 2).
 #[tokio::test]
-async fn peers_reads_every_page_at_two_two_and_sends_nothing_below_it() {
+async fn peers_reads_every_page_at_three_zero() {
     use interweave_local_client_api::{
         AdminBinding as _, AdminCapability, AdminPort as _, PeerOutcome,
     };
-    use interweave_transport_api::{TransportError, TransportIdentity};
+    use interweave_transport_api::TransportIdentity;
     const OTHER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
     const THIRD: &str = "QmZyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
-    for minor in [2, 1] {
+    {
+        let minor = 0;
         let script = Script::new();
         let (admin, mut server) = tokio::join!(
             script.binding.admin([AdminCapability::Status].into()),
@@ -1329,20 +1263,6 @@ async fn peers_reads_every_page_at_two_two_and_sends_nothing_below_it() {
             }
         );
         let admin = admin.expect("a port");
-        if minor < 2 {
-            // Bounded: a port that sent the request would wait for an
-            // answer this server never gives.
-            let (refused, nothing) =
-                tokio::join!(tokio::time::timeout(PATIENCE, admin.peers()), async {
-                    tokio::time::timeout(Duration::from_millis(200), server.read()).await
-                });
-            assert_eq!(
-                refused.expect("answered without a round trip"),
-                Err(TransportError::ProtocolUnsupported)
-            );
-            assert!(nothing.is_err(), "no request reached the daemon");
-            continue;
-        }
         let answer = async |server: &mut Server, result: serde_json::Value| -> Option<String> {
             let Some(Frame::Request(request)) = server.read().await else {
                 panic!("a request");
@@ -1379,21 +1299,18 @@ async fn peers_reads_every_page_at_two_two_and_sends_nothing_below_it() {
     }
 }
 
-/// The endpoint list is read in the row its minor names: below 2.5 the
-/// 2.0 row, `persisted: false`; from 2.5 the 2.5 row, `persisted: true`.
-/// A row in the other minor's shape is refused `Internal`, never read as
-/// a value, at both minors -- the gate's two sides.
+/// The endpoint list is read in the one row 3.0 serves, the 2.5 row,
+/// `persisted: true`; a row `persisted: false` -- the 2.0 row -- is
+/// refused `Internal`, never read as a value.
 #[tokio::test]
-async fn an_endpoint_row_is_read_only_in_the_shape_its_minor_names() {
+async fn an_endpoint_row_is_read_only_in_the_shape_three_zero_serves() {
     use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
     use interweave_transport_api::TransportError;
     for (minor, persisted, read) in [
-        (4, false, Ok(false)),
-        (4, true, Err(TransportError::Internal)),
-        (5, true, Ok(true)),
-        (5, false, Err(TransportError::Internal)),
+        (0, true, Ok(true)),
+        (0, false, Err(TransportError::Internal)),
     ] {
-        let case = format!("2.{minor} persisted={persisted}");
+        let case = format!("3.{minor} persisted={persisted}");
         let script = Script::new();
         let (admin, mut server) = tokio::join!(
             script.binding.admin([AdminCapability::Endpoints].into()),
@@ -1412,7 +1329,7 @@ async fn an_endpoint_row_is_read_only_in_the_shape_its_minor_names() {
             server
                 .write(
                     &json!({"type": "response", "id": request.id.as_str(), "ok": true,
-                    "result": {"endpoints": [{"id": "human", "enabled": false,
+                    "result": {"endpoints": [{"id": HUMAN, "enabled": false,
                         "default": false, "persisted": persisted}]}}),
                 )
                 .await;
@@ -1424,7 +1341,7 @@ async fn an_endpoint_row_is_read_only_in_the_shape_its_minor_names() {
             "{case}"
         );
         // The same gate on transportctl's raw read, which leases() wraps:
-        // a row in the other minor's shape is refused there too (#261
+        // a row in the other shape is refused there too (#261
         // review area 2 F2).
         let (list, ()) = tokio::join!(
             tokio::time::timeout(PATIENCE, admin.endpoints_result()),
@@ -1435,7 +1352,7 @@ async fn an_endpoint_row_is_read_only_in_the_shape_its_minor_names() {
                 server
                     .write(
                         &json!({"type": "response", "id": request.id.as_str(), "ok": true,
-                        "result": {"endpoints": [{"id": "human", "enabled": false,
+                        "result": {"endpoints": [{"id": HUMAN, "enabled": false,
                             "default": false, "persisted": persisted}]}}),
                     )
                     .await;
@@ -1453,19 +1370,18 @@ async fn an_endpoint_row_is_read_only_in_the_shape_its_minor_names() {
     }
 }
 
-/// A set's result is read in the shape the connection negotiated: from
-/// 2.10 `trust-set-result`, a superseded set read as the refusal it names
-/// and the 2.1 empty result refused as a shape that minor does not have;
-/// below 2.10 the empty result, a set made. The scripted daemon answers
-/// each.
+/// A set's result is `trust-set-result` (the 2.10 shape, the one 3.0
+/// serves): a superseded set read as the refusal it names, and the 2.1
+/// empty result refused as a shape 3.0 does not have. The scripted daemon
+/// answers each.
 #[tokio::test]
-async fn a_set_reads_the_result_its_minor_names() {
+async fn a_set_reads_trust_set_result() {
     use interweave_local_client_api::{
         AdminBinding as _, AdminCapability, AdminPort as _, TrustChange, TrustRefusal,
     };
     use interweave_transport_api::{TransportError, TransportIdentity};
     const OTHER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
-    let since = interweave_ipc_protocol::SUPERSEDED_SINCE_MINOR;
+    let since = 0;
     for (minor, result, read) in [
         (
             since,
@@ -1474,21 +1390,11 @@ async fn a_set_reads_the_result_its_minor_names() {
         ),
         (since, json!({"outcome": "set"}), Ok(TrustChange::Set)),
         (since, json!({}), Err(TransportError::ProtocolViolation)),
-        (since - 1, json!({}), Ok(TrustChange::Set)),
-        (
-            since - 1,
-            json!({"outcome": "set"}),
-            Err(TransportError::ProtocolViolation),
-        ),
     ] {
         let script = Script::new();
         let (admin, mut server) = tokio::join!(
             script.binding.admin([AdminCapability::Trust].into()),
             async {
-                let (mut probe, _) = admin_hello(&script).await;
-                admin_response(&mut probe, minor, &[]).await;
-                assert!(probe.read().await.is_none());
-                drop(probe);
                 let (mut server, _) = admin_hello(&script).await;
                 admin_response(&mut server, minor, &["admin.trust"]).await;
                 server
@@ -1509,71 +1415,243 @@ async fn a_set_reads_the_result_its_minor_names() {
                     .await;
             }
         );
-        assert_eq!(set.expect("answered"), read, "2.{minor}: {result}");
+        assert_eq!(set.expect("answered"), read, "3.{minor}: {result}");
     }
 }
 
-/// Below 2.3 the trust read is refused `ProtocolUnsupported` and nothing
-/// is sent -- the 2.1 row carries no source, and an unknown is never
-/// shown as a value -- while `set_trust`, which carries no row, is sent
-/// at 2.1 as before. At 2.3 a row without its source is a daemon this
-/// client cannot read truthfully: `Internal`, not a guessed source.
+/// The endpoint dimension over the wire (IPC 3.0, ADR-0067 decision 6):
+/// each of the three port methods sends the request frame the contract
+/// names and reads its answer. The list pages through the cursor, one
+/// direction a call, and joins the rows with the `set` the daemon names;
+/// the operator's list is the control in the same run, its frame carrying
+/// neither new member.
 #[tokio::test]
-async fn trust_is_read_only_at_two_three_and_set_is_sent_below_it() {
-    use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
-    use interweave_transport_api::{TransportError, TransportIdentity};
+async fn the_endpoint_methods_send_their_frames_and_read_their_answers() {
+    use interweave_local_client_api::{
+        AdminBinding as _, AdminCapability, AdminPort as _, EndpointSetKind, TrustChange,
+        TrustDirection, TrustSeed,
+    };
+    use interweave_transport_api::{EndpointId, TransportIdentity};
     const OTHER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
-    for minor in [1, 2, 3] {
+    const THIRD: &str = "QmZyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    let endpoint = interweave_test_support::endpoint_keys::endpoint_id("human");
+    let script = Script::new();
+    let (admin, mut server) = tokio::join!(
+        script.binding.admin([AdminCapability::Trust].into()),
+        async {
+            let (mut real, _) = admin_hello(&script).await;
+            admin_response(&mut real, 0, &["admin.trust"]).await;
+            real
+        }
+    );
+    let admin = admin.expect("a port");
+    let answer = async |server: &mut Server, result: serde_json::Value| -> (String, String) {
+        let Some(Frame::Request(request)) = server.read().await else {
+            panic!("a request");
+        };
+        let frame = (
+            request.method.clone(),
+            request
+                .params
+                .as_ref()
+                .map(|p| p.get().to_owned())
+                .unwrap_or_default(),
+        );
+        server
+            .write(&json!({"type": "response", "id": request.id.as_str(), "ok": true, "result": result}))
+            .await;
+        frame
+    };
+    let id = |s: &str| TransportIdentity::parse(s).expect("peer");
+    let ep: &EndpointId = &endpoint;
+
+    let (view, frames) = tokio::join!(
+        admin.endpoint_trust(endpoint.clone(), TrustDirection::Outbound),
+        async {
+            let first = answer(
+            &mut server,
+            json!({"set": "own", "allowed": [{"peer": OTHER, "persisted": true, "source": "administered"}], "next": OTHER}),
+        )
+        .await;
+            let second = answer(
+            &mut server,
+            json!({"set": "own", "allowed": [{"peer": THIRD, "persisted": true, "source": "administered"}]}),
+        )
+        .await;
+            (first, second)
+        }
+    );
+    let view = view.expect("the set");
+    assert_eq!(view.set, EndpointSetKind::Own);
+    assert_eq!(
+        view.allowed
+            .iter()
+            .map(|row| row.peer.clone())
+            .collect::<Vec<_>>(),
+        [id(OTHER), id(THIRD)]
+    );
+    assert_eq!(frames.0.0, "admin.trust.list");
+    assert_eq!(
+        frames.0.1,
+        format!(r#"{{"endpoint":"{}","direction":"outbound"}}"#, ep.as_str())
+    );
+    assert_eq!(
+        frames.1.1,
+        format!(
+            r#"{{"after":"{OTHER}","endpoint":"{}","direction":"outbound"}}"#,
+            ep.as_str()
+        ),
+        "the cursor rides with the endpoint and direction"
+    );
+
+    let (change, frame) = tokio::join!(
+        admin.set_endpoint_trust(endpoint.clone(), id(OTHER), true),
+        answer(&mut server, json!({"outcome": "set"}))
+    );
+    assert_eq!(change, Ok(TrustChange::Set));
+    assert_eq!(frame.0, "admin.trust.set");
+    assert_eq!(
+        frame.1,
+        format!(
+            r#"{{"peer":"{OTHER}","allowed":true,"endpoint":"{}"}}"#,
+            ep.as_str()
+        )
+    );
+    let (change, frame) = tokio::join!(
+        admin.set_trust(id(OTHER), false),
+        answer(&mut server, json!({"outcome": "set"}))
+    );
+    assert_eq!(change, Ok(TrustChange::Set));
+    assert_eq!(
+        frame.1,
+        format!(r#"{{"peer":"{OTHER}","allowed":false}}"#),
+        "the control: the operator's set names no endpoint"
+    );
+
+    for (outcome, seed) in [
+        ("seeded", TrustSeed::Seeded),
+        ("present", TrustSeed::Present),
+    ] {
+        let (read, frame) = tokio::join!(
+            admin.seed_endpoint_trust(endpoint.clone()),
+            answer(&mut server, json!({ "outcome": outcome }))
+        );
+        assert_eq!(read, Ok(seed));
+        assert_eq!(frame.0, "admin.trust.seed");
+        assert_eq!(frame.1, format!(r#"{{"endpoint":"{}"}}"#, ep.as_str()));
+    }
+}
+
+/// A daemon that answers an endpoint list without `set`, or with a `set`
+/// that changes between pages, is read as the operator's list would be
+/// misread: `Internal`. A daemon that does not know `admin.trust.seed`
+/// answers it as it answers any unknown method, `ProtocolUnsupported`,
+/// which the client passes on as it does for an absent method; an unknown
+/// endpoint is the daemon's `EndpointUnknown`, passed on.
+#[tokio::test]
+async fn an_endpoint_answer_is_checked_and_a_daemons_refusals_are_passed_on() {
+    use interweave_local_client_api::{
+        AdminBinding as _, AdminCapability, AdminPort as _, TrustDirection,
+    };
+    use interweave_transport_api::TransportError;
+    const OTHER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    const THIRD: &str = "QmZyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    let endpoint = interweave_test_support::endpoint_keys::endpoint_id("human");
+    let script = Script::new();
+    let (admin, mut server) = tokio::join!(
+        script.binding.admin([AdminCapability::Trust].into()),
+        async {
+            let (mut real, _) = admin_hello(&script).await;
+            admin_response(&mut real, 0, &["admin.trust"]).await;
+            real
+        }
+    );
+    let admin = admin.expect("a port");
+    let reply = async |server: &mut Server, body: serde_json::Value| {
+        let Some(Frame::Request(request)) = server.read().await else {
+            panic!("a request");
+        };
+        let mut frame = json!({"type": "response", "id": request.id.as_str()});
+        frame
+            .as_object_mut()
+            .expect("object")
+            .extend(body.as_object().expect("object").clone());
+        server.write(&frame).await;
+    };
+    let row = |peer: &str| json!({"peer": peer, "persisted": true, "source": "administered"});
+
+    // No `set`: the operator's page, which this request did not ask for.
+    let (read, ()) = tokio::join!(
+        tokio::time::timeout(
+            PATIENCE,
+            admin.endpoint_trust(endpoint.clone(), TrustDirection::Inbound)
+        ),
+        reply(
+            &mut server,
+            json!({"ok": true, "result": {"allowed": [row(OTHER)]}})
+        )
+    );
+    assert_eq!(read.expect("answered"), Err(TransportError::Internal));
+    // A `set` that moves between pages.
+    let (read, ()) = tokio::join!(
+        tokio::time::timeout(
+            PATIENCE,
+            admin.endpoint_trust(endpoint.clone(), TrustDirection::Inbound)
+        ),
+        async {
+            reply(&mut server, json!({"ok": true, "result": {"set": "own", "allowed": [row(OTHER)], "next": OTHER}})).await;
+            reply(&mut server, json!({"ok": true, "result": {"set": "inherited", "allowed": [{"peer": THIRD, "persisted": true, "source": "configured"}]}})).await;
+        }
+    );
+    assert_eq!(read.expect("answered"), Err(TransportError::Internal));
+    // The control: the same two pages with one `set` are read.
+    let (read, ()) = tokio::join!(
+        tokio::time::timeout(
+            PATIENCE,
+            admin.endpoint_trust(endpoint.clone(), TrustDirection::Inbound)
+        ),
+        async {
+            reply(&mut server, json!({"ok": true, "result": {"set": "inherited", "allowed": [row(OTHER)], "next": OTHER}})).await;
+            reply(&mut server, json!({"ok": true, "result": {"set": "inherited", "allowed": [{"peer": THIRD, "persisted": true, "source": "configured"}]}})).await;
+        }
+    );
+    assert_eq!(read.expect("answered").expect("read").allowed.len(), 2);
+    // The daemon's refusals, passed on.
+    for code in ["ProtocolUnsupported", "EndpointUnknown"] {
+        let (read, ()) = tokio::join!(
+            admin.seed_endpoint_trust(endpoint.clone()),
+            reply(&mut server, json!({"ok": false, "error": {"code": code}}))
+        );
+        assert_eq!(
+            read,
+            Err(match code {
+                "ProtocolUnsupported" => TransportError::ProtocolUnsupported,
+                _ => TransportError::EndpointUnknown,
+            })
+        );
+    }
+}
+
+/// A trust row without its source -- the 2.1 row -- is a daemon this
+/// client cannot read truthfully on 3.0: `Internal`, not a guessed
+/// source.
+#[tokio::test]
+async fn a_trust_row_without_its_source_is_refused() {
+    use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+    use interweave_transport_api::TransportError;
+    const OTHER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    {
+        let minor = 0;
         let script = Script::new();
         let (admin, mut server) = tokio::join!(
             script.binding.admin([AdminCapability::Trust].into()),
             async {
-                // The binding probes which capabilities the daemon grants,
-                // then opens the port it asked for.
-                let (mut probe, _) = admin_hello(&script).await;
-                admin_response(&mut probe, minor, &[]).await;
-                assert!(probe.read().await.is_none());
-                drop(probe);
                 let (mut server, _) = admin_hello(&script).await;
                 admin_response(&mut server, minor, &["admin.trust"]).await;
                 server
             }
         );
         let admin = admin.expect("a port");
-        if minor < 3 {
-            let (refused, nothing) =
-                tokio::join!(tokio::time::timeout(PATIENCE, admin.trust()), async {
-                    tokio::time::timeout(Duration::from_millis(200), server.read()).await
-                });
-            assert_eq!(
-                refused.expect("answered without the daemon"),
-                Err(TransportError::ProtocolUnsupported),
-                "2.{minor}"
-            );
-            assert!(nothing.is_err(), "2.{minor}: no request reached the daemon");
-            // The control: the set is still sent, and answered.
-            let (set, ()) = tokio::join!(
-                tokio::time::timeout(
-                    PATIENCE,
-                    admin.set_trust(TransportIdentity::parse(OTHER).expect("peer"), true)
-                ),
-                async {
-                    let Some(Frame::Request(request)) = server.read().await else {
-                        panic!("the set reaches the daemon");
-                    };
-                    assert_eq!(request.method.as_str(), "admin.trust.set");
-                    server
-                        .write(&json!({"type": "response", "id": request.id.as_str(), "ok": true, "result": {}}))
-                        .await;
-                }
-            );
-            assert_eq!(
-                set.expect("answered"),
-                Ok(interweave_local_client_api::TrustChange::Set),
-                "2.{minor}"
-            );
-            continue;
-        }
         let (read, ()) = tokio::join!(tokio::time::timeout(PATIENCE, admin.trust()), async {
             let Some(Frame::Request(request)) = server.read().await else {
                 panic!("a request");
@@ -1588,33 +1666,28 @@ async fn trust_is_read_only_at_two_three_and_set_is_sent_below_it() {
         assert_eq!(
             read.expect("answered"),
             Err(TransportError::Internal),
-            "a 2.1 row on a 2.3 connection"
+            "a 2.1 row on a 3.0 connection"
         );
     }
 }
 
-/// The `admin.peers` address methods are 2.7's: below it the capability
-/// is not asked and each method is refused `ProtocolUnsupported` with
-/// nothing sent; at it a refusal reads back as the rule it names, and the
-/// list as its rows.
+/// The `admin.peers` address methods (2.7 on major 2) are 3.0's: the
+/// capability is asked in the first hello, a refusal reads back as the
+/// rule it names, and the list as its rows.
 #[tokio::test]
-async fn the_address_methods_are_sent_only_at_two_seven_and_a_refusal_reads_back_by_name() {
+async fn the_address_methods_are_sent_at_three_zero_and_a_refusal_reads_back_by_name() {
     use interweave_local_client_api::{
         AddressChange, AddressRefusal, AddressSource, AdminBinding as _, AdminCapability,
         AdminPort as _,
     };
-    use interweave_transport_api::TransportError;
     const ADDRESS: &str =
         "/ip4/127.0.0.1/tcp/4001/p2p/QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
-    for minor in [6, 7] {
+    {
+        let minor = 0;
         let script = Script::new();
         let (admin, (mut server, asked)) = tokio::join!(
             script.binding.admin([AdminCapability::Peers].into()),
             async {
-                let (mut probe, _) = admin_hello(&script).await;
-                admin_response(&mut probe, minor, &[]).await;
-                assert!(probe.read().await.is_none());
-                drop(probe);
                 let (mut server, asked) = admin_hello(&script).await;
                 let granted: Vec<&str> = asked.iter().map(String::as_str).collect();
                 admin_response(&mut server, minor, &granted).await;
@@ -1622,25 +1695,6 @@ async fn the_address_methods_are_sent_only_at_two_seven_and_a_refusal_reads_back
             }
         );
         let admin = admin.expect("a port");
-        if minor < 7 {
-            assert!(asked.is_empty(), "2.{minor}: {asked:?}");
-            let (refused, nothing) = tokio::join!(
-                tokio::time::timeout(PATIENCE, async {
-                    (
-                        admin.add_bootstrap_address(ADDRESS.to_owned()).await,
-                        admin.remove_bootstrap_address(ADDRESS.to_owned()).await,
-                        admin.bootstrap_addresses().await.map(|_| ()),
-                    )
-                }),
-                async { tokio::time::timeout(Duration::from_millis(200), server.read()).await }
-            );
-            let (add, remove, list) = refused.expect("answered without the daemon");
-            assert_eq!(add, Err(TransportError::ProtocolUnsupported));
-            assert_eq!(remove, Err(TransportError::ProtocolUnsupported));
-            assert_eq!(list, Err(TransportError::ProtocolUnsupported));
-            assert!(nothing.is_err(), "no request reached the daemon");
-            continue;
-        }
         assert_eq!(asked, ["admin.peers"]);
         let (add, ()) = tokio::join!(
             tokio::time::timeout(PATIENCE, admin.add_bootstrap_address(ADDRESS.to_owned())),
@@ -1682,26 +1736,21 @@ async fn the_address_methods_are_sent_only_at_two_seven_and_a_refusal_reads_back
     }
 }
 
-/// `admin.peers.own_addresses` is 2.8's though `admin.peers` is 2.7's:
-/// on a 2.7 connection that granted the capability it is refused
-/// `ProtocolUnsupported` with nothing sent; at 2.8 it is sent and the
-/// list reads back in the order the daemon gave it.
+/// `admin.peers.own_addresses` (2.8 on major 2) is a 3.0 method: sent on
+/// a 3.0 connection that granted `admin.peers`, the list read back in the
+/// order the daemon gave it.
 #[tokio::test]
-async fn the_own_addresses_read_is_sent_only_at_two_eight_and_reads_back_in_order() {
+async fn the_own_addresses_read_is_sent_at_three_zero_and_reads_back_in_order() {
     use interweave_local_client_api::{
         AdminBinding as _, AdminCapability, AdminPort as _, OwnAddressKind,
     };
-    use interweave_transport_api::TransportError;
     const PEER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
-    for minor in [7, 8] {
+    {
+        let minor = 0;
         let script = Script::new();
         let (admin, (mut server, asked)) = tokio::join!(
             script.binding.admin([AdminCapability::Peers].into()),
             async {
-                let (mut probe, _) = admin_hello(&script).await;
-                admin_response(&mut probe, minor, &[]).await;
-                assert!(probe.read().await.is_none());
-                drop(probe);
                 let (mut server, asked) = admin_hello(&script).await;
                 let granted: Vec<&str> = asked.iter().map(String::as_str).collect();
                 admin_response(&mut server, minor, &granted).await;
@@ -1709,19 +1758,7 @@ async fn the_own_addresses_read_is_sent_only_at_two_eight_and_reads_back_in_orde
             }
         );
         let admin = admin.expect("a port");
-        assert_eq!(asked, ["admin.peers"], "the capability is 2.7's");
-        if minor < 8 {
-            let (refused, nothing) = tokio::join!(
-                tokio::time::timeout(PATIENCE, admin.own_addresses()),
-                async { tokio::time::timeout(Duration::from_millis(200), server.read()).await }
-            );
-            assert_eq!(
-                refused.expect("answered without the daemon"),
-                Err(TransportError::ProtocolUnsupported)
-            );
-            assert!(nothing.is_err(), "no request reached the daemon");
-            continue;
-        }
+        assert_eq!(asked, ["admin.peers"], "the capability is 3.0's");
         let (own, ()) = tokio::join!(
             tokio::time::timeout(PATIENCE, admin.own_addresses()),
             async {
@@ -1748,15 +1785,14 @@ async fn the_own_addresses_read_is_sent_only_at_two_eight_and_reads_back_in_orde
     }
 }
 
-/// `admin.peers.add_addresses` is 2.9's though `admin.peers` is 2.7's:
-/// at 2.8 it is refused `ProtocolUnsupported` with nothing sent, and at
-/// 2.9 a list of no line or of 17 is refused `InvalidArgument` with
-/// nothing sent either. At 2.9 a good list is sent whole, a refusal
-/// reads back with its line, and an answer whose rows do not match the
-/// lines one for one is the daemon's `ProtocolViolation`; the control is
-/// the same answer with the right count, read back row for row.
+/// `admin.peers.add_addresses` (2.9 on major 2) is a 3.0 method: a list
+/// of no line or of 17 is refused `InvalidArgument` with nothing sent; a
+/// good list is sent whole, a refusal reads back with its line, and an
+/// answer whose rows do not match the lines one for one is the daemon's
+/// `ProtocolViolation`; the control is the same answer with the right
+/// count, read back row for row.
 #[tokio::test]
-async fn the_all_or_none_add_is_sent_only_at_two_nine_and_reads_back_line_for_line() {
+async fn the_all_or_none_add_is_sent_at_three_zero_and_reads_back_line_for_line() {
     use interweave_local_client_api::{
         AddressRefusal, AddressesChange, AdminBinding as _, AdminCapability, AdminPort as _,
         LineChange,
@@ -1769,15 +1805,12 @@ async fn the_all_or_none_add_is_sent_only_at_two_nine_and_reads_back_line_for_li
             format!("/ip4/192.168.1.21/tcp/4001/p2p/{PEER}"),
         ]
     };
-    for minor in [8, 9] {
+    {
+        let minor = 0;
         let script = Script::new();
         let (admin, mut server) = tokio::join!(
             script.binding.admin([AdminCapability::Peers].into()),
             async {
-                let (mut probe, _) = admin_hello(&script).await;
-                admin_response(&mut probe, minor, &[]).await;
-                assert!(probe.read().await.is_none());
-                drop(probe);
                 let (mut server, asked) = admin_hello(&script).await;
                 let granted: Vec<&str> = asked.iter().map(String::as_str).collect();
                 admin_response(&mut server, minor, &granted).await;
@@ -1796,14 +1829,6 @@ async fn the_all_or_none_add_is_sent_only_at_two_nine_and_reads_back_line_for_li
                 );
             }
         };
-        if minor < 9 {
-            let ((), nothing) = tokio::join!(
-                refused_locally(lines(), TransportError::ProtocolUnsupported),
-                async { tokio::time::timeout(Duration::from_millis(200), server.read()).await }
-            );
-            assert!(nothing.is_err(), "no request reached the daemon");
-            continue;
-        }
         let ((), (), nothing) = tokio::join!(
             refused_locally(Vec::new(), TransportError::InvalidArgument),
             refused_locally(
@@ -1867,26 +1892,12 @@ async fn the_all_or_none_add_is_sent_only_at_two_nine_and_reads_back_line_for_li
     }
 }
 
-/// `session.losses` is sent only at 2.11 or later and read as the
-/// schema's two counts; below it the client answers `ProtocolUnsupported`
-/// without writing a frame, which the server's next read, the end of the
-/// stream once the session goes, shows.
+/// `session.losses` (2.11 on major 2) is sent on a 3.0 connection and
+/// read as the schema's two counts.
 #[tokio::test]
-async fn session_losses_is_sent_from_2_11_and_answered_unsupported_below_it() {
+async fn session_losses_is_sent_at_three_zero() {
     let script = Script::new();
-    let (session, mut server) = opened_at(&script, 10).await;
-    // Bounded: a client that sent it would wait for an answer this
-    // server never writes.
-    assert_eq!(
-        tokio::time::timeout(PATIENCE, session.losses())
-            .await
-            .expect("answered without asking the server"),
-        Err(interweave_transport_api::TransportError::ProtocolUnsupported)
-    );
-    drop(session);
-    assert!(server.read().await.is_none(), "nothing was sent at 2.10");
-
-    let (session, mut server) = opened_at(&script, 11).await;
+    let (session, mut server) = opened_at(&script, 0).await;
     let (answer, ()) = tokio::join!(session.losses(), async {
         let Some(Frame::Request(request)) = server.read().await else {
             panic!("a request");

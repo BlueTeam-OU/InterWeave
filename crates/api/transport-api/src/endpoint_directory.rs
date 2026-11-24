@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The endpoint-directory exchange, `/interweave/endpoints/1.0.0` (ADR-0031).
+//! The endpoint-directory exchange, `/interweave/endpoints/2.0.0` (ADR-0031).
 //!
 //! Neutral shapes only. The byte layout belongs to the codec
 //! (`architecture/transport/libp2p/ENDPOINTS.md`); what lives here is what
@@ -73,19 +73,19 @@ pub enum DirectoryRefusal {
 mod tests {
     use super::*;
 
-    /// The spec quotes 2094 as the largest response and derives it from
+    /// The spec quotes 1710 as the largest response and derives it from
     /// these same widths. If either ceiling moves, this is the test that
     /// says the quoted number is now wrong.
     #[test]
-    fn the_largest_directory_response_is_2094_bytes() {
+    fn the_largest_directory_response_is_1710_bytes() {
         let tag = 1;
         let generated_at = 8;
         let ttl = 4;
         let count = 1;
-        let entry = 1 + EndpointId::MAX_BYTES;
+        let entry = 1 + crate::ENDPOINT_FIELD_BYTES;
         assert_eq!(
             tag + generated_at + ttl + count + MAX_DIRECTORY_ENTRIES * entry,
-            2094
+            1710
         );
     }
 

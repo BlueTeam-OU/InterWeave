@@ -4,6 +4,7 @@ package org.interweave.human
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
 import android.app.NativeActivity
 import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
@@ -11,9 +12,13 @@ import android.os.CancellationSignal
 import android.view.WindowManager
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -53,7 +58,10 @@ class MainActivity : NativeActivity() {
     @Volatile private var shown = false
     // Show my phrase took the service offline and its words are this
     // instance's to show: nothing binds or starts the service until they
-    // are gone, a return from Home included (design section 7).
+    // are gone, a return from Home included (design section 7). The
+    // instance's, not the process's: unlike the identity flows, which
+    // outlive a recreation, Show my phrase ends with its window
+    // (onboard.rs, window_ended), so no later instance shows its words.
     @Volatile private var phraseShown = false
     /** Scan a code's camera, opened for the viewfinder and closed with it (add-a-peer 5.5). */
     private var camera: CodeCamera? = null
@@ -72,6 +80,19 @@ class MainActivity : NativeActivity() {
     /** The provider's open of the photo chosen, while it waits on it. */
     private var photoOpening: CancellationSignal? = null
 
+    /**
+     * The device's lock, read again at each screen off and unlock for the
+     * removal of a copied PeerId (identity note section 6), registered for
+     * the instance's whole life so an unlock is heard while it is stopped.
+     */
+    private val lockReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) = reportLock()
+        }
+
+    // Below API 33 registerReceiver takes no exported flag; the lock's
+    // receiver hears system broadcasts alone, which reach it either way.
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onCreate(savedInstanceState: Bundle?) {
         // A recreation the system made in this process (a language change,
         // a backgrounded instance rebuilt) is not a launch by the person:
@@ -91,6 +112,33 @@ class MainActivity : NativeActivity() {
         // Scan a code is offered only on a phone with a camera; the app
         // installs without one (add-a-peer 5.5, the camera not required).
         Native.cameraAvailable(packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY))
+        // Both are system broadcasts, which reach a receiver that is not
+        // exported.
+        val lock = IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_SCREEN_OFF) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(lockReceiver, lock, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(lockReceiver, lock)
+        }
+        reportLock()
+    }
+
+    /**
+     * Whether the device is locked, as the platform's clipboard asks it
+     * (`ClipboardService.clipboardAccessAllowed` reads `isDeviceLocked`):
+     * while it is, no app is given a clip's description, so the removal of
+     * a copied PeerId waits (identity note section 6). Read at each change
+     * of the window's focus, each resume, and the screen off and the
+     * unlock's `ACTION_USER_PRESENT`, which comes with the window focused
+     * or not.
+     */
+    private fun reportLock() {
+        Native.deviceLocked(getSystemService(KeyguardManager::class.java)?.isDeviceLocked ?: false)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        reportLock()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -102,12 +150,16 @@ class MainActivity : NativeActivity() {
         // Before super.onStart(), which waits for the window's thread to
         // take the Start; that thread waits for this answer before it
         // chooses between the identity screens and the chats (onboard.rs).
-        // After it, each would wait on the other (#309 review N1). Asked at
-        // every start, a return's and a launch's in a running process
-        // included: a start refused for the screen lock is answered as in
-        // a fresh process (unlock note section 11). Shown first, so the
-        // answer's prompt is this showing's. Not while Show my phrase holds
-        // the service offline: nothing starts until its words are gone.
+        // After it, each would wait on the other (#309 review N1). A flow
+        // kept from the window a recreation ended is shown again without
+        // the wait, and this answers for it unread (Native.IDENTITY_FLOW,
+        // or Native.IDENTITY_FLOW_STARTED while its screen shows a start).
+        // Asked at every start, a return's and a launch's in a running
+        // process included: a start refused for the screen lock is
+        // answered as in a fresh process (unlock note section 11). Shown
+        // first, so the answer's prompt is this showing's. Not while Show
+        // my phrase holds the service offline: nothing starts until its
+        // words are gone.
         Native.shown(true)
         val identity =
             if (phraseShown) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir, identityReady)
@@ -150,14 +202,35 @@ class MainActivity : NativeActivity() {
         if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) return
         // The identity screens come before the service: a profile with no
         // identity, or one the phone lost, binds nothing until the screens
-        // say the identity is ready (onboard.rs).
-        if (identity != Native.IDENTITY_READY) return
+        // say the identity is ready (onboard.rs), and a living flow whose
+        // screen shows no start (Native.IDENTITY_FLOW) binds nothing
+        // either. A flow that asked its start -- shown again after a
+        // recreation, or on a return -- goes on to the start's decision
+        // below, its flag set above.
+        if (identity != Native.IDENTITY_READY && identity != Native.IDENTITY_FLOW_STARTED) return
         identityReady = true
         if (phraseShown) return
         // A binding kept across a recreation, whose service's last start
-        // was refused for the lock, starts again now the key opens.
+        // was refused for the lock, starts again: for a ready identity
+        // now the key opens; for a flow that asked its start
+        // (IDENTITY_FLOW_STARTED) with no key read, the start's own
+        // refusal raising the prompt (onboard.rs, identity_state); one
+        // refused with the profile in use starts again too, as a return
+        // that binds anew does (identity note section 6). With no binding,
+        // connect binds, which creates the service and starts it: Home let
+        // go of the last one, a start refused busy or locked having ended
+        // its started state (NetworkService.startClient). A binding whose
+        // service runs, or one still being bound, starts nothing.
+        // Decided here alone, and told to the window just before the
+        // start, so what waits on a retried start -- IdStartBusy, on Chats
+        // or a held identity screen -- waits only when one runs
+        // (onboard.rs, showing_starts; BLOCKED on a device run, ui-slint's
+        // views.rs, the IdStartBusy after the bound block).
         val service = local
-        if (service != null && service.locked()) service.restart() else connect()
+        val starts = if (service != null) service.locked() || service.busy() else !bound
+        if (!starts) return
+        Native.showingStarts()
+        if (service != null) service.restart() else connect()
     }
 
     /**
@@ -203,6 +276,7 @@ class MainActivity : NativeActivity() {
 
     override fun onResume() {
         super.onResume()
+        reportLock()
         // The animation scale or a screen reader's timeout may have been
         // changed in the settings meanwhile.
         touch()
@@ -221,16 +295,35 @@ class MainActivity : NativeActivity() {
     }
 
     override fun onDestroy() {
+        // Before super.onDestroy(), which ends the window's thread: a
+        // finish -- the task removed from Recents, the system's finish()
+        // -- ends an identity flow the window showed, and drops its words
+        // as identity note section 7 says; only a destroy that is not one
+        // keeps it for the next window (onboard.rs, window_ended; the
+        // decision is flow_park.rs's
+        // a_window_end_parks_only_an_open_flow_past_a_destroy_that_is_not_a_finish).
+        // That this call lands before the window's thread ends is BLOCKED
+        // on a device run: case D5 of
+        // apps/human-android/device-runs/identity-recreation-cases.md.
+        Native.windowEnding(isFinishing && !isChangingConfigurations)
+        unregisterReceiver(lockReceiver)
         // The editor goes with the window: its photo's open is not wanted.
         cancelPhotoOpen()
         photoRequest = -1L
-        // The words go with this instance; the service must not stay
-        // offline for a window that no longer shows them.
-        if (phraseShown) {
-            phraseShown = false
-            local?.online()
-        }
+        // The words go with this instance -- a new one is a new display,
+        // behind the prompt (identity note section 7), so Show my phrase
+        // ends with its window rather than being kept for the next
+        // (onboard.rs, window_ended) -- and the service must not stay
+        // offline for a window that no longer shows them. Brought back
+        // after super.onDestroy(), which returns only once the window's
+        // thread ended and the flow let go of the profile's lock: before
+        // it, the start could find the lock still held and be refused busy.
+        // BLOCKED on a device run: case D4 of
+        // apps/human-android/device-runs/identity-recreation-cases.md.
+        val phrase = phraseShown
+        phraseShown = false
         super.onDestroy()
+        if (phrase) local?.online()
     }
 
     override fun onStop() {
@@ -670,7 +763,53 @@ class MainActivity : NativeActivity() {
                 secure(true)
                 Native.showSecured()
             }
+            Ask.CLIP_COPY -> copyPeerId(arg)
+            Ask.CLIP_REMOVE -> removePeerIdCopy(arg)
         }
+    }
+
+    /**
+     * Copy PeerId (identity note section 5): the app's own copy, its label
+     * carrying [mark], which tells it apart from any later copy without
+     * reading the clipboard. From Android 13 the platform confirms it.
+     */
+    private fun copyPeerId(mark: Long) {
+        val text = Native.peerIdClip(mark)
+        if (text.isEmpty()) return
+        getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(clipLabel(mark), text))
+    }
+
+    /**
+     * `IdAlreadyCreated` after a copy of its PeerId (identity note section
+     * 6): the clip cleared if its description still carries [mark]'s
+     * label, else left -- the person copied something since. Only the
+     * description is asked, never the content, so the platform shows no
+     * notice that the app read the clipboard. The platform gives it only
+     * to the focused window of an unlocked device, so the native side asks
+     * only then; a change it has not heard of yet, or no description,
+     * puts the removal off again. With the clipboard read app op denied
+     * the description never comes, and the copy stays (section 12).
+     */
+    private fun removePeerIdCopy(mark: Long) {
+        val locked = getSystemService(KeyguardManager::class.java)?.isDeviceLocked ?: false
+        if (!hasWindowFocus() || locked) {
+            Native.peerIdRemovalDeferred(mark)
+            return
+        }
+        val clipboard = getSystemService(ClipboardManager::class.java) ?: return
+        // No description: the clipboard is empty, the app op is denied, or
+        // the platform's own focus check already disagrees with
+        // hasWindowFocus (the shade pulled at this moment). Put off rather
+        // than lost; the native side asks again only at the next focus or
+        // lock change (#733 review 5975852030, risk 2). A description
+        // without the mark in its label, none at all included, is another
+        // copy made since, left alone.
+        val description = clipboard.primaryClipDescription
+        if (description == null) {
+            Native.peerIdRemovalDeferred(mark)
+            return
+        }
+        if (description.label?.toString() == clipLabel(mark)) clipboard.clearPrimaryClip()
     }
 
     /**
@@ -761,9 +900,12 @@ class MainActivity : NativeActivity() {
     }
 
     /**
-     * A camera went away under the scan. Told to the window from the main
-     * thread, and only for the camera this Activity holds now: one closed
-     * since, whose failure arrives late, ends no newer scan.
+     * A camera went away under the scan: told to the window from the main
+     * thread when `lost` is still the camera held. closeCamera drops the
+     * object it closes, so a later scan opens a new one and a failure of
+     * the old, arriving late, is passed over (#418). Unheld by a
+     * test: nothing under androidTest makes a camera fail under a scan;
+     * BLOCKED on a device case that does.
      */
     private fun cameraLost(lost: CodeCamera) {
         runOnUiThread {
@@ -799,6 +941,9 @@ class MainActivity : NativeActivity() {
         private const val MAX_PHOTO_OPENS = 2
         private val photoOpens = java.util.concurrent.atomic.AtomicInteger()
         private const val ASK_MASK = (1L shl Ask.BITS) - 1
+
+        /** A copied PeerId's clip label: the app's, with the copy's mark. */
+        private fun clipLabel(mark: Long) = "InterWeave PeerId $mark"
         /** The last CAMERA answer was a refusal: the next refusal the system will not ask again is "for good". */
         private const val CAMERA_REFUSED = "camera-refused"
         private const val NOTIFICATIONS_REQUEST = 1

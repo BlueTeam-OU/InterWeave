@@ -24,7 +24,11 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let Ok(mut store) = HumanStore::open(&PathBuf::from(&path), StoreOptions::default()) else {
+    let Ok(mut store) = HumanStore::open(
+        &PathBuf::from(&path),
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    ) else {
         eprintln!("crash_writer: cannot open {path}");
         return ExitCode::FAILURE;
     };

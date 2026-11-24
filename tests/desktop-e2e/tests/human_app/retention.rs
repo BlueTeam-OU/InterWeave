@@ -19,7 +19,7 @@ use crate::world::{self, Peer, envelope, ids, two_daemons, until_rows};
 /// `no_route` and retried, so it stays pending for as long as the test
 /// wants it to.
 fn unheld() -> interweave_transport_api::EndpointId {
-    interweave_transport_api::EndpointId::parse("claude").expect("an endpoint")
+    interweave_test_support::endpoint_keys::endpoint_id("claude")
 }
 
 fn one(id: &str) -> std::collections::BTreeSet<String> {

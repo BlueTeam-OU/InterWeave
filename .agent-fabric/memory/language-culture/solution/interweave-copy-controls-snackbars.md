@@ -5,13 +5,14 @@ topic: "interweave-copy-controls-snackbars"
 description: "InterWeave labels.rs: how copy names controls, retries, Undo snackbars, dialogs, paths and screen-reader places"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 04d4e4b225245400
   - 664315035ffc95ca
 ---
 
@@ -28,6 +29,7 @@ InterWeave human-client copy (crates/human/ui-model/src/labels.rs): controls, sn
 - An unsaved-changes dialog uses Close, not Discard, Delete or Leave: "Close without saving your changes?" / "Continue editing" / "Close without saving" (#453, j203, 2026-10-26). The app shows no Discard. Delete was read as deleting the card (Delete contact is on the contact page). Leave was unclear when an identity switch opens the dialog.
 - A way to a control is named by the controls' own labels, from labels.rs: "choose App options on the Conversations screen, then Contacts, then Try again". Never a description that matches no label ("InterWeave's menu"), and never "Chats", which is only the screen's name in the specs. Advice to use another conversation says "if you have one" when one may not exist for the identity in front. Review of #491 found both errors in my own texts (j229, 100412f4, 2026-10-27).
 - A control never starts with "Read": read is a message-status word, and a cold read takes "Read the whole message" as a read receipt. The control is now "Open the whole message", which matches "Opening the whole message". rust-ui-dev-02 renamed the key to OpenWholeMessage (4177c66a3, j248, 2026-11-06).
+- A command in a text is checked against the program's own usage before it is final. CardPhotoElsewhere's draft "interweave-human card set --photo" was a usage error: the program needs `--profile <name> card set <name> ... --photo <file>`, and it also rewrites the name. A note cannot carry a template with three slots, so the text names the command and its flag, says what else it changes, and ends with "run: interweave-human --help" (j252, REPLY 01a1c23a, 2026-11-10).
 Related: [[solution-carried-2026-10-10]]
 
 *References: solution-carried-2026-10-10*

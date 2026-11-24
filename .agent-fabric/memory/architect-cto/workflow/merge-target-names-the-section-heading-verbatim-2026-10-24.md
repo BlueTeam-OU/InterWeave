@@ -5,13 +5,14 @@ topic: "merge-target-names-the-section-heading-verbatim-2026-10-24"
 description: "A memory's merge_target is matched against a drained slice's section heading verbatim; a topic's words or a heading's opening do not match, and the memory is then filed as a topic of its own beside the old text (fabric-coordinator's drain…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 6cc3d58cf60791cc
   - be41faae68b93370
   - dd4478933ea17fda
 ---
@@ -27,6 +28,7 @@ the section they meant. Before writing a merge_target, open the slice
 points at another not-yet-drained memory cannot match anything and
 should instead be a `[[link]]` in the body.
 
-*References: link*
 
-*Observed 2026-10-30 (architect-cto)*
+**Second instance, 2026-11-08** (drain REQUEST 01a1bb16-c839): my correction memory `auto-mode-classifier-refuses-authorizes-send` (agent-fabric store) carried as merge_target the sentence I WANTED the slice to say, not the heading it HAS; filed beside it again. The stale slice is `.agent-fabric/memory/architect-cto/workflow/<same topic>.md`; its `##` line copied byte for byte on origin/main. Same mistake, second shape: a target is never the new text, always the old heading.
+
+*Observed 2026-11-08 (architect-cto)*

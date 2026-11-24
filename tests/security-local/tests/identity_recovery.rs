@@ -44,7 +44,7 @@ trust: {{ policy: static-allowlist, allowed_peers: [\"{}\"] }}
 endpoints:
   default_direct_endpoint: human
   entries:
-    - {{ id: human, enabled: true, advertise: false }}
+    - {{ key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key, alias: human, enabled: true, advertise: false }}
 channels: {{ desired: [] }}
 discovery: {{ providers: [] }}
 transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }} }}
@@ -403,8 +403,18 @@ async fn the_phrase_and_its_key_reach_no_stream_the_daemon_or_transportctl_write
         &["peers", "list", "--json"],
         &["trust", "allow", someone.as_str()],
         &["trust", "revoke", someone.as_str()],
-        &["endpoints", "disable", "claude"],
-        &["endpoints", "enable", "claude"],
+        // The id of the endpoint aliased `claude`, typed as the id itself:
+        // no alias is given, so the command runs without `resolve`.
+        &[
+            "endpoints",
+            "disable",
+            "12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd",
+        ],
+        &[
+            "endpoints",
+            "enable",
+            "12D3KooWExMTwXBTNsZKwpvXtAXdeQCJu1Y9WmCgr6esSSffY6fd",
+        ],
     ] {
         let out = pair.a.transportctl(args, "");
         assert_eq!(

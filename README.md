@@ -4,7 +4,7 @@
 
 **InterWeave** is a peer-to-peer transport for agent harnesses that speak MCP and for first-party human clients: the agent bridge delivers by Claude Code's channel extension, or to any MCP host through a `receive` tool. One configured profile owns one persistent peer identity; many local applications share it through configured endpoints. On the wire it combines signed GossipSub broadcast, a dedicated directed-message protocol, an endpoint directory, replaceable discovery, Kademlia peer routing, and mandatory Internet reachability through AutoNAT v2, Circuit Relay v2 and DCUtR. The design is under [`architecture/`](./architecture/); the code is built one stage at a time in the order that design fixes.
 
-> **Repository status: Stage 18 open** (`stage-18-adversarial-security-gate`). Stages 0–17 are complete (Stage 17, the Android human client, closed 2026-10-22 on the plan's §20 record), and Stage 20 (automated clients and the one-host deployment, plan §28, ADR-0055) ran beside Stage 17 and closed 2026-10-19; Stage 18 (the adversarial and security gate, plan §21), Stage 19 (packaging, migration and release, plan §22) and Stage 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by their records; Stage 21 closed 2026-10-25 on the plan's §29 record, Stage 19 runs beside Stage 18 now, and Stage 22 (several user identities in one client, plan §30, ADR-0061 and ADR-0067) beside both since the owner's word of 2026-11-19, the status value naming the lowest open stage.
+> **Repository status: Stage 22 open** (`stage-22-several-user-identities`: several user identities in one client, plan §30, ADR-0061 and ADR-0067, open since the owner's word of 2026-11-19). Stages 0–21 are complete: Stage 17, the Android human client, closed 2026-10-22 on the plan's §20 record; Stage 20 (automated clients and the one-host deployment, plan §28, ADR-0055) closed 2026-10-19; Stage 21 (contacts, cards and the encrypted store, plan §29) closed 2026-10-25; Stage 18 (the adversarial and security gate, plan §21) and Stage 19 (packaging, migration and release, plan §22) closed 2026-11-21 on their records, with what they did not prove carried by name. The status value names the lowest open stage.
 
 ## Where the work stands
 
@@ -23,10 +23,12 @@ Every closed stage has a closing record in the [implementation plan](./architect
 | 15 | 2026-10-06 | the desktop human client as one binary, proved without a person against two real daemons: process kill, restart, storage failure, trust mutation over the admin socket, and the accessibility tree read over AT-SPI | plan §18 |
 | 16 | 2026-10-06 | the Claude Code Channel bridge: a stdio MCP server holding one endpoint lease, turning direct and broadcast messages into channel notifications with provenance-only metadata, exchanging messages with a far peer from inside an installed Claude Code | plan §19 |
 | 17 | 2026-10-22 | the Android human client: the APK hosting the embedded runtime, the Keystore-sealed identity, recovery, the device-run records, the design review's six rounds | plan §20 |
+| 18 | 2026-11-21 | the adversarial and security gate (ran beside Stage 17, then as the status value's stage): `tests/security` and `tests/security-local`, and `tests/SECURITY-MATRIX.md`, one row per threat naming every test that guards it; what no run reached is carried by name | plan §21 |
+| 19 | 2026-11-21 | packaging, migration and release (ran beside Stages 17 and 18): the Linux archive and user units, the Android release run, four releases from `v0.1.0` to `v0.4.0`, every tag signed, and from `v0.2.0` by the pinned tag key with the archive signed too (ADR-0066); macOS and Windows postponed by name | plan §22 |
 | 20 | 2026-10-19 | automated clients as first-party consumers (ran beside Stage 17, ADR-0055): the conformance suite for what the transport promises an automated client, `transportctl`'s identity verbs and the Linux user units; the client program itself is the deployment's | plan §28 |
 | 21 | 2026-10-25 | contacts, cards and the encrypted store (ran beside Stages 17, 18 and 19): a contact built from a card the counterparty sends and the person accepts, signed by its identity's key; the human store ciphertext at rest under a platform-sealed key; a peer added by address and one's own shown as a QR; the command-line human client | plan §29 |
 
-Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21) and, since Stage 17 closed on 2026-10-22, Stages 19 and 21 ran beside Stage 18; Stage 21 closed 2026-10-25 on §29's closing record, and Stage 19 runs beside Stage 18, as Stage 22 (plan §30) does since the owner's word of 2026-11-19; the status value names the lowest open stage.
+Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21) and, since Stage 17 closed on 2026-10-22, Stages 19 and 21 ran beside Stage 18; Stage 21 closed 2026-10-25 on §29's closing record, and Stages 18 and 19 closed 2026-11-21 on §21's and §22's; Stage 22 (plan §30), which ran beside them from the owner's word of 2026-11-19, is the stage open now, and the status value names it.
 
 ## What runs today
 
@@ -65,7 +67,7 @@ Network
 
   broadcast      -> signed GossipSub
   directed       -> /interweave/direct/3.0.0
-  endpoint query -> /interweave/endpoints/1.0.0
+  endpoint query -> /interweave/endpoints/2.0.0
   peer routing   -> private InterWeave Kademlia namespace
   reachability   -> AutoNAT v2 + Circuit Relay v2 + DCUtR
 ```
@@ -181,7 +183,7 @@ The receiver-only **Keep** action is local application state; a remote sender ca
 Display name:       InterWeave
 Machine namespace:  interweave
 Direct protocol:    /interweave/direct/3.0.0
-Endpoint protocol:  /interweave/endpoints/1.0.0
+Endpoint protocol:  /interweave/endpoints/2.0.0
 Kademlia prefix:    /interweave/kad/1.0.0/<network-hash>
 HumanChat media:    application/vnd.interweave-human-chat+json;v=2
 ```

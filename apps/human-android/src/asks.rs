@@ -66,14 +66,18 @@ impl Asks {
         dropped
     }
 
-    /// Drop what waits: asks an earlier Activity instance left unread
-    /// belong to its window, and a late `SECURE_OFF` would clear the new
-    /// window's flag while its flow runs (#309 review, risk). Whether a
-    /// `reported` ask was among them, as [`Self::drop_all`] answers it.
-    pub(crate) fn clear(&self, reported: i32) -> Option<u64> {
+    /// Drop what waits, but the `kept` asks: asks an earlier Activity
+    /// instance left unread belong to its window, and a late `SECURE_OFF`
+    /// would clear the new window's flag while its flow runs (#309 review,
+    /// risk). A `kept` ask is about something outside the window -- the
+    /// system clipboard's copy and its removal, each carrying its own
+    /// mark -- and its asker no longer owes it once pushed, so dropping
+    /// it would lose it (#733 review, risk 3). Whether a `reported` ask
+    /// was among those dropped, as [`Self::drop_all`] answers it.
+    pub(crate) fn clear(&self, reported: i32, kept: &[i32]) -> Option<u64> {
         let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
         let dropped = largest_arg(&queue, reported);
-        queue.clear();
+        queue.retain(|(waiting, _)| kept.contains(waiting));
         dropped
     }
 
@@ -105,6 +109,7 @@ mod tests {
 
     const UNLOCK: i32 = 8;
     const OTHER: i32 = 3;
+    const KEPT: i32 = 18;
 
     /// A dropped Unlock ask reports the largest gate number among those
     /// dropped, so the gate whose own ask went releases its hold, and
@@ -147,16 +152,16 @@ mod tests {
     /// "the later hold stays", 0 at the control.
     #[test]
     fn a_hold_asked_after_a_drop_survives_it() {
-        use interweave_human_ui_model::{Admit, Effect, PresenceGate};
+        use interweave_human_ui_model::{Effect, PresenceGate};
 
         let asks = Asks::new();
-        let mut gate = PresenceGate::new(true);
-        assert_eq!(gate.admit(Effect::Seal, 0), Admit::Prompt);
+        let mut gate = PresenceGate::default();
+        gate.refused(Effect::Seal);
         gate.asked(asks.push_numbered(UNLOCK));
         let through = asks.drop_all(UNLOCK).expect("one dropped");
         assert_eq!(gate.unasked(through), Some(Effect::Seal), "control");
 
-        assert_eq!(gate.admit(Effect::StartService, 1), Admit::Prompt);
+        gate.refused(Effect::StartService);
         gate.asked(asks.push_numbered(UNLOCK));
         assert_eq!(gate.unasked(through), None, "the later hold stays");
         assert!(gate.holding());
@@ -170,9 +175,29 @@ mod tests {
         let asks = Asks::new();
         asks.push(OTHER);
         asks.push_with(UNLOCK, 6);
-        assert_eq!(asks.clear(UNLOCK), Some(6));
+        assert_eq!(asks.clear(UNLOCK, &[]), Some(6));
         assert_eq!(asks.wait(Duration::ZERO), 0, "nothing left");
         asks.push(OTHER);
-        assert_eq!(asks.clear(UNLOCK), None, "no Unlock ask waited");
+        assert_eq!(asks.clear(UNLOCK, &[]), None, "no Unlock ask waited");
+    }
+
+    /// A `kept` ask survives `clear`, its argument and its place after the
+    /// others kept, while the rest go: a clipboard removal pushed just as
+    /// the Activity stopped still reaches the next window's Kotlin side.
+    /// Mutation: `clear` emptying the whole queue again fails the second
+    /// assertion.
+    #[test]
+    fn a_clear_keeps_the_kept_asks() {
+        let asks = Asks::new();
+        asks.push(OTHER);
+        asks.push_with(KEPT, 9);
+        asks.push_with(UNLOCK, 6);
+        assert_eq!(asks.clear(UNLOCK, &[KEPT]), Some(6));
+        assert_eq!(
+            asks.wait(Duration::ZERO),
+            crate::ask_word::pack(KEPT, 9),
+            "the kept ask, its mark with it"
+        );
+        assert_eq!(asks.wait(Duration::ZERO), 0, "nothing else left");
     }
 }

@@ -13,8 +13,8 @@ use std::path::PathBuf;
 use interweave_independent_codecs::broadcast_v1::BroadcastMessageV1;
 use interweave_independent_codecs::direct_response_v2::{DirectResponseV2, REASONS};
 use interweave_independent_codecs::direct_v2::DirectMessageV2;
-use interweave_independent_codecs::fingerprint;
 use interweave_independent_codecs::ipc_v2::{self, Class};
+use interweave_independent_codecs::{derive_endpoint_id, fingerprint, is_derived_endpoint_id};
 use serde_json::Value;
 
 fn vectors(rel: &str) -> Vec<Value> {
@@ -44,9 +44,36 @@ fn opt_str(v: &Value) -> Option<String> {
     v.as_str().map(str::to_owned)
 }
 
+/// The direct codecs' derived-id rule against the endpoint id vectors:
+/// every public key derives its stored id, and every judged text gets its
+/// stored verdict. The independent base58btc is what this pins.
+#[test]
+fn derived_endpoint_ids_agree_with_the_endpoint_id_vectors() {
+    for v in vectors("endpoints/endpoint-id-derivation-v2.json") {
+        let name = v["name"].as_str().unwrap();
+        if let Some(key) = v["public_key_hex"].as_str() {
+            let key: [u8; 32] = hex(key).try_into().unwrap();
+            let id = derive_endpoint_id(&key);
+            assert_eq!(
+                Some(id.as_str()),
+                v["expected_endpoint_id"].as_str(),
+                "{name}"
+            );
+            assert!(is_derived_endpoint_id(&id), "{name}");
+        }
+        if let Some(text) = v["text"].as_str() {
+            assert_eq!(
+                Some(is_derived_endpoint_id(text)),
+                v["valid"].as_bool(),
+                "{name}"
+            );
+        }
+    }
+}
+
 #[test]
 fn direct_v2_frames_decode_to_their_fields_and_reencode_byte_equal() {
-    for v in vectors("direct-v2/direct-message-v2-frame.json") {
+    for v in vectors("direct-v3/direct-message-v2-frame.json") {
         let name = v["name"].as_str().unwrap();
         let frame = hex(v["frame_hex"].as_str().unwrap());
         assert_eq!(
@@ -70,7 +97,7 @@ fn direct_v2_frames_decode_to_their_fields_and_reencode_byte_equal() {
 
 #[test]
 fn direct_response_frames_decode_to_their_fields_and_reencode_byte_equal() {
-    for v in vectors("direct-v2/direct-response-v2-frame.json") {
+    for v in vectors("direct-v3/direct-response-v2-frame.json") {
         let name = v["name"].as_str().unwrap();
         let frame = hex(v["frame_hex"].as_str().unwrap());
         assert_eq!(
@@ -143,7 +170,7 @@ fn broadcast_v1_frames_decode_to_their_fields_and_reencode_byte_equal() {
 
 #[test]
 fn fingerprints_match_every_vector() {
-    for v in vectors("direct-v2/direct-content-fingerprint-v1.json") {
+    for v in vectors("direct-v3/direct-content-fingerprint-v1.json") {
         let name = v["name"].as_str().unwrap();
         let media = v["media_type"].as_str();
         let payload = hex(v["payload_hex"].as_str().unwrap());
@@ -156,7 +183,7 @@ fn fingerprints_match_every_vector() {
 #[test]
 fn the_fingerprint_domain_is_the_fixtures() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/direct-v2/direct-content-fingerprint-v1.json");
+        .join("../../fixtures/direct-v3/direct-content-fingerprint-v1.json");
     let doc: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     assert_eq!(
         fingerprint::DOMAIN,
@@ -166,7 +193,7 @@ fn the_fingerprint_domain_is_the_fixtures() {
 
 #[test]
 fn ipc_v2_frames_decode_to_their_bodies_and_reencode_byte_equal() {
-    for v in vectors("ipc-v2/ipc-v2-frame-golden.json") {
+    for v in vectors("ipc-v3/ipc-v3-frame-golden.json") {
         let name = v["name"].as_str().unwrap();
         let frame = hex(v["frame_hex"].as_str().unwrap());
         let env = ipc_v2::decode_frame(&frame).unwrap_or_else(|e| panic!("{name}: {e}"));

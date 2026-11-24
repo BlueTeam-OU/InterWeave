@@ -160,10 +160,20 @@ def main() -> int:
         # nothing is read before that.
         os.kill(pid, signal.SIGINT)
         end = time.time() + 5
-        while time.time() < end and not os.waitpid(pid, os.WNOHANG)[0]:
+        # This wait reaps Claude Code when it exits within the grace, so
+        # stop_group finds it gone and its bwrap_wait_status stays null:
+        # the status is kept here instead. If Claude Code outlives the
+        # grace, this stays null and stop_group's field holds it.
+        claude_status = None
+        while time.time() < end:
+            done, st = os.waitpid(pid, os.WNOHANG)
+            if done:
+                claude_status = st
+                break
             pump(0.2)
         record["shutdown"] = stop_group(pid, pump, steps=(("group", signal.SIGTERM, 5),
                                                            ("group", signal.SIGKILL, 5)))
+        record["shutdown"]["claude_wait_status"] = claude_status
         record["shutdown"]["signals_sent"].insert(0, "SIGINT to Claude Code")
         pid = None
         os.close(fd)

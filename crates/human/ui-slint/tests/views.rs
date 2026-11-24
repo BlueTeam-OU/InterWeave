@@ -25,10 +25,12 @@ use interweave_human_client_api::{
 };
 use interweave_human_core::{AppMessageId, RowId};
 use interweave_human_ui_model::{
-    ConversationKey, HostText, Intent, RuntimeHost, TrustChange, UiModel, UiText, placeholder_en,
+    ConversationKey, HostText, Intent, RuntimeHost, StartBusy, TrustChange, UiModel, UiText,
+    placeholder_en,
 };
 use interweave_human_ui_slint::{INPUT_CAP, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle as _, Model as _};
@@ -40,7 +42,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn human() -> EndpointId {
-    EndpointId::parse("human").expect("an endpoint")
+    endpoint_id("human")
 }
 
 fn envelope(serial: u128, text: &str) -> HumanChatV2 {
@@ -910,6 +912,7 @@ fn a_raised_store_or_recovery_screen_opens_on_its_heading() {
         .expect("a PeerId");
     let k1 = IdentityFlow::new(
         &["act", "bean", "cabin"],
+        interweave_profile_identity::FORMAT,
         Start::Recovery {
             reason: RecoveryReason::Key,
             expected: Some(expected),
@@ -938,7 +941,11 @@ const WORDS: &[&str] = &[
 fn checked_flow(restored: bool) -> interweave_human_ui_model::IdentityFlow {
     use interweave_human_ui_model::{Effect, IdentityFlow, ScreenId, Start};
     use interweave_human_ui_slint::{IdentityInput, apply_identity};
-    let mut flow = IdentityFlow::new(WORDS, Start::FirstRun { void_paper: false });
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
     apply_identity(&mut flow, IdentityInput::Secondary);
     apply_identity(&mut flow, IdentityInput::Primary);
     assert_eq!(flow.screen(), ScreenId::R2, "control: at R2");
@@ -986,6 +993,7 @@ fn focus_on_any_screens_title_goes_with_the_page() {
     use interweave_human_ui_slint::{identity_page, store_page};
     let k1 = IdentityFlow::new(
         WORDS,
+        interweave_profile_identity::FORMAT,
         Start::Recovery {
             reason: RecoveryReason::Key,
             expected: Some(peer()),
@@ -1174,7 +1182,7 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
         all(&view)
             .iter()
             .filter_map(ElementHandle::accessible_label)
-            .filter(|l| l.contains("human"))
+            .filter(|l| l.contains(human().as_str()))
             .all(|l| l.contains(short.as_str())),
         "no route line"
     );
@@ -2804,7 +2812,8 @@ fn details_shows_the_identifier_whole_and_copy_closes_with_its_confirmation() {
             .any(|e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Text)),
         "the PeerId whole, as text, not a field"
     );
-    let route = interweave_human_ui_model::fill(text(UiText::DetailsRoute), &[("route", "human")]);
+    let route =
+        interweave_human_ui_model::fill(text(UiText::DetailsRoute), &[("route", human().as_str())]);
     assert_eq!(labelled(&view, &route).len(), 1, "the route, as named");
     assert_eq!(labelled(&view, text(UiText::Close)).len(), 1);
 
@@ -5550,4 +5559,356 @@ fn a_right_to_left_menu_button_moves_the_count_too() {
     labelled(&view, text(UiText::MoreOptions))[0].invoke_accessible_default_action();
     assert!(view.window().get_menu_open(), "the button opened it");
     assert_ne!(view.opened_from_chats(), opened, "a conversation's menu");
+}
+
+// --- `IdStartBusy` after the bound ---------------------------------------
+//
+// design/2026-10-19-android-identity.md section 6, "A start refused with
+// the profile in use after the bound", and section 9's acceptance 15
+// block of the same name. The model says the notice; these runs check
+// where the view shows it, that it takes no focus, its Try again's
+// disabled look, and where focus goes at each result. BLOCKED, not
+// passed, here: that the notice's text is announced once and politely,
+// and not again after a return's `LockHeld` (a screen reader on the
+// phone; the card is a polite live region, `NoticeCard`), and the
+// return, the recreation and the rotation runs, which need the
+// Activity (android-platform's `ViewSide` and `Hub` tests hold the
+// notice's state through them); that a new launch drops the notice
+// (human-android's `onboard::launched` clearing it, which no host test
+// reaches; the clearing itself is android-platform's view_side
+// `a_start_refused_busy_shows_its_notice_until_another_answer`); and that
+// a recreation while a start runs starts no second
+// (`NetworkService.busy`, Kotlin); that only a showing which starts the
+// service marks the notice's start running, one starting nothing
+// (Show my phrase, authentication needed, a binding whose service runs)
+// leaving Try again enabled; and that a return's start while C4, R4, R3
+// or R2 shows `IdStartBusy` holds that screen and is counted for it
+// (MainActivity.onStart deciding, human-android's
+// `onboard::showing_starts`; the flow's half is ui-model's
+// `a_showings_start_holds_as_try_again_and_asks_nothing` and
+// `a_showings_start_refused_busy_again_raises_nothing`); that a granted
+// prompt over that screen makes its restart the person's
+// (`onboard::ask_service` calling the flow's `person_started`, held by
+// ui-model's `a_granted_prompt_over_a_showings_start_answers_the_person`);
+// and that an Unlock after a held start's prompt was cancelled or dropped
+// restarts the bound service (`onboard::not_run` asking
+// `Onboarding::start_ask`, RESTART once a start was asked).
+
+/// Chats with `IdStartBusy` refused after the bound: a phone's window,
+/// focus where the bound left it.
+fn busy_chats() -> (View, UiModel) {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    settle();
+    model.start_busy(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    (view, model)
+}
+
+/// It shows under Chats' app bar and under a conversation's, with Try
+/// again, whose focus reads the notice's words; never the locked notice;
+/// and it takes no focus: Chats' title keeps it, and a conversation's
+/// composer keeps it and what is typed in it (acceptance 15, the lead
+/// run and "In a conversation").
+///
+/// Mutation: `follow_locked_notice` treating `StartBusy` as the locked
+/// notice (focus asked of the card) fails here.
+#[test]
+fn the_busy_notice_shows_under_the_app_bar_and_takes_no_focus() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    settle();
+    let before = view.window().get_focus_id();
+    model.start_busy(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    // Even with the locked notice's ask outstanding, which focuses that
+    // notice's card once it shows.
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    let notice = the(&view, text(UiText::IdStartBusy));
+    assert!(notice.size().width > 0.0, "laid out on Chats");
+    let try_again = the(&view, text(UiText::TryAgain));
+    assert_eq!(
+        try_again.accessible_description().as_deref(),
+        Some(text(UiText::IdStartBusy))
+    );
+    assert_eq!(try_again.accessible_enabled(), Some(true));
+    assert!(labelled(&view, text(UiText::AuthenticationNeeded)).is_empty());
+    assert_eq!(view.window().get_focus_id(), before, "focus stays");
+
+    let alice = peer();
+    model.start_busy(None);
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    tab_to(&view, "composer");
+    view.window().invoke_draft_edited("ab".into());
+    let _ = intents(&mut view, &mut model);
+    model.start_busy(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    view.window().invoke_draft_edited("abc".into());
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    settle();
+    the(&view, text(UiText::IdStartBusy));
+    assert_eq!(view.window().get_focus_id(), "composer", "focus stays");
+    assert_eq!(model.composer(&direct(&alice)).draft, "abc");
+}
+
+/// Try again makes one start and is inert until it answers: disabled,
+/// its stop and focus kept, and a second Enter, a screen reader's
+/// activate and the window's own press ask nothing; no `ConnectStarting`
+/// shows. `LockHeld` again gives it back enabled, focus still on it
+/// (acceptance 15, "Pressed by a key, on Chats").
+///
+/// Mutations: `notice-action-enabled` left true while the start runs, or
+/// the model offering `RetryStart` then, fails here.
+#[test]
+fn the_busy_notices_try_again_is_inert_while_its_start_runs() {
+    let (mut view, mut model) = busy_chats();
+    tab_to(&view, "notice");
+    enter(&view);
+    assert_eq!(intents(&mut view, &mut model), [Intent::RetryStart]);
+    model.retry_start_asked();
+    view.render(&model);
+    settle();
+    let try_again = the(&view, text(UiText::TryAgain));
+    assert_eq!(try_again.accessible_enabled(), Some(false), "disabled");
+    assert_eq!(view.window().get_focus_id(), "notice", "focus stays on it");
+    enter(&view);
+    try_again.invoke_accessible_default_action();
+    view.window().invoke_notice_pressed();
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "nothing more starts"
+    );
+    assert!(labelled(&view, text(UiText::ConnectStarting)).is_empty());
+
+    // `LockHeld` again.
+    model.start_busy(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    assert_eq!(
+        the(&view, text(UiText::TryAgain)).accessible_enabled(),
+        Some(true),
+        "enabled again"
+    );
+    assert_eq!(
+        view.window().get_focus_id(),
+        "notice",
+        "focus on the notice"
+    );
+}
+
+/// A start that succeeds takes the notice away: with focus on Try again,
+/// focus goes to Chats' list heading, or in a conversation to its
+/// composer (unlock note F14); with focus elsewhere, it stays (acceptance
+/// 15, "Pressed by a key", "In a conversation", "Pressed by a tap").
+///
+/// Mutation: the success branch of `follow_locked_notice` left to the
+/// locked notice alone (focus lost with the card) fails here.
+#[test]
+fn a_busy_start_that_succeeds_moves_focus_only_from_try_again() {
+    let (mut view, mut model) = busy_chats();
+    tab_to(&view, "notice");
+    enter(&view);
+    let _ = intents(&mut view, &mut model);
+    model.retry_start_asked();
+    view.render(&model);
+    settle();
+    model.start_busy(None);
+    view.render(&model);
+    settle();
+    assert!(
+        labelled(&view, text(UiText::IdStartBusy)).is_empty(),
+        "gone"
+    );
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "Chats: the list heading"
+    );
+}
+
+/// As [`a_busy_start_that_succeeds_moves_focus_only_from_try_again`],
+/// with focus elsewhere, as after a tap: neither the press nor the
+/// success moves it. Pressed here by the button's default action, which
+/// moves no focus; whether a pointer tap on the phone moves the window's
+/// focus is not exercised by this backend: BLOCKED, the device run's.
+#[test]
+fn a_busy_start_pressed_by_a_tap_moves_no_focus() {
+    let (mut view, mut model) = busy_chats();
+    let before = view.window().get_focus_id();
+    assert_ne!(before, "notice", "control");
+    press(&view, text(UiText::TryAgain));
+    assert_eq!(intents(&mut view, &mut model), [Intent::RetryStart]);
+    model.retry_start_asked();
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), before, "the press moves none");
+    model.start_busy(None);
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), before, "nor the success");
+}
+
+/// As [`a_busy_start_that_succeeds_moves_focus_only_from_try_again`], in
+/// a conversation: focus on Try again goes to the composer.
+#[test]
+fn a_busy_start_that_succeeds_in_a_conversation_focuses_the_composer() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "hi"));
+    open(&mut view, &mut model, &direct(&alice));
+    model.start_busy(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    tab_to(&view, "notice");
+    enter(&view);
+    assert_eq!(intents(&mut view, &mut model), [Intent::RetryStart]);
+    model.retry_start_asked();
+    view.render(&model);
+    settle();
+    model.start_busy(None);
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "composer");
+}
+
+/// `Refused` for a start that compared with C4's `PeerId` and was refused
+/// after the bound (identity note section 6, An answer after the bound)
+/// is placed as `IdStartBusy` is: under Chats' app bar with Try again,
+/// whose focus reads its words, and it takes no focus; Try again is
+/// inert while its start runs; refused the same again it is enabled,
+/// focus kept on it; a start that succeeds then takes focus from Try
+/// again to the list heading. Its announcement is the card's live
+/// region: BLOCKED here, as for `IdStartBusy`.
+///
+/// Mutations: `follow_locked_notice` leaving `StartRefused` out of the
+/// notices that hand focus on (focus left on the gone card), or
+/// `notice-action-enabled` left true while its start runs, fails here.
+#[test]
+fn a_refused_compared_start_shows_as_the_busy_notice_does() {
+    let words = interweave_human_ui_model::fill(
+        text(UiText::Refused),
+        &[(
+            "reason",
+            placeholder_en::error(
+                RuntimeHost::Embedded,
+                interweave_human_ui_model::ErrorClass::Internal,
+            ),
+        )],
+    );
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    settle();
+    let before = view.window().get_focus_id();
+    model.start_refused(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    assert!(the(&view, &words).size().width > 0.0, "laid out on Chats");
+    let try_again = the(&view, text(UiText::TryAgain));
+    assert_eq!(
+        try_again.accessible_description().as_deref(),
+        Some(words.as_str())
+    );
+    assert_eq!(view.window().get_focus_id(), before, "focus stays");
+
+    tab_to(&view, "notice");
+    enter(&view);
+    assert_eq!(intents(&mut view, &mut model), [Intent::RetryStart]);
+    model.retry_start_asked();
+    view.render(&model);
+    settle();
+    let try_again = the(&view, text(UiText::TryAgain));
+    assert_eq!(try_again.accessible_enabled(), Some(false), "disabled");
+    enter(&view);
+    assert!(intents(&mut view, &mut model).is_empty(), "nothing more");
+
+    model.start_refused(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    assert_eq!(
+        the(&view, text(UiText::TryAgain)).accessible_enabled(),
+        Some(true),
+        "refused again: enabled"
+    );
+    assert_eq!(view.window().get_focus_id(), "notice", "focus kept");
+
+    enter(&view);
+    let _ = intents(&mut view, &mut model);
+    model.retry_start_asked();
+    view.render(&model);
+    settle();
+    model.start_refused(None);
+    view.render(&model);
+    settle();
+    assert!(labelled(&view, &words).is_empty(), "gone");
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "Chats: the list heading"
+    );
+}
+
+/// Try again's prompt cancelled: the locked notice takes `IdStartBusy`'s
+/// place, with focus on it, as the root asks after any cancel (unlock
+/// note §11, L1, F11; acceptance 15, "The prompt").
+#[test]
+fn a_cancelled_prompt_for_try_again_shows_the_locked_notice_focused() {
+    let (mut view, mut model) = busy_chats();
+    press(&view, text(UiText::TryAgain));
+    let _ = intents(&mut view, &mut model);
+    model.retry_start_asked();
+    view.render(&model);
+    settle();
+    // The start refused for the person, its prompt cancelled.
+    model.start_busy(None);
+    model.authentication_needed(true);
+    view.focus_locked_notice();
+    view.render(&model);
+    settle();
+    assert!(labelled(&view, text(UiText::IdStartBusy)).is_empty());
+    the(&view, text(UiText::AuthenticationNeeded));
+    assert_eq!(
+        view.window().get_focus_id(),
+        "notice",
+        "on the locked notice"
+    );
+}
+
+/// A page with no place for session notices shows none and keeps focus;
+/// Back to Chats shows `IdStartBusy` there (acceptance 15, "Elsewhere";
+/// the Trust page is the one such page the view itself opens).
+#[test]
+fn the_busy_notice_waits_for_chats_on_a_page_without_one() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    open_trust(&view);
+    let _ = intents(&mut view, &mut model);
+    settle();
+    let before = view.window().get_focus_id();
+    model.start_busy(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), before, "focus stays");
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    settle();
+    the(&view, text(UiText::IdStartBusy));
 }

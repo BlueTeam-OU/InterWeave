@@ -20,11 +20,11 @@ use std::sync::Mutex;
 
 use interweave_human_android_platform::{
     AvailabilityMode, Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, ResealFailure,
-    Resealed, RestoreRefused, UnlockStatus, locked_status, opening_needs_presence, phrase_peer,
-    provision_profile, reseal_identity, reseal_needs_presence,
-    restart_requires_user_authentication_at_rest, restore_identity, stand_in, start_identity,
-    start_resealed,
+    Resealed, RestoreRefused, UnlockStatus, locked_status, phrase_peer, provision_profile,
+    reseal_identity, reseal_needs_presence, restart_requires_user_authentication_at_rest,
+    restore_identity, stand_in, start_identity, start_resealed, start_resealed_expecting,
 };
+use interweave_human_store::identity_key::FilesystemCustody;
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_embedded::custody::{
@@ -32,13 +32,16 @@ use interweave_transport_embedded::custody::{
     SeedCipher,
 };
 
+mod common;
+
 const PROFILE: &str = "human";
 
 /// A stand-in for the Keystore: one key per alias, a keystream XOR for
 /// the seed and a keyed check over the associated data and ciphertext
 /// for the tag -- enough for custody to tell a right key and AAD from a
 /// wrong one. `fail` makes the next open fail as the platform would, and
-/// `seal_fails` the next seal.
+/// `seal_fails` the next seal; `opens` counts the opens asked, a failed
+/// one included, and `fail` waits until `fail_skip` opens have passed.
 #[derive(Default)]
 struct FakeKeystore {
     keys: Mutex<HashMap<String, [u8; 32]>>,
@@ -46,6 +49,8 @@ struct FakeKeystore {
     fail: Mutex<Option<CipherFailure>>,
     seal_fails: Mutex<Option<CipherFailure>>,
     retire_fails: Mutex<bool>,
+    opens: Mutex<u32>,
+    fail_skip: Mutex<u32>,
 }
 
 fn tag(key: &[u8; 32], aad: &[u8], ct: &[u8]) -> [u8; 16] {
@@ -97,7 +102,14 @@ impl SeedCipher for FakeKeystore {
         sealed: &[u8; SEALED_LEN],
         aad: &[u8],
     ) -> Result<Seed, CipherFailure> {
-        if let Some(failure) = self.fail.lock().unwrap().take() {
+        let opened = {
+            let mut opens = self.opens.lock().unwrap();
+            *opens += 1;
+            *opens
+        };
+        if opened > *self.fail_skip.lock().unwrap()
+            && let Some(failure) = self.fail.lock().unwrap().take()
+        {
             return Err(failure);
         }
         let k = *self
@@ -125,7 +137,7 @@ struct App {
 
 fn app() -> App {
     let app = fresh_install();
-    provision_profile(&app.dir, PROFILE).expect("the profile");
+    common::provision_first_identity(&app.dir, PROFILE);
     app
 }
 
@@ -673,36 +685,6 @@ fn a_locked_start_takes_the_record_headers_policy() {
     );
 }
 
-/// Opening the record needs the person by the record's own policy, not
-/// the configured one: a pending change in either direction answers by the
-/// record; with no record, the configured policy a first run seals under.
-#[test]
-fn opening_the_record_needs_the_person_by_its_own_policy() {
-    let app = app();
-    let keystore = FakeKeystore::default();
-    configure_policy(&app, "user-presence");
-    assert!(
-        opening_needs_presence(&app.dir, PROFILE),
-        "no record: the configured policy"
-    );
-    configure_policy(&app, "background-compatible");
-    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("first");
-    configure_policy(&app, "user-presence");
-    assert!(
-        !opening_needs_presence(&app.dir, PROFILE),
-        "pending toward user-presence: the record needs nobody yet"
-    );
-    assert_eq!(
-        reseal_identity(&app.dir, PROFILE, &keystore, &first),
-        Ok(Resealed::Changed)
-    );
-    configure_policy(&app, "background-compatible");
-    assert!(
-        opening_needs_presence(&app.dir, PROFILE),
-        "pending away from user-presence: the record still needs the person"
-    );
-}
-
 /// The Activity's check asks whether the start's reseal will need the
 /// person, so the prompt comes before the start rather than leaving it
 /// refused with nothing to answer (#577 review F1): only a configured
@@ -750,9 +732,70 @@ fn only_a_paths_refusal_comes_before_the_custody_step() {
         IdentityRefused::UserNotAuthenticated,
         IdentityRefused::Unavailable("x".to_owned()),
         IdentityRefused::Provisioning("x".to_owned()),
+        IdentityRefused::NotExpected(other_peer()),
     ] {
         assert!(ran.custody_ran(), "{ran:?}");
     }
+}
+
+/// A `PeerId` no record here opens to: a phrase's other identity.
+fn other_peer() -> interweave_transport_api::TransportIdentity {
+    ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a PeerId")
+}
+
+/// C4's `IdStartUnchecked` start (design 2026-10-19-android-identity.md
+/// section 6, A start from C4 after a failed read-back) over a real
+/// custody record: given the `PeerId` C4 shows, which is another than the
+/// one the record opens to, the start is refused `NotExpected` naming the
+/// one it opened, hands no identity back, and writes nothing -- the
+/// record's bytes and the keystore's keys as they were, although the
+/// configured policy would have the reseal write -- and a later start
+/// with no `PeerId` expected opens it as before. Given the record's own
+/// `PeerId` it starts as `start_resealed` does. With no record it
+/// provisions nothing, in a build that would. Mutation: the comparison in
+/// `start_checked` removed, or moved after the reseal, fails here.
+#[test]
+fn a_start_expecting_another_peer_id_fails_closed_and_writes_nothing() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let recorded = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create)
+        .expect("provisioned")
+        .transport_identity()
+        .expect("a PeerId");
+    // The reseal would write: the record is not under this policy.
+    configure_policy(&app, "user-presence");
+    let stored = record(&app);
+    let keys = keystore.generated.lock().unwrap().clone();
+    let shown = other_peer();
+    assert_ne!(shown, recorded, "control: two PeerIds");
+    let refused = start_resealed_expecting(&app.dir, PROFILE, &keystore, &shown)
+        .expect_err("another PeerId than C4's");
+    assert_eq!(refused, IdentityRefused::NotExpected(recorded.clone()));
+    assert_eq!(record(&app), stored, "nothing resealed");
+    assert_eq!(*keystore.generated.lock().unwrap(), keys, "no key made");
+
+    let started = start_resealed_expecting(&app.dir, PROFILE, &keystore, &recorded)
+        .expect("the PeerId C4 shows");
+    assert_eq!(
+        started.identity.transport_identity().expect("a PeerId"),
+        recorded
+    );
+    assert_eq!(started.resealed, Resealed::Changed, "a start as any other");
+
+    let none = fresh_install();
+    provision_profile(&none.dir, PROFILE).expect("the profile");
+    assert_eq!(
+        start_resealed_expecting(&none.dir, PROFILE, &keystore, &recorded).expect_err("no record"),
+        IdentityRefused::Unprovisioned
+    );
+    assert_eq!(
+        start_identity(&none.dir, PROFILE, &keystore, FirstRun::Refuse)
+            .expect_err("control: still none"),
+        IdentityRefused::Unprovisioned,
+        "nothing provisioned"
+    );
 }
 
 /// Plan section 20 gate (a), the client clauses: a key the platform lost
@@ -1004,7 +1047,15 @@ mod onboarding {
             "nothing sealed yet"
         );
 
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
             .expect("the record unlocks");
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
@@ -1022,7 +1073,7 @@ mod onboarding {
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert!(
             matches!(
-                onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+                onboarding::seal(&app.dir, PROFILE, &keystore, &FilesystemCustody, &creation, None),
                 Err(WriteRefused::Storage(why)) if why.starts_with("the profile:")
             ),
             "the control: with no document the seal is refused"
@@ -1034,7 +1085,15 @@ mod onboarding {
             Err(IdentityRefused::Unprovisioned),
             "onboarding's state"
         );
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
             .expect("the record unlocks");
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
@@ -1056,14 +1115,35 @@ mod onboarding {
         );
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            ),
             Err(WriteRefused::Busy),
             "a seal of its own waits for no lock the flow holds"
         );
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, Some(&lock))
-            .expect("sealed under the flow's lock");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            Some(&lock),
+        )
+        .expect("sealed under the flow's lock");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, Some(&lock)),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                Some(&lock)
+            ),
             Err(WriteRefused::AlreadyProvisioned)
         );
         assert!(
@@ -1084,13 +1164,22 @@ mod onboarding {
         let app = app();
         let keystore = FakeKeystore::default();
         let (creation, words, ..) = Creation::new().expect("a creation");
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         let lock = onboarding::hold(&app.dir, PROFILE).expect("held");
         assert_eq!(
             onboarding::restore(
                 &app.dir,
                 PROFILE,
                 &keystore,
+                &FilesystemCustody,
                 words.join(" "),
                 Expected::Recorded,
                 None,
@@ -1102,10 +1191,12 @@ mod onboarding {
                 &app.dir,
                 PROFILE,
                 &keystore,
+                &FilesystemCustody,
                 words.join(" "),
                 Expected::Recorded,
                 Some(&lock),
-            ),
+            )
+            .map(|_| ()),
             Ok(())
         );
         assert!(ProfileLock::is_held(&paths(&app)).expect("asked"));
@@ -1122,7 +1213,15 @@ mod onboarding {
             Err(WriteRefused::Storage(_))
         ));
         let (creation, words, peer, _) = Creation::new().expect("a creation");
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         let (shown, shown_peer) =
             onboarding::shown_phrase(&app.dir, PROFILE, &keystore).expect("shown");
         assert_eq!(shown, words);
@@ -1139,7 +1238,14 @@ mod onboarding {
         let before = record(&app);
         let (creation, ..) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            ),
             Err(WriteRefused::AlreadyProvisioned)
         );
         assert_eq!(record(&app), before);
@@ -1155,13 +1261,263 @@ mod onboarding {
         *keystore.retire_fails.lock().unwrap() = true;
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            )
+            .map(|_| ()),
             Ok(())
         );
         *keystore.retire_fails.lock().unwrap() = false;
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
             .expect("the record unlocks");
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
+    }
+
+    /// A seal refused after its publish whose read-back cannot open the
+    /// record is `ReadBackFailed` (`IdStorageUnknown`), never `Storage`,
+    /// which says nothing was written (design section 6); the read-back
+    /// asked on its own then finds it once it opens, and never for another
+    /// `PeerId`. Mutation: the seal's read-back branch answering `Storage`
+    /// again, or `read_back` not comparing the `PeerId`, fails here.
+    #[test]
+    fn a_seal_whose_read_back_fails_is_unknown_and_reading_back_again_finds_it() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        *keystore.retire_fails.lock().unwrap() = true;
+        *keystore.fail.lock().unwrap() = Some(CipherFailure::Unavailable("busy".to_owned()));
+        let (creation, _, peer, _) = Creation::new().expect("a creation");
+        assert!(
+            matches!(
+                onboarding::seal(
+                    &app.dir,
+                    PROFILE,
+                    &keystore,
+                    &FilesystemCustody,
+                    &creation,
+                    None
+                ),
+                Err(WriteRefused::ReadBackFailed(_))
+            ),
+            "the record was written and could not be read back"
+        );
+        assert!(
+            keystore.fail.lock().unwrap().is_none(),
+            "control: the read-back is what met the failure"
+        );
+        assert_eq!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &peer),
+            Ok(())
+        );
+        let (_, _, other, _) = Creation::new().expect("another");
+        assert!(matches!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &other),
+            Err(WriteRefused::ReadBackFailed(_))
+        ));
+        *keystore.fail.lock().unwrap() = Some(CipherFailure::UserNotAuthenticated);
+        assert_eq!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &peer),
+            Err(WriteRefused::ReadBackNeedsAuthentication)
+        );
+    }
+
+    /// A read-back the key refuses until the person authenticates, after a
+    /// seal refused past its publish, is `ReadBackNeedsAuthentication`
+    /// (the screen's prompt, design section 6, Authentication needed),
+    /// never `UserNotAuthenticated`, which says the seal wrote nothing,
+    /// nor `ReadBackFailed`, which shows the notice without a prompt.
+    /// Mutation: `opens_to`'s `UserNotAuthenticated` arm removed (it falls
+    /// to `ReadBackFailed`) fails here.
+    #[test]
+    fn a_seal_whose_read_back_needs_the_person_says_so() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        *keystore.retire_fails.lock().unwrap() = true;
+        *keystore.fail.lock().unwrap() = Some(CipherFailure::UserNotAuthenticated);
+        let (creation, _, peer, _) = Creation::new().expect("a creation");
+        assert_eq!(
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            ),
+            Err(WriteRefused::ReadBackNeedsAuthentication)
+        );
+        assert_eq!(*keystore.opens.lock().unwrap(), 1, "one read-back");
+        assert_eq!(
+            onboarding::read_back(&app.dir, PROFILE, &keystore, &peer),
+            Ok(()),
+            "after a grant, the read-back finds it"
+        );
+    }
+
+    /// A restore that custody answers `OldKeyRemains` -- the record
+    /// written, the other policy's key not retired, and the record never
+    /// opened by custody -- reads back before it is done, on R3's
+    /// confirmed restore and after K1's recorded one alike, as a seal
+    /// answered `OldKeyRemains` does (design section 6; acceptance 12:
+    /// the custody records one read-back). Found, it is done; the read-
+    /// back failing is `ReadBackFailed` (`IdStorageUnknown`), and refused
+    /// for the person `ReadBackNeedsAuthentication`. Mutation:
+    /// `restore_identity` taking `OldKeyRemains` as success again (no
+    /// read-back: no open counted, and the failing cases answer `Ok`), or
+    /// `restore`'s read-back arm not taking `OldKeyRemains`, fails here.
+    #[test]
+    fn a_restore_answered_old_key_remains_reads_back_before_it_is_done() {
+        // R3: a fresh install's confirmed restore.
+        for (fails, outcome) in [
+            (None, Ok(())),
+            (
+                Some(CipherFailure::Unavailable("busy".to_owned())),
+                Err("unknown"),
+            ),
+            (Some(CipherFailure::UserNotAuthenticated), Err("person")),
+        ] {
+            let app = app();
+            let keystore = FakeKeystore::default();
+            *keystore.retire_fails.lock().unwrap() = true;
+            *keystore.fail.lock().unwrap() = fails;
+            let original = ProfileIdentity::generate();
+            let phrase = original.recovery_phrase().expect("a phrase");
+            let peer = original.transport_identity().expect("a PeerId");
+            let words = onboarding::words_of(&phrase).expect("its words");
+            let restored = onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                words.join(" "),
+                Expected::Confirmed(&peer),
+                None,
+            );
+            assert_restore(&restored, outcome);
+            assert_eq!(*keystore.opens.lock().unwrap(), 1, "R3: one read-back");
+            assert!(
+                !keystore.generated.lock().unwrap().is_empty(),
+                "control: the record was written"
+            );
+        }
+
+        // After K1: the keys gone, the record's own restore. Custody first
+        // tries the record there under the policy it has (ADR-0042), an
+        // open of the key that is gone; the read-back is the open after
+        // the write.
+        for (fails, outcome) in [
+            (None, Ok(())),
+            (
+                Some(CipherFailure::Unavailable("busy".to_owned())),
+                Err("unknown"),
+            ),
+            (Some(CipherFailure::UserNotAuthenticated), Err("person")),
+        ] {
+            let app = app();
+            let identity = start_identity(
+                &app.dir,
+                PROFILE,
+                &FakeKeystore::default(),
+                FirstRun::Create,
+            )
+            .expect("provisioned");
+            let words = onboarding::words_of(&identity.recovery_phrase().expect("a phrase"))
+                .expect("its words");
+            let keystore = FakeKeystore::default();
+            *keystore.retire_fails.lock().unwrap() = true;
+            *keystore.fail.lock().unwrap() = fails;
+            *keystore.fail_skip.lock().unwrap() = 1;
+            let restored = onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                words.join(" "),
+                Expected::Recorded,
+                None,
+            );
+            assert_restore(&restored, outcome);
+            assert_eq!(
+                *keystore.opens.lock().unwrap(),
+                2,
+                "K1: custody's try of the old record, then one read-back"
+            );
+            assert!(
+                keystore.fail.lock().unwrap().is_none(),
+                "control: the read-back met the failure"
+            );
+        }
+    }
+
+    fn assert_restore(
+        restored: &Result<onboarding::Onboarded, WriteRefused>,
+        outcome: Result<(), &str>,
+    ) {
+        let restored = &restored.clone().map(|_| ());
+        match outcome {
+            Ok(()) => assert_eq!(restored, &Ok(()), "found: done"),
+            Err("unknown") => assert!(
+                matches!(restored, Err(WriteRefused::ReadBackFailed(_))),
+                "not found: unknown, {restored:?}"
+            ),
+            Err(_) => assert_eq!(
+                restored,
+                &Err(WriteRefused::ReadBackNeedsAuthentication),
+                "refused for the person"
+            ),
+        }
+    }
+
+    /// A restore over a record that names another `PeerId` reports that
+    /// `PeerId` (`IdRestoreOther`, design section 6), never `NoRestore`,
+    /// and writes nothing; a confirmed restore over the record of the
+    /// confirmed `PeerId` reads it back and writes nothing. Mutation:
+    /// `restore_identity`'s `RecordNamesOther` arm removed (it falls to
+    /// `RecordExists`), fails here.
+    #[test]
+    fn a_restore_over_another_record_names_it_and_over_its_own_reads_back() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        let on_record =
+            start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("provisioned");
+        let recorded = on_record.transport_identity().expect("a PeerId");
+        let before = record(&app);
+        let (_, words, peer, _) = Creation::new().expect("another identity");
+        assert_eq!(
+            onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                words.join(" "),
+                Expected::Confirmed(&peer),
+                None,
+            ),
+            Err(WriteRefused::RecordNamesOther(recorded.clone()))
+        );
+        assert_eq!(record(&app), before, "nothing written");
+
+        let own = onboarding::words_of(&on_record.recovery_phrase().expect("a phrase"))
+            .expect("its words");
+        assert_eq!(
+            onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                own.join(" "),
+                Expected::Confirmed(&recorded),
+                None,
+            )
+            .map(|_| ()),
+            Ok(()),
+            "its own record, read back"
+        );
+        assert_eq!(record(&app), before, "and not written over");
     }
 
     /// A second Continue over the record just sealed is not read back: it
@@ -1171,9 +1527,24 @@ mod onboarding {
         let app = app();
         let keystore = FakeKeystore::default();
         let (creation, ..) = Creation::new().expect("a creation");
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            ),
             Err(WriteRefused::AlreadyProvisioned)
         );
     }
@@ -1202,6 +1573,7 @@ mod onboarding {
             &app.dir,
             PROFILE,
             &keystore,
+            &FilesystemCustody,
             words.join(" "),
             Expected::Recorded,
             None,
@@ -1235,6 +1607,7 @@ mod onboarding {
             &app.dir,
             PROFILE,
             &keystore,
+            &FilesystemCustody,
             words.join(" "),
             Expected::Confirmed(&derived),
             None,

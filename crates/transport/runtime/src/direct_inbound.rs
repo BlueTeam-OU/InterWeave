@@ -65,7 +65,7 @@
 use interweave_transport_api::{
     DirectMessageV2, DirectRejectReason, EndpointId, TransportIdentity,
 };
-use interweave_trust_api::{EndpointTrustPolicy, PeerTrustPolicy, TrustDecision};
+use interweave_trust_api::{EndpointTrust, PeerTrustPolicy, TrustDecision};
 
 use crate::dedup::{
     Admission, DedupCache, DedupKey, DestinationSelector, RecordedRoute, Reservation,
@@ -112,6 +112,10 @@ pub struct AdmissionContext<'a> {
     pub reservations: &'a mut ReservationMap,
     /// Configured endpoints, their policies and their leases.
     pub registry: &'a EndpointRegistry,
+    /// The operator's list, which the endpoint step judges an inheriting
+    /// or authored endpoint against -- never the admission set the prefix
+    /// gate's `trust` is (ADR-0067 decision 6).
+    pub operator: &'a PeerTrustPolicy,
     /// Open delivery queues.
     pub queues: &'a mut EndpointQueues,
 }
@@ -129,7 +133,8 @@ pub struct AdmissionContext<'a> {
 /// are used in is this module's subject, and a caller handed them
 /// individually could use them in some other order.
 pub struct PrefixContext<'a> {
-    /// Who this profile trusts, at profile scope.
+    /// Who this profile trusts at profile scope: the admission set, which
+    /// decides the connection (ADR-0067 decision 6).
     pub trust: &'a PeerTrustPolicy,
     /// The ingress token buckets for this mode.
     ///
@@ -381,12 +386,13 @@ pub fn admit_structured(
     // leaks and this peer's allowance decays under its own retries.
     let resolved = match ctx.registry.resolve_inbound(
         frame.destination_endpoint.as_ref(),
-        // 6-7. Endpoint policy NARROWS profile trust. The intersection
-        //      lives in trust-api so no call site can invert the order
-        //      and widen it.
-        |policy: &EndpointTrustPolicy| {
+        // 6-7. The endpoint's inbound trust, decided by trust-api: its own
+        //      set, else its authored filter narrowing the operator's list
+        //      (`ctx.operator`, never the admission set), so no call
+        //      site can order it to widen.
+        |trust: EndpointTrust<'_>| {
             matches!(
-                ctx.prefix.trust.decide_for_endpoint(source_peer, policy),
+                ctx.operator.decide_at_endpoint(source_peer, trust),
                 TrustDecision::Allowed
             )
         },
@@ -487,7 +493,7 @@ mod tests {
     }
 
     fn endpoint(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint id")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
 
     /// A registry with `human` and `claude`, `human` the default, both
@@ -534,6 +540,9 @@ mod tests {
     /// Everything admission touches, owned so a test can inspect it after.
     struct World {
         trust: PeerTrustPolicy,
+        /// The operator's list; the admission set (`trust`) unless a
+        /// test sets them apart.
+        operator: PeerTrustPolicy,
         ingress: IngressLimiter,
         dedup: DedupCache,
         reservations: ReservationMap,
@@ -546,6 +555,7 @@ mod tests {
         fn new() -> Self {
             Self {
                 trust: PeerTrustPolicy::new([peer(P1)]).expect("a one-peer allowlist"),
+                operator: PeerTrustPolicy::new([peer(P1)]).expect("a one-peer allowlist"),
                 ingress: IngressLimiter::with_defaults(0),
                 dedup: DedupCache::new(64, DEFAULT_TTL_MS),
                 reservations: ReservationMap::new(128, 8),
@@ -570,6 +580,7 @@ mod tests {
                 dedup: &mut self.dedup,
                 reservations: &mut self.reservations,
                 registry: &self.registry,
+                operator: &self.operator,
                 queues: &mut self.queues,
             };
             admit_inbound(
@@ -679,6 +690,7 @@ mod tests {
                 dedup: &mut w.dedup,
                 reservations: &mut w.reservations,
                 registry: &w.registry,
+                operator: &w.trust,
                 queues: &mut w.queues,
             };
             assert!(
@@ -699,6 +711,7 @@ mod tests {
             dedup: &mut w.dedup,
             reservations: &mut w.reservations,
             registry: &w.registry,
+            operator: &w.trust,
             queues: &mut w.queues,
         };
         assert_eq!(
@@ -1047,6 +1060,7 @@ mod tests {
             dedup: &mut w.dedup,
             reservations: &mut w.reservations,
             registry: &w.registry,
+            operator: &w.trust,
             queues: &mut w.queues,
         };
         assert!(matches!(
@@ -1184,5 +1198,42 @@ mod tests {
             Outcome::Refused(Refusal::NoRoute(_))
         ));
         assert!(w.reservations.is_empty(), "refused path released too");
+    }
+
+    /// The endpoint step judges an inheriting endpoint against the
+    /// OPERATOR'S LIST, not the admission set the prefix gate holds
+    /// (ADR-0067 decision 6): a peer only an identity trusts passes the
+    /// gate and is `no_route` at an inheriting endpoint, and reaches the
+    /// endpoint whose own set holds it.
+    #[test]
+    fn a_peer_only_an_identity_trusts_reaches_that_identity_alone() {
+        use crate::endpoint_registry::OwnTrust;
+        use interweave_trust_api::EndpointSet;
+        let mut w = World::new();
+        w.trust = PeerTrustPolicy::new([peer(P1), peer(P2)]).expect("the admission set");
+        // `claude` inherits; P2 is not the operator's.
+        let refused = w.admit(&frame(Some("claude"), b"hi", 61), &peer(P2), 0);
+        assert!(
+            matches!(refused, Outcome::Refused(Refusal::NoRoute(_))),
+            "{refused:?}"
+        );
+        let control = w.admit(&frame(Some("claude"), b"hi", 62), &peer(P1), 0);
+        assert!(matches!(control, Outcome::Accepted { .. }), "{control:?}");
+        // Given its own set naming P2, `claude` admits P2 and not P1.
+        let set = EndpointSet::new([peer(P2)]).expect("bounded");
+        assert!(w.registry.set_own(
+            &endpoint("claude"),
+            Some(OwnTrust {
+                inbound: set.clone(),
+                outbound: set,
+            })
+        ));
+        let admitted = w.admit(&frame(Some("claude"), b"hi", 63), &peer(P2), 0);
+        assert!(matches!(admitted, Outcome::Accepted { .. }), "{admitted:?}");
+        let operators = w.admit(&frame(Some("claude"), b"hi", 64), &peer(P1), 0);
+        assert!(
+            matches!(operators, Outcome::Refused(Refusal::NoRoute(_))),
+            "{operators:?}"
+        );
     }
 }

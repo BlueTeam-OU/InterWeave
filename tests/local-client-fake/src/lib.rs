@@ -249,7 +249,7 @@ impl FakeNode {
         state.path = Some(path);
         let now = wall_ms();
         for queues in state.sessions.values_mut() {
-            if !queues.declines_route_notices && queues.routes.contains(peer) {
+            if queues.routes.contains(peer) {
                 let class = if queues.unannounced.remove(peer) {
                     ROUTE_ESTABLISHED
                 } else {
@@ -353,10 +353,6 @@ struct Queues {
     /// One pending path notice per routed peer, merged as the runtime
     /// merges them; the merges are not counted here.
     paths: BTreeMap<TransportIdentity, (Option<PeerPath>, PeerPath, String, u64)>,
-    /// A session opened `without_route_notices` is owed no notice without
-    /// a `previous`, as the runtime's (`Owed::route_notices`); stored as
-    /// the refusal so the derived default takes them.
-    declines_route_notices: bool,
     /// Routes begun while the pair was not connected, whose begin is
     /// announced at the pair's next connection (`route_established`), as
     /// the runtime's `Owed::unannounced`.
@@ -405,12 +401,10 @@ impl Queues {
         if self.routes.contains(&peer) {
             return;
         }
-        if !self.declines_route_notices {
-            match path {
-                Some(path) => self.owe_path(&peer, None, path, ROUTE_ESTABLISHED, wall_ms()),
-                None => {
-                    self.unannounced.insert(peer.clone());
-                }
+        match path {
+            Some(path) => self.owe_path(&peer, None, path, ROUTE_ESTABLISHED, wall_ms()),
+            None => {
+                self.unannounced.insert(peer.clone());
             }
         }
         self.routes.insert(peer);
@@ -775,7 +769,6 @@ impl DataSessionBinding for FakeNode {
         // it on connect.
         let owed = Queues {
             state: Some(state_event(state.health)),
-            declines_route_notices: !request.route_notices(),
             ..Queues::default()
         };
         state.sessions.insert(session_id, owed);

@@ -5,7 +5,7 @@ topic: "j199-identity-keyboard-reach"
 description: "j199 identity §8 focus stops pushed c3bbb1c5 on e87e1462; Q1-Q3 answered; blocked only on j200's supply (in p2p-network-dev-02's j17 branch, no PR on 2026-11-03) landing; segment focus model"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - c461e413693bbbe3
+  - ef180582c9abff5a
 ---
 
 ## j199 identity §8 focus stops pushed c3bbb1c5 on e87e1462; Q1-Q3 answered; blocked only on j200's supply (in p2p-network-dev-02's j17 branch, no PR on 2026-11-03) landing; segment focus model
@@ -26,7 +27,7 @@ What it builds (crates/human/ui-slint/ui/app.slint IdentityScreen, IdentityStop)
 - ui-model: Back on the open discard dialog = Continue entering (before: it dropped every word).
 - ux-designer-01 REPLY 01a1a331 answered QUESTION 01a1a324:
   - Q1 yes: Back, Escape or a tap outside the dialog = Continue entering.
-  - Q2 yes, plus Space. While typing (hardware letter, Backspace, or the rule's Enter), Enter = suggestion rule only and Space = nothing; this is in IdentityScreen's capture-key-pressed. After TAB, a tap or a press, both press the focused control. Both built in c3bbb1c5.
+  - Q2 yes, plus Space. While typing (hardware letter, Backspace, or the rule's Enter), Enter = suggestion rule only and Space = nothing; this is in IdentityScreen's capture-key-pressed. After TAB, an arrow or a press by Enter/Space, both press the focused control. (Superseded 2026-11-12 by #645/j266: a tap on an enabled letter key, delete or clear is typing; a chip or grid position chosen by any input returns typing; no tap moves focus.) Both built in c3bbb1c5.
   - Q3: the spec wants the grid under the keypad. My REPLY 01a1a333 said the grid does not fit: about 800 dp needed against about 570 dp at 100 %. The grid stays above until ux revises s4/s8. ux REPLY 01a1a33f (2026-11-03) agreed: the grid stays above the picker, spec revised on #543.
 - Tests: tests/trace.rs, the four identity tests; 13 mutants all caught. No device run yet.
 - C3's Back dialog is not built: j201 (ux confirmed it is wanted). The 130 % 'Show all my words' switch is not built: j202, after Q3.
@@ -50,4 +51,4 @@ REPLY 01a1a3ca (p2p-network-dev-02): their j17 PR opens 2026-11-04 from cbc6024e
 
 *References: slint-focus-new-element, slint-modal-page-tab-trap*
 
-*Observed 2026-11-04 (rust-ui-dev)*
+*Observed 2026-11-13 (rust-ui-dev)*

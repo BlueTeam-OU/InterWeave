@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:endpoints:directory-response",
   "title": "Endpoint directory response",
-  "description": "The reply to a trust-gated endpoint-directory query. It lists ONLY endpoints that are simultaneously enabled, actively leased, advertise:true, and admissible for the querying peer. Endpoint identifiers only — no display name, avatar, role, prompt, client kind, payload schema, or permission claim (ADR-0031). Results are advisory and short-lived; a caller may send to an out-of-band EndpointId without querying first.",
+  "description": "The reply to a trust-gated endpoint-directory query. It lists ONLY endpoints that are simultaneously enabled, actively leased, advertise:true, and admissible for the querying peer. Endpoint identifiers only — no display name, avatar, role, prompt, client kind, payload schema, or permission claim (ADR-0031). Results are advisory and short-lived; a caller may send to an out-of-band EndpointId without querying first.\n\n2.0.0 (ADR-0067 decision 7): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major.",
   "type": "object",
   "required": [
     "endpoints",
@@ -36,11 +36,12 @@
   "x-contract": {
     "name": "endpoints.directory-response",
     "status": "active",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "adr": [
-      "0031"
+      "0031",
+      "0067"
     ],
     "specification": "architecture/contracts/ENDPOINTS.md",
-    "wire-protocol": "/interweave/endpoints/1.0.0"
+    "wire-protocol": "/interweave/endpoints/2.0.0"
   }
 }

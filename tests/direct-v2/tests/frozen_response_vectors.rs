@@ -2,7 +2,7 @@
 // Copyright 2026 Andrea Benetton
 //! The response codec against the frozen bytes.
 //!
-//! `fixtures/direct-v2/direct-response-v2-frame.json` freezes the
+//! `fixtures/direct-v3/direct-response-v2-frame.json` freezes the
 //! `AcceptedV2`/`RejectedV2` frame that `DIRECT.md` §Response byte layout
 //! states. Until that section existed the layout lived only in
 //! `direct_codec.rs`; this test is what holds the codec to the text from
@@ -12,12 +12,12 @@
 //! never through a code restated here.
 #![allow(clippy::expect_used, clippy::panic)]
 
-use interweave_test_support::{fixtures, hex};
+use interweave_test_support::{endpoint_keys, fixtures, hex};
 use interweave_transport_api::{DirectRejectReason, EndpointId, MessageId};
 use interweave_transport_libp2p::direct_codec::{DirectResponse, decode_response, encode_response};
 
 fn vectors() -> Vec<(String, DirectResponse, Vec<u8>)> {
-    let file = fixtures::load("direct-v2/direct-response-v2-frame.json");
+    let file = fixtures::load("direct-v3/direct-response-v2-frame.json");
     file["vectors"]
         .as_array()
         .expect("a vectors array")
@@ -27,13 +27,20 @@ fn vectors() -> Vec<(String, DirectResponse, Vec<u8>)> {
             let message_id = MessageId::parse_hex(v["message_id"].as_str().expect("message_id"))
                 .expect("fixture message id parses");
             let response = match v["kind"].as_str().expect("kind") {
-                "accepted" => DirectResponse::Accepted {
-                    message_id,
-                    resolved_endpoint: EndpointId::parse(
-                        v["resolved_destination_endpoint"].as_str().expect("label"),
+                "accepted" => {
+                    let resolved = EndpointId::parse_derived(
+                        v["resolved_destination_endpoint"].as_str().expect("an id"),
                     )
-                    .expect("fixture label parses"),
-                },
+                    .expect("a derived fixture id");
+                    let key = v["resolved_destination_endpoint_test_key"]
+                        .as_str()
+                        .expect("every fixture id names its test key");
+                    assert_eq!(resolved, endpoint_keys::endpoint_id(key), "{name}");
+                    DirectResponse::Accepted {
+                        message_id,
+                        resolved_endpoint: resolved,
+                    }
+                }
                 "rejected" => DirectResponse::Rejected {
                     message_id,
                     reason: reason(v["reason"].as_str().expect("reason")),

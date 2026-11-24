@@ -16,7 +16,6 @@ use interweave_human_store::store_key::{
 };
 use interweave_profile_config::TrustBoundary;
 use interweave_profile_config::paths::ProfilePaths;
-use interweave_transport_api::EndpointId;
 use keystore::SoftKeystore;
 
 fn paths() -> (tempfile::TempDir, ProfilePaths) {
@@ -131,7 +130,7 @@ fn a_sealed_record_opens_under_its_own_alias_and_no_other() {
 #[test]
 fn the_store_alias_is_apart_from_the_seed_and_every_identity() {
     let store = store_key::alias("alice");
-    let identity = identity_key::alias("alice", &EndpointId::parse("human").unwrap());
+    let identity = identity_key::alias("alice", IdentityKey::generate().unwrap().endpoint());
     assert_eq!(store, "interweave.store.alice");
     assert!(!store.starts_with("interweave.iwk1."));
     assert!(!store.starts_with("interweave.idk1."));
@@ -202,7 +201,7 @@ fn records_of_another_kind_version_or_custody_are_refused_by_name() {
         Err(StoreKeyError::CustodyDowngrade)
     );
     // An identity's IDK1 record is not a store key.
-    let idk1 = IdentityKey::generate(EndpointId::parse("human").unwrap())
+    let idk1 = IdentityKey::generate()
         .unwrap()
         .to_record("p", &FilesystemCustody)
         .unwrap();

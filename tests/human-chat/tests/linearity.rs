@@ -11,24 +11,30 @@
 //! ratio over the bound is measured again, up to [`ATTEMPTS`] times, and
 //! only one over it every time fails. That a quadratic cost still fails
 //! and a linear one passes is held for a synthetic workload of each by
-//! `the_harness_fails_a_quadratic_cost_and_passes_a_linear_one`; the
-//! file's two timed tests take [`TIMING`] in turn, so neither is timed
-//! while the other burns the CPU. (Timed one size after the other, the test failed under a full
-//! parallel workspace run while passing alone, 2026-10-25.)
+//! `the_harness_fails_a_quadratic_cost_and_passes_a_linear_one`.
+//!
+//! Time is the timed thread's CPU time, not the wall clock: load beside
+//! it — the file's other timed test, which libtest runs on a thread
+//! beside it and nextest in a process beside it, or any other test
+//! process — takes the CPU away between its instructions, which the wall
+//! clock counts and the thread's own clock does not
+//! (`the_clock_counts_this_threads_work_alone`). Contention while the
+//! thread runs, on a shared core or its caches, still slows both sides,
+//! which the alternation and the retries absorb. (Timed one size
+//! after the other, the render test failed under a full parallel
+//! workspace run while passing alone, 2026-10-25; on the wall clock, the
+//! control measured a quadratic cost within the bound under nextest on
+//! CI, 2026-11-23, when the lock the two tests took in turn serialised
+//! nothing across its processes.)
 
 #![allow(clippy::expect_used, clippy::panic)]
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use interweave_human_chat_protocol::render;
 
 /// Four times the input may cost at most this many times the time.
 const ALLOWED_RATIO: f64 = 9.0;
-
-/// Held by each timed test for its whole run: libtest runs a file's tests
-/// in parallel, and the control's quadratic loop beside the render timing
-/// would load one side of it (#450 review, risk 1).
-static TIMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// How many times a ratio over the bound is measured before it fails.
 const ATTEMPTS: usize = 3;
@@ -37,13 +43,32 @@ const ATTEMPTS: usize = 3;
 /// under the 196,608-byte ceiling so both are parsed.
 const BASE: usize = 40_000;
 
+/// The CPU time the calling thread has used.
+#[cfg(unix)]
+fn thread_cpu_time() -> Duration {
+    let t = rustix::time::clock_gettime(rustix::time::ClockId::ThreadCPUTime);
+    Duration::new(
+        u64::try_from(t.tv_sec).expect("a thread's CPU time is not negative"),
+        u32::try_from(t.tv_nsec).expect("nanoseconds are under a second"),
+    )
+}
+
+/// Off unix there is no thread clock to hand; the wall clock since the
+/// first call stands in, and the two timed tests, which no lock keeps
+/// apart, can then load each other's measurement.
+#[cfg(not(unix))]
+fn thread_cpu_time() -> Duration {
+    static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    EPOCH.get_or_init(std::time::Instant::now).elapsed()
+}
+
 /// The ratio of `work` on `large` to `work` on `small`: each timed
 /// `runs` times in alternation, the best of each kept.
 fn ratio(work: &impl Fn(&str), small: &str, large: &str, runs: usize) -> (f64, Duration, Duration) {
     let time = |source: &str| {
-        let start = Instant::now();
+        let start = thread_cpu_time();
         work(std::hint::black_box(source));
-        start.elapsed()
+        thread_cpu_time().saturating_sub(start)
     };
     let (mut t_small, mut t_large) = (Duration::MAX, Duration::MAX);
     for _ in 0..runs {
@@ -79,9 +104,6 @@ fn fill(unit: &str, len: usize) -> String {
 
 #[test]
 fn every_pathological_shape_renders_in_linear_time() {
-    let _timing = TIMING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let shapes: [(&str, &str); 7] = [
         ("unclosed link brackets", "["),
         ("unclosed emphasis runs", "*a"),
@@ -118,9 +140,6 @@ fn every_pathological_shape_renders_in_linear_time() {
 /// `within_bound` passing on any attempt's measurement but the last.
 #[test]
 fn the_harness_fails_a_quadratic_cost_and_passes_a_linear_one() {
-    let _timing = TIMING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let small = fill("a", 2_000);
     let large = fill("a", 8_000);
     let quadratic = |source: &str| {
@@ -149,5 +168,46 @@ fn the_harness_fails_a_quadratic_cost_and_passes_a_linear_one() {
     assert!(
         within_bound(&linear, &small, &large).is_ok(),
         "a linear cost passes"
+    );
+}
+
+/// The clock [`ratio`] reads leaves out time this thread is not running:
+/// a sleep, and another thread's work, advance it by far less than this
+/// thread's own work does. The work is a fixed count of steps, not a
+/// span of wall time, so what it costs this thread does not shrink when
+/// load beside it takes the CPU away. Mutation: the monotonic or the
+/// process CPU clock in `thread_cpu_time`.
+#[cfg(unix)]
+#[test]
+fn the_clock_counts_this_threads_work_alone() {
+    let work = || {
+        let mut sum = 0u64;
+        for step in 0..30_000_000u64 {
+            sum = std::hint::black_box(sum.wrapping_add(step));
+        }
+    };
+    let used_by = |run: &dyn Fn()| {
+        let before = thread_cpu_time();
+        run();
+        thread_cpu_time().saturating_sub(before)
+    };
+    let own = used_by(&work);
+    let sleeping = used_by(&|| std::thread::sleep(own));
+    let joined = used_by(&|| {
+        std::thread::spawn(work)
+            .join()
+            .expect("the working thread ends");
+    });
+    assert!(
+        own >= Duration::from_millis(5),
+        "this thread's own work took only {own:?}"
+    );
+    assert!(
+        sleeping < own / 5,
+        "a sleep as long as the work took {sleeping:?} of the thread's CPU, the work {own:?}"
+    );
+    assert!(
+        joined < own / 5,
+        "another thread's work took {joined:?} of this one's CPU, its own {own:?}"
     );
 }

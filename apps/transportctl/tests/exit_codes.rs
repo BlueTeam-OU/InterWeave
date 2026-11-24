@@ -68,6 +68,10 @@ fn help_is_zero_and_a_usage_error_is_two() {
     }
 }
 
+/// TEST-ONLY: a derived `EndpointId` (tests/support
+/// `endpoint_keys::endpoint_id("human")`), the shape a 3.0 daemon takes.
+const HUMAN: &str = "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr";
+
 /// Every admin command, with no daemon and its lock free, is 3 and says
 /// no daemon runs.
 #[test]
@@ -77,9 +81,9 @@ fn no_daemon_is_three_for_every_admin_command() {
         &["status"][..],
         &["status", "--json"][..],
         &["endpoints", "list"][..],
-        &["endpoints", "revoke", "human"][..],
-        &["endpoints", "enable", "human"][..],
-        &["endpoints", "disable", "human"][..],
+        &["endpoints", "revoke", HUMAN][..],
+        &["endpoints", "enable", HUMAN][..],
+        &["endpoints", "disable", HUMAN][..],
         &["endpoints", "default", "--none"][..],
         &["trust", "list"][..],
         &["trust", "list", "--json"][..],

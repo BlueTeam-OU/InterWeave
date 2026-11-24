@@ -17,6 +17,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use serde_json::Value;
 
 /// Generous against a loaded host; every answer here is immediate.
@@ -151,9 +152,10 @@ fn assert_refused(args: &[&str], unset: &[&str], class: &str, log: LogFile) {
     assert_eq!(status["refused"]["class"], class, "{status}");
     match log {
         LogFile::Written => {
-            let file = scratch
-                .path()
-                .join("state/interweave/profiles/refused/claude-channel/claude.log");
+            let file = scratch.path().join(format!(
+                "state/interweave/profiles/refused/claude-channel/{}.log",
+                endpoint_id("claude").as_str()
+            ));
             assert_eq!(
                 status["log"]["file"],
                 file.to_str().expect("utf8"),
@@ -191,19 +193,22 @@ fn assert_refused(args: &[&str], unset: &[&str], class: &str, log: LogFile) {
     );
 }
 
-const GOOD: [&str; 6] = [
-    "--profile",
-    "refused",
-    "--endpoint",
-    "claude",
-    "--delivery",
-    "push",
-];
+fn good() -> [&'static str; 6] {
+    // Leaked once per call: a test process is short-lived.
+    [
+        "--profile",
+        "refused",
+        "--endpoint",
+        Box::leak(endpoint_id("claude").as_str().to_owned().into_boxed_str()),
+        "--delivery",
+        "push",
+    ]
+}
 
 #[test]
 fn an_unset_runtime_dir_is_served_as_a_refusal() {
     assert_refused(
-        &GOOD,
+        &good(),
         &["XDG_RUNTIME_DIR"],
         "runtime_dir_unset",
         LogFile::Written,
@@ -215,7 +220,7 @@ fn an_unset_runtime_dir_is_served_as_a_refusal() {
 #[test]
 fn an_unset_home_is_served_as_a_refusal() {
     assert_refused(
-        &GOOD,
+        &good(),
         &["HOME", "XDG_STATE_HOME"],
         "home_unset",
         LogFile::None("home_unset"),
@@ -229,7 +234,7 @@ fn a_profile_name_that_is_not_valid_is_served_as_a_refusal() {
             "--profile",
             "../escape",
             "--endpoint",
-            "claude",
+            endpoint_id("claude").as_str(),
             "--delivery",
             "push",
         ],
@@ -242,7 +247,12 @@ fn a_profile_name_that_is_not_valid_is_served_as_a_refusal() {
 #[test]
 fn a_usage_error_is_served_as_a_refusal() {
     assert_refused(
-        &["--profile", "refused", "--endpoint", "claude"],
+        &[
+            "--profile",
+            "refused",
+            "--endpoint",
+            endpoint_id("claude").as_str(),
+        ],
         &[],
         "usage",
         LogFile::None("no_profile"),
@@ -254,7 +264,7 @@ fn the_control_a_start_that_can_work_declares_the_channel() {
     let scratch = tempfile::tempdir().expect("tempdir");
     let env = scratch_env(scratch.path());
     let env: Vec<(&str, &std::path::Path)> = env.iter().map(|(k, v)| (*k, v.as_path())).collect();
-    let mut bridge = Bridge::start(&GOOD, &env, &[]);
+    let mut bridge = Bridge::start(&good(), &env, &[]);
     let init = initialize(&mut bridge);
     assert!(
         init["result"]["capabilities"]["experimental"]
@@ -273,7 +283,7 @@ fn the_control_a_start_that_can_work_declares_the_channel() {
 fn a_closed_stderr_neither_ends_the_bridge_nor_costs_the_file_its_lines() {
     let scratch = tempfile::tempdir().expect("tempdir");
     let mut command = Command::new(env!("CARGO_BIN_EXE_claude-channel"));
-    command.args(GOOD).args(["--log-level", "debug"]);
+    command.args(good()).args(["--log-level", "debug"]);
     for (key, value) in scratch_env(scratch.path()) {
         command.env(key, value);
     }
@@ -285,9 +295,10 @@ fn a_closed_stderr_neither_ends_the_bridge_nor_costs_the_file_its_lines() {
         .expect("spawns");
     // The read end closed: every stderr write from here is EPIPE.
     drop(child.stderr.take());
-    let file = scratch
-        .path()
-        .join("state/interweave/profiles/refused/claude-channel/claude.log");
+    let file = scratch.path().join(format!(
+        "state/interweave/profiles/refused/claude-channel/{}.log",
+        endpoint_id("claude").as_str()
+    ));
     // The daemon is away: the bridge writes a failed open and its
     // reconnects, each to the closed stderr, while it runs.
     let deadline = Instant::now() + PROMPT;

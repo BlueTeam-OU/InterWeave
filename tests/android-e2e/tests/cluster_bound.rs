@@ -111,6 +111,7 @@ impl Sender {
             .expect("a store directory");
         let store = HumanStore::open(
             &store_dir.path().join("state/human.sqlite"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
             StoreOptions::default(),
         )
         .expect("a store");
@@ -210,8 +211,9 @@ impl Sender {
             .local_peer()
             .cloned()
             .expect("D's session says its PeerId");
-        // Test-only key material: a fixed seed, never a real identity.
-        let key = ed25519_dalek::SigningKey::from_bytes(&[58; 32]);
+        // `human`'s TEST-ONLY key, the one its id derives from: a card's
+        // key is its endpoint's own (ADR-0067 decision 5).
+        let key = interweave_test_support::endpoint_keys::signing_key("human");
         let id = format!("{serial:032x}");
         let card = build_card(
             &id,

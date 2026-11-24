@@ -24,3 +24,6 @@ serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# TEST-ONLY derived EndpointIds (`endpoint_keys::endpoint_id`), its default
+# features only: it depends on the contract crates alone, so no cycle.
+interweave-test-support = { path = "../../../tests/support" }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The desktop IPC v2 client (`LOCAL-IPC.md`; plan §16 (1)): the neutral
+//! The desktop IPC client, major 3 (`LOCAL-IPC.md`; plan §16 (1)): the neutral
 //! binding traits of `local-client-api` over the daemon's two sockets.
 //!
 //! [`IpcBinding`] opens an [`IpcSession`] on the data socket and an

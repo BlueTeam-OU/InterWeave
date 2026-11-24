@@ -388,6 +388,42 @@ pub fn remove_private_within(path: &Path, boundary: &TrustBoundary) -> Result<bo
     Ok(true)
 }
 
+/// Give the file at `from` the name `to`, in the same directory, unless
+/// `to` exists, in one operation that never replaces, and sync the
+/// directory: how a key minted under a name only its minter looks for is
+/// published under the name the daemon reads. Both names are judged under
+/// `boundary` as a private write's is, and must share a directory.
+///
+/// # Errors
+/// [`PersistError::AlreadyExists`] when `to` is taken and
+/// [`PersistError::Io`] otherwise, nothing changed;
+/// [`PersistError::Unsynced`] when the sync after the rename fails -- `to`
+/// exists, its name perhaps not durable.
+pub fn rename_private_no_replace_within(
+    from: &Path,
+    to: &Path,
+    boundary: &TrustBoundary,
+) -> Result<(), PersistError> {
+    let parent = resolve_private_dir_within(parent_dir(to), boundary)?;
+    if resolve_private_dir_within(parent_dir(from), boundary)? != parent {
+        return Err(PersistError::Io(std::io::Error::other(
+            "a no-replace rename stays in one directory",
+        )));
+    }
+    publish_no_replace(&parent.join(file_name(from)?), &parent.join(file_name(to)?)).map_err(
+        |e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                PersistError::AlreadyExists
+            } else {
+                PersistError::Io(e)
+            }
+        },
+    )?;
+    #[cfg(unix)]
+    fsync_dir(&parent)?;
+    Ok(())
+}
+
 /// Write `contents` to `path` atomically with default permissions.
 ///
 /// For configuration, which is not secret. The identity key must use

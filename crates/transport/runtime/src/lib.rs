@@ -62,7 +62,8 @@ pub use directory::{
 pub use discovery::{AggregatedCandidate, DiscoveryManager, RejectedEvent};
 pub use endpoint_queue::{DirectEvent, EndpointQueues, QueueRefusal};
 pub use endpoint_registry::{
-    ActiveLease, ClaimFailure, EndpointRegistry, LocalSessionId, RegisteredEndpoint, ResolveFailure,
+    ActiveLease, ClaimFailure, EndpointRegistry, LocalSessionId, OwnTrust, RegisteredEndpoint,
+    ResolveFailure,
 };
 pub use fingerprint::{ContentFingerprint, FingerprintError, direct_content_fingerprint_v1};
 pub use ingress::{

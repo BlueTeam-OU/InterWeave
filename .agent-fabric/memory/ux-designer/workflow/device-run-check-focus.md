@@ -5,13 +5,14 @@ topic: "device-run-check-focus"
 description: On the shared Pixel, a scripted device run checks which app has focus before every tap and stops if it is not InterWeave; blind tap sequences can hit system settings
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 33f7b3f846480bb2
   - 571a58e444b385f4
 ---
 
@@ -71,6 +72,14 @@ More lessons:
 
 2026-10-21 (j31, round 4): the Pixel is also the owner's own phone. A Telegram heads-up arrived between the focus check and a tap and took the tap (it opened the notification; nothing sent). Since then every run turns Do Not Disturb on (`cmd notification set_dnd on`) and sets it back as found (`settings get global zen_mode` first). A personal notification caught in a capture is deleted at once. Restore any changed setting (font_scale, uimode night, rotation, DND) inside the run, before `adb disconnect`: an EXIT trap that runs after the disconnect finds no device and restores nothing (font stayed at 2.0 and light theme for a minute).
 
+adb hygiene, from the unlock-note runs (2026-11-07/08):
+- Never poll adb in a loop. adbd's own log lines roll the 512K logcat buffer and the trace is lost. Wait for one line with
+  `logcat -e <pattern> -m 1`.
+- The app's debug `ui-trace focus=/notice=/prompt=` lines give focus without TalkBack. Read them, not a screenshot.
+- Take a `uiautomator dump` only while the target window has focus. Otherwise it captures the launcher, and the person's app list with it.
+- For a biometric or unlock prompt the owner must answer: say "holding", and then "grant" for each prompt. A watcher never taps Unlock blind.
+- After `adb connect`, sleep about 10 s before the first command.
+
 *References: workflow-carried-2026-10-18*
 
-*Observed 2026-10-21 (ux-designer)*
+*Observed 2026-11-13 (ux-designer)*

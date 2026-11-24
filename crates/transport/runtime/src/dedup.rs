@@ -499,7 +499,7 @@ mod tests {
         TransportIdentity::parse(s).expect("valid identity")
     }
     fn ep(name: &str) -> EndpointId {
-        EndpointId::parse(name).expect("valid endpoint")
+        interweave_test_support::endpoint_keys::endpoint_id(name)
     }
     fn mid(b: u8) -> MessageId {
         MessageId::from_bytes([b; 16])

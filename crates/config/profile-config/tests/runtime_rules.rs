@@ -12,17 +12,25 @@
 
 use interweave_profile_config::{ConfigError, ProfileConfig};
 
+/// The leased endpoint's id: the entry below, named by id, since
+/// `runtime.android.endpoint` takes a derived id and never an alias
+/// (ADR-0067).
+const LEASED: &str = "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr";
+
 fn profile(deployment: &str, endpoint_enabled: bool, extra: &str) -> ProfileConfig {
     let doc = format!(
         "schema_version: 2
 runtime:
   deployment: {deployment}
+  android:
+    endpoint: {LEASED}
 trust:
   policy: static-allowlist
   allowed_peers: []
 endpoints:
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: {endpoint_enabled}
       advertise: false
 {extra}"
@@ -50,22 +58,29 @@ fn an_android_profile_with_its_endpoint_enabled_is_accepted() {
     assert!(android_errors(&profile("embedded-android", true, "")).is_empty());
 }
 
+/// Rule 3's split (`ENDPOINTS.md`, A 2026-11-21): at load the named
+/// endpoint must be configured, and whether it is enabled is the start's.
 #[test]
 fn an_android_profile_must_lease_an_enabled_configured_endpoint() {
+    let disabled = profile("embedded-android", false, "");
+    assert!(
+        android_errors(&disabled).is_empty(),
+        "a configured endpoint, disabled, loads"
+    );
     assert_eq!(
-        android_errors(&profile("embedded-android", false, "")),
-        vec![ConfigError::AndroidEndpointNotEnabled {
-            endpoint: "human".to_owned()
-        }],
-        "the default endpoint, disabled"
+        disabled
+            .runtime
+            .require_android_identity(&disabled.endpoints),
+        Err(ConfigError::AndroidNoIdentity),
+        "and its start is refused: no identity is enabled"
     );
     let mut named = profile("embedded-android", true, "");
-    named.runtime.android.endpoint =
-        Some(interweave_transport_api::EndpointId::parse("pager").expect("valid"));
+    let pager = interweave_test_support::endpoint_keys::endpoint_id("pager");
+    named.runtime.android.endpoint = Some(pager.clone());
     assert_eq!(
         android_errors(&named),
         vec![ConfigError::AndroidEndpointNotEnabled {
-            endpoint: "pager".to_owned()
+            endpoint: pager.as_str().to_owned()
         }],
         "an endpoint that is not configured at all"
     );
@@ -145,6 +160,101 @@ fn an_android_profile_listens_on_wildcard_addresses_only() {
             "the control: a daemon may listen on {refused}"
         );
     }
+}
+
+/// The field takes an id, NEVER AN ALIAS: `human` is the entry's alias
+/// and not a derived id, so the document is refused as it parses, naming
+/// the field -- beside the same entry named by its id, accepted.
+#[test]
+fn an_android_endpoint_named_by_alias_is_refused() {
+    let doc = format!(
+        "schema_version: 2
+runtime:
+  deployment: embedded-android
+  android:
+    endpoint: human
+trust:
+  policy: static-allowlist
+  allowed_peers: []
+endpoints:
+  entries:
+    - key: {LEASED}.key
+      alias: human
+      enabled: true
+      advertise: false
+"
+    );
+    let by_alias = serde_norway::from_str::<ProfileConfig>(&doc)
+        .expect_err("an alias is not an EndpointId")
+        .to_string();
+    assert!(
+        by_alias.contains("runtime.android") && by_alias.contains("exactly 52"),
+        "{by_alias}"
+    );
+    let by_id: ProfileConfig =
+        serde_norway::from_str(&doc.replace("endpoint: human", &format!("endpoint: {LEASED}")))
+            .expect("parses");
+    assert!(android_errors(&by_id).is_empty(), "the control: by id");
+}
+
+/// Rule 3 BINDS THE START (j185): an embedded-android profile with no
+/// `runtime.android.endpoint` validates -- the first-run document before
+/// onboarding loads -- and its start's check refuses it
+/// `AndroidNoIdentity`; so does one whose composed set enables no
+/// endpoint. The controls: the same profile naming its enabled endpoint
+/// passes both, and a daemon is asked nothing.
+#[test]
+fn an_android_start_needs_an_identity() {
+    let mut absent = profile("embedded-android", true, "");
+    absent.runtime.android.endpoint = None;
+    assert!(
+        android_errors(&absent).is_empty(),
+        "absent is no load refusal"
+    );
+    assert_eq!(
+        absent.runtime.require_android_identity(&absent.endpoints),
+        Err(ConfigError::AndroidNoIdentity)
+    );
+    let named = profile("embedded-android", true, "");
+    assert_eq!(
+        named.runtime.require_android_identity(&named.endpoints),
+        Ok(()),
+        "the control: named and enabled"
+    );
+    // The named entry disabled while another is enabled: an identity to
+    // start as (ADR-0061 decision 7).
+    let mut other = named.endpoints.clone();
+    let mut second = other.entries[0].clone();
+    second.id = interweave_test_support::endpoint_keys::endpoint_id("other");
+    second.alias = None;
+    other.entries[0].enabled = false;
+    other.entries.push(second);
+    assert_eq!(
+        named.runtime.require_android_identity(&other),
+        Ok(()),
+        "the named endpoint disabled beside an enabled one"
+    );
+    // The composed set (an overlay disabling the one entry) enables none.
+    let mut composed = named.endpoints.clone();
+    composed.entries[0].enabled = false;
+    assert_eq!(
+        named.runtime.require_android_identity(&composed),
+        Err(ConfigError::AndroidNoIdentity)
+    );
+    let mut daemon = profile("daemon-ipc", true, "");
+    daemon.runtime.android.endpoint = None;
+    assert_eq!(
+        daemon.runtime.require_android_identity(&daemon.endpoints),
+        Ok(()),
+        "a daemon leases nothing at start"
+    );
+    assert!(
+        ConfigError::AndroidNoIdentity
+            .to_string()
+            .contains("onboarding seals the first identity"),
+        "{}",
+        ConfigError::AndroidNoIdentity
+    );
 }
 
 #[test]

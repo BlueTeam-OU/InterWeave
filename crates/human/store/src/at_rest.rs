@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 use interweave_profile_config as profile_config;
 use interweave_profile_config::paths::ProfilePaths;
 use interweave_profile_config::profile_format;
+use interweave_transport_api::EndpointId;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::StoreError;
@@ -304,6 +305,7 @@ fn key_for_new_ciphertext(
 pub(crate) fn open(
     paths: &ProfilePaths,
     cipher: &dyn KeyCipher,
+    identity: &EndpointId,
     options: StoreOptions,
 ) -> Result<HumanStore, StoreError> {
     let names = Names::of(paths);
@@ -326,6 +328,7 @@ pub(crate) fn open(
         drop(HumanStore::open_within(
             &names.db(),
             paths.boundary(),
+            identity,
             options,
             None,
         )?);
@@ -361,7 +364,7 @@ pub(crate) fn open(
     } else {
         read_key(paths, cipher)?.ok_or(StoreError::AtRest(AtRestRecovery::KeyMissing))?
     };
-    HumanStore::open_within(&names.db(), paths.boundary(), options, Some(&key))
+    HumanStore::open_within(&names.db(), paths.boundary(), identity, options, Some(&key))
 }
 
 /// The profile's store at rest, without opening it or writing anything.

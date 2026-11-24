@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
 #
-# The desktop IPC v2 client: the neutral binding traits over the daemon's
+# The desktop IPC client (major 3): the neutral binding traits over the daemon's
 # two sockets (plan §16 (1)), so a local application holds the same
 # DataSessionPort and AdminPort whether its binding is in-process or IPC.
 # Like the server, it depends on nothing under crates/transport/* and on
@@ -10,7 +10,7 @@
 name = "interweave-ipc-client"
 version.workspace = true
 publish = false
-description = "InterWeave desktop IPC v2 client implementing the neutral local-session binding."
+description = "InterWeave desktop IPC client implementing the neutral local-session binding."
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -29,6 +29,9 @@ serde = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
+# TEST-ONLY derived EndpointIds; default features only, which name no IPC
+# crate, so no cycle.
+interweave-test-support = { path = "../../../tests/support" }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 # The paused clock: the keepalive silence bound is minutes long.

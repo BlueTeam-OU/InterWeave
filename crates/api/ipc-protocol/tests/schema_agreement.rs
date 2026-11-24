@@ -13,18 +13,18 @@ use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
     AuthorityDomain, Cancel, ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult,
     EndpointList, EndpointParams, Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello,
-    HelloResponse, HelloTag, IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED,
-    Method, Nonce, OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams,
-    Request, RequestId, RequestedCapability, ResponseFrame, SUPERSEDED_SINCE_MINOR, SendParams,
-    SendResult, ServerCounters, ServerState, SessionLossesResult, SetDefaultParams,
-    SetEnabledParams, SetEnabledResult, ShutdownParams, TrustList, TrustListParams, TrustSetParams,
+    HelloResponse, HelloTag, IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce,
+    OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId,
+    RequestedCapability, ResponseFrame, SendParams, SendResult, ServerCounters, ServerState,
+    SessionLossesResult, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams,
+    Since, TrustList, TrustListParams, TrustSeedParams, TrustSeedResult, TrustSetParams,
     TrustSetResult, UnsupportedMajor, encode_frame, supported,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminCapability, AdminStatus,
     BootstrapAddress, DataCapability, EndpointAdminView, Generation, LeaseRecord, LineChange,
     LocalSessionEvent, OwnAddress, OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome,
-    ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView, TrustDirection,
 };
 use interweave_transport_api::{
     ChannelId, ConnectivitySummary, DirectInboundState, EndpointDirectoryV1, EndpointId, Health,
@@ -248,12 +248,28 @@ fn the_method_table_in_the_prose_is_the_rust_table() {
             "{} capability",
             method.as_str()
         );
-        assert_eq!(
-            row[5],
-            format!("2.{}", entry.since_minor),
-            "{} since",
-            method.as_str()
+        assert_prose_since(&row[5], entry.since, method.as_str());
+    }
+}
+
+/// A prose `Since` cell against the code's pair (`LOCAL-IPC.md` §Version
+/// negotiation and phases): a cell of the major the code speaks names the
+/// code's pair exactly; a cell of major 2 is the row's history -- at or
+/// below 2.13, where major 2 ended -- and every such row is 3.0 in the
+/// code, since 3.0 holds everything 2.13 held.
+fn assert_prose_since(cell: &str, since: Since, what: &str) {
+    let (major, minor) = cell
+        .split_once('.')
+        .and_then(|(a, b)| Some((a.parse::<u64>().ok()?, b.parse::<u64>().ok()?)))
+        .unwrap_or_else(|| panic!("{what}: since {cell:?} is not <major>.<minor>"));
+    if major == IPC_MAJOR {
+        assert_eq!(Since { major, minor }, since, "{what} since");
+    } else {
+        assert!(
+            major == 2 && minor <= 13,
+            "{what}: {cell} is no pair of major 2's history"
         );
+        assert_eq!(since, Since::THREE_ZERO, "{what}: a 2.x row is a 3.0 row");
     }
 }
 
@@ -298,23 +314,18 @@ fn the_prose_event_table_is_the_event_schemas_binding() {
     let doc = schema("ipc/event.schema.json");
     for row in rows {
         let kind = EventType::parse(first_code(&row[0])).unwrap_or_else(|| panic!("{row:?}"));
-        // The type's minor leads the cell; a SHAPE added later is named
-        // after it -- `peer.path_changed`'s notice with no `previous`
-        // (2.4) -- and no other type carries one.
+        // The type's version leads the cell; a SHAPE added later is named
+        // after it, as history -- `peer.path_changed`'s notice with no
+        // `previous` (2.4), in 3.0 since 3.0 holds all of 2.13 -- and no
+        // other type carries one.
         let (since, later) = row[3]
             .split_once(' ')
             .map_or((row[3].as_str(), None), |(a, b)| (a, Some(b)));
-        assert_eq!(
-            since,
-            format!("2.{}", kind.since_minor()),
-            "{} since",
-            kind.as_str()
-        );
+        assert_prose_since(since, kind.since(), kind.as_str());
         if kind == EventType::PathChanged {
-            let shape = format!("2.{}", interweave_ipc_protocol::ROUTE_NOTICE_SINCE_MINOR);
             assert!(
-                later.is_some_and(|l| l.contains(&shape)),
-                "the route notice's minor named: {}",
+                later.is_some_and(|l| l.contains("2.4")),
+                "the route notice's history named: {}",
                 row[3]
             );
         } else {
@@ -363,7 +374,7 @@ fn hello_matches_its_schema_shape() {
         doc["properties"]["ipc_version"]["properties"]["major"]["minimum"],
         serde_json::json!(1)
     );
-    assert_eq!(IPC_MAJOR, 2, "the server speaks IPC v2");
+    assert_eq!(IPC_MAJOR, 3, "the server speaks IPC major 3");
     assert_eq!(
         doc["properties"]["requested_capabilities"]["maxItems"],
         serde_json::json!(MAX_REQUESTED)
@@ -376,7 +387,7 @@ fn hello_matches_its_schema_shape() {
     // A minimal schema-shaped hello deserializes into the Rust type.
     let minimal = serde_json::json!({
         "type": "hello",
-        "ipc_version": { "major": 2, "minor": 0 },
+        "ipc_version": { "major": 3, "minor": 0 },
         "client": { "kind": "human-client" }
     });
     let parsed: Hello = serde_json::from_value(minimal).expect("de");
@@ -386,7 +397,7 @@ fn hello_matches_its_schema_shape() {
     // And a Rust-built hello serializes into that shape.
     let built = Hello {
         frame_type: HelloTag::Hello,
-        ipc_version: IpcVersion { major: 2, minor: 0 },
+        ipc_version: IpcVersion { major: 3, minor: 0 },
         client: ClientInfo {
             kind: "human-client".to_owned(),
             version: None,
@@ -408,7 +419,7 @@ fn the_frame_ceiling_matches_the_contract_and_the_fixture() {
     // crate, the prose contract, and the frozen payload-fit vectors.
     assert_eq!(MAX_BODY_BYTES, 131_072);
 
-    let fixture = json_at("fixtures/ipc-v2/ipc-v2-payload-fit.json");
+    let fixture = json_at("fixtures/ipc-v3/ipc-v3-payload-fit.json");
     let vectors = fixture["vectors"].as_array().expect("vectors");
     assert!(!vectors.is_empty(), "the payload-fit fixture is empty");
 
@@ -456,7 +467,7 @@ fn the_authority_domain_is_not_a_frame_field() {
     // socket they arrived on.
     let json = serde_json::json!({
         "type": "hello",
-        "ipc_version": { "major": 2, "minor": 0 },
+        "ipc_version": { "major": 3, "minor": 0 },
         "client": { "kind": "admin" },
         "requested_capabilities": ["admin.shutdown"]
     });
@@ -478,7 +489,7 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 39] = [
+const IPC_SCHEMAS: [&str; 41] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
@@ -516,6 +527,8 @@ const IPC_SCHEMAS: [&str; 39] = [
     "architecture/contracts/schemas/ipc/shutdown-params.schema.json",
     "architecture/contracts/schemas/ipc/trust-list-params.schema.json",
     "architecture/contracts/schemas/ipc/trust-list.schema.json",
+    "architecture/contracts/schemas/ipc/trust-seed-params.schema.json",
+    "architecture/contracts/schemas/ipc/trust-seed-result.schema.json",
     "architecture/contracts/schemas/ipc/trust-set-params.schema.json",
     "architecture/contracts/schemas/ipc/trust-set-result.schema.json",
 ];
@@ -605,16 +618,139 @@ fn the_trust_row_shapes_agree_with_the_schema_both_ways() {
     }
 }
 
-/// `ipc/endpoint-list` 1.1.0 widens `persisted` from the literal
-/// `false` to a boolean -- the 2.0 row and the 2.5 row -- and the mirror
-/// reads exactly what the schema admits: both values pass both, and a
-/// row missing it or naming it as anything else fails both.
+/// Major 3 carries the derived `EndpointId` alone (ADR-0067 decision 7):
+/// in every IPC document that holds one, a label of the retired grammar
+/// -- well formed under it, inside every length bound -- is refused by the
+/// schema and by the mirror alike, and the derived id in the same place is
+/// the control both accept. The hello's claim is the one place a label
+/// parses, to be answered `InvalidArgument` by the handshake
+/// (`handshake.rs`'s `a_label_claim_is_invalid_argument`).
+#[test]
+fn a_label_is_refused_wherever_an_ipc_document_carries_an_endpoint_id() {
+    type Reads = fn(&Value) -> bool;
+    type Mirror = Box<dyn Fn(&Value) -> bool>;
+    fn params(method: Method) -> impl Fn(&Value) -> bool {
+        move |v| {
+            let raw = serde_json::value::to_raw_value(v).expect("raw");
+            Request::decode(method, Some(&raw)).is_ok()
+        }
+    }
+    fn event(kind: &'static str) -> impl Fn(&Value) -> bool {
+        move |v| {
+            let raw = serde_json::value::to_raw_value(v).expect("raw");
+            Event::decode(kind, Some(&raw), supported()[0]).is_ok()
+        }
+    }
+    let message = serde_json::json!({"media_type": "text/plain", "bytes": "aGk"});
+    let id = "018f3c2a5e6d7b8c9dabcdef01234567";
+    let cases: Vec<(&str, Value, &str, Mirror)> = vec![
+        (
+            "ipc/send-params",
+            serde_json::json!({"peer": PEER, "endpoint": HUMAN, "message_id": id, "payload": message}),
+            "/endpoint",
+            Box::new(params(Method::DirectSend)),
+        ),
+        (
+            "ipc/endpoint-params",
+            serde_json::json!({"endpoint": HUMAN}),
+            "/endpoint",
+            Box::new(params(Method::AdminEndpointsRevoke)),
+        ),
+        (
+            "ipc/set-enabled-params",
+            serde_json::json!({"endpoint": HUMAN, "enabled": false}),
+            "/endpoint",
+            Box::new(params(Method::AdminEndpointsSetEnabled)),
+        ),
+        (
+            "ipc/set-default-params",
+            serde_json::json!({"endpoint": HUMAN}),
+            "/endpoint",
+            Box::new(params(Method::AdminEndpointsSetDefault)),
+        ),
+        (
+            "ipc/send-result",
+            serde_json::json!({"resolved_endpoint": HUMAN}),
+            "/resolved_endpoint",
+            Box::new((|v| serde_json::from_value::<SendResult>(v.clone()).is_ok()) as Reads),
+        ),
+        (
+            "ipc/endpoint-list",
+            serde_json::json!({"endpoints": [{"id": HUMAN, "enabled": true, "default": true, "persisted": true}]}),
+            "/endpoints/0/id",
+            Box::new((|v| serde_json::from_value::<EndpointList>(v.clone()).is_ok()) as Reads),
+        ),
+        (
+            "endpoints/directory-response",
+            serde_json::json!({"endpoints": [BOT, HUMAN], "ttl_ms": 1, "generated_at_ms": 2}),
+            "/endpoints/1",
+            Box::new((|v| serde_json::from_value::<DirectoryResult>(v.clone()).is_ok()) as Reads),
+        ),
+        (
+            "ipc/lease-changed",
+            serde_json::json!({"endpoint": HUMAN, "revoked_epoch": "AAAAAAAAAAAAAAAAAAAAAQ"}),
+            "/endpoint",
+            Box::new(event("endpoint.lease_changed")),
+        ),
+        (
+            "endpoints/message-received",
+            serde_json::json!({"message_id": id, "mode": "direct", "source_peer": PEER,
+                "source_endpoint": HUMAN, "destination_endpoint": BOT, "payload": message,
+                "received_at": 1}),
+            "/source_endpoint",
+            Box::new(event("message.direct")),
+        ),
+        (
+            "endpoints/message-received",
+            serde_json::json!({"message_id": id, "mode": "direct", "source_peer": PEER,
+                "source_endpoint": BOT, "destination_endpoint": HUMAN, "payload": message,
+                "received_at": 1}),
+            "/destination_endpoint",
+            Box::new(event("message.direct")),
+        ),
+        (
+            "ipc/frame",
+            serde_json::json!({"type": "hello_response", "ipc_version": {"major": 3, "minor": 0},
+                "transport_contract_version": "3.0", "peer": PEER, "endpoint": HUMAN,
+                "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ", "event_queue": 256,
+                "granted_capabilities": ["events"]}),
+            "/endpoint",
+            Box::new((|v| Frame::parse(&v.to_string()).is_ok()) as Reads),
+        ),
+    ];
+    for (name, derived, pointer, reads) in cases {
+        let path = format!("architecture/contracts/schemas/{name}.schema.json");
+        let schema = validator(&path);
+        assert!(
+            schema.is_valid(&derived),
+            "{name}: the schema takes the derived id"
+        );
+        assert!(reads(&derived), "{name}: and so does the mirror");
+        for label in ["human", "claude.agent-1", "a"] {
+            let mut labelled = derived.clone();
+            *labelled.pointer_mut(pointer).expect("the endpoint") = Value::from(label);
+            assert!(
+                !schema.is_valid(&labelled),
+                "{name}{pointer}: the schema refuses {label}"
+            );
+            assert!(
+                !reads(&labelled),
+                "{name}{pointer}: and so does the mirror, {label}"
+            );
+        }
+    }
+}
+
+/// `ipc/endpoint-list` (2.0.0) admits `persisted` as either boolean --
+/// `false` on the 2.0 row, `true` on the 2.5 row -- and the mirror reads
+/// exactly what the schema admits: both values pass both, and a row
+/// missing it or naming it as anything else (`null`, a string) fails both.
 #[test]
 fn the_endpoint_row_shapes_agree_with_the_schema_both_ways() {
     let path = "architecture/contracts/schemas/ipc/endpoint-list.schema.json";
     let schema = validator(path);
     let row = |persisted: Option<Value>| {
-        let mut row = serde_json::json!({"id": "human", "enabled": true, "default": false});
+        let mut row = serde_json::json!({"id": HUMAN, "enabled": true, "default": false});
         if let Some(p) = persisted {
             row["persisted"] = p;
         }
@@ -643,8 +779,19 @@ fn peer() -> TransportIdentity {
     TransportIdentity::parse(PEER).expect("peer")
 }
 
-fn ep(id: &str) -> EndpointId {
-    EndpointId::parse(id).expect("endpoint")
+fn ep(name: &str) -> EndpointId {
+    interweave_test_support::endpoint_keys::endpoint_id(name)
+}
+
+/// TEST-ONLY derived ids, `ep("human")` and `ep("bot")` as text
+/// (`the_test_only_ids_are_the_support_crates`).
+const HUMAN: &str = "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr";
+const BOT: &str = "12D3KooWBcY4QvsUdzcWLKkthqMjuYpRpAQxDF3hAwiD3SJbtvfV";
+
+#[test]
+fn the_test_only_ids_are_the_support_crates() {
+    assert_eq!(ep("human").as_str(), HUMAN);
+    assert_eq!(ep("bot").as_str(), BOT);
 }
 
 fn epoch() -> Generation {
@@ -713,10 +860,16 @@ fn every_request() -> Vec<Request> {
         }),
         Request::AdminTrustList(TrustListParams {
             after: Some(peer()),
+            endpoint: Some(ep("human")),
+            direction: Some(TrustDirection::Outbound),
         }),
         Request::AdminTrustSet(TrustSetParams {
             peer: peer(),
             allowed: false,
+            endpoint: Some(ep("human")),
+        }),
+        Request::AdminTrustSeed(TrustSeedParams {
+            endpoint: ep("human"),
         }),
         Request::AdminPeersList(PeerListParams {
             after: Some(peer()),
@@ -810,32 +963,28 @@ fn every_result() -> Vec<(&'static str, Value)> {
             events_refused: Some(5),
         },
         ServerCounters::default(),
-        IPC_MAX_MINOR,
     );
-    let list = EndpointList::from_views(
-        vec![
-            EndpointAdminView {
-                endpoint: ep("bot"),
-                enabled: false,
-                default: false,
-                persisted: false,
-                lease: None,
-            },
-            EndpointAdminView {
+    let list = EndpointList::from_views(vec![
+        EndpointAdminView {
+            endpoint: ep("bot"),
+            enabled: false,
+            default: false,
+            persisted: false,
+            lease: None,
+        },
+        EndpointAdminView {
+            endpoint: ep("human"),
+            enabled: true,
+            default: true,
+            persisted: true,
+            lease: Some(LeaseRecord {
                 endpoint: ep("human"),
-                enabled: true,
-                default: true,
-                persisted: true,
-                lease: Some(LeaseRecord {
-                    endpoint: ep("human"),
-                    epoch: epoch(),
-                    client_kind: "human-client".into(),
-                    session_id: Some("s".into()),
-                }),
-            },
-        ],
-        interweave_ipc_protocol::IPC_MAX_MINOR,
-    )
+                epoch: epoch(),
+                client_kind: "human-client".into(),
+                session_id: Some("s".into()),
+            }),
+        },
+    ])
     .expect("rows");
     let trust = TrustAdminView {
         local_peer: Some(
@@ -900,24 +1049,15 @@ fn every_result() -> Vec<(&'static str, Value)> {
             }),
         ),
         // The first page names the local peer; a later one does not; an
-        // empty allowlist is a page with no rows. Each in both row
-        // shapes: the 2.1 row below 2.3, the persisted row with its
-        // source from it.
+        // empty allowlist is a page with no rows. The persisted row with
+        // its source, the one row shape 3.0 serves.
         (
             "architecture/contracts/schemas/ipc/trust-list.schema.json",
-            json(&TrustList::page(trust.clone(), None, 2)),
+            json(&TrustList::page(trust.clone(), None)),
         ),
         (
             "architecture/contracts/schemas/ipc/trust-list.schema.json",
-            json(&TrustList::page(trust.clone(), None, 3)),
-        ),
-        (
-            "architecture/contracts/schemas/ipc/trust-list.schema.json",
-            json(&TrustList::page(trust.clone(), Some(&peer()), 2)),
-        ),
-        (
-            "architecture/contracts/schemas/ipc/trust-list.schema.json",
-            json(&TrustList::page(trust, Some(&peer()), 3)),
+            json(&TrustList::page(trust, Some(&peer()))),
         ),
         (
             "architecture/contracts/schemas/ipc/trust-list.schema.json",
@@ -927,7 +1067,6 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     allowed: Vec::new(),
                 },
                 None,
-                3,
             )),
         ),
         // A row with every field and one with none of the optional ones,
@@ -956,10 +1095,9 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     },
                 ],
                 None,
-                interweave_ipc_protocol::IPC_MAX_MINOR,
             )),
         ),
-        // The 1.1 row a connection below 2.12 is served: no
+        // A port that does not say when it last saw the peer: no
         // `last_seen_ms`, the route hold still there.
         (
             "architecture/contracts/schemas/ipc/peer-list.schema.json",
@@ -967,14 +1105,13 @@ fn every_result() -> Vec<(&'static str, Value)> {
                 vec![PeerGateView {
                     peer: peer(),
                     connected: false,
-                    last_seen: interweave_local_client_api::PeerLastSeen::At(1_791_329_940_227),
+                    last_seen: interweave_local_client_api::PeerLastSeen::Unreported,
                     backoff_until: None,
                     quarantined_until: None,
                     route_held_until: Some(1_791_329_960_227),
                     last_outcome: Some(PeerOutcome::DialFailed),
                 }],
                 None,
-                interweave_ipc_protocol::LAST_SEEN_SINCE_MINOR - 1,
             )),
         ),
         (
@@ -986,11 +1123,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
         ),
         (
             "architecture/contracts/schemas/ipc/peer-list.schema.json",
-            json(&PeerList::page(
-                Vec::new(),
-                None,
-                interweave_ipc_protocol::IPC_MAX_MINOR,
-            )),
+            json(&PeerList::page(Vec::new(), None)),
         ),
         (
             "architecture/contracts/schemas/ipc/session-losses-result.schema.json",
@@ -1038,9 +1171,9 @@ fn json<T: serde::Serialize>(value: &T) -> Value {
 /// Every frame class this crate builds, in every shape it builds it.
 fn every_frame() -> Vec<Frame> {
     let hello: Hello = serde_json::from_value(serde_json::json!({
-        "type": "hello", "ipc_version": {"major": 2, "minor": 0},
+        "type": "hello", "ipc_version": {"major": 3, "minor": 0},
         "client": {"kind": "human-client", "version": "0.1.0"},
-        "endpoint": {"id": "human"},
+        "endpoint": {"id": HUMAN},
         "requested_capabilities": ["events", "commands"], "features": ["keepalive"]
     }))
     .expect("hello");
@@ -1054,7 +1187,7 @@ fn every_frame() -> Vec<Frame> {
         granted_admin: [AdminCapability::Status, AdminCapability::Shutdown].into(),
         endpoint: None,
     };
-    let version = IpcVersion { major: 2, minor: 0 };
+    let version = IpcVersion { major: 3, minor: 0 };
     let nonce = Nonce::new("_-0123456789abcdefghij").expect("nonce");
     let ping = Ping::new(nonce);
     let mut frames = vec![
@@ -1145,7 +1278,7 @@ fn every_emitted_frame_validates_against_the_frame_schema() {
 
 /// A data hello otherwise valid, with this kind and claim.
 fn hello_with(kind: &str, endpoint: Option<&str>) -> Value {
-    let mut hello = serde_json::json!({"type": "hello", "ipc_version": {"major": 2, "minor": 0},
+    let mut hello = serde_json::json!({"type": "hello", "ipc_version": {"major": 3, "minor": 0},
         "client": {"kind": kind}, "requested_capabilities": ["events"],
         "features": ["keepalive"]});
     if let Some(id) = endpoint {
@@ -1165,22 +1298,22 @@ fn hello_with(kind: &str, endpoint: Option<&str>) -> Value {
 /// risk; LOCAL-IPC.md says the two sides agree on well-formed JSON).
 #[test]
 fn a_lone_surrogate_in_a_hello_label_is_a_framing_error() {
-    for (kind, id) in [(r"\ud800", "human"), ("human-client", r"\udfff")] {
+    for (kind, id) in [(r"\ud800", HUMAN), ("human-client", r"\udfff")] {
         let body = format!(
-            r#"{{"type":"hello","ipc_version":{{"major":2,"minor":0}},"client":{{"kind":"{kind}"}},"endpoint":{{"id":"{id}"}},"requested_capabilities":["events"],"features":["keepalive"]}}"#
+            r#"{{"type":"hello","ipc_version":{{"major":3,"minor":0}},"client":{{"kind":"{kind}"}},"endpoint":{{"id":"{id}"}},"requested_capabilities":["events"],"features":["keepalive"]}}"#
         );
         assert!(Frame::parse(&body).is_err(), "refused at parse: {body}");
     }
     // The control: the same frame with a paired surrogate parses.
-    let paired = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},"client":{"kind":"k\ud83d\ude00"},"requested_capabilities":["events"]}"#;
+    let paired = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},"client":{"kind":"k\ud83d\ude00"},"requested_capabilities":["events"]}"#;
     assert!(Frame::parse(paired).is_ok(), "{paired}");
 }
 
 #[test]
 fn a_hello_at_its_label_bounds_parses() {
     let accepted = [
-        hello_with(&"é".repeat(64), Some("human")),
-        hello_with("k", Some("human")),
+        hello_with(&"é".repeat(64), Some(HUMAN)),
+        hello_with("k", Some(HUMAN)),
         hello_with("human-client", Some(&"e".repeat(64))),
         hello_with("human-client", Some("e")),
         hello_with("human-client", Some(&"é".repeat(64))),
@@ -1210,19 +1343,19 @@ fn the_frame_schema_is_live_and_refuses_what_the_parser_refuses() {
     // The control: a schema that accepted everything would pass the test
     // above for free.
     let refused = [
-        serde_json::json!({"type": "hello_response", "ipc_version": {"major": 2, "minor": 0},
-               "transport_contract_version": "2.0", "peer": PEER, "endpoint": "human",
+        serde_json::json!({"type": "hello_response", "ipc_version": {"major": 3, "minor": 0},
+               "transport_contract_version": "3.0", "peer": PEER, "endpoint": HUMAN,
                "granted_capabilities": []}),
         // hello-response 1.1.0: the event queue bound comes with the
         // lease and only with it, in both directions.
-        serde_json::json!({"type": "hello_response", "ipc_version": {"major": 2, "minor": 0},
-               "transport_contract_version": "2.0", "peer": PEER, "endpoint": "human",
+        serde_json::json!({"type": "hello_response", "ipc_version": {"major": 3, "minor": 0},
+               "transport_contract_version": "3.0", "peer": PEER, "endpoint": HUMAN,
                "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ", "granted_capabilities": []}),
-        serde_json::json!({"type": "hello_response", "ipc_version": {"major": 2, "minor": 0},
-               "transport_contract_version": "2.0", "peer": PEER, "event_queue": 256,
+        serde_json::json!({"type": "hello_response", "ipc_version": {"major": 3, "minor": 0},
+               "transport_contract_version": "3.0", "peer": PEER, "event_queue": 256,
                "granted_capabilities": []}),
-        serde_json::json!({"type": "hello_response", "ipc_version": {"major": 2, "minor": 0},
-               "transport_contract_version": "2.0", "peer": PEER, "endpoint": "human",
+        serde_json::json!({"type": "hello_response", "ipc_version": {"major": 3, "minor": 0},
+               "transport_contract_version": "3.0", "peer": PEER, "endpoint": HUMAN,
                "endpoint_lease_epoch": "AAAAAAAAAAAAAAAAAAAAAQ", "event_queue": 0,
                "granted_capabilities": []}),
         serde_json::json!({"type": "close", "code": "VersionIncompatible"}),
@@ -1232,8 +1365,8 @@ fn the_frame_schema_is_live_and_refuses_what_the_parser_refuses() {
         // are 1 to 64 characters, refused at parse by both sides.
         hello_with("human-client", Some("")),
         hello_with("human-client", Some(&"e".repeat(65))),
-        hello_with("", Some("human")),
-        hello_with(&"k".repeat(65), Some("human")),
+        hello_with("", Some(HUMAN)),
+        hello_with(&"k".repeat(65), Some(HUMAN)),
     ];
     for value in refused {
         assert!(
@@ -1283,6 +1416,9 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             }
             Method::AdminTrustSet => {
                 "architecture/contracts/schemas/ipc/trust-set-params.schema.json"
+            }
+            Method::AdminTrustSeed => {
+                "architecture/contracts/schemas/ipc/trust-seed-params.schema.json"
             }
             Method::AdminPeersList => {
                 "architecture/contracts/schemas/ipc/peer-list-params.schema.json"
@@ -1419,15 +1555,8 @@ fn a_path_notice_without_previous_omits_it_and_validates() {
             "{class}: absent exactly when there is none: {data}"
         );
         assert_valid(schema, &data);
-        let read = Event::decode(
-            &frame.event_type,
-            frame.data.as_deref(),
-            interweave_ipc_protocol::IpcVersion {
-                major: 2,
-                minor: interweave_ipc_protocol::ROUTE_NOTICE_SINCE_MINOR,
-            },
-        )
-        .expect("decodes at 2.4");
+        let read = Event::decode(&frame.event_type, frame.data.as_deref(), supported()[0])
+            .expect("decodes at 3.0");
         assert_eq!(read.into_session(), session, "{class}: round trip");
     }
     let mut with_null = serde_json::json!({
@@ -1442,37 +1571,36 @@ fn a_path_notice_without_previous_omits_it_and_validates() {
     // And the decoder refuses it as the schema does (#248 review F3).
     let raw = serde_json::value::to_raw_value(&with_null).expect("raw");
     assert_eq!(
-        Event::decode(
-            "peer.path_changed",
-            Some(&raw),
-            interweave_ipc_protocol::IpcVersion {
-                major: 2,
-                minor: interweave_ipc_protocol::ROUTE_NOTICE_SINCE_MINOR,
-            },
-        )
-        .err(),
+        Event::decode("peer.path_changed", Some(&raw), supported()[0],).err(),
         Some(interweave_transport_api::TransportError::ProtocolViolation),
         "an explicit null previous is the server's violation"
     );
 }
 
-/// The decode half of the 2.4 gate: a notice without `previous` on a
-/// connection below `ROUTE_NOTICE_SINCE_MINOR` is the server's protocol
-/// violation, as a type above the minor is; at the minor it decodes.
+/// The decode half of the major: a notice without `previous` is read at
+/// 3.0, where the shape 2.4 brought is the only one, and on a major-2
+/// connection -- 2.13 among them, past 2.4 by its minor alone -- the event
+/// type itself is unknown, so the server's violation.
 #[test]
-fn a_path_notice_without_previous_below_2_4_is_the_servers_violation() {
+fn a_path_notice_without_previous_decodes_at_three_zero_and_not_on_major_two() {
     let data = serde_json::value::to_raw_value(&serde_json::json!({
         "peer": peer().as_str(), "current": "relayed",
         "reason_class": "route_established", "observed_at": 1
     }))
     .expect("raw");
-    let at = |minor| interweave_ipc_protocol::IpcVersion { major: 2, minor };
-    let since = interweave_ipc_protocol::ROUTE_NOTICE_SINCE_MINOR;
-    assert_eq!(
-        Event::decode("peer.path_changed", Some(&data), at(since - 1)).err(),
-        Some(interweave_transport_api::TransportError::ProtocolViolation)
-    );
-    assert!(Event::decode("peer.path_changed", Some(&data), at(since)).is_ok());
+    assert!(Event::decode("peer.path_changed", Some(&data), supported()[0]).is_ok());
+    for minor in [3, 4, 13] {
+        assert_eq!(
+            Event::decode(
+                "peer.path_changed",
+                Some(&data),
+                IpcVersion { major: 2, minor }
+            )
+            .err(),
+            Some(interweave_transport_api::TransportError::ProtocolViolation),
+            "2.{minor}"
+        );
+    }
 }
 
 #[test]
@@ -1524,7 +1652,7 @@ fn unhex(text: &str) -> Vec<u8> {
 
 #[test]
 fn the_golden_frames_decode_and_re_encode_byte_exact() {
-    let fixture = json_at("fixtures/ipc-v2/ipc-v2-frame-golden.json");
+    let fixture = json_at("fixtures/ipc-v3/ipc-v3-frame-golden.json");
     let vectors = fixture["vectors"].as_array().expect("vectors");
     let mut classes = BTreeSet::new();
     for v in vectors {
@@ -1554,7 +1682,7 @@ fn the_golden_frames_decode_and_re_encode_byte_exact() {
 fn a_golden_request_re_encodes_byte_exact_from_its_typed_form() {
     // The envelope keeps the bytes; this is the stronger claim, that the
     // TYPED request emits the schema's key order the goldens froze.
-    let fixture = json_at("fixtures/ipc-v2/ipc-v2-frame-golden.json");
+    let fixture = json_at("fixtures/ipc-v3/ipc-v3-frame-golden.json");
     for v in fixture["vectors"].as_array().expect("vectors") {
         let body = v["body"].to_string();
         let Ok(Frame::Request(frame)) = Frame::parse(&body) else {
@@ -1578,7 +1706,7 @@ fn the_largest_legal_payload_fits_with_its_whole_envelope() {
     // frame 2.0.0 now models the envelope around it, so the envelope is
     // measured here at ITS ceilings -- the widest request id, deadline and
     // sequence -- and added to the fixture's worst case.
-    let fixture = json_at("fixtures/ipc-v2/ipc-v2-payload-fit.json");
+    let fixture = json_at("fixtures/ipc-v3/ipc-v3-payload-fit.json");
     let worst = |direction: &str| -> usize {
         fixture["vectors"]
             .as_array()
@@ -1642,20 +1770,20 @@ fn with(base: &Value, pointer: &str, replacement: Value) -> Value {
 #[test]
 fn a_frame_refuses_an_array_for_an_object_and_an_object_for_an_enum() {
     use serde_json::json;
-    let hello = json!({"type": "hello", "ipc_version": {"major": 2, "minor": 0},
-        "client": {"kind": "k"}, "endpoint": {"id": "human"},
+    let hello = json!({"type": "hello", "ipc_version": {"major": 3, "minor": 0},
+        "client": {"kind": "k"}, "endpoint": {"id": HUMAN},
         "requested_capabilities": ["events"]});
-    let response = json!({"type": "hello_response", "ipc_version": {"major": 2, "minor": 0},
-        "transport_contract_version": "2.0", "peer": PEER, "granted_capabilities": ["events"]});
+    let response = json!({"type": "hello_response", "ipc_version": {"major": 3, "minor": 0},
+        "transport_contract_version": "3.0", "peer": PEER, "granted_capabilities": ["events"]});
     let close = json!({"type": "close", "code": "VersionIncompatible",
-        "supported": [{"major": 2, "minor": 0}]});
+        "supported": [{"major": 3, "minor": 0}]});
     let failed = json!({"type": "response", "id": "1", "ok": false, "error": {"code": "Timeout"}});
     let state = json!({"type": "server_state", "health": "healthy",
         "connectivity": serde_json::to_value(connectivity()).expect("ser")});
     let cases = [
         (&hello, "/ipc_version", json!([2, 0])),
         (&hello, "/client", json!(["k"])),
-        (&hello, "/endpoint", json!(["human"])),
+        (&hello, "/endpoint", json!([HUMAN])),
         (&hello, "/requested_capabilities/0", json!({"events": null})),
         (&response, "/ipc_version", json!([2, 0])),
         (
@@ -1737,20 +1865,20 @@ fn params_data_and_results_refuse_an_array_for_an_object() {
     assert!(outcome(&json!({})).outcome::<EmptyResult>().is_ok());
     assert!(outcome(&json!([])).outcome::<EmptyResult>().is_err());
     assert!(
-        outcome(&json!({"resolved_endpoint": "human"}))
+        outcome(&json!({"resolved_endpoint": HUMAN}))
             .outcome::<SendResult>()
             .is_ok()
     );
-    assert!(outcome(&json!(["human"])).outcome::<SendResult>().is_err());
+    assert!(outcome(&json!([HUMAN])).outcome::<SendResult>().is_err());
     assert!(outcome(&json!({})).outcome::<SetEnabledResult>().is_ok());
     assert!(outcome(&json!([])).outcome::<SetEnabledResult>().is_err());
     assert!(
-        outcome(&json!({"endpoints": ["a"], "ttl_ms": 1, "generated_at_ms": 2}))
+        outcome(&json!({"endpoints": [HUMAN], "ttl_ms": 1, "generated_at_ms": 2}))
             .outcome::<DirectoryResult>()
             .is_ok()
     );
     assert!(
-        outcome(&json!([["a"], 1, 2]))
+        outcome(&json!([[HUMAN], 1, 2]))
             .outcome::<DirectoryResult>()
             .is_err()
     );
@@ -1773,7 +1901,7 @@ fn params_data_and_results_refuse_an_array_for_an_object() {
         outcome(&with(
             list,
             "/endpoints/0",
-            json!(["bot", false, false, false])
+            json!([BOT, false, false, false])
         ))
         .outcome::<EndpointList>()
         .is_err()
@@ -1812,7 +1940,7 @@ fn a_schema_only_bound_counts_characters() {
     assert!(Event::decode("peer.disconnected", Some(&raw), supported()[0]).is_ok());
 
     let kind = "ა".repeat(64);
-    let list = json!({"endpoints": [{"id": "human", "enabled": true, "default": true,
+    let list = json!({"endpoints": [{"id": HUMAN, "enabled": true, "default": true,
         "persisted": false, "lease": {"epoch": "AAAAAAAAAAAAAAAA", "client_kind": kind}}]});
     assert_valid(
         "architecture/contracts/schemas/ipc/endpoint-list.schema.json",
@@ -1876,37 +2004,257 @@ fn the_trust_set_result_holds_what_the_contract_says() {
     }
 }
 
-/// Below 2.10 a superseded write is answered the error `Internal`, and
-/// every other answer is served as before; at 2.10 it is a refusal by
-/// name, in both address results.
+/// `trust-seed-params` and `trust-seed-result` (IPC 3.0, ADR-0067 decision
+/// 6): the endpoint required and nothing else, the outcome closed at its
+/// two values, the schema and the mirror refusing the same instances.
 #[test]
-fn superseded_is_named_from_2_10_and_internal_below() {
+fn the_trust_seed_shapes_hold_what_the_contract_says() {
+    use interweave_local_client_api::TrustSeed;
+    let params = "architecture/contracts/schemas/ipc/trust-seed-params.schema.json";
+    let result = "architecture/contracts/schemas/ipc/trust-seed-result.schema.json";
+    let seed = |v: &Value| {
+        let raw = serde_json::value::to_raw_value(v).expect("raw");
+        Request::decode(Method::AdminTrustSeed, Some(&raw)).is_ok()
+    };
+    let good = serde_json::json!({ "endpoint": HUMAN });
+    assert_valid(params, &good);
+    assert!(seed(&good), "the control");
+    for bad in [
+        serde_json::json!({}),
+        serde_json::json!({ "endpoint": null }),
+        serde_json::json!({ "endpoint": "human" }),
+        serde_json::json!({ "endpoint": HUMAN, "peer": PEER }),
+        serde_json::json!({ "endpoint": HUMAN.to_lowercase() }),
+    ] {
+        assert!(!validator(params).is_valid(&bad), "{params} admits {bad}");
+        assert!(!seed(&bad), "the mirror admits {bad}");
+    }
+
+    for outcome in [TrustSeed::Seeded, TrustSeed::Present] {
+        let wire = serde_json::to_value(TrustSeedResult::from(outcome)).expect("ser");
+        assert_valid(result, &wire);
+        let back: TrustSeed = serde_json::from_value::<TrustSeedResult>(wire)
+            .expect("parses")
+            .into();
+        assert_eq!(outcome, back);
+    }
+    for bad in [
+        serde_json::json!({}),
+        serde_json::json!({ "outcome": "refused" }),
+        serde_json::json!({ "outcome": "set" }),
+        serde_json::json!({ "outcome": "seeded", "detail": "x" }),
+    ] {
+        assert!(!validator(result).is_valid(&bad), "{result} admits {bad}");
+        assert!(
+            serde_json::from_value::<TrustSeedResult>(bad.clone()).is_err(),
+            "the mirror admits {bad}"
+        );
+    }
+}
+
+/// The endpoint dimension of `admin.trust.list` and `admin.trust.set`
+/// params: `direction` is required with `endpoint` and refused without
+/// it, the endpoint a derived id, every member refused as `null`, and the
+/// schema and the mirror agree on each instance, a positive control beside
+/// every refusal.
+#[test]
+fn the_trust_params_hold_the_endpoint_dimension_both_ways() {
+    let list_schema = "architecture/contracts/schemas/ipc/trust-list-params.schema.json";
+    let set_schema = "architecture/contracts/schemas/ipc/trust-set-params.schema.json";
+    let decode = |method, v: &Value| {
+        let raw = serde_json::value::to_raw_value(v).expect("raw");
+        Request::decode(method, Some(&raw)).is_ok()
+    };
+    for (instance, legal) in [
+        (serde_json::json!({}), true),
+        (serde_json::json!({ "after": PEER }), true),
+        (
+            serde_json::json!({ "endpoint": HUMAN, "direction": "inbound" }),
+            true,
+        ),
+        (
+            serde_json::json!({ "after": PEER, "endpoint": HUMAN, "direction": "outbound" }),
+            true,
+        ),
+        (serde_json::json!({ "endpoint": HUMAN }), false),
+        (serde_json::json!({ "direction": "inbound" }), false),
+        (
+            serde_json::json!({ "endpoint": HUMAN, "direction": "both" }),
+            false,
+        ),
+        (
+            serde_json::json!({ "endpoint": HUMAN, "direction": null }),
+            false,
+        ),
+        (
+            serde_json::json!({ "endpoint": null, "direction": "inbound" }),
+            false,
+        ),
+        (
+            serde_json::json!({ "endpoint": "human", "direction": "inbound" }),
+            false,
+        ),
+        (
+            serde_json::json!({ "endpoint": HUMAN, "direction": "inbound", "set": "own" }),
+            false,
+        ),
+    ] {
+        assert_eq!(
+            validator(list_schema).is_valid(&instance),
+            legal,
+            "schema on {instance}"
+        );
+        assert_eq!(
+            decode(Method::AdminTrustList, &instance),
+            legal,
+            "mirror on {instance}"
+        );
+    }
+    for (instance, legal) in [
+        (serde_json::json!({ "peer": PEER, "allowed": true }), true),
+        (
+            serde_json::json!({ "peer": PEER, "allowed": true, "endpoint": HUMAN }),
+            true,
+        ),
+        (
+            serde_json::json!({ "peer": PEER, "allowed": true, "endpoint": null }),
+            false,
+        ),
+        (
+            serde_json::json!({ "peer": PEER, "allowed": true, "endpoint": "human" }),
+            false,
+        ),
+        (
+            serde_json::json!({ "peer": PEER, "allowed": true, "endpoint": HUMAN, "direction": "inbound" }),
+            false,
+        ),
+    ] {
+        assert_eq!(
+            validator(set_schema).is_valid(&instance),
+            legal,
+            "schema on {instance}"
+        );
+        assert_eq!(
+            decode(Method::AdminTrustSet, &instance),
+            legal,
+            "mirror on {instance}"
+        );
+    }
+}
+
+/// `trust-list` 1.2.0's `set`: an endpoint answer has no `local_peer`,
+/// an `own` set's rows are administered and persisted, and the mirror and
+/// the schema refuse the same pages; the constructor of an endpoint answer
+/// sets `set`, so the converse the schema cannot state holds of every
+/// page this crate writes.
+#[test]
+fn a_trust_list_set_holds_what_the_contract_says() {
+    use interweave_local_client_api::{
+        EndpointSetKind, EndpointTrustView, TrustSource, TrustedPeer,
+    };
+    let schema = "architecture/contracts/schemas/ipc/trust-list.schema.json";
+    let admin = serde_json::json!({"peer": PEER, "persisted": true, "source": "administered"});
+    let configured = serde_json::json!({"peer": PEER, "persisted": true, "source": "configured"});
+    let both = |instance: &Value, legal: bool| {
+        assert_eq!(
+            validator(schema).is_valid(instance),
+            legal,
+            "schema on {instance}"
+        );
+        assert_eq!(
+            serde_json::from_value::<TrustList>(instance.clone()).is_ok(),
+            legal,
+            "mirror on {instance}"
+        );
+    };
+    for kind in ["own", "authored", "inherited"] {
+        both(
+            &serde_json::json!({ "set": kind, "allowed": [admin.clone()] }),
+            true,
+        );
+        both(
+            &serde_json::json!({ "set": kind, "allowed": [], "local_peer": PEER }),
+            false,
+        );
+    }
+    both(
+        &serde_json::json!({ "local_peer": PEER, "allowed": [] }),
+        true,
+    );
+    both(
+        &serde_json::json!({ "set": "authored", "allowed": [configured.clone()] }),
+        true,
+    );
+    both(
+        &serde_json::json!({ "set": "inherited", "allowed": [configured.clone()] }),
+        true,
+    );
+    both(
+        &serde_json::json!({ "set": "own", "allowed": [configured] }),
+        false,
+    );
+    both(
+        &serde_json::json!({ "set": "own", "allowed": [{"peer": PEER, "persisted": false}] }),
+        false,
+    );
+    both(
+        &serde_json::json!({ "set": "everyone", "allowed": [] }),
+        false,
+    );
+    both(&serde_json::json!({ "set": null, "allowed": [] }), false);
+
+    for kind in EndpointSetKind::ALL {
+        let page = TrustList::page_endpoint(
+            EndpointTrustView {
+                set: kind,
+                allowed: vec![TrustedPeer {
+                    peer: TransportIdentity::parse(PEER).expect("peer"),
+                    persisted: true,
+                    source: if kind == EndpointSetKind::Authored {
+                        TrustSource::Configured
+                    } else {
+                        TrustSource::Administered
+                    },
+                }],
+            },
+            None,
+        );
+        let wire = serde_json::to_value(&page).expect("ser");
+        assert_eq!(wire["set"], kind.as_str());
+        assert!(wire.get("local_peer").is_none(), "{wire}");
+        both(&wire, true);
+    }
+}
+
+/// A superseded write is a refusal by name, in both address results: on
+/// 3.0 the 2.10 shape is the only one, so no connection is answered the
+/// error `Internal` for it.
+#[test]
+fn superseded_is_named_in_both_address_results() {
     let superseded = || AddressChange::Refused {
         reason: AddressRefusal::Superseded,
         detail: "a later connection's write stands".to_owned(),
     };
-    assert_eq!(
-        AddressResult::for_minor(superseded(), SUPERSEDED_SINCE_MINOR - 1),
-        Err(interweave_transport_api::TransportError::Internal)
+    let named = AddressResult::from(superseded());
+    assert_valid(
+        "architecture/contracts/schemas/ipc/peers-address-result.schema.json",
+        &serde_json::to_value(&named).expect("ser"),
     );
-    let named = AddressResult::for_minor(superseded(), SUPERSEDED_SINCE_MINOR).expect("named");
     assert_eq!(AddressChange::from(named), superseded());
-    // The control: an older refusal is still served below 2.10.
-    assert!(AddressResult::for_minor(AddressChange::Unchanged, SUPERSEDED_SINCE_MINOR - 1).is_ok());
+    // And `own_peer`, which 2.9 brought, by its own name: never `grammar`.
+    let own = AddressChange::Refused {
+        reason: AddressRefusal::OwnPeer,
+        detail: String::new(),
+    };
+    assert_eq!(AddressChange::from(AddressResult::from(own.clone())), own);
 
     let listed = || AddressesChange::Refused {
         reason: AddressRefusal::Superseded,
         line: Some(1),
         detail: String::new(),
     };
-    assert_eq!(
-        AddressesResult::from_view(listed(), 2, SUPERSEDED_SINCE_MINOR - 1),
-        Err(interweave_transport_api::TransportError::Internal)
-    );
-    let wire = serde_json::to_value(
-        AddressesResult::from_view(listed(), 2, SUPERSEDED_SINCE_MINOR).expect("named"),
-    )
-    .expect("ser");
+    let wire =
+        serde_json::to_value(AddressesResult::from_view(listed(), 2).expect("named")).expect("ser");
     assert_valid(
         "architecture/contracts/schemas/ipc/peers-addresses-result.schema.json",
         &wire,
@@ -1915,15 +2263,6 @@ fn superseded_is_named_from_2_10_and_internal_below() {
         AddressesChange::from(serde_json::from_value::<AddressesResult>(wire).expect("parses")),
         listed()
     );
-    assert!(
-        AddressesResult::from_view(
-            AddressesChange::Added(vec![LineChange::Added]),
-            1,
-            SUPERSEDED_SINCE_MINOR - 1
-        )
-        .is_ok()
-    );
-    const { assert!(SUPERSEDED_SINCE_MINOR <= IPC_MAX_MINOR) };
 }
 
 #[test]
@@ -2337,7 +2676,7 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
         (whole(AddressRefusal::ProviderDisabled), 3),
     ] {
         let wire = serde_json::to_value(
-            AddressesResult::from_view(change.clone(), lines, IPC_MAX_MINOR).expect("carried"),
+            AddressesResult::from_view(change.clone(), lines).expect("carried"),
         )
         .expect("ser");
         assert_valid(result, &wire);
@@ -2368,7 +2707,6 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
             AddressesResult::from_view(
                 AddressesChange::Added(vec![LineChange::Added, LineChange::Unchanged]),
                 2,
-                IPC_MAX_MINOR
             )
             .expect("carried")
         )
@@ -2388,7 +2726,7 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
         (at(AddressRefusal::Authored, 0), 1),
     ] {
         assert_eq!(
-            AddressesResult::from_view(broken.clone(), lines, IPC_MAX_MINOR),
+            AddressesResult::from_view(broken.clone(), lines),
             Err(TransportError::Internal),
             "{broken:?} for {lines} lines"
         );

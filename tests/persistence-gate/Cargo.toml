@@ -25,6 +25,8 @@ workspace = true
 [dependencies]
 
 [dev-dependencies]
+# TEST-ONLY: the derived EndpointId a test store opens as (ADR-0067).
+interweave-test-support = { path = "../support" }
 interweave-discovery-cache = { path = "../../crates/discovery/cache" }
 interweave-human-core = { path = "../../crates/human/core" }
 interweave-human-store = { path = "../../crates/human/store" }

@@ -256,7 +256,7 @@ profile: {{ name: p }}
 trust: {{ policy: static-allowlist, allowed_peers: [] }}
 endpoints:
   entries:
-    - {{ id: human, enabled: true, advertise: false }}
+    - {{ key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key, alias: human, enabled: true, advertise: false }}
 channels: {{ desired: [] }}
 discovery: {{ providers: [] }}
 transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }} }}

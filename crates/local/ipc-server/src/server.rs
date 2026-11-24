@@ -164,7 +164,7 @@ mod tests {
     use crate::listen::{SocketPaths, bind};
     use interweave_ipc_protocol::encode_frame;
     use interweave_local_client_api::{LocalSessionEvent, SessionEvent};
-    use interweave_transport_api::{EndpointId, Health};
+    use interweave_transport_api::Health;
     use tokio::net::UnixStream;
     use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
     use tokio::sync::oneshot;
@@ -293,15 +293,17 @@ mod tests {
         body: String,
     }
 
-    const DATA: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
-        "client":{"kind":"human-client"},"endpoint":{"id":"human"},
+    /// A data hello claiming the fake's `human`, the TEST-ONLY derived id
+    /// `fake::ep("human")` (`the_data_hello_claims_the_fakes_human`).
+    const DATA: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
+        "client":{"kind":"human-client"},"endpoint":{"id":"12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#;
-    const ADMIN: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+    const ADMIN: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"transportctl"},"requested_capabilities":["admin.status"]}"#;
     /// A read-only diagnostics data session -- no endpoint, so no
     /// keepalive, and no `events`: nothing wakes its loop on a timer, so it
     /// shows what the client's own traffic alone does.
-    const DATA_QUIET: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+    const DATA_QUIET: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
         "client":{"kind":"diagnostics"},"requested_capabilities":[]}"#;
 
     /// Each hello a backpressure test runs under, and whether it is an
@@ -350,16 +352,21 @@ mod tests {
         harness.stop().await;
     }
 
-    /// `admin.peers.list` is a 2.2 method under the 2.0 `admin.status`:
-    /// on a connection that negotiated 2.1 it is an unknown name --
-    /// `ProtocolUnsupported`, the connection kept -- and at 2.2 the same
-    /// request is answered from the port.
+    #[test]
+    fn the_data_hello_claims_the_fakes_human() {
+        assert!(DATA.contains(crate::fake::ep("human").as_str()));
+    }
+
+    /// `admin.peers.list` (2.2 on major 2, under `admin.status`) is a 3.0
+    /// method: a 3.0 connection holding `admin.status` is answered from
+    /// the port.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_peers_read_is_unknown_below_two_two_and_answered_at_it() {
+    async fn the_peers_read_is_answered_at_three_zero() {
         let fake = Fake::default();
         let harness = Harness::start(&fake, config());
         let request = r#"{"type":"request","id":"p","method":"admin.peers.list","params":{}}"#;
-        for (minor, answered) in [(1, false), (2, true)] {
+        {
+            let (minor, answered) = (0, true);
             let mut client = Client::connect(&harness.paths.admin).await;
             client
                 .hello(&ADMIN.replace(r#""minor":0"#, &format!(r#""minor":{minor}"#)))
@@ -380,25 +387,24 @@ mod tests {
         assert_eq!(
             fake.script().calls.iter().filter(|c| *c == "peers").count(),
             1,
-            "only the 2.2 request reached the port"
+            "the 3.0 request reached the port"
         );
         harness.stop().await;
     }
 
-    /// The `admin.peers` address methods are 2.7's: below it an unknown
-    /// name; at it answered from the port on a connection granted
-    /// `admin.peers`, and refused `CapabilityDenied` on one that was not --
-    /// the control that the grant, not the minor, admits it.
+    /// The `admin.peers` address methods (2.7 on major 2) are 3.0's:
+    /// answered from the port on a 3.0 connection granted `admin.peers`,
+    /// and refused `CapabilityDenied` on one that was not -- the grant
+    /// admits it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_address_methods_are_admitted_at_two_seven_under_admin_peers() {
+    async fn the_address_methods_are_admitted_at_three_zero_under_admin_peers() {
         let fake = Fake::default();
         let harness = Harness::start(&fake, config());
         let request = r#"{"type":"request","id":"a","method":"admin.peers.add_address","params":{"address":"x"}}"#;
         let peers_hello = ADMIN.replace(r#""admin.status""#, r#""admin.status","admin.peers""#);
         for (hello, minor, answer) in [
-            (ADMIN, 6, "ProtocolUnsupported"),
-            (ADMIN, 7, "CapabilityDenied"),
-            (peers_hello.as_str(), 7, r#""ok":true"#),
+            (ADMIN, 0, "CapabilityDenied"),
+            (peers_hello.as_str(), 0, r#""ok":true"#),
         ] {
             let mut client = Client::connect(&harness.paths.admin).await;
             client
@@ -408,7 +414,7 @@ mod tests {
             let response = client.response().await;
             assert!(
                 response.body.contains(answer),
-                "2.{minor}: {}",
+                "3.{minor}: {}",
                 response.body
             );
             drop(client);
@@ -420,17 +426,15 @@ mod tests {
                 .filter(|c| c.starts_with("add_address"))
                 .count(),
             1,
-            "only the granted 2.7 request reached the port"
+            "only the granted request reached the port"
         );
         harness.stop().await;
     }
 
-    /// `admin.trust.list` answers the row its connection negotiated: the
-    /// 2.1 row (`persisted` false, no `source`) on a 2.2 connection, the
-    /// 2.3 row (`persisted` true with its `source`) on a 2.3 one -- from
-    /// the same port, the same policy.
+    /// `admin.trust.list` answers the 2.3 row (`persisted` true with its
+    /// `source`), the one row shape 3.0 serves.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_trust_row_is_the_shape_the_connection_negotiated() {
+    async fn the_trust_row_carries_its_source_at_three_zero() {
         let fake = Fake::default();
         fake.script().trusted = vec![
             interweave_transport_api::TransportIdentity::parse(
@@ -441,7 +445,8 @@ mod tests {
         let harness = Harness::start(&fake, config());
         let request = r#"{"type":"request","id":"t","method":"admin.trust.list","params":{}}"#;
         let trust_hello = ADMIN.replace(r#""admin.status""#, r#""admin.status","admin.trust""#);
-        for (minor, persisted) in [(2, false), (3, true)] {
+        {
+            let (minor, persisted) = (0, true);
             let mut client = Client::connect(&harness.paths.admin).await;
             client
                 .hello(&trust_hello.replace(r#""minor":0"#, &format!(r#""minor":{minor}"#)))
@@ -450,11 +455,11 @@ mod tests {
             let response = client.response().await;
             let body: serde_json::Value = serde_json::from_str(&response.body).expect("json");
             let row = &body["result"]["allowed"][0];
-            assert_eq!(row["persisted"], persisted, "2.{minor}: {}", response.body);
+            assert_eq!(row["persisted"], persisted, "3.{minor}: {}", response.body);
             assert_eq!(
                 row.get("source").and_then(serde_json::Value::as_str),
                 persisted.then_some("configured"),
-                "2.{minor}: {}",
+                "3.{minor}: {}",
                 response.body
             );
             drop(client);
@@ -1040,7 +1045,7 @@ mod tests {
         }
         stopping.await.expect("stopped");
         assert_eq!(fake.script().closed, 1, "the session is closed");
-        let _ = (paths, EndpointId::parse("human"));
+        let _ = (paths, crate::fake::ep("human"));
     }
 
     /// `admin.shutdown` stops the server it is asked of, so its answer is
@@ -1053,7 +1058,7 @@ mod tests {
     /// slot, wins nearly always, and the test passed without the fix.)
     #[tokio::test(flavor = "current_thread")]
     async fn an_admin_shutdown_is_answered_before_the_close() {
-        const SHUTDOWN: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        const SHUTDOWN: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"transportctl"},"requested_capabilities":["admin.shutdown"]}"#;
         for _ in 0..32 {
             let fake = Fake::default();
@@ -1081,7 +1086,7 @@ mod tests {
     /// as above, run the same way.
     #[tokio::test(flavor = "current_thread")]
     async fn a_call_that_panicked_before_the_stop_is_answered_internal() {
-        const SHUTDOWN: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":0},
+        const SHUTDOWN: &str = r#"{"type":"hello","ipc_version":{"major":3,"minor":0},
             "client":{"kind":"transportctl"},"requested_capabilities":["admin.shutdown"]}"#;
         for _ in 0..32 {
             let fake = Fake::default();
@@ -1290,11 +1295,10 @@ mod tests {
         harness.stop().await;
     }
 
-    /// `peer.path_changed` is a 2.1 type: a connection that negotiated
-    /// 2.0 is sent none and sees no gap -- the next event takes the
-    /// number it would have -- while one at 2.1 is sent it, numbered.
+    /// `peer.path_changed` (2.1 on major 2) is a 3.0 type: a 3.0
+    /// connection is sent it, numbered, before the next event.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_path_change_goes_only_to_a_2_1_connection_and_leaves_no_gap_below() {
+    async fn a_path_change_goes_to_a_three_zero_connection_numbered() {
         let path = || {
             SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
                 peer: peer(),
@@ -1310,14 +1314,11 @@ mod tests {
                 reason_class: "policy".into(),
             })
         };
-        let data_2_1 = DATA.replace(r#""minor":0"#, r#""minor":1"#);
-        for (hello, expected) in [
-            (DATA, vec![("peer.disconnected", 0)]),
-            (
-                data_2_1.as_str(),
+        {
+            let (hello, expected) = (
+                DATA,
                 vec![("peer.path_changed", 0), ("peer.disconnected", 1)],
-            ),
-        ] {
+            );
             let fake = Fake::default();
             let harness = Harness::start(&fake, config());
             let mut client = Client::connect(&harness.paths.data).await;
@@ -1343,12 +1344,11 @@ mod tests {
     }
 
     /// A path notice with no `previous` -- a route's begin, a routed
-    /// peer's reconnect -- is a 2.4 SHAPE of a 2.1 type: a connection at
-    /// 2.3 is sent none and sees no gap, while one at 2.4 is sent it,
-    /// numbered, `previous` absent from the data rather than `null`. The
-    /// control: a change WITH `previous` reaches the 2.3 connection.
+    /// peer's reconnect -- is the 2.4 shape, the one 3.0 holds: a 3.0
+    /// connection is sent it, numbered, `previous` absent from the data
+    /// rather than `null`, and a change WITH `previous` after it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_route_notice_goes_only_to_a_2_4_connection_and_leaves_no_gap_below() {
+    async fn a_route_notice_goes_to_a_three_zero_connection_numbered() {
         let notice = |previous| {
             SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
                 peer: peer(),
@@ -1364,18 +1364,11 @@ mod tests {
                 reason_class: "policy".into(),
             })
         };
-        let at = |minor: u64| DATA.replace(r#""minor":0"#, &format!(r#""minor":{minor}"#));
-        let (data_2_3, data_2_4) = (at(3), at(4));
-        for (hello, expected) in [
-            (
-                data_2_3.as_str(),
-                vec![("changed", 0), ("peer.disconnected", 1)],
-            ),
-            (
-                data_2_4.as_str(),
+        {
+            let (hello, expected) = (
+                DATA,
                 vec![("begun", 0), ("changed", 1), ("peer.disconnected", 2)],
-            ),
-        ] {
+            );
             let fake = Fake::default();
             let harness = Harness::start(&fake, config());
             let mut client = Client::connect(&harness.paths.data).await;
@@ -1406,30 +1399,11 @@ mod tests {
         }
     }
 
-    /// A connection below 2.4 opens its session WITHOUT route notices, so
-    /// none is ever merged with a later change and then dropped (#245
-    /// review F1); one at 2.4 opens with them. Asked of the request the
-    /// binding receives, since that is what the composition honours.
+    /// A path change the protocol refuses -- its class out of bounds --
+    /// takes its number on a 3.0 connection, whose version admits the
+    /// type, so the client sees the gap.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_connection_below_2_4_opens_its_session_without_route_notices() {
-        let at = |minor: u64| DATA.replace(r#""minor":0"#, &format!(r#""minor":{minor}"#));
-        for (minor, takes) in [(0, false), (3, false), (4, true)] {
-            let fake = Fake::default();
-            let harness = Harness::start(&fake, config());
-            let mut client = Client::connect(&harness.paths.data).await;
-            client.hello(&at(minor)).await;
-            drop(client);
-            harness.stop().await;
-            assert_eq!(fake.script().route_notices, [takes], "2.{minor}");
-        }
-    }
-
-    /// A 2.1 event the protocol would refuse -- a path change whose class
-    /// is out of bounds -- still takes no number on a 2.0 connection: the
-    /// minor is judged before the shape, so that client sees no gap for a
-    /// type it was never owed. The control: on 2.1 it leaves its gap.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_refused_2_1_event_leaves_no_gap_on_a_2_0_connection() {
+    async fn a_refused_path_change_leaves_its_gap_on_a_three_zero_connection() {
         let refused = || {
             SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
                 peer: peer(),
@@ -1445,8 +1419,8 @@ mod tests {
                 reason_class: "policy".into(),
             })
         };
-        let data_2_1 = DATA.replace(r#""minor":0"#, r#""minor":1"#);
-        for (hello, expected) in [(DATA, 0), (data_2_1.as_str(), 1)] {
+        {
+            let (hello, expected) = (DATA, 1);
             let fake = Fake::default();
             let harness = Harness::start(&fake, config());
             let mut client = Client::connect(&harness.paths.data).await;

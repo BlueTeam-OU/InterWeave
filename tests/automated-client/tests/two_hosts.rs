@@ -17,8 +17,10 @@
 //! no real latency, loss, MTU or clock skew from a tunnel and no real
 //! overlay in the path; no NAT; no second uid in the case itself
 //! (decision 5's port rule is measured on the host,
-//! `packaging/linux/evidence/2026-10-27-second-uid-port.md`, and still
-//! owed as a CI case); a real second host, which needs a runner on a
+//! `packaging/linux/evidence/2026-10-27-second-uid-port.md`, and its
+//! refusal is held in CI by a one-host case of its own,
+//! `a_port_another_account_holds_refuses_the_start` in
+//! `automated_client.rs`, ADR-0055 A 2026-11-18); a real second host, which needs a runner on a
 //! second machine or the hosted edge itself as a test peer.
 
 #![cfg(target_os = "linux")]
@@ -62,7 +64,11 @@ enum Listen {
 }
 
 fn config() -> ClientConfig {
-    ClientConfig::new(ENDPOINT, CLIENT_KIND, CHANNEL)
+    ClientConfig::new(
+        interweave_test_support::endpoint_keys::endpoint_id(ENDPOINT).as_str(),
+        CLIENT_KIND,
+        CHANNEL,
+    )
 }
 
 /// One host of the deployment: its home, `PeerId`, namespace, overlay
@@ -117,13 +123,15 @@ impl Host {
         } else {
             "[]".to_owned()
         };
+        let endpoint_id = interweave_test_support::endpoint_keys::endpoint_id(ENDPOINT);
+        let endpoint_id = endpoint_id.as_str();
         self.home.write_config(&format!(
             "schema_version: 2
 profile: {{ name: {name} }}
 trust: {{ policy: static-allowlist, allowed_peers: [\"{other}\"] }}
 endpoints:
   entries:
-    - {{ id: {ENDPOINT}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
+    - {{ key: {endpoint_id}.key, alias: {ENDPOINT}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
 channels: {{ desired: [] }}
 discovery: {{ providers: {providers} }}
 transport: {{ listen: {{ addresses: [\"/ip4/{ip}/tcp/{port}\"] }} }}
@@ -160,6 +168,31 @@ observability: {{ log_level: debug }}
             .expect("admin.peers.list")
             .into_iter()
             .find(|v| &v.peer == peer)
+    }
+
+    /// Whether this host's own addresses (`admin.peers.own_addresses`)
+    /// name `ip`. Their listen rows and the listen set Identify advertises
+    /// are not the same list -- the own addresses add confirmed and
+    /// circuit rows and floor special-use ones such as loopback -- but
+    /// both withhold by one predicate, the network set's `offers` /
+    /// `not_offered` (`runtime/mod.rs`, `withhold_not_offered`), so for a
+    /// private, non-special-use address such as [`LEARNED_A`] absence
+    /// from one is absence from the other.
+    async fn lists_own(&self, ip: Ipv4Addr) -> bool {
+        let admin = self
+            .home
+            .binding()
+            .admin([AdminCapability::Peers].into())
+            .await
+            .expect("an admin port");
+        let needle = format!("/ip4/{ip}/");
+        admin
+            .own_addresses()
+            .await
+            .expect("admin.peers.own_addresses")
+            .addresses
+            .iter()
+            .any(|a| a.address.contains(&needle))
     }
 
     /// Whether the dial gate holds a connection to `peer` open.
@@ -548,6 +581,11 @@ struct AfterAClose {
     /// Whether a dial B's reconnect scheduler made failed in the watch
     /// after the link returned.
     scheduler_dialled: bool,
+    /// From A's connection being made to the probe's answer: how long B's
+    /// book was seen to keep what it learned on that connection, at least
+    /// -- when A's address was withdrawn before the link returned; without
+    /// that, the reconnect's Identify may have learned it again.
+    probe_after: Duration,
     /// B's log, for a failing assertion.
     log: String,
 }
@@ -562,13 +600,24 @@ struct AfterAClose {
 /// address is to a host at another site. The overlay's own address is
 /// never learned: Identify withholds `100.64.0.0/10` and rule 2 refuses
 /// it from a peer, so without `learnable` B's book for A stays empty.
-async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
+/// `watch` is how long each of the two watches lasts. When `withdraw`,
+/// A's private address leaves A before the link returns -- waited for
+/// until A's own addresses no longer list it, having listed it before --
+/// so the reconnect's Identify cannot advertise it again, and what the
+/// probe reads is what B learned on the FIRST connection.
+async fn after_a_close(
+    learnable: bool,
+    send: bool,
+    watch: Duration,
+    withdraw: bool,
+) -> AfterAClose {
     if learnable {
         netns::add_unrouted_address(Net::A, "10.99.0.1/24");
         netns::add_unrouted_address(Net::B, "10.88.0.2/24");
     }
     let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
     until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
+    let learned = tokio::time::Instant::now();
     let from_b = b.client().await;
     // Identify runs at establishment at both ends; a second is margin.
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -577,7 +626,7 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
 
     netns::overlay_down();
     until_both(&a, &b, false, CLOSE, "both closed on the link's loss").await;
-    tokio::time::sleep(WATCH).await;
+    tokio::time::sleep(watch).await;
     let closed = dials(&b);
 
     let answered = if send {
@@ -603,6 +652,21 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     let before_up = dials(&b);
     let retry_scheduled = b.log().contains("retry scheduled");
 
+    if withdraw {
+        assert!(learnable, "only a learned address is withdrawn");
+        assert!(a.lists_own(LEARNED_A).await, "A never listed {LEARNED_A}");
+        netns::remove_unrouted_address(Net::A, "10.99.0.1/24");
+        let deadline = tokio::time::Instant::now() + PATIENCE;
+        while a.lists_own(LEARNED_A).await {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "A still lists {LEARNED_A}\nA:\n{}",
+                a.log()
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     // A redials by its entry once the link returns; B's dials in the
     // watch after that are what the link's return started at B.
     netns::overlay_up();
@@ -610,7 +674,7 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     // The watch, ended early by the line a scheduler dial's failure
     // writes (a failed dial's own `origin` is the one that dialled),
     // which by the order above follows that dial's `dial failed`.
-    let deadline = tokio::time::Instant::now() + WATCH;
+    let deadline = tokio::time::Instant::now() + watch;
     while tokio::time::Instant::now() < deadline && !b.log().contains(SCHEDULER_DIAL) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -622,6 +686,7 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
     let probe = from_b
         .send_once(&a.peer, id(2), "after the second close")
         .await;
+    let probe_after = learned.elapsed();
     netns::overlay_up();
     let log = b.log();
 
@@ -634,6 +699,7 @@ async fn after_a_close(learnable: bool, send: bool) -> AfterAClose {
         retry_scheduled,
         probe,
         scheduler_dialled,
+        probe_after,
         log,
     }
 }
@@ -674,7 +740,7 @@ async fn the_side_with_no_address_never_dials_and_its_send_is_answered_peer_unkn
     if !netns::in_overlay(NO_ADDRESS_AFTER_A_CLOSE) {
         return;
     }
-    let seen = after_a_close(false, true).await;
+    let seen = after_a_close(false, true, WATCH, false).await;
     let (answer, took) = seen.sent.as_ref().expect("sent");
     assert!(
         matches!(answer, Err(TransportError::PeerUnknown)) && *took < AT_ONCE,
@@ -709,7 +775,7 @@ async fn the_side_that_learned_an_address_dials_nothing_until_it_sends() {
     if !netns::in_overlay(LEARNED_NO_SEND) {
         return;
     }
-    let seen = after_a_close(true, false).await;
+    let seen = after_a_close(true, false, WATCH, false).await;
     assert_eq!(seen.dials, [0, 0], "{}", seen.log);
     assert!(!seen.retry_scheduled, "{}", seen.log);
     assert!(
@@ -727,15 +793,16 @@ const LEARNED_SEND: &str = "the_side_that_learned_an_address_dials_it_on_a_send_
 /// schedules a retry like any dial's (30 s, ADR-0011 A 2026-11-14),
 /// so from the send on B redials A from its book: here the link's return
 /// lifts the backoff and the scheduler dials at once. An unrouted
-/// address fails in milliseconds; one the network drops silently holds
-/// the send until the dial fails or the send's dial horizon (10 s)
-/// passes, which this case does not measure.
+/// address fails in milliseconds; one the network drops silently is
+/// [`a_send_to_a_learned_address_the_network_drops_is_answered_at_the_send_horizon`]'s,
+/// and one that is routed
+/// [`a_send_to_a_learned_address_that_is_routed_reconnects_the_pair`]'s.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
     if !netns::in_overlay(LEARNED_SEND) {
         return;
     }
-    let seen = after_a_close(true, true).await;
+    let seen = after_a_close(true, true, WATCH, false).await;
     let (answer, _) = seen.sent.as_ref().expect("sent");
     assert!(
         matches!(answer, Err(TransportError::PeerUnreachable)),
@@ -749,6 +816,234 @@ async fn the_side_that_learned_an_address_dials_it_on_a_send_and_retries() {
     assert!(
         seen.scheduler_dialled && seen.dials[1] >= 1,
         "a retry when the link returned\n{seen:?}"
+    );
+}
+
+/// A's private address, the one B learns from A's Identify.
+const LEARNED_A: Ipv4Addr = Ipv4Addr::new(10, 99, 0, 1);
+
+/// What B's network does with A's learned address once the pair is
+/// apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LearnedPath {
+    /// Routed to A over [`netns::second_link`], and every packet B sends
+    /// there dropped by B's own filter, with no answer and no error
+    /// ([`netns::drop_outbound`]).
+    Dropped,
+    /// Routed to A over [`netns::second_link`], and delivered.
+    Routed,
+}
+
+/// What [`over_a_learned_path`] saw.
+#[derive(Debug)]
+struct OverALearnedPath {
+    /// B's `dial failed` lines in the watch after the close, before the
+    /// path existed and before the send.
+    dials_before: usize,
+    /// What B's send to A answered.
+    answer: Result<EndpointId, TransportError>,
+    /// How long the answer took, from the moment before the send.
+    took: Duration,
+    /// Packets B's filter dropped on their way to A's learned address,
+    /// for [`LearnedPath::Dropped`]: read after the answer.
+    drops: Option<u64>,
+    /// Whether the message reached A's client.
+    landed: bool,
+    /// B's log, for a failing assertion.
+    log: String,
+}
+
+/// [`after_a_close`]'s shape with a send, except that A's learned
+/// address is given a PATH from B once the pair is apart: the overlay's
+/// link lost, both ends closed, B's watch read (B dials nothing, as the
+/// cases above show), then [`netns::second_link`] made with B's route
+/// to A's `10.99.0.0/24`, and -- for [`LearnedPath::Dropped`] -- B's
+/// filter dropping all it sends to [`LEARNED_A`], put in before the link
+/// so no packet gets through first. B's book for A holds [`LEARNED_A`]
+/// alone: the overlay's address is never learned, and the second link's
+/// addresses did not exist while A's Identify ran. A cannot reach B over
+/// it either: A's book holds its entry, on the lost overlay, and B's
+/// own private address, which nothing routes. So whatever reconnects
+/// the pair is B's send dialling the learned address.
+async fn over_a_learned_path(path: LearnedPath) -> OverALearnedPath {
+    netns::add_unrouted_address(Net::A, "10.99.0.1/24");
+    netns::add_unrouted_address(Net::B, "10.88.0.2/24");
+    let (_base, mut a, mut b) = hosts_with(true, false, Listen::Wildcard).await;
+    until_both(&a, &b, true, PATIENCE, "connected by A's entry").await;
+    let mut at_a = a.client().await;
+    let from_b = b.client().await;
+    // Identify runs at establishment at both ends; a second is margin.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let dials = |b: &Host| b.log().matches("dial failed").count();
+    let connected = dials(&b);
+
+    netns::overlay_down();
+    until_both(&a, &b, false, CLOSE, "both closed on the link's loss").await;
+    tokio::time::sleep(WATCH).await;
+    let dials_before = dials(&b) - connected;
+
+    if path == LearnedPath::Dropped {
+        netns::drop_outbound(Net::B, LEARNED_A);
+    }
+    netns::second_link("10.99.0.0/24");
+    let started = tokio::time::Instant::now();
+    let answer = from_b
+        .send_once(&a.peer, id(1), "over the learned path")
+        .await;
+    let took = started.elapsed();
+    let drops = (path == LearnedPath::Dropped).then(|| netns::outbound_drops(Net::B));
+    let landed = answer.is_ok()
+        && at_a
+            .pump_until(PATIENCE, |r| {
+                r.inbound
+                    .iter()
+                    .any(|m| !m.broadcast && m.message_id == id(1))
+            })
+            .await;
+    let log = b.log();
+
+    drop((at_a, from_b));
+    a.stop().await;
+    b.stop().await;
+    OverALearnedPath {
+        dials_before,
+        answer,
+        took,
+        drops,
+        landed,
+        log,
+    }
+}
+
+/// The send's dial horizon and the IPC request's default deadline, which
+/// are the same 10 s (`TRANSPORT.md`'s command deadline;
+/// `held_sends::SEND_DIAL_HORIZON_MS`, the IPC server's profile default)
+/// -- and so is the handshake timeout the Swarm's dial runs under: no
+/// answer to a send whose dial gets no reply can come sooner.
+const SEND_HORIZON: Duration = Duration::from_secs(10);
+
+const LEARNED_DROPPED: &str =
+    "a_send_to_a_learned_address_the_network_drops_is_answered_at_the_send_horizon";
+
+/// B learned A's private address, and after the close the network
+/// carries B's packets toward it and drops them silently: B's send
+/// dials it once, the dial gets no answer, and the send is answered at
+/// the 10 s horizon -- `Timeout` when the request's deadline passes
+/// first, `PeerUnreachable` when the held send's horizon or the dial's
+/// handshake timeout does; all three are 10 s, so either answer is the
+/// rule and neither comes sooner. The drop counter is the reading that
+/// B dialled the learned address at all (an unrouted address would be
+/// refused by B's own routing before the filter, and count nothing).
+/// The control is the next case: the same path without the drop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_send_to_a_learned_address_the_network_drops_is_answered_at_the_send_horizon() {
+    if !netns::in_overlay(LEARNED_DROPPED) {
+        return;
+    }
+    let seen = over_a_learned_path(LearnedPath::Dropped).await;
+    record(
+        "learned_dropped.txt",
+        &format!(
+            "answer {:?} after {:.3?}; drops {:?}; landed {}\n",
+            seen.answer, seen.took, seen.drops, seen.landed
+        ),
+    );
+    assert_eq!(seen.dials_before, 0, "{}", seen.log);
+    assert!(
+        matches!(
+            seen.answer,
+            Err(TransportError::Timeout | TransportError::PeerUnreachable)
+        ),
+        "{seen:?}"
+    );
+    assert!(
+        seen.took >= SEND_HORIZON && seen.took < SEND_HORIZON + AT_ONCE,
+        "answered after {:?}, not at the {SEND_HORIZON:?} horizon\n{seen:?}",
+        seen.took
+    );
+    assert!(
+        seen.drops.is_some_and(|n| n > 0),
+        "B's dial never reached the drop\n{seen:?}"
+    );
+}
+
+const LEARNED_ROUTED: &str = "a_send_to_a_learned_address_that_is_routed_reconnects_the_pair";
+
+/// The same, the learned address routed and delivered: B's send dials
+/// it, the dial connects, and the send is accepted by A's endpoint and
+/// lands at A's client, from B -- the pair reconnected by B's send over
+/// the one route B's book held, with no static entry for A and nothing
+/// else able to dial (the harness above). The control for the case
+/// above, whose drop is the only difference.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_send_to_a_learned_address_that_is_routed_reconnects_the_pair() {
+    if !netns::in_overlay(LEARNED_ROUTED) {
+        return;
+    }
+    let seen = over_a_learned_path(LearnedPath::Routed).await;
+    record(
+        "learned_routed.txt",
+        &format!(
+            "answer {:?} after {:.3?}; drops {:?}; landed {}\n",
+            seen.answer, seen.took, seen.drops, seen.landed
+        ),
+    );
+    assert_eq!(seen.dials_before, 0, "{}", seen.log);
+    assert!(seen.answer.is_ok(), "{seen:?}");
+    assert!(
+        seen.took < SEND_HORIZON,
+        "answered after {:?}\n{seen:?}",
+        seen.took
+    );
+    assert!(
+        seen.landed,
+        "the message never reached A's client\n{seen:?}"
+    );
+}
+
+const LEARNED_LONG_WATCH: &str =
+    "the_side_that_learned_an_address_dials_nothing_through_a_long_watch_and_keeps_it";
+
+/// How long each watch of the hand-run case lasts: past the retry
+/// ceiling (30 s, `RETRY_CEILING_MS`), the Swarm's idle timeout (60 s)
+/// and Identify's interval (5 min, the crate's default), each a timer
+/// that could start a dial or end what B learned if one were tied to it.
+const LONG_WATCH: Duration = Duration::from_secs(360);
+
+/// [`the_side_that_learned_an_address_dials_nothing_until_it_sends`]
+/// with each watch [`LONG_WATCH`] instead of 5 s: B dials nothing in six
+/// minutes after the close nor in six after the link returns, and the
+/// probe, sent after both, is still answered `PeerUnreachable`. A's
+/// address left A before the link returned (`withdraw`), so the
+/// reconnect's Identify could not advertise it again: the entry the probe
+/// reads is the one B learned on the first connection, more than twelve
+/// minutes earlier. The book has no age at which an entry leaves
+/// (`connection_manager.rs`: an entry leaves by an operator's removal,
+/// a permanent dial failure, eviction at the per-peer bound, its
+/// peer's retirement from trust, or a restart, the book being held in
+/// memory alone), so this is a figure for the record and not a bound.
+/// Run by hand: twelve minutes and more. Each run is recorded under
+/// `tests/automated-client/runs/`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "two watches of six minutes, run by hand and recorded under tests/automated-client/runs/"]
+async fn the_side_that_learned_an_address_dials_nothing_through_a_long_watch_and_keeps_it() {
+    if !netns::in_overlay_within(LEARNED_LONG_WATCH, Duration::from_mins(20)) {
+        return;
+    }
+    let seen = after_a_close(true, false, LONG_WATCH, true).await;
+    record(
+        "learned_long_watch.txt",
+        &format!(
+            "watch {LONG_WATCH:?} each; dials {:?}; retry scheduled {}; probe {:?} \
+             {:.2?} after the first connection\n",
+            seen.dials, seen.retry_scheduled, seen.probe, seen.probe_after
+        ),
+    );
+    assert_eq!(seen.dials, [0, 0], "{}", seen.log);
+    assert!(!seen.retry_scheduled, "{}", seen.log);
+    assert!(
+        matches!(seen.probe, Err(TransportError::PeerUnreachable)),
+        "B no longer held A's address\n{seen:?}"
     );
 }
 
@@ -766,13 +1061,13 @@ const OUTAGE: Duration = Duration::from_secs(480);
 /// word of 2026-11-14 (ADR-0011 A 2026-11-14; `RETRY_CEILING_MS`).
 const BOUND: Duration = Duration::from_secs(30);
 
-/// What A's log shows of the outage, and how long the pair took to
-/// reconnect once B was back: written beside the test binary, since the
-/// inner run's output is not shown on a pass.
-fn record(text: &str) {
+/// A hand-run case's figures, as `name` beside the test binary, since
+/// the inner run's output is not shown on a pass: what A's log shows of
+/// the outage, or what B's watches and probe saw.
+fn record(name: &str, text: &str) {
     let path = std::env::current_exe()
         .expect("the test binary's path")
-        .with_file_name("long_outage.txt");
+        .with_file_name(name);
     std::fs::write(&path, text).expect("the record is written");
 }
 
@@ -854,27 +1149,30 @@ async fn after_a_long_outage_the_side_with_the_entry_reconnects_within_30_s_of_t
                 .and_then(|n| n.parse().ok())
         })
         .collect();
-    record(&format!(
-        "outage {OUTAGE:?}, reconnected {took:?} after B's return\n\
+    record(
+        "long_outage.txt",
+        &format!(
+            "outage {OUTAGE:?}, reconnected {took:?} after B's return\n\
          retry delays during the outage (ms): {delays:?}\n\
          reconnect refusals during the outage: {}\n\
          -- A's dial lines during the outage --\n{}\n\
          -- A's dial and connect lines after B's return --\n{}\n",
-        lines(&during, "reconnect refused").len(),
-        lines(&during, "dial failed")
-            .iter()
-            .chain(lines(&during, "retry scheduled").iter())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n"),
-        after
-            .lines()
-            .filter(|l| l.contains("dial failed")
-                || l.contains("retry scheduled")
-                || l.contains("peer connected"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    ));
+            lines(&during, "reconnect refused").len(),
+            lines(&during, "dial failed")
+                .iter()
+                .chain(lines(&during, "retry scheduled").iter())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n"),
+            after
+                .lines()
+                .filter(|l| l.contains("dial failed")
+                    || l.contains("retry scheduled")
+                    || l.contains("peer connected"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+    );
 
     // A WENT ON REDIALLING through the outage every 30 s, however many
     // had failed: sixteen dials in 480 s, where the ladder this replaced

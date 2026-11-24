@@ -3482,7 +3482,9 @@ impl SwarmRuntime {
                         if let Some(peer) = retained.as_ref()
                             && let Ok(id) = to_peer_id(peer)
                         {
-                            let trusted = mesh_admits(manager.classify(peer));
+                            // The operator's list too, as `SetTrust` asks it.
+                            let trusted = mesh_admits(manager.classify(peer))
+                                && broadcast_state.trust.decide(peer).is_allowed();
                             swarm.sync_broadcast_admission(&id, trusted);
                         }
                         // THE CONNECTION A HELD SEND WAITED FOR: on the

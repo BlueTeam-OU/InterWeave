@@ -8,7 +8,7 @@
 //! its own earlier attempt — a fingerprint that covered the clock would
 //! make every retry look like different content.
 //!
-//! The frozen vectors in `fixtures/direct-v2/` are recomputed against this
+//! The frozen vectors in `fixtures/direct-v3/` are recomputed against this
 //! implementation by its own tests, so the vectors become executable here
 //! rather than only in the Python verifier.
 
