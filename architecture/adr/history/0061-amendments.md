@@ -247,3 +247,29 @@ IPC minor under ADR-0017" stand as written, being what was true on
 their day. Propagation: decision 2; this note; the log row; this
 record's digest entry and ADR-0028's, which carried the same phrase;
 plan §30 Activate.
+
+### Amendment 2026-11-24 — The replaces record is written before the add and lives until either identity is removed
+
+The note of 2026-11-22 said "the replaces record exists only while both
+identities do and is deleted with the removed one", and decision 7 said
+the record "is the store's while both exist". `STATE.md` §Logical
+tables, written in the same batch, has the record written before the
+administrative add of the new endpoint, for the reason that note itself
+gave: a process that ends between the add and a later write would
+otherwise leave an added identity nothing ties to the old one, and a
+second replacement would make a third. So the record exists before the
+new identity does, and after a process that ended before the add it
+names an identity not yet added; the two texts disagreed on when it
+exists (the Stage 22 batch's review, its finding F4 at 658dd3ee).
+`STATE.md` was right, and decision 7 now says what it says: written
+before the add, deleted in the transaction that removes either
+identity, kept beside a first identity that is turned off and never
+removed. What the earlier clause protected is kept, and is the bound
+that matters: no row names a removed identity, so no record of a
+removal exists (A 2026-11-04). A row whose new identity is not yet
+added names no removed identity either; it is what the interrupted
+replacement is finished from. The 2026-11-22 note stands as written,
+being the record of its day; this one corrects its one clause.
+
+Propagation: decision 7; this note; the log row; the digest entry.
+`STATE.md` is unchanged.
