@@ -1809,24 +1809,47 @@ impl IdentityFlow {
         }
     }
 
-    /// The held `IdStartUnchecked` start did not run, for `refused`
-    /// (design section 6, its results): another `PeerId` than C4's shows
-    /// `IdStorageUnknown` again with Try again only, the control withdrawn
-    /// while C4 is open; a platform error shows it again with both
-    /// controls; either raised, so the notice takes focus. A record that
-    /// does not open leads to K1, with its reason and the `PeerId` the
-    /// record names, and asks for the flow's profile lock again
-    /// ([`Effect::Hold`]): K1 takes it before any word, as at a launch.
-    /// Nothing on a screen not held for that start.
+    /// The start under this screen is one C4 answers when it compared the
+    /// identity it unlocks with an expected `PeerId` and was refused
+    /// (design section 6, An answer after the bound: "A start made from C4
+    /// that answers before the bound answers on C4, as Its results says,
+    /// wherever it comes from"): C4 held for a start while it shows a
+    /// `PeerId` -- `IdStartUnchecked`'s press, Continue's start after a
+    /// seal or after Try again's read-back found the record,
+    /// `IdStartBusy`'s Try again and a showing's retry under it alike. Not
+    /// C4 under `IdAlreadyCreated`, whose created identity is dropped at
+    /// Continue, so `IdStorageUnknown`'s Try again would have no `PeerId`
+    /// to read back, and not R4, R3 or R2: their compared refusal hands
+    /// over as before. The root asks it only of a start that compared
+    /// (human-android's `UncheckedAnswer`); this says which screen answers.
+    /// `every_compared_start_held_on_c4_answers_on_c4` holds it.
+    #[must_use]
+    pub const fn answers_compared(&self) -> bool {
+        matches!(self.screen, Screen::C4 { held: true, .. }) && self.peer.is_some()
+    }
+
+    /// A start under C4 that compared with an expected `PeerId` did not
+    /// run, for `refused` (design section 6, Its results), whichever C4
+    /// start it was ([`Self::answers_compared`]): another `PeerId` than
+    /// the expected one shows `IdStorageUnknown` with Try again only, the
+    /// control withdrawn while C4 is open; a platform error shows it with
+    /// both controls, the second only while it is offered; either raised,
+    /// so the notice takes focus. A record that does not open leads to
+    /// K1, with its reason and the `PeerId` the record names, and asks for
+    /// the flow's profile lock again ([`Effect::Hold`]): K1 takes it
+    /// before any word, as at a launch. Nothing on any other screen.
     /// `start_uncheckeds_results_are_a_launchs_and_a_mismatch_fails_closed`
-    /// holds it.
+    /// and `every_compared_start_held_on_c4_answers_on_c4` hold it.
     pub fn unchecked_refused(&mut self, refused: UncheckedRefused) -> Vec<Effect> {
+        if !self.answers_compared() {
+            return Vec::new();
+        }
         let Screen::C4 {
             notice,
-            held: held @ true,
+            held,
             starting,
             offer,
-            unchecked: unchecked @ true,
+            unchecked,
         } = &mut self.screen
         else {
             return Vec::new();
@@ -3909,8 +3932,12 @@ mod tests {
         assert_eq!(busy.notice(), Some(&Notice::StorageUnknown));
         assert!(!busy.offers_unchecked(), "withdrawn from IdStartBusy too");
 
-        // A held start that is not its: nothing.
+        // A held start C4 does not answer: nothing (every C4 start that
+        // shows a PeerId answers, `every_compared_start_held_on_c4_answers_on_c4`).
         for (place, mut flow) in held_starts() {
+            if place == "C4 after a seal" {
+                continue;
+            }
             assert_eq!(
                 flow.unchecked_refused(UncheckedRefused::OtherIdentity),
                 [],
@@ -3918,6 +3945,128 @@ mod tests {
             );
             assert!(flow.start_held(), "{place}: still held");
         }
+    }
+
+    /// A start made from C4 that compared and was refused answers on C4
+    /// whichever C4 start it was (design section 6, An answer after the
+    /// bound: "A start made from C4 that answers before the bound answers
+    /// on C4, as Its results says, wherever it comes from"): the start
+    /// after Try again's read-back found the record -- after an
+    /// `Unavailable` that kept the control, or after a mismatch that
+    /// withdrew it -- Continue's after a seal, `IdStartBusy`'s Try again,
+    /// and a showing's retry under it. A mismatch shows `IdStorageUnknown`
+    /// with Try again only, the control withdrawn; `Unavailable` keeps the
+    /// control only where it was offered; either raises the notice for
+    /// focus; `RecoveryRequired` is K1 with the record's `PeerId`. C4 under
+    /// `IdAlreadyCreated` (no `PeerId` to read back), R4, R3, R2 and an
+    /// unheld C4 answer nothing. Mutations: `answers_compared` reading the
+    /// `unchecked` flag (the rule before), or not the `PeerId`, or not
+    /// `held`, and `unchecked_refused` not withdrawing on a mismatch from
+    /// another C4 start, fail here.
+    #[test]
+    fn every_compared_start_held_on_c4_answers_on_c4() {
+        // C4's IdStartUnchecked refused with `first`, then Try again's
+        // read-back finds the record: its start compares.
+        let read_back_found = |first: UncheckedRefused| {
+            let mut c4 = c4_unchecked_offered();
+            c4.start_unchecked();
+            c4.unchecked_refused(first);
+            assert_eq!(c4.primary(), [Effect::ReadBack(mine())], "Try again");
+            assert_eq!(
+                c4.sealed(Ok(())),
+                [Effect::VoidPaper(false), Effect::StartService],
+                "found: its start"
+            );
+            assert_eq!(c4.start_expects(), None, "the flow names nothing");
+            assert!(c4.answers_compared(), "yet C4 answers its refusal");
+            c4
+        };
+
+        for first in [
+            UncheckedRefused::Unavailable,
+            UncheckedRefused::OtherIdentity,
+        ] {
+            let offered = first == UncheckedRefused::Unavailable;
+            // A mismatch: Try again only, focus on the notice.
+            let mut c4 = read_back_found(first.clone());
+            let raised = c4.notices_raised();
+            assert_eq!(c4.unchecked_refused(UncheckedRefused::OtherIdentity), []);
+            assert_eq!(c4.screen(), ScreenId::C4, "{first:?}: nothing ran");
+            assert!(!c4.start_held(), "{first:?}: Try again enabled");
+            assert_eq!(c4.notice(), Some(&Notice::StorageUnknown));
+            assert_eq!(c4.notices_raised(), raised + 1, "{first:?}: focus");
+            assert!(!c4.offers_unchecked(), "{first:?}: withdrawn");
+            assert_eq!(c4.peer(), Some(&mine()), "{first:?}: C4's PeerId");
+            // Unavailable: the control only while it is offered.
+            let mut c4 = read_back_found(first.clone());
+            let raised = c4.notices_raised();
+            assert_eq!(c4.unchecked_refused(UncheckedRefused::Unavailable), []);
+            assert_eq!(c4.notice(), Some(&Notice::StorageUnknown));
+            assert_eq!(c4.notices_raised(), raised + 1, "{first:?}: focus");
+            assert_eq!(c4.offers_unchecked(), offered, "{first:?}: as offered");
+            // RecoveryRequired: K1 with the record's PeerId.
+            let mut c4 = read_back_found(first.clone());
+            assert_eq!(
+                c4.unchecked_refused(UncheckedRefused::Recovery {
+                    reason: RecoveryReason::Key,
+                    expected: Some(mine()),
+                    new_keys: false,
+                }),
+                [Effect::Hold]
+            );
+            assert_eq!(
+                c4.recovery(),
+                Some((RecoveryReason::Key, Some(&mine()))),
+                "{first:?}: K1"
+            );
+        }
+
+        // Continue's start after a seal, IdStartBusy's Try again after
+        // it, and a showing's retry under IdStartBusy.
+        let sealed = || {
+            let mut c4 = c4_sealing();
+            c4.sealed(Ok(()));
+            c4
+        };
+        let mut continued = sealed();
+        let mut try_again = sealed();
+        try_again.start_busy();
+        assert!(!try_again.answers_compared(), "unheld under IdStartBusy");
+        assert_eq!(try_again.primary(), [Effect::StartService]);
+        let mut retried = sealed();
+        retried.start_busy();
+        assert!(retried.showing_started(), "control: a return's retry");
+        for (place, c4) in [
+            ("Continue", &mut continued),
+            ("IdStartBusy's Try again", &mut try_again),
+            ("a return's retry", &mut retried),
+        ] {
+            assert!(c4.answers_compared(), "{place}");
+            assert_eq!(c4.unchecked_refused(UncheckedRefused::OtherIdentity), []);
+            assert_eq!(c4.notice(), Some(&Notice::StorageUnknown), "{place}");
+            assert!(!c4.start_held(), "{place}");
+            assert!(!c4.offers_unchecked(), "{place}: Try again only");
+            // Not offered later on this C4 either: the mismatch withdrew it.
+            c4.primary();
+            c4.sealed(Err(StepFailed::StorageUnknown));
+            assert!(!c4.offers_unchecked(), "{place}: withdrawn for C4's life");
+        }
+
+        // No C4 to answer on, or no PeerId to read back.
+        for (place, flow) in held_starts() {
+            if place == "C4 after a seal" {
+                continue;
+            }
+            assert!(!flow.answers_compared(), "{place}");
+        }
+        let mut unheld = c4_sealing();
+        unheld.sealed(Err(StepFailed::StorageUnknown));
+        assert!(!unheld.answers_compared(), "an unheld C4");
+        assert_eq!(
+            unheld.unchecked_refused(UncheckedRefused::OtherIdentity),
+            []
+        );
+        assert!(unheld.offers_unchecked(), "nothing changed");
     }
 
     /// After a mismatch the control is not offered again while C4 is open,
