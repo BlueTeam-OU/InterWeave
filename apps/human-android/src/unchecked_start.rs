@@ -121,7 +121,9 @@ pub(crate) fn unchecked_answer(
         },
         IdentityRefused::UserNotAuthenticated => None,
         // No record where the read-back found one, the paths, the
-        // cipher, the storage: "try again", never K1 (section 6).
+        // cipher, the storage: "try again", never K1 (section 6;
+        // `a_refused_unchecked_start_answers_as_a_launch_and_fails_closed`
+        // maps each to `Unavailable` with a recovery that panics).
         IdentityRefused::Unprovisioned
         | IdentityRefused::Paths(_)
         | IdentityRefused::Unavailable(_)
