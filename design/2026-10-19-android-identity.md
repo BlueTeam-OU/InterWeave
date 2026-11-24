@@ -401,6 +401,16 @@ read found the gap, not a test with people. language-culture-en
 wrote the two sentences (REPLY to REQUEST 01a204f3), and §9's rows
 quote them; acceptance 9's check of them is blocked until the build
 has them.
+Revised 2026-11-24, at rust-ui-dev-01's QUESTION 01a20c79 on #750,
+for four places where §6's text did not fit the build (An answer
+after the bound, The comparison outlasts the bound, acceptance 12).
+The notice after the bound is `Refused` as #750 built it, with the
+internal error's words for both a mismatch and `Unavailable`; before,
+§6 named a Chats notice for a refused start that did not exist. A
+start without network compares nothing and leaves the comparison
+standing. A start made from C4 answers on C4 before the bound. A
+restore from a phrase after K1 ends the comparison, provisionally,
+until architect-cto answers Q17 (§11f).
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1243,17 +1253,32 @@ that a PeerId was created.
   the profile in use after the bound). The start's prompt cancelled
   or denied: the locked notice, with focus on it (Authentication
   needed). `Unavailable`, or a record that opens to another PeerId
-  than C4's: nothing runs, and Chats' notice for a refused start
-  (`Refused`, with Try again) shows under the app bar, where
-  `IdStartBusy` shows after the bound. Focus does not move, and the
+  than C4's: nothing runs, and a session notice shows under the app
+  bar, in the place where `IdStartBusy` shows after the bound:
+  `Refused`, whose reason is the words of an internal error
+  (`ErrorClass::Internal`), with Try again. Both answers show the same
+  words. When this was first written, it named a Chats notice for a
+  refused start that the build did not have: every refused start then
+  showed the notice that no service runs (`NoDaemon`, §11d Q12).
+  #750 built the notice as this bullet now says it (rust-ui-dev-01's
+  QUESTION 01a20c79, on #750). A refused start that made no
+  comparison still shows `NoDaemon` after the bound; this bullet
+  does not change that. Focus does not move, and the
   notice is announced once, politely, as `IdStartBusy` is after the
   bound, and for the same reason: it answers nothing the person is
   doing then. A mismatch gets no notice of its own here either: it
   cannot follow this flow's own write unless another writer took the
   profile (above), and C4, the screen that explained what the PeerId
-  is, has closed.
-- **The comparison outlasts the bound.** Until a start opens the
-  record to C4's PeerId, or until the process ends, every start that
+  is, has closed. Only a start that answers after the bound shows
+  `Refused`. A start made from C4 that answers before the bound
+  answers on C4, as Its results says, wherever it comes from: the
+  start of `IdStartUnchecked`, the start that `IdStartBusy`'s Try
+  again makes, and the start that follows when C4's Try again reads
+  the record back and it opens.
+- **The comparison outlasts the bound.** *Provisional: the end by a
+  restore, below, waits on architect-cto (§11f, Q17).* Until a start
+  opens the record to C4's PeerId, until the person commits a
+  restore from a phrase (below), or until the process ends, every start that
   the app makes after the press of `IdStartUnchecked` compares the
   PeerId that the record opens to with C4's PeerId, as the start of
   that press does. These starts are: the start that Try again makes on
@@ -1263,7 +1288,26 @@ that a PeerId was created.
   created anew after Back finished it, or from a notification). A
   record that opens to another PeerId answers each of them as An
   answer after the bound says, and nothing runs as that other PeerId.
-  Why: the person pressed "Go online with this PeerId"
+  A start without network (the start that runs when the person has
+  denied the network, `startWithoutNetwork`) opens the store and
+  unlocks no identity, so it has nothing to compare. It leaves the
+  comparison standing, and the next start of that process that
+  unlocks the identity compares. Where the network prompt's Allow
+  ends the process (GrapheneOS, unlock note §11), that is an end of
+  the process, below.
+  A restore from a phrase that the person commits, after a start
+  shows K1, ends the comparison: the Continue of R4 after K1, and the
+  Continue of `IdRestoreOther` on R2 after K1 (the another-identity
+  row; a build should not reach it there). That start, and every start
+  after it, compares nothing, as at a launch. Why: on R4 the person
+  has just entered a phrase that restores the PeerId the record names,
+  so that phrase, not the one written down on C4, is the paper for the
+  identity that runs. Under `IdRestoreOther` the person has been shown
+  the record's PeerId in full and pressed Continue to go online with
+  it. Either way, a comparison with C4's PeerId would refuse the
+  identity that the person has just chosen, with no way on in that
+  process.
+  Why the comparison holds until then: the person pressed "Go online with this PeerId"
   (`IdStartUnchecked`), and the phrase they wrote down restores that
   PeerId. A Try again that went online with another PeerId would
   answer that press with another identity, with no word to the
@@ -1271,9 +1315,11 @@ that a PeerId was created.
   identity that runs. The ruling on Q15 (§11d) lets nothing run from
   C4 as an identity other than C4's; the bound changes the screen, not
   the rule (architect-cto's REPLY 01a20aa8: the comparison binds every
-  start of that process). The expected PeerId is held in memory only.
+  start of that process; the end by a restore from a phrase narrows
+  it, and is asked as Q17). The expected PeerId is held in memory only.
   Nothing stores it, and nothing stores the fact that the press
-  happened. So, as on C4, only the end of the process leads on, and
+  happened. So, as on C4, only the end of the process leads on, or a
+  restore from a phrase when K1 shows, and after the end of the process
   the next launch runs whatever the record opens to, with no
   comparison (§12). When the system ends the process in the
   background and the app is later restored from saved state, that
@@ -2342,8 +2388,8 @@ landscape:
     bound): Chats opens at the bound, with focus on its title. The
     start is then answered with the double's record opening to another
     PeerId than C4's: the hook records no service start, `Refused`
-    shows under the app bar with Try again, and focus stays on Chats'
-    title. Then Try again is pressed: the hook records one start, which
+    shows under the app bar, with the internal error's words as its
+    reason and Try again, and focus stays on Chats' title. Then Try again is pressed: the hook records one start, which
     compares with C4's PeerId and is answered the same way, and the
     hook still records no service start. Then Back finishes the
     Activity, and the launcher launches it again in the same process:
@@ -2354,7 +2400,19 @@ landscape:
     answered `LockHeld` after the bound: `IdStartBusy` shows on Chats,
     and the start that Try again makes on it compares too. These three runs
     need the comparison to outlast the bound, and are blocked until it
-    does.
+    does (#750 builds it). In a fourth run, after the first run's
+    `Refused`, the double answers the next start as a start without
+    network (`startWithoutNetwork`): the hook records no comparison for
+    it, and the start after it that unlocks the identity compares and
+    is answered as in the first run. In a fifth run, provisional until
+    Q17 is answered (§11f), the held start is answered after the bound
+    with `RecoveryRequired` and the double's record naming another
+    PeerId than C4's: K1 shows over Chats with that PeerId; its phrase
+    is entered on R2, and R4's Continue is pressed. The hook records
+    one start, with no comparison, and the service runs; the start
+    after a Back and a new launch in the same process compares nothing
+    either. The fifth run is blocked until the end by a restore is
+    built.
     Back goes where §6 (Back from a notice) says: on R2 after K1, to
     K1, through the discard dialog, with the words dropped only by
     `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
@@ -3353,6 +3411,22 @@ here; the first was already answered on this branch.
   "identity" on screen means a name and photo, which the phrase does
   not restore (Q7 already says the label binds its meaning, not its
   words).
+
+## 11f. After #750 (Q17 open)
+
+- **Q17. Does a restore from a phrase end the comparison with C4's
+  PeerId?** Open, asked of architect-cto. §6 (The comparison outlasts
+  the bound) ends the comparison at R4's Continue after K1 and at
+  `IdRestoreOther`'s Continue on R2 after K1, provisionally. REPLY
+  01a20aa8 said that the comparison binds every start of the process;
+  this narrows it. The question, as asked: after `IdStartUnchecked`,
+  a start can answer `RecoveryRequired` and show K1 for a record that
+  names another PeerId than C4's. The person restores that PeerId
+  from a phrase on R2 and presses R4's Continue. With the comparison
+  still bound, that start is refused, and nothing in the process
+  leads on. Is the person's committed restore, with the phrase they
+  have just entered, an end of the comparison, as the end of the
+  process is?
 
 ## 12. Deliberately left out
 
