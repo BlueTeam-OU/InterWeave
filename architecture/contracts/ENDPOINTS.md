@@ -32,7 +32,7 @@ Rules:
 
 - 52 ASCII bytes, under every 64-byte ceiling the label grammar met (`ipc/hello`, the payload budgets), so no ceiling moves;
 - case-sensitive, one canonical form: the text is a base58btc number, compared byte for byte;
-- derived, never chosen: an id written by hand in a configuration or an administrative add is refused as `EndpointIdNotDerived`, and the daemon or embedded host derives every id from the key the entry names at load;
+- derived, never chosen, wherever the key can be read: an id written by hand in the retired `id` member or in an administrative add is refused as `EndpointIdNotDerived`, and the daemon or embedded host derives the id from the public key in the entry's key file at load. One entry's id is stated and not derived (A 2026-11-24): an entry whose key file is absent or unreadable takes the id its `key` name states (§Configured endpoint set, the key-missing state), so a name written by hand loads an id no key on this node derived — a selector under this node's PeerId that holds a lease and routes and signs nothing, under which no card and no signed claim can exist;
 - unique by construction within a node and across nodes — two equal ids are one key;
 - no wildcard endpoint exists;
 - no endpoint may be addressed as a broadcast substitute;
