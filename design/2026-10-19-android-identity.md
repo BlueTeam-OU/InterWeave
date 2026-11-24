@@ -409,7 +409,10 @@ built it, with the internal error's words for both a mismatch and
 `Unavailable`; before this revision, §6 named a notice on Chats, for
 a refused start, that the build did not have. A start without network
 compares nothing and does not end the comparison. A start made from
-C4 answers on C4 before the bound. R4's Continue after K1 ends the
+C4 answers on C4 before the bound; a compared start from R2 after K1,
+from R3, or from R4 when R4 was not reached after K1, answered
+`Unavailable` or a mismatch before the bound, opens Chats and shows
+`Refused`. R4's Continue after K1 ends the
 comparison, and no earlier step of the restore ends it
 (architect-cto's answer to Q17, REPLY 01a20c86, §11f). Before this
 revision, the comparison ended only when a start opened the record to
@@ -1288,7 +1291,7 @@ that a PeerId was created.
   `Refused` shows there. `LockHeld` keeps its own row, the profile-in-use
   row, and a cancelled or denied prompt keeps the Authentication needed
   row. Where focus goes when Chats opens in this way is not
-  specified yet; that question is carried on PR #753.
+  specified yet (Q18, §11f).
 - **The comparison outlasts the bound.** Until a start
   opens the record to C4's PeerId, until the person presses R4's
   Continue after K1 (below), or until the process ends, every
@@ -1339,7 +1342,10 @@ that a PeerId was created.
   offers R2 only with the record's own PeerId. If a build reaches that
   Continue anyway, the another-identity row applies, and the start of
   that Continue compares and is answered as An answer after the bound
-  says, both before the bound and after it. To end the comparison
+  says after the bound; before the bound, it is answered as that
+  bullet's last paragraph says for a compared start from R2 after K1
+  (`Unavailable` or a mismatch: Chats and `Refused`; `LockHeld` and a
+  cancelled or denied prompt: their own rows). To end the comparison
   there, the notice would have
   to say that the words written down on C4 do not restore the PeerId
   below it, and
@@ -3466,7 +3472,7 @@ here; the first was already answered on this branch.
   not restore (Q7 already says the label binds its meaning, not its
   words).
 
-## 11f. After #750 (Q17 answered)
+## 11f. After #750 (Q17 answered, Q18 open)
 
 - **Q17. Does a restore from a phrase end the comparison with C4's
   PeerId?** Answered by architect-cto, REPLY 01a20c86: yes, at the
@@ -3493,7 +3499,7 @@ here; the first was already answered on this branch.
   change follows. §6 (The comparison
   outlasts the bound) carries the answer. Acceptance 12's fifth run
   walks Back before any check, and it walks R4's Continue; no run yet
-  walks Back after a check that did not open R4 (carried on PR #753).
+  walks Back after a check that did not open R4 (Q18).
   architect-cto's REPLY 01a20aa8 had said that the comparison binds
   every start of the process; this answer narrows that ruling. The
   question, as asked: after `IdStartUnchecked`,
@@ -3504,6 +3510,19 @@ here; the first was already answered on this branch.
   leads on. Is the person's committed restore, with the phrase they
   have just entered, an end of the comparison, as the end of the
   process is?
+- **Q18. What this revision leaves open.** Open, ux-designer's to
+  decide (review of #753). Three things: where focus goes when Chats
+  opens after a compared start from R2 after K1, R3 or R4 that is
+  refused before the bound (§6, An answer after the bound); what a
+  compared start from those screens that answers `RecoveryRequired`
+  before the bound shows, which no row of §6 describes; and a run
+  of acceptance 12 that walks Back on R2 after K1 after a check that
+  did not open R4, `IdStorageUnknown` first. The first two are
+  reachable only when the record changes under the app (another
+  writer), as `IdRestoreOther` on R2 after K1 is; the third is
+  reachable on any build. Until Q18 is answered, a build is not
+  checked on the first two, and §6 states the rule the third run
+  would check.
 
 ## 12. Deliberately left out
 
