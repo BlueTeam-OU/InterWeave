@@ -538,7 +538,7 @@ where focus lands — with its dialog changed for ADR-0067:
     `IdentityRemoveUnfinished` when they were not (a failure at the
     Keystore alias), so that it says what was removed (ADR-0061
     decision 7). Neither is ever `IdentityChangeFailed`, and neither
-    has an Undo. It names the identity by
+    has an Undo. Each names the identity by
     the name the Remove dialog showed. The dialog has closed and focus
     is on the overflow button of the identity's page, as after a refused
     Remove (cards §5.2). `IdentityRemoveUnfinishedRows` never says that
@@ -596,9 +596,11 @@ where focus lands — with its dialog changed for ADR-0067:
     identity whose key file is still there keeps its rows, since it can
     be configured again. The identity leaves Your identities, the
     switcher and the switch, as one that Remove ended as done leaves
-    them (cards §5.2), with no snackbar of its own: the person already
-    chose Remove, and `IdentityRemoveUnfinishedRows` did not say it was
-    staying. In one case there is a snackbar: when that identity was in
+    them (cards §5.2), with no snackbar of its own: after a Remove, the
+    person already chose it, and `IdentityRemoveUnfinishedRows` did not
+    say it was staying. An identity whose key file and endpoint went by
+    other means, with no Remove chosen, leaves in the same way, with no
+    word, as any endpoint taken out of the configuration does. In one case there is a snackbar: when that identity was in
     front, the default comes in front with
     `ConfirmIdentityRemovedSwitched`, as after a Remove done (cards
     §5.2), since the identity in use never changes without the person
@@ -824,7 +826,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
 | F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
 | F21 | the identity in front becomes Starting or Could not start while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted |
-| F22 | an identity leaves the list after an unfinished Remove (§7's last item) | when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); otherwise unchanged, the focused control still being shown | keyboard, with acceptance 13's late-remove run |
+| F22 | an identity leaves the list by §7's last item | when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Your identities and the switcher, if either was shown, give way to Chats as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run: once from that identity's page, once with focus on its row in the switcher and a row after it, once on its row as the switcher's last row, once with two identities held and the switcher open; with the switcher open, the list is made to answer by a reconnection to the device |
 
 ## 12. Accessibility beyond focus
 
