@@ -1281,13 +1281,14 @@ that a PeerId was created.
   is: the start of `IdStartUnchecked`, the start that
   `IdStartBusy`'s Try again makes, and the start that follows when
   C4's Try again reads the record back and the record opens.
-  A compared start (The comparison outlasts the bound, below) made
-  from R2 after K1, from R3, or from R4 not after K1, that is answered
-  `Unavailable`, or opens the record to a PeerId other than C4's,
-  before the bound ends its hold: Chats opens, and `Refused` shows
-  there. `LockHeld` and a cancelled or denied prompt keep their own
-  rows (profile in use, Authentication needed). Where focus goes when
-  that Chats opens is not specified yet; it is carried on PR #753.
+  If a compared start (The comparison outlasts the bound, below) made
+  from R2 after K1, from R3, or from R4 when R4 was not reached after
+  K1 is answered `Unavailable` before the bound, or opens the record
+  before the bound to a PeerId other than C4's, Chats opens, and
+  `Refused` shows there. `LockHeld` keeps its own row, the profile-in-use
+  row, and a cancelled or denied prompt keeps the Authentication needed
+  row. Where focus goes when Chats opens in this way is not
+  specified yet; that question is carried on PR #753.
 - **The comparison outlasts the bound.** Until a start
   opens the record to C4's PeerId, until the person presses R4's
   Continue after K1 (below), or until the process ends, every
@@ -1338,7 +1339,8 @@ that a PeerId was created.
   offers R2 only with the record's own PeerId. If a build reaches that
   Continue anyway, the another-identity row applies, and the start of
   that Continue compares and is answered as An answer after the bound
-  says, before the bound as after it. To end the comparison there, the notice would have
+  says, both before the bound and after it. To end the comparison
+  there, the notice would have
   to say that the words written down on C4 do not restore the PeerId
   below it, and
   this note does not add that text for a case that a build cannot
@@ -3489,9 +3491,9 @@ here; the first was already answered on this branch.
   only with the record's own PeerId), so the start of that Continue
   still compares. No ADR or contract
   change follows. §6 (The comparison
-  outlasts the bound) carries the answer; acceptance 12's fifth run
-  walks Back before any check and R4's Continue, and no run yet walks
-  Back after a check that did not open R4 (carried on PR #753).
+  outlasts the bound) carries the answer. Acceptance 12's fifth run
+  walks Back before any check, and it walks R4's Continue; no run yet
+  walks Back after a check that did not open R4 (carried on PR #753).
   architect-cto's REPLY 01a20aa8 had said that the comparison binds
   every start of the process; this answer narrows that ruling. The
   question, as asked: after `IdStartUnchecked`,
