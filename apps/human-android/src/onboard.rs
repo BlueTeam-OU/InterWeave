@@ -517,13 +517,14 @@ pub(crate) fn launched() {
     route_state().launched();
 }
 
-/// `IdStartBusy`'s Try again on Chats or a conversation, after the bound
-/// (identity note section 6): one service start, by the path a granted
-/// Unlock uses ([`authenticated`]), as the person's, so a refusal for the
-/// screen lock prompts (L1) and Connect counts its openings from here
-/// (add-a-peer section 5.1). The hub shows the notice's start running
-/// until it answers, and the model offers no second press meanwhile
-/// (ui-model's `a_busy_start_is_retried_once_until_it_answers`).
+/// The Try again of `IdStartBusy`, or of a compared start's `Refused`, on
+/// Chats or a conversation, after the bound (identity note section 6): one
+/// service start, by the path a granted Unlock uses ([`authenticated`]), as
+/// the person's, so a refusal for the screen lock prompts (L1) and Connect
+/// counts its openings from here (add-a-peer section 5.1). The hub shows the
+/// notice's start running until it answers, and the model offers no second
+/// press meanwhile (ui-model's `a_busy_start_is_retried_once_until_it_answers`
+/// and `a_refused_compared_start_is_retried_once_until_it_answers`).
 pub(crate) fn retry_start() {
     ServiceHost::global().hub().start_asked(true);
     person_asked();
