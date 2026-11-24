@@ -30,10 +30,9 @@ use interweave_profile_config::{PersistError, ProfilePaths, TrustBoundary};
 /// person changed -- is kept without a write
 /// (`the_first_run_profile_is_written_once_and_never_rewritten`). A
 /// full or read-only data directory must not refuse a phone already
-/// provisioned (`a_provisioned_profile_is_kept_without_a_write`); that
-/// test is RED against `provision_embedded` as it stands, whose
-/// exclusive create writes its temporary before it learns the file
-/// exists (OBSERVATION 01a20127 to its owner).
+/// provisioned (`a_provisioned_profile_is_kept_without_a_write`):
+/// `provision_embedded` reads the present document before it writes
+/// anything (profile-config c63a9db5b).
 ///
 /// # Errors
 /// The paths are refused by the app's trust boundary, or the directory

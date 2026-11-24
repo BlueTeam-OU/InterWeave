@@ -852,7 +852,7 @@ fn the_first_run_profile_is_written_once_and_never_rewritten() {
 #[test]
 fn the_first_run_profile_advertises_no_endpoint() {
     let app = app();
-    common::provision_first_identity(&app.dir, PROFILE);
+    provision_profile(&app.dir, PROFILE).expect("form 1");
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
     let form_1 = ProfileConfig::load(&paths).expect("form 1 loads");
