@@ -2014,27 +2014,6 @@ impl Driver {
         overlay.write_within(path, &self.trust_boundary)
     }
 
-    /// Allow `peer` or revoke it, and publish the result to the substrate
-    /// -- which closes a revoked peer's connections, forgets its cached
-    /// directory and reports its disconnect with the `policy` reason --
-    /// and then to discovery; a revoked peer's routes are forgotten by
-    /// every session, so its path changes are owed to none until a new
-    /// exchange makes one (`a_revocation_forgets_the_sessions_routes`). A
-    /// change the policy refuses, or one that changes nothing, publishes
-    /// nothing.
-    ///
-    /// EVERY SET THAT REACHES THE DRIVER IS LOGGED, under
-    /// [`AUDIT_TARGET`], whatever came of it (ADR-0012's consequence,
-    /// LOCAL-IPC.md `admin.trust.set`): the peer, the request and its
-    /// outcome -- changed, unchanged, refused (by the policy, or by the
-    /// bound of an overlay left ahead), failed, or
-    /// unwritten (the overlay write failed, so nothing changed), or
-    /// superseded (a later port's set for the peer stands, nothing
-    /// written) -- timestamped by the host's log. A set that never reaches it is not:
-    /// one refused at the port for want of `admin.trust`, or by the IPC
-    /// server before the port, and one whose driver has gone; none of
-    /// them changed anything. Who asked is not known here: every admin
-    /// connection is the run-dir owner's (ADR-0037).
     /// The operator's list as `admin.trust.list` rows: every peer with
     /// where it comes from. Exact, not a default: the list is
     /// (configured ∪ added) ∖ revoked, so a listed peer the configuration
@@ -2342,6 +2321,28 @@ impl Driver {
         Ok(TrustSeed::Seeded)
     }
 
+    /// Allow `peer` or revoke it, and publish the result to the substrate.
+    /// When the write removes the peer from the admission set -- the last
+    /// set that held it (ADR-0067 decision 6) -- the substrate closes its
+    /// connections, forgets its cached directory and reports its
+    /// disconnect with the `policy` reason, and every session forgets its
+    /// routes, so its path changes are owed to none until a new exchange
+    /// makes one (`a_revocation_forgets_the_sessions_routes`); a peer an
+    /// endpoint's own set still holds stays connected. A change the policy
+    /// refuses, or one that changes nothing, publishes nothing.
+    ///
+    /// EVERY SET THAT REACHES THE DRIVER IS LOGGED, under
+    /// [`AUDIT_TARGET`], whatever came of it (ADR-0012's consequence,
+    /// LOCAL-IPC.md `admin.trust.set`): the peer, the request and its
+    /// outcome -- changed, unchanged, refused (by the policy, or by the
+    /// bound of an overlay left ahead), failed, or
+    /// unwritten (the overlay write failed, so nothing changed), or
+    /// superseded (a later port's set for the peer stands, nothing
+    /// written) -- timestamped by the host's log. A set that never reaches it is not:
+    /// one refused at the port for want of `admin.trust`, or by the IPC
+    /// server before the port, and one whose driver has gone; none of
+    /// them changed anything. Who asked is not known here: every admin
+    /// connection is the run-dir owner's (ADR-0037).
     async fn set_trust(
         &mut self,
         by: &Admission,
