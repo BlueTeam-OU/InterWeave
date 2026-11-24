@@ -1610,11 +1610,30 @@ impl Driver {
         moved: Result<Option<EndpointOverlay>, EndpointOverlayError>,
         publish: impl Future<Output = Result<T, TransportError>>,
     ) -> Result<T, TransportError> {
+        self.set_endpoints_noting(what, moved, publish).await.0
+    }
+
+    /// [`Self::set_endpoints`] with what its audit needs beside the
+    /// answer: whether the overlay write itself failed and the set was put
+    /// back, so nothing changed (`true`: audited `unwritten`), as against
+    /// a publish that failed after a write that landed or an overlay left
+    /// ahead of the runtime (`false`: audited `failed`), the trust
+    /// overlay's distinction (`Driver::set_trust`).
+    async fn set_endpoints_noting<T>(
+        &mut self,
+        what: &'static str,
+        moved: Result<Option<EndpointOverlay>, EndpointOverlayError>,
+        publish: impl Future<Output = Result<T, TransportError>>,
+    ) -> (Result<T, TransportError>, bool) {
         let overlay = match moved {
             Ok(overlay) => overlay,
-            Err(EndpointOverlayError::Unknown) => return Err(TransportError::EndpointUnknown),
-            Err(EndpointOverlayError::Disabled) => return Err(TransportError::EndpointDisabled),
-            Err(_) => return Err(TransportError::Internal),
+            Err(EndpointOverlayError::Unknown) => {
+                return (Err(TransportError::EndpointUnknown), false);
+            }
+            Err(EndpointOverlayError::Disabled) => {
+                return (Err(TransportError::EndpointDisabled), false);
+            }
+            Err(_) => return (Err(TransportError::Internal), false),
         };
         // A MOVE THE NEXT START WOULD REFUSE IS REFUSED NOW, nothing
         // written: the composed profile is validated as the start
@@ -1633,13 +1652,14 @@ impl Driver {
                     .require_android_identity(&composed.endpoints)
                     .is_err()
             {
-                return Err(TransportError::InvalidArgument);
+                return (Err(TransportError::InvalidArgument), false);
             }
         }
         let written = match (&overlay, self.endpoint_overlay_file.clone()) {
             (Some(overlay), Some(path)) => self.write_endpoint_overlay(overlay, &path).err(),
             _ => None,
         };
+        let unwritten = written.is_some();
         let published = if written.is_some() {
             Err(TransportError::Internal)
         } else {
@@ -1663,14 +1683,17 @@ impl Driver {
                      the set takes effect at the next start"
                 );
                 self.endpoint_overlay = new.clone();
-                return Err(TransportError::Internal);
+                return (Err(TransportError::Internal), false);
             }
         }
-        let answer = published?;
+        let answer = match published {
+            Ok(answer) => answer,
+            Err(e) => return (Err(e), unwritten),
+        };
         if let Some(overlay) = overlay {
             self.endpoint_overlay = overlay;
         }
-        Ok(answer)
+        (Ok(answer), false)
     }
 
     /// Add a bootstrap address (ADR-0062 decision 1): the all-or-none add
@@ -2245,11 +2268,14 @@ impl Driver {
         }
         let before = self.admission();
         let publish = self.publish_sources(sources);
-        let published = self.set_endpoints("trust.set", Ok(moved), publish).await;
+        let (published, unwritten) = self
+            .set_endpoints_noting("trust.set", Ok(moved), publish)
+            .await;
         let outcome = match &published {
             Ok(true) => "changed",
             Ok(false) => "unchanged",
             Err(TransportError::InvalidArgument) => "refused",
+            Err(_) if unwritten => "unwritten",
             Err(_) => "failed",
         };
         Self::audit_endpoint_set(&endpoint, &peer, allowed, outcome);
@@ -2309,13 +2335,14 @@ impl Driver {
             }
         };
         let publish = self.publish_sources(Some(sources));
-        let published = self
-            .set_endpoints("trust.seed", Ok(Some(moved)), publish)
+        let (published, unwritten) = self
+            .set_endpoints_noting("trust.seed", Ok(Some(moved)), publish)
             .await;
-        audit(if published.is_ok() {
-            "seeded"
-        } else {
-            "failed"
+        audit(match &published {
+            Ok(_) => "seeded",
+            Err(TransportError::InvalidArgument) => "refused",
+            Err(_) if unwritten => "unwritten",
+            Err(_) => "failed",
         });
         published?;
         Ok(TrustSeed::Seeded)
