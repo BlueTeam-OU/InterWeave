@@ -277,7 +277,10 @@ pub fn open_store(profile: &Profile, options: StoreOptions) -> Opened {
     // The store opens as the first identity, the first endpoint the
     // client may lease, whose derived id schema v14 gives every row an
     // older store holds (STATE.md §Migrations); `resolve` refuses a
-    // profile with none.
+    // profile with none. It speaks as that one too: the client leases the
+    // identity its store speaks as and no other, so the window's session
+    // is the first identity's or refused, never another endpoint's
+    // (`kept_disable.rs` in the desktop end-to-end suite).
     let Some(identity) = profile.endpoints.first() else {
         return Opened::Blocked(Blocked::Unavailable {
             path: profile.store_path(),
