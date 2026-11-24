@@ -278,6 +278,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.model.start_busy(busy);
     }
 
+    /// Whether the last start compared with C4's `PeerId` and was refused
+    /// after the bound, and whether a start for its notice runs, as the
+    /// root learns it from the platform ([`UiModel::start_refused`]).
+    pub fn start_refused(&mut self, refused: Option<StartBusy>) {
+        self.model.start_refused(refused);
+    }
+
     /// The unlock note's facts as the platform says them, the count of
     /// the start they are from, and whether its P-up line was seen.
     pub fn unlock_facts(&mut self, facts: Option<UnlockFacts>, start: u64, seen: bool) {
