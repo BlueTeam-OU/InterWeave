@@ -28,6 +28,7 @@ use interweave_transport_embedded::{
 };
 
 use crate::facade::{FacadeLoop, SpawnError};
+use crate::first_identity::FirstIdentityRefused;
 use crate::hub::{Hub, StoreAnswer, StoreGeneration, StoreRefusal};
 use crate::identity::UnlockStatus;
 use crate::network::{NetworkReport, NetworkSlot, Told};
@@ -91,6 +92,10 @@ pub enum StartRefused {
     StoreUnavailable(String),
     /// The facade's thread could not be started.
     Thread(String),
+    /// The first identity's key could not be sealed, or form 2 not
+    /// written, on a form-1 document beside a sealed seed
+    /// ([`crate::first_identity::finish`]); the next start tries again.
+    FirstIdentity(FirstIdentityRefused),
 }
 
 /// A discard that ran, and the hub's count of start answers when it
@@ -605,6 +610,7 @@ impl ServiceHost {
         }
         *self.unlock_slot() = launch.unlock;
         self.unlock_start_ran();
+        first_identity(&launch)?;
         let host = EmbeddedHost::start(EmbeddedLaunch {
             app_data_dir: launch.app_data_dir,
             profile: launch.profile,
@@ -707,6 +713,7 @@ impl ServiceHost {
     where
         B: interweave_human_transport_client::SessionBinding + Send + 'static,
     {
+        first_identity(&launch)?;
         let host = EmbeddedHost::start(EmbeddedLaunch {
             app_data_dir: launch.app_data_dir,
             profile: launch.profile,
@@ -804,6 +811,8 @@ impl ServiceHost {
         profile: &str,
         store_cipher: Arc<dyn KeyCipher + Send + Sync>,
     ) -> Result<(), StartRefused> {
+        crate::first_identity::at_start(app_data_dir, profile, &*store_cipher)
+            .map_err(StartRefused::FirstIdentity)?;
         let refused = |e: EmbeddedRefused| StartRefused::Runtime(e);
         let boundary = TrustBoundary::new(app_data_dir).map_err(|e| refused(e.into()))?;
         let paths =
@@ -1090,6 +1099,15 @@ fn client_config(
 /// What a refused start answers of the store, or `None` for a runtime
 /// refused network access: the Service then starts the network-denied
 /// posture, whose answer is the start's.
+/// A start's half of M3, before the embedded host takes the profile's
+/// lock: the host's start refuses form 1, and finishes it beside a sealed
+/// key alone (`crate::first_identity`).
+fn first_identity(launch: &ServiceLaunch) -> Result<(), StartRefused> {
+    crate::first_identity::at_start(&launch.app_data_dir, &launch.profile, &*launch.store_cipher)
+        .map(|_| ())
+        .map_err(StartRefused::FirstIdentity)
+}
+
 const fn store_answer(why: &StartRefused) -> Option<StoreAnswer> {
     match why {
         StartRefused::StoreNeedsRecovery => Some(StoreAnswer::Refused(StoreRefusal::Recovery)),

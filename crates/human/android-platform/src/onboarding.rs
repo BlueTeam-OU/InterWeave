@@ -22,11 +22,13 @@
 
 use std::path::{Path, PathBuf};
 
+use interweave_human_store::identity_key::KeyCipher;
 use interweave_profile_config::{PersistError, ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_transport_api::TransportIdentity;
 use interweave_transport_embedded::custody::{self, CipherFailure, CustodyRefused, SeedCipher};
 
+use crate::first_identity::{self, Finished, FirstIdentityRefused};
 use crate::identity::{Expected, RestoreRefused, restore_identity};
 
 /// Words in a phrase.
@@ -215,8 +217,33 @@ pub fn hold(app_data_dir: &Path, profile: &str) -> Result<ProfileLock, WriteRefu
     })
 }
 
+/// A seal or a restore that left the node's seed sealed, and what the
+/// same step then did for the first identity's key and the profile
+/// document (M3, [`first_identity::finish`]). The seed is the step's
+/// outcome: a refused M3 is the app's to log, and the next start finishes
+/// it (`ENDPOINTS.md` §Configured endpoint set, the third move).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Onboarded {
+    /// M3's outcome, under the step's lock.
+    pub first_identity: Result<Finished, FirstIdentityRefused>,
+}
+
+/// M3 once the step sealed the seed, under the flow's `lock`, or one of
+/// its own with none.
+fn onboarded(
+    paths: &ProfilePaths,
+    key_cipher: &dyn KeyCipher,
+    lock: Option<&ProfileLock>,
+) -> Onboarded {
+    Onboarded {
+        first_identity: first_identity::finish(paths, key_cipher, lock),
+    }
+}
+
 /// Seal `creation` under the profile's configured unlock policy (C4),
-/// under the flow's `lock` ([`hold`]), or the seal's own with none.
+/// under the flow's `lock` ([`hold`]), or the seal's own with none; then,
+/// in the same step and under the same lock, the first identity's key
+/// under `key_cipher` and form 2 ([`Onboarded`]).
 ///
 /// # Errors
 /// [`WriteRefused`], after the read-back.
@@ -224,9 +251,10 @@ pub fn seal(
     app_data_dir: &Path,
     profile: &str,
     cipher: &dyn SeedCipher,
+    key_cipher: &dyn KeyCipher,
     creation: &Creation,
     lock: Option<&ProfileLock>,
-) -> Result<(), WriteRefused> {
+) -> Result<Onboarded, WriteRefused> {
     let paths = paths(app_data_dir, profile)?;
     let policy = interweave_profile_config::ProfileConfig::load(&paths)
         .map_err(|e| WriteRefused::Storage(format!("the profile: {e}")))?
@@ -237,7 +265,7 @@ pub fn seal(
         Some(lock) => custody::provision_held(&paths, lock, cipher, &creation.identity, policy),
         None => custody::provision(&paths, cipher, &creation.identity, policy),
     };
-    match provisioned {
+    let sealed = match provisioned {
         Ok(_) => Ok(()),
         // Refused after the publish: done if the record opens to this
         // identity, and the next start's reseal (`reseal_identity`)
@@ -252,7 +280,8 @@ pub fn seal(
             Err(WriteRefused::UserNotAuthenticated)
         }
         Err(other) => Err(WriteRefused::Storage(format!("{other:?}"))),
-    }
+    };
+    sealed.map(|()| onboarded(&paths, key_cipher, lock))
 }
 
 /// The words and `PeerId` S2 shows (Show my phrase, design section 3.5),
@@ -294,7 +323,10 @@ pub fn check(text: String) -> Option<TransportIdentity> {
 }
 
 /// Restore the typed phrase to `expected` (R3's confirmed `PeerId`, or
-/// the record's after K1), under the flow's `lock` as [`seal`].
+/// the record's after K1), under the flow's `lock` as [`seal`], and then
+/// the first identity's key under `key_cipher` as [`seal`] does: a
+/// restore onto fresh state brings no endpoint key back (ADR-0063
+/// decision 1), and one onto an earlier release's state re-seals its key.
 ///
 /// # Errors
 /// [`WriteRefused`], after the read-back.
@@ -302,19 +334,38 @@ pub fn restore(
     app_data_dir: &Path,
     profile: &str,
     cipher: &dyn SeedCipher,
+    key_cipher: &dyn KeyCipher,
     text: String,
     expected: Expected<'_>,
     lock: Option<&ProfileLock>,
-) -> Result<(), WriteRefused> {
+) -> Result<Onboarded, WriteRefused> {
     let phrase = RecoveryPhrase::parse(&text).map_err(|_| WriteRefused::OtherIdentity)?;
     drop(text);
-    match restore_identity(app_data_dir, profile, cipher, &phrase, expected, lock) {
+    restored(app_data_dir, profile, cipher, &phrase, expected, lock)?;
+    Ok(match paths(app_data_dir, profile) {
+        Ok(paths) => onboarded(&paths, key_cipher, lock),
+        Err(why) => Onboarded {
+            first_identity: Err(FirstIdentityRefused::Paths(format!("{why:?}"))),
+        },
+    })
+}
+
+/// [`restore`]'s seed, read back where its refusal follows the publish.
+fn restored(
+    app_data_dir: &Path,
+    profile: &str,
+    cipher: &dyn SeedCipher,
+    phrase: &RecoveryPhrase,
+    expected: Expected<'_>,
+    lock: Option<&ProfileLock>,
+) -> Result<(), WriteRefused> {
+    match restore_identity(app_data_dir, profile, cipher, phrase, expected, lock) {
         Ok(_) => Ok(()),
         // Published, then the directory's sync failed or the other
         // policy's key could not be retired: done if the record opens to
         // the phrase's identity, as at a seal (design section 6).
         Err(RestoreRefused::Unsynced(why) | RestoreRefused::OldKeyRemains(why)) => {
-            let peer = crate::identity::phrase_peer(&phrase)
+            let peer = crate::identity::phrase_peer(phrase)
                 .map_err(|e| WriteRefused::ReadBackFailed(format!("{why}: {e:?}")))?;
             let paths = paths(app_data_dir, profile)
                 .map_err(|e| WriteRefused::ReadBackFailed(format!("{why}: {e:?}")))?;

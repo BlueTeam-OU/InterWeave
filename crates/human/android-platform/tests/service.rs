@@ -846,21 +846,144 @@ fn the_first_run_profile_is_written_once_and_never_rewritten() {
 }
 
 /// No identity's endpoint is in the directory: the app has no control
-/// that would take it out (`human-client-ui.md` §13).
+/// that would take it out (`human-client-ui.md` §13). Form 1 names no
+/// endpoint at all; form 2, which the first identity's seal writes,
+/// names it unadvertised.
 #[test]
 fn the_first_run_profile_advertises_no_endpoint() {
     let app = app();
-    common::provision_first_identity(&app.dir, PROFILE);
+    provision_profile(&app.dir, PROFILE).expect("form 1");
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
-    let profile = ProfileConfig::load(&paths).expect("the first-run profile loads");
+    let form_1 = ProfileConfig::load(&paths).expect("form 1 loads");
     assert!(
-        !profile.endpoints.entries.is_empty(),
-        "an endpoint is written"
+        form_1.endpoints.entries.is_empty(),
+        "form 1 names an endpoint"
     );
-    for endpoint in &profile.endpoints.entries {
+    let id = interweave_transport_api::EndpointId::from_ed25519_public(&[7; 32]);
+    interweave_profile_config::provision::provision_identity(&paths, &id).expect("form 2");
+    let form_2 = ProfileConfig::load(&paths).expect("form 2 loads");
+    assert!(
+        !form_2.endpoints.entries.is_empty(),
+        "form 2 names the identity"
+    );
+    for endpoint in &form_2.endpoints.entries {
         assert!(!endpoint.advertise, "{:?} is advertised", endpoint.id);
     }
+}
+
+/// M1 writes form 1 and nothing else: no endpoint key exists before the
+/// person chose Create or Restore (ADR-0067 decision 4), so the
+/// Activity's identity check, which provisions before Welcome, leaves
+/// the state root without one. Mutation: a key directory made by the
+/// provisioning fails it.
+#[test]
+fn provisioning_makes_no_endpoint_key_and_names_no_identity() {
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        interweave_profile_config::provision::embedded_document(PROFILE),
+        "M1 writes form 1"
+    );
+    let config = ProfileConfig::load(&paths).expect("form 1 loads");
+    assert_eq!(config.runtime.android.endpoint, None, "no identity named");
+    for dir in [
+        interweave_profile_config::endpoint_key::ENDPOINT_KEYS_DIR,
+        interweave_profile_config::endpoint_key::LEGACY_IDENTITY_KEYS_DIR,
+    ] {
+        assert!(
+            !paths.state_dir().join(dir).exists(),
+            "{dir}/ exists before Create or Restore"
+        );
+    }
+}
+
+/// An earlier release's first-run document (the marker, `- id: human`)
+/// is replaced by form 1 at the next provisioning, which every start
+/// runs before any load, and only once: what it wrote is kept after.
+/// The same text without the marker is the person's, and stays.
+/// Mutation: the early return on an existing file restored fails the
+/// replacement; a replacement on every call fails the second read.
+#[test]
+fn an_earlier_releases_document_is_replaced_once_by_form_1() {
+    let app = app();
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    stand_in::provision_replacing(&app.dir, PROFILE, &earlier_release_document())
+        .expect("the earlier release's document");
+    assert!(
+        ProfileConfig::load(&paths).is_err(),
+        "the control: the loader refuses the earlier release's entry"
+    );
+    provision_profile(&app.dir, PROFILE).expect("provisioned");
+    let form_1 = interweave_profile_config::provision::embedded_document(PROFILE);
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        form_1,
+        "replaced by form 1"
+    );
+    ProfileConfig::load(&paths).expect("form 1 loads");
+    let id = interweave_transport_api::EndpointId::from_ed25519_public(&[9; 32]);
+    interweave_profile_config::provision::provision_identity(&paths, &id).expect("form 2");
+    let form_2 = std::fs::read_to_string(paths.config_file()).expect("read");
+    provision_profile(&app.dir, PROFILE).expect("again");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        form_2,
+        "form 2 is kept: the replacement happens once"
+    );
+
+    let unmarked = earlier_release_document().replacen("# Written on first run", "# Mine", 1);
+    stand_in::provision_replacing(&app.dir, PROFILE, &unmarked).expect("a person's document");
+    provision_profile(&app.dir, PROFILE).expect("kept");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        unmarked,
+        "a document without the marker is never replaced"
+    );
+}
+
+/// The document every release before ADR-0067 wrote at first run, as
+/// `main` at 86627ed46 has it.
+fn earlier_release_document() -> String {
+    format!(
+        "{}: the embedded-android
+# defaults. Trust, relays and AutoNAT servers arrive through the admin
+# trust surface or onboarding, not here.
+schema_version: 2
+profile:
+  name: {PROFILE}
+runtime:
+  deployment: embedded-android
+  android:
+    endpoint: human
+ipc:
+  enabled: false
+transport:
+  listen:
+    addresses: [\"/ip4/0.0.0.0/tcp/0\"]
+trust:
+  policy: static-allowlist
+  allowed_peers: []
+endpoints:
+  default_direct_endpoint: human
+  entries:
+    - id: human
+      enabled: true
+      advertise: false
+      allowed_client_kinds: [human-client]
+discovery:
+  providers:
+    - type: peer-cache
+      enabled: true
+      priority: 10
+      config: {{}}
+",
+        interweave_profile_config::provision::EMBEDDED_DOCUMENT_MARKER
+    )
 }
 
 /// The android-e2e cases' provisioning replaces what is there -- the
