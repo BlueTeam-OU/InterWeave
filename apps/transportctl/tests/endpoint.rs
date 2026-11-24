@@ -355,7 +355,7 @@ fn plant_added_human(home: &Home) {
         authored.as_str()
     ));
     home.plant_overlay(&format!(
-        r#"{{"enabled":{{}},"added":[{{"key":"{}.key","alias":"human","enabled":true,"advertise":false}}]}}"#,
+        r#"{{"enabled":{{}},"added":[{{"key":"{0}.key","alias":"human","enabled":true,"advertise":false}}],"inbound":{{"{0}":[]}},"outbound":{{"{0}":[]}}}}"#,
         added.as_str()
     ));
 }
