@@ -74,6 +74,8 @@ pub(crate) const fn session_notice(n: SessionNotice) -> &'static str {
         SessionNotice::AuthenticationNeeded => "authentication-needed",
         SessionNotice::StartBusy(StartBusy::Shown) => "start-busy",
         SessionNotice::StartBusy(StartBusy::Starting) => "start-busy-starting",
+        SessionNotice::StartRefused(StartBusy::Shown) => "start-refused",
+        SessionNotice::StartRefused(StartBusy::Starting) => "start-refused-starting",
     }
 }
 
