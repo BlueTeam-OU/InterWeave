@@ -603,8 +603,9 @@ where focus lands — with its dialog changed for ADR-0067:
     with no Remove chosen, also leaves with no snackbar, like any
     endpoint that is taken out of the configuration. In one case there is a
     snackbar: when that identity was in front, the default comes in
-    front with `ConfirmIdentityRemovedSwitched`, as after a Remove done
-    (cards §5.2), since the identity in use never changes without the person
+    front with `ConfirmIdentityRemovedSwitched` when two or more
+    identities are left and with `ConfirmIdentityRemoved` when one is
+    left, as after a Remove done (cards §5.2), since the identity in use never changes without the person
     being told which one it now is. Where its page or one of its
     screens was shown, the app lands as after a Remove done (cards
     §5.2, "Where it lands"); focus is F22's (§11).
@@ -827,7 +828,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
 | F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
 | F21 | the identity in front becomes Starting or Could not start while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted |
-| F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each run with the switcher open, a reconnection to the device makes `admin.endpoints.list` answer |
+| F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each run, a reconnection to the device makes `admin.endpoints.list` answer |
 
 ## 12. Accessibility beyond focus
 
@@ -1104,7 +1105,11 @@ pass before it lands.
     key file deleted before Remove is chosen (the page shows
     `KeyMissing`), Remove completes: the identity and everything that
     the first part of this item lists are gone, and no snackbar shows
-    `IdentityChangeFailed`. With a seam that fails Remove after the key
+    `IdentityChangeFailed`. With the key file of a listed identity
+    deleted, no Remove chosen, and `admin.endpoints.list` made to fail
+    at the app's start and at a reconnection: its conversations,
+    contacts and card are all still there, and they still are after a
+    list that answers, which holds its id. With a seam that fails Remove after the key
     file is unlinked, in one run on each client at the device's
     administrative remove (a refusal) and, on Android only, in one more
     run at the Keystore alias's retirement: the snackbar is
@@ -1129,7 +1134,9 @@ pass before it lands.
     list that answers (Your identities opened again) the identity is
     gone with no snackbar, and focus is as F22 says; in a run with that
     identity in front when the remove is applied, the default comes in
-    front with `ConfirmIdentityRemovedSwitched`. On the desktop, with
+    front with `ConfirmIdentityRemovedSwitched` naming the default, and in one
+    more such run with two identities held, so that one is left, the
+    snackbar is `ConfirmIdentityRemoved` and names no other identity. On the desktop, with
     the daemon's configuration write made to succeed and both its apply
     and the restore made to fail (`Internal`): the snackbar is
     `IdentityRemoveUnfinishedRows`, and Remove chosen again ends the
