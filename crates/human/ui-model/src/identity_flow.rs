@@ -1800,8 +1800,13 @@ impl IdentityFlow {
     /// again after it, and a start a showing retries under that notice
     /// alike. The root compares the identity the start unlocks with it
     /// before the identity reaches the service, and answers a mismatch
-    /// with [`Self::unchecked_refused`]. `None` for every other start.
-    /// `start_expects_names_c4s_peer_id_for_its_starts_alone` holds it.
+    /// with [`Self::unchecked_refused`]. `None` for every other start of
+    /// the flow: what the flow says. Once said, the root holds the
+    /// comparison for every later start of its process until one opens
+    /// the record to that `PeerId`, the flow's end included (section 6,
+    /// The comparison outlasts the bound; human-android's
+    /// `ExpectedStart`). `start_expects_names_c4s_peer_id_for_its_starts_alone`
+    /// holds the flow's word.
     #[must_use]
     pub fn start_expects(&self) -> Option<&TransportIdentity> {
         match &self.screen {
