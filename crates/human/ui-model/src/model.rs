@@ -488,10 +488,15 @@ pub enum Intent {
     /// whose key needs the person. Carried out by the platform, never by
     /// the facade.
     Authenticate,
-    /// Make one service start for [`SessionNotice::StartBusy`]: no seal,
-    /// no restore, no words, and nothing else. Offered only while no
-    /// start runs for the notice. Carried out by the platform, never by
-    /// the facade, which does not run.
+    /// Make one service start for [`SessionNotice::StartBusy`] or
+    /// [`SessionNotice::StartRefused`], the Try again of each: no seal, no
+    /// restore, no words, and nothing else. Offered only while no start
+    /// runs for the notice (`tests/start_busy.rs`:
+    /// `a_busy_start_is_retried_once_until_it_answers` and
+    /// `a_refused_compared_start_is_retried_once_until_it_answers`).
+    /// Carried out by the platform, never by the facade, which does not
+    /// run (app-core's `a_busy_starts_try_again_reaches_the_platform_once`
+    /// and `a_refused_starts_try_again_reaches_the_platform_once`).
     RetryStart,
     /// Read the trust allowlist: the trust settings opened, or a change's
     /// list was not read back ([`crate::TrustSettings::take_reread`]).
