@@ -12,8 +12,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use interweave_ipc_protocol::{
     AddressList, AddressResult, AddressesResult, AdminStatusResult, DirectoryResult, EmptyResult,
-    EndpointList, OwnAddressList, PeerList, Request, RequestId, ResponseFrame, SendResult,
-    SessionLossesResult, SetEnabledResult, TrustList, TrustSeedResult, TrustSetResult,
+    EndpointAddResult, EndpointList, EndpointRemoveResult, OwnAddressList, PeerList, Request,
+    RequestId, ResponseFrame, SendResult, SessionLossesResult, SetAliasResult, SetEnabledResult,
+    TrustList, TrustSeedResult, TrustSetResult,
 };
 use interweave_local_client_api::{
     AddressChange, AdminPort, DataSessionPort, EndpointSetKind, TrustSource,
@@ -78,6 +79,10 @@ pub(crate) async fn data<S: DataSessionPort>(
         | Request::AdminEndpointsRevoke(_)
         | Request::AdminEndpointsSetEnabled(_)
         | Request::AdminEndpointsSetDefault(_)
+        | Request::AdminEndpointsAdd(_)
+        | Request::AdminEndpointsRemove(_)
+        | Request::AdminEndpointsSetAdvertise(_)
+        | Request::AdminEndpointsSetAlias(_)
         | Request::AdminShutdown(_)
         | Request::AdminTrustList(_)
         | Request::AdminTrustSet(_)
@@ -142,6 +147,30 @@ pub(crate) async fn admin<A: AdminPort>(
         }
         Request::AdminEndpointsSetDefault(p) => {
             empty(id, port.set_default_endpoint(p.endpoint).await)
+        }
+        // The endpoint set's methods (3.0): a refusal is the port's ANSWER,
+        // carried as a result naming its rule, and a failure of the port
+        // itself is the error (`an_endpoint_set_refusal_is_a_result_naming_its_rule`).
+        Request::AdminEndpointsAdd(p) => match port
+            .add_endpoint(p.key, p.alias, p.allowed_client_kinds)
+            .await
+        {
+            Ok(change) => ResponseFrame::success(id, &EndpointAddResult(change)),
+            Err(code) => ResponseFrame::failure(id, code),
+        },
+        Request::AdminEndpointsRemove(p) => match port.remove_endpoint(p.endpoint).await {
+            Ok(change) => ResponseFrame::success(id, &EndpointRemoveResult(change)),
+            Err(code) => ResponseFrame::failure(id, code),
+        },
+        Request::AdminEndpointsSetAdvertise(p) => empty(
+            id,
+            port.set_endpoint_advertise(p.endpoint, p.advertise).await,
+        ),
+        Request::AdminEndpointsSetAlias(p) => {
+            match port.set_endpoint_alias(p.endpoint, p.alias).await {
+                Ok(change) => ResponseFrame::success(id, &SetAliasResult(change)),
+                Err(code) => ResponseFrame::failure(id, code),
+            }
         }
         Request::AdminShutdown(p) => {
             let grace = p
@@ -445,6 +474,27 @@ mod tests {
                 "set_default None",
             ),
             (
+                Method::AdminEndpointsAdd,
+                serde_json::json!({"key": "k.key", "alias": "work",
+                    "allowed_client_kinds": ["human", "cli"]}),
+                "add_endpoint k.key work human,cli",
+            ),
+            (
+                Method::AdminEndpointsRemove,
+                serde_json::json!({"endpoint": crate::fake::ep("human").as_str()}),
+                "remove_endpoint human",
+            ),
+            (
+                Method::AdminEndpointsSetAdvertise,
+                serde_json::json!({"endpoint": crate::fake::ep("human").as_str(), "advertise": true}),
+                "set_advertise human true",
+            ),
+            (
+                Method::AdminEndpointsSetAlias,
+                serde_json::json!({"endpoint": crate::fake::ep("human").as_str(), "alias": "home"}),
+                "set_alias human home",
+            ),
+            (
                 Method::AdminShutdown,
                 serde_json::json!({}),
                 "shutdown 1234",
@@ -691,6 +741,47 @@ mod tests {
         assert_eq!(fake.script().calls.len(), before);
     }
 
+    /// The endpoint set's refusals are results naming their rules, never
+    /// error frames (LOCAL-IPC.md: the error vocabulary gains no name);
+    /// the remove's `removed` is the control, a result with no rule.
+    #[tokio::test]
+    async fn an_endpoint_set_refusal_is_a_result_naming_its_rule() {
+        let fake = Fake::default();
+        let port = fake.admin([].into()).await.expect("port");
+        let counters = Counters::default();
+        let grace = Duration::from_millis(1);
+        let answer = |method, params| {
+            let request = request(method, &params);
+            let port = &port;
+            let counters = &counters;
+            async move { body(admin(port, counters, grace, id(), request).await) }
+        };
+        let added = answer(
+            Method::AdminEndpointsAdd,
+            serde_json::json!({"key": "k.key", "alias": "w", "allowed_client_kinds": []}),
+        )
+        .await;
+        assert!(added.contains(r#""ok":true"#), "{added}");
+        assert!(
+            added.contains(r#""outcome":"refused""#)
+                && added.contains(r#""refused":"key_mismatch""#),
+            "{added}"
+        );
+        let renamed = answer(
+            Method::AdminEndpointsSetAlias,
+            serde_json::json!({"endpoint": crate::fake::ep("human").as_str(), "alias": "x"}),
+        )
+        .await;
+        assert!(renamed.contains(r#""refused":"alias_taken""#), "{renamed}");
+        let removed = answer(
+            Method::AdminEndpointsRemove,
+            serde_json::json!({"endpoint": crate::fake::ep("human").as_str()}),
+        )
+        .await;
+        assert!(removed.contains(r#""outcome":"removed""#), "{removed}");
+        assert!(!removed.contains("refused"), "{removed}");
+    }
+
     /// A refusal is the port's answer, so the response SUCCEEDS and names
     /// the rule; a client renders `refused`, never an error code.
     #[tokio::test]
@@ -926,6 +1017,9 @@ mod tests {
                     enabled: true,
                     default: true,
                     persisted,
+                    alias: None,
+                    source: interweave_local_client_api::EndpointSource::Authored,
+                    advertise: false,
                     lease: None,
                 })
                 .collect();
