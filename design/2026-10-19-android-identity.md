@@ -449,15 +449,16 @@ that a start without network writes is tied to this node's PeerId. Before,
 it said "a PeerId", which a reader could take to cover the contacts'
 PeerIds that the store holds. §6 (A start from C4 after a failed
 read-back) and acceptance 12 now say that the app compares C4's PeerId
-with the PeerId that the record opens to. Before, they said "the identity
-that the start unlocks", which, since Stage 22, could mean a user
+with the PeerId that the record opens to. Before, §6 said "the
+identity that `unlock` gives" and acceptance 12 said "the identity
+that the start unlocks"; since Stage 22, the second could mean a user
 identity. In acceptance 12, the first three runs and the fifth are no
 longer blocked, since #750 built what they need; the sixth run needs
 only what the first three do (before, it was blocked as the fifth
 was); the seventh run's third variant requires a fixture phrase whose
 PeerId differs from C4's; the seventh run is blocked until the
-build has Q18's rule; and an eighth run checks that rule from R3.
-Before, no run checked it from R3, and the note did not say why none
+build has Q18's rule; and an eighth run checks that rule from R3,
+which §11f's answer to Q18 now names. Before, no run checked it from R3, and the note did not say why none
 checks it from R2 after K1.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
@@ -2596,11 +2597,12 @@ landscape:
     answered before the bound (§6, An answer after the bound), which
     Q18 (§11f) gave after #750 merged.
     In an eighth run, a compared start from R3 is answered before the
-    bound. It goes as the seventh run until W shows. The fixture phrase is
-    entered on R2 and checked, and R3 shows. Then the double writes a
-    record that names the PeerId of a second fixture phrase, a PeerId
-    other than C4's and other than the first phrase's, and R3's yes is
-    pressed: the restore is answered with that record (§6, Another
+    bound. It goes as the seventh run until W shows. Then, before R2
+    opens and takes the profile lock (§2), the double writes a record
+    that names the PeerId of a second fixture phrase, a PeerId other
+    than C4's and other than the first phrase's. The fixture phrase is
+    entered on R2 and checked, R3 shows, and R3's yes is pressed: the
+    restore is answered with that record (§6, Another
     identity already on record), and `IdRestoreOther` shows.
     `IdRestoreOther`'s Continue is pressed. The eighth run has the
     seventh's
