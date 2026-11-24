@@ -1313,11 +1313,15 @@ that a PeerId was created.
   a check that succeeds opens R4, and Back does nothing while the
   check runs (Check running), so no Back can come between that check
   and R4. When K1 shows, and the person opens R2, enters the words
-  and presses Back, either before any check or after a check that
-  restored nothing (a check whose prompt was cancelled or denied, a
-  check that showed the checksum banner, or a check that showed
-  `IdOtherIdentity`), nothing is restored, and the next start of that
-  process still compares.
+  and presses Back, either before any check or after any check that
+  did not open R4, the next start of that process still compares. A
+  check that did not open R4 is one whose prompt was cancelled or
+  denied, or one that showed the checksum banner, `IdOtherIdentity`,
+  `IdBusy`, `IdStorageFailed` or `IdStorageUnknown`. After all of
+  these but `IdStorageUnknown`, nothing is restored. After
+  `IdStorageUnknown`, the restore may have been written, but it still
+  did not open R4, so the comparison still binds, and the next start
+  compares whatever PeerId the record then opens to.
   `IdRestoreOther`'s Continue on R2 after K1 does not end the
   comparison either. A build cannot reach that Continue there: K1
   offers R2 only with the record's own PeerId. If a build reaches that
@@ -3454,11 +3458,13 @@ here; the first was already answered on this branch.
   No step of the restore before that press ends it. On R2 after K1,
   the check itself performs the restore, and a check that succeeds opens
   R4. When K1 shows, and the person opens R2, enters the words and
-  presses Back, either before any check or after a check that
-  restored nothing (a check whose prompt was cancelled or denied, a
-  check that showed the checksum banner, or a check that showed
-  `IdOtherIdentity`), nothing is restored, and the comparison still
-  binds. `IdRestoreOther`'s Continue on R2 after K1 would end the
+  presses Back, either before any check or after any check that did
+  not open R4 (a check whose prompt was cancelled or denied, or one
+  that showed the checksum banner, `IdOtherIdentity`, `IdBusy`,
+  `IdStorageFailed` or `IdStorageUnknown`), the comparison still
+  binds. After `IdStorageUnknown` the restore may have been written;
+  after the others, nothing is restored (§6, The comparison outlasts
+  the bound). `IdRestoreOther`'s Continue on R2 after K1 would end the
   comparison only if that notice also said that the words written down
   on C4 do not restore the PeerId below it. The note does not add that
   text, because a build cannot reach that notice there (K1 offers R2
