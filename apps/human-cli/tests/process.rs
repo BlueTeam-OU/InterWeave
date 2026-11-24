@@ -9,6 +9,7 @@
 #![cfg(unix)]
 #![allow(clippy::expect_used)]
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::process::{Command, Output};
 
 fn human(args: &[&str], xdg: &std::path::Path) -> Output {
@@ -56,8 +57,6 @@ fn help_names_every_verb_and_every_exit_code() {
         "peers add|remove",
         "peers show",
         "identity show",
-        "identity new-key",
-        "--accept-key-change",
         "contacts route delete",
         "peers add -|--file",
     ] {
@@ -84,13 +83,14 @@ fn a_usage_error_is_exit_2_and_prints_the_usage() {
 fn batch_fours_flags_out_of_place_are_exit_2() {
     let xdg = tempfile::tempdir().expect("tempdir");
     for args in [
+        // No command since ADR-0067 decision 5, its old flag with it.
         &[
             "--profile",
             "p",
             "identity",
             "new-key",
             "--confirm",
-            "everything",
+            "key-change",
         ][..],
         &[
             "--profile",
@@ -138,7 +138,10 @@ fn a_message_on_stdin_past_its_bound_is_refused_before_anything_opens() {
                 "--profile",
                 "absent",
                 "send",
-                "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN/human",
+                &format!(
+                    "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN/{}",
+                    endpoint_id("human").as_str()
+                ),
                 "-",
             ])
             .env_clear()

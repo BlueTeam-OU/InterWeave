@@ -2,17 +2,21 @@
 
 The prose here is normative for **behaviour**. The parts of this protocol that are document-shaped — the coarse rejection codes, the destination selector, the deduplication key — are also defined as JSON Schema under [`../../contracts/schemas/direct/`](../../contracts/schemas/direct/) (ADR-0049).
 
-The `DirectMessageV2` byte framing below — the request and the `AcceptedV2`/`RejectedV2` response — is deliberately **not** modelled there: it is a fixed-width binary layout, not a JSON document, and cross-implementation agreement on it belongs in `fixtures/direct-v2/` as byte vectors. The family manifest records that boundary explicitly rather than leaving it as an apparent gap.
+The `DirectMessageV2` byte framing below — the request and the `AcceptedV2`/`RejectedV2` response — is deliberately **not** modelled there: it is a fixed-width binary layout, not a JSON document, and cross-implementation agreement on it belongs in `fixtures/direct-v3/` as byte vectors. The family manifest records that boundary explicitly rather than leaving it as an apparent gap.
 
 ## Selected primitive
 
-`libp2p::request_response` with a custom bounded codec remains the selected primitive. ADR-0030 upgrades the initial implementation target to endpoint-aware protocol v2:
+`libp2p::request_response` with a custom bounded codec remains the selected primitive. The protocol is:
 
 ```text
-/interweave/direct/2.0.0
+/interweave/direct/3.0.0
 ```
 
-The old architecture-only `/direct/1.0.0` frame is superseded before production implementation. Because there is no deployed v1 compatibility obligation, implementation should target v2 directly.
+**`3.0.0` is the protocol of the derived EndpointId** (ADR-0067 decision 7, the Stage 22 release). Every endpoint field of the frames below carries an EndpointId in the grammar of `contracts/ENDPOINTS.md` §EndpointId — the 52 ASCII bytes of a key's PeerId-style name — and nothing else about the frames changed: the field order, the widths, the byte order, the reason numbering and every rule of §Semantics are what `/interweave/direct/2.0.0` had. The id changed because the value did: a `2.0.0` reader refuses a derived id as malformed and a `3.0.0` reader refuses a label, so two nodes on either side of the release would otherwise fail frame by frame, each answering `malformed` to a peer that sent what its own contract told it to. With the new id they fail once, at protocol negotiation and by name (§Protocol family).
+
+**The frames keep their names.** `DirectMessageV2`, `AcceptedV2` and `RejectedV2` name the frame layout, the endpoint-addressed one ADR-0030 introduced, not the protocol's major: the layout is the one `2.0.0` carried, so the names stand on `3.0.0`, in this document, in the code and in the vector files' names. The fixture directory takes the protocol's major, `fixtures/direct-v3/`, because every vector in it was regenerated under the new grammar.
+
+**No `2.0.0` beside it.** An implementation of this document advertises `/interweave/direct/3.0.0` and no `2.x` id: ADR-0067 is a clean break with no compatibility window, on the owner's word that no installed base exists. `/interweave/direct/2.0.0`, the endpoint-aware protocol ADR-0030 selected and every release before Stage 22's spoke, is retired with that release, as the architecture-only `/direct/1.0.0` was superseded before any implementation.
 
 ## Request
 
@@ -22,10 +26,10 @@ Conceptual frame:
 DirectMessageV2 {
   message_id: 16 bytes,          // exactly 128 bits
   sent_at_ms: u64,               // diagnostic only
-  source_endpoint_len: u8,       // 1..64
-  source_endpoint: bytes,
-  destination_endpoint_len: u8,  // 0 => receiver default endpoint
-  destination_endpoint: bytes,
+  source_endpoint_len: u8,       // 52
+  source_endpoint: bytes,        // an EndpointId
+  destination_endpoint_len: u8,  // 52, or 0 => receiver default endpoint
+  destination_endpoint: bytes,   // an EndpointId when present
   media_type_len: u8,
   media_type: bytes,
   payload_len: u32,
@@ -37,7 +41,7 @@ All multi-byte integer fields are **big-endian** (network byte order): `sent_at_
 
 `media_type_len = 0` encodes **absence**. No empty media-type string exists on the wire. A non-zero length encodes a present printable-ASCII media type (0x20..0x7E, A 2026-10-08) and maps to `media_present = 1`; zero maps to `media_present = 0` in `DirectContentFingerprintV1`.
 
-Endpoint strings must satisfy `EndpointId` grammar before routing. Codec rejects invalid/oversized declared lengths before allocation. `sent_at_ms` is not authorization, ordering, freshness, replay-window, or dedup input.
+Endpoint strings must satisfy `EndpointId` grammar before routing (`contracts/ENDPOINTS.md` §EndpointId: 52 ASCII bytes, `12D3KooW` and 44 base58btc characters, which decode to the identity multihash of a protobuf-encoded Ed25519 public key). The length fields stay, since the destination's zero is the default selector and a fixed-width field would have been a second layout; an endpoint length that is neither 52 nor, for the destination alone, 0 is `malformed`, and so is a 52-byte value outside the grammar — a label of the retired grammar among them. Codec rejects invalid/oversized declared lengths before allocation. `sent_at_ms` is not authorization, ordering, freshness, replay-window, or dedup input.
 
 The local sender cannot choose `source_endpoint` arbitrarily: transport runtime obtains it from the calling IPC endpoint lease and passes it to the backend.
 
@@ -67,7 +71,7 @@ RejectedV2: tag:u8 = 2 || message_id:16 || reason:u8
 ```
 
 - `message_id` is the request's 16 bytes, echoed.
-- `resolved_endpoint_len` is 1..64 and is never zero. The field is the endpoint that took the message, and the default has already been resolved by the time it is written. The label satisfies `EndpointId` grammar.
+- `resolved_endpoint_len` is 52 and is never zero. The field is the endpoint that took the message, and the default has already been resolved by the time it is written. The value satisfies `EndpointId` grammar.
 - `reason` numbers the coarse codes in the order of `schemas/direct/reject-reason`'s enum, from 1:
 
   | code | reason |
@@ -81,14 +85,14 @@ RejectedV2: tag:u8 = 2 || message_id:16 || reason:u8
   | 7 | `unsupported` |
 
   0 and 8..255 are unassigned. A reader refuses an unassigned code as malformed response metadata, a local `ProtocolViolation`. It is never read as `unsupported`: that peer negotiated this protocol and answered on it.
-- A tag other than 1 or 2, a short field, or any byte after the last field is malformed response metadata as well. The longest legal response is therefore 82 bytes (1 + 16 + 1 + 64).
+- A tag other than 1 or 2, a short field, or any byte after the last field is malformed response metadata as well. Every legal `AcceptedV2` is therefore 70 bytes (1 + 16 + 1 + 52), which is the longest legal response; a `RejectedV2` is 18.
 - **A response stream that ends with no bytes at all is not a short field** (A 2026-10-26): a short field means at least one byte arrived and the responder answered badly. Zero bytes is the exchange NOT COMPLETING — the responder read the request and never wrote an answer: the two cases proved over real sockets are its own request deadline firing first (the same 10 s as the sender's, so which end fires first is SPIKE-002 finding 1's race, and the sender then reads a clean end of stream rather than its own `Timeout`) and a response dropped before anything was written, and any other way a responder ends with zero bytes written reads the same. The sender reports it as `PeerUnreachable`, in `contracts/TRANSPORT.md`'s outcome-unknown class beside the request-response timeout it stands in for — never as a local `ProtocolViolation`, which would report a peer that did not answer as one that answered wrongly. Both outcomes are in that class, so a client's delivery state is the same; the caller may retry with the same message ID. An honest encoder never writes zero bytes, so no legal answer is lost to the rule. (`tests/direct-v2/tests/stage6_malformed_frames.rs`: a response never written and a responder timing out first both read `PeerUnreachable`; a response of unreadable bytes stays `ProtocolViolation`.)
 
-This layout is the response wire of `/interweave/direct/2.0.0`. It changes only additively, and only behind a new protocol id: a new reason code, tag or field is never sent on 2.0.0. The frozen vectors are `fixtures/direct-v2/direct-response-v2-frame.json`.
+This layout is the response wire of `/interweave/direct/3.0.0`. It changes only additively, and only behind a new protocol id: a new reason code, tag or field is never sent on 3.0.0. The frozen vectors are `fixtures/direct-v3/direct-response-v2-frame.json`.
 
 `no_route` deliberately collapses endpoint unknown, endpoint disabled, no active lease, missing default endpoint, and endpoint-specific policy denial. All such branches use the same wire code/response shape and shared response encoder. Exact response-time equality is **not** promised; scheduler/registry/policy differences can remain observable to a trusted probing peer, so this residual timing oracle is bounded by direct-request rate limits rather than hidden behind artificial sleeps.
 
-A sender validates every remote response field before caching or surfacing it. `AcceptedV2.message_id` must equal the request ID. `resolved_destination_endpoint` must be 1..64 ASCII bytes and satisfy EndpointId grammar; for an explicit destination it must equal the requested EndpointId exactly. Invalid/mismatched response metadata is a local `ProtocolViolation`, creates no positive dedup/route result, and is never rendered as trusted Claude/human metadata.
+A sender validates every remote response field before caching or surfacing it. `AcceptedV2.message_id` must equal the request ID. `resolved_destination_endpoint` must be 52 ASCII bytes and satisfy EndpointId grammar; for an explicit destination it must equal the requested EndpointId exactly. Invalid/mismatched response metadata is a local `ProtocolViolation`, creates no positive dedup/route result, and is never rendered as trusted Claude/human metadata.
 
 ## Semantics
 
@@ -122,7 +126,8 @@ For an authorized target:
 
 - no usable candidate addresses -> `PeerUnknown` without ad hoc discovery;
 - usable candidates -> ConnectionManager may dial under command deadline;
-- connection/protocol negotiation failure -> `PeerUnreachable`;
+- connection failure -> `PeerUnreachable`;
+- the peer supports no direct protocol id this node offers — a node of a release before Stage 22's, which speaks `/interweave/direct/2.0.0` alone (§Protocol family) -> `ProtocolUnsupported`, the unsupported-major outcome, with no frame sent;
 - the exchange opened but the remote never answered — the response stream ends with no bytes (§Response byte layout, A 2026-10-26) -> `PeerUnreachable`;
 - successful v2 exchange but remote `no_route` -> `RemoteEndpointUnavailable` locally.
 
@@ -142,4 +147,6 @@ Stop accepting new direct requests, respond `shutting_down` where possible, allo
 
 A future compatible implementation may advertise multiple request-response protocol IDs where safe. Endpoint-addressed sends must never silently downgrade to a protocol that cannot preserve endpoint routing.
 
-**A newer minor lists the older minor's id beside it** (A 2026-10-08): an implementation that speaks `/interweave/direct/2.<n>.0` advertises every older `2.<m>.0` it still speaks until that minor is retired by its own record, and LISTS THEM NEWEST FIRST: the dialer proposes its ids in the order it lists them and the listener takes the first it supports (libp2p request-response over multistream-select), so two peers settle on the newest id they share — a 2.1.0 peer and a 2.0.0 peer exchange on 2.0.0 in either dial direction (when the newer peer dials, the older one declines the 2.1.0 proposal; when the older dials, only 2.0.0 is proposed). A peer that offers only a newer id against an older peer fails `UnsupportedProtocols`, which is the unsupported-major shape by design: a minor that drops the older id IS a major, and a new id is where every change a 2.0.0 reader would refuse — a new tag, field or reason code in the response layout above — goes, additively behind it. The upgrade matrix's direct rows (`testing.md` §Compatibility fixtures) assert exactly this.
+**A newer minor lists the older minor's id beside it** (A 2026-10-08): an implementation that speaks `/interweave/direct/3.<n>.0` advertises every older `3.<m>.0` it still speaks until that minor is retired by its own record, and LISTS THEM NEWEST FIRST: the dialer proposes its ids in the order it lists them and the listener takes the first it supports (libp2p request-response over multistream-select), so two peers settle on the newest id they share — a 3.1.0 peer and a 3.0.0 peer exchange on 3.0.0 in either dial direction (when the newer peer dials, the older one declines the 3.1.0 proposal; when the older dials, only 3.0.0 is proposed). A peer that offers only a newer id against an older peer fails `UnsupportedProtocols`, which is the unsupported-major shape by design: a minor that drops the older id IS a major, and a new id is where every change a 3.0.0 reader would refuse — a new tag, field or reason code in the response layout above — goes, additively behind it. The upgrade matrix's direct rows (`testing.md` §Compatibility fixtures) assert exactly this.
+
+**`3.0.0` against `2.0.0` is that unsupported-major shape, in both dial directions** (ADR-0067 decision 7): a node of the Stage 22 release offers `3.0.0` alone and a node of any release before it `2.0.0` alone, so whichever dials, multistream-select finds no shared id, the dialer's send fails `UnsupportedProtocols` and is reported `ProtocolUnsupported`, and no `DirectMessageV2` is written on either side — the failure is the protocol's and by name, never a `malformed` answer to a frame. The connection itself is unaffected: the two nodes still authenticate each other, and what fails is this protocol's stream. The upgrade matrix's previous-build rows for the direct wire assert the refusal, in place of the exchange they asserted while both builds spoke `2.0.0`.

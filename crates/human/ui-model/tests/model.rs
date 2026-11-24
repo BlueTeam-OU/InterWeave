@@ -17,6 +17,7 @@ use interweave_human_ui_model::{
     RouteView, SESSION_ITEM_CAP, SessionNotice, Table, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
 fn peer() -> TransportIdentity {
@@ -26,7 +27,7 @@ fn peer() -> TransportIdentity {
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid")
+    endpoint_id(name)
 }
 
 fn envelope(id: u32, text: &str) -> HumanChatV2 {
@@ -97,11 +98,11 @@ fn a_direct_title_carries_the_route_only_beside_another_route_never_the_envelope
     // One conversation with the peer: its route is on its details, not
     // in its title (human-client-ui.md §4; #304 F6).
     assert!(
-        !summary.title.contains("human"),
+        !summary.title.contains(endpoint("human").as_str()),
         "no route label alone: {}",
         summary.title
     );
-    assert!(!summary.title.to_ascii_lowercase().contains("alice"));
+    assert!(!summary.title.contains(endpoint("alice").as_str()));
     assert_eq!(summary.unread, 1);
 
     // A second conversation with the same peer on another route: every
@@ -114,12 +115,22 @@ fn a_direct_title_carries_the_route_only_beside_another_route_never_the_envelope
     model.unread_listed(vec![other]);
     let titles: Vec<String> = model.conversations().into_iter().map(|c| c.title).collect();
     assert_eq!(titles.len(), 2, "two conversations");
-    assert!(titles.iter().any(|t| t.contains("human")), "{titles:?}");
-    assert!(titles.iter().any(|t| t.contains("claude")), "{titles:?}");
     assert!(
         titles
             .iter()
-            .all(|t| !t.to_ascii_lowercase().contains("alice"))
+            .any(|t| t.contains(endpoint("human").as_str())),
+        "{titles:?}"
+    );
+    assert!(
+        titles
+            .iter()
+            .any(|t| t.contains(endpoint("claude").as_str())),
+        "{titles:?}"
+    );
+    assert!(
+        titles
+            .iter()
+            .all(|t| !t.contains(endpoint("alice").as_str()))
     );
 }
 

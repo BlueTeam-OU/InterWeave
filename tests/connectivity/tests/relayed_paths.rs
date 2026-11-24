@@ -211,7 +211,7 @@ fn client_reserving_on(relay: &TransportIdentity, address: &Multiaddr) -> RelayC
 }
 
 fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(name)
 }
 
 /// `human` alone, the default: the direct endpoints of both runtimes.
@@ -234,6 +234,8 @@ fn endpoints() -> DirectEndpoints {
             directory: DirectoryConfig::default(),
             entries: vec![EndpointConfig {
                 id: endpoint("human"),
+                alias: None,
+                key_state: interweave_profile_config::EndpointKeyState::NotRead,
                 enabled: true,
                 advertise: false,
                 allowed_client_kinds: Vec::new(),
@@ -273,6 +275,8 @@ fn channels() -> BroadcastChannels {
             directory: DirectoryConfig::default(),
             entries: vec![EndpointConfig {
                 id: endpoint("human"),
+                alias: None,
+                key_state: interweave_profile_config::EndpointKeyState::NotRead,
                 enabled: true,
                 advertise: false,
                 allowed_client_kinds: Vec::new(),

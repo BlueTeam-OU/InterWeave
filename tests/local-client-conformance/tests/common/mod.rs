@@ -29,10 +29,12 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
-    - id: agent
+    - key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key
+      alias: agent
       enabled: true
       advertise: true
 channels:
@@ -194,9 +196,9 @@ impl Pair {
 }
 
 pub(crate) fn human() -> EndpointId {
-    EndpointId::parse("human").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("human")
 }
 
 pub(crate) fn agent() -> EndpointId {
-    EndpointId::parse("agent").expect("valid")
+    interweave_test_support::endpoint_keys::endpoint_id("agent")
 }

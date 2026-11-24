@@ -714,9 +714,13 @@ pub(super) fn handle_command(
             // trusted must stop being blacklisted, or a revocation
             // followed by a restoration would leave it permanently
             // excluded from the mesh with nothing reporting why.
+            // AND THE OPERATOR'S LIST beside the class: broadcast
+            // admission stays the node's (ADR-0067 decision 6), so a peer
+            // only an identity trusts connects and is kept out of the mesh.
             for peer in &live {
                 if let Ok(id) = to_peer_id(peer) {
-                    let trusted = mesh_admits(manager.classify(peer));
+                    let trusted = mesh_admits(manager.classify(peer))
+                        && broadcast_state.trust.decide(peer).is_allowed();
                     swarm.sync_broadcast_admission(&id, trusted);
                 }
             }
@@ -881,7 +885,7 @@ pub(super) fn handle_command(
                 direct_state.registry.authorize_outbound(
                     &frame.source_endpoint,
                     &peer,
-                    &direct_state.trust
+                    &direct_state.operator
                 ),
                 interweave_trust_api::TrustDecision::Allowed
             ) {
@@ -1658,7 +1662,7 @@ pub(super) fn held_send_policy(
             direct_state.registry.authorize_outbound(
                 &send.frame.source_endpoint,
                 &send.peer,
-                &direct_state.trust
+                &direct_state.operator
             ),
             interweave_trust_api::TrustDecision::Allowed
         )

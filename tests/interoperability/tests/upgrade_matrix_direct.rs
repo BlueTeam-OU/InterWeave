@@ -5,18 +5,26 @@
 //! (testing.md §Compatibility fixtures, A 2026-10-08), between HEAD's
 //! composed runtime and a raw libp2p peer over real sockets:
 //!
-//! - **unsupported major**: a peer that lists only `/interweave/direct/3.0.0`
+//! - **unsupported major, 2.0.0 against 3.0.0** (DIRECT.md §Protocol
+//!   family, ADR-0067 decision 7): a peer that lists only
+//!   `/interweave/direct/2.0.0`, as every release before Stage 22's does,
 //!   gets `UnsupportedProtocols` when it sends to HEAD, and HEAD's send to
 //!   it fails `ProtocolUnsupported`. No request is read on either side.
-//! - **minor bump**: a peer that lists `/interweave/direct/2.1.0` beside
-//!   `2.0.0` (DIRECT.md §Protocol family, A 2026-10-08) exchanges with
-//!   HEAD on 2.0.0 in both directions. Neither side ever reads a byte on
-//!   2.1.0.
+//!   The control beside it is a peer listing 3.0.0, which exchanges both
+//!   ways.
+//! - **minor bump**: a peer that lists `/interweave/direct/3.1.0` beside
+//!   `3.0.0` (DIRECT.md §Protocol family, A 2026-10-08) exchanges with
+//!   HEAD on 3.0.0 in both directions. Neither side ever reads a byte on
+//!   3.1.0.
 //!
-//! The raw peer stands in for a newer build. Every frame it writes or
-//! reads goes through the INDEPENDENT codecs, so each exchange is also a
-//! cross-implementation one. Each refusal has a control beside it: the
-//! same peer, listing 2.0.0, exchanges.
+//! A raw peer listing 3.x stands in for a current or newer build: every
+//! frame it writes or reads goes through the INDEPENDENT codecs, written
+//! for 3.0.0, so each exchange is also a cross-implementation one, and
+//! its endpoint ids are derived test-only ids (`endpoint_keys`). The 2.0.0
+//! peer stands in for an older build and offers a frame of its own
+//! contract, a label for each endpoint, hand-written here since no codec
+//! of this tree writes one; the refusal is at negotiation, so it is never
+//! written.
 //!
 //! Both runtimes listen on the host's private-range address: ADR-0052
 //! refuses a loopback address a peer supplies, so HEAD would never dial
@@ -33,7 +41,7 @@ use interweave_independent_codecs::direct_v2::DirectMessageV2 as IndependentFram
 use interweave_local_client_api::{
     DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionEvent, SessionRequest,
 };
-use interweave_local_client_conformance_tests::{PATIENCE, receive};
+use interweave_local_client_conformance_tests::{PATIENCE, SETTLE, arriving_within, receive};
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
@@ -47,10 +55,16 @@ use libp2p::{Multiaddr, PeerId, StreamProtocol, SwarmBuilder};
 use tokio::sync::{mpsc, oneshot};
 
 /// The ids a RAW peer lists. What HEAD itself speaks is read from
-/// production, [`head_id`], wherever a row asserts it.
+/// production, [`head_id`], wherever a row asserts it. 2.0.0 is the
+/// retired id, the one every release before Stage 22's spoke.
 const V2_0: &str = "/interweave/direct/2.0.0";
-const V2_1: &str = "/interweave/direct/2.1.0";
 const V3_0: &str = "/interweave/direct/3.0.0";
+const V3_1: &str = "/interweave/direct/3.1.0";
+
+/// The test-only derived id of `name` (`tests/support`'s `endpoint_keys`).
+fn endpoint_of(name: &str) -> EndpointId {
+    interweave_test_support::endpoint_keys::endpoint_id(name)
+}
 
 /// HEAD's own direct protocol id, from production rather than restated.
 fn head_id() -> String {
@@ -269,15 +283,16 @@ impl RawPeer {
     }
 }
 
-/// The raw peer accepts every legal request into `human`, read and
-/// answered by the independent codecs; anything else is `malformed`.
+/// The raw peer accepts every legal request, the default resolving to the
+/// test key `human`, read and answered by the independent codecs; anything
+/// else is `malformed`.
 fn answer_for(request: &[u8]) -> Vec<u8> {
     let response = match IndependentFrame::decode(request) {
         Ok(frame) => DirectResponseV2::Accepted {
             message_id: frame.message_id,
             resolved_destination_endpoint: frame
                 .destination_endpoint
-                .unwrap_or_else(|| "human".to_owned()),
+                .unwrap_or_else(|| endpoint_of("human").as_str().to_owned()),
         },
         Err(_) => DirectResponseV2::Rejected {
             message_id: request
@@ -299,7 +314,8 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 channels:
@@ -357,7 +373,7 @@ impl Head {
 fn session_request() -> SessionRequest {
     SessionRequest::new(
         "human-client",
-        Some(EndpointId::parse("human").expect("valid")),
+        Some(endpoint_of("human")),
         [DataCapability::Commands, DataCapability::Events],
     )
     .expect("in bounds")
@@ -367,13 +383,29 @@ fn frame_to_human(id: u8) -> Vec<u8> {
     IndependentFrame {
         message_id: [id; 16],
         sent_at_ms: 1_786_600_000_000,
-        source_endpoint: "newer".to_owned(),
-        destination_endpoint: Some("human".to_owned()),
+        source_endpoint: endpoint_of("a-raw-peer").as_str().to_owned(),
+        destination_endpoint: Some(endpoint_of("human").as_str().to_owned()),
         media_type: Some("text/plain".to_owned()),
         payload: b"from the raw peer".to_vec(),
     }
     .encode()
     .expect("a legal frame")
+}
+
+/// What a 2.0.0 peer would send `human`: its own contract's frame, the
+/// endpoint fields labels (`DIRECT.md` §Request's layout, the 2.0.0
+/// grammar). Never written: the stream it would ride is refused first.
+fn frame_of_a_2_0_peer(message: u8) -> Vec<u8> {
+    let mut f = vec![message; 16];
+    f.extend_from_slice(&1_786_600_000_000_u64.to_be_bytes());
+    for label in [&b"older"[..], &b"human"[..]] {
+        f.push(u8::try_from(label.len()).expect("short"));
+        f.extend_from_slice(label);
+    }
+    f.push(0);
+    f.extend_from_slice(&2_u32.to_be_bytes());
+    f.extend_from_slice(b"hi");
+    f
 }
 
 /// HEAD's send to the raw peer, retried while HEAD has not yet connected:
@@ -393,7 +425,7 @@ async fn head_sends(head: &Head, to: &RawPeer, id: u8) -> Result<EndpointId, Tra
             .send_direct(
                 DirectDestination {
                     peer: peer.clone(),
-                    endpoint: Some(EndpointId::parse("human").expect("valid")),
+                    endpoint: Some(endpoint_of("human")),
                 },
                 MessageId::from_bytes([id; 16]),
                 Payload::at_ceiling(None, b"from HEAD".to_vec()).expect("within the ceiling"),
@@ -413,14 +445,15 @@ async fn head_sends(head: &Head, to: &RawPeer, id: u8) -> Result<EndpointId, Tra
     }
 }
 
-/// Row: a peer listing only 3.0.0 is refused in both directions, and
-/// nothing is read on either side. Control: a peer listing 2.0.0
-/// exchanges both ways.
+/// Row: a peer listing only 2.0.0, a release before Stage 22's, is refused
+/// in both directions, and nothing is read on either side. Control: a peer
+/// listing 3.0.0 exchanges both ways.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn direct_unsupported_major_is_refused_both_ways_beside_a_2_0_control() {
+async fn direct_2_0_0_is_refused_both_ways_beside_a_3_0_0_control() {
     let ip = interweave_test_support::net::require_private_interface_v4();
+    assert_eq!(head_id(), V3_0, "HEAD speaks 3.0.0");
 
-    let mut control = RawPeer::start(ip, &[V2_0]).await;
+    let mut control = RawPeer::start(ip, &[V3_0]).await;
     let head = Head::start(ip, &control).await;
     // A leased `human` at HEAD, or the control is answered `no_route`.
     let receiver = head
@@ -443,39 +476,58 @@ async fn direct_unsupported_major_is_refused_both_ways_beside_a_2_0_control() {
     assert_eq!(
         head_sends(&head, &control, 2)
             .await
-            .expect("HEAD's send is accepted")
-            .as_str(),
-        "human"
+            .expect("HEAD's send is accepted"),
+        endpoint_of("human")
     );
+    let read = control.inbound.recv().await.expect("read");
+    assert_eq!(read.protocol, head_id());
+    let frame = IndependentFrame::decode(&read.bytes).expect("HEAD's frame, independently decoded");
     assert_eq!(
-        control.inbound.recv().await.expect("read").protocol,
-        head_id()
+        frame.destination_endpoint,
+        Some(endpoint_of("human").as_str().to_owned())
     );
     head.stop().await;
 
-    let mut newer = RawPeer::start(ip, &[V3_0]).await;
-    let head = Head::start(ip, &newer).await;
-    let refused = newer
-        .request(head.address.clone(), head.peer_id(), frame_to_human(3))
+    let mut older = RawPeer::start(ip, &[V2_0]).await;
+    let head = Head::start(ip, &older).await;
+    let receiver = head
+        .runtime
+        .sessions()
+        .open(session_request())
+        .await
+        .expect("leases");
+    // The 2.0.0 peer dials and offers its id: multistream-select finds
+    // none in common, so its send fails by name and its frame is never
+    // written.
+    let refused = older
+        .request(head.address.clone(), head.peer_id(), frame_of_a_2_0_peer(3))
         .await;
     assert_eq!(refused.unwrap_err(), "UnsupportedProtocols");
+    let at_head = arriving_within(&receiver, SETTLE).await;
+    assert!(
+        !at_head.iter().any(|e| matches!(e, SessionEvent::Direct(_))),
+        "HEAD delivered nothing from the 2.0.0 peer: {at_head:?}"
+    );
+    // `head_sends` leases `human` itself.
+    receiver.close().await.expect("closes");
+    // HEAD dials (or reuses the connection) and offers 3.0.0 alone.
     assert_eq!(
-        head_sends(&head, &newer, 4).await,
+        head_sends(&head, &older, 4).await,
         Err(TransportError::ProtocolUnsupported)
     );
     assert!(
-        newer.inbound.try_recv().is_err(),
-        "the 3.0.0 peer read nothing"
+        older.inbound.try_recv().is_err(),
+        "the 2.0.0 peer read nothing"
     );
     head.stop().await;
 }
 
-/// Row: a peer listing 2.1.0 beside 2.0.0 exchanges on 2.0.0 both ways;
-/// HEAD never reads, and the peer never reads, a byte on 2.1.0.
+/// Row: a peer listing 3.1.0 beside 3.0.0 exchanges on 3.0.0 both ways;
+/// HEAD never reads, and the peer never reads, a byte on 3.1.0.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn direct_minor_bump_negotiates_2_0_both_ways() {
+async fn direct_minor_bump_negotiates_3_0_both_ways() {
     let ip = interweave_test_support::net::require_private_interface_v4();
-    let mut newer = RawPeer::start(ip, &[V2_1, V2_0]).await;
+    let mut newer = RawPeer::start(ip, &[V3_1, V3_0]).await;
     let head = Head::start(ip, &newer).await;
     let receiver = head
         .runtime
@@ -484,8 +536,8 @@ async fn direct_minor_bump_negotiates_2_0_both_ways() {
         .await
         .expect("leases");
 
-    // The newer peer sends first, listing 2.1.0 first: multistream-select
-    // offers it, HEAD declines it, 2.0.0 is agreed.
+    // The newer peer sends first, listing 3.1.0 first: multistream-select
+    // offers it, HEAD declines it, 3.0.0 is agreed.
     let answered = newer
         .request(head.address.clone(), head.peer_id(), frame_to_human(5))
         .await
@@ -493,13 +545,13 @@ async fn direct_minor_bump_negotiates_2_0_both_ways() {
     assert_eq!(
         answered.protocol,
         head_id(),
-        "the stream negotiated HEAD's id, not 2.1.0"
+        "the stream negotiated HEAD's id, not 3.1.0"
     );
     assert_eq!(
         DirectResponseV2::decode(&answered.bytes).expect("HEAD's response, independently decoded"),
         DirectResponseV2::Accepted {
             message_id: [5; 16],
-            resolved_destination_endpoint: "human".to_owned(),
+            resolved_destination_endpoint: endpoint_of("human").as_str().to_owned(),
         }
     );
     let got = receive(&receiver, PATIENCE).await;
@@ -509,13 +561,10 @@ async fn direct_minor_bump_negotiates_2_0_both_ways() {
     assert_eq!(message.message_id, MessageId::from_bytes([5; 16]));
     receiver.close().await.expect("closes");
 
-    // HEAD sends: it lists 2.0.0 only, the newer peer supports it.
+    // HEAD sends: it lists 3.0.0 only, the newer peer supports it.
     assert_eq!(
-        head_sends(&head, &newer, 6)
-            .await
-            .expect("accepted")
-            .as_str(),
-        "human"
+        head_sends(&head, &newer, 6).await.expect("accepted"),
+        endpoint_of("human")
     );
     let read = newer
         .inbound
@@ -562,14 +611,13 @@ async fn a_malformed_response_is_a_local_protocol_violation_at_head() {
     }
     let ip = interweave_test_support::net::require_private_interface_v4();
 
-    let control = RawPeer::start(ip, &[V2_0]).await;
+    let control = RawPeer::start(ip, &[V3_0]).await;
     let head = Head::start(ip, &control).await;
     assert_eq!(
         head_sends(&head, &control, 7)
             .await
-            .expect("the control is accepted")
-            .as_str(),
-        "human"
+            .expect("the control is accepted"),
+        endpoint_of("human")
     );
     head.stop().await;
 
@@ -579,7 +627,7 @@ async fn a_malformed_response_is_a_local_protocol_violation_at_head() {
         ("a trailing byte", trailing_byte),
     ];
     for (what, answer) in cases {
-        let peer = RawPeer::answering(ip, &[V2_0], answer).await;
+        let peer = RawPeer::answering(ip, &[V3_0], answer).await;
         let head = Head::start(ip, &peer).await;
         assert_eq!(
             head_sends(&head, &peer, 8).await,

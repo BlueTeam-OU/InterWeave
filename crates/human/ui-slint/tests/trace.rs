@@ -10,6 +10,7 @@
 
 mod common;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -103,7 +104,7 @@ fn a_trace_carries_no_address_peer_or_name() {
         photo: None,
         routes: vec![RouteView {
             peer: known.clone(),
-            endpoint: interweave_transport_api::EndpointId::parse("home").expect("valid"),
+            endpoint: endpoint_id("home"),
             fingerprint: None,
         }],
     }]);

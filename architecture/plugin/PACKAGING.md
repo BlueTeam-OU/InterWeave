@@ -14,7 +14,7 @@ bridge/
 README.md
 ```
 
-Bridge configuration must identify the transport profile, the local EndpointId to claim over IPC v2, and the delivery mode — `--delivery push|pull`, required; the Claude Code plugin's `.mcp.json` passes `push` (A 2026-10-07). Optionally the bridge's own log level, `--log-level`, which the plugin passes from its `log_level` userConfig, default `info` (A 2026-10-24). The `userConfig` values reach the bridge's argv in a session that registered the channel, the declared defaults and `plugin install --config` values alike (SPIKE-001 S25, fact 49; S20 measured the same outside a session); `claude plugin configure <plugin>` lists them and writes nothing — `--values-stdin` writes (fact 50; `INSTALL.md`).
+Bridge configuration must identify the transport profile, the local endpoint to claim over the IPC, by its alias or its EndpointId (`--endpoint`; `TOOL-SURFACE.md` §Bridge endpoint), and the delivery mode — `--delivery push|pull`, required; the Claude Code plugin's `.mcp.json` passes `push` (A 2026-10-07). Optionally the bridge's own log level, `--log-level`, which the plugin passes from its `log_level` userConfig, default `info` (A 2026-10-24). The `userConfig` values reach the bridge's argv in a session that registered the channel, the declared defaults and `plugin install --config` values alike (SPIKE-001 S25, fact 49; S20 measured the same outside a session); `claude plugin configure <plugin>` lists them and writes nothing — `--values-stdin` writes (fact 50; `INSTALL.md`).
 
 The manifest syntax, measured by SPIKE-001 against Claude Code 2.1.285 (facts 7, 8; A 2026-10-03 — this said "remains SPIKE-001"): `.claude-plugin/plugin.json` declares `"channels": [{"server": "<name>", "displayName": "…"}]`, where `<name>` is the server `.mcp.json` starts; with `author` present it passes `claude plugin validate --strict` and loads. Loaded through `--plugin-dir`, the plugin is inline, its server is named `plugin:<plugin>:<server>` and the channel flag value is `plugin:<plugin>@inline`; a bare `--mcp-config` server is named `<server>` and loaded as a channel by the flag value `server:<server>` (fact 7). Channel events reach the model in a session that has registered the channel, interactive or `-p` with stream-json input held open (facts 4, 39, 40; A 2026-10-24; `CLAUDE-CODE-CHANNEL.md` §Delivery condition). A local-marketplace install registers the channel under `--dangerously-load-development-channels`, accepted on its warning screen, as `--plugin-dir` does (facts 5–6; SPIKE-001 S19, 2026-10-22, Claude Code 2.1.286). Without that flag, `--channels plugin:interweave@interweave` registers it when the organisation's managed settings carry `allowedChannelPlugins` naming `{"plugin": "interweave", "marketplace": "interweave"}`, with `channelsEnabled: true`; no warning screen is shown, and a message reached the model and its reply the peer (SPIKE-001 S22, 2026-10-23, Claude Code 2.1.286, facts 29–33; on Linux the file is under `/etc/claude-code/`). Without that entry, `--channels` is refused (A 2026-10-23 — this said `--channels` with a published plugin stayed carried, the organisation path read from the binary and not tried). The file written into a system's own `/etc` by its root reads as the mount does (SPIKE-001 S27, 2026-11-03, 2.1.286, fact 57: a container's own `/etc`, the session an ordinary uid; a fleet host's own `/etc` not written). The `channelsEnabled` refusal is measured on a login that is not claude.ai (fact 59, a placeholder API key: with `false`, or with `allowedChannelPlugins` alone, `channel_enable` is answered "channels not enabled by org policy (set channelsEnabled: true in managed settings)" and nothing registers; with `true` it registers), while this account's claude.ai login does not apply it (fact 58; A 2026-11-03 — this said the refusal was still carried, read from the binary as fact 32). Still carried: Anthropic's remotely served allowlist, not asked for (plan §22); the refusal on a Team or Enterprise subscription or on a valid Console key, inferred from the binary's reading of the login kind; server-managed policy, which this account does not have (fact 60: the fetch answered 404 on the token; the 401 on the key says nothing about a policy); and MDM policy, which this build reads on Linux only under WSL (read from the binary, not measured, fact 61).
 
@@ -27,17 +27,17 @@ config schema v2/docs
 optional platform service integration
 ```
 
-Daemon and bridge may ship together but remain independently versioned behind IPC v2.
+Daemon and bridge may ship together but remain independently versioned behind the IPC.
 
 ## Future human client
 
-The human client is a separate application package that consumes IPC v2; it does not bundle a second libp2p identity/runtime by default.
+The human client is a separate application package that consumes the IPC; it does not bundle a second libp2p identity/runtime by default.
 
 Conceptual pieces:
 
 ```text
 human UI/TUI/CLI
-IPC v2 data-plane adapter
+IPC data-plane adapter
 application-local contacts + ADR-0044 retention store (pending outbound, unread inbound, receiver-kept inbound)
 separate admin/settings adapter or privileged connection
 ```

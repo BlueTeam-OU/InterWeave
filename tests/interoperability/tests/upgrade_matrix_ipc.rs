@@ -5,22 +5,26 @@
 //! §Compatibility fixtures, A 2026-10-08), against HEAD's daemon over a
 //! real Unix socket:
 //!
-//! - **unsupported major**: a hello of major 3 is answered
-//!   `close{VersionIncompatible, supported: [{2, IPC_MAX_MINOR}]}` and the
+//! - **unsupported major**: a hello of major 2 -- 2.0, and 2.13, where
+//!   major 2 ended -- or of major 4 is answered
+//!   `close{VersionIncompatible, supported: [{3, IPC_MAX_MINOR}]}` and the
 //!   connection ends. No `hello_response` comes first, so there is no
-//!   half-handshake.
+//!   half-handshake. Major 2 is the previous release's (ADR-0067 decision
+//!   7): a client of it reads the close and says the two programs are of
+//!   different releases.
 //! - **minor bump**: a hello offering a minor above HEAD's negotiates
 //!   `min(client, server)`, HEAD's own, and the connection then serves a
 //!   request.
-//! - **lower minor from its frozen vector**: the 2.0 golden client frames,
+//! - **lower minor from its frozen vector**: the 3.0 golden client frames,
 //!   written to the socket byte for byte, negotiate minor 0 and are served.
 //!
 //! Every frame the daemon writes is read through the INDEPENDENT codec
 //! (`interweave-independent-codecs`), not production's, so each row also
 //! decodes production-encoded frames captured from the wire. The rows that
-//! need a previous build are the matrix's other axis. Its first entry is
-//! the Stage 13 build that spoke IPC 2.0, and the second-binary build in CI
-//! is devex-tooling's.
+//! need a previous build are the matrix's other axis. Its first entry was
+//! the Stage 13 build that spoke IPC 2.0; across the major, a build of
+//! major 2 is answered as the unsupported-major row here answers its
+//! hello. The second-binary build in CI is devex-tooling's.
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
@@ -50,10 +54,10 @@ fn root() -> PathBuf {
         .to_path_buf()
 }
 
-/// The golden vectors' `frame_hex` by name: the exact bytes a 2.0 client
+/// The golden vectors' `frame_hex` by name: the exact bytes a 3.0 client
 /// wrote, never re-serialized here.
 fn golden_frame(name: &str) -> Vec<u8> {
-    let text = std::fs::read_to_string(root().join("fixtures/ipc-v2/ipc-v2-frame-golden.json"))
+    let text = std::fs::read_to_string(root().join("fixtures/ipc-v3/ipc-v3-frame-golden.json"))
         .expect("the fixture");
     let doc: serde_json::Value = serde_json::from_str(&text).expect("json");
     let hex = doc["vectors"]
@@ -71,8 +75,9 @@ fn golden_frame(name: &str) -> Vec<u8> {
         .collect()
 }
 
-/// The golden `hello-data-client` claims `human` with `events` and
-/// `commands` and joins `ops/alerts`, so the profile has that endpoint.
+/// The golden `hello-data-client` claims the TEST-ONLY derived id of
+/// `human` (its `test_only_endpoints`) with `events` and `commands` and
+/// joins `ops/alerts`, so the profile has that endpoint, by that id.
 fn profile(trusted: &str) -> ProfileConfig {
     let doc = format!(
         "schema_version: 2
@@ -82,7 +87,8 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
 channels:
@@ -244,7 +250,7 @@ fn minor_of(hello_response: &Envelope) -> i64 {
         "{hello_response:?}"
     );
     let version = hello_response.body.get("ipc_version");
-    assert_eq!(int(version.and_then(|v| v.get("major"))), 2);
+    assert_eq!(int(version.and_then(|v| v.get("major"))), 3);
     int(version.and_then(|v| v.get("minor")))
 }
 
@@ -260,20 +266,30 @@ fn hello(major: u64, minor: u64) -> String {
         .replace("MINOR", &minor.to_string())
 }
 
-/// Row: an unsupported major is refused clearly, with no half-handshake.
-/// The control is the same hello at major 2, which is answered.
+/// Row: an unsupported major is refused clearly, with no half-handshake:
+/// major 2 at its first and its last minor -- 2.13's minor is above 3.0's,
+/// which must not make it a 3.x -- and a major above. The control is the
+/// same hello at major 3, which is answered.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ipc_unsupported_major_is_closed_version_incompatible_with_no_half_handshake() {
     let daemon = Daemon::start().await;
 
     let mut control = Client::connect(&daemon.paths.data).await;
-    control.send(&hello(2, 0)).await;
+    control.send(&hello(3, 0)).await;
     let first = control.reply().await.expect("a reply");
     assert_eq!(minor_of(&first), 0);
     drop(control);
 
+    for (major, minor) in [(2, 0), (2, 13), (4, 0)] {
+        refused_with_no_half_handshake(&daemon, major, minor).await;
+    }
+
+    daemon.stop().await;
+}
+
+async fn refused_with_no_half_handshake(daemon: &Daemon, major: u64, minor: u64) {
     let mut refused = Client::connect(&daemon.paths.data).await;
-    refused.send(&hello(3, 0)).await;
+    refused.send(&hello(major, minor)).await;
     // EVERY frame HEAD writes on this connection, pushes included: a
     // hello_response or any other class before the close would be a
     // half-handshake.
@@ -281,7 +297,11 @@ async fn ipc_unsupported_major_is_closed_version_incompatible_with_no_half_hands
     while let Some(env) = refused.next().await {
         frames.push(env);
     }
-    assert_eq!(frames.len(), 1, "exactly the close, then EOF: {frames:?}");
+    assert_eq!(
+        frames.len(),
+        1,
+        "{major}.{minor}: exactly the close, then EOF: {frames:?}"
+    );
     let close = &frames[0];
     assert_eq!(close.class, Class::Close);
     assert_eq!(
@@ -292,14 +312,12 @@ async fn ipc_unsupported_major_is_closed_version_incompatible_with_no_half_hands
         panic!("no supported list: {close:?}");
     };
     assert_eq!(supported.len(), 1, "{supported:?}");
-    assert_eq!(int(supported[0].get("major")), 2);
+    assert_eq!(int(supported[0].get("major")), 3);
     assert_eq!(
         int(supported[0].get("minor")),
         i64::try_from(IPC_MAX_MINOR).unwrap(),
         "supported names HEAD's highest minor, never an older literal"
     );
-
-    daemon.stop().await;
 }
 
 /// Row: a minor above HEAD's negotiates HEAD's own, and the connection
@@ -316,7 +334,7 @@ async fn ipc_minor_bump_negotiates_min_of_client_and_server_and_serves() {
         (head + 40, "far above"),
     ] {
         let mut client = Client::connect(&daemon.paths.data).await;
-        client.send(&hello(2, offered)).await;
+        client.send(&hello(3, offered)).await;
         let first = client.reply().await.expect("a reply");
         assert_eq!(
             minor_of(&first),
@@ -338,9 +356,9 @@ async fn ipc_minor_bump_negotiates_min_of_client_and_server_and_serves() {
     daemon.stop().await;
 }
 
-/// Row: the frozen 2.0 client frames, written byte for byte, negotiate
-/// minor 0 and are served. A data hello of 2.0 and its channel join from
-/// `ipc-v2-frame-golden.json`; an admin `hello-minimal` likewise.
+/// Row: the frozen 3.0 client frames, written byte for byte, negotiate
+/// minor 0 and are served. A data hello of 3.0 and its channel join from
+/// `ipc-v3-frame-golden.json`; an admin `hello-minimal` likewise.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ipc_lower_minor_frozen_frames_are_served_by_head() {
     let daemon = Daemon::start().await;
@@ -348,7 +366,7 @@ async fn ipc_lower_minor_frozen_frames_are_served_by_head() {
     let mut data = Client::connect(&daemon.paths.data).await;
     data.write(&golden_frame("hello-data-client")).await;
     let first = data.reply().await.expect("a reply");
-    assert_eq!(minor_of(&first), 0, "a 2.0 hello negotiates 2.0");
+    assert_eq!(minor_of(&first), 0, "a 3.0 hello negotiates 3.0");
     data.write(&golden_frame("request-channel-join")).await;
     let answer = data.reply().await.expect("an answer");
     assert_eq!(answer.class, Class::Response, "{answer:?}");

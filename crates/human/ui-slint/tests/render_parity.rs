@@ -24,7 +24,7 @@ use interweave_human_core::RowId;
 use interweave_human_ui_model::{ConversationKey, RuntimeHost, UiModel};
 use interweave_human_ui_slint::View;
 use interweave_profile_identity::ProfileIdentity;
-use interweave_transport_api::EndpointId;
+use interweave_test_support::endpoint_keys::endpoint_id;
 use serde_json::{Value, json};
 use slint::Model as _;
 
@@ -41,7 +41,7 @@ fn drawn(text: &str) -> Value {
     let peer = ProfileIdentity::generate()
         .transport_identity()
         .expect("a peer");
-    let human = EndpointId::parse("human").expect("an endpoint");
+    let human = endpoint_id("human");
     model.received(Received {
         row: RowId::from_stored(1),
         origin: Origin::Direct {

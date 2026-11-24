@@ -139,7 +139,7 @@ tests/
 
 ## Fixtures versus test data
 
-`fixtures/` contains normative/frozen vectors whose change is a compatibility/contract event. Initial categories are identity, direct-v2, GossipSub, Kademlia, IPC v2, endpoints, HumanChatV2, and configuration.
+`fixtures/` contains normative/frozen vectors whose change is a compatibility/contract event. Initial categories are identity, direct (`direct-v3/`, the directory taking the protocol's major), GossipSub, Kademlia, IPC (`ipc-v3/`, the directory taking the IPC's major), endpoints, HumanChatV2, and configuration.
 
 `test-data/` contains mutable scenario inputs such as network topologies, malformed generated cases and non-normative sample configs. Changing this data does not change a protocol.
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:send-params",
   "title": "IPC send params",
-  "description": "Parameters of a directed send (`direct.send`) over local IPC: remote destination, the caller-minted MessageId and the payload, and nothing else.\n\nTHE ABSENCE IS THE POINT. There is no `source_endpoint` parameter, and `additionalProperties: false` is what makes that enforceable rather than merely stated: the runtime derives the source from the caller's active lease, so a client cannot claim to be another local endpoint by adding a field. That is the one place ADR-0030's non-spoofable source is decided.\n\n2.0.0 (A 2026-09-28): `message_id` becomes REQUIRED — a server-minted id cannot be reused for a retry after a lost response, which is the case dedup exists for; the payload moves to the shared `ipc:payload` shape. A client holding no lease receives EndpointNotRegistered.",
+  "description": "Parameters of a directed send (`direct.send`) over local IPC: remote destination, the caller-minted MessageId and the payload, and nothing else.\n\nTHE ABSENCE IS THE POINT. There is no `source_endpoint` parameter, and `additionalProperties: false` is what makes that enforceable rather than merely stated: the runtime derives the source from the caller's active lease, so a client cannot claim to be another local endpoint by adding a field. That is the one place ADR-0030's non-spoofable source is decided.\n\n2.0.0 (A 2026-09-28): `message_id` becomes REQUIRED — a server-minted id cannot be reused for a retry after a lost response, which is the case dedup exists for; the payload moves to the shared `ipc:payload` shape. A client holding no lease receives EndpointNotRegistered.\n\n3.0.0 (ADR-0067 decision 7, IPC major 3): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major.",
   "type": "object",
   "required": [
     "peer",
@@ -28,11 +28,12 @@
   "x-contract": {
     "name": "ipc.send-params",
     "status": "active",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "adr": [
       "0017",
       "0030",
-      "0026"
+      "0026",
+      "0067"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

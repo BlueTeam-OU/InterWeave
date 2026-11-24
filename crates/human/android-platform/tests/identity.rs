@@ -24,12 +24,15 @@ use interweave_human_android_platform::{
     reseal_identity, reseal_needs_presence, restart_requires_user_authentication_at_rest,
     restore_identity, stand_in, start_identity, start_resealed, start_resealed_expecting,
 };
+use interweave_human_store::identity_key::FilesystemCustody;
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_embedded::custody::{
     self, CipherFailure, IV_LEN, KeyRef, RecoveryCause, SEALED_LEN, SEED_LEN, Sealed, Seed,
     SeedCipher,
 };
+
+mod common;
 
 const PROFILE: &str = "human";
 
@@ -134,7 +137,7 @@ struct App {
 
 fn app() -> App {
     let app = fresh_install();
-    provision_profile(&app.dir, PROFILE).expect("the profile");
+    common::provision_first_identity(&app.dir, PROFILE);
     app
 }
 
@@ -1044,7 +1047,15 @@ mod onboarding {
             "nothing sealed yet"
         );
 
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
             .expect("the record unlocks");
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
@@ -1062,7 +1073,7 @@ mod onboarding {
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert!(
             matches!(
-                onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+                onboarding::seal(&app.dir, PROFILE, &keystore, &FilesystemCustody, &creation, None),
                 Err(WriteRefused::Storage(why)) if why.starts_with("the profile:")
             ),
             "the control: with no document the seal is refused"
@@ -1074,7 +1085,15 @@ mod onboarding {
             Err(IdentityRefused::Unprovisioned),
             "onboarding's state"
         );
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
             .expect("the record unlocks");
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
@@ -1096,14 +1115,35 @@ mod onboarding {
         );
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            ),
             Err(WriteRefused::Busy),
             "a seal of its own waits for no lock the flow holds"
         );
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, Some(&lock))
-            .expect("sealed under the flow's lock");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            Some(&lock),
+        )
+        .expect("sealed under the flow's lock");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, Some(&lock)),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                Some(&lock)
+            ),
             Err(WriteRefused::AlreadyProvisioned)
         );
         assert!(
@@ -1124,13 +1164,22 @@ mod onboarding {
         let app = app();
         let keystore = FakeKeystore::default();
         let (creation, words, ..) = Creation::new().expect("a creation");
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         let lock = onboarding::hold(&app.dir, PROFILE).expect("held");
         assert_eq!(
             onboarding::restore(
                 &app.dir,
                 PROFILE,
                 &keystore,
+                &FilesystemCustody,
                 words.join(" "),
                 Expected::Recorded,
                 None,
@@ -1142,10 +1191,12 @@ mod onboarding {
                 &app.dir,
                 PROFILE,
                 &keystore,
+                &FilesystemCustody,
                 words.join(" "),
                 Expected::Recorded,
                 Some(&lock),
-            ),
+            )
+            .map(|_| ()),
             Ok(())
         );
         assert!(ProfileLock::is_held(&paths(&app)).expect("asked"));
@@ -1162,7 +1213,15 @@ mod onboarding {
             Err(WriteRefused::Storage(_))
         ));
         let (creation, words, peer, _) = Creation::new().expect("a creation");
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         let (shown, shown_peer) =
             onboarding::shown_phrase(&app.dir, PROFILE, &keystore).expect("shown");
         assert_eq!(shown, words);
@@ -1179,7 +1238,14 @@ mod onboarding {
         let before = record(&app);
         let (creation, ..) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            ),
             Err(WriteRefused::AlreadyProvisioned)
         );
         assert_eq!(record(&app), before);
@@ -1195,7 +1261,15 @@ mod onboarding {
         *keystore.retire_fails.lock().unwrap() = true;
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            )
+            .map(|_| ()),
             Ok(())
         );
         *keystore.retire_fails.lock().unwrap() = false;
@@ -1219,7 +1293,14 @@ mod onboarding {
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert!(
             matches!(
-                onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+                onboarding::seal(
+                    &app.dir,
+                    PROFILE,
+                    &keystore,
+                    &FilesystemCustody,
+                    &creation,
+                    None
+                ),
                 Err(WriteRefused::ReadBackFailed(_))
             ),
             "the record was written and could not be read back"
@@ -1259,7 +1340,14 @@ mod onboarding {
         *keystore.fail.lock().unwrap() = Some(CipherFailure::UserNotAuthenticated);
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            ),
             Err(WriteRefused::ReadBackNeedsAuthentication)
         );
         assert_eq!(*keystore.opens.lock().unwrap(), 1, "one read-back");
@@ -1304,6 +1392,7 @@ mod onboarding {
                 &app.dir,
                 PROFILE,
                 &keystore,
+                &FilesystemCustody,
                 words.join(" "),
                 Expected::Confirmed(&peer),
                 None,
@@ -1346,6 +1435,7 @@ mod onboarding {
                 &app.dir,
                 PROFILE,
                 &keystore,
+                &FilesystemCustody,
                 words.join(" "),
                 Expected::Recorded,
                 None,
@@ -1363,7 +1453,11 @@ mod onboarding {
         }
     }
 
-    fn assert_restore(restored: &Result<(), WriteRefused>, outcome: Result<(), &str>) {
+    fn assert_restore(
+        restored: &Result<onboarding::Onboarded, WriteRefused>,
+        outcome: Result<(), &str>,
+    ) {
+        let restored = &restored.clone().map(|_| ());
         match outcome {
             Ok(()) => assert_eq!(restored, &Ok(()), "found: done"),
             Err("unknown") => assert!(
@@ -1398,6 +1492,7 @@ mod onboarding {
                 &app.dir,
                 PROFILE,
                 &keystore,
+                &FilesystemCustody,
                 words.join(" "),
                 Expected::Confirmed(&peer),
                 None,
@@ -1413,10 +1508,12 @@ mod onboarding {
                 &app.dir,
                 PROFILE,
                 &keystore,
+                &FilesystemCustody,
                 own.join(" "),
                 Expected::Confirmed(&recorded),
                 None,
-            ),
+            )
+            .map(|_| ()),
             Ok(()),
             "its own record, read back"
         );
@@ -1430,9 +1527,24 @@ mod onboarding {
         let app = app();
         let keystore = FakeKeystore::default();
         let (creation, ..) = Creation::new().expect("a creation");
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        onboarding::seal(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &FilesystemCustody,
+            &creation,
+            None,
+        )
+        .expect("sealed");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            onboarding::seal(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                &FilesystemCustody,
+                &creation,
+                None
+            ),
             Err(WriteRefused::AlreadyProvisioned)
         );
     }
@@ -1461,6 +1573,7 @@ mod onboarding {
             &app.dir,
             PROFILE,
             &keystore,
+            &FilesystemCustody,
             words.join(" "),
             Expected::Recorded,
             None,
@@ -1494,6 +1607,7 @@ mod onboarding {
             &app.dir,
             PROFILE,
             &keystore,
+            &FilesystemCustody,
             words.join(" "),
             Expected::Confirmed(&derived),
             None,

@@ -55,13 +55,6 @@ export struct ActionRow {
 // which card page the right-hand pane shows in the conversation's place.
 export enum CardsPage { none, contacts, contact, own-card }
 
-// A conversation to share the card in again after a new key
-// (design/2026-10-24-identity-key.md section 5.3), by its title.
-export struct ShareAgainRow {
-    handle: int,
-    title: string,
-}
-
 // A note a proposal shows before Accept; a warning is drawn in `error`
 // and says so in its words, never by colour alone.
 export struct ProposalNoteRow {
@@ -5464,31 +5457,14 @@ export component AppWindow inherits Window {
     in property <string> own-key-path-label;
     in property <string> own-key-path;
     in property <string> own-key-cannot-share;
+    // Empty where the kind offers Try again (design §3): no line then.
+    in property <string> own-key-no-new-key;
+    // Try again is its one action, where the kind offers it: no new key
+    // is made in the identity's place (ADR-0067 decision 5).
     in property <bool> own-key-try-shown;
-    in property <bool> own-key-new-shown;
     in property <string> own-key-try-label;
-    in property <string> own-key-new-label;
-    in property <bool> own-key-making;
-    in property <string> own-key-making-label;
     in property <string> own-key-failure;
-    // After a new key: the line saying so, and where to share again.
-    in property <string> own-key-made;
-    in property <string> own-key-share-again-title;
-    in property <[ShareAgainRow]> own-key-share-again;
     callback own-key-try-again();
-    callback own-key-make-new();
-    callback own-key-share-again-chosen(int);
-    // The new key's confirmation (section 5.1), over a scrim; focus opens
-    // on Cancel, so Enter alone never makes a key.
-    in property <bool> new-key-open;
-    in property <string> new-key-title;
-    in property <string> new-key-body;
-    in property <string> new-key-old;
-    in property <string> new-key-pending;
-    in property <string> new-key-confirm-label;
-    in property <bool> new-key-danger;
-    callback new-key-confirm();
-    callback new-key-cancel();
     in property <string> own-peer;
     callback own-card-save();
     callback own-card-remove-photo();
@@ -5521,9 +5497,8 @@ export component AppWindow inherits Window {
     // off the own card's editor with an unsaved change asks first, and on
     // Close without saving the way taken goes on -- 0 Back, 1 the
     // conversation picked (its handle below), 2 Trust, 3 Peers, 4
-    // Contacts, 5 a share-again row (its handle below)
+    // Contacts
     // (`a_conversation_picked_beside_the_editor_with_a_change_asks_first`,
-    // `a_share_again_row_with_a_change_asks_first`,
     // `a_page_from_the_app_options_with_a_change_asks_first`).
     property <int> own-discard-then;
     property <int> own-discard-then-handle;
@@ -5543,16 +5518,13 @@ export component AppWindow inherits Window {
     // Back on a card page: the own card's editor with unsaved changes
     // asks first (contact-cards design 5.2), else the page closes.
     function close-cards-page() {
-        // Back to the page's control that had focus -- its title, the
-        // editor's controls, its share-again rows, each taking a focus
-        // request -- else, focus
+        // Back to the page's control that had focus -- its title or the
+        // editor's controls, each taking a focus request -- else, focus
         // beside the editor on a wide window, to its first field
-        // (`continue_editing_gives_focus_back_to_each_control`,
-        // `continue_editing_gives_focus_back_to_a_share_again_row`).
+        // (`continue_editing_gives_focus_back_to_each_control`).
         if (root.ask-before-leaving(0, -1, root.focus-id == "close-cards"
                 || root.focus-id == "cards-title"
-                || root.focus-id.starts-with("own-")
-                || root.focus-id.starts-with("share-again:") ? root.focus-id : "own-given")) {
+                || root.focus-id.starts-with("own-") ? root.focus-id : "own-given")) {
             return;
         }
         root.leave-cards-page();
@@ -5602,11 +5574,6 @@ export component AppWindow inherits Window {
             root.go-to-peers();
         } else if (root.own-discard-then == 4) {
             root.go-to-contacts();
-        } else if (root.own-discard-then == 5) {
-            // Its conversation's pane, on a phone, as each `go-to-` shows
-            // its page's (`a_share_again_row_with_a_change_asks_first`).
-            root.list-shown = false;
-            root.own-key-share-again-chosen(root.own-discard-then-handle);
         }
     }
     function close-share() {
@@ -5648,12 +5615,6 @@ export component AppWindow inherits Window {
         root.list-shown = false;
         root.open-peers();
     }
-    // A share-again row opens its conversation and the share sheet there,
-    // leaving the editor: it asks first like every other way off it.
-    function share-again(handle: int) {
-        if (root.ask-before-leaving(5, handle, "share-again:" + handle)) { return; }
-        root.own-key-share-again-chosen(handle);
-    }
     function open-contacts-page() {
         if (root.ask-before-leaving(4, -1, "app-options")) { return; }
         root.go-to-contacts();
@@ -5693,10 +5654,6 @@ export component AppWindow inherits Window {
             return true;
         }
         // A dialog over a card page answers Back before the page does.
-        if (root.new-key-open) {
-            root.new-key-cancel();
-            return true;
-        }
         if (root.own-discard-open) {
             root.keep-editing();
             return true;
@@ -7846,8 +7803,8 @@ export component AppWindow inherits Window {
                                 }
                             }
                             // The identity: its key's fingerprint beside the
-                            // PeerId (ADR-0063 decision 1), focusable so a new
-                            // key or Try again can put focus on it.
+                            // PeerId (ADR-0063 decision 1), focusable so Try
+                            // again can put focus on it.
                             if !root.own-key-problem: VerticalLayout {
                                 spacing: FocusMode.ring-reach;
                                 Text {
@@ -7868,43 +7825,13 @@ export component AppWindow inherits Window {
                                     focus-wanted: root.focus-target == "own-key-fingerprint";
                                     focused(k) => { root.focus-id = k; }
                                 }
-                                if root.own-key-made != "": Text {
-                                    text: root.own-key-made;
-                                    font-size: Type.body-medium;
-                                    wrap: word-wrap;
-                                    min-height: self.preferred-height;
-                                    color: Palette.on-surface;
-                                    accessible-role: text;
-                                    accessible-label: Drawn.spoken(self.text);
-                                }
-                                if root.own-key-share-again.length > 0: VerticalLayout {
-                                    spacing: FocusMode.ring-reach;
-                                    padding-top: 8px;
-                                    Text {
-                                        text: root.own-key-share-again-title;
-                                        font-size: Type.title-small;
-                                        font-weight: 700;
-                                        wrap: word-wrap;
-                                        min-height: self.preferred-height;
-                                        color: Palette.on-surface;
-                                        accessible-role: text;
-                                        accessible-label: Drawn.spoken(self.text);
-                                    }
-                                    for row in root.own-key-share-again: OpenRow {
-                                        text: row.title;
-                                        rtl: root.rtl;
-                                        focus-key: "share-again:" + row.handle;
-                                        focus-seq: root.focus-seq;
-                                        focus-wanted: root.focus-target == "share-again:" + row.handle;
-                                        pressed => { root.share-again(row.handle); }
-                                        focused(k) => { root.focus-id = k; }
-                                    }
-                                }
                             }
                             // The key cannot be used (design/2026-10-24-identity-key.md
                             // section 4.1): the warning, the reason, what it
-                            // stops, and what can be done -- the icon and the
-                            // words carry it, the colour only repeats them.
+                            // stops, and Try again where the kind offers it --
+                            // the icon and the words carry it, the colour only
+                            // repeats them. Nothing else is offered: a new key
+                            // would be a new identity (ADR-0067 decision 5).
                             if root.own-key-problem: VerticalLayout {
                                 spacing: 8px;
                                 HorizontalLayout {
@@ -7956,25 +7883,22 @@ export component AppWindow inherits Window {
                                     accessible-role: text;
                                     accessible-label: Drawn.spoken(self.text);
                                 }
-                                if root.own-key-making: HorizontalLayout {
-                                    spacing: 8px;
-                                    VerticalLayout {
-                                        alignment: center;
-                                        WaitMark { still: root.reduced-motion; }
-                                    }
-                                    FocusLine {
-                                        text: root.own-key-making-label;
-                                        rtl: root.rtl;
-                                        focus-key: "own-key-making";
-                                        focus-seq: root.focus-seq;
-                                        focus-wanted: root.focus-target == "own-key-making";
-                                        focused(k) => { root.focus-id = k; }
-                                    }
+                                if root.own-key-no-new-key != "": Text {
+                                    text: root.own-key-no-new-key;
+                                    font-size: Type.body-medium;
+                                    wrap: word-wrap;
+                                    min-height: self.preferred-height;
+                                    color: Palette.on-surface;
+                                    accessible-role: text;
+                                    accessible-label: Drawn.spoken(self.text);
                                 }
-                                if !root.own-key-making: HorizontalLayout {
+                                // The row exists only with its button, so a kind
+                                // with nothing to press leaves no gap of the
+                                // block's spacing under its last line
+                                // (`the_key_block_offers_no_new_key_and_try_again_where_it_may_pass`).
+                                if root.own-key-try-shown: HorizontalLayout {
                                     alignment: start;
-                                    spacing: 8px;
-                                    if root.own-key-try-shown: ActionButton {
+                                    ActionButton {
                                         text: root.own-key-try-label;
                                         tonal: true;
                                         target: 48px;
@@ -7982,17 +7906,6 @@ export component AppWindow inherits Window {
                                         focus-seq: root.focus-seq;
                                         focus-wanted: root.focus-target == "own-key-try";
                                         pressed => { root.own-key-try-again(); }
-                                        focused(k) => { root.focus-id = k; }
-                                    }
-                                    if root.own-key-new-shown: ActionButton {
-                                        text: root.own-key-new-label;
-                                        tonal: !root.own-key-try-shown;
-                                        text-button: root.own-key-try-shown;
-                                        target: 48px;
-                                        focus-key: "own-key-new";
-                                        focus-seq: root.focus-seq;
-                                        focus-wanted: root.focus-target == "own-key-new";
-                                        pressed => { root.own-key-make-new(); }
                                         focused(k) => { root.focus-id = k; }
                                     }
                                 }
@@ -10636,124 +10549,6 @@ export component AppWindow inherits Window {
                             target: 48px;
                             focus-key: "discard-keep";
                             pressed => { root.keep-editing(); }
-                            focused(k) => { root.focus-id = k; }
-                        }
-                    }
-                }
-            }
-        }
-
-        // The new key's confirmation (design/2026-10-24-identity-key.md
-        // section 5.1), a basic dialog over a scrim: what changes for the
-        // person's contacts, what is deleted, the cards it cancels; focus opens
-        // on Cancel, and Escape, Back and the scrim are Cancel. Tab stays on
-        // its two buttons.
-        if root.new-key-open: TouchArea {
-            x: 0;
-            y: 0;
-            width: root.width;
-            height: root.height;
-            clicked => {
-                FocusMode.keyboard = false;
-                root.new-key-cancel();
-            }
-            Rectangle { background: #00000052; }
-        }
-        if root.new-key-open: new-key := FocusScope {
-            focus-gained(reason) => {
-                if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
-                if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
-            }
-            x: (root.width - self.width) / 2;
-            y: (root.height - self.height) / 2;
-            width: min(root.width - 48px, 560px);
-            height: new-key-box.preferred-height;
-            key-pressed(event) => {
-                if (event.text == Key.Escape) {
-                    root.new-key-cancel();
-                    return accept;
-                }
-                if (FocusMode.navigates(event)) {
-                    if (new-key-cancel.has-focus) {
-                        new-key-confirm.focus();
-                    } else {
-                        new-key-cancel.focus();
-                    }
-                    return accept;
-                }
-                reject
-            }
-            property <bool> taken;
-            Timer {
-                interval: 1ms;
-                running: !new-key.taken;
-                triggered => {
-                    new-key.taken = true;
-                    new-key-cancel.focus();
-                }
-            }
-            new-key-box := Rectangle {
-                background: Palette.surface-container-high;
-                border-radius: 28px;
-                TouchArea {}
-                VerticalLayout {
-                    padding: 24px;
-                    spacing: 16px;
-                    Text {
-                        text: root.new-key-title;
-                        font-size: Type.title-large;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                        color: Palette.on-surface;
-                        accessible-role: text;
-                        accessible-label: Drawn.spoken(self.text);
-                    }
-                    Text {
-                        text: root.new-key-body;
-                        font-size: Type.body-medium;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                        color: Palette.on-surface;
-                        accessible-role: text;
-                        accessible-label: Drawn.spoken(self.text);
-                    }
-                    if root.new-key-old != "": Text {
-                        text: root.new-key-old;
-                        font-size: Type.body-medium;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                        color: Palette.on-surface;
-                        accessible-role: text;
-                        accessible-label: Drawn.spoken(self.text);
-                    }
-                    if root.new-key-pending != "": Text {
-                        text: root.new-key-pending;
-                        font-size: Type.body-medium;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                        color: Palette.on-surface;
-                        accessible-role: text;
-                        accessible-label: Drawn.spoken(self.text);
-                    }
-                    HorizontalLayout {
-                        alignment: end;
-                        spacing: 8px;
-                        new-key-cancel := ActionButton {
-                            text: root.cards-cancel-label;
-                            text-button: true;
-                            target: 48px;
-                            focus-key: "new-key-cancel";
-                            pressed => { root.new-key-cancel(); }
-                            focused(k) => { root.focus-id = k; }
-                        }
-                        new-key-confirm := ActionButton {
-                            text: root.new-key-confirm-label;
-                            detail: root.new-key-title;
-                            filled: true;
-                            danger: root.new-key-danger;
-                            target: 48px;
-                            focus-key: "new-key-confirm";
-                            pressed => { root.new-key-confirm(); }
                             focused(k) => { root.focus-id = k; }
                         }
                     }

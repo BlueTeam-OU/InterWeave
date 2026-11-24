@@ -32,3 +32,6 @@ sha2 = { workspace = true }
 bs58 = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
+# TEST-ONLY derived EndpointIds (`endpoint_keys::endpoint_id`), its default
+# features only: it depends on the contract crates alone, so no cycle.
+interweave-test-support = { path = "../../../tests/support" }

@@ -70,7 +70,7 @@ impl BroadcastState {
     #[must_use]
     pub fn new(sources: &TrustSources) -> Self {
         Self {
-            trust: sources.peers.clone(),
+            trust: sources.operator().clone(),
             ingress: IngressLimiter::with_defaults(0),
             dedup: interweave_transport_runtime::dedup::DedupCache::default(),
             subs: SubscriptionRegistry::default(),
@@ -89,8 +89,12 @@ impl BroadcastState {
     /// must reach the data plane, not only the connection layer, or a
     /// peer whose connection is being closed still has its next message
     /// admitted.
+    ///
+    /// The OPERATOR'S LIST, not the admission set: broadcast admission
+    /// stays the node's (ADR-0067 decision 6, `ENDPOINTS.md`), and a peer
+    /// a person trusted in one identity is no authorized publisher here.
     pub(super) fn adopt_trust(&mut self, sources: &TrustSources) {
-        self.trust = sources.peers.clone();
+        self.trust = sources.operator().clone();
     }
 
     /// The channel a topic hash belongs to, if this node holds it.

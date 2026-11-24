@@ -26,6 +26,8 @@
 
 use std::path::PathBuf;
 
+use interweave_test_support::endpoint_keys::endpoint_id;
+
 use interweave_local_client_api::{DataCapability, EndpointLease, Generation, LocalDataSession};
 use interweave_transport_api::{
     ConnectivitySummary, DirectInboundState, EndpointId, MediaType, MessageId, PathReadiness,
@@ -190,7 +192,7 @@ fn a_payload_validates_inside_ipc_send_params() {
     ] {
         let instance = serde_json::json!({
             "peer": TEST_PEER,
-            "endpoint": "human",
+            "endpoint": endpoint_id("human").as_str(),
             "payload": serde_json::to_value(&payload).expect("ser"),
             "message_id": MessageId::from_bytes([0x0a; 16]).to_hex(),
         });
@@ -215,8 +217,8 @@ fn a_direct_message_received_event_validates() {
         "message_id": MessageId::from_bytes([0x01; 16]).to_hex(),
         "mode": "direct",
         "source_peer": TEST_PEER,
-        "source_endpoint": "claude",
-        "destination_endpoint": "human",
+        "source_endpoint": endpoint_id("claude").as_str(),
+        "destination_endpoint": endpoint_id("human").as_str(),
         "payload": serde_json::to_value(&payload).expect("ser"),
         "received_at": 1_700_000_000_000_u64,
     });
@@ -289,14 +291,26 @@ fn identifiers_validate_against_their_common_schemas() {
     assert_valid(&message, &serde_json::json!(id.to_hex()), "message id");
 
     let endpoint = validator_for("endpoints/endpoint-id.schema.json");
-    for name in ["human", "claude", "automation.build", "a"] {
-        let parsed = EndpointId::parse(name).expect("valid");
+    // ADR-0067: the schema is the derived grammar. It refuses a label of
+    // the retired grammar; the control is the derived id it accepts.
+    for key in [[0_u8; 32], [0x7f; 32], [0xff; 32]] {
+        let derived = EndpointId::from_ed25519_public(&key);
         assert_valid(
             &endpoint,
-            &serde_json::to_value(&parsed).expect("ser"),
-            name,
+            &serde_json::to_value(&derived).expect("ser"),
+            derived.as_str(),
         );
     }
+    // A label of the retired grammar cannot be built as an `EndpointId`, so
+    // it is offered as the JSON text a peer would send.
+    assert!(
+        EndpointId::parse_derived("human").is_err(),
+        "it is not a derived id"
+    );
+    assert!(
+        !endpoint.is_valid(&serde_json::json!("human")),
+        "the schema must refuse a label"
+    );
 
     let channel = validator_for("common/channel-id.schema.json");
     for name in ["general", "General", "team.eu:builds/nightly-1"] {
@@ -312,13 +326,13 @@ fn a_hello_frame_validates_and_a_schema_valid_hello_parses() {
     let validator = validator_for("ipc/hello.schema.json");
     let hello = Hello {
         frame_type: HelloTag::Hello,
-        ipc_version: IpcVersion { major: 2, minor: 0 },
+        ipc_version: IpcVersion { major: 3, minor: 0 },
         client: ClientInfo {
             kind: "human-client".to_owned(),
             version: Some("0.1".to_owned()),
         },
         endpoint: Some(interweave_ipc_protocol::EndpointClaim::new(
-            &EndpointId::parse("human").expect("valid"),
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
         )),
         requested_capabilities: [RequestedCapability::Events, RequestedCapability::Commands]
             .into_iter()
@@ -332,7 +346,7 @@ fn a_hello_frame_validates_and_a_schema_valid_hello_parses() {
     // The other direction, from a hand-written schema-valid document.
     let minimal = serde_json::json!({
         "type": "hello",
-        "ipc_version": { "major": 2, "minor": 0 },
+        "ipc_version": { "major": 3, "minor": 0 },
         "client": { "kind": "diagnostics" }
     });
     assert_valid(&validator, &minimal, "minimal hello");
@@ -360,7 +374,8 @@ fn an_endpoint_trust_policy_validates_in_both_shapes() {
         ),
     ] {
         let instance = serde_json::json!({
-            "id": "human",
+            "key": format!("{}.key", endpoint_id("human").as_str()),
+            "alias": "human",
             "enabled": true,
             "advertise": false,
             "inbound": serde_json::to_value(&policy).expect("ser"),
@@ -382,7 +397,7 @@ fn a_discovery_candidate_validates() {
         observed_at: 1_700_000_000_000,
         expires_at: Some(1_700_000_060_000),
         protocol_observations: [ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 1_700_000_000_000,
         }]
@@ -411,7 +426,7 @@ fn a_data_session_never_carries_an_admin_capability() {
         interweave_transport_api::TransportIdentity::parse(TEST_PEER).expect("valid"),
         "human-client",
         Some(EndpointLease {
-            endpoint: EndpointId::parse("human").expect("valid"),
+            endpoint: interweave_test_support::endpoint_keys::endpoint_id("human"),
             epoch: Generation::parse("lease_generation_1").expect("valid"),
         }),
         [DataCapability::Events, DataCapability::Commands],
@@ -451,7 +466,7 @@ async fn a_composed_runtimes_own_summary_and_peer_paths_validate() {
         let peers: Vec<String> = statics.iter().map(|s| format!("\"{s}\"")).collect();
         let doc = format!(
             "schema_version: 2\ntrust:\n  policy: static-allowlist\n  allowed_peers: [\"{}\"]\n\
-             endpoints:\n  entries:\n    - id: human\n      enabled: true\n      advertise: false\n\
+             endpoints:\n  entries:\n    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key\n      alias: human\n      enabled: true\n      advertise: false\n\
              discovery:\n  providers:\n    - type: static-bootstrap\n      enabled: true\n      priority: 10\n      config:\n        peers: [{}]\n",
             trusted.as_str(),
             peers.join(", ")

@@ -17,7 +17,8 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use interweave_profile_config::availability_overlay::path_for;
-use interweave_profile_config::provision::{embedded_document, provision_embedded};
+use interweave_profile_config::endpoint_key::mint_filesystem;
+use interweave_profile_config::provision::{provision_embedded, provision_identity};
 use interweave_profile_config::{ProfilePaths, TrustBoundary, persist};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_embedded::{
@@ -38,8 +39,9 @@ struct App {
     paths: ProfilePaths,
 }
 
-/// An owner-only app data directory with a provisioned profile, its
-/// authored mode `authored`.
+/// An owner-only app data directory with a provisioned profile -- form
+/// 1, then form 2 for a key minted at filesystem custody, as onboarding
+/// leaves it -- its authored mode `authored`.
 fn provisioned(authored: AvailabilityMode) -> App {
     let root = tempfile::Builder::new()
         .permissions(std::fs::Permissions::from_mode(0o700))
@@ -52,12 +54,16 @@ fn provisioned(authored: AvailabilityMode) -> App {
         ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&dir).expect("a boundary"))
             .expect("paths");
     provision_embedded(&paths).expect("provisioned");
+    let id = mint_filesystem(&paths).expect("a key minted");
+    provision_identity(&paths, &id).expect("the first identity");
     if authored == AvailabilityMode::StayReachable {
-        let document = embedded_document(PROFILE).replacen(
-            "  android:\n    endpoint: human\n",
-            "  android:\n    endpoint: human\n    availability_mode: stay-reachable\n",
-            1,
-        );
+        let document = std::fs::read_to_string(paths.config_file())
+            .expect("form 2")
+            .replacen(
+                "  android:\n",
+                "  android:\n    availability_mode: stay-reachable\n",
+                1,
+            );
         assert!(document.contains("availability_mode: stay-reachable"));
         persist::write_private_atomic_within(
             &paths.config_file(),

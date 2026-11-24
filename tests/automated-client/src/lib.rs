@@ -57,10 +57,13 @@ impl ClientConfig {
     ///
     /// # Panics
     /// On a name the transport's grammar refuses: a case's own mistake.
+    /// The endpoint is the derived id IPC major 3 carries (ADR-0067); a
+    /// label of the retired grammar is refused here, as the daemon would
+    /// refuse its claim.
     #[must_use]
     pub fn new(endpoint: &str, client_kind: &str, channel: &str) -> Self {
         Self {
-            endpoint: EndpointId::parse(endpoint).expect("an endpoint id"),
+            endpoint: EndpointId::parse_derived(endpoint).expect("a derived endpoint id"),
             client_kind: client_kind.to_owned(),
             channel: ChannelId::parse(channel).expect("a channel id"),
         }

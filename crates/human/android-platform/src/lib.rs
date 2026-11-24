@@ -16,6 +16,7 @@
 #[cfg(feature = "e2e-cases")]
 pub mod e2e;
 pub mod facade;
+pub mod first_identity;
 pub mod hub;
 pub mod identity;
 pub mod network;

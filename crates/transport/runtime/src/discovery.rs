@@ -1777,7 +1777,7 @@ mod tests {
         let mut m = manager_with(&["a"]);
         let mut c = candidate(P1, "a", &["/one"], 0, Some(50));
         c.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 0,
         });
@@ -2629,7 +2629,7 @@ mod tests {
         let mut empty = for_id(&known, "mdns", "/ip4/10.0.0.1/tcp/1", 100, Some(u64::MAX));
         empty.addresses.clear();
         empty.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 100,
         });
@@ -2657,7 +2657,7 @@ mod tests {
 
         let mut first = for_id(&subject, "mdns", "/ip4/10.0.0.1/tcp/1", 0, Some(u64::MAX));
         first.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 10,
         });
@@ -2671,7 +2671,7 @@ mod tests {
         assert_eq!(found.protocol_observations.len(), 1, "the fact is readable");
         assert_eq!(
             found.protocol_observations[0].protocol.as_str(),
-            "/interweave/direct/2.0.0"
+            "/interweave/direct/3.0.0"
         );
         assert_eq!(found.protocol_observations[0].sources, vec!["mdns"]);
     }
@@ -2681,7 +2681,7 @@ mod tests {
         let mut set = CandidateSet::new();
         let trust = nobody();
         let subject = identity(12);
-        let protocol = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let protocol = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         for (source, at) in [("mdns", 10u64), ("peer-cache", 40u64)] {
             let mut c = for_id(&subject, source, "/ip4/10.0.0.1/tcp/1", at, Some(u64::MAX));
@@ -2727,7 +2727,7 @@ mod tests {
         // has not, so the peer must remain with no facts attached.
         let mut short = for_id(&subject, "mdns", "/ip4/10.0.0.1/tcp/1", 0, Some(50));
         short.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 0,
         });
@@ -2896,7 +2896,7 @@ mod tests {
         let mut set = CandidateSet::new();
         let trust = nobody();
         let subject = identity(31);
-        let protocol = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let protocol = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         let mut c = for_id(&subject, "mdns", "/ip4/10.0.0.1/tcp/1", 100, Some(u64::MAX));
         c.protocol_observations.insert(ProtocolObservation {
@@ -2933,7 +2933,7 @@ mod tests {
         let mut set = CandidateSet::new();
         let trust = nobody();
         let subject = identity(32);
-        let protocol = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let protocol = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         for (supported, observed_at) in [(false, 90u64), (true, 10u64)] {
             let mut c = for_id(&subject, "mdns", "/ip4/10.0.0.1/tcp/1", 100, Some(u64::MAX));
@@ -2962,7 +2962,7 @@ mod tests {
         let mut set = CandidateSet::new();
         let trust = nobody();
         let subject = identity(33);
-        let protocol = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let protocol = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         for (supported, observed_at) in [(true, 10u64), (false, 90u64)] {
             let mut c = for_id(&subject, "mdns", "/ip4/10.0.0.1/tcp/1", 100, Some(u64::MAX));
@@ -3161,7 +3161,7 @@ mod tests {
         m.register(descriptor("peer-cache"), 0).expect("registers");
         let trust = nobody();
         let subject = identity(61);
-        let protocol = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let protocol = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         let leaving = "/ip4/192.168.1.5/tcp/4001";
         let mut c = for_id(&subject, "mdns", leaving, 0, Some(u64::MAX));
@@ -3232,7 +3232,7 @@ mod tests {
         m.register(descriptor("mdns"), 0).expect("registers");
         let trust = nobody();
         let subject = identity(62);
-        let protocol = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let protocol = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         let mut c = for_id(
             &subject,
@@ -3306,7 +3306,7 @@ mod tests {
             Some(u64::MAX),
         );
         fresh.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 5_000,
         });
@@ -3321,7 +3321,7 @@ mod tests {
             found
                 .protocol_observations
                 .iter()
-                .any(|o| o.protocol.as_str() == "/interweave/direct/2.0.0"),
+                .any(|o| o.protocol.as_str() == "/interweave/direct/3.0.0"),
             "the live fact is admitted into a slot only lapsed ones held: {:?}",
             found.protocol_observations
         );
@@ -3357,7 +3357,7 @@ mod tests {
             });
         }
         extra.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 100,
         });
@@ -3500,7 +3500,7 @@ mod tests {
             Some(1_000),
         );
         short.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             // Outlives the address it came with.
             observed_at: 0,
@@ -3516,7 +3516,7 @@ mod tests {
         );
         fact.addresses.clear();
         fact.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 10,
         });
@@ -3598,7 +3598,7 @@ mod tests {
             .expect("registers");
         let trust = nobody();
         let subject = identity(101);
-        let protocol = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let protocol = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         // Fill every slot from mdns, and have it assert a fact.
         for i in 0..MAX_ADDRESSES_PER_PEER {
@@ -3673,7 +3673,7 @@ mod tests {
         let mut set = CandidateSet::new();
         let trust = nobody();
         let subject = identity(111);
-        let protocol = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let protocol = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         // Source A: a short-lived address, then a long-lived fact.
         let mut short = for_id(
@@ -3791,7 +3791,7 @@ mod tests {
             Some(u64::MAX),
         );
         b.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 5_000,
         });
@@ -3806,7 +3806,7 @@ mod tests {
             found
                 .protocol_observations
                 .iter()
-                .any(|o| o.protocol.as_str() == "/interweave/direct/2.0.0"),
+                .any(|o| o.protocol.as_str() == "/interweave/direct/3.0.0"),
             "the live source's fact was admitted: {:?}",
             found.protocol_observations
         );
@@ -5111,7 +5111,7 @@ mod tests {
         let trust = nobody();
         let p = identity(70);
         let addr = "/ip4/10.0.0.1/tcp/1";
-        let kad = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let kad = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         set.observe(
             &for_id(&p, "peer-cache", "/ip4/10.0.0.9/tcp/9", 100, Some(u64::MAX)),
@@ -5218,7 +5218,7 @@ mod tests {
 
         let mut pinned = for_id(&p, "static", "/ip4/10.0.0.2/tcp/2", 500, None);
         pinned.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 500,
         });
@@ -5229,7 +5229,7 @@ mod tests {
         assert!(
             cand.protocol_observations
                 .iter()
-                .any(|o| o.protocol.as_str() == "/interweave/direct/2.0.0"),
+                .any(|o| o.protocol.as_str() == "/interweave/direct/3.0.0"),
             "the pinned fact lands by displacing an unpinned one"
         );
         assert!(
@@ -5259,7 +5259,7 @@ mod tests {
 
         let mut extra = for_id(&p, "static-b", "/ip4/10.0.0.2/tcp/2", 500, None);
         extra.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 500,
         });
@@ -5275,7 +5275,7 @@ mod tests {
             !entry
                 .observations
                 .keys()
-                .any(|(proto, _)| proto.as_str() == "/interweave/direct/2.0.0"),
+                .any(|(proto, _)| proto.as_str() == "/interweave/direct/3.0.0"),
             "and the newcomer was refused, not admitted past it"
         );
     }
@@ -5304,7 +5304,7 @@ mod tests {
 
         let mut extra = for_id(&p, "peer-cache", "/ip4/10.0.0.2/tcp/2", 500, Some(u64::MAX));
         extra.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 500,
         });
@@ -5316,7 +5316,7 @@ mod tests {
                 .expect("known")
                 .observations
                 .keys()
-                .any(|(proto, _)| proto.as_str() == "/interweave/direct/2.0.0"),
+                .any(|(proto, _)| proto.as_str() == "/interweave/direct/3.0.0"),
             "an unpinned newcomer is refused at the bound, not admitted by \
              displacing another unpinned fact"
         );
@@ -5395,7 +5395,7 @@ mod tests {
         set.observe(&facts, 100, &trust, true, false);
         let mut pf = for_id(&p9, "static", "/ip4/10.0.0.2/tcp/2", 500, None);
         pf.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 500,
         });
@@ -5421,7 +5421,7 @@ mod tests {
         let trust = nobody();
         let p = identity(98);
         let addr = "/ip4/10.0.0.1/tcp/1";
-        let proto = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let proto = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         set.observe(
             &for_id(&p, "mdns", addr, 400, Some(u64::MAX)),
@@ -5496,7 +5496,7 @@ mod tests {
         let trust = nobody();
         let p = identity(99);
         let addr = "/ip4/10.0.0.1/tcp/1";
-        let proto = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let proto = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         let mut c = for_id(&p, "mdns", addr, 500, Some(u64::MAX));
         c.protocol_observations.insert(ProtocolObservation {
@@ -5536,7 +5536,7 @@ mod tests {
         let trust = nobody();
         let p = identity(100);
         let addr = "/ip4/10.0.0.1/tcp/1";
-        let proto = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let proto = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         let mut c = for_id(&p, "mdns", addr, 500, Some(u64::MAX));
         c.protocol_observations.insert(ProtocolObservation {
@@ -5574,7 +5574,7 @@ mod tests {
         let trust = nobody();
         let p = identity(101);
         let addr = "/ip4/10.0.0.1/tcp/1";
-        let proto = ProtocolId::parse("/interweave/direct/2.0.0").expect("valid");
+        let proto = ProtocolId::parse("/interweave/direct/3.0.0").expect("valid");
 
         let mut c = for_id(&p, "mdns", addr, 5_000, Some(u64::MAX));
         c.protocol_observations.insert(ProtocolObservation {
@@ -5802,7 +5802,7 @@ mod tests {
 
         let mut extra = for_id(&p, "static-b", "/ip4/10.0.0.2/tcp/2", 2_000, None);
         extra.protocol_observations.insert(ProtocolObservation {
-            protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+            protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
             supported: true,
             observed_at: 2_000,
         });
@@ -5851,7 +5851,7 @@ mod tests {
         addressless
             .protocol_observations
             .insert(ProtocolObservation {
-                protocol_id: ProtocolId::parse("/interweave/direct/2.0.0").expect("valid"),
+                protocol_id: ProtocolId::parse("/interweave/direct/3.0.0").expect("valid"),
                 supported: true,
                 observed_at: 2_000,
             });
@@ -5867,7 +5867,7 @@ mod tests {
             !entry
                 .observations
                 .keys()
-                .any(|(proto, _)| proto.as_str() == "/interweave/direct/2.0.0"),
+                .any(|(proto, _)| proto.as_str() == "/interweave/direct/3.0.0"),
             "and the invisible orphan was not inserted"
         );
     }

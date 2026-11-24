@@ -25,7 +25,7 @@ pub const LENGTH_PREFIX_BYTES: usize = 4;
 /// Sized so every legal 48 KiB payload fits in both an IPC command and a
 /// `MessageReceived` event after base64url expansion and envelope
 /// overhead — the payload-fit invariant, whose worst case is measured in
-/// `fixtures/ipc-v2/ipc-v2-payload-fit.json`.
+/// `fixtures/ipc-v3/ipc-v3-payload-fit.json`.
 pub const MAX_BODY_BYTES: usize = 131_072;
 
 /// Why a frame could not be decoded.

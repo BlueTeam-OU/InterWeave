@@ -3,7 +3,7 @@ schema_version: 2
 runtime:
   deployment: embedded-android
   android:
-    endpoint: human
+    endpoint: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr
     availability_mode: stay-reachable
     foreground_service_type: remoteMessaging
     key_storage: android-keystore-aesgcm-wrap
@@ -43,8 +43,14 @@ endpoints:
   registration_policy: configured-only
   default_direct_endpoint: human
   directory: { enabled: true }
+  # Each `key` names an endpoint's key file under <state_dir>/endpoint-keys/
+  # (ADR-0067). These ids are EXAMPLES, derived from TEST-ONLY keys whose seed
+  # is SHA-256("interweave/test-only/endpoint-key/v1\0" || alias), public by
+  # construction; their key files do not exist, so each entry loads in the
+  # key-missing state. A real profile names the files `transportctl endpoint
+  # init` minted.
   entries:
-    - { id: human, enabled: true, advertise: true, allowed_client_kinds: [human-client], inbound: inherit_profile_trust, outbound: inherit_profile_trust }
+    - { key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key, alias: human, enabled: true, advertise: false, allowed_client_kinds: [human-client], inbound: inherit_profile_trust, outbound: inherit_profile_trust }
 discovery:
   providers:
     - { type: peer-cache, enabled: true, priority: 10, config: { ttl: 7d, max_entries: 1024 } }

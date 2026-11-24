@@ -14,10 +14,15 @@ use interweave_human_retention_tests::{INBOUND_BODY, PEER, unread_inbound};
 use interweave_human_store::{
     AppMessageId, HumanStore, InboundOrigin, NewInbound, READ_PAIR_CAP, StoreError, StoreOptions,
 };
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::TransportIdentity;
 
 fn open(path: &std::path::Path) -> HumanStore {
-    HumanStore::open(path, StoreOptions::default()).expect("opens")
+    HumanStore::open(
+        path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens")
 }
 
 fn copy_with(payload: &[u8]) -> NewInbound {
@@ -59,7 +64,11 @@ fn a_copy_of_a_message_read_and_not_kept_is_not_unread_after_a_restart() {
 
 #[test]
 fn the_pair_is_the_origin_so_another_peer_or_endpoint_reusing_the_id_is_admitted() {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     let row = store
         .commit_unread_inbound(&unread_inbound())
         .expect("commit");
@@ -67,7 +76,7 @@ fn the_pair_is_the_origin_so_another_peer_or_endpoint_reusing_the_id_is_admitted
 
     let another_endpoint = NewInbound {
         origin: InboundOrigin {
-            endpoint: Some(EndpointId::parse("phone").expect("endpoint")),
+            endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("phone")),
             ..unread_inbound().origin
         },
         ..unread_inbound()
@@ -123,7 +132,11 @@ fn removing_keep_records_the_pair_too() {
 
 #[test]
 fn the_pairs_are_bounded_and_the_oldest_goes_first() {
-    let mut store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+    let mut store = HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("store");
     let id = |n: usize| {
         AppMessageId::parse(format!("{:032x}", 0xa000_0000_u128 + n as u128)).expect("id")
     };
@@ -164,6 +177,8 @@ fn the_pairs_hold_no_content_and_a_column_that_could_is_refused_at_open() {
         columns,
         [
             "pair_id",
+            // The identity that read it (schema v14): no content either.
+            "local_endpoint_id",
             "app_message_id",
             "source_peer",
             "source_endpoint",
@@ -191,5 +206,12 @@ fn the_pairs_hold_no_content_and_a_column_that_could_is_refused_at_open() {
     conn.execute("ALTER TABLE read_pairs ADD COLUMN payload BLOB", [])
         .expect("widen");
     drop(conn);
-    assert!(HumanStore::open(&path, StoreOptions::default()).is_err());
+    assert!(
+        HumanStore::open(
+            &path,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default()
+        )
+        .is_err()
+    );
 }

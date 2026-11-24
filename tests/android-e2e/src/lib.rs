@@ -45,6 +45,7 @@ use serde_json::{Map, Value};
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{
     ProfileConfig, ProfilePaths, TrustBoundary, create_private_dir_within,
+    write_private_atomic_within,
 };
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_test_support::e2e;
@@ -619,7 +620,11 @@ pub fn try_provision(app_data_dir: &Path, config: &str) -> Result<(), String> {
         ProfilePaths::resolve_embedded(PROFILE, boundary).map_err(|e| format!("paths: {e}"))?;
     create_private_dir_within(paths.config_dir(), paths.boundary())
         .map_err(|e| format!("the config directory: {e}"))?;
-    std::fs::write(paths.config_file(), config).map_err(|e| format!("config.yaml: {e}"))
+    // Owner-only, as the app writes it (`provision_embedded`): the start's
+    // M3 step reads the document with the private reader, which refuses a
+    // file open to others.
+    write_private_atomic_within(&paths.config_file(), config.as_bytes(), paths.boundary())
+        .map_err(|e| format!("config.yaml: {e}"))
 }
 
 /// The desktop side: a `transport-daemon` in an XDG home of its own,
@@ -689,6 +694,26 @@ impl Default for Desktop {
 mod tests {
     use super::CaseRun;
     use std::time::{Duration, Instant};
+
+    /// The Android side's cases lease and address `human` by the id
+    /// `interweave-android-e2e-cases` writes out; the desktop side and
+    /// both example profiles name the one the test-only key derives.
+    /// Apart, every case's lease is refused `EndpointUnknown`.
+    #[test]
+    fn the_cases_human_endpoint_is_the_one_the_examples_lease() {
+        let derived = interweave_test_support::e2e::human();
+        assert_eq!(interweave_android_e2e_cases::human(), derived);
+        for example in ["human-desktop.yaml", "human-android.yaml"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../architecture/config/examples")
+                .join(example);
+            let text = std::fs::read_to_string(&path).expect("the example");
+            assert!(
+                text.contains(&format!("key: {}.key, alias: human,", derived.as_str())),
+                "{example} leases another human"
+            );
+        }
+    }
 
     /// A case that has answered is shown by `so_far` without waiting,
     /// and `result` still reads the same answer afterwards; one that has

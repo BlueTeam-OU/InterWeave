@@ -28,7 +28,7 @@ use interweave_profile_config::{
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
-    BroadcastMessageV1, ChannelId, EndpointId, MediaType, MessageId, Payload, TransportIdentity,
+    BroadcastMessageV1, ChannelId, MediaType, MessageId, Payload, TransportIdentity,
 };
 use interweave_transport_libp2p::runtime::{
     BroadcastChannels, DirectEndpoints, SubstrateConfig, SwarmEvent, SwarmRuntime,
@@ -72,10 +72,14 @@ fn profile() -> ProfileConfig {
         },
         endpoints: EndpointsConfig {
             registration_policy: RegistrationPolicy::default(),
-            default_direct_endpoint: Some(EndpointId::parse("human").expect("valid")),
+            default_direct_endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id(
+                "human",
+            )),
             directory: DirectoryConfig::default(),
             entries: vec![EndpointConfig {
-                id: EndpointId::parse("human").expect("valid"),
+                id: interweave_test_support::endpoint_keys::endpoint_id("human"),
+                alias: None,
+                key_state: interweave_profile_config::EndpointKeyState::NotRead,
                 enabled: true,
                 advertise: false,
                 allowed_client_kinds: Vec::new(),

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! IPC v2: the frame codec, the handshake that decides authority, and the
+//! IPC, major 3 (ADR-0067 decision 7): the frame codec, the handshake that decides authority, and the
 //! typed mirror of the IPC catalogue (`contracts/schemas/ipc`, plan §16
 //! (3)-(4)): [`Frame`] over the ten classes, [`negotiate`], the
 //! [`Method`] table, [`Request`] and its admission, the results and the
@@ -32,6 +32,7 @@
 #![forbid(unsafe_code)]
 
 pub mod catalogue;
+mod derived;
 pub mod event;
 pub mod frame;
 pub mod framing;
@@ -45,8 +46,7 @@ pub mod version;
 pub use catalogue::{Method, MethodEntry};
 pub use event::{
     BroadcastMode, BroadcastReceived, DirectMode, DirectReceived, Event, EventFrame, EventTag,
-    EventType, LeaseChanged, MAX_REASON_CLASS_CHARS, PeerDisconnected, ROUTE_NOTICE_SINCE_MINOR,
-    available_to,
+    EventType, LeaseChanged, MAX_REASON_CLASS_CHARS, PeerDisconnected, available_to,
 };
 pub use frame::{
     CLIENT_SILENCE_TIMEOUT, Cancel, Close, Frame, GrantedLease, HELLO_TIMEOUT, HelloResponse,
@@ -64,17 +64,18 @@ pub use request::{
     AddressParams, AddressesParams, Admission, ChannelParams, EndpointParams,
     MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_REQUEST_ID_CHARS, MAX_SHUTDOWN_GRACE_MS, PeerListParams,
     PublishParams, QueryParams, Refusal, Request, RequestFrame, RequestId, RequestTag, SendParams,
-    SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams, TrustSetParams,
+    SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams, TrustSeedParams,
+    TrustSetParams,
 };
 pub use result::{
     AddressList, AddressResult, AddressRow, AddressesResult, AdminStatusResult, DirectoryResult,
-    ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, EndpointRow, IngressCounters,
-    IpcCounters, LAST_SEEN_SINCE_MINOR, LeaseRow, LineOutcome, LineRow, MAX_ADDRESS_DETAIL_CHARS,
-    MAX_BOOTSTRAP_ADDRESS_ROWS, MAX_ENDPOINT_ROWS, MAX_PEER_PAGE_ROWS,
-    MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN, MAX_TRUST_PAGE_ROWS, NotDialled, OWN_PEER_SINCE_MINOR,
-    OwnAddressList, OwnAddressRow, OwnKind, PeerList, PeerRow, PreAuthCounters,
-    REFUSED_TOTAL_SINCE_MINOR, ROUTE_HELD_SINCE_MINOR, RowSource, SUPERSEDED_SINCE_MINOR,
-    SendResult, ServerCounters, SessionLossesResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR,
-    TrustList, TrustRow, TrustSetResult,
+    EmptyResult, EndpointList, EndpointRow, IngressCounters, IpcCounters, LeaseRow, LineOutcome,
+    LineRow, MAX_ADDRESS_DETAIL_CHARS, MAX_BOOTSTRAP_ADDRESS_ROWS, MAX_ENDPOINT_ROWS,
+    MAX_PEER_PAGE_ROWS, MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN, MAX_TRUST_PAGE_ROWS, NotDialled,
+    OwnAddressList, OwnAddressRow, OwnKind, PeerList, PeerRow, PreAuthCounters, RowSource,
+    SendResult, ServerCounters, SessionLossesResult, SetEnabledResult, TrustList, TrustRow,
+    TrustSeedResult, TrustSetResult,
 };
-pub use version::{IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, UnsupportedMajor, negotiate, supported};
+pub use version::{
+    IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, Since, UnsupportedMajor, negotiate, supported,
+};

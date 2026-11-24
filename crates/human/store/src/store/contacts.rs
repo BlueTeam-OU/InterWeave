@@ -437,19 +437,30 @@ pub fn name_key(name: &str) -> String {
 /// store's id order, which no person sees: SQLite cannot collate a name,
 /// so the model orders what a proposal names (human-client-ui.md
 /// section 3, "How contacts are ordered").
+/// Each is of one identity's contacts alone (schema v14): another
+/// identity's are never consulted (ADR-0061 decision 9). The same-name read
+/// is three indexed equalities joined, each on its key's `(identity, key)`
+/// index (v12's three, widened by v14).
 const SHARES_NODE: &str = "SELECT DISTINCT c.contact_id, c.display_name
                FROM contact_routes r JOIN contacts c ON c.contact_id = r.contact_id
-              WHERE r.peer_id = ?1 AND c.contact_id IS NOT ?2
+              WHERE r.local_endpoint_id = ?3 AND r.peer_id = ?1 AND c.contact_id IS NOT ?2
               ORDER BY c.contact_id";
 const SAME_NAME: &str = "SELECT c.contact_id, c.display_name FROM contacts c
-              WHERE (c.name_key = ?1 OR c.shape_key = ?4 OR c.compat_shape_key = ?5)
+              WHERE c.contact_id IN (
+                    SELECT contact_id FROM contacts WHERE local_endpoint_id = ?6 AND name_key = ?1
+                    UNION
+                    SELECT contact_id FROM contacts WHERE local_endpoint_id = ?6 AND shape_key = ?4
+                    UNION
+                    SELECT contact_id FROM contacts
+                     WHERE local_endpoint_id = ?6 AND compat_shape_key = ?5)
                 AND c.contact_id IS NOT ?2
                 AND NOT EXISTS (SELECT 1 FROM contact_routes r
                                  WHERE r.contact_id = c.contact_id AND r.peer_id = ?3)
               ORDER BY c.contact_id";
 const KEY_MATCHES: &str = "SELECT DISTINCT c.contact_id, c.display_name
                FROM contact_routes r JOIN contacts c ON c.contact_id = r.contact_id
-              WHERE r.identity_key = ?1 AND r.peer_id <> ?2 AND c.contact_id IS NOT ?3
+              WHERE r.identity_key = ?1 AND r.local_endpoint_id = ?4 AND r.peer_id <> ?2
+                AND c.contact_id IS NOT ?3
               ORDER BY c.contact_id";
 
 /// The version of the three name keys' output ([`NameKeys`]), kept in
@@ -545,8 +556,10 @@ impl HumanStore {
     pub fn contacts(&self) -> Result<Vec<Contact>, StoreError> {
         let ids: Vec<String> = self
             .conn
-            .prepare("SELECT contact_id FROM contacts ORDER BY contact_id")?
-            .query_map([], |r| r.get(0))?
+            .prepare(
+                "SELECT contact_id FROM contacts WHERE local_endpoint_id = ?1 ORDER BY contact_id",
+            )?
+            .query_map(params![self.identity.as_str()], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         ids.iter()
             .map(|id| {
@@ -567,8 +580,8 @@ impl HumanStore {
             .conn
             .query_row(
                 "SELECT display_name, name_source, name_at, photo_source, photo, photo_at
-                   FROM contacts WHERE contact_id = ?1",
-                params![contact_id],
+                   FROM contacts WHERE contact_id = ?1 AND local_endpoint_id = ?2",
+                params![contact_id, self.identity.as_str()],
                 |r| {
                     Ok((
                         r.get::<_, String>(0)?,
@@ -611,8 +624,9 @@ impl HumanStore {
         let id: Option<String> = self
             .conn
             .query_row(
-                "SELECT contact_id FROM contact_routes WHERE peer_id = ?1 AND endpoint_id = ?2",
-                params![peer.as_str(), endpoint.as_str()],
+                "SELECT contact_id FROM contact_routes
+                  WHERE local_endpoint_id = ?3 AND peer_id = ?1 AND endpoint_id = ?2",
+                params![peer.as_str(), endpoint.as_str(), self.identity.as_str()],
                 |r| r.get(0),
             )
             .optional()?;
@@ -624,9 +638,9 @@ impl HumanStore {
         self.conn
             .prepare(
                 "SELECT peer_id, endpoint_id, identity_key FROM contact_routes
-                  WHERE contact_id = ?1 ORDER BY peer_id, endpoint_id",
+                  WHERE contact_id = ?1 AND local_endpoint_id = ?2 ORDER BY peer_id, endpoint_id",
             )?
-            .query_map(params![contact_id], |r| {
+            .query_map(params![contact_id, self.identity.as_str()], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
@@ -640,7 +654,7 @@ impl HumanStore {
                     peer: TransportIdentity::parse(&peer).map_err(|_| {
                         StoreError::Corrupt("a route's PeerId does not parse".to_owned())
                     })?,
-                    endpoint: EndpointId::parse(&endpoint).map_err(|_| {
+                    endpoint: EndpointId::parse_derived(&endpoint).map_err(|_| {
                         StoreError::Corrupt("a route's EndpointId does not parse".to_owned())
                     })?,
                     identity_key: key_of(key)?,
@@ -674,19 +688,23 @@ impl HumanStore {
             .prepare(
                 "SELECT contact_id, display_name, name_source, name_at, photo_source, photo_at,
                         photo IS NOT NULL
-                   FROM contacts WHERE contact_id > ?1 ORDER BY contact_id LIMIT ?2",
+                   FROM contacts WHERE local_endpoint_id = ?3 AND contact_id > ?1
+                  ORDER BY contact_id LIMIT ?2",
             )?
-            .query_map(params![after.unwrap_or(""), fetch], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, Option<String>>(2)?,
-                    r.get::<_, Option<i64>>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                    r.get::<_, Option<i64>>(5)?,
-                    r.get::<_, bool>(6)?,
-                ))
-            })?
+            .query_map(
+                params![after.unwrap_or(""), fetch, self.identity.as_str()],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<i64>>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                        r.get::<_, Option<i64>>(5)?,
+                        r.get::<_, bool>(6)?,
+                    ))
+                },
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         let more = rows.len() > max;
         let mut items = Vec::new();
@@ -724,8 +742,8 @@ impl HumanStore {
         Ok(self
             .conn
             .query_row(
-                "SELECT photo FROM contacts WHERE contact_id = ?1",
-                params![contact_id],
+                "SELECT photo FROM contacts WHERE contact_id = ?1 AND local_endpoint_id = ?2",
+                params![contact_id, self.identity.as_str()],
                 |r| r.get::<_, Option<Vec<u8>>>(0),
             )
             .optional()?
@@ -757,7 +775,9 @@ impl HumanStore {
         // updates. `a_cards_standing_reads_no_contact_but_the_one_it_updates`
         // counts the statements.
         let excluded = updates.as_ref().map(|u| u.contact_id.as_str());
-        let shares_node = self.contact_names(SHARES_NODE, params![card.peer.as_str(), excluded])?;
+        let local = self.identity.as_str();
+        let shares_node =
+            self.contact_names(SHARES_NODE, params![card.peer.as_str(), excluded, local])?;
         let keys = NameKeys::of(&card.display_name());
         let same_name = self.contact_names(
             SAME_NAME,
@@ -766,12 +786,18 @@ impl HumanStore {
                 excluded,
                 card.peer.as_str(),
                 keys.shape,
-                keys.compat_shape
+                keys.compat_shape,
+                local
             ],
         )?;
         let key_matches = self.contact_names(
             KEY_MATCHES,
-            params![card.identity_key.as_slice(), card.peer.as_str(), excluded],
+            params![
+                card.identity_key.as_slice(),
+                card.peer.as_str(),
+                excluded,
+                local
+            ],
         )?;
         Ok(CardStanding {
             updates,
@@ -816,12 +842,14 @@ impl HumanStore {
         let at = sql_timestamp("at", at_ms)?;
         let display = card.display_name();
         let keys = NameKeys::of(&display);
+        let local = self.identity.as_str();
         let result = (|| -> Result<Accepted, StoreError> {
             let tx = self.conn.transaction()?;
             let held: Option<(String, Option<Vec<u8>>)> = tx
                 .query_row(
-                    "SELECT contact_id, identity_key FROM contact_routes WHERE peer_id = ?1 AND endpoint_id = ?2",
-                    params![card.peer.as_str(), card.endpoint.as_str()],
+                    "SELECT contact_id, identity_key FROM contact_routes
+                      WHERE local_endpoint_id = ?3 AND peer_id = ?1 AND endpoint_id = ?2",
+                    params![card.peer.as_str(), card.endpoint.as_str(), local],
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .optional()?;
@@ -896,8 +924,14 @@ impl HumanStore {
                     )?;
                 }
                 tx.execute(
-                    "UPDATE contact_routes SET identity_key = ?3 WHERE peer_id = ?1 AND endpoint_id = ?2",
-                    params![card.peer.as_str(), card.endpoint.as_str(), card.identity_key.as_slice()],
+                    "UPDATE contact_routes SET identity_key = ?3
+                      WHERE local_endpoint_id = ?4 AND peer_id = ?1 AND endpoint_id = ?2",
+                    params![
+                        card.peer.as_str(),
+                        card.endpoint.as_str(),
+                        card.identity_key.as_slice(),
+                        local
+                    ],
                 )?;
                 Accepted {
                     contact_id,
@@ -918,8 +952,9 @@ impl HumanStore {
                 tx.execute(
                     "INSERT INTO contacts (contact_id, display_name, name_key, shape_key,
                                            compat_shape_key, name_source, name_at, photo,
-                                           photo_source, photo_at, created_at, updated_at)
-                     VALUES (?1, ?2, ?8, ?9, ?10, ?3, ?4, ?5, ?6, ?7, ?4, ?4)",
+                                           photo_source, photo_at, created_at, updated_at,
+                                           local_endpoint_id)
+                     VALUES (?1, ?2, ?8, ?9, ?10, ?3, ?4, ?5, ?6, ?7, ?4, ?4, ?11)",
                     params![
                         contact_id,
                         display,
@@ -930,23 +965,26 @@ impl HumanStore {
                         card.photo.map(|_| at),
                         keys.case,
                         keys.shape,
-                        keys.compat_shape
+                        keys.compat_shape,
+                        local
                     ],
                 )?;
                 tx.execute(
-                    "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
-                     VALUES (?1, ?2, ?3, ?4)",
+                    "INSERT INTO contact_routes
+                         (contact_id, local_endpoint_id, peer_id, endpoint_id, identity_key)
+                     VALUES (?1, ?5, ?2, ?3, ?4)",
                     params![
                         contact_id,
                         card.peer.as_str(),
                         card.endpoint.as_str(),
-                        card.identity_key.as_slice()
+                        card.identity_key.as_slice(),
+                        local
                     ],
                 )?;
                 // The route's pair is indexed with it, so deleting the
                 // route later forgets nothing: the per-peer bound counts it
                 // until a discard (STATE.md, #492's review F6).
-                super::window::index_direct(&tx, card.peer, card.endpoint)?;
+                super::window::index_direct(&tx, local, card.peer, card.endpoint)?;
                 Accepted {
                     undo: AcceptUndo(UndoOf::Created {
                         contact_id: contact_id.clone(),
@@ -1039,7 +1077,7 @@ impl HumanStore {
             .execute(
                 "UPDATE contacts SET display_name = ?2, name_key = ?5, shape_key = ?6,
                         compat_shape_key = ?7, name_source = ?3, name_at = ?4, updated_at = ?4
-                  WHERE contact_id = ?1",
+                  WHERE contact_id = ?1 AND local_endpoint_id = ?8",
                 params![
                     contact_id,
                     name,
@@ -1047,7 +1085,8 @@ impl HumanStore {
                     at,
                     keys.case,
                     keys.shape,
-                    keys.compat_shape
+                    keys.compat_shape,
+                    self.identity.as_str()
                 ],
             )
             .map_err(StoreError::from)
@@ -1071,8 +1110,14 @@ impl HumanStore {
             .conn
             .execute(
                 "UPDATE contacts SET photo = ?2, photo_source = ?3, photo_at = ?4, updated_at = ?4
-                  WHERE contact_id = ?1",
-                params![contact_id, photo, ValueSource::Person.as_sql(), at],
+                  WHERE contact_id = ?1 AND local_endpoint_id = ?5",
+                params![
+                    contact_id,
+                    photo,
+                    ValueSource::Person.as_sql(),
+                    at,
+                    self.identity.as_str()
+                ],
             )
             .map_err(StoreError::from)
             .map_err(|e| self.note_store_failure(e))?;
@@ -1108,8 +1153,19 @@ impl HumanStore {
         &mut self,
         contact_id: &str,
     ) -> Result<Option<DeletedContact>, StoreError> {
+        let local = self.identity.as_str();
         let result = (|| -> Result<Option<DeletedContact>, StoreError> {
             let tx = self.conn.transaction()?;
+            // Another identity's contact is not this one's to delete.
+            let ours: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM contacts
+                                WHERE contact_id = ?1 AND local_endpoint_id = ?2)",
+                params![contact_id, local],
+                |r| r.get(0),
+            )?;
+            if !ours {
+                return Ok(None);
+            }
             let contact = StoredRow::read(&tx, "contacts", "contact_id", contact_id)?;
             let routes = StoredRow::read(&tx, "contact_routes", "contact_id", contact_id)?;
             tx.execute(
@@ -1165,8 +1221,13 @@ impl HumanStore {
             for route in &deleted.routes {
                 let taken: Option<i64> = tx
                     .query_row(
-                        "SELECT 1 FROM contact_routes WHERE peer_id = ?1 AND endpoint_id = ?2",
-                        params![route.text("peer_id"), route.text("endpoint_id")],
+                        "SELECT 1 FROM contact_routes
+                          WHERE local_endpoint_id = ?3 AND peer_id = ?1 AND endpoint_id = ?2",
+                        params![
+                            route.text("peer_id"),
+                            route.text("endpoint_id"),
+                            route.text("local_endpoint_id")
+                        ],
                         |r| r.get(0),
                     )
                     .optional()?;
@@ -1198,13 +1259,14 @@ impl HumanStore {
         at_ms: u64,
     ) -> Result<Option<RemovedPhoto>, StoreError> {
         let at = sql_timestamp("at", at_ms)?;
+        let local = self.identity.as_str();
         let result = (|| -> Result<Option<RemovedPhoto>, StoreError> {
             let tx = self.conn.transaction()?;
             let before = tx
                 .query_row(
                     "SELECT photo, photo_source, photo_at, updated_at FROM contacts
-                      WHERE contact_id = ?1 AND photo IS NOT NULL",
-                    params![contact_id],
+                      WHERE contact_id = ?1 AND local_endpoint_id = ?2 AND photo IS NOT NULL",
+                    params![contact_id, local],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
                 )
                 .optional()?;
@@ -1282,6 +1344,7 @@ impl HumanStore {
         peer: &TransportIdentity,
         endpoint: &EndpointId,
     ) -> Result<RouteDeleted, StoreError> {
+        let local = self.identity.as_str();
         let result = (|| -> Result<RouteDeleted, StoreError> {
             let tx = self.conn.transaction()?;
             let routes: i64 = tx.query_row(
@@ -1291,8 +1354,9 @@ impl HumanStore {
             )?;
             let held: bool = tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM contact_routes
-                                WHERE contact_id = ?1 AND peer_id = ?2 AND endpoint_id = ?3)",
-                params![contact_id, peer.as_str(), endpoint.as_str()],
+                                WHERE contact_id = ?1 AND local_endpoint_id = ?4
+                                  AND peer_id = ?2 AND endpoint_id = ?3)",
+                params![contact_id, peer.as_str(), endpoint.as_str(), local],
                 |r| r.get(0),
             )?;
             if !held {
@@ -1332,10 +1396,18 @@ impl HumanStore {
         let at = sql_timestamp("at", at_ms)?;
         self.conn
             .execute(
-                "INSERT INTO conversation_index (conversation_id, peer_id, endpoint_id, card_shared_at)
-                 VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(conversation_id) DO UPDATE SET card_shared_at = excluded.card_shared_at",
-                params![direct_conversation_id(peer, endpoint), peer.as_str(), endpoint.as_str(), at],
+                "INSERT INTO conversation_index
+                     (conversation_id, local_endpoint_id, peer_id, endpoint_id, card_shared_at)
+                 VALUES (?1, ?5, ?2, ?3, ?4)
+                 ON CONFLICT(local_endpoint_id, conversation_id)
+                 DO UPDATE SET card_shared_at = excluded.card_shared_at",
+                params![
+                    direct_conversation_id(peer, endpoint),
+                    peer.as_str(),
+                    endpoint.as_str(),
+                    at,
+                    self.identity.as_str()
+                ],
             )
             .map_err(StoreError::from)
             .map_err(|e| self.note_store_failure(e))?;
@@ -1343,17 +1415,19 @@ impl HumanStore {
     }
 
     /// Whether any conversation ever recorded a share of the identity's
-    /// card: with the own card rows still pending, what tells a first
-    /// start from a key file lost after counterparties got, or may still
-    /// get, its key (app-core's `card_may_be_held`). `card_shared_at` is cleared by nothing
-    /// short of a discard of the whole store.
+    /// card. `card_shared_at` is cleared by nothing short of a discard of
+    /// the whole store. Until ADR-0067 decision 5, app-core read it to
+    /// tell a first start, where it then made a key, from a key file lost
+    /// after a share; a missing key file is now the key-missing state
+    /// whatever this says, and no client reads it for that.
     ///
     /// # Errors
     /// A storage error.
     pub fn card_ever_shared(&self) -> Result<bool, StoreError> {
         Ok(self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM conversation_index WHERE card_shared_at IS NOT NULL)",
-            [],
+            "SELECT EXISTS(SELECT 1 FROM conversation_index
+                            WHERE local_endpoint_id = ?1 AND card_shared_at IS NOT NULL)",
+            params![self.identity.as_str()],
             |r| r.get(0),
         )?)
     }
@@ -1369,17 +1443,19 @@ impl HumanStore {
             .conn
             .prepare(
                 "SELECT peer_id, endpoint_id, card_shared_at FROM conversation_index
-                  WHERE card_shared_at IS NOT NULL
+                  WHERE local_endpoint_id = ?1 AND card_shared_at IS NOT NULL
                   ORDER BY card_shared_at DESC, conversation_id",
             )?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .query_map(params![self.identity.as_str()], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
             .collect::<Result<_, _>>()?;
         rows.into_iter()
             .map(|(peer, endpoint, at)| {
                 Ok((
                     TransportIdentity::parse(&peer)
                         .map_err(|_| StoreError::Corrupt("a shared card's peer".to_owned()))?,
-                    EndpointId::parse(&endpoint)
+                    EndpointId::parse_derived(&endpoint)
                         .map_err(|_| StoreError::Corrupt("a shared card's endpoint".to_owned()))?,
                     stored_ms("card_shared_at", at)?,
                 ))
@@ -1399,8 +1475,12 @@ impl HumanStore {
         let at: Option<Option<i64>> = self
             .conn
             .query_row(
-                "SELECT card_shared_at FROM conversation_index WHERE conversation_id = ?1",
-                params![direct_conversation_id(peer, endpoint)],
+                "SELECT card_shared_at FROM conversation_index
+                  WHERE local_endpoint_id = ?2 AND conversation_id = ?1",
+                params![
+                    direct_conversation_id(peer, endpoint),
+                    self.identity.as_str()
+                ],
                 |r| r.get(0),
             )
             .optional()?;
@@ -1597,8 +1677,12 @@ mod tests {
     /// standing reading `contacts()` again.
     #[test]
     fn a_cards_standing_reads_no_contact_but_the_one_it_updates() {
-        let mut store = HumanStore::open_in_memory(crate::StoreOptions::default()).expect("store");
-        let human = EndpointId::parse("human").expect("an endpoint");
+        let mut store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            crate::StoreOptions::default(),
+        )
+        .expect("store");
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
         let peers: Vec<TransportIdentity> = (0..40).map(peer).collect();
         for (n, peer) in peers.iter().enumerate() {
             store
@@ -1630,19 +1714,25 @@ mod tests {
 
     /// Each standing read is planned on its indexes, never a scan of the
     /// contacts: the same-name read on all three name-key indexes, one
-    /// equality each (schema v12). Mutations: the name-key index dropped
-    /// from migration 10; the shape-key index from migration 12.
+    /// equality each (schema v12), each led by the identity since v14.
+    /// Mutations: the name-key index dropped from migration 14; the
+    /// shape-key index from it; the same-name read's identity term dropped
+    /// from one arm.
     #[test]
     fn the_standing_reads_use_their_indexes() {
-        let store = HumanStore::open_in_memory(crate::StoreOptions::default()).expect("store");
+        let store = HumanStore::open_in_memory(
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            crate::StoreOptions::default(),
+        )
+        .expect("store");
         for (sql, index, params) in [
-            (SHARES_NODE, "contact_routes_by_route ", 2),
-            (SAME_NAME, "contacts_by_name_key ", 5),
-            (SAME_NAME, "contacts_by_shape_key ", 5),
-            (SAME_NAME, "contacts_by_compat_shape_key ", 5),
-            (KEY_MATCHES, "contact_routes_by_key ", 3),
+            (SHARES_NODE, "sqlite_autoindex_contact_routes_1 ", 3),
+            (SAME_NAME, "contacts_by_name_key ", 6),
+            (SAME_NAME, "contacts_by_shape_key ", 6),
+            (SAME_NAME, "contacts_by_compat_shape_key ", 6),
+            (KEY_MATCHES, "contact_routes_by_key ", 4),
         ] {
-            let values = ["x", "y", "z", "u", "v"];
+            let values = ["x", "y", "z", "u", "v", "w"];
             let plan: Vec<String> = store
                 .conn
                 .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))

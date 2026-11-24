@@ -73,11 +73,20 @@ fn crash_after(path: &Path, scenario: &str) {
 }
 
 fn reopen(path: &Path) -> HumanStore {
-    HumanStore::open(path, StoreOptions::default()).expect("the store reopens after a crash")
+    HumanStore::open(
+        path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("the store reopens after a crash")
 }
 
 fn memory() -> HumanStore {
-    HumanStore::open_in_memory(StoreOptions::default()).expect("in-memory store")
+    HumanStore::open_in_memory(
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("in-memory store")
 }
 
 // -------------------------------------------------------------------
@@ -88,7 +97,12 @@ fn memory() -> HumanStore {
 fn case_1_outbound_is_durable_before_the_call_returns() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     store
         .commit_pending_outbound(&pending_outbound())
         .expect("commit");
@@ -111,7 +125,12 @@ fn case_1_outbound_is_durable_before_the_call_returns() {
 fn case_5_inbound_is_durable_before_the_call_returns() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     store
         .commit_unread_inbound(&unread_inbound())
         .expect("commit");
@@ -450,6 +469,7 @@ fn case_14_a_full_store_degrades_rather_than_claiming_durability() {
     let path = dir.path().join("state").join("human.sqlite3");
     let mut store = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(64),
         },
@@ -515,7 +535,12 @@ type StoredPending = (
 fn case_16_an_undone_cancel_recommits_the_record_unchanged() {
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut store = HumanStore::open(
+        &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        StoreOptions::default(),
+    )
+    .expect("opens");
     let row = store
         .commit_pending_outbound(&pending_outbound())
         .expect("commit");
@@ -598,6 +623,7 @@ fn case_16_a_degraded_store_refuses_the_restore() {
     let path = dir.path().join("state").join("human.sqlite3");
     let mut store = HumanStore::open(
         &path,
+        &interweave_test_support::endpoint_keys::endpoint_id("human"),
         StoreOptions {
             max_pages: Some(64),
         },

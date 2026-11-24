@@ -28,6 +28,7 @@ use interweave_transport_embedded::{
 };
 
 use crate::facade::{FacadeLoop, SpawnError};
+use crate::first_identity::FirstIdentityRefused;
 use crate::hub::{Hub, StoreAnswer, StoreGeneration, StoreRefusal};
 use crate::identity::UnlockStatus;
 use crate::network::{NetworkReport, NetworkSlot, Told};
@@ -91,6 +92,10 @@ pub enum StartRefused {
     StoreUnavailable(String),
     /// The facade's thread could not be started.
     Thread(String),
+    /// The first identity's key could not be sealed, or form 2 not
+    /// written, on a form-1 document beside a sealed seed
+    /// ([`crate::first_identity::finish`]); the next start tries again.
+    FirstIdentity(FirstIdentityRefused),
 }
 
 /// A discard that ran, and the hub's count of start answers when it
@@ -275,7 +280,10 @@ impl ServiceHost {
             .unwrap_or_else(PoisonError::into_inner) = Some(refused);
     }
 
-    /// The profile's store for a start, or the refusal a start answers.
+    /// The profile's store for a start, opened as `identity` -- the
+    /// endpoint the service speaks as, whose derived id schema v14 gives
+    /// every row an older store holds (STATE.md §Migrations) -- or the
+    /// refusal a start answers.
     #[cfg_attr(
         not(feature = "dev-stand-ins"),
         expect(
@@ -286,6 +294,7 @@ impl ServiceHost {
     fn open_store(
         &self,
         paths: &ProfilePaths,
+        identity: &interweave_transport_api::EndpointId,
         cipher: &dyn KeyCipher,
     ) -> Result<HumanStore, StartRefused> {
         #[cfg(feature = "dev-stand-ins")]
@@ -297,7 +306,8 @@ impl ServiceHost {
         {
             return Err(refused);
         }
-        HumanStore::open_profile(paths, cipher, StoreOptions::default()).map_err(|e| classify(&e))
+        HumanStore::open_profile(paths, cipher, identity, StoreOptions::default())
+            .map_err(|e| classify(&e))
     }
 
     /// The process's host: one per process, because the profile lock is
@@ -620,6 +630,7 @@ impl ServiceHost {
         }
         *self.unlock_slot() = launch.unlock;
         self.unlock_start_ran();
+        first_identity(&launch)?;
         let host = EmbeddedHost::start(EmbeddedLaunch {
             app_data_dir: launch.app_data_dir,
             profile: launch.profile,
@@ -722,6 +733,7 @@ impl ServiceHost {
     where
         B: interweave_human_transport_client::SessionBinding + Send + 'static,
     {
+        first_identity(&launch)?;
         let host = EmbeddedHost::start(EmbeddedLaunch {
             app_data_dir: launch.app_data_dir,
             profile: launch.profile,
@@ -748,7 +760,7 @@ impl ServiceHost {
         let Some(endpoint) = human_endpoint(&config) else {
             return refuse(host, StartRefused::NoHumanEndpoint);
         };
-        let store = match self.open_store(host.paths(), &*launch.store_cipher) {
+        let store = match self.open_store(host.paths(), &endpoint, &*launch.store_cipher) {
             Ok(store) => store,
             Err(why) => return refuse(host, why),
         };
@@ -819,13 +831,23 @@ impl ServiceHost {
         profile: &str,
         store_cipher: Arc<dyn KeyCipher + Send + Sync>,
     ) -> Result<(), StartRefused> {
+        crate::first_identity::at_start(app_data_dir, profile, &*store_cipher)
+            .map_err(StartRefused::FirstIdentity)?;
         let refused = |e: EmbeddedRefused| StartRefused::Runtime(e);
         let boundary = TrustBoundary::new(app_data_dir).map_err(|e| refused(e.into()))?;
         let paths =
             ProfilePaths::resolve_embedded(profile, boundary).map_err(|e| refused(e.into()))?;
+        // This posture reaches no host, so the host's half of M3 (form 1
+        // beside one sealed first key -> form 2) runs here too, under the
+        // profile lock taken without waiting; another holder is left to
+        // the steps below to answer
+        // (`a_start_without_network_finishes_m3_beside_one_sealed_key`).
+        if let Ok(_held) = interweave_profile_config::ProfileLock::acquire(&paths, Duration::ZERO) {
+            interweave_transport_embedded::finish_first_identity(&paths).map_err(refused)?;
+        }
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
-        let store = self.open_store(&paths, &*store_cipher)?;
+        let store = self.open_store(&paths, &endpoint, &*store_cipher)?;
         let executor = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("interweave-offline")
@@ -1100,6 +1122,15 @@ fn client_config(
         channels: config.channels.desired.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
     }
+}
+
+/// A start's half of M3, before the embedded host takes the profile's
+/// lock: the host's start refuses form 1, and finishes it beside a sealed
+/// key alone (`crate::first_identity`).
+fn first_identity(launch: &ServiceLaunch) -> Result<(), StartRefused> {
+    crate::first_identity::at_start(&launch.app_data_dir, &launch.profile, &*launch.store_cipher)
+        .map(|_| ())
+        .map_err(StartRefused::FirstIdentity)
 }
 
 /// What a refused start answers of the store, or `None` for a runtime

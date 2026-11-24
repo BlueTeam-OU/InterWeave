@@ -28,10 +28,12 @@ trust:
 endpoints:
   default_direct_endpoint: human
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false
-    - id: agent
+    - key: 12D3KooWEFtocnyKkCXyW3kXvHejTQTV7NBZ8bAhy7jNJU4t2Zq5.key
+      alias: agent
       enabled: true
       advertise: false
 discovery:
@@ -47,7 +49,7 @@ discovery:
 }
 
 pub(crate) fn ep(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("an endpoint id")
+    interweave_test_support::endpoint_keys::endpoint_id(s)
 }
 
 /// A private state directory and the endpoint overlay's path in it.
@@ -146,5 +148,5 @@ pub(crate) fn row(
     default: bool,
     persisted: bool,
 ) -> (String, bool, bool, bool) {
-    (id.to_owned(), enabled, default, persisted)
+    (ep(id).as_str().to_owned(), enabled, default, persisted)
 }

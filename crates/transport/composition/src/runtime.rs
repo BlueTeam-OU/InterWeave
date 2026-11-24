@@ -39,7 +39,7 @@ use interweave_transport_libp2p::{
     NetworkMonitor, NetworkView, PathChange, RuntimeStatus, SwarmEvent, SwarmRuntime,
 };
 use interweave_transport_runtime::TrustSources;
-use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
+use interweave_trust_api::{EndpointTrustPolicy, InfrastructureSet, PeerTrustPolicy};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
@@ -220,6 +220,27 @@ pub(crate) enum Request {
         TransportIdentity,
         bool,
         oneshot::Sender<Result<TrustChange, TransportError>>,
+    ),
+    /// One direction of an endpoint's effective set (`admin.trust.list
+    /// {endpoint, direction}`, ADR-0067 decision 6).
+    EndpointTrust(
+        EndpointId,
+        interweave_local_client_api::TrustDirection,
+        oneshot::Sender<Result<interweave_local_client_api::EndpointTrustView, TransportError>>,
+    ),
+    /// A peer into or out of an endpoint's own set (`admin.trust.set
+    /// {endpoint}`), for the asking port's write admission.
+    SetEndpointTrust(
+        Admission,
+        EndpointId,
+        TransportIdentity,
+        bool,
+        oneshot::Sender<Result<TrustChange, TransportError>>,
+    ),
+    /// An endpoint's own set from what it admits (`admin.trust.seed`).
+    SeedEndpointTrust(
+        EndpointId,
+        oneshot::Sender<Result<interweave_local_client_api::TrustSeed, TransportError>>,
     ),
     /// Enable or disable an endpoint (`admin.endpoints.set_enabled`),
     /// answered with the epoch disabling revoked.
@@ -440,26 +461,14 @@ impl ComposedRuntime {
         // cannot be trusted stops the start (ADR-0028 A 2026-10-11);
         // what normalising it changed is warned, naming each entry.
         let endpoints_configured = profile.endpoints.clone();
-        let endpoint_overlay = match &options.endpoint_overlay_file {
-            Some(path) => {
-                let (overlay, changes) = EndpointOverlay::load_within(
-                    path,
-                    &endpoints_configured,
-                    &options.trust_boundary,
-                )
-                .map_err(CompositionError::EndpointOverlay)?;
-                for change in &changes {
-                    tracing::warn!("the endpoint overlay was normalised at load: {change}");
-                }
-                overlay
-            }
-            None => EndpointOverlay::default(),
-        };
+        let endpoint_overlay = load_endpoint_overlay(&options, &endpoints_configured)?;
         // THE COMPOSED PROFILE IS VALIDATED AS ITS OWN: `config.yaml`
         // validated alone, and an overlay can break a rule that reads the
-        // enabled set (`directory.max_advertised`, the Android lease
-        // endpoint) -- refused naming the overlay, never as a
-        // `config.yaml` the operator cannot find fault with.
+        // enabled set (`directory.max_advertised`) -- refused naming the
+        // overlay, never as a `config.yaml` the operator cannot find fault
+        // with. The Android rule that some identity is enabled is the
+        // start's (`require_android_identity`), which the embedded host
+        // asks on the composed set before it composes.
         let authored = profile.clone();
         let mut profile = profile.clone();
         profile.endpoints = endpoint_overlay.apply(&endpoints_configured);
@@ -498,7 +507,13 @@ impl ComposedRuntime {
         }
         let composition = translate(profile, &local, options.queue_bound)?
             .with_allowed(allowed.clone(), &local)?
+            .with_own_sets(crate::translate::own_sets(
+                &endpoint_overlay,
+                &profile.endpoints,
+            ))?
             .with_added_bootstrap(static_how, bootstrap.peers())?;
+        // Discovery offers the admission set: who may connect (ADR-0067 d.6).
+        let admitted = composition.peer_trust.allowed_peers().cloned().collect();
         // The operator inputs besides the bootstrap entries: a removed
         // bootstrap address keeps its place in the operator set while one
         // of these names the same route (ADR-0052 rule 9).
@@ -530,14 +545,17 @@ impl ComposedRuntime {
             composition.discovery,
             options.peer_cache_file.as_deref(),
             composition.peer_trust,
-            allowed,
+            admitted,
             &local,
             clock(),
         )?;
         // The driver holds the policy the substrate was started with, the
         // local peer bound: every later change is made to this copy and
         // published to the substrate and discovery as one.
-        let trust = composition.trust.peers.clone();
+        // The operator's list: what the operator form of the trust methods
+        // writes; the admission set is derived from it and the endpoint
+        // overlay at every publish (`publish`).
+        let trust = composition.trust.operator().clone();
         let infrastructure = composition.trust.infrastructure.clone();
         let swarm = SwarmRuntime::start(identity, composition.substrate, composition.trust)
             .map_err(CompositionError::Substrate)?;
@@ -963,10 +981,11 @@ struct Driver {
     /// The summary last announced, compared without its timestamp.
     last_summary: Option<ConnectivitySummary>,
     clock: Box<dyn Fn() -> u64 + Send>,
-    /// The data-plane allowlist in force, the local peer bound: the ONE
-    /// copy an administrative change is made to (ADR-0032), so the
-    /// substrate's and discovery's copies are only ever replaced by it,
-    /// never edited apart.
+    /// The OPERATOR'S list in force, the local peer bound: the ONE copy
+    /// the operator form of `admin.trust.set` is made to (ADR-0032). Who
+    /// may connect is the admission set, this list united with every
+    /// endpoint's own sets (ADR-0067 decision 6): read it through
+    /// [`Driver::admitted`], never from this field.
     trust: PeerTrustPolicy,
     /// The infrastructure set the profile configured, republished
     /// unchanged with every trust change: `admin.trust` does not reach it.
@@ -1124,10 +1143,13 @@ impl Driver {
         let observed_at = wall_ms();
         match event {
             SwarmEvent::Connected { peer, path } => {
-                crate::gate::connected(Who::of(&peer, &self.trust, &self.infrastructure), path);
+                crate::gate::connected(
+                    Who::of(&peer, &self.admitted(), &self.infrastructure),
+                    path,
+                );
                 self.refusals.forget(&peer);
                 self.outcomes
-                    .record(&self.trust, &peer, LastOutcome::Connected);
+                    .record(&self.admitted(), &peer, LastOutcome::Connected);
                 self.paths.insert(peer.clone(), path);
                 self.notices.connected(&peer, path, observed_at);
                 self.emit(TransportEvent::PeerConnected {
@@ -1149,7 +1171,7 @@ impl Driver {
             } => self.post_path_change(peer, previous, current, reason).await,
             SwarmEvent::Disconnected { peer, reason } => {
                 crate::gate::disconnected(
-                    Who::of(&peer, &self.trust, &self.infrastructure),
+                    Who::of(&peer, &self.admitted(), &self.infrastructure),
                     reason,
                 );
                 self.paths.remove(&peer);
@@ -1172,9 +1194,12 @@ impl Driver {
                 class,
                 ..
             } => {
-                crate::gate::dial_failed(Who::of(&peer, &self.trust, &self.infrastructure), class);
+                crate::gate::dial_failed(
+                    Who::of(&peer, &self.admitted(), &self.infrastructure),
+                    class,
+                );
                 self.outcomes
-                    .record(&self.trust, &peer, LastOutcome::of_class(class));
+                    .record(&self.admitted(), &peer, LastOutcome::of_class(class));
             }
             SwarmEvent::DialFailed {
                 peer: None, class, ..
@@ -1186,16 +1211,19 @@ impl Driver {
                 delay_ms,
                 peer_backoff,
             } => crate::gate::retry_scheduled(
-                Who::of(&peer, &self.trust, &self.infrastructure),
+                Who::of(&peer, &self.admitted(), &self.infrastructure),
                 origin,
                 attempt,
                 delay_ms,
                 peer_backoff,
             ),
             SwarmEvent::AddressQuarantined { peer, for_ms } => {
-                crate::gate::quarantined(Who::of(&peer, &self.trust, &self.infrastructure), for_ms);
+                crate::gate::quarantined(
+                    Who::of(&peer, &self.admitted(), &self.infrastructure),
+                    for_ms,
+                );
                 self.outcomes
-                    .record(&self.trust, &peer, LastOutcome::IdentityMismatch);
+                    .record(&self.admitted(), &peer, LastOutcome::IdentityMismatch);
             }
             SwarmEvent::ConnectivityChanged { .. }
             | SwarmEvent::RelayReservationChanged { .. }
@@ -1343,24 +1371,17 @@ impl Driver {
             Request::Trust(reply) => {
                 let _ = reply.send(TrustAdminView {
                     local_peer: self.trust.local_peer().cloned(),
-                    allowed: self
-                        .trust
-                        .allowed_peers()
-                        .map(|peer| TrustedPeer {
-                            peer: peer.clone(),
-                            persisted: self.overlay_file.is_some(),
-                            // Exact, not a default: the policy is
-                            // (configured ∪ added) ∖ revoked, so a listed
-                            // peer the configuration does not name is an
-                            // administered one.
-                            source: if self.configured.contains(peer) {
-                                TrustSource::Configured
-                            } else {
-                                TrustSource::Administered
-                            },
-                        })
-                        .collect(),
+                    allowed: self.operator_rows(),
                 });
+            }
+            Request::EndpointTrust(endpoint, direction, reply) => {
+                let _ = reply.send(self.endpoint_trust(&endpoint, direction));
+            }
+            Request::SetEndpointTrust(by, endpoint, peer, allowed, reply) => {
+                let _ = reply.send(self.set_endpoint_trust(&by, endpoint, peer, allowed).await);
+            }
+            Request::SeedEndpointTrust(endpoint, reply) => {
+                let _ = reply.send(self.seed_endpoint_trust(endpoint).await);
             }
             Request::SetTrust(by, peer, allowed, reply) => {
                 let _ = reply.send(self.set_trust(&by, peer, allowed).await);
@@ -1472,11 +1493,30 @@ impl Driver {
         if self.take_publish_fault() {
             return Err(TransportError::BackendUnavailable);
         }
+        let sources = self.sources(next, &self.endpoint_overlay)?;
         self.swarm
-            .set_trust(TrustSources::new(next, self.infrastructure.clone()))
+            .set_trust(sources)
             .await
             .map(|_closed| true)
             .map_err(|_| TransportError::BackendUnavailable)
+    }
+
+    /// The trust sources `operator` and `overlay`'s own sets make: the
+    /// admission set derived from them (ADR-0067 decision 6).
+    /// `InvalidArgument` past the admission set's bound, which every
+    /// write refuses before it publishes.
+    fn sources(
+        &self,
+        operator: PeerTrustPolicy,
+        overlay: &EndpointOverlay,
+    ) -> Result<TrustSources, TransportError> {
+        let composed = overlay.apply(&self.authored.endpoints);
+        TrustSources::per_endpoint(
+            operator,
+            crate::translate::own_sets(overlay, &composed),
+            self.infrastructure.clone(),
+        )
+        .map_err(|_| TransportError::InvalidArgument)
     }
 
     /// Whether the next publish is to fail as if the substrate were gone
@@ -1570,11 +1610,30 @@ impl Driver {
         moved: Result<Option<EndpointOverlay>, EndpointOverlayError>,
         publish: impl Future<Output = Result<T, TransportError>>,
     ) -> Result<T, TransportError> {
+        self.set_endpoints_noting(what, moved, publish).await.0
+    }
+
+    /// [`Self::set_endpoints`] with what its audit needs beside the
+    /// answer: whether the overlay write itself failed and the set was put
+    /// back, so nothing changed (`true`: audited `unwritten`), as against
+    /// a publish that failed after a write that landed or an overlay left
+    /// ahead of the runtime (`false`: audited `failed`), the trust
+    /// overlay's distinction (`Driver::set_trust`).
+    async fn set_endpoints_noting<T>(
+        &mut self,
+        what: &'static str,
+        moved: Result<Option<EndpointOverlay>, EndpointOverlayError>,
+        publish: impl Future<Output = Result<T, TransportError>>,
+    ) -> (Result<T, TransportError>, bool) {
         let overlay = match moved {
             Ok(overlay) => overlay,
-            Err(EndpointOverlayError::Unknown) => return Err(TransportError::EndpointUnknown),
-            Err(EndpointOverlayError::Disabled) => return Err(TransportError::EndpointDisabled),
-            Err(_) => return Err(TransportError::Internal),
+            Err(EndpointOverlayError::Unknown) => {
+                return (Err(TransportError::EndpointUnknown), false);
+            }
+            Err(EndpointOverlayError::Disabled) => {
+                return (Err(TransportError::EndpointDisabled), false);
+            }
+            Err(_) => return (Err(TransportError::Internal), false),
         };
         // A MOVE THE NEXT START WOULD REFUSE IS REFUSED NOW, nothing
         // written: the composed profile is validated as the start
@@ -1584,14 +1643,23 @@ impl Driver {
         if let Some(moved) = &overlay {
             let mut composed = self.authored.clone();
             composed.endpoints = moved.apply(&self.authored.endpoints);
-            if !composed.validate().is_empty() {
-                return Err(TransportError::InvalidArgument);
+            // The Android rule that some identity is enabled is the
+            // start's, not `validate`'s (`ENDPOINTS.md`, A 2026-11-21), so
+            // it is asked here too: a set leaving none enabled is refused.
+            if !composed.validate().is_empty()
+                || composed
+                    .runtime
+                    .require_android_identity(&composed.endpoints)
+                    .is_err()
+            {
+                return (Err(TransportError::InvalidArgument), false);
             }
         }
         let written = match (&overlay, self.endpoint_overlay_file.clone()) {
             (Some(overlay), Some(path)) => self.write_endpoint_overlay(overlay, &path).err(),
             _ => None,
         };
+        let unwritten = written.is_some();
         let published = if written.is_some() {
             Err(TransportError::Internal)
         } else {
@@ -1615,14 +1683,17 @@ impl Driver {
                      the set takes effect at the next start"
                 );
                 self.endpoint_overlay = new.clone();
-                return Err(TransportError::Internal);
+                return (Err(TransportError::Internal), false);
             }
         }
-        let answer = published?;
+        let answer = match published {
+            Ok(answer) => answer,
+            Err(e) => return (Err(e), unwritten),
+        };
         if let Some(overlay) = overlay {
             self.endpoint_overlay = overlay;
         }
-        Ok(answer)
+        (Ok(answer), false)
     }
 
     /// Add a bootstrap address (ADR-0062 decision 1): the all-or-none add
@@ -1966,14 +2037,326 @@ impl Driver {
         overlay.write_within(path, &self.trust_boundary)
     }
 
-    /// Allow `peer` or revoke it, and publish the result to the substrate
-    /// -- which closes a revoked peer's connections, forgets its cached
-    /// directory and reports its disconnect with the `policy` reason --
-    /// and then to discovery; a revoked peer's routes are forgotten by
-    /// every session, so its path changes are owed to none until a new
-    /// exchange makes one (`a_revocation_forgets_the_sessions_routes`). A
-    /// change the policy refuses, or one that changes nothing, publishes
-    /// nothing.
+    /// The operator's list as `admin.trust.list` rows: every peer with
+    /// where it comes from. Exact, not a default: the list is
+    /// (configured ∪ added) ∖ revoked, so a listed peer the configuration
+    /// does not name is an administered one.
+    fn operator_rows(&self) -> Vec<TrustedPeer> {
+        self.trust
+            .allowed_peers()
+            .map(|peer| TrustedPeer {
+                peer: peer.clone(),
+                persisted: self.overlay_file.is_some(),
+                source: if self.configured.contains(peer) {
+                    TrustSource::Configured
+                } else {
+                    TrustSource::Administered
+                },
+            })
+            .collect()
+    }
+
+    /// The admission set as it stands: the operator's list united with
+    /// the endpoint overlay's own sets. `None` only past its bound, which
+    /// every write refuses before it publishes.
+    fn admission(&self) -> Option<PeerTrustPolicy> {
+        self.sources(self.trust.clone(), &self.endpoint_overlay)
+            .ok()
+            .map(|sources| sources.peers)
+    }
+
+    /// The admission set as a policy, the ONE reader of who the gate has
+    /// state for (`CONNECTIVITY.md` section 19): the peer rows, the
+    /// recorded outcomes, the refusals' de-duplication and the class a
+    /// connectivity line names a peer by all ask it. The operator's list
+    /// alone past the set's bound, which every write refuses before it
+    /// publishes, so only a start can be there and it refuses first.
+    fn admitted(&self) -> PeerTrustPolicy {
+        self.admission().unwrap_or_else(|| self.trust.clone())
+    }
+
+    /// After a change from `before`: discovery offers the admission set,
+    /// and a peer that left it -- the last set that held it -- has its
+    /// sessions' routes, outcomes and refusals forgotten, as a revoke did
+    /// when the node held one list (ADR-0067 decision 6, A 2026-11-19).
+    fn trust_changed(&mut self, before: Option<PeerTrustPolicy>) {
+        let Some(after) = self.admission() else {
+            return;
+        };
+        if let Some(before) = before {
+            for peer in before.allowed_peers() {
+                if !after.decide(peer).is_allowed() {
+                    self.notices.revoked(peer);
+                    self.outcomes.forget(peer);
+                    self.refusals.forget(peer);
+                }
+            }
+        }
+        self.discovery.set_trust(after);
+    }
+
+    /// The configured endpoint `endpoint`, authored or added, composed.
+    fn configured_endpoint(
+        &self,
+        endpoint: &EndpointId,
+    ) -> Result<interweave_profile_config::EndpointConfig, TransportError> {
+        self.endpoint_overlay
+            .apply(&self.authored.endpoints)
+            .entries
+            .into_iter()
+            .find(|entry| &entry.id == endpoint)
+            .ok_or(TransportError::EndpointUnknown)
+    }
+
+    /// What an authored filter admits now: the operator's list, or an
+    /// authored `static_subset` as it narrows that list. The seed of an
+    /// endpoint's first own set (LOCAL-IPC.md, the endpoint dimension).
+    fn admitted_by(&self, policy: &EndpointTrustPolicy) -> Vec<TransportIdentity> {
+        match policy {
+            EndpointTrustPolicy::InheritProfileTrust => {
+                self.trust.allowed_peers().cloned().collect()
+            }
+            EndpointTrustPolicy::StaticSubset { allowed_peers } => allowed_peers
+                .iter()
+                .filter(|peer| self.trust.decide(peer).is_allowed())
+                .cloned()
+                .collect(),
+        }
+    }
+
+    /// One direction of `endpoint`'s effective set: its own set when the
+    /// overlay carries one, every row administered; else an authored
+    /// `static_subset` as it narrows the operator's list, every row
+    /// configured; else the operator's list, its rows with their sources.
+    fn endpoint_trust(
+        &self,
+        endpoint: &EndpointId,
+        direction: interweave_local_client_api::TrustDirection,
+    ) -> Result<interweave_local_client_api::EndpointTrustView, TransportError> {
+        use interweave_local_client_api::{EndpointSetKind, EndpointTrustView, TrustDirection};
+        let entry = self.configured_endpoint(endpoint)?;
+        if let Some((inbound, outbound)) = self.endpoint_overlay.own_sets(endpoint) {
+            let set = match direction {
+                TrustDirection::Inbound => inbound,
+                TrustDirection::Outbound => outbound,
+            };
+            return Ok(EndpointTrustView {
+                set: EndpointSetKind::Own,
+                allowed: set
+                    .peers()
+                    .iter()
+                    .map(|peer| TrustedPeer {
+                        peer: peer.clone(),
+                        persisted: self.endpoint_overlay_file.is_some(),
+                        source: TrustSource::Administered,
+                    })
+                    .collect(),
+            });
+        }
+        let policy = match direction {
+            TrustDirection::Inbound => &entry.inbound,
+            TrustDirection::Outbound => &entry.outbound,
+        };
+        Ok(match policy {
+            EndpointTrustPolicy::InheritProfileTrust => EndpointTrustView {
+                set: EndpointSetKind::Inherited,
+                allowed: self.operator_rows(),
+            },
+            EndpointTrustPolicy::StaticSubset { .. } => EndpointTrustView {
+                set: EndpointSetKind::Authored,
+                allowed: self
+                    .admitted_by(policy)
+                    .into_iter()
+                    .map(|peer| TrustedPeer {
+                        peer,
+                        persisted: true,
+                        source: TrustSource::Configured,
+                    })
+                    .collect(),
+            },
+        })
+    }
+
+    /// The audit line of an endpoint-dimension set (LOCAL-IPC.md: it
+    /// carries the endpoint).
+    fn audit_endpoint_set(
+        endpoint: &EndpointId,
+        peer: &TransportIdentity,
+        allowed: bool,
+        outcome: &str,
+    ) {
+        tracing::info!(
+            target: AUDIT_TARGET,
+            endpoint = endpoint.as_str(),
+            peer = peer.as_str(),
+            allowed,
+            outcome,
+            "admin.trust.set"
+        );
+    }
+
+    /// Publish `overlay`'s trust sources from a commander, for
+    /// [`Self::set_endpoints`]: `Ok(true)` once published, `Ok(false)`
+    /// when there is nothing to publish.
+    fn publish_sources(
+        &mut self,
+        sources: Option<TrustSources>,
+    ) -> impl Future<Output = Result<bool, TransportError>> + use<> {
+        let fault = self.take_publish_fault();
+        let commander = self.swarm.commander();
+        async move {
+            if fault {
+                return Err(TransportError::BackendUnavailable);
+            }
+            match sources {
+                Some(sources) => commander
+                    .set_trust(sources)
+                    .await
+                    .map(|_closed| true)
+                    .map_err(|_| TransportError::BackendUnavailable),
+                None => Ok(false),
+            }
+        }
+    }
+
+    /// `admin.trust.set {endpoint, peer, allowed}`: the peer into or out of
+    /// BOTH members of the endpoint's own set, the first write creating it
+    /// from what the endpoint admitted. Refused as the operator form is --
+    /// the local peer, the admission set's bound -- and past the sets' row
+    /// bound; superseded per (endpoint, peer); written before published.
+    async fn set_endpoint_trust(
+        &mut self,
+        by: &Admission,
+        endpoint: EndpointId,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<TrustChange, TransportError> {
+        let entry = self.configured_endpoint(&endpoint)?;
+        if self.trust.local_peer() == Some(&peer) {
+            Self::audit_endpoint_set(&endpoint, &peer, allowed, "refused");
+            return Err(TransportError::InvalidArgument);
+        }
+        let moved = match self.endpoint_overlay.set_peer(
+            &self.authored.endpoints,
+            &endpoint,
+            self.admitted_by(&entry.inbound),
+            self.admitted_by(&entry.outbound),
+            &peer,
+            allowed,
+        ) {
+            Ok(moved) => moved,
+            Err(EndpointOverlayError::Unknown) => return Err(TransportError::EndpointUnknown),
+            Err(_) => {
+                Self::audit_endpoint_set(&endpoint, &peer, allowed, "refused");
+                return Err(TransportError::InvalidArgument);
+            }
+        };
+        let sources = match &moved {
+            Some(moved) => match self.sources(self.trust.clone(), moved) {
+                Ok(sources) => Some(sources),
+                Err(refused) => {
+                    Self::audit_endpoint_set(&endpoint, &peer, allowed, "refused");
+                    return Err(refused);
+                }
+            },
+            None => None,
+        };
+        let key = WriteKey::EndpointPeer(endpoint.clone(), peer.clone());
+        if self.writes.superseded(by, &key) {
+            Self::audit_endpoint_set(&endpoint, &peer, allowed, "superseded");
+            return Ok(TrustChange::Refused(TrustRefusal::Superseded));
+        }
+        let before = self.admission();
+        let publish = self.publish_sources(sources);
+        let (published, unwritten) = self
+            .set_endpoints_noting("trust.set", Ok(moved), publish)
+            .await;
+        let outcome = match &published {
+            Ok(true) => "changed",
+            Ok(false) => "unchanged",
+            Err(TransportError::InvalidArgument) => "refused",
+            Err(_) if unwritten => "unwritten",
+            Err(_) => "failed",
+        };
+        Self::audit_endpoint_set(&endpoint, &peer, allowed, outcome);
+        // APPLIED is what stands, changed or already so; a write that
+        // changed nothing on disk or in the runtime orders nothing.
+        let changed = published?;
+        self.writes.applied(by, [key]);
+        if changed {
+            self.trust_changed(before);
+        }
+        Ok(TrustChange::Set)
+    }
+
+    /// `admin.trust.seed {endpoint}`: the first write's copy alone --
+    /// `present`, nothing written, when the overlay already carries a set
+    /// for the endpoint, an empty one included.
+    async fn seed_endpoint_trust(
+        &mut self,
+        endpoint: EndpointId,
+    ) -> Result<interweave_local_client_api::TrustSeed, TransportError> {
+        use interweave_local_client_api::TrustSeed;
+        use interweave_profile_config::endpoint_overlay::Seeded;
+        let audit = |outcome: &str| {
+            tracing::info!(
+                target: AUDIT_TARGET,
+                endpoint = endpoint.as_str(),
+                outcome,
+                "admin.trust.seed"
+            );
+        };
+        let entry = self.configured_endpoint(&endpoint)?;
+        let seeded = match self.endpoint_overlay.seed_sets(
+            &self.authored.endpoints,
+            &endpoint,
+            self.admitted_by(&entry.inbound),
+            self.admitted_by(&entry.outbound),
+        ) {
+            Ok(seeded) => seeded,
+            Err(EndpointOverlayError::Unknown) => return Err(TransportError::EndpointUnknown),
+            Err(_) => {
+                audit("refused");
+                return Err(TransportError::InvalidArgument);
+            }
+        };
+        let moved = match seeded {
+            Seeded::AlreadyPresent => {
+                audit("present");
+                return Ok(TrustSeed::Present);
+            }
+            Seeded::Created(moved) => moved,
+        };
+        let sources = match self.sources(self.trust.clone(), &moved) {
+            Ok(sources) => sources,
+            Err(refused) => {
+                audit("refused");
+                return Err(refused);
+            }
+        };
+        let publish = self.publish_sources(Some(sources));
+        let (published, unwritten) = self
+            .set_endpoints_noting("trust.seed", Ok(Some(moved)), publish)
+            .await;
+        audit(match &published {
+            Ok(_) => "seeded",
+            Err(TransportError::InvalidArgument) => "refused",
+            Err(_) if unwritten => "unwritten",
+            Err(_) => "failed",
+        });
+        published?;
+        Ok(TrustSeed::Seeded)
+    }
+
+    /// Allow `peer` or revoke it, and publish the result to the substrate.
+    /// When the write removes the peer from the admission set -- the last
+    /// set that held it (ADR-0067 decision 6) -- the substrate closes its
+    /// connections, forgets its cached directory and reports its
+    /// disconnect with the `policy` reason, and every session forgets its
+    /// routes, so its path changes are owed to none until a new exchange
+    /// makes one (`a_revocation_forgets_the_sessions_routes`); a peer an
+    /// endpoint's own set still holds stays connected. A change the policy
+    /// refuses, or one that changes nothing, publishes nothing.
     ///
     /// EVERY SET THAT REACHES THE DRIVER IS LOGGED, under
     /// [`AUDIT_TARGET`], whatever came of it (ADR-0012's consequence,
@@ -2020,6 +2403,15 @@ impl Driver {
         // Refused as the policy refuses at its own bound, nothing written.
         let (decided, overlay) = match (decided, overlay) {
             (Ok(_), Some(moved)) if moved.effective(&self.configured).is_err() => {
+                (Err(TransportError::InvalidArgument), None)
+            }
+            // AND THE ADMISSION SET'S, which the operator's list shares
+            // with every endpoint's own set (ADR-0067 decision 6): an
+            // allow inside the list's bound can still put the union past
+            // it, and is refused by name, nothing written.
+            (Ok(true), _)
+                if allowed && self.sources(next.clone(), &self.endpoint_overlay).is_err() =>
+            {
                 (Err(TransportError::InvalidArgument), None)
             }
             (decided, overlay) => (decided, overlay),
@@ -2118,13 +2510,12 @@ impl Driver {
             self.overlay = overlay;
         }
         if changed {
-            self.discovery.set_trust(next.clone());
+            let before = self.admission();
             self.trust = next;
-            if !allowed {
-                self.notices.revoked(&peer);
-                self.outcomes.forget(&peer);
-                self.refusals.forget(&peer);
-            }
+            // What a revoke takes away is decided by the admission set:
+            // a peer an endpoint's own set still holds stays connected
+            // and is forgotten by nothing (ADR-0067 decision 6).
+            self.trust_changed(before);
         }
         Ok(TrustChange::Set)
     }
@@ -2134,7 +2525,7 @@ impl Driver {
     /// unknown, never shown as an empty set or a row of unknowns, which
     /// would read as "no peer" or "nothing holds this peer".
     async fn peer_rows(&mut self) -> Option<Vec<PeerGateRow>> {
-        let peers: Vec<TransportIdentity> = self.trust.allowed_peers().cloned().collect();
+        let peers: Vec<TransportIdentity> = self.admitted().allowed_peers().cloned().collect();
         let gates = self.swarm.peer_gates(peers).await.ok()?;
         let rows = gates
             .into_iter()
@@ -2200,8 +2591,8 @@ impl Driver {
             };
             if let Some(refusal) = refusal {
                 let class = interweave_transport_libp2p::DialFailureClass::of_refusal(&refusal);
-                if self.refusals.changed(&self.trust, &peer, class) {
-                    let who = Who::of(&peer, &self.trust, &self.infrastructure);
+                if self.refusals.changed(&self.admitted(), &peer, class) {
+                    let who = Who::of(&peer, &self.admitted(), &self.infrastructure);
                     // A HELD ROUTE IS NAMED WITH ITS END, read from the
                     // gate that holds it; asked only when the refusal
                     // changes, as the line itself is.
@@ -2224,12 +2615,32 @@ impl Driver {
                     }
                 }
                 if let Some(outcome) = LastOutcome::of_refusal(&refusal) {
-                    self.outcomes.record(&self.trust, &peer, outcome);
+                    self.outcomes.record(&self.admitted(), &peer, outcome);
                 }
             }
         }
         self.discovery.flush(now);
     }
+}
+
+/// The endpoint overlay over `configured`, normalised, what normalising
+/// changed warned naming each entry; the empty overlay when the
+/// composition keeps none. A present overlay that cannot be trusted stops
+/// the start (ADR-0028 A 2026-10-11).
+fn load_endpoint_overlay(
+    options: &CompositionOptions,
+    configured: &interweave_profile_config::EndpointsConfig,
+) -> Result<EndpointOverlay, CompositionError> {
+    let Some(path) = &options.endpoint_overlay_file else {
+        return Ok(EndpointOverlay::default());
+    };
+    let (overlay, changes) =
+        EndpointOverlay::load_within(path, configured, &options.trust_boundary)
+            .map_err(CompositionError::EndpointOverlay)?;
+    for change in &changes {
+        tracing::warn!("the endpoint overlay was normalised at load: {change}");
+    }
+    Ok(overlay)
 }
 
 #[cfg(test)]

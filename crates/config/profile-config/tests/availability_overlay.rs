@@ -104,8 +104,8 @@ fn without_a_choice_the_authored_mode_is_the_effective_one() {
     // An operator who authored stay-reachable gets it with no overlay at
     // all -- the overlay overrides, it does not replace the field.
     let document = embedded_document("work").replacen(
-        "  android:\n    endpoint: human\n",
-        "  android:\n    endpoint: human\n    availability_mode: stay-reachable\n",
+        "  deployment: embedded-android\n",
+        "  deployment: embedded-android\n  android:\n    availability_mode: stay-reachable\n",
         1,
     );
     assert!(document.contains("availability_mode: stay-reachable"));

@@ -35,7 +35,7 @@ trust: {{ policy: static-allowlist, allowed_peers: [\"{}\"] }}
 endpoints:
   default_direct_endpoint: human
   entries:
-    - {{ id: human, enabled: true, advertise: false }}
+    - {{ key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key, alias: human, enabled: true, advertise: false }}
 channels: {{ desired: [] }}
 discovery: {{ providers: [] }}
 transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }} }}
@@ -133,7 +133,7 @@ impl Raw {
 /// A hello claiming to be `transportctl`, asking for `capabilities`.
 fn transportctl_hello(capabilities: &str) -> String {
     format!(
-        r#"{{"type":"hello","ipc_version":{{"major":2,"minor":2}},
+        r#"{{"type":"hello","ipc_version":{{"major":3,"minor":0}},
         "client":{{"kind":"transportctl"}},"requested_capabilities":[{capabilities}]}}"#
     )
 }

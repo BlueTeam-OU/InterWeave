@@ -26,7 +26,8 @@ use interweave_human_ui_model::{
     ContactView, Intent, RouteView, RuntimeHost, UiModel, UiText, cluster, isolated, placeholder_en,
 };
 use interweave_human_ui_slint::{View, ViewEvent};
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_test_support::endpoint_keys::endpoint_id;
+use interweave_transport_api::TransportIdentity;
 use slint::ComponentHandle as _;
 
 const P: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -42,7 +43,7 @@ fn contact(name: &str) -> ContactView {
         photo: None,
         routes: vec![RouteView {
             peer: TransportIdentity::parse(P).expect("a PeerId"),
-            endpoint: EndpointId::parse("human").expect("an endpoint"),
+            endpoint: endpoint_id("human"),
             fingerprint: None,
         }],
     }

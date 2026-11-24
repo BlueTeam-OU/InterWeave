@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 
-//! A peer that takes every direct v2 request and answers none: an exchange
+//! A peer that takes every direct request and answers none: an exchange
 //! sent to it stays IN FLIGHT until the sender gives up, which is what a
 //! test of a shutdown's settle grace needs -- with nothing in flight a stop
 //! is quick whatever grace it was given, and the test proves nothing.
@@ -13,9 +13,10 @@ use libp2p::request_response::{self, Codec, ProtocolSupport};
 use libp2p::swarm::SwarmEvent;
 use libp2p::{StreamProtocol, SwarmBuilder};
 
-/// The direct protocol, spelled here rather than imported: this crate
-/// depends on no product crate.
-const DIRECT_PROTOCOL: StreamProtocol = StreamProtocol::new("/interweave/direct/2.0.0");
+/// The direct protocol, spelled here rather than imported: the libp2p
+/// crate that holds it is only an optional dependency of this one, and
+/// this module builds without it.
+const DIRECT_PROTOCOL: StreamProtocol = StreamProtocol::new("/interweave/direct/3.0.0");
 
 /// A running silent peer; dropping it stops it.
 pub struct SilentPeer {

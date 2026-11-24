@@ -45,7 +45,8 @@ trust:
   allowed_peers: [{}]
 endpoints:
   entries:
-    - id: human
+    - key: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr.key
+      alias: human
       enabled: true
       advertise: false{inbound}
 discovery:

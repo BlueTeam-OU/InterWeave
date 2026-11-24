@@ -38,8 +38,31 @@ pub(crate) fn trusting(peers: &[&TransportIdentity]) -> TrustSources {
     )
 }
 
+/// Every name [`endpoint`] derived an id for, by that id: what a test
+/// reads a listed id back as.
+static NAMES: std::sync::Mutex<std::collections::BTreeMap<EndpointId, String>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// The TEST-ONLY derived id named `name` (ADR-0067), remembered so that
+/// [`name_of`] reads it back.
 pub(crate) fn endpoint(name: &str) -> EndpointId {
-    EndpointId::parse(name).expect("valid endpoint id")
+    let id = interweave_test_support::endpoint_keys::endpoint_id(name);
+    NAMES
+        .lock()
+        .expect("the names")
+        .insert(id.clone(), name.to_owned());
+    id
+}
+
+/// The name [`endpoint`] derived `id` from; the id's own text for one it
+/// did not.
+pub(crate) fn name_of(id: &EndpointId) -> String {
+    NAMES
+        .lock()
+        .expect("the names")
+        .get(id)
+        .cloned()
+        .unwrap_or_else(|| id.as_str().to_owned())
 }
 
 /// Claim each named endpoint for a session of the same name.
@@ -94,6 +117,8 @@ pub(crate) fn profile_with(entries: Vec<EndpointConfig>, default: Option<&str>) 
 pub(crate) fn entry(name: &str) -> EndpointConfig {
     EndpointConfig {
         id: endpoint(name),
+        alias: None,
+        key_state: interweave_profile_config::EndpointKeyState::NotRead,
         enabled: true,
         advertise: false,
         allowed_client_kinds: Vec::new(),

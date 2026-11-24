@@ -64,7 +64,11 @@ enum Listen {
 }
 
 fn config() -> ClientConfig {
-    ClientConfig::new(ENDPOINT, CLIENT_KIND, CHANNEL)
+    ClientConfig::new(
+        interweave_test_support::endpoint_keys::endpoint_id(ENDPOINT).as_str(),
+        CLIENT_KIND,
+        CHANNEL,
+    )
 }
 
 /// One host of the deployment: its home, `PeerId`, namespace, overlay
@@ -119,13 +123,15 @@ impl Host {
         } else {
             "[]".to_owned()
         };
+        let endpoint_id = interweave_test_support::endpoint_keys::endpoint_id(ENDPOINT);
+        let endpoint_id = endpoint_id.as_str();
         self.home.write_config(&format!(
             "schema_version: 2
 profile: {{ name: {name} }}
 trust: {{ policy: static-allowlist, allowed_peers: [\"{other}\"] }}
 endpoints:
   entries:
-    - {{ id: {ENDPOINT}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
+    - {{ key: {endpoint_id}.key, alias: {ENDPOINT}, enabled: true, advertise: false, allowed_client_kinds: [{CLIENT_KIND}] }}
 channels: {{ desired: [] }}
 discovery: {{ providers: {providers} }}
 transport: {{ listen: {{ addresses: [\"/ip4/{ip}/tcp/{port}\"] }} }}

@@ -11,10 +11,12 @@
 //! The reason numbers `schemas/direct/reject-reason`'s enum in order from
 //! 1, and the order is written out below as that schema lists it. Any other
 //! tag, an unassigned code, a short field or a trailing byte is malformed
-//! response metadata.
+//! response metadata. On `/interweave/direct/3.0.0` the resolved endpoint
+//! is a derived `EndpointId`, so its length is 52 and every legal
+//! acceptance is 70 bytes.
 
 use crate::wire::Reader;
-use crate::{DecodeError, is_endpoint_id};
+use crate::{DERIVED_ENDPOINT_ID_BYTES, DecodeError, is_derived_endpoint_id};
 
 /// The coarse reasons, in the schema's enum order: code = index + 1.
 pub const REASONS: [&str; 7] = [
@@ -27,8 +29,9 @@ pub const REASONS: [&str; 7] = [
     "unsupported",
 ];
 
-/// The longest legal response: 1 + 16 + 1 + 64.
-pub const MAX_RESPONSE_BYTES: usize = 82;
+/// The longest legal response, and the length of every legal acceptance:
+/// 1 + 16 + 1 + 52.
+pub const MAX_RESPONSE_BYTES: usize = 70;
 
 const TAG_ACCEPTED: u8 = 1;
 const TAG_REJECTED: u8 = 2;
@@ -40,7 +43,7 @@ pub enum DirectResponseV2 {
     Accepted {
         /// The request's id, echoed.
         message_id: [u8; 16],
-        /// 1..64 bytes of `EndpointId` grammar, never empty.
+        /// A derived `EndpointId`, 52 bytes, never empty.
         resolved_destination_endpoint: String,
     },
     /// Refused, coarsely.
@@ -70,10 +73,15 @@ impl DirectResponseV2 {
                         "resolved_endpoint_len 0: an acceptance names its endpoint".to_owned(),
                     ));
                 }
-                let label = r.take(len, "resolved_destination_endpoint")?;
-                let text = core::str::from_utf8(label)
+                if len != DERIVED_ENDPOINT_ID_BYTES {
+                    return Err(DecodeError(format!(
+                        "resolved_endpoint_len {len}: an endpoint id is {DERIVED_ENDPOINT_ID_BYTES}"
+                    )));
+                }
+                let id = r.take(len, "resolved_destination_endpoint")?;
+                let text = core::str::from_utf8(id)
                     .ok()
-                    .filter(|t| is_endpoint_id(t))
+                    .filter(|t| is_derived_endpoint_id(t))
                     .ok_or_else(|| {
                         DecodeError("resolved endpoint outside the EndpointId grammar".to_owned())
                     })?;
@@ -107,7 +115,7 @@ impl DirectResponseV2 {
                 message_id,
                 resolved_destination_endpoint,
             } => {
-                if !is_endpoint_id(resolved_destination_endpoint) {
+                if !is_derived_endpoint_id(resolved_destination_endpoint) {
                     return Err(DecodeError(
                         "resolved endpoint outside the grammar".to_owned(),
                     ));

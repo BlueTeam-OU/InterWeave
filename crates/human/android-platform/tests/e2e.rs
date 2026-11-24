@@ -14,9 +14,10 @@ use std::time::{Duration, Instant};
 
 use interweave_android_e2e_cases::{AppClient as _, Tap};
 use interweave_human_android_platform::e2e::HubClient;
-use interweave_human_android_platform::provision_profile;
 use interweave_human_android_platform::{ServiceHost, ServiceLaunch};
 use interweave_human_app_core::{Command, Update};
+
+mod common;
 
 const PROFILE: &str = "human";
 const WAIT: Duration = Duration::from_secs(20);
@@ -30,7 +31,7 @@ fn a_case_on_the_hub_hears_the_listing_commands_the_facade_and_hears_the_stop() 
     let dir = root.path().join("app");
     std::fs::create_dir(&dir).expect("mkdir");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
-    provision_profile(&dir, PROFILE).expect("provisioned");
+    common::provision_first_identity(&dir, PROFILE);
 
     let service = ServiceHost::new();
     let tap = Tap::default();
@@ -89,21 +90,22 @@ fn a_case_on_the_hub_hears_the_listing_commands_the_facade_and_hears_the_stop() 
 fn on_the_runtime_alone_a_case_leases_human_itself_and_not_beside_the_facade() {
     use interweave_local_client_api::{DataCapability, DataSessionBinding as _, SessionRequest};
 
-    let request = || {
+    // The id M3 minted: the endpoint the app's own facade leases.
+    let request = |human: &interweave_transport_api::EndpointId| {
         SessionRequest::new(
             "human-client",
-            Some(interweave_transport_api::EndpointId::parse("human").expect("endpoint")),
+            Some(human.clone()),
             [DataCapability::Events, DataCapability::Commands],
         )
         .expect("a request")
     };
-    let lease = |service: &ServiceHost| {
+    let lease = |service: &ServiceHost, human: &interweave_transport_api::EndpointId| {
         let binding = service.runtime_binding().expect("a runtime serves");
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("a runtime for the case");
-        rt.block_on(async { binding.open(request()).await.map(|_| ()) })
+        rt.block_on(async { binding.open(request(human)).await.map(|_| ()) })
     };
     for alone in [true, false] {
         let root = tempfile::Builder::new()
@@ -113,7 +115,7 @@ fn on_the_runtime_alone_a_case_leases_human_itself_and_not_beside_the_facade() {
         let dir = root.path().join("app");
         std::fs::create_dir(&dir).expect("mkdir");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
-        provision_profile(&dir, PROFILE).expect("provisioned");
+        let human = common::provision_first_identity(&dir, PROFILE);
         let service = ServiceHost::new();
         let launch = ServiceLaunch {
             app_data_dir: dir.clone(),
@@ -148,7 +150,7 @@ fn on_the_runtime_alone_a_case_leases_human_itself_and_not_beside_the_facade() {
                 assert!(Instant::now() < deadline, "the facade never became Ready");
             }
         }
-        let leased = lease(&service);
+        let leased = lease(&service, &human);
         assert_eq!(leased.is_ok(), alone, "alone {alone}: {leased:?}");
         let stopped = service.stop(Duration::from_secs(1)).expect("it ran");
         assert!(stopped.session_closed, "nothing left open");

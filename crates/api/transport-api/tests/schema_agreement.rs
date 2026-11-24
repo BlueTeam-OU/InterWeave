@@ -355,16 +355,21 @@ fn crate_encode(bytes: &[u8]) -> String {
 #[test]
 fn the_endpoint_id_grammar_matches_its_schema() {
     let doc = schema("endpoints/endpoint-id.schema.json");
-    assert_eq!(doc["pattern"], "^[a-z][a-z0-9._-]{0,63}$");
-    assert_eq!(doc["maxLength"], serde_json::json!(EndpointId::MAX_BYTES));
+    // ADR-0067: the derived grammar, the PeerId's; no constructor takes the
+    // retired label grammar.
+    assert_eq!(doc["pattern"], "^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$");
+    assert_eq!(doc["minLength"], 52);
+    assert_eq!(doc["maxLength"], 52);
+    assert!(doc["maxLength"].as_u64().expect("number") <= EndpointId::MAX_BYTES as u64);
+    assert_eq!(doc["x-contract"]["version"], "2.0.0");
 
     // The schema's own examples must parse. An example that does not is a
     // documentation bug that would otherwise ship as guidance.
     for example in doc["examples"].as_array().expect("examples") {
         let s = example.as_str().expect("string");
         assert!(
-            EndpointId::parse(s).is_ok(),
-            "schema example {s:?} does not parse"
+            EndpointId::parse_derived(s).is_ok(),
+            "schema example {s:?} is not a derived id"
         );
     }
 }

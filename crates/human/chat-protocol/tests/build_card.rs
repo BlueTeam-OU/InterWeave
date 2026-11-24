@@ -24,12 +24,23 @@ fn peer(s: &str) -> TransportIdentity {
     TransportIdentity::parse(s).expect("a PeerId")
 }
 
-fn endpoint(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("an endpoint")
+/// A derived `EndpointId` (ADR-0067) named by `name`: the name's bytes stand
+/// in for a public key, so distinct names give distinct ids. Only the text
+/// enters the card bytes, so no key need stand behind it here.
+fn endpoint(name: &str) -> EndpointId {
+    let mut key = [0u8; 32];
+    key[..name.len()].copy_from_slice(name.as_bytes());
+    EndpointId::from_ed25519_public(&key)
 }
 
 fn key() -> SigningKey {
     SigningKey::from_bytes(&[42u8; 32])
+}
+
+/// The id [`key`] derives: the endpoint a card under it is sent from
+/// (ADR-0067 decision 5).
+fn mine() -> EndpointId {
+    EndpointId::from_ed25519_public(&key().verifying_key().to_bytes())
 }
 
 fn build(
@@ -69,8 +80,8 @@ fn a_built_card_verifies_on_its_route_and_on_no_other() {
         surname: Some("Ångström"),
         photo: Some(("image/png", &photo)),
     };
-    let text = build(draft, &peer(PEER), &endpoint("human")).expect("built");
-    let Classified::Card(card) = on(&text, &peer(PEER), &endpoint("human")) else {
+    let text = build(draft, &peer(PEER), &mine()).expect("built");
+    let Classified::Card(card) = on(&text, &peer(PEER), &mine()) else {
         panic!("not a card on its own route: {text}");
     };
     assert_eq!(card.name, "Zoë", "sent after NFC");
@@ -80,13 +91,40 @@ fn a_built_card_verifies_on_its_route_and_on_no_other() {
     assert_eq!(card.app_message_id, ID);
     // Another PeerId, or another identity of this node: not this card.
     assert_eq!(
-        on(&text, &peer(OTHER_PEER), &endpoint("human")),
+        on(&text, &peer(OTHER_PEER), &mine()),
         Classified::MalformedCard(CardFault::SignatureFails)
     );
     assert_eq!(
         on(&text, &peer(PEER), &endpoint("work")),
         Classified::MalformedCard(CardFault::SignatureFails)
     );
+}
+
+/// A card whose signature verifies over its route but whose key does not
+/// derive the route's endpoint presents one endpoint's name under another
+/// endpoint's key, and is malformed (ADR-0067 decision 5, HUMAN-CHAT.md
+/// §Contact card). The control: the same draft under the same key, sent
+/// from the endpoint the key derives, is a card. Mutation: `parse_card`
+/// without the derivation check answers the first with a card.
+#[test]
+fn a_card_whose_key_does_not_derive_its_endpoint_is_malformed() {
+    let draft = CardDraft {
+        name: "Ada",
+        surname: None,
+        photo: None,
+    };
+    let foreign = endpoint("human");
+    assert_ne!(foreign, mine(), "the premise: another endpoint's id");
+    let text = build(draft, &peer(PEER), &foreign).expect("built");
+    assert_eq!(
+        on(&text, &peer(PEER), &foreign),
+        Classified::MalformedCard(CardFault::KeyNotSourceEndpoint)
+    );
+    let text = build(draft, &peer(PEER), &mine()).expect("built");
+    assert!(matches!(
+        on(&text, &peer(PEER), &mine()),
+        Classified::Card(_)
+    ));
 }
 
 #[test]
@@ -163,7 +201,8 @@ fn the_frozen_valid_minimal_card_is_what_the_builder_makes_from_its_test_only_ke
     let key = SigningKey::from_bytes(&seed);
     let on = &v["received_on"];
     let sender = peer(on["peer_id"].as_str().expect("peer"));
-    let endpoint = endpoint(on["source_endpoint"].as_str().expect("endpoint"));
+    let endpoint = EndpointId::parse_derived(on["source_endpoint"].as_str().expect("endpoint"))
+        .expect("a derived id");
     let text = build_card(
         v["envelope"]["app_message_id"].as_str().expect("id"),
         CardDraft {
