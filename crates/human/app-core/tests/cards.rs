@@ -2060,12 +2060,13 @@ async fn a_card_restored_by_undo_is_shared_when_it_is_accepted() {
     assert_eq!(alice.model().card_shared_at(&to_bob), Some(WALL));
 }
 
-/// Design section 7 and acceptance item 11 as ADR-0063 A 2026-10-27
-/// amends them: an identity that never shared but has an own card row on
-/// its way -- Sending, or Not sent with Retry -- starts "missing" when its
-/// key file is gone, and makes no key by itself, since that card may still
-/// arrive with the old key. Mutation: the start reading the share record
-/// alone.
+/// ADR-0067 decision 5, through the facade's start: an identity whose key
+/// file is gone starts "missing" and no key is made in its place, with an
+/// own card row on its way (Sending, or Not sent with Retry) as with none.
+/// What `a_missing_key_file_is_missing_and_none_is_made` (profile.rs) does
+/// not reach is that start with pending rows in the store, so this stays
+/// beside the README's citation of it. Mutation: `identity_key_under` making
+/// a key (`identity_key::create`) where the file is missing.
 #[tokio::test]
 async fn a_key_file_gone_while_a_card_is_pending_is_missing() {
     use interweave_human_ui_model::{KeyProblem, OwnKey};
