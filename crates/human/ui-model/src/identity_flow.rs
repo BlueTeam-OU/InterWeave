@@ -1828,8 +1828,11 @@ impl IdentityFlow {
     /// Continue, so `IdStorageUnknown`'s Try again would have no `PeerId`
     /// to read back, and not R4, R3 or R2: their compared refusal hands
     /// over as before. The root asks it only of a start that compared
-    /// (human-android's `UncheckedAnswer`); this says which screen answers.
-    /// `every_compared_start_held_on_c4_answers_on_c4` holds it.
+    /// (human-android's `unchecked_answer`, which answers no flow for a
+    /// start told to expect nothing:
+    /// `a_start_that_compared_nothing_answers_no_flow`); this says which
+    /// screen answers. `every_compared_start_held_on_c4_answers_on_c4`
+    /// holds it.
     #[must_use]
     pub const fn answers_compared(&self) -> bool {
         matches!(self.screen, Screen::C4 { held: true, .. }) && self.peer.is_some()

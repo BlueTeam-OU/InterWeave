@@ -656,7 +656,8 @@ ui_texts! {
     /// `IdStorageUnknown` shows after a failed read-back and it is offered
     /// (section 6, A start from C4 after a failed read-back). Says that
     /// the app starts with the `PeerId` shown, never that one was created
-    /// or saved; "Go online" is `IdStartBusy`'s verb for the same start.
+    /// or saved (`start_unchecked_says_the_peer_id_shown_and_not_saved`);
+    /// "Go online" is `IdStartBusy`'s verb for the same start.
     IdStartUnchecked => "Go online with this PeerId",
     // PLACEHOLDER (en)
     /// ANDROID, identity screens: C4's line under `IdStartUnchecked`
@@ -2101,6 +2102,20 @@ mod tests {
             for forbidden in ["read", "seen", "processed", "delivered"] {
                 assert!(!words.contains(forbidden), "{label:?}: {words}");
             }
+        }
+    }
+
+    /// `IdStartUnchecked` names the `PeerId` shown and what the press does
+    /// with it, and never says that it was created or saved: the read-back
+    /// that offered it could not tell (identity note section 6, A start
+    /// from C4 after a failed read-back).
+    #[test]
+    fn start_unchecked_says_the_peer_id_shown_and_not_saved() {
+        let words = placeholder_en::text(UiText::IdStartUnchecked).to_ascii_lowercase();
+        assert!(words.contains("peerid"), "{words}");
+        assert!(words.contains("online"), "{words}");
+        for forbidden in ["creat", "save", "made", "new", "stored", "kept"] {
+            assert!(!words.contains(forbidden), "{forbidden}: {words}");
         }
     }
 
