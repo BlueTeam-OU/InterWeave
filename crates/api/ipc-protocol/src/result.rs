@@ -13,11 +13,13 @@
 use std::collections::BTreeSet;
 
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminStatus, BootstrapAddress,
-    EndpointAdminView, EndpointSetKind, EndpointTrustView, Generation, IngressCounts, LeaseRecord,
-    LineChange, MAX_ADDRESSES_PER_ADD, MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress,
-    OwnAddressKind, OwnAddresses, PeerGateView, PeerLastSeen, PeerOutcome, PreAuthCounts,
-    TrustAdminView, TrustChange, TrustRefusal, TrustSeed, TrustSource,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminStatus, AliasChange,
+    AliasRefusal, BootstrapAddress, EndpointAddChange, EndpointAddRefusal, EndpointAdminView,
+    EndpointRemoveChange, EndpointRemoveRefusal, EndpointSetKind, EndpointSource,
+    EndpointTrustView, Generation, IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD,
+    MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress, OwnAddressKind, OwnAddresses,
+    PeerGateView, PeerLastSeen, PeerOutcome, PreAuthCounts, TrustAdminView, TrustChange,
+    TrustRefusal, TrustSeed, TrustSource,
 };
 use interweave_transport_api::{
     ConnectivitySummary, EndpointDirectoryV1, EndpointId, Health, MAX_DIRECTORY_ENTRIES,
@@ -361,14 +363,35 @@ impl<'de> Deserialize<'de> for EndpointList {
 /// One `endpoint-list` row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one member per flag of the endpoint-list row the schema fixes"
+)]
 pub struct EndpointRow {
     /// The endpoint.
     #[serde(deserialize_with = "crate::derived::endpoint")]
     pub id: EndpointId,
+    /// The entry's local alias, absent for an authored entry with none
+    /// (3.0): in the alias grammar, which the decoder holds as the
+    /// schema's `pattern` does.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "absent_or_alias"
+    )]
+    pub alias: Option<String>,
+    /// `authored` or `added` (3.0).
+    #[serde(
+        serialize_with = "serialize_source",
+        deserialize_with = "deserialize_source"
+    )]
+    pub source: EndpointSource,
     /// Whether it accepts traffic and may be claimed.
     pub enabled: bool,
     /// Whether it receives directed sends naming no endpoint.
     pub default: bool,
+    /// The effective `advertise` (3.0).
+    pub advertise: bool,
     /// Whether `enabled` and `default` survive a daemon restart: `true`
     /// for a runtime keeping the endpoint overlay (ADR-0028 A
     /// 2026-10-11).
@@ -388,10 +411,16 @@ impl EndpointRow {
     /// # Errors
     /// [`TransportError::Internal`] for a lease outside its bounds.
     pub(crate) fn from_view(view: EndpointAdminView) -> Result<Self, TransportError> {
+        if view.alias.as_deref().is_some_and(|a| !is_alias(a)) {
+            return Err(TransportError::Internal);
+        }
         Ok(Self {
             id: view.endpoint,
+            alias: view.alias,
+            source: view.source,
             enabled: view.enabled,
             default: view.default,
+            advertise: view.advertise,
             persisted: view.persisted,
             lease: view.lease.map(LeaseRow::try_from).transpose()?,
         })
@@ -415,7 +444,276 @@ impl From<EndpointRow> for EndpointAdminView {
             enabled: row.enabled,
             default: row.default,
             persisted: row.persisted,
+            alias: row.alias,
+            source: row.source,
+            advertise: row.advertise,
         }
+    }
+}
+
+/// Whether `text` is in the alias grammar, `^[a-z][a-z0-9._-]{0,63}$`
+/// (`endpoint-list`'s `alias.pattern`).
+fn is_alias(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 64
+        && bytes[0].is_ascii_lowercase()
+        && bytes[1..]
+            .iter()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(b))
+}
+
+fn absent_or_alias<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let alias = String::deserialize(d)?;
+    if !is_alias(&alias) {
+        return Err(serde::de::Error::custom("an alias outside its grammar"));
+    }
+    Ok(Some(alias))
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the signature serde's serialize_with calls"
+)]
+fn serialize_source<S: serde::Serializer>(
+    source: &EndpointSource,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    s.serialize_str(source.as_str())
+}
+
+fn deserialize_source<'de, D: serde::Deserializer<'de>>(d: D) -> Result<EndpointSource, D::Error> {
+    let name = String::deserialize(d)?;
+    EndpointSource::ALL
+        .into_iter()
+        .find(|known| known.as_str() == name)
+        .ok_or_else(|| serde::de::Error::custom("source is authored or added"))
+}
+
+/// The most characters an endpoint set result's `detail` carries
+/// (`maxLength`, as `peers-address-result`'s).
+const MAX_ENDPOINT_DETAIL_CHARS: usize = 512;
+
+fn cut_detail(detail: &str) -> String {
+    detail.chars().take(MAX_ENDPOINT_DETAIL_CHARS).collect()
+}
+
+/// The decoded wire of an endpoint set result: `outcome`, `refused`
+/// present exactly when it is `refused`, `detail` within its bound, and
+/// the members left for the caller to judge.
+struct OutcomeWire {
+    outcome: String,
+    refused: Option<String>,
+    detail: Option<String>,
+    rest: serde_json::Map<String, serde_json::Value>,
+}
+
+fn outcome_wire<'de, D: serde::Deserializer<'de>>(
+    d: D,
+    outcomes: &[&str],
+) -> Result<OutcomeWire, D::Error> {
+    let mut object = serde_json::Map::<String, serde_json::Value>::deserialize(d)?;
+    let bad = |what: &str| serde::de::Error::custom(what);
+    let text = |object: &mut serde_json::Map<String, serde_json::Value>, key: &str| match object
+        .remove(key)
+    {
+        None => Ok(None),
+        Some(serde_json::Value::String(s)) => Ok(Some(s)),
+        Some(_) => Err(bad("a member is a string")),
+    };
+    let outcome = text(&mut object, "outcome")?.ok_or_else(|| bad("an outcome"))?;
+    if !outcomes.contains(&outcome.as_str()) {
+        return Err(bad("an unknown outcome"));
+    }
+    let refused = text(&mut object, "refused")?;
+    match (outcome.as_str(), &refused) {
+        ("refused", None) => return Err(bad("a refusal names its rule")),
+        ("refused", Some(_)) | (_, None) => {}
+        (_, Some(_)) => return Err(bad("only a refusal names a rule")),
+    }
+    let detail = text(&mut object, "detail")?;
+    if detail
+        .as_ref()
+        .is_some_and(|d| d.chars().count() > MAX_ENDPOINT_DETAIL_CHARS)
+    {
+        return Err(bad("a detail is at most 512 characters"));
+    }
+    Ok(OutcomeWire {
+        outcome,
+        refused,
+        detail,
+        rest: object,
+    })
+}
+
+/// `ipc/endpoint-add-result` (IPC 3.0): what an `admin.endpoints.add` did.
+/// A refusal is an ANSWER naming its rule, never an error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointAddResult(pub EndpointAddChange);
+
+impl Serialize for EndpointAddResult {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap as _;
+        let mut map = s.serialize_map(None)?;
+        match &self.0 {
+            EndpointAddChange::Added(endpoint) => {
+                map.serialize_entry("outcome", "added")?;
+                map.serialize_entry("endpoint", endpoint)?;
+            }
+            EndpointAddChange::Unchanged(endpoint) => {
+                map.serialize_entry("outcome", "unchanged")?;
+                map.serialize_entry("endpoint", endpoint)?;
+            }
+            EndpointAddChange::Refused { reason, detail } => {
+                map.serialize_entry("outcome", "refused")?;
+                map.serialize_entry("refused", reason.as_str())?;
+                map.serialize_entry("detail", &cut_detail(detail))?;
+            }
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for EndpointAddResult {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let bad = |what: &str| serde::de::Error::custom(what);
+        let OutcomeWire {
+            outcome,
+            refused,
+            detail,
+            mut rest,
+        } = outcome_wire(d, &["added", "unchanged", "refused"])?;
+        let endpoint = rest
+            .remove("endpoint")
+            .map(|v| crate::derived::endpoint(v).map_err(|e| bad(&e.to_string())))
+            .transpose()?;
+        if !rest.is_empty() {
+            return Err(bad("an unknown member"));
+        }
+        Ok(Self(match (outcome.as_str(), endpoint) {
+            ("added", Some(e)) => EndpointAddChange::Added(e),
+            ("unchanged", Some(e)) => EndpointAddChange::Unchanged(e),
+            ("refused", None) => EndpointAddChange::Refused {
+                reason: refused
+                    .and_then(|name| {
+                        EndpointAddRefusal::ALL
+                            .into_iter()
+                            .find(|r| r.as_str() == name)
+                    })
+                    .ok_or_else(|| bad("an unknown refusal"))?,
+                detail: detail.unwrap_or_default(),
+            },
+            ("refused", Some(_)) => return Err(bad("a refusal names no endpoint")),
+            _ => return Err(bad("an added or unchanged add names its endpoint")),
+        }))
+    }
+}
+
+/// `ipc/endpoint-remove-result` (IPC 3.0): what an
+/// `admin.endpoints.remove` did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointRemoveResult(pub EndpointRemoveChange);
+
+impl Serialize for EndpointRemoveResult {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap as _;
+        let mut map = s.serialize_map(None)?;
+        match &self.0 {
+            EndpointRemoveChange::Removed { revoked_epoch } => {
+                map.serialize_entry("outcome", "removed")?;
+                if let Some(epoch) = revoked_epoch {
+                    map.serialize_entry("revoked_epoch", epoch)?;
+                }
+            }
+            EndpointRemoveChange::Refused { reason, detail } => {
+                map.serialize_entry("outcome", "refused")?;
+                map.serialize_entry("refused", reason.as_str())?;
+                map.serialize_entry("detail", &cut_detail(detail))?;
+            }
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for EndpointRemoveResult {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let bad = |what: &str| serde::de::Error::custom(what);
+        let OutcomeWire {
+            outcome,
+            refused,
+            detail,
+            mut rest,
+        } = outcome_wire(d, &["removed", "refused"])?;
+        let revoked_epoch = rest
+            .remove("revoked_epoch")
+            .map(|v| Generation::deserialize(v).map_err(|e| bad(&e.to_string())))
+            .transpose()?;
+        if !rest.is_empty() {
+            return Err(bad("an unknown member"));
+        }
+        Ok(Self(match outcome.as_str() {
+            "removed" => EndpointRemoveChange::Removed { revoked_epoch },
+            _ if revoked_epoch.is_some() => {
+                return Err(bad("a refusal revoked nothing"));
+            }
+            _ => EndpointRemoveChange::Refused {
+                reason: refused
+                    .and_then(|name| {
+                        EndpointRemoveRefusal::ALL
+                            .into_iter()
+                            .find(|r| r.as_str() == name)
+                    })
+                    .ok_or_else(|| bad("an unknown refusal"))?,
+                detail: detail.unwrap_or_default(),
+            },
+        }))
+    }
+}
+
+/// `ipc/set-alias-result` (IPC 3.0): what an `admin.endpoints.set_alias`
+/// did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetAliasResult(pub AliasChange);
+
+impl Serialize for SetAliasResult {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap as _;
+        let mut map = s.serialize_map(None)?;
+        match &self.0 {
+            AliasChange::Renamed => map.serialize_entry("outcome", "renamed")?,
+            AliasChange::Unchanged => map.serialize_entry("outcome", "unchanged")?,
+            AliasChange::Refused { reason, detail } => {
+                map.serialize_entry("outcome", "refused")?;
+                map.serialize_entry("refused", reason.as_str())?;
+                map.serialize_entry("detail", &cut_detail(detail))?;
+            }
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for SetAliasResult {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let bad = |what: &str| serde::de::Error::custom(what);
+        let OutcomeWire {
+            outcome,
+            refused,
+            detail,
+            rest,
+        } = outcome_wire(d, &["renamed", "unchanged", "refused"])?;
+        if !rest.is_empty() {
+            return Err(bad("an unknown member"));
+        }
+        Ok(Self(match outcome.as_str() {
+            "renamed" => AliasChange::Renamed,
+            "unchanged" => AliasChange::Unchanged,
+            _ => AliasChange::Refused {
+                reason: refused
+                    .and_then(|name| AliasRefusal::ALL.into_iter().find(|r| r.as_str() == name))
+                    .ok_or_else(|| bad("an unknown refusal"))?,
+                detail: detail.unwrap_or_default(),
+            },
+        }))
     }
 }
 
@@ -1687,6 +1985,9 @@ mod tests {
             enabled: true,
             default: true,
             persisted: false,
+            alias: None,
+            source: EndpointSource::Authored,
+            advertise: false,
             lease: Some(LeaseRecord {
                 endpoint: ep("human"),
                 epoch: epoch(),
@@ -1698,7 +1999,8 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&list).expect("ser"),
             json!({"endpoints": [{
-                "id": ep("human").as_str(), "enabled": true, "default": true, "persisted": false,
+                "id": ep("human").as_str(), "source": "authored", "enabled": true, "default": true,
+                "advertise": false, "persisted": false,
                 "lease": {"epoch": "AAAAAAAAAAAAAAAA", "client_kind": "human-client"}
             }]})
         );
@@ -1717,6 +2019,9 @@ mod tests {
             enabled: false,
             default: false,
             persisted,
+            alias: None,
+            source: EndpointSource::Authored,
+            advertise: false,
             lease: None,
         };
         for persisted in [true, false] {
@@ -1724,7 +2029,8 @@ mod tests {
             assert_eq!(
                 serde_json::to_value(&list).expect("ser"),
                 json!({"endpoints": [{
-                    "id": ep("human").as_str(), "enabled": false, "default": false,
+                    "id": ep("human").as_str(), "source": "authored", "enabled": false,
+                    "default": false, "advertise": false,
                     "persisted": persisted
                 }]}),
                 "persisted={persisted}"
@@ -1749,6 +2055,9 @@ mod tests {
             enabled: true,
             default: false,
             persisted: false,
+            alias: None,
+            source: EndpointSource::Authored,
+            advertise: false,
             lease: Some(lease.clone()),
         };
         let row = EndpointRow::from_view(view.clone()).expect("a row");
@@ -1858,6 +2167,9 @@ mod tests {
             enabled: true,
             default: false,
             persisted: false,
+            alias: None,
+            source: EndpointSource::Authored,
+            advertise: false,
             lease: Some(LeaseRecord {
                 endpoint: ep("human"),
                 epoch: epoch(),
@@ -1884,6 +2196,9 @@ mod tests {
             enabled: true,
             default: false,
             persisted: false,
+            alias: None,
+            source: EndpointSource::Authored,
+            advertise: false,
             lease: None,
         };
         assert!(EndpointList::from_views((0..MAX_ENDPOINT_ROWS).map(view).collect()).is_ok());

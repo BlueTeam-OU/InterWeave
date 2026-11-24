@@ -61,19 +61,21 @@ pub use handshake::{
     HelloTag, MAX_REQUESTED, RequestedCapability,
 };
 pub use request::{
-    AddressParams, AddressesParams, Admission, ChannelParams, EndpointParams,
-    MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_REQUEST_ID_CHARS, MAX_SHUTDOWN_GRACE_MS, PeerListParams,
-    PublishParams, QueryParams, Refusal, Request, RequestFrame, RequestId, RequestTag, SendParams,
-    SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams, TrustSeedParams,
-    TrustSetParams,
+    AddressParams, AddressesParams, Admission, ChannelParams, EndpointAddParams, EndpointParams,
+    MAX_ADD_CLIENT_KINDS, MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_ENDPOINT_TEXT_CHARS,
+    MAX_REQUEST_ID_CHARS, MAX_SHUTDOWN_GRACE_MS, PeerListParams, PublishParams, QueryParams,
+    Refusal, Request, RequestFrame, RequestId, RequestTag, SendParams, SetAdvertiseParams,
+    SetAliasParams, SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams,
+    TrustSeedParams, TrustSetParams,
 };
 pub use result::{
     AddressList, AddressResult, AddressRow, AddressesResult, AdminStatusResult, DirectoryResult,
-    EmptyResult, EndpointList, EndpointRow, IngressCounters, IpcCounters, LeaseRow, LineOutcome,
-    LineRow, MAX_ADDRESS_DETAIL_CHARS, MAX_BOOTSTRAP_ADDRESS_ROWS, MAX_ENDPOINT_ROWS,
-    MAX_PEER_PAGE_ROWS, MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN, MAX_TRUST_PAGE_ROWS, NotDialled,
-    OwnAddressList, OwnAddressRow, OwnKind, PeerList, PeerRow, PreAuthCounters, RowSource,
-    SendResult, ServerCounters, SessionLossesResult, SetEnabledResult, TrustList, TrustRow,
+    EmptyResult, EndpointAddResult, EndpointList, EndpointRemoveResult, EndpointRow,
+    IngressCounters, IpcCounters, LeaseRow, LineOutcome, LineRow, MAX_ADDRESS_DETAIL_CHARS,
+    MAX_BOOTSTRAP_ADDRESS_ROWS, MAX_ENDPOINT_ROWS, MAX_PEER_PAGE_ROWS,
+    MAX_PEER_PAGE_ROWS_SINCE_LAST_SEEN, MAX_TRUST_PAGE_ROWS, NotDialled, OwnAddressList,
+    OwnAddressRow, OwnKind, PeerList, PeerRow, PreAuthCounters, RowSource, SendResult,
+    ServerCounters, SessionLossesResult, SetAliasResult, SetEnabledResult, TrustList, TrustRow,
     TrustSeedResult, TrustSetResult,
 };
 pub use version::{
