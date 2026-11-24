@@ -484,11 +484,12 @@ async fn every_batch_one_verb_against_two_daemons() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
-    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer, a_human) = two_daemons_keyed(true).await;
     let to_b = format!("{}/{}", b_peer.as_str(), human_id());
-    let to_a = format!("{}/{}", a_peer.as_str(), human_id());
+    let to_a = format!("{}/{}", a_peer.as_str(), a_human.as_str());
 
-    // A's own card, its key made at A's first run.
+    // A's own card, signed by the key A's endpoint was given before the
+    // daemon started: no run makes one.
     let out = human(&a, &["card", "set", "Ada", "Lovelace"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&a, &["card", "show", "--json"], "");
@@ -1329,15 +1330,14 @@ fn picture_file(dir: &std::path::Path) -> std::path::PathBuf {
     path
 }
 
-/// The forms the secret of `home`'s first identity's key could take
+/// The forms the secret of `home`'s `human` identity's key could take
 /// anywhere else: its bytes, their base64 and their hex. The record's last
 /// 32 bytes are the secret at the desktop's filesystem floor (IDK1).
-fn key_forms(home: &Home) -> Vec<Vec<u8>> {
+fn key_forms(home: &Home, human: &EndpointId) -> Vec<Vec<u8>> {
     use base64::Engine as _;
-    let human = human_endpoint();
     let line = std::fs::read_to_string(interweave_human_store::identity_key::key_path(
         &home.paths,
-        &human,
+        human,
     ))
     .expect("the key file");
     let record = base64::engine::general_purpose::STANDARD
@@ -1425,9 +1425,9 @@ fn holds(haystack: &[u8], forms: &[Vec<u8>]) -> bool {
 /// decoded from its payload, the card's name.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_file() {
-    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer, a_human) = two_daemons_keyed(true).await;
     let to_b = format!("{}/{}", b_peer.as_str(), human_id());
-    let to_a = format!("{}/{}", a_peer.as_str(), human_id());
+    let to_a = format!("{}/{}", a_peer.as_str(), a_human.as_str());
     let scratch = tempfile::tempdir().expect("scratch");
     let picture = picture_file(scratch.path());
     let picture = picture.to_str().expect("a UTF-8 path");
@@ -1487,7 +1487,7 @@ async fn a_photo_set_from_a_file_reaches_the_contact_and_the_key_stays_in_its_fi
     tap.stop();
     a_daemon.terminate().await;
     b_daemon.terminate().await;
-    let forms = key_forms(&a);
+    let forms = key_forms(&a, &a_human);
     assert!(
         holds(&traffic, &[b"direct.send".to_vec()]) && holds(&traffic, &[b"Lovelace".to_vec()]),
         "the control: the tap carried the share and its card was read back ({} bytes)",
@@ -1563,16 +1563,16 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
         DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionEvent, SessionRequest,
     };
 
-    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
-    let (human_id, claude_id) = (
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer, a_human) = two_daemons_keyed(true).await;
+    let (b_front, claude_id) = (
         human_endpoint(),
         interweave_test_support::endpoint_keys::endpoint_id("claude"),
     );
     let out = human(&a, &["card", "set", "Ada", "Lovelace"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
-    let key = identity_key::open(&a.paths, &human_id, &FilesystemCustody)
+    let key = identity_key::open(&a.paths, &a_human, &FilesystemCustody)
         .expect("opens")
-        .expect("made with the card");
+        .expect("the key A's endpoint was given before the start");
 
     // B's two identities, each held by a session of the kind its entry
     // admits, so what arrives at each is read as the daemon handed it over.
@@ -1587,14 +1587,14 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
             .expect("bounds"),
         )
     };
-    let at_human = open("human-client", &human_id).await.expect("B's human");
-    let at_claude = open("claude-channel", &claude_id)
+    let human_session = open("human-client", &b_front).await.expect("B's human");
+    let claude_session = open("claude-channel", &claude_id)
         .await
         .expect("B's claude");
 
     let tap = Tap::start(&a);
     let mut arrived = Vec::new();
-    for (to, session) in [(&human_id, &at_human), (&claude_id, &at_claude)] {
+    for (to, session) in [(&b_front, &human_session), (&claude_id, &claude_session)] {
         let conversation = format!("{}/{}", b_peer.as_str(), to.as_str());
         let deadline = Instant::now() + PATIENCE;
         loop {
@@ -1638,7 +1638,7 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
     for (conversation, direct) in &arrived {
         assert_eq!(direct.source_peer, a_peer, "{conversation}");
         assert_eq!(
-            direct.source_endpoint, human_id,
+            direct.source_endpoint, a_human,
             "{conversation}: from the identity A's client holds"
         );
         let media = direct.payload.media_type().expect("a media type");
@@ -1649,7 +1649,7 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
             info.encoding,
         )
         .expect("decodes");
-        let Classified::Card(card) = as_identity(&text, &human_id) else {
+        let Classified::Card(card) = as_identity(&text, &a_human) else {
             panic!("{conversation}: not A's human card: {text}");
         };
         assert_eq!(card.name, "Ada", "{conversation}");
@@ -1673,14 +1673,14 @@ async fn the_card_shared_to_two_conversations_is_the_conversations_identitys_eac
     );
     for text in &sent {
         assert!(
-            matches!(as_identity(text, &human_id), Classified::Card(_)),
+            matches!(as_identity(text, &a_human), Classified::Card(_)),
             "a card A's client sent is not its human identity's: {text}"
         );
         let envelope: Value = serde_json::from_str(text).expect("JSON");
         assert!(
             envelope
                 .get("from_endpoint")
-                .is_none_or(|e| e == human_id.as_str()),
+                .is_none_or(|e| e == a_human.as_str()),
             "a card names another identity: {text}"
         );
     }
