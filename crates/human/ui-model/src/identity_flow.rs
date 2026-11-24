@@ -372,6 +372,10 @@ enum Screen {
         held: bool,
         /// As C4's.
         starting: bool,
+        /// The restore R4 follows was R2's after K1 (`Origin::Recovery`):
+        /// its Continue ends the comparison with C4's `PeerId`
+        /// ([`IdentityFlow::start_ends_comparison`]).
+        after_k1: bool,
     },
     K1 {
         reason: RecoveryReason,
@@ -1553,7 +1557,9 @@ impl IdentityFlow {
                     Origin::Recovery { expected, .. } => Some(expected.clone()),
                     Origin::Fresh => None,
                 };
+                let after_k1 = matches!(origin, Origin::Recovery { .. });
                 self.screen = Screen::R4 {
+                    after_k1,
                     peer,
                     notice: None,
                     held: false,
@@ -1568,6 +1574,7 @@ impl IdentityFlow {
                     notice: None,
                     held: false,
                     starting: false,
+                    after_k1: false,
                 };
                 Vec::new()
             }
@@ -1878,6 +1885,32 @@ impl IdentityFlow {
                 vec![Effect::Hold]
             }
         }
+    }
+
+    /// The start this flow now holds a screen for ends the comparison with
+    /// C4's `PeerId` (design section 6, The comparison outlasts the bound;
+    /// architect-cto's ruling on Q17): R4 held for its Continue after a
+    /// restore from R2 after K1 -- the person committed a restore from the
+    /// phrase they just entered, so that phrase, not the one written down
+    /// on C4, is the paper for the identity that runs. The root clears the
+    /// expected `PeerId` before that start reads it, so it and every later
+    /// start of the process compare nothing (human-android's
+    /// `ExpectedStart::restored`). False everywhere before that press --
+    /// K1 showing, R2 open, R2's words entered then Back, a cancelled
+    /// restore prompt, K1 left with no restore -- and on R2 after K1 held
+    /// for `IdRestoreOther`'s Continue, whose start stays compared, and on
+    /// R4 after a fresh install's restore (R1, R3).
+    /// `only_r4s_continue_after_k1_ends_the_comparison` holds it.
+    #[must_use]
+    pub const fn start_ends_comparison(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::R4 {
+                held: true,
+                after_k1: true,
+                ..
+            }
+        )
     }
 
     /// The start under a held screen was refused with the profile in use
@@ -4067,6 +4100,79 @@ mod tests {
             []
         );
         assert!(unheld.offers_unchecked(), "nothing changed");
+    }
+
+    /// R4's Continue after K1 ends the comparison with C4's `PeerId`, at
+    /// that press (architect-cto's ruling on Q17): the start it holds R4
+    /// for, and a Try again after it, say so. Nothing before the press
+    /// does -- K1 showing, R2 open, R2's words entered then Back, a
+    /// cancelled restore prompt, R4 shown but not pressed, K1 left with no
+    /// restore -- nor `IdRestoreOther`'s Continue on R2 after K1, nor R4's
+    /// Continue after a fresh install's restore. Mutations:
+    /// `start_ends_comparison` reading no `held`, or no `after_k1`, or
+    /// matching R2's held `IdRestoreOther` start, or `restored` setting
+    /// `after_k1` for R3's restore, fail here.
+    #[test]
+    fn only_r4s_continue_after_k1_ends_the_comparison() {
+        let k1 = || {
+            IdentityFlow::new(
+                LIST,
+                interweave_profile_identity::FORMAT,
+                Start::Recovery {
+                    reason: RecoveryReason::Key,
+                    expected: Some(mine()),
+                    new_keys: false,
+                },
+            )
+        };
+        let mut flow = k1();
+        assert!(!flow.start_ends_comparison(), "K1 showing");
+        flow.primary();
+        assert_eq!(flow.screen(), ScreenId::R2, "control: R2");
+        assert!(!flow.start_ends_comparison(), "R2 open");
+        enter(&mut flow, "acid");
+        flow.back();
+        flow.discard(true);
+        assert_eq!(flow.screen(), ScreenId::K1, "control: back on K1");
+        assert!(!flow.start_ends_comparison(), "words entered, then Back");
+        assert_eq!(flow.back(), [Effect::Finish], "control: K1 left");
+        assert!(!flow.start_ends_comparison(), "K1 left with no restore");
+
+        let mut cancelled = r2_after_k1_restoring();
+        cancelled.cancelled_step();
+        assert_eq!(cancelled.screen(), ScreenId::R2, "control: kept");
+        assert!(!cancelled.start_ends_comparison(), "a cancelled prompt");
+
+        let mut other_one = r2_after_k1_restoring();
+        other_one.restored(Err(StepFailed::RestoreOther(other())));
+        assert_eq!(
+            other_one.notice_action(),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        assert!(other_one.start_held(), "control: IdRestoreOther's start");
+        assert!(!other_one.start_ends_comparison(), "IdRestoreOther");
+
+        let mut r4 = r2_after_k1_restoring();
+        r4.restored(Ok(()));
+        assert_eq!(r4.screen(), ScreenId::R4, "control: at R4");
+        assert!(!r4.start_ends_comparison(), "R4 shown, not pressed");
+        assert_eq!(
+            r4.primary(),
+            [Effect::VoidPaper(false), Effect::StartService]
+        );
+        assert!(r4.start_ends_comparison(), "R4's Continue after K1");
+        r4.start_busy();
+        assert!(!r4.start_ends_comparison(), "unheld under IdStartBusy");
+        assert_eq!(r4.primary(), [Effect::StartService], "its Try again");
+        assert!(r4.start_ends_comparison(), "ended already; says so again");
+
+        let mut fresh = at_r3();
+        fresh.primary();
+        fresh.restored(Ok(()));
+        assert_eq!(fresh.screen(), ScreenId::R4, "control: fresh R4");
+        fresh.primary();
+        assert!(fresh.start_held(), "control: held");
+        assert!(!fresh.start_ends_comparison(), "not after K1");
     }
 
     /// After a mismatch the control is not offered again while C4 is open,
