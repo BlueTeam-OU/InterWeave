@@ -17,6 +17,9 @@
 mod common;
 #[path = "human_cli/fleet.rs"]
 mod fleet;
+/// The store crate's own undo of schema v14, to fake a file at v13.
+#[path = "../../../crates/human/store/tests/common/mod.rs"]
+mod store_common;
 
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, Command, Output, Stdio};
@@ -1052,6 +1055,93 @@ fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon
         "the control: a list it takes needs the daemon: {}",
         said(&out)
     );
+}
+
+/// A profile with two human endpoints, `human` first, and no daemon.
+fn two_human_endpoints_home() -> Home {
+    let home = Home::new("human-desktop");
+    let peer = Home::new("human-desktop").write_key();
+    home.write_key();
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let shipped = example(
+        "human-desktop.yaml",
+        &peer,
+        &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
+        None,
+    );
+    let claude = claude_row();
+    assert_eq!(shipped.matches(&claude).count(), 1, "the example's shape");
+    home.write_config(
+        &shipped.replace(&claude, &format!("{}{claude}", human_entry("human-spare"))),
+    );
+    home
+}
+
+/// `home`'s store as a build before v14 left it: the file this build makes,
+/// faked back to v13 and given an own card keyed by a label, which v14
+/// rekeys to the identity the store is opened as (STATE.md §Migrations).
+fn plant_v13_store(home: &Home) {
+    use interweave_human_store::{HumanStore, STORE_FILE, StoreOptions};
+    let path = home.paths.human_dir().join(STORE_FILE);
+    drop(HumanStore::open(&path, &human_endpoint(), StoreOptions::default()).expect("a store"));
+    let conn = rusqlite::Connection::open(&path).expect("the file");
+    conn.execute_batch(store_common::UNDO_V14)
+        .expect("back to v13");
+    conn.execute(
+        "INSERT INTO own_cards (endpoint_id, name, surname, photo, created_at, updated_at)
+         VALUES ('human', 'Old', NULL, NULL, 1, 1)",
+        [],
+    )
+    .expect("an own card");
+}
+
+/// The endpoints holding the planted own card (named `Old`), and the store version.
+fn own_card_owners(home: &Home) -> (Vec<String>, i64) {
+    use interweave_human_store::at_rest;
+    use interweave_human_store::key_custody::FilesystemCustody;
+    let conn = at_rest::open_read_only(&home.paths, &FilesystemCustody)
+        .expect("the store opens read-only under its key");
+    let owners = conn
+        .prepare("SELECT endpoint_id FROM own_cards WHERE name = 'Old' ORDER BY endpoint_id")
+        .expect("prepare")
+        .query_map([], |r| r.get(0))
+        .expect("rows")
+        .map(|r| r.expect("a row"))
+        .collect();
+    let version = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("the version");
+    (owners, version)
+}
+
+/// Schema v14 gives every row an older store holds to the profile's FIRST
+/// identity, as the desktop opens it (STATE.md §Migrations v14 (a)); a
+/// `--endpoint` only selects what the command speaks as, so the first run
+/// after an upgrade through the second identity migrates as the first.
+/// Mutation: opening the store as the narrowed endpoint.
+#[test]
+fn the_upgrade_gives_the_rows_to_the_first_identity_whatever_endpoint_is_named() {
+    // `--endpoint` is `listen`'s and `send`'s alone; with no daemon the
+    // send is refused (exit 3) after the store has opened and migrated.
+    let to = format!(
+        "{}/{}",
+        Home::new("human-desktop").write_key().as_str(),
+        human_id()
+    );
+    for (extra, case) in [
+        (&[][..], "the control, no --endpoint"),
+        (&["--endpoint", "human-spare"][..], "--endpoint the second"),
+    ] {
+        let home = two_human_endpoints_home();
+        plant_v13_store(&home);
+        let mut args = vec!["--wait", "200", "send", to.as_str(), "hello"];
+        args.extend_from_slice(extra);
+        let out = human(&home, &args, "");
+        assert_eq!(code(&out), Some(3), "{case}: no daemon: {}", said(&out));
+        let (owners, version) = own_card_owners(&home);
+        assert_eq!(version, 14, "{case}: migrated");
+        assert_eq!(owners, [human_id()], "{case}: the first identity's card");
+    }
 }
 
 /// ADR-0060 decision 6 as a shell runs it: a store whose key is gone is

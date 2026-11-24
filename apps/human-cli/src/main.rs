@@ -256,10 +256,7 @@ fn run(
         Err(failure) => return failure.into(),
     };
     if matches!(verb, cli::Verb::StoreHealth | cli::Verb::StoreDiscard(_)) {
-        let identity = match startup::first_identity(&profile) {
-            Ok(identity) => identity,
-            Err(failure) => return failure.into(),
-        };
+        let identity = &profile.store_identity;
         match verb {
             cli::Verb::StoreHealth => {
                 return store::health(&profile.paths, identity, &FilesystemCustody, json);

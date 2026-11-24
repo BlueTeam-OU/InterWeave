@@ -32,6 +32,11 @@ pub(crate) struct Profile {
     /// entry that allows the `human-client` kind, whatever `enabled` says
     /// (the daemon's effective state decides at open).
     pub(crate) endpoints: Vec<EndpointId>,
+    /// The first of the endpoints above as the file lists them, kept when
+    /// `--endpoint` narrows `endpoints` to the one a command speaks as: the
+    /// store opens as it, and schema v14 gives it to every row an older
+    /// store holds (STATE.md §Migrations; the desktop opens as the same one).
+    pub(crate) store_identity: EndpointId,
     /// The channels it joins.
     pub(crate) channels: Vec<ChannelId>,
     /// The daemon's data socket.
@@ -76,15 +81,16 @@ fn resolve_in(profile: &str, roots: &XdgRoots) -> Result<Profile, Failure> {
     let config = ProfileConfig::load_document(&paths)
         .map_err(|e| Failure::Refused(format!("the profile's configuration: {e}")))?;
     let endpoints = leasable_endpoints(&config);
-    if endpoints.is_empty() {
+    let Some(store_identity) = endpoints.first().cloned() else {
         return Err(Failure::Refused(format!(
             "profile {:?} configures no endpoint a human client may use",
             paths.profile()
         )));
-    }
+    };
     let socket = |e: PersistError| Failure::Refused(format!("the daemon's socket paths: {e}"));
     Ok(Profile {
         endpoints,
+        store_identity,
         channels: config.channels.desired.clone(),
         data_socket: paths.data_socket().map_err(socket)?,
         admin_socket: paths.admin_socket().map_err(socket)?,
@@ -168,23 +174,8 @@ impl Blocked {
 pub(crate) fn open_store(profile: &Profile) -> Result<HumanStore, Failure> {
     // The store key at the v1 desktop's custody (ADR-0060 decision 3), as
     // the desktop's: a filesystem custody reports no invalidation.
-    open_store_at(&profile.paths, first_identity(profile)?, &FilesystemCustody)
+    open_store_at(&profile.paths, &profile.store_identity, &FilesystemCustody)
         .map_err(|(_, failure)| failure)
-}
-
-/// The identity the store opens as: the first endpoint a human client may
-/// lease, whose derived id schema v14 gives every row an older store holds
-/// (STATE.md §Migrations). [`resolve`] refuses a profile with none.
-///
-/// # Errors
-/// [`Failure::Refused`] for a profile with no such endpoint.
-pub(crate) fn first_identity(profile: &Profile) -> Result<&EndpointId, Failure> {
-    profile.endpoints.first().ok_or_else(|| {
-        Failure::Refused(format!(
-            "profile {:?} configures no endpoint a human client may use",
-            profile.paths.profile()
-        ))
-    })
 }
 
 /// [`open_store`] under `cipher`, as `identity`, with the class it was
