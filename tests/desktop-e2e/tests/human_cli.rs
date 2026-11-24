@@ -241,6 +241,28 @@ async fn two_daemons() -> (
     (a, a_daemon, a_peer, b, b_daemon, b_peer)
 }
 
+/// `config` with the example's test-only `human` endpoint replaced by a
+/// key made in `home`'s `endpoint-keys/`, and that key's id: no client makes
+/// a key now (ADR-0067 decision 5), so a case that needs one has it made
+/// before the daemon or the client starts.
+fn key_the_human_endpoint(home: &Home, config: &str) -> (String, EndpointId) {
+    let key = interweave_human_store::identity_key::create(
+        &home.paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+    )
+    .expect("a key for the human endpoint");
+    let test_only = human_endpoint();
+    assert_eq!(
+        config.matches(test_only.as_str()).count(),
+        1,
+        "its one name, the key file"
+    );
+    (
+        config.replace(test_only.as_str(), key.endpoint().as_str()),
+        key.endpoint().clone(),
+    )
+}
+
 /// [`two_daemons`], and the id of A's first human endpoint: with `key_a`,
 /// the id of a key made in A's `endpoint-keys/` before the daemon starts
 /// and named by A's profile in place of the example's test-only one, since
@@ -271,18 +293,7 @@ async fn two_daemons_keyed(
     );
     let mut a_human = human_endpoint();
     if key_a {
-        let key = interweave_human_store::identity_key::create(
-            &a.paths,
-            &interweave_human_store::key_custody::FilesystemCustody,
-        )
-        .expect("a key for A's human endpoint");
-        assert_eq!(
-            a_config.matches(a_human.as_str()).count(),
-            1,
-            "its one name, the key file"
-        );
-        a_config = a_config.replace(a_human.as_str(), key.endpoint().as_str());
-        a_human = key.endpoint().clone();
+        (a_config, a_human) = key_the_human_endpoint(&a, &a_config);
     }
     a.write_config(&a_config);
     b.write_config(&example(
@@ -965,6 +976,7 @@ fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon
     );
     let claude = claude_row();
     assert_eq!(shipped.matches(&claude).count(), 1, "the example's shape");
+    let (shipped, _human) = key_the_human_endpoint(&home, &shipped);
     home.write_config(
         &shipped.replace(&claude, &format!("{}{claude}", human_entry("human-spare"))),
     );
@@ -994,13 +1006,9 @@ fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon
         by_id.stdout, out.stdout,
         "the id names it as the alias does"
     );
+    let spare = interweave_test_support::endpoint_keys::endpoint_id("human-spare");
     assert!(
-        !home
-            .paths
-            .state_dir()
-            .join("identity-keys")
-            .join(format!("{}.key", id_of("human-spare")))
-            .exists(),
+        !interweave_human_store::identity_key::key_path(&home.paths, &spare).exists(),
         "no key is made for it"
     );
     let out = human(&home, &["identity", "show", "claude"], "");
