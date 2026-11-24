@@ -24,7 +24,7 @@ use std::time::Duration;
 use interweave_human_android_platform::first_identity::{self, Finished, FirstIdentityRefused};
 use interweave_human_android_platform::onboarding::{self, Creation};
 use interweave_human_android_platform::{
-    Expected, KeyUnlockPolicy, ServiceHost, provision_profile, stand_in,
+    Expected, KeyUnlockPolicy, ServiceHost, ServiceLaunch, provision_profile, stand_in,
 };
 use interweave_human_store::identity_key::{
     self, CipherFailure, Custody, IdentityKeyError, IdentityKeyFileError, KeyCipher, KeyFileRead,
@@ -385,11 +385,42 @@ fn a_restore_onto_fresh_state_mints_the_first_key_and_writes_form_2() {
 /// with form 1 (M2), re-seals the key under the id it derives, reads it
 /// back, retires the old file and platform key, and writes form 2 naming
 /// that id (M3), before the client loads the profile. On 73f5bc1e9 the
-/// start answered `NoHumanEndpoint`, form 1 naming nothing. Mutations: the
-/// start's M3 call dropped fails the start; `remove_legacy` dropped keeps
-/// the old file.
+/// start answered `NoHumanEndpoint`, form 1 naming nothing. Run through
+/// the start without a network; its networked sibling is
+/// `the_upgraded_id_human_document_starts_with_the_network_with_its_key_resealed`.
+/// Mutations: the offline start's M3 call dropped fails the start;
+/// `remove_legacy` dropped keeps the old file.
 #[test]
 fn the_upgraded_id_human_document_starts_with_its_key_resealed_under_its_id() {
+    upgraded_phone_starts(|service, app, keys| {
+        service
+            .start_without_network(&app.dir, PROFILE, keys.clone())
+            .expect("the upgraded phone starts");
+    });
+}
+
+/// The same upgraded phone through the networked start (`ServiceHost::start`),
+/// whose own M3 call is the only re-seal there: the embedded host's finish
+/// lists `endpoint-keys/` alone and would answer `AndroidNoIdentity` for the
+/// legacy key. Mutation: the call to `first_identity` in `start_locked`
+/// dropped fails the start. (`start_runtime_alone`, the e2e-cases entry,
+/// carries the same call and is built only under that feature.)
+#[test]
+fn the_upgraded_id_human_document_starts_with_the_network_with_its_key_resealed() {
+    upgraded_phone_starts(|service, app, keys| {
+        service
+            .start(ServiceLaunch {
+                app_data_dir: app.dir.clone(),
+                profile: PROFILE.to_owned(),
+                identity: ProfileIdentity::generate(),
+                store_cipher: Box::new(keys.clone()),
+                unlock: None,
+            })
+            .expect("the upgraded phone starts with the network");
+    });
+}
+
+fn upgraded_phone_starts(start: impl FnOnce(&ServiceHost, &App, &Arc<KeyKeystore>)) {
     let app = fresh_install();
     let (seed, keys) = (SeedKeystore::default(), Arc::new(KeyKeystore::default()));
     stand_in::provision_replacing(&app.dir, PROFILE, &earlier_release_document())
@@ -401,9 +432,7 @@ fn the_upgraded_id_human_document_starts_with_its_key_resealed_under_its_id() {
     // What the app's start runs: the provisioning, then the start.
     provision_profile(&app.dir, PROFILE).expect("M2");
     let service = ServiceHost::new();
-    service
-        .start_without_network(&app.dir, PROFILE, keys.clone())
-        .expect("the upgraded phone starts");
+    start(&service, &app, &keys);
     let _ = service.stop(GRACE);
 
     assert_form_2(&app, &id);
