@@ -699,6 +699,115 @@ pub enum Seeded {
     Created(EndpointOverlay),
 }
 
+/// Why an administrative add is refused (`admin.endpoints.add`,
+/// `LOCAL-IPC.md` §The endpoint set's methods), in the order
+/// [`EndpointOverlay::add`] checks them: [`Self::ALL`]'s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddRefusal {
+    /// The `key` value is not `<EndpointId>.key` under the full grammar
+    /// check: the load's `EndpointIdNotDerived`.
+    IdNotDerived,
+    /// The alias is outside the alias grammar: the load's `AliasInvalid`.
+    AliasInvalid,
+    /// The key file is absent or unreadable. The load keeps such an entry
+    /// in the key-missing state; the add creates no endpoint without its
+    /// key.
+    KeyMissing,
+    /// The key file's header derives another id than the name's stem.
+    KeyMismatch,
+    /// The id is an authored entry's, or an added one's with another
+    /// alias or other kinds.
+    Exists,
+    /// Another entry, authored or added, holds the alias.
+    AliasTaken,
+    /// Authored and added entries would pass
+    /// [`MAX_ENDPOINTS`](crate::MAX_ENDPOINTS).
+    Bound,
+}
+
+impl AddRefusal {
+    /// Every reason, in the order they are checked.
+    pub const ALL: [Self; 7] = [
+        Self::IdNotDerived,
+        Self::AliasInvalid,
+        Self::KeyMissing,
+        Self::KeyMismatch,
+        Self::Exists,
+        Self::AliasTaken,
+        Self::Bound,
+    ];
+}
+
+/// What [`EndpointOverlay::add`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Added {
+    /// The overlay with the entry added and its two sets present and
+    /// empty.
+    Added {
+        /// The overlay to write.
+        overlay: EndpointOverlay,
+        /// The derived id.
+        endpoint: EndpointId,
+    },
+    /// The `added` member already holds the id with the same alias and
+    /// kinds: nothing to write (a retry after a lost answer).
+    Unchanged(EndpointId),
+    /// Refused, nothing to write.
+    Refused {
+        /// Why.
+        reason: AddRefusal,
+        /// For a log.
+        detail: String,
+    },
+}
+
+/// Why an administrative remove is refused, in the order
+/// [`EndpointOverlay::remove`] checks them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoveRefusal {
+    /// A `config.yaml` entry, which no program rewrites.
+    Authored,
+    /// The effective default: the client moves it first.
+    Default,
+}
+
+/// What [`EndpointOverlay::remove`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Removed {
+    /// The overlay without the entry and every member keyed by its id.
+    Removed(EndpointOverlay),
+    /// Refused, nothing to write.
+    Refused(RemoveRefusal),
+}
+
+/// Why an alias rename is refused, in the order
+/// [`EndpointOverlay::set_alias`] checks them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AliasRefusal {
+    /// An authored entry, whose alias is the file's.
+    Authored,
+    /// Outside the alias grammar.
+    AliasInvalid,
+    /// Another entry, authored or added, holds it.
+    AliasTaken,
+}
+
+/// What [`EndpointOverlay::set_alias`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Renamed {
+    /// The overlay with the added entry's alias rewritten.
+    Renamed(EndpointOverlay),
+    /// The entry already has that alias: nothing to write.
+    Unchanged,
+    /// Refused, nothing to write.
+    Refused {
+        /// Why.
+        reason: AliasRefusal,
+        /// For a log.
+        detail: String,
+    },
+}
+
 impl EndpointOverlay {
     /// The overlay's path for `paths`' profile.
     #[must_use]
@@ -1369,6 +1478,224 @@ impl EndpointOverlay {
         }
         let next = next.within_rows()?;
         Ok((created || next != *self).then_some(next))
+    }
+
+    /// Whether `alias` is held by an entry, authored or added, other than
+    /// `except`'s.
+    fn alias_held(
+        &self,
+        config: &EndpointsConfig,
+        alias: &EndpointAlias,
+        except: Option<&EndpointId>,
+    ) -> Option<EndpointId> {
+        config
+            .entries
+            .iter()
+            .chain(self.added.values())
+            .find(|e| Some(&e.id) != except && e.alias.as_ref() == Some(alias))
+            .map(|e| e.id.clone())
+    }
+
+    /// The overlay after `admin.endpoints.add {key, alias,
+    /// allowed_client_kinds}` (`LOCAL-IPC.md` §The endpoint set's
+    /// methods). The refusals are checked in [`AddRefusal::ALL`]'s order,
+    /// each with nothing to write; the key file's header is read under
+    /// `paths` as the load reads an authored entry's
+    /// (`crate::load::read_entry_key`). `unchanged` is decided at the
+    /// `exists` step, after the key checks, so a retry whose key file has
+    /// since gone is `key_missing`. On [`Added::Added`] the entry is in
+    /// `added` -- enabled, `advertise: false`, no trust member of its own
+    /// -- and its id in `inbound` and `outbound` with an empty set each;
+    /// the default is left where it is. Kinds are compared as a set.
+    #[must_use]
+    pub fn add(
+        &self,
+        config: &EndpointsConfig,
+        paths: &ProfilePaths,
+        key: &str,
+        alias: &str,
+        allowed_client_kinds: Vec<ClientKind>,
+    ) -> Added {
+        let refused = |reason, detail: String| Added::Refused { reason, detail };
+        let id = match crate::endpoint_key::parse_key_file_name(key) {
+            Ok(id) => id,
+            Err(e) => {
+                return refused(AddRefusal::IdNotDerived, format!("key {key:?}: {e}"));
+            }
+        };
+        let alias = match EndpointAlias::parse(alias) {
+            Ok(alias) => alias,
+            Err(e) => return refused(AddRefusal::AliasInvalid, e.to_string()),
+        };
+        let mut entry = EndpointConfig {
+            id: id.clone(),
+            alias: Some(alias.clone()),
+            key_state: crate::EndpointKeyState::NotRead,
+            enabled: true,
+            advertise: false,
+            allowed_client_kinds,
+            inbound: interweave_trust_api::EndpointTrustPolicy::default(),
+            outbound: interweave_trust_api::EndpointTrustPolicy::default(),
+        };
+        let mismatch = crate::load::read_entry_key(paths, &mut entry);
+        if let crate::EndpointKeyState::Missing(why) = &entry.key_state {
+            let detail = match why {
+                crate::KeyMissing::Absent => "the key file is absent".to_owned(),
+                crate::KeyMissing::Unreadable(e) => e.to_string(),
+            };
+            return refused(AddRefusal::KeyMissing, detail);
+        }
+        if let Some(e) = mismatch {
+            return refused(AddRefusal::KeyMismatch, e.to_string());
+        }
+        if config.entries.iter().any(|e| e.id == id) {
+            return refused(
+                AddRefusal::Exists,
+                "an authored entry holds the id".to_owned(),
+            );
+        }
+        if let Some(held) = self.added.get(&id) {
+            let kinds = |k: &[ClientKind]| k.iter().cloned().collect::<BTreeSet<_>>();
+            if held.alias == entry.alias
+                && kinds(&held.allowed_client_kinds) == kinds(&entry.allowed_client_kinds)
+            {
+                return Added::Unchanged(id);
+            }
+            return refused(
+                AddRefusal::Exists,
+                "an added entry holds the id with another alias or other kinds".to_owned(),
+            );
+        }
+        if let Some(holder) = self.alias_held(config, &alias, None) {
+            return refused(
+                AddRefusal::AliasTaken,
+                format!("endpoint {} holds alias {alias}", holder.as_str()),
+            );
+        }
+        let total = config.entries.len() + self.added.len() + 1;
+        if total > MAX_ENDPOINTS {
+            return refused(
+                AddRefusal::Bound,
+                format!("{total} endpoints; the maximum is {MAX_ENDPOINTS}"),
+            );
+        }
+        let mut next = self.clone();
+        next.inbound.insert(id.clone(), EndpointSet::default());
+        next.outbound.insert(id.clone(), EndpointSet::default());
+        next.added.insert(id.clone(), entry);
+        Added::Added {
+            overlay: next,
+            endpoint: id,
+        }
+    }
+
+    /// The overlay after `admin.endpoints.remove {endpoint}`: an ADDED
+    /// entry and, in the same value, every member keyed by its id --
+    /// `enabled`, `advertise`, `inbound`, `outbound` -- gone. Refused
+    /// `authored` and then `default` (the effective default), in that
+    /// order. A `default` member naming the id cannot remain, since that
+    /// would be the effective default and is refused.
+    ///
+    /// # Errors
+    /// [`EndpointOverlayError::Unknown`] for an id no entry holds.
+    pub fn remove(
+        &self,
+        config: &EndpointsConfig,
+        endpoint: &EndpointId,
+    ) -> Result<Removed, EndpointOverlayError> {
+        if config.entries.iter().any(|e| &e.id == endpoint) {
+            return Ok(Removed::Refused(RemoveRefusal::Authored));
+        }
+        if !self.added.contains_key(endpoint) {
+            return Err(EndpointOverlayError::Unknown);
+        }
+        if self.effective(config).default.as_ref() == Some(endpoint) {
+            return Ok(Removed::Refused(RemoveRefusal::Default));
+        }
+        let mut next = self.clone();
+        next.added.remove(endpoint);
+        next.enabled.remove(endpoint);
+        next.advertise.remove(endpoint);
+        next.inbound.remove(endpoint);
+        next.outbound.remove(endpoint);
+        Ok(Removed::Removed(next))
+    }
+
+    /// The overlay after `admin.endpoints.set_advertise {endpoint,
+    /// advertise}`, or `None` when the value is already in effect. An
+    /// authored endpoint's value is the `advertise` delta, dropped when it
+    /// equals the authored value; an added one's is its entry's member.
+    ///
+    /// # Errors
+    /// [`EndpointOverlayError::Unknown`] for an id no entry holds.
+    pub fn set_advertise(
+        &self,
+        config: &EndpointsConfig,
+        endpoint: &EndpointId,
+        advertise: bool,
+    ) -> Result<Option<Self>, EndpointOverlayError> {
+        let mut next = self.clone();
+        if let Some(authored) = config.entries.iter().find(|e| &e.id == endpoint) {
+            if advertise == authored.advertise {
+                next.advertise.remove(endpoint);
+            } else {
+                next.advertise.insert(endpoint.clone(), advertise);
+            }
+        } else if let Some(added) = next.added.get_mut(endpoint) {
+            added.advertise = advertise;
+        } else {
+            return Err(EndpointOverlayError::Unknown);
+        }
+        Ok((next != *self).then_some(next))
+    }
+
+    /// The overlay after `admin.endpoints.set_alias {endpoint, alias}`: an
+    /// ADDED entry's alias rewritten. Refused `authored`, `alias_invalid`
+    /// and `alias_taken`, in that order; `unchanged` for the alias the
+    /// entry already has.
+    ///
+    /// # Errors
+    /// [`EndpointOverlayError::Unknown`] for an id no entry holds.
+    pub fn set_alias(
+        &self,
+        config: &EndpointsConfig,
+        endpoint: &EndpointId,
+        alias: &str,
+    ) -> Result<Renamed, EndpointOverlayError> {
+        let refused = |reason, detail: String| Ok(Renamed::Refused { reason, detail });
+        if config.entries.iter().any(|e| &e.id == endpoint) {
+            return refused(
+                AliasRefusal::Authored,
+                "an authored entry's alias is config.yaml's".to_owned(),
+            );
+        }
+        let Some(entry) = self.added.get(endpoint) else {
+            return Err(EndpointOverlayError::Unknown);
+        };
+        let alias = match EndpointAlias::parse(alias) {
+            Ok(alias) => alias,
+            Err(e) => return refused(AliasRefusal::AliasInvalid, e.to_string()),
+        };
+        if entry.alias.as_ref() == Some(&alias) {
+            return Ok(Renamed::Unchanged);
+        }
+        if let Some(holder) = self.alias_held(config, &alias, Some(endpoint)) {
+            return refused(
+                AliasRefusal::AliasTaken,
+                format!("endpoint {} holds alias {alias}", holder.as_str()),
+            );
+        }
+        let mut next = self.clone();
+        if let Some(entry) = next.added.get_mut(endpoint) {
+            entry.alias = Some(alias);
+        }
+        Ok(Renamed::Renamed(next))
+    }
+
+    /// Whether `endpoint` is an entry the overlay added.
+    #[must_use]
+    pub fn is_added(&self, endpoint: &EndpointId) -> bool {
+        self.added.contains_key(endpoint)
     }
 
     /// Write the overlay whole: a temporary file in the same directory,
