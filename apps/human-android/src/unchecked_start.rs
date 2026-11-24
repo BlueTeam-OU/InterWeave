@@ -18,9 +18,10 @@ use interweave_transport_api::TransportIdentity;
 /// outlasts the bound): said by the flow at the press and at each render
 /// while C4 holds for that start ([`Self::said`]), and taken away by a
 /// start that compared with it, opened the record to it and ran
-/// ([`Self::answered`]) -- for good: a render of the same C4 between that
-/// start's run and the root's decision says it again, and is not heard
-/// (#750 review r3 F2) -- or by R4's Continue after K1, a restore the
+/// ([`Self::answered`]) -- and not taken up again by that same `PeerId`
+/// while it is the last one a compared start ran as: a render of the same
+/// C4 between that start's run and the root's decision says it again, and
+/// is not heard (#750 review r3 F2) -- or by R4's Continue after K1, a restore the
 /// person committed ([`Self::restored`]; architect-cto's ruling on Q17).
 /// The flow's end, a later screen, a recreation, a launch in this process
 /// and every refusal leave it standing, so Try again, a return's retry,
@@ -34,9 +35,12 @@ use interweave_transport_api::TransportIdentity;
 #[derive(Debug, Default)]
 pub(crate) struct ExpectedStart {
     peer: Option<TransportIdentity>,
-    /// The `PeerId` a start that compared with it opened the record to
-    /// and ran as: never expected again in this process
-    /// (`a_compared_start_that_ran_is_not_expected_again`).
+    /// The last `PeerId` a start that compared with it opened the record
+    /// to and ran as, which [`Self::said`] does not take up again. One
+    /// slot, not a set: once another `PeerId` is compared and runs, it
+    /// replaces this one, and a later C4 press for the first is expected
+    /// again. The case it answers is a render of the same C4 after its
+    /// own start ran (`a_compared_start_that_ran_is_not_expected_again`).
     ran: Option<TransportIdentity>,
 }
 
@@ -63,7 +67,8 @@ impl ExpectedStart {
 
     /// A start that was told to expect `compared` answered, `ran` when
     /// the service runs: the record opened to that `PeerId`, so nothing is
-    /// expected of the next start, nor ever again of that `PeerId`. Any
+    /// expected of the next start, nor of that `PeerId` again until
+    /// another compared start runs (`ran`). Any
     /// other answer -- a mismatch, a refusal, a start that compared
     /// nothing -- leaves it.
     pub(crate) fn answered(&mut self, compared: Option<&TransportIdentity>, ran: bool) {
@@ -238,7 +243,8 @@ mod tests {
     /// Once a start that compared with a `PeerId` ran, nothing from the
     /// same press arms it again: a render of the held C4 between that
     /// start's run and the root's decision says it once more (#750 review
-    /// r3 F2). Another `PeerId` is still expected when said. Mutation:
+    /// r3 F2). Another `PeerId` is still expected when said, and its run
+    /// replaces the first, which is then expected again. Mutation:
     /// `answered` forgetting the `PeerId` it ran as, or `said` not reading
     /// it, fails here.
     #[test]
@@ -250,6 +256,11 @@ mod tests {
         assert_eq!(slot.for_start(), None, "the render after the run");
         slot.said(Some(&other()));
         assert_eq!(slot.for_start(), Some(other()), "another PeerId");
+        // One slot: another `PeerId`'s run replaces the first, which a
+        // later press expects again.
+        slot.answered(Some(&other()), true);
+        slot.said(Some(&mine()));
+        assert_eq!(slot.for_start(), Some(mine()), "after another ran");
     }
 
     /// R4's Continue after K1 ends the comparison at its press: that

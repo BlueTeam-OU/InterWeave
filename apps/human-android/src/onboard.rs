@@ -898,8 +898,8 @@ fn flow_shows(o: Option<&Onboarding>) {
 /// [`ExpectedStart`] has the rule and its test). Said at the ask and at
 /// every render while C4 holds for that start ([`flow_shows`]), read by
 /// every start ([`expected_start`]), cleared by the start's answer
-/// ([`expected_answered`]) -- for good, so a render of the held C4 before
-/// the root decides it arms nothing again (`ExpectedStart`,
+/// ([`expected_answered`]) -- so a render of the held C4 before the root
+/// decides it arms nothing again (`ExpectedStart`,
 /// `a_compared_start_that_ran_is_not_expected_again`) -- or by that
 /// press ([`flow_shows`]). A process
 /// static: a parked flow and the Activity's saved state do not carry it.
