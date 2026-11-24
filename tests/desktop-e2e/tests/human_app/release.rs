@@ -43,8 +43,8 @@ use interweave_human_chat_protocol::encode_outbound;
 use interweave_human_store::identity_key;
 use interweave_human_store::key_custody::FilesystemCustody;
 use interweave_human_store::{
-    AppMessageId, HumanStore, InboundOrigin, NewInbound, NewOutbound, OutboundDestination,
-    SCHEMA_VERSION, StoreOptions,
+    AppMessageId, DiscardedAtV14, HumanStore, InboundOrigin, NewInbound, NewOutbound,
+    OutboundDestination, SCHEMA_VERSION, StoreOptions,
 };
 use interweave_human_store::{at_rest, store_key};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
@@ -564,19 +564,21 @@ async fn a_fresh_install_keeps_the_peer_id_init_printed() {
 /// the previous one kept -- the key (same `PeerId`), the profile, the
 /// trust overlay (the added peer allowed, the revoked one not), the
 /// endpoint overlay (the disabled endpoint still disabled, under the id
-/// its alias now names), the store with all three retention sets,
-/// migrated to this build's schema -- and rewrites none of the key, the
+/// its alias now names), the store migrated to this build's schema --
+/// and rewrites none of the key, the
 /// profile or the overlays: `config.yaml` differs from the frozen one by
 /// the operator's entries alone, and the only new files beside the
 /// store's, the cache's and the marker's are the endpoint keys the
 /// commands wrote.
 ///
-/// The store half is not whole here: the rows a schema-7 store holds
-/// name their endpoint by the label `human`, and reading them under the
-/// derived id is completed by rust-ui-dev-02's store work (schema v14).
-/// This case asserts the rows are kept, not that their labels resolve.
+/// The store's three rows are ADR-0067's break, not kept: each names its
+/// counterparty's endpoint by the label `human`, and no contact route
+/// with a key names that pair, so schema v14 discards the conversation
+/// with its unread and kept rows (STATE.md §Migrations (c)) and every
+/// pending row ((e)), and counts what went for the notice the client
+/// shows until the person acknowledges it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_upgrade_reads_everything_the_previous_build_kept() {
+async fn an_upgrade_reads_the_previous_builds_artefacts_and_counts_what_v14_discards() {
     let tree = previous_tree();
     let manifest = Manifest::read(&tree);
     assert_eq!(
@@ -627,18 +629,12 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     until_lease_of(&home.binding(), human_id, true, &client).await;
     assert!(client.terminate().success(), "{}", client.log());
     assert_eq!(store_version(home), SCHEMA_VERSION);
-    assert_eq!(
-        ids(home, "pending_outbound"),
-        std::slice::from_ref(&manifest.pending)
-    );
-    assert_eq!(
-        ids(home, "unread_inbound"),
-        std::slice::from_ref(&manifest.unread)
-    );
-    assert_eq!(
-        ids(home, "kept_inbound"),
-        std::slice::from_ref(&manifest.kept)
-    );
+    for table in ["pending_outbound", "unread_inbound", "kept_inbound"] {
+        assert!(
+            ids(home, table).is_empty(),
+            "{table}: the label-named row went at v14"
+        );
+    }
     assert!(daemon.terminate().success(), "{}", daemon.log());
 
     let after = snapshot(home);
@@ -715,7 +711,7 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     );
     // The previous build's store was plaintext: this build's first open
     // rewrote it encrypted under a new store key (ADR-0060 decision 6),
-    // every row kept (the ids above), nothing of it left in clear.
+    // nothing of it left in clear, the rows v14 discarded included.
     let store_key_file = store_key::key_path(&home.paths);
     let store_key_name = store_key_file
         .strip_prefix(home.root.path())
@@ -769,6 +765,28 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     assert!(
         rewritten.is_empty(),
         "the key, the profile and the overlays are read, never rewritten: {rewritten:?}"
+    );
+    // What v14 discarded is counted, read last since the open is a write:
+    // the one conversation, its unread and its kept row, and its pending
+    // row, which the previous build never attempted. The client deletes
+    // the counts on the person's acknowledgement alone, so a window that
+    // only started leaves them.
+    let store = HumanStore::open_profile(
+        &home.paths,
+        &FilesystemCustody,
+        human_id,
+        StoreOptions::default(),
+    )
+    .expect("the store");
+    assert_eq!(
+        store.discarded_at_v14().expect("the counts"),
+        Some(DiscardedAtV14 {
+            conversations: 1,
+            unread: 1,
+            kept: 1,
+            pending_never_attempted: 1,
+            ..DiscardedAtV14::default()
+        })
     );
 }
 
