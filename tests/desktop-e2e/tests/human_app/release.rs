@@ -575,8 +575,9 @@ async fn a_fresh_install_keeps_the_peer_id_init_printed() {
 /// counterparty's endpoint by the label `human`, and no contact route
 /// with a key names that pair, so schema v14 discards the conversation
 /// with its unread and kept rows (STATE.md §Migrations (c)) and every
-/// pending row ((e)), and counts what went for the notice the client
-/// shows until the person acknowledges it.
+/// pending row ((e)), and counts what went, the row kept until the person
+/// acknowledges it; the notice that shows it is not built yet (plan §30,
+/// 2026-11-24).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_upgrade_reads_the_previous_builds_artefacts_and_counts_what_v14_discards() {
     let tree = previous_tree();

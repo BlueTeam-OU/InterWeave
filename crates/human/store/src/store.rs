@@ -535,10 +535,11 @@ impl HumanStore {
     /// What schema v14 discarded when it upgraded this store (STATE.md
     /// §Migrations: the eight counts of [`DiscardedAtV14`]), until the
     /// person acknowledges it and the client deletes it with
-    /// [`Self::forget_discarded_at_v14`]: the client shows it at each open
-    /// until then. `None` on a store created at v14 or later, on one whose
-    /// migration discarded nothing (the row is written only when a count
-    /// is not zero), and after the delete.
+    /// [`Self::forget_discarded_at_v14`]: the store keeps the row until
+    /// then. No client reads it yet; the notice that shows it at each open
+    /// is not built (plan §30, 2026-11-24). `None` on a store created at
+    /// v14 or later, on one whose migration discarded nothing (the row is
+    /// written only when a count is not zero), and after the delete.
     ///
     /// # Errors
     /// A storage error, or [`StoreError::Corrupt`] for a row this build

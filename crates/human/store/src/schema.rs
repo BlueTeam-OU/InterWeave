@@ -196,9 +196,10 @@ fn run_migrations(
 }
 
 /// The `settings` key of what schema v14 discarded (STATE.md §Migrations):
-/// one content-free row, written only when a count is not zero, which the
-/// client shows at each open until the person acknowledges it and deletes
-/// it then ([`crate::HumanStore::discarded_at_v14`]).
+/// one content-free row, written only when a count is not zero and kept
+/// until the person acknowledges it and the client deletes it
+/// ([`crate::HumanStore::discarded_at_v14`]); the notice that shows it is
+/// not built yet (plan §30, 2026-11-24).
 pub(crate) const V14_DISCARDED: &str = "v14_discarded";
 
 /// The scratch table v14 maps each keyed route's `{peer, label}` to the
