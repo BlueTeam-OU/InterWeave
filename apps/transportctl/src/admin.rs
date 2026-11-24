@@ -79,17 +79,12 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
         }
         Err(e) => return Err(code(e)),
     };
-    // A 2.0 daemon is not asked for a 2.1 capability, so the port comes
-    // back without it: said here, rather than as the refusal a request
-    // would draw.
+    // A daemon that does not grant the capability returns the port
+    // without it: said here, rather than as the refusal a request would
+    // draw.
     if !port.port().holds(capability) {
-        let minor = if capability == AdminCapability::Peers {
-            "2.7"
-        } else {
-            "2.1"
-        };
         return Err(Failure::Refused(format!(
-            "the daemon does not grant {capability:?} (it is IPC {minor}'s: is the daemon older?)"
+            "the daemon did not grant {capability:?}"
         )));
     }
     if let Some(write) = write {
