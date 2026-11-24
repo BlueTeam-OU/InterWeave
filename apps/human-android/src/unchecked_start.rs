@@ -61,6 +61,36 @@ impl ExpectedStart {
     }
 }
 
+/// How a start told to expect a `PeerId` was refused for its identity,
+/// with the hub's count of start answers read as it was said -- before
+/// its own answer is counted. A held screen takes it only for the start
+/// it holds for: one whose answer is counted past the screen's `asked_at`
+/// ([`Self::for_hold`]), the rule `ViewSide::start_decided` reads the
+/// hub's answer by. No later screen step clears it, so an answer that
+/// lands before a return's or a recreation's hold is taken up -- the
+/// hold's `asked_at` was read before that start was made -- and one an
+/// earlier start left is not (#750 review r1 F1).
+/// `an_answer_is_taken_by_the_hold_of_its_own_start` holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UncheckedAnswer {
+    refused: UncheckedRefused,
+    before: u64,
+}
+
+impl UncheckedAnswer {
+    /// `refused`, said with `before` the hub's count of answers then.
+    pub(crate) const fn new(refused: UncheckedRefused, before: u64) -> Self {
+        Self { refused, before }
+    }
+
+    /// The answer, for a hold whose start was asked with the hub's count
+    /// at `asked_at`: this start's, or a later one's, when it was said
+    /// with at least that count; an earlier start's otherwise.
+    pub(crate) fn for_hold(self, asked_at: u64) -> Option<UncheckedRefused> {
+        (self.before >= asked_at).then_some(self.refused)
+    }
+}
+
 /// How a start told to expect a `PeerId` answers the flow when its
 /// identity is refused (design section 6, Its results): another `PeerId`
 /// than C4's, and any refusal that says nothing of the record, are C4's
@@ -160,6 +190,26 @@ mod tests {
         slot.said(Some(&mine()));
         slot.said(Some(&other()));
         assert_eq!(slot.for_start(), Some(other()), "a later press");
+    }
+
+    /// A refusal said for the start a hold waits on -- counted past the
+    /// hold's `asked_at`, even when said before the hold began, as at a
+    /// return or a recreation whose start answers before the window's
+    /// thread holds C4 (#750 review r1 F1) -- is the hold's; one an
+    /// earlier start said is not. Mutation: `for_hold` comparing with
+    /// `>`, or answering whatever the count, fails here.
+    #[test]
+    fn an_answer_is_taken_by_the_hold_of_its_own_start() {
+        // `showing_starts` read the count 3, then the start answered: its
+        // refusal was said with the count still 3, before the hub counted
+        // it as 4; `held_by_showing` held C4 after that.
+        let early = UncheckedAnswer::new(UncheckedRefused::OtherIdentity, 3);
+        assert_eq!(early.for_hold(3), Some(UncheckedRefused::OtherIdentity));
+        let later = UncheckedAnswer::new(UncheckedRefused::Unavailable, 5);
+        assert_eq!(later.for_hold(3), Some(UncheckedRefused::Unavailable));
+        // An earlier start's, said with the count at 2 and counted 3.
+        let earlier = UncheckedAnswer::new(UncheckedRefused::OtherIdentity, 2);
+        assert_eq!(earlier.for_hold(3), None);
     }
 
     /// A start told to expect C4's `PeerId` answers the flow as section 6

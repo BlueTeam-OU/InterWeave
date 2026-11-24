@@ -39,7 +39,7 @@ use crate::keystore::KeystoreCipher;
 use crate::ready_check::{
     AtFlowEnd, Before, Over, asks_start_at_end, at_flow_end, secure_may_clear,
 };
-use crate::unchecked_start::ExpectedStart;
+use crate::unchecked_start::{ExpectedStart, UncheckedAnswer};
 use crate::unlock_route::{Route, UnlockRoute, flow_prompts};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, TracedStart, prompt_line, start_line};
@@ -476,7 +476,10 @@ pub(crate) fn showing_starts() {
 /// flow's to prompt for ([`FLOW_START`]) unless an answer was counted
 /// already, before this hop. An answer landing between that count's read
 /// and the store leaves `FLOW_START` set for no start, which only keeps
-/// the screen held until its bound. BLOCKED on a device run: no host test drives
+/// the screen held until its bound. A refusal of C4's compared start said
+/// before this hop is still this hold's: [`start_decided`] takes it by
+/// the count it was said with ([`UncheckedAnswer::for_hold`]), and nothing
+/// here clears it. BLOCKED on a device run: no host test drives
 /// the Activity (ui-slint's views.rs, the `IdStartBusy` after the bound
 /// block, lists it).
 fn held_by_showing(asked_at: StoreGeneration) {
@@ -484,10 +487,6 @@ fn held_by_showing(asked_at: StoreGeneration) {
         slot.borrow_mut().as_mut().is_some_and(|o| {
             let held = o.service_asked && o.flow.showing_started();
             if held {
-                UNCHECKED
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take();
                 o.asked_at = asked_at;
                 // The identity is on record: the bound counts from now.
                 o.hold = Some(StartHold::pressed(now_ms(), true));
@@ -914,14 +913,17 @@ pub(crate) fn expected_start() -> Option<TransportIdentity> {
 
 /// How the last start told to expect a `PeerId` was refused, said by
 /// jni.rs's `start` before the hub hears the start's answer, so the turn
-/// that decides the held C4 finds it ([`start_decided`]). Cleared at each
-/// ask, so an answer is the start's that the screen holds for.
-static UNCHECKED: Mutex<Option<UncheckedRefused>> = Mutex::new(None);
+/// that decides the held C4 finds it ([`start_decided`]). Said with the
+/// hub's count then, so a hold takes the answer of its own start alone
+/// ([`UncheckedAnswer::for_hold`]) and no screen step has to clear it.
+static UNCHECKED: Mutex<Option<UncheckedAnswer>> = Mutex::new(None);
 
-/// The start the Service runs for C4's `IdStartUnchecked` was refused:
-/// the held C4 answers it rather than handing over to Chats.
+/// A start told to expect C4's `PeerId` was refused for its identity: a
+/// C4 held for it answers it rather than handing over to Chats.
 pub(crate) fn unchecked_refused(refused: UncheckedRefused) {
-    *UNCHECKED.lock().unwrap_or_else(PoisonError::into_inner) = Some(refused);
+    let before = ServiceHost::global().hub().store_generation().count();
+    *UNCHECKED.lock().unwrap_or_else(PoisonError::into_inner) =
+        Some(UncheckedAnswer::new(refused, before));
 }
 
 /// Answers for the flow, from threads that cannot tell which window holds
@@ -1946,7 +1948,8 @@ pub(crate) fn start_decided() {
                 let refused = UNCHECKED
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .take();
+                    .take()
+                    .and_then(|answer| answer.for_hold(o.asked_at.count()));
                 match refused {
                     Some(refused) if o.flow.start_held() && o.flow.start_expects().is_some() => {
                         log(&format!("C4's unchecked start did not run: {refused:?}"));
@@ -2015,10 +2018,6 @@ fn ask_service(o: &mut Onboarding) {
     // A press, or a granted prompt resuming a showing's start: either way
     // the person's, so its answer is raised as theirs.
     o.flow.person_started();
-    UNCHECKED
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .take();
     FLOW_START.store(o.flow.start_held(), Ordering::SeqCst);
     ASKS.push(start);
 }
