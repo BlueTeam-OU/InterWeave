@@ -981,10 +981,11 @@ struct Driver {
     /// The summary last announced, compared without its timestamp.
     last_summary: Option<ConnectivitySummary>,
     clock: Box<dyn Fn() -> u64 + Send>,
-    /// The data-plane allowlist in force, the local peer bound: the ONE
-    /// copy an administrative change is made to (ADR-0032), so the
-    /// substrate's and discovery's copies are only ever replaced by it,
-    /// never edited apart.
+    /// The OPERATOR'S list in force, the local peer bound: the ONE copy
+    /// the operator form of `admin.trust.set` is made to (ADR-0032). Who
+    /// may connect is the admission set, this list united with every
+    /// endpoint's own sets (ADR-0067 decision 6): read it through
+    /// [`Driver::admitted`], never from this field.
     trust: PeerTrustPolicy,
     /// The infrastructure set the profile configured, republished
     /// unchanged with every trust change: `admin.trust` does not reach it.
@@ -1142,10 +1143,13 @@ impl Driver {
         let observed_at = wall_ms();
         match event {
             SwarmEvent::Connected { peer, path } => {
-                crate::gate::connected(Who::of(&peer, &self.trust, &self.infrastructure), path);
+                crate::gate::connected(
+                    Who::of(&peer, &self.admitted(), &self.infrastructure),
+                    path,
+                );
                 self.refusals.forget(&peer);
                 self.outcomes
-                    .record(&self.trust, &peer, LastOutcome::Connected);
+                    .record(&self.admitted(), &peer, LastOutcome::Connected);
                 self.paths.insert(peer.clone(), path);
                 self.notices.connected(&peer, path, observed_at);
                 self.emit(TransportEvent::PeerConnected {
@@ -1167,7 +1171,7 @@ impl Driver {
             } => self.post_path_change(peer, previous, current, reason).await,
             SwarmEvent::Disconnected { peer, reason } => {
                 crate::gate::disconnected(
-                    Who::of(&peer, &self.trust, &self.infrastructure),
+                    Who::of(&peer, &self.admitted(), &self.infrastructure),
                     reason,
                 );
                 self.paths.remove(&peer);
@@ -1190,9 +1194,12 @@ impl Driver {
                 class,
                 ..
             } => {
-                crate::gate::dial_failed(Who::of(&peer, &self.trust, &self.infrastructure), class);
+                crate::gate::dial_failed(
+                    Who::of(&peer, &self.admitted(), &self.infrastructure),
+                    class,
+                );
                 self.outcomes
-                    .record(&self.trust, &peer, LastOutcome::of_class(class));
+                    .record(&self.admitted(), &peer, LastOutcome::of_class(class));
             }
             SwarmEvent::DialFailed {
                 peer: None, class, ..
@@ -1204,16 +1211,19 @@ impl Driver {
                 delay_ms,
                 peer_backoff,
             } => crate::gate::retry_scheduled(
-                Who::of(&peer, &self.trust, &self.infrastructure),
+                Who::of(&peer, &self.admitted(), &self.infrastructure),
                 origin,
                 attempt,
                 delay_ms,
                 peer_backoff,
             ),
             SwarmEvent::AddressQuarantined { peer, for_ms } => {
-                crate::gate::quarantined(Who::of(&peer, &self.trust, &self.infrastructure), for_ms);
+                crate::gate::quarantined(
+                    Who::of(&peer, &self.admitted(), &self.infrastructure),
+                    for_ms,
+                );
                 self.outcomes
-                    .record(&self.trust, &peer, LastOutcome::IdentityMismatch);
+                    .record(&self.admitted(), &peer, LastOutcome::IdentityMismatch);
             }
             SwarmEvent::ConnectivityChanged { .. }
             | SwarmEvent::RelayReservationChanged { .. }
@@ -2053,6 +2063,16 @@ impl Driver {
             .map(|sources| sources.peers)
     }
 
+    /// The admission set as a policy, the ONE reader of who the gate has
+    /// state for (`CONNECTIVITY.md` section 19): the peer rows, the
+    /// recorded outcomes, the refusals' de-duplication and the class a
+    /// connectivity line names a peer by all ask it. The operator's list
+    /// alone past the set's bound, which every write refuses before it
+    /// publishes, so only a start can be there and it refuses first.
+    fn admitted(&self) -> PeerTrustPolicy {
+        self.admission().unwrap_or_else(|| self.trust.clone())
+    }
+
     /// After a change from `before`: discovery offers the admission set,
     /// and a peer that left it -- the last set that held it -- has its
     /// sessions' routes, outcomes and refusals forgotten, as a revoke did
@@ -2477,7 +2497,7 @@ impl Driver {
     /// unknown, never shown as an empty set or a row of unknowns, which
     /// would read as "no peer" or "nothing holds this peer".
     async fn peer_rows(&mut self) -> Option<Vec<PeerGateRow>> {
-        let peers: Vec<TransportIdentity> = self.trust.allowed_peers().cloned().collect();
+        let peers: Vec<TransportIdentity> = self.admitted().allowed_peers().cloned().collect();
         let gates = self.swarm.peer_gates(peers).await.ok()?;
         let rows = gates
             .into_iter()
@@ -2543,8 +2563,8 @@ impl Driver {
             };
             if let Some(refusal) = refusal {
                 let class = interweave_transport_libp2p::DialFailureClass::of_refusal(&refusal);
-                if self.refusals.changed(&self.trust, &peer, class) {
-                    let who = Who::of(&peer, &self.trust, &self.infrastructure);
+                if self.refusals.changed(&self.admitted(), &peer, class) {
+                    let who = Who::of(&peer, &self.admitted(), &self.infrastructure);
                     // A HELD ROUTE IS NAMED WITH ITS END, read from the
                     // gate that holds it; asked only when the refusal
                     // changes, as the line itself is.
@@ -2567,7 +2587,7 @@ impl Driver {
                     }
                 }
                 if let Some(outcome) = LastOutcome::of_refusal(&refusal) {
-                    self.outcomes.record(&self.trust, &peer, outcome);
+                    self.outcomes.record(&self.admitted(), &peer, outcome);
                 }
             }
         }

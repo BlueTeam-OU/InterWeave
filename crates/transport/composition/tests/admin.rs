@@ -1056,6 +1056,64 @@ async fn an_identitys_set_admits_a_peer_and_only_its_last_revoke_closes_it() {
     drop(target);
 }
 
+/// A peer only an identity's own set trusts has a row in
+/// `admin.peers.list` beside the operator's (`CONNECTIVITY.md` section
+/// 19: one row per peer the gate has state for, and the gate dials the
+/// admission set, ADR-0067 decision 6). The controls: the operator-listed
+/// peer has its row, and a peer in no set has none.
+#[tokio::test]
+async fn a_peer_only_an_identitys_set_trusts_has_a_peers_list_row() {
+    let (identity, _) = id();
+    let (_, operators) = id();
+    let (_, identitys) = id();
+    let (_, stranger) = id();
+    let runtime = ComposedRuntime::start(
+        &identity,
+        &profile(&[&operators], &[]),
+        CompositionOptions::default(),
+    )
+    .await
+    .expect("composes");
+    let human = interweave_transport_api::EndpointId::parse_derived(
+        "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+    )
+    .expect("the profile's endpoint");
+    let trust = runtime
+        .sessions()
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("a port");
+    let status = runtime
+        .sessions()
+        .admin([AdminCapability::Status].into())
+        .await
+        .expect("a port");
+    let listed = async || {
+        let mut peers: Vec<_> = status
+            .peers()
+            .await
+            .expect("answered")
+            .into_iter()
+            .map(|row| row.peer)
+            .collect();
+        peers.sort();
+        peers
+    };
+    assert_eq!(listed().await, vec![operators.clone()], "the control");
+    assert_eq!(
+        trust
+            .set_endpoint_trust(human, identitys.clone(), true)
+            .await,
+        Ok(TrustChange::Set)
+    );
+    let mut expected = vec![operators, identitys];
+    expected.sort();
+    let rows = listed().await;
+    assert_eq!(rows, expected, "one row per admitted peer");
+    assert!(!rows.contains(&stranger), "a peer in no set has none");
+    runtime.shutdown().await.expect("clean shutdown");
+}
+
 /// `profile` with a second configured endpoint, `agent`, beside `human`.
 fn two_endpoint_profile(trusted: &[&TransportIdentity], statics: &[String]) -> ProfileConfig {
     let one = serde_norway::to_string(&profile(trusted, statics)).expect("serialises");
