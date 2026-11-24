@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use libp2p::swarm::SwarmEvent as Libp2pSwarmEvent;
 
 use interweave_local_client_api::{
-    EndpointAdminView, EndpointLease, Generation, LeaseRecord, LocalSessionEvent,
+    EndpointAdminView, EndpointLease, EndpointSource, Generation, LeaseRecord, LocalSessionEvent,
 };
 use interweave_transport_api::TransportError as DirectError;
 use interweave_transport_api::{
@@ -431,6 +431,79 @@ impl DirectState {
         Ok(revoked)
     }
 
+    /// Register an endpoint the administrative add created (IPC 3.0):
+    /// leasable from this step on, no queue until a claim opens one.
+    /// Its own sets arrive with the trust sources the same command
+    /// carries, adopted AFTER this, so the new endpoint is given its
+    /// empty set in the one step. `false` for an id already registered,
+    /// which keeps what it has: an add does not replace an endpoint
+    /// (the registry's `an_insert_never_replaces_and_a_remove_takes_everything`).
+    pub(super) fn add_endpoint(
+        &mut self,
+        endpoint: EndpointId,
+        registered: RegisteredEndpoint,
+    ) -> bool {
+        self.registry.insert(endpoint, registered)
+    }
+
+    /// Unregister `endpoint` (`admin.endpoints.remove`): a live lease ends
+    /// as [`revoke`](Self::revoke) ends one -- holder told, queue closed --
+    /// and the registry drops its own sets and a default naming it.
+    /// Returns the epoch that ended.
+    ///
+    /// # Errors
+    /// [`DirectError::EndpointUnknown`] for an endpoint not registered.
+    pub(super) fn remove_endpoint(
+        &mut self,
+        endpoint: &EndpointId,
+    ) -> Result<Option<Generation>, DirectError> {
+        if self.registry.endpoints().all(|(id, _)| id != endpoint) {
+            return Err(DirectError::EndpointUnknown);
+        }
+        self.owe_notice(endpoint);
+        self.own.remove(endpoint);
+        let revoked = self
+            .registry
+            .remove(endpoint)
+            .ok_or(DirectError::EndpointUnknown)?;
+        self.queues.close(endpoint);
+        Ok(revoked)
+    }
+
+    /// Set whether `endpoint` may appear in the directory: the source
+    /// [`advertised_for`](Self::advertised_for) answers from, so the next
+    /// directory answer reads it.
+    ///
+    /// # Errors
+    /// [`DirectError::EndpointUnknown`] for an endpoint not registered.
+    pub(super) fn set_advertise(
+        &mut self,
+        endpoint: &EndpointId,
+        advertise: bool,
+    ) -> Result<(), DirectError> {
+        if self.registry.set_advertise(endpoint, advertise) {
+            Ok(())
+        } else {
+            Err(DirectError::EndpointUnknown)
+        }
+    }
+
+    /// Set `endpoint`'s alias as the administrative list reports it.
+    ///
+    /// # Errors
+    /// [`DirectError::EndpointUnknown`] for an endpoint not registered.
+    pub(super) fn set_alias(
+        &mut self,
+        endpoint: &EndpointId,
+        alias: Option<String>,
+    ) -> Result<(), DirectError> {
+        if self.registry.set_alias(endpoint, alias) {
+            Ok(())
+        } else {
+            Err(DirectError::EndpointUnknown)
+        }
+    }
+
     /// Point omitted destinations at `endpoint`, or at nothing.
     ///
     /// A default must be able to receive: one naming an endpoint that is
@@ -474,6 +547,9 @@ impl DirectState {
                     client_kind: lease.client_kind.clone(),
                     session_id: Some(lease.owner.0.clone()),
                 }),
+                alias: registered.alias.clone(),
+                source: registered.source,
+                advertise: registered.advertise,
             })
             .collect()
     }
@@ -566,6 +642,43 @@ pub struct DirectEndpoints {
 }
 
 impl DirectEndpoints {
+    /// One configuration entry as the registry holds it, with where it
+    /// came from: the one translation, for the start's entries and for
+    /// an entry the administrative add creates while the runtime runs.
+    #[must_use]
+    pub fn registered(
+        entry: &interweave_profile_config::EndpointConfig,
+        source: EndpointSource,
+    ) -> RegisteredEndpoint {
+        RegisteredEndpoint {
+            enabled: entry.enabled,
+            advertise: entry.advertise,
+            allowed_client_kinds: entry
+                .allowed_client_kinds
+                .iter()
+                .map(|k| k.as_str().to_owned())
+                .collect(),
+            inbound: entry.inbound.clone(),
+            outbound: entry.outbound.clone(),
+            alias: entry.alias.as_ref().map(ToString::to_string),
+            source,
+        }
+    }
+
+    /// These endpoints with `added` marked as the administrative add's
+    /// (`EndpointSource::Added`): `from_profile` reads a composed profile,
+    /// which no longer says which entries `config.yaml` authored.
+    #[must_use]
+    pub fn with_added<'a>(mut self, added: impl IntoIterator<Item = &'a EndpointId>) -> Self {
+        let added: std::collections::BTreeSet<&EndpointId> = added.into_iter().collect();
+        for (id, registered) in &mut self.endpoints {
+            if added.contains(id) {
+                registered.source = EndpointSource::Added;
+            }
+        }
+        self
+    }
+
     /// The daemon-wide direct bucket's `(per_minute, burst)` this
     /// configuration installs, for a composition that states what it
     /// built.
@@ -609,17 +722,7 @@ impl DirectEndpoints {
             .map(|entry| {
                 (
                     entry.id.clone(),
-                    RegisteredEndpoint {
-                        enabled: entry.enabled,
-                        advertise: entry.advertise,
-                        allowed_client_kinds: entry
-                            .allowed_client_kinds
-                            .iter()
-                            .map(|k| k.as_str().to_owned())
-                            .collect(),
-                        inbound: entry.inbound.clone(),
-                        outbound: entry.outbound.clone(),
-                    },
+                    Self::registered(entry, EndpointSource::Authored),
                 )
             })
             .collect();

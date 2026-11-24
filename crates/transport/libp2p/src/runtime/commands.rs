@@ -1074,6 +1074,119 @@ pub(super) fn handle_command(
         SwarmCommand::ListEndpoints { reply } => {
             let _ = reply.send(direct_state.endpoint_views());
         }
+        // THE REGISTRY CHANGE AND THE TRUST CHANGE IN ONE STEP of this
+        // task: the trust sources are applied by the `SetTrust` arm itself,
+        // reached from here with no command between, so an add's endpoint
+        // is served with its own empty set from its first command on, and a
+        // removal's peers are closed by the one path that closes a revoked
+        // peer -- connections, cached directory, mesh, routing table and
+        // relays. The composition's tests hold both ends:
+        // `an_added_endpoint_admits_nobody_until_its_set_names_a_peer` and
+        // `a_remove_revokes_the_lease_and_closes_only_the_peer_it_held`.
+        SwarmCommand::AddEndpoint {
+            endpoint,
+            registered,
+            trust,
+            reply,
+        } => {
+            let added = direct_state.add_endpoint(endpoint, *registered);
+            let (closed, _) = tokio::sync::oneshot::channel();
+            handle_command(
+                swarm,
+                manager,
+                open,
+                refuse,
+                listens,
+                active,
+                pending_direct,
+                pending_endpoints,
+                direct_state,
+                directory_state,
+                broadcast_state,
+                in_flight,
+                kademlia,
+                relay,
+                max_pending_listens,
+                max_active_listeners,
+                effective_payload,
+                now_ms,
+                wall_ms,
+                outbox,
+                event_capacity,
+                races,
+                head_start_ms,
+                operator,
+                stores,
+                held_sends,
+                network,
+                SwarmCommand::SetTrust {
+                    trust,
+                    reply: closed,
+                },
+            );
+            let _ = reply.send(added);
+        }
+        SwarmCommand::RemoveEndpoint {
+            endpoint,
+            trust,
+            reply,
+        } => {
+            let removed = direct_state.remove_endpoint(&endpoint);
+            report_owed_notices(direct_state, outbox, event_capacity);
+            // An endpoint the registry does not hold changes no trust: the
+            // sources are adopted only with a removal that happened.
+            if removed.is_ok() {
+                let (closed, _) = tokio::sync::oneshot::channel();
+                handle_command(
+                    swarm,
+                    manager,
+                    open,
+                    refuse,
+                    listens,
+                    active,
+                    pending_direct,
+                    pending_endpoints,
+                    direct_state,
+                    directory_state,
+                    broadcast_state,
+                    in_flight,
+                    kademlia,
+                    relay,
+                    max_pending_listens,
+                    max_active_listeners,
+                    effective_payload,
+                    now_ms,
+                    wall_ms,
+                    outbox,
+                    event_capacity,
+                    races,
+                    head_start_ms,
+                    operator,
+                    stores,
+                    held_sends,
+                    network,
+                    SwarmCommand::SetTrust {
+                        trust,
+                        reply: closed,
+                    },
+                );
+            }
+            let _ = reply.send(removed);
+        }
+        SwarmCommand::SetEndpointAdvertise {
+            endpoint,
+            advertise,
+            reply,
+        } => {
+            let _ = reply.send(direct_state.set_advertise(&endpoint, advertise));
+        }
+        SwarmCommand::SetEndpointAlias {
+            endpoint,
+            alias,
+            reply,
+        } => {
+            let _ = reply.send(direct_state.set_alias(&endpoint, alias));
+        }
         SwarmCommand::TakeLeaseNotices {
             session,
             max,

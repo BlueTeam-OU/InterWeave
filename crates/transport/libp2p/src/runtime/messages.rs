@@ -308,6 +308,53 @@ pub enum SwarmCommand {
         /// endpoint that could not receive.
         reply: oneshot::Sender<Result<(), DirectError>>,
     },
+    /// Register an endpoint the administrative add created AND adopt the
+    /// trust sources that give it its own empty sets, in one step of the
+    /// Swarm task: no command between them sees the endpoint without its
+    /// set, which would leave it inheriting the operator's list.
+    AddEndpoint {
+        /// The new endpoint.
+        endpoint: EndpointId,
+        /// Its configuration, from the entry the overlay now holds.
+        registered: Box<interweave_transport_runtime::endpoint_registry::RegisteredEndpoint>,
+        /// The trust sources with the endpoint's own sets in them.
+        trust: Box<TrustSources>,
+        /// Answered whether the endpoint was registered by this command
+        /// (`false`: it already was, and keeps what it had).
+        reply: oneshot::Sender<bool>,
+    },
+    /// Unregister an endpoint AND adopt the trust sources without its own
+    /// sets, in one step: a live lease revoked as `RevokeEndpoint` does,
+    /// and a peer the removal took from the last set that held it closed
+    /// and its cached directory dropped, as `SetTrust` does.
+    RemoveEndpoint {
+        /// The endpoint to remove.
+        endpoint: EndpointId,
+        /// The trust sources without it.
+        trust: Box<TrustSources>,
+        /// Answered with the revoked epoch, or `EndpointUnknown`.
+        reply:
+            oneshot::Sender<Result<Option<interweave_local_client_api::Generation>, DirectError>>,
+    },
+    /// Set whether an endpoint may appear in the directory: the source the
+    /// next directory answer reads.
+    SetEndpointAdvertise {
+        /// Which endpoint.
+        endpoint: EndpointId,
+        /// Its new value.
+        advertise: bool,
+        /// Answered `EndpointUnknown` for an endpoint not registered.
+        reply: oneshot::Sender<Result<(), DirectError>>,
+    },
+    /// Set an endpoint's alias as the administrative list reports it.
+    SetEndpointAlias {
+        /// Which endpoint.
+        endpoint: EndpointId,
+        /// Its new alias.
+        alias: Option<String>,
+        /// Answered `EndpointUnknown` for an endpoint not registered.
+        reply: oneshot::Sender<Result<(), DirectError>>,
+    },
     /// Every configured endpoint with its live lease, in id order.
     ListEndpoints {
         /// Answered with the administrative list.
