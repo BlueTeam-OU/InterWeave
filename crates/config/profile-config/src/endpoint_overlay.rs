@@ -29,7 +29,10 @@
 //! - `added`: endpoint entries added through the administrative path,
 //!   each as a `config.yaml` entry (`key`, `alias`, `enabled`,
 //!   `advertise`, `allowed_client_kinds`) and never with `inbound` or
-//!   `outbound`: an added entry's trust is its overlay set alone.
+//!   `outbound`: an added entry's trust is its overlay set alone, so its
+//!   id stands in both of those members, `[]` for no trusted peer
+//!   ([`EndpointOverlayError::AddedEntryWithoutSet`]); an absent id is
+//!   "no own set" for an AUTHORED endpoint only.
 //!   Authored and added entries together are at most
 //!   [`MAX_ENDPOINTS`](crate::MAX_ENDPOINTS), and an added id or alias
 //!   that an authored or another added entry holds refuses the load.
@@ -145,7 +148,7 @@ pub struct EndpointOverlay {
     outbound: EndpointSets,
     /// The entries added through the administrative path, by id, written
     /// as a list. Never carries trust of its own: an added entry's is its
-    /// set above.
+    /// set above, which a loaded overlay always holds for it.
     #[serde(
         skip_serializing_if = "BTreeMap::is_empty",
         serialize_with = "added_out"
@@ -513,6 +516,13 @@ pub enum EndpointOverlayError {
         /// The member it carries.
         member: OverlayMember,
     },
+    /// An added entry's id stands in neither `inbound` nor `outbound`.
+    /// An added endpoint's trust is its overlay set alone, `[]` at the
+    /// add; no set would leave it inheriting the operator's list.
+    AddedEntryWithoutSet {
+        /// The added endpoint.
+        endpoint: EndpointId,
+    },
     /// An added entry's id is an authored entry's, or another added
     /// entry's.
     AddedIdCollides(EndpointId),
@@ -595,6 +605,13 @@ impl core::fmt::Display for EndpointOverlayError {
                 f,
                 "an endpoint the endpoint overlay adds carries `{member}`: an added \
                  endpoint's trust is its own set in the overlay alone"
+            ),
+            Self::AddedEntryWithoutSet { endpoint } => write!(
+                f,
+                "the endpoint overlay adds endpoint {}, which has no own trusted set: an \
+                 added endpoint's trust is its set alone; give it `[]` in both `inbound` \
+                 and `outbound`",
+                endpoint.as_str()
             ),
             Self::AddedIdCollides(id) => write!(
                 f,
@@ -759,6 +776,15 @@ impl EndpointOverlay {
         let mut changes = Vec::new();
         let added = Self::resolve_added(raw.added, config)?;
         let (inbound, outbound) = Self::resolve_sets(raw.inbound, raw.outbound)?;
+        // ADR-0067 decision 6's "an absent id is no own set" is the
+        // authored endpoint's case: an added one that took it would
+        // inherit the operator's list, which its set alone replaces.
+        // Both members hold the same ids by now, so one is asked.
+        if let Some(endpoint) = added.keys().find(|id| !inbound.contains_key(*id)) {
+            return Err(EndpointOverlayError::AddedEntryWithoutSet {
+                endpoint: endpoint.clone(),
+            });
+        }
         let mut overlay = Self {
             inbound,
             outbound,

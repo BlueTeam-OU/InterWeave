@@ -79,6 +79,25 @@ fn added(name: &str, alias: Option<&str>) -> Value {
     v
 }
 
+/// `{<id>: []}` for each name: the own, empty set an added entry must
+/// stand in, in each of `inbound` and `outbound`.
+fn empty_sets(names: &[&str]) -> Value {
+    Value::Object(
+        names
+            .iter()
+            .map(|n| (id(n).as_str().to_owned(), json!([])))
+            .collect(),
+    )
+}
+
+/// `file` with an own, empty set for each of `names` in both members:
+/// the added entries' sets, which a loaded file always holds.
+fn with_empty_sets(mut file: Value, names: &[&str]) -> Value {
+    file["inbound"] = empty_sets(names);
+    file["outbound"] = empty_sets(names);
+    file
+}
+
 fn state() -> (tempfile::TempDir, PathBuf) {
     let dir = private_tempdir();
     let path = dir.path().join(ENDPOINT_OVERLAY_FILE);
@@ -349,7 +368,10 @@ fn a_set_naming_garbage_is_a_parse_refusal() {
 #[test]
 fn an_added_entry_never_carries_trust() {
     let (overlay, changes) = loads(
-        &json!({"enabled": {}, "added": [added("d", Some("d"))]}),
+        &with_empty_sets(
+            json!({"enabled": {}, "added": [added("d", Some("d"))]}),
+            &["d"],
+        ),
         &config(),
     )
     .expect("the control loads");
@@ -361,13 +383,60 @@ fn an_added_entry_never_carries_trust() {
     ] {
         let mut entry = added("d", Some("d"));
         entry[member] = json!("inherit_profile_trust");
-        match loads(&json!({"enabled": {}, "added": [entry]}), &config()) {
+        match loads(
+            &with_empty_sets(json!({"enabled": {}, "added": [entry]}), &["d"]),
+            &config(),
+        ) {
             Err(EndpointOverlayError::AddedEntryCarriesTrust { member: got }) => {
                 assert_eq!(got, name);
             }
             other => panic!("{member}: expected AddedEntryCarriesTrust, got {other:?}"),
         }
     }
+}
+
+/// An added entry whose id stands in neither `inbound` nor `outbound` is
+/// refused at load, naming the id: an added endpoint's trust is its set
+/// alone, `[]` at the add, and "no own set" would let it inherit the
+/// operator's list. The same file with `[]` in both loads and `d` has an
+/// own, empty set.
+#[test]
+fn an_added_entry_without_a_set_is_refused_naming_the_id() {
+    let file = json!({"enabled": {}, "added": [added("d", Some("d"))]});
+    match loads(&file, &config()) {
+        Err(e @ EndpointOverlayError::AddedEntryWithoutSet { .. }) => {
+            let EndpointOverlayError::AddedEntryWithoutSet { endpoint } = &e else {
+                unreachable!()
+            };
+            assert_eq!(endpoint, &id("d"));
+            let text = e.to_string();
+            assert!(text.contains(id("d").as_str()), "{text}");
+            assert!(
+                text.contains("`inbound`") && text.contains("`outbound`"),
+                "{text}"
+            );
+        }
+        other => panic!("expected AddedEntryWithoutSet, got {other:?}"),
+    }
+    // Another added entry's set is not this one's.
+    assert!(matches!(
+        loads(
+            &with_empty_sets(
+                json!({"enabled": {}, "added": [added("d", Some("d")), added("e", Some("e"))]}),
+                &["e"],
+            ),
+            &config(),
+        ),
+        Err(EndpointOverlayError::AddedEntryWithoutSet { endpoint }) if endpoint == id("d")
+    ));
+    // An authored endpoint's absent id is still "no own set".
+    loads(&json!({"enabled": {}}), &config()).expect("authored, no set: the control");
+
+    let (overlay, changes) =
+        loads(&with_empty_sets(file, &["d"]), &config()).expect("with [] in both: the control");
+    assert!(changes.is_empty(), "{changes:?}");
+    let (inbound, outbound) = overlay.own_sets(&id("d")).expect("an own set");
+    assert_eq!((inbound.len(), outbound.len()), (0, 0));
 }
 
 /// An added entry is read as an authored one is: a retired `id` and a
@@ -410,7 +479,9 @@ fn authored_and_added_together_are_at_most_sixty_four() {
         let entries: Vec<Value> = (0..n)
             .map(|i| added(&format!("x{i}"), Some(&format!("x{i}"))))
             .collect();
-        json!({"enabled": {}, "added": entries})
+        let names: Vec<String> = (0..n).map(|i| format!("x{i}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        with_empty_sets(json!({"enabled": {}, "added": entries}), &names)
     };
     let (overlay, _) = loads(&file(MAX_ENDPOINTS - 40), &config).expect("64 together: the control");
     assert_eq!(overlay.apply(&config).entries.len(), MAX_ENDPOINTS);
@@ -424,27 +495,40 @@ fn authored_and_added_together_are_at_most_sixty_four() {
 /// refused by name; each beside the entry that differs and loads.
 #[test]
 fn an_added_id_or_alias_that_collides_is_refused() {
-    let ok = json!({"enabled": {}, "added": [added("d", Some("d")), added("e", Some("e"))]});
+    let ok = with_empty_sets(
+        json!({"enabled": {}, "added": [added("d", Some("d")), added("e", Some("e"))]}),
+        &["d", "e"],
+    );
     loads(&ok, &config()).expect("distinct ids and aliases: the control");
 
-    let id_of_authored = json!({"enabled": {}, "added": [added("a", Some("fresh"))]});
+    let id_of_authored = with_empty_sets(
+        json!({"enabled": {}, "added": [added("a", Some("fresh"))]}),
+        &["a"],
+    );
     assert!(matches!(
         loads(&id_of_authored, &config()),
         Err(EndpointOverlayError::AddedIdCollides(i)) if i == id("a")
     ));
-    let id_of_added =
-        json!({"enabled": {}, "added": [added("d", Some("d")), added("d", Some("e"))]});
+    let id_of_added = with_empty_sets(
+        json!({"enabled": {}, "added": [added("d", Some("d")), added("d", Some("e"))]}),
+        &["d"],
+    );
     assert!(matches!(
         loads(&id_of_added, &config()),
         Err(EndpointOverlayError::AddedIdCollides(i)) if i == id("d")
     ));
-    let alias_of_authored = json!({"enabled": {}, "added": [added("d", Some("a"))]});
+    let alias_of_authored = with_empty_sets(
+        json!({"enabled": {}, "added": [added("d", Some("a"))]}),
+        &["d"],
+    );
     assert!(matches!(
         loads(&alias_of_authored, &config()),
         Err(EndpointOverlayError::AddedAliasCollides(a)) if a.as_str() == "a"
     ));
-    let alias_of_added =
-        json!({"enabled": {}, "added": [added("d", Some("x")), added("e", Some("x"))]});
+    let alias_of_added = with_empty_sets(
+        json!({"enabled": {}, "added": [added("d", Some("x")), added("e", Some("x"))]}),
+        &["d", "e"],
+    );
     assert!(matches!(
         loads(&alias_of_added, &config()),
         Err(EndpointOverlayError::AddedAliasCollides(a)) if a.as_str() == "x"
@@ -458,7 +542,11 @@ fn apply_composes_the_added_entries() {
     let mut d = added("d", Some("d"));
     d["advertise"] = json!(true);
     d["allowed_client_kinds"] = json!(["human"]);
-    let (overlay, _) = loads(&json!({"enabled": {}, "added": [d]}), &config()).expect("loads");
+    let (overlay, _) = loads(
+        &with_empty_sets(json!({"enabled": {}, "added": [d]}), &["d"]),
+        &config(),
+    )
+    .expect("loads");
     let composed = overlay.apply(&config());
     let ids: Vec<&EndpointId> = composed.entries.iter().map(|e| &e.id).collect();
     assert_eq!(ids, vec![&id("a"), &id("b"), &id("c"), &id("d")]);
@@ -499,7 +587,10 @@ fn an_added_entry_round_trips_without_trust_members() {
     let mut d = added("d", Some("d"));
     d["allowed_client_kinds"] = json!(["human", "claude"]);
     let (_dir, path) = state();
-    put(&path, &json!({"enabled": {}, "added": [d.clone()]}));
+    put(
+        &path,
+        &with_empty_sets(json!({"enabled": {}, "added": [d.clone()]}), &["d"]),
+    );
     let (overlay, _) = load(&path, &config()).expect("loads");
     overlay
         .write_within(&path, &TrustBoundary::root())
@@ -528,7 +619,9 @@ fn added_entries_get_the_loaders_key_states() {
     let with_key =
         json!({"key": endpoint_key::key_file_name(&minted), "enabled": true, "advertise": false});
     let (mut overlay, _) = loads(
-        &json!({"enabled": {}, "added": [with_key, added("d", Some("d"))]}),
+        &json!({"enabled": {}, "added": [with_key, added("d", Some("d"))],
+                "inbound": {minted.as_str(): [], id("d").as_str(): []},
+                "outbound": {minted.as_str(): [], id("d").as_str(): []}}),
         &config(),
     )
     .expect("loads");
@@ -562,7 +655,10 @@ fn added_entries_get_the_loaders_key_states() {
 #[test]
 fn an_added_alias_resolves_and_an_unknown_one_is_refused() {
     let (overlay, _) = loads(
-        &json!({"enabled": {}, "added": [added("d", Some("fabric"))]}),
+        &with_empty_sets(
+            json!({"enabled": {}, "added": [added("d", Some("fabric"))]}),
+            &["d"],
+        ),
         &config(),
     )
     .expect("loads");
@@ -592,6 +688,8 @@ fn an_advertise_delta_is_normalised_against_the_authored_entries() {
     let file = json!({
         "enabled": {},
         "added": [added("d", Some("d"))],
+        "inbound": empty_sets(&["d"]),
+        "outbound": empty_sets(&["d"]),
         "advertise": {id("a").as_str(): true, id("b").as_str(): false,
                       id("gone").as_str(): true, id("d").as_str(): true},
     });
@@ -831,8 +929,8 @@ fn a_write_past_the_per_list_bound_is_refused() {
 fn set_enabled_and_default_keep_the_other_members() {
     let (overlay, _) = loads(
         &json!({"enabled": {}, "added": [added("d", Some("d"))],
-                "inbound": {id("a").as_str(): peers_json(0..2)},
-                "outbound": {id("a").as_str(): []},
+                "inbound": {id("a").as_str(): peers_json(0..2), id("d").as_str(): []},
+                "outbound": {id("a").as_str(): [], id("d").as_str(): []},
                 "advertise": {id("a").as_str(): true}}),
         &config(),
     )
@@ -854,8 +952,8 @@ fn the_carry_keeps_the_new_members() {
     let (_dir, path) = state();
     let file = json!({
         "enabled": {"claude": false},
-        "inbound": {id("a").as_str(): peers_json(0..2)},
-        "outbound": {id("a").as_str(): []},
+        "inbound": {id("a").as_str(): peers_json(0..2), id("d").as_str(): []},
+        "outbound": {id("a").as_str(): [], id("d").as_str(): []},
         "added": [added("d", Some("d"))],
         "advertise": {id("a").as_str(): true},
     });
@@ -897,27 +995,29 @@ fn the_largest_legal_overlay_fits_its_bound_and_the_bound_is_not_loose() {
             e
         })
         .collect();
+    let per_list = MAX_ENDPOINT_SET_ROWS / (2 * MAX_ENDPOINTS);
+    let sets: serde_json::Map<String, Value> = (0..MAX_ENDPOINTS)
+        .map(|i| {
+            let from = 1000 * i as u64;
+            (
+                id(&format!("x{i}")).as_str().to_owned(),
+                json!(peers_json(from..from + per_list as u64)),
+            )
+        })
+        .collect();
     let (_dir, path) = state();
-    put(&path, &json!({"enabled": {}, "added": entries}));
+    put(
+        &path,
+        &json!({"enabled": {}, "added": entries, "inbound": sets.clone(), "outbound": sets}),
+    );
     let config = config_of(&[]);
     let (mut overlay, changes) = load(&path, &config).expect("64 added endpoints load");
     assert!(changes.is_empty(), "{changes:?}");
     assert_eq!(overlay.added().count(), MAX_ENDPOINTS);
 
-    let per_list = MAX_ENDPOINT_SET_ROWS / (2 * MAX_ENDPOINTS);
     for i in 0..MAX_ENDPOINTS {
         let ids: Vec<EndpointId> = overlay.added().map(|e| e.id.clone()).collect();
         let endpoint = &ids[i];
-        let seed: Vec<TransportIdentity> = (0..per_list as u64)
-            .map(|j| peer(j + 1000 * i as u64))
-            .collect();
-        overlay = match overlay
-            .seed_sets(&config, endpoint, seed.clone(), seed)
-            .expect("seeded")
-        {
-            Seeded::Created(o) => o,
-            Seeded::AlreadyPresent => panic!("fresh"),
-        };
         overlay = overlay
             .set_enabled(&config, endpoint, false)
             .expect("known")
