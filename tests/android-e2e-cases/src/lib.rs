@@ -1033,13 +1033,18 @@ async fn paths(binding: &impl DataSessionBinding, args: &PathsArgs) -> Result<Pe
 
 /// The `human` endpoint, which the profiles of both sides lease.
 ///
-/// A derived id (ADR-0067) over a fixed, public, test-only key: the
-/// crate may not depend on `interweave-test-support` (the graph test),
-/// and a case that names the endpoint needs a stable, well-formed one.
-/// No secret stands behind it.
+/// The id the shipped examples name for `human`
+/// (`architecture/config/examples/human-{desktop,android}.yaml`), derived
+/// (ADR-0067) from the TEST-ONLY key whose seed is public by construction
+/// (`interweave-test-support`'s `endpoint_keys`). Written as its text
+/// because this crate may not depend on `interweave-test-support` (the
+/// graph test); `interweave-android-e2e-tests`'
+/// `the_cases_human_endpoint_is_the_one_the_examples_lease` holds the two
+/// equal, since a case on another id is answered `EndpointUnknown`.
 #[must_use]
 pub fn human() -> EndpointId {
-    EndpointId::from_ed25519_public(&[0x68; 32])
+    EndpointId::parse_derived("12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr")
+        .expect("a derived id")
 }
 
 /// A human client's session on the `human` endpoint, with events and
