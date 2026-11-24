@@ -259,8 +259,8 @@ pub fn start_resealed(
 /// until one opens the record to it (design
 /// 2026-10-19-android-identity.md section 6, A start from C4 after a
 /// failed read-back; The comparison outlasts the bound). Custody's unlock
-/// checks the seed against the record's own `PeerId` field only; this
-/// comparison is the app's, made after the unlock and before the reseal
+/// is not told the `PeerId` C4 showed, so this comparison is the app's,
+/// made after the unlock and before the reseal
 /// and before the identity is handed to anything, so a record opening to
 /// another `PeerId` is refused [`IdentityRefused::NotExpected`] with
 /// nothing written and nothing run as it. A profile with no record is
