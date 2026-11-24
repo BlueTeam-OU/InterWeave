@@ -1010,11 +1010,12 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     use interweave_transport_api::MediaType;
 
     let app = app();
-    common::provision_first_identity(&app.dir, PROFILE);
+    let me = common::provision_first_identity(&app.dir, PROFILE);
     let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
         .expect("paths");
     // A first posture start lays the profile's directories out; the store
-    // is then seeded with two unread messages while nothing holds it.
+    // is then seeded with two unread messages while nothing holds it,
+    // opened as the identity the start opens it as.
     let service = ServiceHost::new();
     service
         .start_without_network(
@@ -1028,7 +1029,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
         let mut store = HumanStore::open_profile(
             &paths,
             &interweave_human_store::key_custody::FilesystemCustody,
-            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            &me,
             StoreOptions::default(),
         )
         .expect("the store");
@@ -1163,7 +1164,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     let store = HumanStore::open_profile(
         &paths,
         &interweave_human_store::key_custody::FilesystemCustody,
-        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        &me,
         StoreOptions::default(),
     )
     .expect("the store");
@@ -1569,6 +1570,20 @@ fn a_start_refused_for_the_person_answers_locked() {
     let _ = service.stop(GRACE);
 }
 
+/// The first run with the first identity's key sealed under `keystore`,
+/// as onboarding seals it before form 2 names it; its id.
+fn keystore_first_identity(
+    app_data_dir: &std::path::Path,
+    keystore: &StoreKeystore,
+) -> interweave_transport_api::EndpointId {
+    common::provision_first_identity_with(app_data_dir, PROFILE, |paths| {
+        interweave_human_store::identity_key::create(paths, keystore)
+            .expect("the key sealed")
+            .endpoint()
+            .clone()
+    })
+}
+
 /// The identity in front as the first windowed start after a start
 /// reports it.
 fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::IdentityView> {
@@ -1588,25 +1603,27 @@ fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::I
     identity.expect("listed")
 }
 
-/// ADR-0063 decision 2 on Android: the first start makes the identity's
-/// key sealed under the platform's custody, beside the store and outside
-/// it, and every later start opens that key, never a new one; the record
-/// is the Keystore's, which the desktop's filesystem floor cannot read.
+/// ADR-0063 decision 2 on Android, as ADR-0067 decision 5 left it: the
+/// identity's key is sealed under the platform's custody at onboarding,
+/// beside the store and outside it, and every start opens that key, the
+/// same one each time; the record is the Keystore's, which the desktop's
+/// filesystem floor cannot read.
 #[test]
-fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
+fn the_service_opens_the_identitys_key_sealed_under_the_keystore_at_every_start() {
     use interweave_human_store::identity_key::{
         self, FilesystemCustody, IdentityKeyError, IdentityKeyFileError,
     };
     let app = app();
-    common::provision_first_identity(&app.dir, PROFILE);
     let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
     });
+    let sealed = keystore_first_identity(&app.dir, &keystore);
     let service = ServiceHost::new();
     service
         .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started");
     let first = listed_identity(&service).expect("the identity has its key");
+    assert_eq!(first.endpoint, sealed, "the identity onboarding sealed");
     let _ = service.stop(GRACE);
 
     service
@@ -1634,10 +1651,10 @@ fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
 fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
     use interweave_human_store::identity_key;
     let app = app();
-    common::provision_first_identity(&app.dir, PROFILE);
     let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
     });
+    keystore_first_identity(&app.dir, &keystore);
     let service = ServiceHost::new();
     service
         .start_without_network(&app.dir, PROFILE, keystore.clone())

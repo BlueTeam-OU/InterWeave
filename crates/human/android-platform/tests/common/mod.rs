@@ -18,17 +18,32 @@ use interweave_transport_api::EndpointId;
 /// The key is minted at FILESYSTEM custody, as the embedded host's own
 /// tests do (`crates/transport/embedded/tests/host.rs`,
 /// `a_start_on_form_1_is_refused_no_identity`): the host has no
-/// Keystore. The app seals the key at onboarding under the Keystore and
-/// only then calls `provision_identity`; that order is not what these
-/// tests prove.
+/// Keystore. A test that starts the Service under a Keystore cipher
+/// mints under it with [`provision_first_identity_with`], as the app
+/// seals the key at onboarding before it calls `provision_identity`: a
+/// start opens the key it finds and makes none (ADR-0067 decision 5;
+/// app-core's `a_missing_key_file_is_missing_and_none_is_made`), and a
+/// filesystem record under a Keystore start opens to no key.
 pub(crate) fn provision_first_identity(app_data_dir: &Path, profile: &str) -> EndpointId {
+    provision_first_identity_with(app_data_dir, profile, |paths| {
+        endpoint_key::mint_filesystem(paths).expect("the first identity's key")
+    })
+}
+
+/// [`provision_first_identity`] with the key made by `mint`, which
+/// answers the id the key derives.
+pub(crate) fn provision_first_identity_with(
+    app_data_dir: &Path,
+    profile: &str,
+    mint: impl FnOnce(&ProfilePaths) -> EndpointId,
+) -> EndpointId {
     provision_profile(app_data_dir, profile).expect("form 1");
     let paths = ProfilePaths::resolve_embedded(
         profile,
         TrustBoundary::new(app_data_dir).expect("a boundary"),
     )
     .expect("paths");
-    let id = endpoint_key::mint_filesystem(&paths).expect("the first identity's key");
+    let id = mint(&paths);
     provision_identity(&paths, &id).expect("form 2");
     id
 }
