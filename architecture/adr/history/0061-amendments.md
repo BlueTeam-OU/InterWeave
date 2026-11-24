@@ -266,10 +266,18 @@ before the add, deleted in the transaction that removes either
 identity, kept beside a first identity that is turned off and never
 removed. What the earlier clause protected is kept, and is the bound
 that matters: no row names a removed identity, so no record of a
-removal exists (A 2026-11-04). A row whose new identity is not yet
-added names no removed identity either; it is what the interrupted
-replacement is finished from. The 2026-11-22 note stands as written,
+removal exists (A 2026-11-04). A row whose new identity was never
+added names no removed identity either, and no identity the node holds:
+the client discards it at the next open and shows the old identity as
+before, Replace offered again, so a record alone never shows as
+unfinished (`design/2026-10-24-identity-key.md` §5.3; this change's
+own review, its finding F3, found the first wording of this note
+giving that row the finishing role). Only a record whose add happened
+is what the replacement is finished from. So the record leaves in two
+ways, with either identity's Remove and by that discard. The 2026-11-22 note stands as written,
 being the record of its day; this one corrects its one clause.
 
 Propagation: decision 7; this note; the log row; the digest entry.
-`STATE.md` is unchanged.
+`STATE.md` is unchanged; it does not state the discard, which is the
+design's until the store change that builds the replacement states it
+there.
