@@ -1395,13 +1395,20 @@ mod tests {
     /// The Android half ends only on the desktop's close: without it the
     /// case fails, naming the close; the control is the same exchange
     /// closed, which passes.
+    ///
+    /// Both runs give the case the fake's usual five seconds. The case
+    /// applies its deadline to every step, the answer's arrival as well as
+    /// the close's, so a short one made the open run fail on the answer
+    /// instead whenever the host was loaded (500 ms did, in a 175 s run).
+    /// The open run waits the whole deadline for a close that is never
+    /// sent; the closed run ends on its close and waits for nothing.
     #[test]
     fn the_android_half_waits_for_the_desktops_close() {
         let open = paths_closing(
             PeerPath::Relayed,
             Notice::Connected(PeerPath::Relayed),
             false,
-            Duration::from_millis(500),
+            Duration::from_secs(5),
         );
         assert_eq!(open[keys::RESULT], keys::FAIL, "{open:?}");
         let detail = open[keys::DETAIL].as_str().expect("a detail");
@@ -1411,7 +1418,7 @@ mod tests {
             PeerPath::Relayed,
             Notice::Connected(PeerPath::Relayed),
             true,
-            Duration::from_millis(500),
+            Duration::from_secs(5),
         );
         assert_eq!(closed[keys::RESULT], keys::PASS, "{closed:?}");
         assert_eq!(closed[keys::CLOSE], "accepted", "{closed:?}");
