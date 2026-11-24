@@ -1096,6 +1096,14 @@ component FocusHeading inherits FocusScope {
                     font-size: root.font-size;
                     color: Palette.on-surface;
                     wrap: root.wraps ? word-wrap : no-wrap;
+                    // A wrapped Text's own minimum width is its longest
+                    // word, so a word wider than the heading's width would
+                    // be laid out wider still and cut by the clip. At zero
+                    // the heading's width reaches the text, and a word too
+                    // wide for it breaks inside the word, all of it shown
+                    // (identities section 12; tests/identities.rs
+                    // at_twice_the_text_the_title_is_whole_or_wrapped_never_cut).
+                    min-width: 0px;
                     min-height: self.preferred-height;
                     overflow: root.wraps ? clip : elide;
                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
@@ -5981,12 +5989,13 @@ export component AppWindow inherits Window {
                             font-weight: 400;
                             rtl: root.rtl;
                             // On the first of two rows the title wraps at a
-                            // word boundary; a word wider than the row
-                            // ellipsises instead, since the toolkit's word
-                            // wrap would break inside it (parley
-                            // OverflowWrap::Anywhere). Its accessible name is
-                            // whole either way. On one row it fits whole.
-                            wraps: chats-bar.two-rows && chats-bar.title-word <= chats-bar.block-w;
+                            // word boundary, and a word wider than the row
+                            // breaks inside the word (parley
+                            // OverflowWrap::Anywhere): never an ellipsis,
+                            // which would hide part of an enlarged heading
+                            // (identities section 12, 2026-11-23). On one
+                            // row it fits whole.
+                            wraps: chats-bar.two-rows;
                             focus-key: "conversations-heading";
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "heading";

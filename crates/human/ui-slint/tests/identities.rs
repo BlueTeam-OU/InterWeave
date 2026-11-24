@@ -867,15 +867,27 @@ fn the_chats_bar_never_reflows_on_a_switch() {
     );
 }
 
-/// Criterion 26: at 200 % text the title is whole or wrapped, cut only
-/// where a single word is wider than its row, and its accessible name is
-/// whole either way. A title of several words wraps at a word boundary
-/// on the first of two rows. Mutation: the title never wrapping.
+/// Criterion 26: at 200 % text the title is whole or wrapped, never
+/// ellipsised: a single word wider than its row breaks inside the word
+/// (identities section 12, as changed 2026-11-23), and its accessible
+/// name is whole. The 280 px pane is where "Conversations" is wider than
+/// its row, which the test asserts as its premise. Mutation: the title
+/// not wrapping when its one word is too wide (it then elides on one
+/// line).
 #[test]
-fn at_twice_the_text_the_title_is_whole_wrapped_or_a_word_too_wide() {
+fn at_twice_the_text_the_title_is_whole_or_wrapped_never_cut() {
     let (mut model, _) = model_with(&["a", "b"]);
     let mut view = view(1000.0);
     text_size(&view, 28.0);
+    turn(&mut view, &mut model);
+    // One line of the title's type at this size, from a title that fits.
+    view.window().set_conversations_heading("Ab".into());
+    slint::platform::update_timers_and_animations();
+    let line = one(&view, "Ab").size().height;
+    view.window()
+        .set_conversations_heading("Conversations".into());
+    slint::platform::update_timers_and_animations();
+    let mut broke = false;
     for width in [1000.0, 360.0] {
         resize(&view, width);
         turn(&mut view, &mut model);
@@ -886,14 +898,27 @@ fn at_twice_the_text_the_title_is_whole_wrapped_or_a_word_too_wide() {
             view.window().get_chats_title_whole(),
             view.window().get_chats_title_word(),
         );
-        assert!(
-            whole <= row || word > row,
-            "{width}: cut with every word fitting: {whole} {word} in {row}"
-        );
+        if word > row {
+            broke = true;
+            assert!(
+                title.size().height >= 2.0 * line - 1.0,
+                "{width}: a word wider than its row ({word} in {row}) breaks onto \
+                 two lines, not one elided line: {} against {line}",
+                title.size().height
+            );
+        } else {
+            assert!(
+                whole <= row || title.size().height >= 2.0 * line - 1.0,
+                "{width}: cut with every word fitting: {whole} {word} in {row}"
+            );
+        }
     }
+    assert!(
+        broke,
+        "the premise: at some width the one word is wider than its row"
+    );
     // A title of several words, each narrower than the row, the whole
     // wider: it wraps, and the bar grows to hold it.
-    let one_line = one(&view, "Conversations").size().height;
     let height = view.window().get_chats_bar_height();
     let several = "Talks and threads with everyone";
     view.window().set_conversations_heading(several.into());
@@ -909,8 +934,8 @@ fn at_twice_the_text_the_title_is_whole_wrapped_or_a_word_too_wide() {
         "the premise: {whole} {word} in {row}"
     );
     assert!(
-        title.size().height >= 2.0 * one_line - 1.0,
-        "wrapped onto two lines or more: {} against {one_line}",
+        title.size().height >= 2.0 * line - 1.0,
+        "wrapped onto two lines or more: {} against {line}",
         title.size().height
     );
     assert!(
