@@ -3,16 +3,20 @@
 //! An administrator's disable outlives the daemon (ADR-0028 A 2026-10-11,
 //! #261), so the client cannot take which endpoint is enabled from
 //! `config.yaml`: with `human` disabled over admin and the daemon
-//! restarted, the shipped binary leases the profile's next human-client
-//! endpoint rather than being refused for good.
+//! restarted, the shipped binary is refused the identity its store speaks
+//! as, says so, and leases no other -- not the profile's next human-client
+//! endpoint, which would send the first identity's rows as another
+//! (`human-client-ui.md` §13: a disabled identity is off, nothing sending
+//! as it; ADR-0061 decisions 1 and 9).
 
 use std::net::Ipv4Addr;
-use std::time::Duration;
 
+use interweave_human_ui_model::{ErrorClass, RuntimeHost, UiText, fill, placeholder_en};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort};
 use interweave_transport_api::EndpointId;
 
-use crate::common::{Home, PATIENCE, example, free_port, human, stranger};
+use crate::a11y::Bus;
+use crate::common::{Home, example, free_port, human, stranger};
 use crate::harness as human_app;
 
 fn spare() -> EndpointId {
@@ -65,7 +69,7 @@ async fn rows(admin: &impl AdminPort) -> Vec<(EndpointId, bool, bool, bool)> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_endpoint() {
+async fn a_disable_kept_across_a_daemon_restart_refuses_the_client_and_leases_no_other() {
     let home = home();
     let mut daemon = home.start(&[]);
     daemon.serving(&home).await;
@@ -97,22 +101,31 @@ async fn a_disable_kept_across_a_daemon_restart_moves_the_client_to_its_next_end
         "the file still says enabled"
     );
 
+    let bus = Bus::connect().await;
     let mut app = human_app::start(&home);
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    while !row(&rows(&admin).await, &spare()).3 {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the client never leased `human-spare`: {}\n{}",
-            app.log(),
-            daemon.log()
-        );
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    // Shown, not only kept: the session's refusal is on screen, as the
+    // desktop words it for a daemon's runtime.
+    let refused = fill(
+        placeholder_en::text(UiText::Refused),
+        &[(
+            "reason",
+            placeholder_en::error(RuntimeHost::Daemon, ErrorClass::EndpointNotAvailable),
+        )],
+    );
+    let window = bus.window_of(app.child.id(), || app.log()).await;
+    window
+        .until("the session refused", |e| e.name == refused, || app.log())
+        .await;
     let after = rows(&admin).await;
     assert_eq!(
         row(&after, &human()),
         (human(), false, true, false),
         "the disabled endpoint stays unleased"
+    );
+    assert!(
+        !row(&after, &spare()).3,
+        "`human-spare` is not leased in its place: {}",
+        app.log()
     );
     assert!(app.running(), "{}", app.report());
     assert!(app.terminate().success(), "{}", app.log());
