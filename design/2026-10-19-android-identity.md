@@ -1309,9 +1309,13 @@ that a PeerId was created.
   identity that runs. If the comparison still applied to the start of
   that Continue, that start would be refused, and nothing in the
   process would lead on. No step of the restore before that press ends
-  the comparison. When K1 shows and the person opens R2, enters and
-  checks the words, and then presses Back or cancels a prompt, nothing
-  is restored, and the next start of that process still compares.
+  the comparison. On R2 after K1, the check is the restore: a check
+  that succeeds opens R4, with no Back between them. When K1 shows and
+  the person opens R2 and enters the words, and then presses Back
+  before any check, or after a check that restored nothing (its prompt
+  cancelled or denied, the checksum banner, `IdOtherIdentity`),
+  nothing is restored, and the next start of that process still
+  compares.
   `IdRestoreOther`'s Continue on R2 after K1 does not end the
   comparison either. A build cannot reach that Continue there: K1
   offers R2 only with the record's own PeerId. If a build reaches that
@@ -2428,12 +2432,12 @@ landscape:
     run. In a fifth run, the held start is answered after the bound with
     `RecoveryRequired`, and the double's record names a PeerId other
     than C4's: K1 shows over Chats with that PeerId. The phrase of that
-    PeerId is entered on R2 and checked; Back returns to K1 through the
-    discard dialog (`IdDiscard`), and Back from K1 leaves the app. The
+    PeerId is entered on R2 and not checked; Back returns to K1 through
+    the discard dialog (`IdDiscard`), and Back from K1 leaves the app. The
     launcher launches the app again in the same process: the start of that
     launch compares, and the double answers it `RecoveryRequired`
-    again, so K1 shows again. The phrase is entered on R2 again, and
-    R4's Continue is pressed. The hook
+    again, so K1 shows again. The phrase is entered on R2 again and
+    checked, R4 shows, and R4's Continue is pressed. The hook
     then records one start, with no comparison, and the service runs.
     After Back and a new launch in the same process, the start of that
     launch compares nothing either. The fifth run is blocked until the
@@ -3444,9 +3448,12 @@ here; the first was already answered on this branch.
   press of R4's Continue after K1, and at no earlier step of the
   restore. That press ends the comparison for the start that the press
   makes and for every later start of the process; nothing is stored.
-  No step of the restore before that press ends it: when K1 shows and
-  the person opens R2, enters the words, and then presses Back or
-  cancels a prompt, nothing is restored, and the comparison still
+  No step of the restore before that press ends it. On R2 after K1,
+  the check is the restore, and a check that succeeds opens R4: when
+  K1 shows and the person opens R2 and enters the words, and then
+  presses Back before any check, or after a check that restored
+  nothing (its prompt cancelled or denied, the checksum banner,
+  `IdOtherIdentity`), nothing is restored, and the comparison still
   binds. `IdRestoreOther`'s Continue on R2 after K1 would end the
   comparison only if that notice also said that the words written down
   on C4 do not restore the PeerId below it. The note does not add that
