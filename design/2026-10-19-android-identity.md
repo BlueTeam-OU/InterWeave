@@ -430,11 +430,13 @@ Revised 2026-11-24 a third time, to answer Q18 (§11f), which #753's
 review left open. When a compared start from R2 after K1, from R3, or
 from R4 when R4 was not reached after K1 is answered `Unavailable` or
 a mismatch before the bound, Chats opens with focus on `Refused` (§6,
-§8). Answered `RecoveryRequired` before the bound, such a start shows
-K1, with focus on its heading. Acceptance 12 gains a sixth run, for
+§8). When such a start is answered `RecoveryRequired` before the
+bound, it shows K1, with focus on its heading. Acceptance 12 gains a
+sixth run, for
 Back on R2 after K1 after a check that showed `IdStorageUnknown`, and
-a seventh, for those two answers; §12 names the end with no words
-that follows that Back. Before, the note left all three open.
+a seventh, for the two decisions above. §12 says
+that after that Back only the end of the process leads on, and that
+no words say so. Before, the note left all three open.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1371,8 +1373,9 @@ that a PeerId was created.
   K1: an answer of
   `Unavailable` or a mismatch opens Chats, and `Refused` shows there;
   `LockHeld` keeps the profile-in-use row, and a cancelled or denied
-  prompt keeps the Authentication needed row, and `RecoveryRequired`
-  shows K1, as the end of An answer after the bound says. To end
+  prompt keeps the Authentication needed row. `RecoveryRequired`
+  shows K1, as the last sentences of An answer after the bound say.
+  To end
   the comparison there, the notice would have
   to say that the words written down on C4 do not restore the PeerId
   below it, and
@@ -2079,13 +2082,14 @@ access.
   time. Why: the person pressed the control that made this start and
   is still waiting on its answer, and that control has closed with
   its screen, so the notice is the answer to their press. A cancelled
-  or denied prompt before the bound lands on the locked notice in the
-  same way (After `IdRestoreOther`'s Continue, above). After the bound,
+  or denied prompt before the bound moves focus to the locked notice
+  in the same way (After `IdRestoreOther`'s Continue, above). After
+  the bound,
   `Refused` takes no focus, because by then it answers nothing the
-  person is doing (§6). The notice's Try again and that Try again's
-  results move focus as they do after the bound. Answered
-  `RecoveryRequired` before the bound, such a start raises K1, and the
-  rule below for a refused start that raises a screen applies. Each
+  person is doing (§6). The notice's Try again, and the results of
+  that Try again, move focus as they do after the bound. When such a start
+  is answered `RecoveryRequired` before the bound, it raises K1, and
+  the rule below for a refused start that raises a screen applies. Each
   case is a row of `design/2026-10-22-add-a-peer.md` §8 item 1's
   table.
 - **A start retried at a return** to C4, R4, R3 or R2 after K1 while
@@ -2534,23 +2538,26 @@ landscape:
     as the fifth is.
     A seventh run makes a compared start before the bound from R4 when
     R4 was not reached after K1 (§6, An answer after the bound). It
-    goes as the first run held past the bound until `Refused` shows. Then the double
-    removes its record, Back finishes the Activity, and the launcher
-    launches it again in the same process: W shows. A fixture phrase
+    goes as the first run, with its start held past the bound, until
+    `Refused` shows. Then the double removes its record, Back finishes
+    the Activity, and the launcher launches it again in the same
+    process: W shows. A fixture phrase
     is restored through R2 and R3 to R4, and R4's Continue is pressed.
-    The double answers that start before the 10 s bound as opening
+    The seventh run has three variants. In the first, the double
+    answers that start before the 10 s bound as opening
     the record to a PeerId other than C4's: the hook records no service
     start, Chats opens, `Refused` shows under its app bar, and focus is
-    on `Refused`. In a second run, that start is answered `Unavailable`
-    before the bound, and the result is the same. In a third run, that
-    start is answered `RecoveryRequired` before the bound, and the
-    double's record names the fixture phrase's PeerId: K1 shows with
+    on `Refused`. In the second variant, that start is answered
+    `Unavailable` before the bound, and the result is the same. In the
+    third variant, that start is answered `RecoveryRequired` before
+    the bound, and the double's record names the fixture phrase's
+    PeerId: K1 shows with
     that PeerId, and focus is on K1's heading. The phrase is entered on
     R2 and checked, R4 shows, and R4's Continue is pressed; the double
     answers its start as opening the record to that PeerId, the hook
     records one service start, and the service runs. The seventh run
-    is blocked as the first three are, and its third run as the fifth
-    is.
+    is blocked as the first three runs are, and its third variant is
+    also blocked as the fifth run is.
     Back goes where §6 (Back from a notice) says: on R2 after K1, to
     K1, through the discard dialog, with the words dropped only by
     `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
@@ -3591,14 +3598,16 @@ here; the first was already answered on this branch.
 - **Q18. What this revision leaves open.** Answered by ux-designer,
   2026-11-24, whose question it was. First, when Chats opens before
   the bound, focus goes to `Refused`, since the person is waiting on
-  the start that their press made and that control has closed (§8, A
+  the start that their press made, and the control they pressed has
+  closed (§8, A
   compared start answered before the bound). Second, a
   `RecoveryRequired` answer before the bound shows K1, as for any
   start, with focus on its heading; K1 does not end the comparison,
   and R4's Continue after it does (§6, An answer after the bound).
   Third, acceptance 12's sixth run walks Back on R2 after K1 after a
   check that showed `IdStorageUnknown`; its seventh run checks the
-  first two answers. After that sixth run's Back, and Back from K1,
+  first two parts of this answer. After that sixth run's Back, and
+  Back from K1,
   every later start of the process compares and is refused, and
   nothing tells the person that only the end of the process leads on
   (§12, Words for a read-back that keeps failing). Before that Back,
