@@ -445,17 +445,17 @@ of 2026-11-24, REQUEST 01a20e18-3759). Before, §6 said that such a start unlock
 
 Revised 2026-11-24 a fourth time, for the risks that #754's reviews
 carried. §6 (The comparison outlasts the bound) now says that nothing
-a start without network writes is tied to this node's PeerId. Before,
+that a start without network writes is tied to this node's PeerId. Before,
 it said "a PeerId", which a reader could take to cover the contacts'
 PeerIds that the store holds. §6 (A start from C4 after a failed
-read-back) and acceptance 12 now say that the app compares the PeerId
-that the record opens to with C4's. Before, they said "the identity
+read-back) and acceptance 12 now say that the app compares C4's PeerId
+with the PeerId that the record opens to. Before, they said "the identity
 that the start unlocks", which, since Stage 22, could mean a user
 identity. In acceptance 12, the first three runs and the fifth are no
 longer blocked, since #750 built what they need; the sixth run needs
-only what the first three do, where before it was blocked as the fifth
-was; the seventh run's third variant requires that the fixture
-phrase's PeerId differ from C4's; the seventh run is blocked until the
+only what the first three do (before, it was blocked as the fifth
+was); the seventh run's third variant requires a fixture phrase whose
+PeerId differs from C4's; the seventh run is blocked until the
 build has Q18's rule; and an eighth run checks that rule from R3.
 Before, no run checked it from R3, and the note did not say why none
 checks it from R2 after K1.
@@ -1247,8 +1247,8 @@ running). Under it, a line
 that a PeerId was created.
 - **What it does.** The creation flow ends and lets go of its profile
   lock, as before any start after C4; then the start unlocks the
-  record, and the app compares the PeerId that the record opens to with
-  the PeerId C4 shows before anything runs as that PeerId (custody's
+  record, and the app compares the PeerId C4 shows with the PeerId that
+  the record opens to, before anything runs as that PeerId (custody's
   `unlock` checks the seed only against the record's own PeerId field,
   `crates/transport/embedded/src/custody.rs`; this comparison is the
   app's). Nothing is sealed or written: no connect-owed marker either,
@@ -2492,7 +2492,8 @@ landscape:
     Try again reaches `IdStartUnchecked`; after a cancelled read-back
     prompt instead, neither shows. Its press: the custody records no
     seal and no restore, the flow's lock is let go before the start,
-    and the app compares the PeerId that the record opens to with C4's PeerId. Answered as opening: Chats.
+    and the app compares C4's PeerId with the PeerId that the record
+    opens to. Answered as opening: Chats.
     Answered `RecoveryRequired`, and in a second run with its
     `WrongIdentity` cause: K1, with the record's PeerId, C4's, as the
     expected one. Answered `Unavailable`: `IdStorageUnknown` again with
@@ -2568,8 +2569,9 @@ landscape:
     the hook still records no service start. The sixth run needs the
     comparison to outlast the bound, as the first three runs do; it
     does not reach R4's Continue.
-    A seventh run makes a compared start before the bound from R4 when
-    R4 was not reached after K1 (§6, An answer after the bound). It
+    In a seventh run, a compared start from R4, when R4 was not reached
+    after K1, is answered before the bound (§6, An answer after the
+    bound). It
     goes as the first run, with its start held past the bound, until
     `Refused` shows. Then the double removes its record, Back finishes
     the Activity, and the launcher launches it again in the same
@@ -2583,29 +2585,32 @@ landscape:
     `Unavailable` before the bound, and the result is the same. In the
     third variant, that start is answered `RecoveryRequired` before
     the bound, and the double's record names the fixture phrase's
-    PeerId, which the test chooses other than C4's, so that the
-    service run below shows that R4's Continue ended the comparison:
-    K1 shows with
-    that PeerId, and focus is on K1's heading. The phrase is entered on
+    PeerId. The fixture phrase is one whose PeerId differs from C4's,
+    so that the service start below shows that R4's Continue ended
+    the comparison. K1 shows with the fixture phrase's PeerId, and
+    focus is on K1's heading. The phrase is entered on
     R2 and checked, R4 shows, and R4's Continue is pressed; the double
     answers its start as opening the record to that PeerId, the hook
     records one service start, and the service runs. The seventh run
     is blocked until the build has the rule for a compared start
     answered before the bound (§6, An answer after the bound), which
     Q18 (§11f) gave after #750 merged.
-    An eighth run makes a compared start before the bound from R3. It
-    goes as the seventh until W shows. The fixture phrase is entered
-    on R2 and checked, and R3 shows. Then the double writes a record
-    that names the PeerId of a second fixture phrase, other than C4's
-    and the first phrase's, and R3's yes is pressed: the restore is
-    answered as another identity on record, and `IdRestoreOther`
-    shows. Its Continue is pressed. The eighth run has the seventh's
+    In an eighth run, a compared start from R3 is answered before the
+    bound. It goes as the seventh run until W shows. The fixture phrase is
+    entered on R2 and checked, and R3 shows. Then the double writes a
+    record that names the PeerId of a second fixture phrase, a PeerId
+    other than C4's and other than the first phrase's, and R3's yes is
+    pressed: the restore is answered with that record (§6, Another
+    identity already on record), and `IdRestoreOther` shows.
+    `IdRestoreOther`'s Continue is pressed. The eighth run has the
+    seventh's
     three variants for the start of that Continue, with the same
     results; in the third, K1 shows with the second phrase's PeerId,
-    and that phrase is the one entered on R2. The eighth run is
-    blocked as the seventh is. The rule's entry for R2 after K1 has
-    no run: its compared start is `IdRestoreOther`'s Continue, which
-    a build cannot reach there (§11f, Q17).
+    and the second phrase is the one entered on R2. The eighth run is
+    blocked as the seventh is. Q18's rule also covers a start from R2
+    after K1, but no run checks that case: on R2 after K1, the compared
+    start is `IdRestoreOther`'s Continue, and a build cannot reach that
+    notice on R2 after K1 (§11f, Q17).
     Back goes where §6 (Back from a notice) says: on R2 after K1, to
     K1, through the discard dialog, with the words dropped only by
     `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
@@ -3653,9 +3658,10 @@ here; the first was already answered on this branch.
   start, with focus on its heading; K1 does not end the comparison,
   and R4's Continue after it does (§6, An answer after the bound).
   Third, acceptance 12's sixth run walks Back on R2 after K1 after a
-  check that showed `IdStorageUnknown`; its seventh and eighth runs
-  check the first two parts of this answer, from R4 and from R3, and
-  the entry for R2 after K1 has no run. After that sixth run's Back, and
+  check that showed `IdStorageUnknown`; its seventh run checks the
+  first two parts of this answer from R4, and its eighth run checks
+  them from R3; no run checks them from R2 after K1. After that sixth
+  run's Back, and
   Back from K1,
   every later start of the process compares and is refused, and
   nothing tells the person that only the end of the process leads on
