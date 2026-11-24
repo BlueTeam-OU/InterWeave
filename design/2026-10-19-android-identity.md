@@ -450,16 +450,17 @@ it said "a PeerId", which a reader could take to cover the contacts'
 PeerIds that the store holds. §6 (A start from C4 after a failed
 read-back) and acceptance 12 now say that the app compares C4's PeerId
 with the PeerId that the record opens to. Before, §6 said "the
-identity that `unlock` gives" and acceptance 12 said "the identity
-that the start unlocks"; since Stage 22, the second could mean a user
-identity. In acceptance 12, the first three runs and the fifth are no
-longer blocked, since #750 built what they need; the sixth run needs
-only what the first three do (before, it was blocked as the fifth
-was); the seventh run's third variant requires a fixture phrase whose
-PeerId differs from C4's; the seventh run is blocked until the
-build has Q18's rule; and an eighth run checks that rule from R3,
-which §11f's answer to Q18 now names. Before, no run checked it from R3, and the note did not say why none
-checks it from R2 after K1.
+identity that `unlock` gives", and acceptance 12 said "the identity
+that the start unlocks"; since Stage 22, only the second wording could
+mean a user identity. In acceptance 12, the first three runs and the
+fifth are no longer blocked, since #750 built what they need; the
+sixth run needs only what the first three do (before, it was blocked
+as the fifth was); the seventh run's third variant requires a fixture
+phrase whose PeerId differs from C4's; the seventh run is blocked
+until the build has Q18's rule; and an eighth run, which §11f's answer
+to Q18 now names, checks that rule from R3. Before, no run checked it
+from R3, and the note did not say why none checks it from R2 after
+K1.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -2599,16 +2600,18 @@ landscape:
     In an eighth run, a compared start from R3 is answered before the
     bound. It goes as the seventh run until W shows. Then, before R2
     opens and takes the profile lock (§2), the double writes a record
-    that names the PeerId of a second fixture phrase, a PeerId other
-    than C4's and other than the first phrase's. The fixture phrase is
-    entered on R2 and checked, R3 shows, and R3's yes is pressed: the
+    that names the PeerId of a second fixture phrase. That PeerId
+    differs from C4's and from the PeerId of the first fixture phrase.
+    The first fixture phrase is entered on R2 and checked, R3 shows,
+    and R3's yes is pressed: the
     restore is answered with that record (§6, Another
     identity already on record), and `IdRestoreOther` shows.
     `IdRestoreOther`'s Continue is pressed. The eighth run has the
     seventh's
     three variants for the start of that Continue, with the same
     results; in the third, K1 shows with the second phrase's PeerId,
-    and the second phrase is the one entered on R2. The eighth run is
+    and the second phrase is the one entered on R2 after K1. The
+    eighth run is
     blocked as the seventh is. Q18's rule also covers a start from R2
     after K1, but no run checks that case: on R2 after K1, the compared
     start is `IdRestoreOther`'s Continue, and a build cannot reach that
