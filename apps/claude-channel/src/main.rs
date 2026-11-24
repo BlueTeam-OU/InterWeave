@@ -307,6 +307,7 @@ mod unix {
             | EndpointOverlayError::SetTooLarge { .. }
             | EndpointOverlayError::SetRowsExceeded { .. }
             | EndpointOverlayError::AddedEntryCarriesTrust { .. }
+            | EndpointOverlayError::AddedEntryWithoutSet { .. }
             | EndpointOverlayError::AddedIdCollides(_)
             | EndpointOverlayError::AddedAliasCollides(_)
             | EndpointOverlayError::TooManyEndpoints { .. }
@@ -713,6 +714,7 @@ mod unix {
                 |_| EndpointOverlayError::AddedEntryCarriesTrust {
                     member: OverlayMember::Outbound,
                 },
+                |endpoint| EndpointOverlayError::AddedEntryWithoutSet { endpoint },
                 EndpointOverlayError::AddedIdCollides,
                 |_| {
                     EndpointOverlayError::AddedAliasCollides(
