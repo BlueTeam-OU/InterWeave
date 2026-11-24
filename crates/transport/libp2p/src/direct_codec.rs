@@ -475,8 +475,8 @@ pub fn decode_response(bytes: &[u8]) -> Result<DirectResponse, String> {
                 ));
             }
             let text = core::str::from_utf8(id).map_err(|_| "a non-UTF-8 endpoint id")?;
-            // `parse_derived`, never the transitional `parse`: a label of
-            // the retired grammar is malformed metadata here.
+            // A label of the retired grammar is malformed metadata here: the
+            // derived grammar decides what an id is.
             let resolved_endpoint = EndpointId::parse_derived(text)
                 .map_err(|e| format!("an illegal endpoint id: {e}"))?;
             Ok(DirectResponse::Accepted {
