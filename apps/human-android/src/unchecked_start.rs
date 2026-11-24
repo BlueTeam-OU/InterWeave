@@ -28,13 +28,15 @@ use interweave_transport_api::TransportIdentity;
 /// its own, held in a static apart from the parked flow (`flow_park.rs`)
 /// and from the Activity's saved state, so a process the system ended and
 /// restored compares nothing.
-/// `the_comparison_outlasts_the_flow_until_a_start_opens_to_it` and
+/// `the_comparison_outlasts_the_flow_until_a_start_opens_to_it`,
+/// `a_compared_start_that_ran_is_not_expected_again` and
 /// `a_restore_committed_after_k1_ends_the_comparison` hold it.
 #[derive(Debug, Default)]
 pub(crate) struct ExpectedStart {
     peer: Option<TransportIdentity>,
     /// The `PeerId` a start that compared with it opened the record to
-    /// and ran as: never expected again in this process.
+    /// and ran as: never expected again in this process
+    /// (`a_compared_start_that_ran_is_not_expected_again`).
     ran: Option<TransportIdentity>,
 }
 
