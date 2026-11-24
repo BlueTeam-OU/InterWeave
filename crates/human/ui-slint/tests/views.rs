@@ -713,6 +713,63 @@ fn the_locked_notice_takes_focus_once_a_screen_over_it_goes() {
     assert_eq!(view.window().get_focus_id(), "notice", "the screen gone");
 }
 
+/// `Refused` (a compared start's, identity note section 6) takes no focus
+/// unasked; asked -- Chats opened in place of a held R2, R3 or R4 whose
+/// start was refused before the bound (section 8, A compared start
+/// answered before the bound) -- it takes focus once the screen over it
+/// goes, and gives it back to Chats' heading when it leaves. The locked
+/// notice in its place spends the ask; the facade's own notice before
+/// `Refused` arrives leaves it waiting. Mutations: the ask landing for no
+/// `Refused`, not waiting for the screen, or kept past the locked notice,
+/// fail here.
+#[test]
+fn refused_takes_focus_only_when_asked() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    model.start_refused(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    assert_ne!(view.window().get_focus_id(), "notice", "unasked");
+
+    model.start_refused(None);
+    view.render(&model);
+    settle();
+    view.show_identity(Some(interweave_human_ui_slint::IdentityPage::default()));
+    view.focus_refused_notice();
+    view.render(&model);
+    settle();
+    // Asked while the facade's own notice shows, before the hub's
+    // answer reaches the model: the ask waits.
+    model.start_refused(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    assert_ne!(view.window().get_focus_id(), "notice", "under the screen");
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "notice", "the screen gone");
+    model.start_refused(None);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "conversations-heading",
+        "Refused gone: Chats' heading"
+    );
+
+    // The locked notice in its place spends the ask.
+    model.authentication_needed(true);
+    view.focus_refused_notice();
+    view.render(&model);
+    settle();
+    model.authentication_needed(false);
+    model.start_refused(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    assert_ne!(view.window().get_focus_id(), "notice", "the ask was spent");
+}
+
 /// TAB on R until its Try again holds focus, as the person's tap left it.
 fn focus_try_again(view: &View) {
     let window = view.window().window();
