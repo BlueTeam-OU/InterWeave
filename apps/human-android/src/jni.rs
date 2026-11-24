@@ -348,8 +348,8 @@ fn start(env: &mut Env<'_>, app_data_dir: &str, expect: Option<&TransportIdentit
         // A refusal that says nothing of the record: a start that compares
         // answers it as `Unavailable` (identity note section 6, Its
         // results; An answer after the bound).
-        if expect.is_some() {
-            crate::onboard::unchecked_refused(UncheckedRefused::Unavailable);
+        if let Some(answer) = crate::unchecked_start::unprovisioned_answer(expect) {
+            crate::onboard::unchecked_refused(answer);
             ServiceHost::global().refused_compared(None, false);
             return code;
         }
@@ -358,10 +358,8 @@ fn start(env: &mut Env<'_>, app_data_dir: &str, expect: Option<&TransportIdentit
     let started = match identity(env, app_data_dir, expect) {
         Ok(started) => started,
         Err((code, learnt, why)) => {
-            let answer = expect.and_then(|_| {
-                crate::unchecked_start::unchecked_answer(&why, |cause| {
-                    crate::onboard::recovery_start(std::path::Path::new(app_data_dir), cause)
-                })
+            let answer = crate::unchecked_start::unchecked_answer(expect, &why, |cause| {
+                crate::onboard::recovery_start(std::path::Path::new(app_data_dir), cause)
             });
             // Another PeerId, or nothing said of the record: `Refused` with
             // Try again on Chats once no flow screen shows (section 6, An

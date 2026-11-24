@@ -114,21 +114,27 @@ impl UncheckedAnswer {
     }
 }
 
-/// How a start told to expect a `PeerId` answers the flow when its
+/// How a start told to `expect` a `PeerId` answers the flow when its
 /// identity is refused (design section 6, Its results): another `PeerId`
 /// than C4's, and any refusal that says nothing of the record, are C4's
-/// `IdStorageUnknown` again -- the first with Try again only -- and a
-/// record that does not open is K1, built by `recovery` as at a launch.
-/// A refusal for the person is not here (`None`): the screen's prompt
-/// answers it, as for any held start. A C4 held for the start answers it
-/// whichever C4 start it was (`IdentityFlow::answers_compared`); with
-/// none -- the bound passed, or a later start of the process made from
-/// no C4 -- the first two show as Chats' `Refused` instead (jni.rs,
-/// `refused_compared`; section 6, An answer after the bound).
+/// `IdStorageUnknown` again -- the first with Try again only (ui-model's
+/// `every_compared_start_held_on_c4_answers_on_c4`) -- and a record that
+/// does not open is K1, built by `recovery` as at a launch. A refusal
+/// for the person is not here (`None`): the screen's prompt answers it,
+/// as for any held start. A start told to expect nothing answers no
+/// flow (`None`): its refusal hands a held screen over as before
+/// (`a_start_that_compared_nothing_answers_no_flow`). A C4 held for the
+/// start answers it whichever C4 start it was
+/// (`IdentityFlow::answers_compared`); with none -- the bound passed, or
+/// a later start of the process made from no C4 -- the first two show as
+/// Chats' `Refused` instead (jni.rs, `refused_compared`; section 6, An
+/// answer after the bound).
 pub(crate) fn unchecked_answer(
+    expect: Option<&TransportIdentity>,
     refused: &IdentityRefused,
     recovery: impl FnOnce(&RecoveryCause) -> Start,
 ) -> Option<UncheckedRefused> {
+    expect?;
     match refused {
         IdentityRefused::NotExpected(_) => Some(UncheckedRefused::OtherIdentity),
         IdentityRefused::RecoveryRequired(cause) => match recovery(cause) {
@@ -153,6 +159,15 @@ pub(crate) fn unchecked_answer(
         | IdentityRefused::Unavailable(_)
         | IdentityRefused::Provisioning(_) => Some(UncheckedRefused::Unavailable),
     }
+}
+
+/// How a start told to `expect` a `PeerId` answers the flow when the
+/// profile could not be provisioned before its identity was read: a
+/// refusal that says nothing of the record, `Unavailable` (section 6, Its
+/// results); nothing for a start told to expect nothing
+/// (`a_start_that_compared_nothing_answers_no_flow`).
+pub(crate) fn unprovisioned_answer(expect: Option<&TransportIdentity>) -> Option<UncheckedRefused> {
+    expect.map(|_| UncheckedRefused::Unavailable)
 }
 
 #[cfg(test)]
@@ -284,13 +299,19 @@ mod tests {
     #[test]
     fn a_refused_unchecked_start_answers_as_a_launch_and_fails_closed() {
         let never = |_: &RecoveryCause| -> Start { panic!("not a recovery") };
+        let expect = Some(mine());
+        let expect = expect.as_ref();
         assert_eq!(
-            unchecked_answer(&IdentityRefused::NotExpected(mine()), never),
+            unchecked_answer(expect, &IdentityRefused::NotExpected(mine()), never),
             Some(UncheckedRefused::OtherIdentity)
         );
         assert_eq!(
-            unchecked_answer(&IdentityRefused::UserNotAuthenticated, never),
+            unchecked_answer(expect, &IdentityRefused::UserNotAuthenticated, never),
             None
+        );
+        assert_eq!(
+            unprovisioned_answer(expect),
+            Some(UncheckedRefused::Unavailable)
         );
         for unavailable in [
             IdentityRefused::Unprovisioned,
@@ -299,12 +320,13 @@ mod tests {
             IdentityRefused::Provisioning("x".to_owned()),
         ] {
             assert_eq!(
-                unchecked_answer(&unavailable, never),
+                unchecked_answer(expect, &unavailable, never),
                 Some(UncheckedRefused::Unavailable),
                 "{unavailable:?}"
             );
         }
         let recovery = unchecked_answer(
+            expect,
             &IdentityRefused::RecoveryRequired(RecoveryCause::KeyInvalidated),
             |cause| {
                 assert_eq!(*cause, RecoveryCause::KeyInvalidated, "its cause");
@@ -323,5 +345,30 @@ mod tests {
                 new_keys: true,
             })
         );
+    }
+
+    /// Only a start told to expect a `PeerId` answers the flow: one that
+    /// compared nothing -- Continue's start on C4 before any
+    /// `IdStartUnchecked`, every start of a process that never pressed it
+    /// -- answers no refusal on C4, whatever it is, so a held screen
+    /// hands over as before (ui-model's `IdentityFlow::answers_compared`
+    /// says which screen answers; this, which start). Mutations:
+    /// `unchecked_answer` or `unprovisioned_answer` answering a start that
+    /// expects nothing fail here.
+    #[test]
+    fn a_start_that_compared_nothing_answers_no_flow() {
+        let never = |_: &RecoveryCause| -> Start { panic!("not read") };
+        for refused in [
+            IdentityRefused::NotExpected(mine()),
+            IdentityRefused::RecoveryRequired(RecoveryCause::KeyInvalidated),
+            IdentityRefused::UserNotAuthenticated,
+            IdentityRefused::Unprovisioned,
+            IdentityRefused::Paths("x".to_owned()),
+            IdentityRefused::Unavailable("x".to_owned()),
+            IdentityRefused::Provisioning("x".to_owned()),
+        ] {
+            assert_eq!(unchecked_answer(None, &refused, never), None, "{refused:?}");
+        }
+        assert_eq!(unprovisioned_answer(None), None);
     }
 }
