@@ -265,8 +265,7 @@ impl From<CompositionError> for EmbeddedRefused {
 /// a key that fails its header or its name, refuses by name
 /// ([`EmbeddedRefused::EndpointKeys`]); a refusal writes nothing
 /// (`a_start_finishes_m3_beside_one_sealed_key`,
-/// `two_key_files_beside_form_1_refuse_the_start`,
-/// `a_key_naming_another_id_than_its_file_refuses_the_start`). Other
+/// `a_start_on_form_1_refuses_what_it_cannot_finish`). Other
 /// names in the directory (a writer's temporary, a pending key) are not
 /// keys (`endpoint_key::list_key_ids`).
 ///
