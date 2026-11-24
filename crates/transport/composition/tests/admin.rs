@@ -1114,6 +1114,124 @@ async fn a_peer_only_an_identitys_set_trusts_has_a_peers_list_row() {
     runtime.shutdown().await.expect("clean shutdown");
 }
 
+/// Everything the connectivity target has logged in this binary. ONE
+/// global subscriber, installed once, as `trust_overlay.rs` does: scoped
+/// ones on two test threads race on tracing's callsite interest cache.
+fn connectivity_log() -> String {
+    use std::sync::{Arc, Mutex, OnceLock};
+    use tracing_subscriber::Layer as _;
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    struct Sink(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("lock").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    static LOG: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
+    let log = LOG.get_or_init(|| {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&log);
+        let layer = tracing_subscriber::fmt::layer()
+            .with_writer(move || Sink(Arc::clone(&sink)))
+            .with_ansi(false)
+            .with_filter(tracing_subscriber::filter::filter_fn(|meta| {
+                meta.target() == "interweave::connectivity"
+            }));
+        tracing::subscriber::set_global_default(tracing_subscriber::registry().with(layer))
+            .expect("the one subscriber");
+        log
+    });
+    String::from_utf8(log.lock().expect("lock").clone()).expect("utf-8")
+}
+
+/// A peer only an identity's own set trusts is recorded like the
+/// operator's: the admission set, not the operator's list, decides whose
+/// connection is `Connected` in `admin.peers.list`, and whether the
+/// connectivity line names the peer or calls it `unlisted` (the readers
+/// `outcomes.record` and `Who::of` take `Driver::admitted()`). The
+/// control is a peer on the operator's list, which reads the same way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_only_an_identitys_set_trusts_has_its_outcome_recorded() {
+    use interweave_local_client_api::PeerOutcome;
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let _ = connectivity_log();
+    let options = || CompositionOptions {
+        listen: vec![format!("/ip4/{ip}/tcp/0")],
+        ..CompositionOptions::default()
+    };
+    let (subject_id, subject_peer) = id();
+    let (operator_id, operator_peer) = id();
+    let (identity_id, identity_peer) = id();
+    let subject = ComposedRuntime::start(&subject_id, &profile(&[&operator_peer], &[]), options())
+        .await
+        .expect("subject composes");
+    let human = interweave_transport_api::EndpointId::parse_derived(
+        "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr",
+    )
+    .expect("the profile's endpoint");
+    let trust = subject
+        .sessions()
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("a port");
+    assert_eq!(
+        trust
+            .set_endpoint_trust(human, identity_peer.clone(), true)
+            .await,
+        Ok(TrustChange::Set)
+    );
+    let address = format!("{}/p2p/{}", subject.listening()[0], subject_peer.as_str());
+    // Each dials the subject, which admits it by the set that names it.
+    let dialler = |id: ProfileIdentity| {
+        let address = address.clone();
+        let subject_peer = subject_peer.clone();
+        async move {
+            ComposedRuntime::start(&id, &profile(&[&subject_peer], &[address]), options())
+                .await
+                .expect("dialler composes")
+        }
+    };
+    let operators = dialler(operator_id).await;
+    let identitys = dialler(identity_id).await;
+    let status = subject
+        .sessions()
+        .admin([AdminCapability::Status].into())
+        .await
+        .expect("a port");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        let rows = status.peers().await.expect("answered");
+        let read = |peer: &TransportIdentity| {
+            rows.iter()
+                .find(|row| &row.peer == peer)
+                .map(|row| (row.connected, row.last_outcome))
+        };
+        let connected = Some((true, Some(PeerOutcome::Connected)));
+        if read(&operator_peer) == connected && read(&identity_peer) == connected {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never: {rows:?}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let log = connectivity_log();
+    for peer in [&operator_peer, &identity_peer] {
+        assert!(
+            log.lines().any(|line| line.contains("peer connected")
+                && line.contains(&format!("peer=\"{}\"", peer.as_str()))),
+            "a line names {}: {log}",
+            peer.as_str()
+        );
+    }
+    operators.shutdown().await.expect("clean shutdown");
+    identitys.shutdown().await.expect("clean shutdown");
+    subject.shutdown().await.expect("clean shutdown");
+}
+
 /// `profile` with a second configured endpoint, `agent`, beside `human`.
 fn two_endpoint_profile(trusted: &[&TransportIdentity], statics: &[String]) -> ProfileConfig {
     let one = serde_norway::to_string(&profile(trusted, statics)).expect("serialises");
