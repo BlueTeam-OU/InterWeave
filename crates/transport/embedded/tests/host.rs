@@ -54,8 +54,7 @@ profile:
   name: {PROFILE}
 runtime:
   deployment: {deployment}
-  # By id: the schema's default `human` is a label no derived entry
-  # holds (ADR-0067).
+  # By id: the field takes a derived id and has no default (ADR-0067).
   android:
     endpoint: 12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr
 ipc:
