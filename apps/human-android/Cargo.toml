@@ -70,6 +70,10 @@ serde_json = { workspace = true, optional = true }
 # The identity key's record read back by the log and backup tests
 # (src/platform_log.rs, src/identity_keys.rs), to look for its secret.
 base64 = { workspace = true }
+# The phrase format an identity flow is made with, for the host test that
+# drives C4 through a held start (src/start_wait.rs); on Android it is a
+# dependency already.
+interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
 
 [features]
 # A first run's identity created and Keystore-provisioned by the Service

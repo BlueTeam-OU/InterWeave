@@ -37,6 +37,15 @@ mod store_follow;
     )
 )]
 mod unchecked_start;
+// On every target, so the host tests which start a held screen waits on.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs holds it on Android"
+    )
+)]
+mod start_wait;
 // On every target, so the host tests what answers a locked start.
 #[cfg_attr(
     not(target_os = "android"),

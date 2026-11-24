@@ -39,6 +39,7 @@ use crate::keystore::KeystoreCipher;
 use crate::ready_check::{
     AtFlowEnd, Before, Over, asks_start_at_end, at_flow_end, secure_may_clear,
 };
+use crate::start_wait::StartWait;
 use crate::unchecked_start::{ExpectedStart, UncheckedAnswer};
 use crate::unlock_route::{Route, UnlockRoute, flow_prompts};
 #[cfg(feature = "ui-trace")]
@@ -487,9 +488,8 @@ fn held_by_showing(asked_at: StoreGeneration) {
         slot.borrow_mut().as_mut().is_some_and(|o| {
             let held = o.service_asked && o.flow.showing_started();
             if held {
-                o.asked_at = asked_at;
                 // The identity is on record: the bound counts from now.
-                o.hold = Some(StartHold::pressed(now_ms(), true));
+                o.wait.showing(now_ms(), asked_at);
                 let hub = ServiceHost::global().hub();
                 if hub.store_generation() == asked_at {
                     FLOW_START.store(true, Ordering::SeqCst);
@@ -706,11 +706,11 @@ struct Onboarding {
     /// The service was asked to start (BIND, ONLINE or RESTART).
     service_asked: bool,
     /// The clock of a C4 or R4 held after Continue (add-a-peer §5.1),
-    /// from the press until the start decides.
-    hold: Option<StartHold>,
-    /// The hub's count of start answers before the service was asked: a
-    /// held start decides on answers counted past it only.
-    asked_at: StoreGeneration,
+    /// from the press until the start decides, and the hub's count of
+    /// start answers before the start asked under that hold: a held start
+    /// decides on answers counted past it only, and a hold that asked no
+    /// start yet on none ([`StartWait`]).
+    wait: StartWait,
     /// `done` was called: the chats are attached under a held C4 or R4,
     /// so the start's reads run while the screen holds.
     handed: bool,
@@ -765,8 +765,7 @@ impl Onboarding {
             lock,
             offline_asked,
             service_asked,
-            hold,
-            asked_at,
+            wait,
             handed,
             attached,
             finished,
@@ -781,8 +780,7 @@ impl Onboarding {
             lock,
             offline_asked,
             service_asked,
-            hold,
-            asked_at,
+            wait,
             handed,
             attached,
             finished,
@@ -808,8 +806,7 @@ struct Parked {
     lock: Option<ProfileLock>,
     offline_asked: bool,
     service_asked: bool,
-    hold: Option<StartHold>,
-    asked_at: StoreGeneration,
+    wait: StartWait,
     handed: bool,
     attached: Attached,
     finished: Finish,
@@ -828,8 +825,7 @@ impl Parked {
             lock,
             offline_asked,
             service_asked,
-            hold,
-            asked_at,
+            wait,
             handed,
             attached,
             finished,
@@ -845,8 +841,7 @@ impl Parked {
             lock,
             offline_asked,
             service_asked,
-            hold,
-            asked_at,
+            wait,
             handed,
             attached,
             finished,
@@ -1144,8 +1139,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         lock,
         offline_asked: false,
         service_asked: false,
-        hold: None,
-        asked_at: StoreGeneration::default(),
+        wait: StartWait::new(),
         handed: false,
         // A K1 kept for a window's start included: its window attaches
         // the chats at its hand-over.
@@ -1207,8 +1201,7 @@ pub(crate) fn raise_recovery(view: &Rc<RefCell<View>>) {
         lock,
         offline_asked: false,
         service_asked: false,
-        hold: None,
-        asked_at: StoreGeneration::default(),
+        wait: StartWait::new(),
         handed: false,
         attached: Attached::opened(true),
         finished: Finish::Open,
@@ -1252,8 +1245,7 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         lock: None,
         offline_asked: false,
         service_asked: false,
-        hold: None,
-        asked_at: StoreGeneration::default(),
+        wait: StartWait::new(),
         handed: false,
         attached: Attached::opened(true),
         finished: Finish::Open,
@@ -1281,16 +1273,11 @@ fn input_later(input: IdentityInput) {
             .map(|o| {
                 let was_held = o.flow.start_held();
                 let effects = apply_identity(&mut o.flow, input);
-                // Continue on C4 or R4: the screen holds from the press.
-                // The bound counts from it unless a seal must commit the
-                // identity first (§5.1, the bound).
+                // Continue on C4 or R4: the screen holds from the press,
+                // a hold of its own that waits on no earlier start
+                // (`StartWait::pressed` has when its bound counts).
                 if o.flow.start_held() && !was_held {
-                    // C4's Try again under `IdStorageUnknown` commits as
-                    // its seal would, once the read-back finds the record.
-                    let committed = !effects
-                        .iter()
-                        .any(|e| matches!(e, Effect::Seal | Effect::ReadBack(_)));
-                    o.hold = Some(StartHold::pressed(now_ms(), committed));
+                    o.wait.pressed(now_ms(), &effects);
                     #[cfg(feature = "ui-trace")]
                     log(&start_line(TracedStart::Pressed));
                 }
@@ -1408,7 +1395,7 @@ pub(crate) fn prompted(granted: bool, unlock: bool) {
             slot.borrow_mut()
                 .as_mut()
                 .map(|o| {
-                    if granted && let Some(hold) = o.hold.as_mut() {
+                    if granted && let Some(hold) = o.wait.clock_mut() {
                         hold.prompt_granted(now_ms());
                     }
                     match o.gate.prompted(granted) {
@@ -1722,7 +1709,7 @@ fn prompt_for(o: &mut Onboarding, effect: Effect) {
     o.gate.refused(effect);
     // The person's time, not the app's: a held screen's clock stops while
     // the prompt is up (§5.1).
-    if let Some(hold) = o.hold.as_mut() {
+    if let Some(hold) = o.wait.clock_mut() {
         hold.prompt_shown(now_ms());
     }
     // The prompt shows over the screen: a copy's confirmation there
@@ -1737,7 +1724,7 @@ fn prompt_for(o: &mut Onboarding, effect: Effect) {
 fn sealed_now(o: &mut Onboarding) {
     o.creation = None;
     connect_owed(o);
-    if let Some(hold) = o.hold.as_mut() {
+    if let Some(hold) = o.wait.clock_mut() {
         hold.committed(now_ms());
     }
     #[cfg(feature = "ui-trace")]
@@ -1771,12 +1758,12 @@ fn render() {
         let mut slot = slot.borrow_mut();
         let o = slot.as_mut()?;
         // A hold the flow gave back -- a failed seal, a cancelled seal
-        // prompt -- ends its clock: nothing shows under Try again.
-        if !o.flow.start_held() {
-            o.hold = None;
-        }
+        // prompt, a refusal C4 answers -- ends its clock and the start it
+        // waited on: nothing shows under Try again, and the next hold
+        // waits on its own start (`StartWait::follow`).
+        o.wait.follow(o.flow.start_held());
         let now = now_ms();
-        if let Some(hold) = &o.hold {
+        if let Some(hold) = o.wait.clock() {
             let starting = hold.starting(now);
             #[cfg(feature = "ui-trace")]
             if starting && !o.flow.starting() {
@@ -1795,7 +1782,7 @@ fn render() {
             // The screen this input left: a start shown or gone with it.
             flow_shows(Some(o));
             o.view.borrow().show_identity(Some(page));
-            schedule_hold(o.hold.as_ref(), now);
+            schedule_hold(o.wait.clock(), now);
             // Held with the service asked: the chats attach under the
             // screen now, so the start's reads run while it holds and the
             // first screen shown is the one they decide (§5.1).
@@ -1901,13 +1888,17 @@ fn hold_tick() {
 }
 
 /// The hub's count of answers before a held C4's or R4's start was
-/// asked, while one is held with its start asked; `None` otherwise. The
-/// root asks it each turn ([`start_decided`]).
+/// asked, while one is held with a start asked under that hold; `None`
+/// otherwise -- a hold whose read-back, seal or restore, or the prompt
+/// over one, runs before its start, so an earlier start's answer never
+/// decides it (`StartWait::waited_on`, held by
+/// `a_hold_waits_only_on_a_start_asked_under_it`). The root asks it each
+/// turn ([`start_decided`]).
 pub(crate) fn held_start() -> Option<StoreGeneration> {
     ONBOARDING.with(|slot| {
         let o = slot.try_borrow().ok()?;
         let o = o.as_ref()?;
-        (o.flow.start_held() && o.service_asked && o.hold.is_some()).then_some(o.asked_at)
+        o.wait.waited_on(o.flow.start_held())
     })
 }
 
@@ -1916,7 +1907,7 @@ pub(crate) fn hold_bound_passed() -> bool {
     ONBOARDING.with(|slot| {
         slot.try_borrow().is_ok_and(|o| {
             o.as_ref()
-                .and_then(|o| o.hold.as_ref())
+                .and_then(|o| o.wait.clock())
                 .is_some_and(|hold| hold.bound_passed(now_ms()))
         })
     })
@@ -1954,11 +1945,13 @@ pub(crate) fn start_decided() {
         slot.borrow_mut()
             .as_mut()
             .map(|o| {
+                let asked_at = o.wait.waited_on(o.flow.start_held());
                 let refused = UNCHECKED
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .take()
-                    .and_then(|answer| answer.for_hold(o.asked_at.count()));
+                    .zip(asked_at)
+                    .and_then(|(answer, asked_at)| answer.for_hold(asked_at.count()));
                 match refused {
                     Some(refused) if o.flow.answers_compared() => {
                         log(&format!("C4's compared start did not run: {refused:?}"));
@@ -2017,8 +2010,9 @@ fn ask_service(o: &mut Onboarding) {
     // overtakes, sees a start asked.
     flow_shows(Some(o));
     let hub = ServiceHost::global().hub();
-    // Before the ask: an answer counted past this is this start's.
-    o.asked_at = hub.store_generation();
+    // Before the ask: an answer counted past this is this start's, and
+    // a held screen's from now.
+    o.wait.asked(hub.store_generation());
     // A held screen shows its own start's answer: a notice an earlier
     // start left on Chats is not this one's.
     hub.start_asked(false);
