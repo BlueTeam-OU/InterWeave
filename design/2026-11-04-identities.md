@@ -1136,8 +1136,9 @@ pass before it lands.
     the read-back has answered and then applies it (the late-remove
     run): the snackbar is `IdentityRemoveUnfinishedRows`; at the next
     list that answers (Your identities opened again) the identity is
-    gone with no snackbar, and focus is as F22 says; in a run with that
-    identity in front when the remove is applied, the default comes in
+    gone with no snackbar, and focus is as F22 says; in a run with three
+    or more identities held and that identity in front when the remove
+    is applied, the default comes in
     front with `ConfirmIdentityRemovedSwitched` naming the default; in
     one more run with that identity in front and two identities held,
     so that one is left, the snackbar is `ConfirmIdentityRemoved` and
