@@ -8417,6 +8417,27 @@ made no later than the change that fixes that key path. The test's
 name in §29's record above and in `apps/human-cli/README.md` changes
 with it, as a dated note there.
 
+**2026-11-24, owed before this stage closes and before any release
+from a tree that runs schema v14: the migration notice.** The Stage 22
+batch's store writes the `v14_discarded` row with what the migration
+discarded and has its read and its delete
+(`HumanStore::discarded_at_v14`, `forget_discarded_at_v14`), and at the
+batch's head no client calls either: only tests read the row (the
+blind review of the batch, finding C-F2; grep of that head). So a
+person whose store the upgrade cut is told nothing by that tree, which
+is what `human-client-ui.md` §13's first Stage 22 criterion and
+`clients/human/STATE.md` §Migrations ask for ("at each open until the
+person acknowledges"). The notice is deferred from the batch by name
+and is rust-ui-dev's own pull request, on ux-designer's
+`design/2026-11-19-stage22-migration-notice.md`, a proposal until that
+change. The order loses no notice: the row is deleted on the
+acknowledgement and on nothing else, so the build that brings the
+notice finds the row an earlier build wrote. What binds until then: no
+release is cut from a tree that runs v14 and shows no notice, since a
+released upgrade that discards a person's pending messages without a
+word is the case the criterion exists for; and the stage does not
+close without it.
+
 ### Record
 
 The closing record lands here when the owner closes the stage.

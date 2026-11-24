@@ -774,3 +774,34 @@ same now holds of an `added` alias that an authored entry or another
 added one holds. Dropping the added entry was the alternative and was
 refused: it would lose that identity's sets silently, where a refused
 start names the entry and leaves both files as they were.
+
+### Amendment 2026-11-24 — An added entry whose id stands in neither trust member fails the load
+
+The blind review of the trust batch found a file the amendment of
+2026-11-22 had not ruled on: an `added` entry whose id stands in
+neither `inbound` nor `outbound`. As the gap was found, the loader
+accepted it, the entry took the default an authored endpoint has, and
+its route admitted the operator's list; the first trust act on that
+endpoint then seeded its set from the whole of that list. No writer
+produces the file: the add writes `[]` in both members, and no add
+method was served when it was found, so only a hand edit reached it.
+
+Two sentences of the body met there. It said an added entry's trust
+"is its set in the two members below and nothing else", and it said
+"an absent id [is] no own set", after which an endpoint reads its
+authored subset or the operator's list. The second was written for an
+authored endpoint, whose configuration says what it reads when the
+overlay holds no set for it; an added endpoint has no such
+configuration, so for it the absence has no reading that the first
+sentence allows.
+
+The file is refused at load, the refusal naming the id, and nothing is
+rewritten. Reading the entry as `[]` in both members and writing it so
+was the alternative and was refused: it is the safe value, but the
+loader would then repair a hand edit, which it does for no other
+refused shape of this file (an id in one member alone, a trust field on
+an added entry and a repeated PeerId each fail the load), and an
+operator who removed the two entries by mistake would find the
+identity's trusted peers gone with nothing said. Reading it as
+inheriting was refused outright: it widens an identity to every peer
+the operator trusts.
