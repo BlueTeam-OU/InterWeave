@@ -440,7 +440,7 @@ on R2 and then Back on K1, only the end of the process leads on, and
 that no words say so. Before, the note left all three open. §6 (The
 comparison outlasts the bound) now says that a start without network
 does not unlock the node's seed, and gives examples of what such a
-start can write, none of which a PeerId binds (architect-cto's request
+start can write, none of which is tied to a PeerId (architect-cto's request
 of 2026-11-24). Before, §6 said that such a start unlocks no identity.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
@@ -1339,7 +1339,7 @@ that a PeerId was created.
   A start without network (the start that runs when the person has
   denied the network, `startWithoutNetwork`) opens the store and
   does not unlock the node's seed, so it has no PeerId to compare.
-  Nothing it writes is bound by a PeerId. For example, at a first run
+  Nothing it writes is tied to a PeerId. For example, at a first run
   (Stage 22) it can write the first user identity's sealed key file
   and that identity's endpoint entry in the profile's configuration,
   where onboarding did not write them, and it creates the store, the
