@@ -418,6 +418,14 @@ comparison, and no earlier step of the restore ends it
 revision, the comparison ended only when a start opened the record to
 C4's PeerId, or when the process ended.
 
+Revised 2026-11-24 again, at rust-ui-dev-01's INFO 01a20daf. §9's
+rows for `IdStartUnchecked` and `IdStorageUnknownRestore` now quote
+language-culture-en's final text (REPLY 01a20daf; rust-ui-dev-01's
+126b78815). `IdStartUnchecked` keeps its words. The last sentence of
+`IdStorageUnknownRestore` reads "That phrase restores this PeerId."
+Before, it read "It restores this PeerId.", where "It" could mean the
+app or the phrase.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -2151,8 +2159,8 @@ names are suggestions; rust-ui-dev names them.
 | `Authenticate` (the app's, #313, not yet on main) | Unlock | The locked notice's action; it raises the prompt (§6) |
 | `UnlockPromptTitle` (the app's, #313, not yet on main) | Unlock InterWeave | The system prompt's title for a key operation or a launch; S1's prompt keeps its own |
 | `CopyPeerId`, `PeerIdCopied` (the app's, #313, not yet on main) | Copy PeerId · PeerId copied | The button under a PeerId and its confirmation below Android 13 (§5) |
-| `IdStartUnchecked` (new) | Go online with this PeerId | C4's text button under Try again while `IdStorageUnknown` shows after a failed read-back and it is offered (§6, A start from C4 after a failed read-back). It must say that the app starts with the PeerId shown, and never that a PeerId was created or saved. "Go online" is `IdStartBusy`'s verb for the same start |
-| `IdStorageUnknownRestore` (new) | If the app then asks for your recovery phrase, enter the phrase you just wrote down. It restores this PeerId. | C4's line under `IdStartUnchecked` (§6). It must say what the person does if the start leads to K1, and that the phrase restores the PeerId (§11d, Q15). It names K1 by what K1 asks for (`IdQTitle`), so it promises nothing where K1 cannot restore (`IdQTitleNoPath`). "Then" is the press of `IdStartUnchecked` above it |
+| `IdStartUnchecked` (new, final 2026-11-24) | Go online with this PeerId | C4's text button under Try again while `IdStorageUnknown` shows after a failed read-back and it is offered (§6, A start from C4 after a failed read-back). It must say that the app starts with the PeerId shown, and never that a PeerId was created or saved. "Go online" is `IdStartBusy`'s verb for the same start |
+| `IdStorageUnknownRestore` (new, final 2026-11-24) | If the app then asks for your recovery phrase, enter the phrase you just wrote down. That phrase restores this PeerId. | C4's line under `IdStartUnchecked` (§6). It must say what the person does if the start leads to K1, and that the phrase restores the PeerId (§11d, Q15). It names K1 by what K1 asks for (`IdQTitle`), so it promises nothing where K1 cannot restore (`IdQTitleNoPath`). "Then" is the press of `IdStartUnchecked` above it |
 | `IdStorageUnknown` (new) | The app does not know whether your PeerId was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back and writes nothing |
 | `IdRestoreOther` (new) | Your PeerId was not restored. This phone already has a different saved PeerId, shown below. Choose Continue to go online with the PeerId below. | §6's another-identity-on-record row, at a restore (a record that names a PeerId other than the one restored), three lines, the PeerId in full below it. "A different saved PeerId, shown below" ties the shown PeerId to the phone's record, so it is not read as the person's own. Its last sentence says what Continue does before the person presses it: Continue opens the PeerId shown below, the one already on this phone, and the first sentence says that the PeerId the person tried to restore was not restored. "Go online" is `IdStartUnchecked`'s and `IdStartBusy`'s verb for the same start |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
