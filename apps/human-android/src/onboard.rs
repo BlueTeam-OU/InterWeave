@@ -40,7 +40,7 @@ use crate::ready_check::{
     AtFlowEnd, Before, Over, asks_start_at_end, at_flow_end, secure_may_clear,
 };
 use crate::start_wait::StartWait;
-use crate::unchecked_start::{ExpectedStart, UncheckedAnswer};
+use crate::unchecked_start::{AnswerFocus, ExpectedStart, UncheckedAnswer};
 use crate::unlock_route::{Route, UnlockRoute, flow_prompts};
 #[cfg(feature = "ui-trace")]
 use interweave_human_ui_slint::{TracedPrompt, TracedStart, prompt_line, start_line};
@@ -1963,13 +1963,16 @@ pub(crate) fn start_busy() {
 /// root around its turn, outside any borrow of the flow.
 ///
 /// A start that compared with C4's `PeerId` and was refused for its
-/// identity ([`unchecked_refused`]) is not decided while C4 holds for it
-/// (`IdentityFlow::answers_compared`), whichever C4 start it was --
-/// `IdStartUnchecked`'s, the one after Try again's read-back, Continue's,
-/// `IdStartBusy`'s Try again, a return's retry: C4 answers it -- its
-/// notice again, or K1 with its heading focused as at a launch (design
-/// section 6, Its results; An answer after the bound) -- and nothing
-/// runs. Any other screen hands over, and Chats shows `Refused`.
+/// identity ([`unchecked_refused`]) before the bound is answered by the
+/// screen held for it (`IdentityFlow::answers_compared`), and nothing
+/// runs. C4, whichever C4 start it was -- `IdStartUnchecked`'s, the one
+/// after Try again's read-back, Continue's, `IdStartBusy`'s Try again, a
+/// return's retry -- shows its notice again (design section 6, Its
+/// results). R2 after K1, R3, or R4 not reached after K1 opens Chats with
+/// focus on `Refused` (section 8, A compared start answered before the
+/// bound; Q18). On any of them a record that does not open shows K1 in
+/// place of the screen, its heading focused as at a launch. Any other
+/// screen hands over, and Chats shows `Refused` unfocused.
 pub(crate) fn start_decided() {
     let effects = ONBOARDING.with(|slot| {
         slot.borrow_mut()
@@ -1984,11 +1987,15 @@ pub(crate) fn start_decided() {
                     .and_then(|(answer, asked_at)| answer.for_hold(asked_at.count()));
                 match refused {
                     Some(refused) if o.flow.answers_compared() => {
-                        log(&format!("C4's compared start did not run: {refused:?}"));
-                        let k1 = matches!(refused, UncheckedRefused::Recovery { .. });
-                        let effects = o.flow.unchecked_refused(refused);
-                        if k1 {
-                            o.view.borrow().raise_identity_heading();
+                        log(&format!("a held compared start did not run: {refused:?}"));
+                        let (effects, focus) =
+                            crate::unchecked_start::answer_held(&mut o.flow, refused);
+                        match focus {
+                            AnswerFocus::K1Heading => o.view.borrow().raise_identity_heading(),
+                            // Asked before the render that ends the flow,
+                            // so the handover finds it.
+                            AnswerFocus::Refused => crate::activity::focus_refused_notice(),
+                            AnswerFocus::Kept => {}
                         }
                         effects
                     }

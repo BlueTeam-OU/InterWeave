@@ -366,16 +366,18 @@ fn start(env: &mut Env<'_>, app_data_dir: &str, expect: Option<&TransportIdentit
             });
             // Another PeerId, or nothing said of the record: `Refused` with
             // Try again on Chats once no flow screen shows (section 6, An
-            // answer after the bound). A C4 held for this start answers it
-            // first, and that screen's next ask takes the notice away
-            // (`Hub::start_asked`). K1 and the prompt answer the other two
-            // as for any start.
+            // answer after the bound). A screen held for this start answers
+            // it first (onboard's `start_decided`): C4 in place, or Chats
+            // with `Refused` focused; that screen's next ask takes the
+            // notice away (`Hub::start_asked`). The prompt answers a refusal
+            // for the person as for any start, and K1 a record that does
+            // not open: the held screen's, or the one raised below.
             let compared = matches!(
                 answer,
                 Some(UncheckedRefused::OtherIdentity | UncheckedRefused::Unavailable)
             );
             // Before the hub hears the answer: the turn it wakes finds the
-            // held C4's answer there (onboard's `start_decided`).
+            // held screen's answer there (onboard's `start_decided`).
             if let Some(answer) = answer {
                 crate::onboard::unchecked_refused(answer);
             }

@@ -10,7 +10,7 @@
 
 use interweave_human_android_platform::IdentityRefused;
 use interweave_human_android_platform::custody::RecoveryCause;
-use interweave_human_ui_model::{Start, UncheckedRefused};
+use interweave_human_ui_model::{Effect, IdentityFlow, Start, UncheckedRefused};
 use interweave_transport_api::TransportIdentity;
 
 /// The `PeerId` every start of this process must open the record to once
@@ -130,12 +130,13 @@ impl UncheckedAnswer {
 /// for the person is not here (`None`): the screen's prompt answers it,
 /// as for any held start. A start told to expect nothing answers no
 /// flow (`None`): its refusal hands a held screen over as before
-/// (`a_start_that_compared_nothing_answers_no_flow`). A C4 held for the
-/// start answers it whichever C4 start it was
-/// (`IdentityFlow::answers_compared`); with none -- the bound passed, or
-/// a later start of the process made from no C4 -- the first two show as
-/// Chats' `Refused` instead (jni.rs, `refused_compared`; section 6, An
-/// answer after the bound).
+/// (`a_start_that_compared_nothing_answers_no_flow`). A screen held for
+/// the start answers it ([`answer_held`]; `IdentityFlow::answers_compared`
+/// says which): C4 whichever C4 start it was, and R2 after K1, R3 or R4
+/// not reached after K1 by opening Chats with `Refused` focused; with
+/// none -- the bound passed, or a later start of the process made from no
+/// screen held -- the first two show as Chats' `Refused` unfocused (jni.rs,
+/// `refused_compared`; section 6, An answer after the bound).
 pub(crate) fn unchecked_answer(
     expect: Option<&TransportIdentity>,
     refused: &IdentityRefused,
@@ -175,6 +176,44 @@ pub(crate) fn unchecked_answer(
 /// (`a_start_that_compared_nothing_answers_no_flow`).
 pub(crate) fn unprovisioned_answer(expect: Option<&TransportIdentity>) -> Option<UncheckedRefused> {
     expect.map(|_| UncheckedRefused::Unavailable)
+}
+
+/// Where focus goes once a held screen answered a compared start's
+/// refusal before the bound ([`answer_held`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnswerFocus {
+    /// K1 in place of the held screen: its heading (identity note section
+    /// 8, a refused start raises a screen).
+    K1Heading,
+    /// Chats in place of a held R2, R3 or R4: `Refused` there (section 8,
+    /// A compared start answered before the bound).
+    Refused,
+    /// The screen answered in place -- C4's raised `IdStorageUnknown`,
+    /// which the flow's count of raised notices focuses -- or nothing
+    /// answered: focus is the flow's and the view's as before.
+    Kept,
+}
+
+/// `flow`'s held screen answers `refused`, a compared start's refusal
+/// before the bound (ui-model's `IdentityFlow::unchecked_refused`), and
+/// says where the root sends focus: K1's heading for a record that does
+/// not open, `Refused` when the answer opened Chats, nothing more
+/// otherwise. `a_held_screens_answer_says_where_focus_goes` holds it.
+pub(crate) fn answer_held(
+    flow: &mut IdentityFlow,
+    refused: UncheckedRefused,
+) -> (Vec<Effect>, AnswerFocus) {
+    let effects = flow.unchecked_refused(refused);
+    // K1 shown for the answer asks for the flow's lock again; no other
+    // answer does.
+    let focus = if effects.contains(&Effect::Hold) {
+        AnswerFocus::K1Heading
+    } else if effects.contains(&Effect::OpenChats) {
+        AnswerFocus::Refused
+    } else {
+        AnswerFocus::Kept
+    };
+    (effects, focus)
 }
 
 #[cfg(test)]
@@ -360,11 +399,84 @@ mod tests {
         );
     }
 
+    /// R2 after K1 held for `IdRestoreOther`'s Continue, its start
+    /// compared and refused before the bound.
+    fn r2_after_k1_held() -> IdentityFlow {
+        use interweave_human_ui_model::{PHRASE_WORDS, ScreenId, StepFailed};
+        const LIST: &[&str] = &[
+            "acid", "bean", "cabin", "dawn", "eagle", "fabric", "galaxy", "habit", "icon",
+            "jacket", "kale", "label", "machine", "napkin", "oak", "paddle", "quarter", "rabbit",
+            "saddle", "table", "ugly", "vacant", "wagon", "yard", "zebra", "zone",
+        ];
+        let mut flow = IdentityFlow::new(
+            LIST,
+            interweave_profile_identity::FORMAT,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+                new_keys: false,
+            },
+        );
+        flow.primary();
+        for word in &LIST[..PHRASE_WORDS] {
+            for letter in word.chars() {
+                if flow.picker().and_then(|p| p.chip(word)).is_some() {
+                    break;
+                }
+                assert!(flow.press(letter), "{letter} is enabled");
+            }
+            flow.choose(word);
+        }
+        flow.primary();
+        flow.checked(Some(mine()));
+        flow.restored(Err(StepFailed::RestoreOther(other())));
+        flow.notice_action();
+        assert_eq!(flow.screen(), ScreenId::R2, "control: R2");
+        assert!(flow.start_held(), "control: held for its start");
+        flow
+    }
+
+    /// A held R2 after K1 answering a mismatch or `Unavailable` opens Chats
+    /// with focus on `Refused`; answering `RecoveryRequired`, K1 with
+    /// focus on its heading; a screen no longer held answers nothing and
+    /// moves no focus (identity note section 8, A compared start answered
+    /// before the bound; Q18). Mutations: `answer_held` sending focus to
+    /// `Refused` for an answer that opened no Chats, or to K1's heading
+    /// for one that showed no K1, fail here.
+    #[test]
+    fn a_held_screens_answer_says_where_focus_goes() {
+        for refused in [
+            UncheckedRefused::OtherIdentity,
+            UncheckedRefused::Unavailable,
+        ] {
+            let mut flow = r2_after_k1_held();
+            let (effects, focus) = answer_held(&mut flow, refused.clone());
+            assert_eq!(effects, [Effect::OpenChats], "{refused:?}");
+            assert_eq!(focus, AnswerFocus::Refused, "{refused:?}");
+            let (effects, focus) = answer_held(&mut flow, refused.clone());
+            assert_eq!((effects.len(), focus), (0, AnswerFocus::Kept), "decided");
+        }
+        let recovery = UncheckedRefused::Recovery {
+            reason: RecoveryReason::Key,
+            expected: Some(other()),
+            new_keys: false,
+        };
+        let mut flow = r2_after_k1_held();
+        let (effects, focus) = answer_held(&mut flow, recovery.clone());
+        assert_eq!(effects, [Effect::Hold]);
+        assert_eq!(focus, AnswerFocus::K1Heading);
+        // K1 already, nothing held: no second K1 raised.
+        assert_eq!(
+            answer_held(&mut flow, recovery),
+            (Vec::new(), AnswerFocus::Kept)
+        );
+    }
+
     /// Only a start told to expect a `PeerId` answers the flow: one that
     /// compared nothing -- Continue's start on C4 before any
     /// `IdStartUnchecked`, every start of a process that never pressed it
-    /// -- answers no refusal on C4, whatever it is, so a held screen
-    /// hands over as before (ui-model's `IdentityFlow::answers_compared`
+    /// -- answers no refusal on any held screen, whatever it is, so a held
+    /// screen hands over as before (ui-model's `IdentityFlow::answers_compared`
     /// says which screen answers; this, which start). Mutations:
     /// `unchecked_answer` or `unprovisioned_answer` answering a start that
     /// expects nothing fail here.
