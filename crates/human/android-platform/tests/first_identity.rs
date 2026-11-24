@@ -27,7 +27,7 @@ use interweave_human_android_platform::{
     Expected, KeyUnlockPolicy, ServiceHost, provision_profile, stand_in,
 };
 use interweave_human_store::identity_key::{
-    self, CipherFailure, Custody, IdentityKeyFileError, KeyCipher, KeyFileRead,
+    self, CipherFailure, Custody, IdentityKeyError, IdentityKeyFileError, KeyCipher, KeyFileRead,
 };
 use interweave_profile_config::endpoint_key::{self, encode_record, header_bytes};
 use interweave_profile_config::provision::{embedded_document, embedded_identity_document};
@@ -460,9 +460,10 @@ fn an_interrupted_reseal_is_finished_and_mints_nothing() {
 /// A re-sealed key that does not open to the earlier key is not taken for
 /// it: the earlier file stays, form 1 stays, and the start says why.
 /// Here the file at the earlier key's id is another key's, as a hand-made
-/// file could be, so the install answers `Exists` and the read-back is
-/// what refuses. Mutation: the read-back dropped (an `Exists` taken as
-/// done) answers `Resealed` and removes the earlier file.
+/// file could be, so the install answers `Exists` and the read-back's
+/// open is what refuses (its header does not derive the id). Mutation:
+/// the read-back dropped (an `Exists` taken as done) answers `Resealed`
+/// and removes the earlier file.
 #[test]
 fn a_reseal_whose_read_back_fails_keeps_the_earlier_key() {
     let app = fresh_install();
@@ -498,10 +499,12 @@ fn a_reseal_whose_read_back_fails_keeps_the_earlier_key() {
     )
     .expect("written");
 
-    assert!(matches!(
+    assert_eq!(
         first_identity::at_start(&app.dir, PROFILE, &keys),
-        Err(FirstIdentityRefused::Key(_) | FirstIdentityRefused::ReadBack)
-    ));
+        Err(FirstIdentityRefused::Key(IdentityKeyFileError::Key(
+            IdentityKeyError::NotDerived
+        )))
+    );
     assert!(
         identity_key::legacy_key_path(&paths, "human").exists(),
         "the earlier key is kept"

@@ -71,8 +71,9 @@ pub enum FirstIdentityRefused {
     Seed(String),
     /// An endpoint key could not be listed, opened, made or retired.
     Key(IdentityKeyFileError),
-    /// The re-sealed key did not open to the key it was sealed from: the
-    /// earlier release's file is kept.
+    /// The re-sealed key's file was not there to read back: the earlier
+    /// release's file is kept. (One that opens to another key is
+    /// [`Self::Key`], the open's refusal.)
     ReadBack,
     /// The form-2 write was refused (`ProvisionIdentityError`, said); the
     /// key it would name is sealed.
@@ -126,9 +127,12 @@ pub fn finish(
             Err(e) => return Err(e.into()),
         }
         let id = old.endpoint().clone();
-        match identity_key::open(paths, &id, cipher)? {
-            Some(new) if new.public_key() == old.public_key() => {}
-            _ => return Err(FirstIdentityRefused::ReadBack),
+        // Read back before the earlier file goes: the open refuses a file
+        // at the id that holds another key (its header must derive the
+        // id), so the key it opens is the earlier one
+        // (`a_reseal_whose_read_back_fails_keeps_the_earlier_key`).
+        if identity_key::open(paths, &id, cipher)?.is_none() {
+            return Err(FirstIdentityRefused::ReadBack);
         }
         identity_key::remove_legacy(paths, FIRST_IDENTITY_ALIAS, cipher)?;
         provision_identity(paths, &id)
