@@ -919,7 +919,8 @@ pub(crate) fn expected_start() -> Option<TransportIdentity> {
 static UNCHECKED: Mutex<Option<UncheckedAnswer>> = Mutex::new(None);
 
 /// A start told to expect C4's `PeerId` was refused for its identity: a
-/// C4 held for it answers it rather than handing over to Chats.
+/// C4 held for it, whichever C4 start it was, answers it rather than
+/// handing over to Chats ([`start_decided`]).
 pub(crate) fn unchecked_refused(refused: UncheckedRefused) {
     let before = ServiceHost::global().hub().store_generation().count();
     *UNCHECKED.lock().unwrap_or_else(PoisonError::into_inner) =
@@ -1936,10 +1937,14 @@ pub(crate) fn start_busy() {
 /// undecided: the screen goes, and the flow hands over. Called by the
 /// root around its turn, outside any borrow of the flow.
 ///
-/// A start of C4's `IdStartUnchecked` that was refused for its identity
-/// ([`unchecked_refused`]) is not decided: C4 answers it -- its notice
-/// again, or K1 with its heading focused as at a launch (design section
-/// 6, Its results) -- and nothing runs.
+/// A start that compared with C4's `PeerId` and was refused for its
+/// identity ([`unchecked_refused`]) is not decided while C4 holds for it
+/// (`IdentityFlow::answers_compared`), whichever C4 start it was --
+/// `IdStartUnchecked`'s, the one after Try again's read-back, Continue's,
+/// `IdStartBusy`'s Try again, a return's retry: C4 answers it -- its
+/// notice again, or K1 with its heading focused as at a launch (design
+/// section 6, Its results; An answer after the bound) -- and nothing
+/// runs. Any other screen hands over, and Chats shows `Refused`.
 pub(crate) fn start_decided() {
     let effects = ONBOARDING.with(|slot| {
         slot.borrow_mut()
@@ -1951,8 +1956,8 @@ pub(crate) fn start_decided() {
                     .take()
                     .and_then(|answer| answer.for_hold(o.asked_at.count()));
                 match refused {
-                    Some(refused) if o.flow.start_held() && o.flow.start_expects().is_some() => {
-                        log(&format!("C4's unchecked start did not run: {refused:?}"));
+                    Some(refused) if o.flow.answers_compared() => {
+                        log(&format!("C4's compared start did not run: {refused:?}"));
                         let k1 = matches!(refused, UncheckedRefused::Recovery { .. });
                         let effects = o.flow.unchecked_refused(refused);
                         if k1 {

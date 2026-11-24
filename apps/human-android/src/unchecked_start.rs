@@ -97,10 +97,11 @@ impl UncheckedAnswer {
 /// `IdStorageUnknown` again -- the first with Try again only -- and a
 /// record that does not open is K1, built by `recovery` as at a launch.
 /// A refusal for the person is not here (`None`): the screen's prompt
-/// answers it, as for any held start. With no C4 held for the start --
-/// the bound passed, or any later start of the process -- the first two
-/// show as Chats' `Refused` instead (jni.rs, `refused_compared`; section
-/// 6, An answer after the bound).
+/// answers it, as for any held start. A C4 held for the start answers it
+/// whichever C4 start it was (`IdentityFlow::answers_compared`); with
+/// none -- the bound passed, or a later start of the process made from
+/// no C4 -- the first two show as Chats' `Refused` instead (jni.rs,
+/// `refused_compared`; section 6, An answer after the bound).
 pub(crate) fn unchecked_answer(
     refused: &IdentityRefused,
     recovery: impl FnOnce(&RecoveryCause) -> Start,
