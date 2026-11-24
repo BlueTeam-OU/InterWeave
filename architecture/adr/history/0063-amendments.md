@@ -174,6 +174,11 @@ note's own pull request.
 
 Three texts carried from the review of the identity-key note's pull
 request (#746, ux-designer's request of 2026-11-23), and one question.
+The two reviews of the pull request that carried this note (#748) then
+added to it, each in place below: round 1 a correction of the second
+text (the three refusals) and a second question (F4); round 2 two
+corrections of F4's ruling (F5, F7) and one reading (another user's
+regular file that the open refuses).
 
 Decision 1 still said, from the 2026-10-24 amendment, that "an
 `identity-keys/` directory the client's own user owns with a loose mode
@@ -221,19 +226,81 @@ store answered the second as "temporarily unusable" (`ENXIO` fell
 under the general read error in `IdentityKeyFileError::unusable`); the
 code that conforms is rust-ui-dev's.
 
+One reading from the second review of #748: the permission failure
+above is about entries that are not regular files. Another user's
+regular file that the open refuses with `EACCES` before any owner check
+(a root-owned file at 0600) is exposed, as decision 2's third cause
+says, and not an invalid record: the record is classed by what the
+file is, not by which refusal the read met first, and the client finds
+the case by the file's owner. Decision 2 now says so in the definition.
+
 One question from the same review (F4): "resolved by a new identity"
 did not say what happens to the entry itself. Ruled: Remove or Replace
 of an added identity does not wait on it. One unlink, or one removal
 of an empty directory, takes what is at the key path, whether a file,
 a FIFO, a socket, a device or an empty directory. A directory that
 holds anything is left where it is: the client does not delete
-recursively what it did not write. The step completes either way,
+recursively what it did not write, and the step completes with it
+there. What the person is told about an entry left behind is the
+design note's.
+
+As first written that paragraph ended "The step completes either way,
 because an EndpointId is derived from its key, so no later identity
-takes that file name and a leftover blocks nothing. What the person is
-told about an entry left behind is the design note's. As the review
+takes that file name and a leftover blocks nothing". The second review
+of #748 found two gaps in the sentence, and it is corrected in place.
+"Either way" named two outcomes, taken and left as a non-empty
+directory, and an unlink or a removal that failed for any other reason
+(`EPERM`, `EBUSY`, `EROFS`, `EIO`) was in neither: read literally,
+Remove reported done with a key file still on disk (F5). Ruled: the
+non-empty directory is the one failure passed over, and a path that
+holds nothing has nothing to take; any other failure stops the step,
+whatever the entry is. Remove takes the key path first, so a Remove
+that stops there has changed nothing and says it failed; a Replace
+that stops there is unfinished and offered to be finished, as at any
+other refused step of it. And "no later identity takes that file name"
+held for new keys only (F7): ADR-0064 decision 7 (Proposed) restores
+the same key, hence the same EndpointId and the same path, where a
+directory left behind would be in its way. No record in force brings a
+key back, so nothing is decided here; what that restore does with the
+entry is ADR-0064's to decide before it is accepted. As the first review
 found it, the store removed the key path with an unlink alone, which
 fails on a directory (`EISDIR`), so Replace stayed unfinished and
 repeated the refusal; the code that conforms is rust-ui-dev's.
+
+The first review of #751 found a third gap in the same sentences (F1).
+"A Remove that stops there has changed nothing" covered a failure at
+the key path, and nothing covered a failure after it: the platform
+key's retirement, the configuration, the daemon's refusal or a lost
+connection to it, the store's deletion. The key was then gone, the
+identity still listed with its key missing, and the design note's
+snackbar for a failed Remove said "Nothing was changed". Ruled, on
+ux-designer-01's request (their alternative A): the key path stays
+first, and a failure after it is a Remove that did not finish, not one
+that changed nothing. It says the key is removed and that Remove did
+not finish; the identity stays listed in the missing state decision 1
+already gives a key file that is gone, with no stored mark of the
+Remove; Remove stays offered and completes, since a path that holds
+nothing has nothing to take. Rejected: taking the key path last. A
+failure there would come after the identity had left the configuration
+and the store, so the private key would stay on disk under an identity
+no list shows, and no screen would be left to finish from. With the
+key first, every state a failed Remove leaves is one the person sees
+and can finish, and the one Remove that leaves a private key on disk
+is the one that says nothing was changed. The words are the design note's
+(identities section 7, with language-culture's read) and the code that
+conforms is rust-ui-dev's; as this was ruled, Remove was not built.
+
+The second review of #751 found that ruling too wide (F7). As first
+written it said the identity stays listed and Remove again completes
+after a failure at "whichever later step", the daemon's refusal or a
+lost connection among them. Once the administrative remove has
+committed, the endpoint is gone and so is the identity, and nothing
+had fixed the order of the steps after the key path. Ruled the same
+day in ADR-0061 decision 7 (its amendment of 2026-11-23): the platform
+key, then the store's deletion, then the administrative remove last,
+and a lost answer read back from the endpoint list. Decision 2's
+sentence, the log row and the digest entry now say "until the
+administrative remove commits" and point there.
 
 The first amendment's note gave two bounds that were wrong, and its
 paragraph is corrected in place. It said a loose directory "shows
@@ -254,7 +321,25 @@ file's contents, and nothing in an entry's metadata is key material.
 
 Propagation: decision 1 (the clause, with its tombstone in place);
 decision 2 (the definition of exposed, the sentence after it with the
-three refusals, and the Remove or Replace sentence); the
+three refusals, and the Remove or Replace sentences); the
 first 2026-11-23 note's second paragraph; this note; the log row; the
 digest entry. The identity-key design note already reads so (its
-sections 3 and 5, criterion 14).
+sections 3 and 5, its section 11 for the entry left behind, which
+decision 2 hands to it, and criterion 14), and the identities design
+note's section 7 for Remove taking the key path first. The ruling on a
+Remove that fails after the key path adds a sentence to decision 2, to
+the log row and to the digest entry; identities section 7 and its
+acceptance run follow on #751.
+
+The fourth review of #751 found one of those sentences behind ADR-0061
+decision 7 (F10). That decision's amendment of 2026-11-24 ruled that
+while ADR-0028's overlay is left ahead of the runtime the endpoint
+list still holds the id, so Remove again ends not finished each time
+until the daemon's next start; its note left decision 2 unchanged,
+and decision 2 went on saying Remove "stays offered and completes".
+That was true of every other failure before the administrative remove
+commits and false of this one. Decision 2's sentence, the log row and
+the digest entry now carry the exception and point to ADR-0061
+decision 7: Remove stays offered, and what finishes it while the
+overlay is ahead is the daemon's next start. Nothing in this record's
+ruling changed.
