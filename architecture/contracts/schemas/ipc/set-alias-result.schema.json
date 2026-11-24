@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:set-alias-result",
+  "title": "IPC admin.endpoints.set_alias result",
+  "description": "What a rename did. `renamed`: the added entry carries the alias, written and synced before the answer. `unchanged`: the alias the entry already has, nothing written. A REFUSAL IS AN ANSWER, nothing written. An id no entry holds is the error `EndpointUnknown`. `detail` is for a log.",
+  "type": "object",
+  "required": [
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "enum": [
+        "renamed",
+        "unchanged",
+        "refused"
+      ]
+    },
+    "refused": {
+      "$comment": "Present exactly when outcome is refused, checked in this order: authored (the alias of a config.yaml entry is the file's); alias_invalid (outside the alias grammar); alias_taken (another entry, authored or added, holds it).",
+      "enum": [
+        "authored",
+        "alias_invalid",
+        "alias_taken"
+      ]
+    },
+    "detail": {
+      "type": "string",
+      "maxLength": 512
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "refused"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "refused"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "refused"
+          ]
+        }
+      }
+    }
+  ],
+  "x-contract": {
+    "name": "ipc.set-alias-result",
+    "status": "active",
+    "version": "1.0.0",
+    "adr": [
+      "0017",
+      "0028",
+      "0061",
+      "0067"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

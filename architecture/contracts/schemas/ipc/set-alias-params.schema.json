@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:set-alias-params",
+  "title": "IPC admin.endpoints.set_alias params",
+  "description": "Rename an ADDED endpoint's local alias (IPC 3.0; ADR-0061 decision 7, A 2026-11-20). An alias is no wire field and keys nothing: no lease, route, trust set or overlay member moves. Whether `alias` is in the alias grammar is the METHOD's to answer (`alias_invalid`).",
+  "type": "object",
+  "required": [
+    "endpoint",
+    "alias"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "endpoint": {
+      "$ref": "urn:interweave:schemas:endpoints:endpoint-id"
+    },
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The alias as the client typed or derived it, judged by the METHOD against the alias grammar `^[a-z][a-z0-9._-]{0,63}$` and answered `alias_invalid` outside it; the bound here only refuses an absurd string before the method reads it."
+    }
+  },
+  "x-contract": {
+    "name": "ipc.set-alias-params",
+    "status": "active",
+    "version": "1.0.0",
+    "adr": [
+      "0017",
+      "0028",
+      "0061",
+      "0067"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

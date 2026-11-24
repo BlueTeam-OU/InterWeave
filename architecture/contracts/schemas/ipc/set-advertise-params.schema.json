@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:set-advertise-params",
+  "title": "IPC admin.endpoints.set_advertise params",
+  "description": "Set whether an endpoint may appear in the directory (IPC 3.0; ADR-0061 decision 5). For an authored endpoint the endpoint overlay's `advertise` delta is written, a delta equal to the authored value not kept; for an added one its entry's member. A value already in effect is answered with nothing written; a value the composed profile would refuse (`directory.max_advertised`) is `InvalidArgument`, nothing written. The overlay is synced and the directory's answer source updated before the answer, which is `empty-result`.",
+  "type": "object",
+  "required": [
+    "endpoint",
+    "advertise"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "endpoint": {
+      "$ref": "urn:interweave:schemas:endpoints:endpoint-id"
+    },
+    "advertise": {
+      "type": "boolean"
+    }
+  },
+  "x-contract": {
+    "name": "ipc.set-advertise-params",
+    "status": "active",
+    "version": "1.0.0",
+    "adr": [
+      "0017",
+      "0028",
+      "0061",
+      "0067"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

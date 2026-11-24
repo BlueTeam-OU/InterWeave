@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:endpoint-add-params",
+  "title": "IPC admin.endpoints.add params",
+  "description": "Add an endpoint (IPC 3.0, LOCAL-IPC.md §The endpoint set's methods; ADR-0061 decisions 2 and 5, ADR-0067 decisions 3, 4 and 6). `key` is the entry's `key` value, the name `<EndpointId>.key` of a key file the client sealed under `<state_dir>/endpoint-keys/` before the call -- a name, never a path and never key material, which crosses the IPC in neither direction; `alias` and `allowed_client_kinds` are the entry's. Whether `key` and `alias` are in their grammars is the METHOD's to answer, by name (`id_not_derived`, `alias_invalid`), so a string outside them is a well-formed request. Closed: no `id` (derived), no `advertise` (the add writes false), no `enabled` (an added endpoint is enabled), no `inbound` or `outbound` (its two own sets are written empty).",
+  "type": "object",
+  "required": [
+    "key",
+    "alias",
+    "allowed_client_kinds"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The key file's name; the method answers `id_not_derived` for a value that is not `<EndpointId>.key`."
+    },
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The alias as the client typed or derived it, judged by the METHOD against the alias grammar `^[a-z][a-z0-9._-]{0,63}$` and answered `alias_invalid` outside it; the bound here only refuses an absurd string before the method reads it."
+    },
+    "allowed_client_kinds": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "description": "Client kinds permitted to lease the endpoint, the entry's; empty for no restriction. Hygiene, never authority."
+    }
+  },
+  "x-contract": {
+    "name": "ipc.endpoint-add-params",
+    "status": "active",
+    "version": "1.0.0",
+    "adr": [
+      "0017",
+      "0028",
+      "0061",
+      "0067"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}
