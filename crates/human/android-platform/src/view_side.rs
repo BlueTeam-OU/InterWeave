@@ -59,6 +59,9 @@ pub struct ViewSide<S: Surface, O: Opener> {
     /// `IdStartBusy`'s notice, as the hub last said it: the process's,
     /// so every model made here shows it.
     busy: Option<StartBusy>,
+    /// `Refused`'s, for a start that compared with C4's `PeerId`
+    /// ([`ToView::StartRefused`]), kept as `busy` is.
+    refused: Option<StartBusy>,
 }
 
 impl<S: Surface, O: Opener> ViewSide<S, O> {
@@ -77,6 +80,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             stopped: None,
             kept: None,
             busy: None,
+            refused: None,
         }
     }
 
@@ -122,6 +126,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 self.side.network_access(self.network);
                 self.side.authentication_needed(self.authentication);
                 self.side.start_busy(self.busy);
+                self.side.start_refused(self.refused);
                 self.say_unlock();
                 if !running && self.authentication {
                     self.show_kept();
@@ -157,6 +162,10 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 self.busy = busy;
                 self.side.start_busy(busy);
             }
+            ToView::StartRefused(refused) => {
+                self.refused = refused;
+                self.side.start_refused(refused);
+            }
             ToView::Store(answer, generation) => {
                 // Any other answer is a start that ran or was refused for
                 // a reason other than the lock: what it showed replaced the
@@ -184,6 +193,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             kept.network_access(self.network);
             kept.authentication_needed(self.authentication);
             kept.start_busy(self.busy);
+            kept.start_refused(self.refused);
             kept.carry_drafts(self.side.drafts());
             kept.remade();
             self.side = kept;
@@ -1045,5 +1055,84 @@ mod tests {
             Some(SessionNotice::NoDaemon),
             "a retry with no notice shows none"
         );
+    }
+
+    /// `Refused` after the bound (identity note §6, An answer after the
+    /// bound): a start that compared with C4's `PeerId` and was refused
+    /// shows it on Chats, in `IdStartBusy`'s place and never `NoDaemon`;
+    /// the process keeps it, so a reattach and a model made again at a
+    /// stop show it; its Try again's start shows it disabled until that
+    /// start answers, refused the same way it shows enabled again
+    /// (The comparison outlasts the bound), and any other answer or a
+    /// new launch's start takes it away. It is still a refusal: the held
+    /// screen's start is decided by it.
+    ///
+    /// Mutations: `set_compared_refusal` saying no notice, the hub not
+    /// saying it at an attach, the fresh model at `Running` not given it,
+    /// `start_asked(true)` not marking its start, or an ordinary answer
+    /// keeping it, fails here.
+    #[test]
+    fn a_compared_start_refused_shows_refused_until_another_answer() {
+        let notice = |side: &ViewSide<Blank, Blank>| model(side).session_notice();
+        let hub = crate::Hub::new();
+        let asked_at = hub.store_generation();
+        let mut link = hub.attach(std::sync::Arc::new(|| {}));
+        let mut side = view_side();
+        assert!(!pump(&mut side, &mut link));
+        hub.set_compared_refusal();
+        assert!(!pump(&mut side, &mut link));
+        assert!(side.start_decided(asked_at), "a refusal: decided");
+        assert!(!side.start_busy(asked_at), "not the profile in use");
+        assert_eq!(
+            notice(&side),
+            Some(SessionNotice::StartRefused(StartBusy::Shown)),
+            "in NoDaemon's place"
+        );
+
+        // A foreground-only Home and return: attached again.
+        let mut link = hub.attach(std::sync::Arc::new(|| {}));
+        let mut side = view_side();
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(
+            notice(&side),
+            Some(SessionNotice::StartRefused(StartBusy::Shown))
+        );
+        // Its Try again: disabled through a model made again.
+        hub.start_asked(true);
+        assert!(!pump(&mut side, &mut link));
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(
+            notice(&side),
+            Some(SessionNotice::StartRefused(StartBusy::Starting))
+        );
+        hub.set_compared_refusal();
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(
+            notice(&side),
+            Some(SessionNotice::StartRefused(StartBusy::Shown)),
+            "refused the same again: Try again enabled"
+        );
+        hub.set_store_answer(StoreAnswer::ProfileBusy);
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(
+            notice(&side),
+            Some(SessionNotice::StartBusy(StartBusy::Shown)),
+            "LockHeld: IdStartBusy in its place"
+        );
+        hub.set_compared_refusal();
+        hub.set_store_answer(StoreAnswer::OtherRefusal);
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(
+            notice(&side),
+            Some(SessionNotice::NoDaemon),
+            "another answer"
+        );
+
+        // A new launch's start: its own answer, never this notice.
+        hub.set_compared_refusal();
+        assert!(!pump(&mut side, &mut link));
+        hub.start_asked(false);
+        assert!(!pump(&mut side, &mut link));
+        assert_eq!(notice(&side), Some(SessionNotice::NoDaemon), "a launch");
     }
 }

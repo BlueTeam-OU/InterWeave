@@ -92,8 +92,11 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
                 Vec::new()
             }
             // R2's Try again is its notice's own action, C4's and R4's
-            // their primary (section 6): none has a secondary.
-            ScreenId::R2 | ScreenId::C4 | ScreenId::R4 => Vec::new(),
+            // their primary (section 6). C4's secondary is
+            // `IdStartUnchecked`, while the flow offers it (section 6, A
+            // start from C4 after a failed read-back); R2 and R4 have none.
+            ScreenId::C4 => flow.start_unchecked(),
+            ScreenId::R2 | ScreenId::R4 => Vec::new(),
             // Section 6's "Try again" retries the step that failed.
             _ if failed => flow.primary(),
             _ => Vec::new(),
@@ -237,6 +240,20 @@ fn held_start(flow: &IdentityFlow, page: &mut IdentityPage) {
     }
     if flow.starting() {
         page.starting = text(UiText::ConnectStarting).into();
+    }
+}
+
+/// C4's `IdStartUnchecked`, a text button under Try again in C4's order,
+/// and `IdStorageUnknownRestore`, text that takes no focus, under it, while
+/// the flow offers it (section 6, A start from C4 after a failed
+/// read-back; section 8). While C4 is held -- Try again's read-back, or
+/// this control's own start -- it keeps its stop, shown disabled, as the
+/// primary does, so a second press starts nothing.
+fn c4_unchecked(flow: &IdentityFlow, page: &mut IdentityPage) {
+    if flow.offers_unchecked() {
+        page.secondary = text(UiText::IdStartUnchecked).into();
+        page.secondary_held = flow.start_held();
+        page.footnote = text(UiText::IdStorageUnknownRestore).into();
     }
 }
 
@@ -617,7 +634,10 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         }
         ScreenId::R3 => r3(flow, &mut page),
         ScreenId::R4 => page.heading_key = R4_HEADING.into(),
-        ScreenId::C4 => page.heading_key = C4_HEADING.into(),
+        ScreenId::C4 => {
+            page.heading_key = C4_HEADING.into();
+            c4_unchecked(flow, &mut page);
+        }
         ScreenId::C2PeerId | ScreenId::S2PeerId => page.heading_key = PEER_ID_HEADING.into(),
         ScreenId::K1 => {
             page.heading_key = K1_HEADING.into();
@@ -651,7 +671,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use interweave_human_ui_model::{Start, StepFailed, Words};
+    use interweave_human_ui_model::{Start, StepFailed, UncheckedRefused, Words};
     use slint::Model as _;
 
     const LIST: &[&str] = &[
@@ -1154,7 +1174,14 @@ mod tests {
             let c4 = page(&flow);
             assert_eq!(c4.notice, en(notice), "{failed:?}");
             assert_eq!(c4.primary, en(UiText::TryAgain), "{failed:?}");
-            assert_eq!(c4.secondary, "", "{failed:?}: no second control");
+            // The only second control: `IdStartUnchecked`, after a
+            // read-back answered as failing, never Try again.
+            let second = if failed == StepFailed::StorageUnknown {
+                en(UiText::IdStartUnchecked)
+            } else {
+                SharedString::new()
+            };
+            assert_eq!(c4.secondary, second, "{failed:?}: the second control");
             assert_eq!(c4.notice_action, "", "{failed:?}: no action of its own");
             assert_eq!(c4.title, en(UiText::IdCreatedTitle));
             assert_eq!(c4.peer_groups, grouped(&mine()), "{failed:?}: kept");
@@ -1410,6 +1437,86 @@ mod tests {
         }
         assert_eq!(flow.screen(), ScreenId::C4, "control: at C4");
         flow
+    }
+
+    /// C4 after a read-back answered as failing (section 6, A start from
+    /// C4 after a failed read-back; section 9): `IdStartUnchecked` is the
+    /// secondary -- a text button after the primary, Try again, in C4's
+    /// order -- with `IdStorageUnknownRestore` under it as text that takes
+    /// no focus; neither after a cancelled read-back prompt. While Try
+    /// again's read-back runs, and while its own start runs, it keeps its
+    /// stop, shown disabled, and a second press starts nothing. After a
+    /// mismatch only Try again is left; under `IdStartBusy` after its
+    /// start, Try again alone, the line gone. Mutations: `c4_unchecked`
+    /// not called, or its `secondary_held` dropped, or the Secondary
+    /// routed nowhere on C4, fail here.
+    #[test]
+    fn c4_offers_start_unchecked_under_try_again_after_a_failed_read_back() {
+        let mut cancelled = at_c4();
+        apply(&mut cancelled, IdentityInput::Primary);
+        cancelled.sealed(Err(StepFailed::ReadBackNeedsAuthentication));
+        cancelled.step_not_run(&Effect::ReadBack(mine()));
+        let shown = page(&cancelled);
+        assert_eq!(shown.notice, en(UiText::IdStorageUnknown), "control");
+        assert_eq!(
+            (shown.secondary.as_str(), shown.footnote.as_str()),
+            ("", "")
+        );
+        assert_eq!(apply(&mut cancelled, IdentityInput::Secondary), []);
+
+        let mut flow = at_c4();
+        apply(&mut flow, IdentityInput::Primary);
+        flow.sealed(Err(StepFailed::StorageUnknown));
+        let shown = page(&flow);
+        assert_eq!(shown.notice, en(UiText::IdStorageUnknown));
+        assert_eq!(shown.primary, en(UiText::TryAgain));
+        assert_eq!(shown.secondary, en(UiText::IdStartUnchecked));
+        assert_eq!(shown.footnote, en(UiText::IdStorageUnknownRestore));
+        assert!(shown.primary_enabled && !shown.secondary_held, "enabled");
+        assert_eq!(shown.peer_groups, grouped(&mine()), "the PeerId it names");
+
+        // Try again's read-back: both shown, disabled.
+        assert_eq!(
+            apply(&mut flow, IdentityInput::Primary),
+            [Effect::ReadBack(mine())]
+        );
+        let held = page(&flow);
+        assert!(!held.primary_enabled && held.secondary_held, "both held");
+        assert_eq!(held.secondary, en(UiText::IdStartUnchecked), "kept");
+        assert_eq!(apply(&mut flow, IdentityInput::Secondary), [], "inert");
+        flow.sealed(Err(StepFailed::StorageUnknown));
+
+        // Its own press: a start, nothing written; held as Continue is.
+        assert_eq!(
+            apply(&mut flow, IdentityInput::Secondary),
+            [Effect::Discard, Effect::StartService]
+        );
+        let running = page(&flow);
+        assert!(!running.primary_enabled && running.secondary_held);
+        assert_eq!(running.secondary, en(UiText::IdStartUnchecked));
+        assert_eq!(running.notice, en(UiText::IdStorageUnknown), "stays");
+        assert_eq!(running.peer_groups, grouped(&mine()), "stays");
+        assert_eq!(apply(&mut flow, IdentityInput::Secondary), [], "once");
+        assert_eq!(apply(&mut flow, IdentityInput::Primary), [], "Try again");
+
+        // `LockHeld`: `IdStartBusy`, Try again in place of both.
+        flow.start_busy();
+        let busy = page(&flow);
+        assert_eq!(busy.notice, en(UiText::IdStartBusy));
+        assert_eq!(busy.primary, en(UiText::TryAgain));
+        assert_eq!((busy.secondary.as_str(), busy.footnote.as_str()), ("", ""));
+
+        // Its Try again, met by another PeerId: Try again only.
+        assert_eq!(
+            apply(&mut flow, IdentityInput::Primary),
+            [Effect::StartService]
+        );
+        flow.unchecked_refused(UncheckedRefused::OtherIdentity);
+        let only = page(&flow);
+        assert_eq!(only.notice, en(UiText::IdStorageUnknown));
+        assert!(only.primary_enabled);
+        assert_eq!((only.secondary.as_str(), only.footnote.as_str()), ("", ""));
+        assert_eq!(apply(&mut flow, IdentityInput::Secondary), []);
     }
 
     /// A held C4 keeps Continue in its place, disabled, and shows

@@ -61,6 +61,12 @@ pub enum IdentityRefused {
     Unavailable(String),
     /// The first run's provisioning wrote nothing, and why.
     Provisioning(String),
+    /// The record opened, to the `PeerId` carried here, which is not the
+    /// one the start was told to expect ([`start_resealed_expecting`]):
+    /// nothing was resealed, and nothing may run as it (design
+    /// 2026-10-19-android-identity.md section 6, A start from C4 after a
+    /// failed read-back).
+    NotExpected(TransportIdentity),
 }
 
 impl IdentityRefused {
@@ -244,8 +250,61 @@ pub fn start_resealed(
     cipher: &dyn SeedCipher,
     first_run: FirstRun,
 ) -> Result<Started, IdentityRefused> {
+    start_checked(app_data_dir, profile, cipher, first_run, None)
+}
+
+/// [`start_resealed`] for a start that must open the record to
+/// `expected`: C4's `IdStartUnchecked`, after a read-back that could not
+/// tell whether the record opens, and every later start of that process
+/// until one opens the record to it (design
+/// 2026-10-19-android-identity.md section 6, A start from C4 after a
+/// failed read-back; The comparison outlasts the bound). Custody's unlock
+/// is not told the `PeerId` C4 showed, so this comparison is the app's,
+/// made after the unlock and before the reseal
+/// and before the identity is handed to anything, so a record opening to
+/// another `PeerId` is refused [`IdentityRefused::NotExpected`] with
+/// nothing written and nothing run as it. A profile with no record is
+/// refused [`IdentityRefused::Unprovisioned`] whatever the build: this
+/// start provisions nothing. A `PeerId` that cannot be derived from the
+/// identity unlocked is refused as unavailable: nothing is compared, so
+/// nothing runs. `a_start_expecting_another_peer_id_fails_closed_and_writes_nothing`
+/// holds it.
+///
+/// # Errors
+/// [`IdentityRefused`], as [`start_resealed`]'s, and
+/// [`IdentityRefused::NotExpected`].
+pub fn start_resealed_expecting(
+    app_data_dir: &Path,
+    profile: &str,
+    cipher: &dyn SeedCipher,
+    expected: &TransportIdentity,
+) -> Result<Started, IdentityRefused> {
+    start_checked(
+        app_data_dir,
+        profile,
+        cipher,
+        FirstRun::Refuse,
+        Some(expected),
+    )
+}
+
+fn start_checked(
+    app_data_dir: &Path,
+    profile: &str,
+    cipher: &dyn SeedCipher,
+    first_run: FirstRun,
+    expected: Option<&TransportIdentity>,
+) -> Result<Started, IdentityRefused> {
     let paths = embedded(app_data_dir, profile)?;
     let (identity, opened) = open_identity(&paths, cipher, first_run)?;
+    if let Some(expected) = expected {
+        let unlocked = identity
+            .transport_identity()
+            .map_err(|e| IdentityRefused::Unavailable(format!("the PeerId: {e}")))?;
+        if unlocked != *expected {
+            return Err(IdentityRefused::NotExpected(unlocked));
+        }
+    }
     let configured = configured(&paths);
     let known = configured.as_ref().ok().copied();
     let resealed = reseal(&paths, cipher, &identity, configured)?;

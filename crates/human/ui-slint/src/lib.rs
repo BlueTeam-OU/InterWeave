@@ -26,9 +26,9 @@ use std::time::{Duration, Instant};
 
 use interweave_human_client_api::{Connectivity, OutboundStatus, TrustOrigin};
 use interweave_human_ui_model::{
-    Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
-    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply, Retention,
-    RowAction, RuntimeHost, SessionNotice, Snackbar, StartBusy, TrustChange, TrustInput,
+    Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, ErrorClass,
+    FocusTarget, HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply,
+    Retention, RowAction, RuntimeHost, SessionNotice, Snackbar, StartBusy, TrustChange, TrustInput,
     TrustOutcome, TrustSettings, UiModel, UiText, UnlockLineKind, announced_change,
     attention_class, fill, next_age_change, placeholder_en, short_peer, waiting_text,
 };
@@ -4151,9 +4151,15 @@ impl View {
         const LOCKED: Option<SessionNotice> = Some(SessionNotice::AuthenticationNeeded);
         // `IdStartBusy` shows, Try again enabled or not: it never takes
         // focus by itself, and a `LockHeld` again leaves focus where it
-        // is (identity note section 6, Focus does not move).
-        let busy =
-            |notice: Option<SessionNotice>| matches!(notice, Some(SessionNotice::StartBusy(_)));
+        // is (identity note section 6, Focus does not move). `Refused`
+        // for a start that compared with C4's `PeerId` is placed the same
+        // (section 6, An answer after the bound).
+        let busy = |notice: Option<SessionNotice>| {
+            matches!(
+                notice,
+                Some(SessionNotice::StartBusy(_) | SessionNotice::StartRefused(_))
+            )
+        };
         let on_chats = self.window.get_narrow() && self.window.get_list_shown();
         if now == LOCKED {
             if self.page != Page::Conversation {
@@ -4418,9 +4424,13 @@ impl View {
         // its stop and focus kept, pressing nothing (identity note
         // section 6; tests/views.rs
         // `the_busy_notices_try_again_is_inert_while_its_start_runs`).
-        window.set_notice_action_enabled(
-            notice != Some(SessionNotice::StartBusy(StartBusy::Starting)),
-        );
+        window.set_notice_action_enabled(!matches!(
+            notice,
+            Some(
+                SessionNotice::StartBusy(StartBusy::Starting)
+                    | SessionNotice::StartRefused(StartBusy::Starting)
+            )
+        ));
 
         match &self.shown {
             None => {
@@ -5624,6 +5634,12 @@ fn notice_text(host: RuntimeHost, notice: SessionNotice) -> String {
         SessionNotice::Refused(class) => fill(
             placeholder_en::text(UiText::Refused),
             &[("reason", placeholder_en::error(host, class))],
+        ),
+        // `Refused`, as for any refused session, and no words of its own
+        // for a mismatch (identity note §6, An answer after the bound).
+        SessionNotice::StartRefused(_) => fill(
+            placeholder_en::text(UiText::Refused),
+            &[("reason", placeholder_en::error(host, ErrorClass::Internal))],
         ),
     }
 }

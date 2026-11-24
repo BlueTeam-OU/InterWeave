@@ -81,6 +81,7 @@ impl AppClient for HubClient {
                 | ToView::Unlock(_)
                 // A refused start's notice: the service not running says it.
                 | ToView::StartBusy(_)
+                | ToView::StartRefused(_)
                 // An answer that calls for no store screen: a start refused
                 // elsewhere leaves the service not running, which the case waits on.
                 | ToView::Store(

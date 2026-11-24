@@ -4,7 +4,8 @@
 //! profile in use after add-a-peer §5.1's bound
 //! (design/2026-10-19-android-identity.md §6, A start refused with the
 //! profile in use after the bound; §11d Q12), through the model's public
-//! surface. Where it shows on screen, its focus and its announcement are
+//! surface; and `Refused` in its place for a start that compared with
+//! C4's `PeerId` (§6, An answer after the bound). Where it shows on screen, its focus and its announcement are
 //! the view's (ui-slint's `tests/views.rs`); when it is said, the
 //! platform's (android-platform's `ViewSide`).
 
@@ -114,4 +115,68 @@ fn a_busy_start_is_retried_once_until_it_answers() {
     // A return's start: the root says it runs, and Try again waits too.
     model.start_busy(Some(StartBusy::Starting));
     assert!(!model.offers(&Intent::RetryStart));
+}
+
+/// A start that compared with C4's `PeerId` and was refused after the
+/// bound -- another `PeerId`, or `Unavailable` -- shows `Refused` where
+/// `IdStartBusy` shows, not `NoDaemon`, and below the locked and the
+/// network-denied notices as `IdStartBusy` is (identity note §6, An
+/// answer after the bound).
+///
+/// Mutations: the refused check left out of `session_notice` (`NoDaemon`
+/// shows), or placed before the lock's, fails it.
+#[test]
+fn a_refused_compared_start_shows_where_the_busy_notice_does() {
+    let mut model = refused();
+    assert_eq!(model.session_notice(), Some(SessionNotice::NoDaemon));
+    model.start_refused(Some(StartBusy::Shown));
+    assert_eq!(
+        model.session_notice(),
+        Some(SessionNotice::StartRefused(StartBusy::Shown)),
+        "in NoDaemon's place"
+    );
+    model.network_access(false);
+    assert_eq!(model.session_notice(), Some(SessionNotice::NetworkDenied));
+    model.network_access(true);
+    model.authentication_needed(true);
+    assert_eq!(
+        model.session_notice(),
+        Some(SessionNotice::AuthenticationNeeded),
+        "the locked notice in its place"
+    );
+    model.authentication_needed(false);
+    model.start_refused(None);
+    assert_eq!(
+        model.session_notice(),
+        Some(SessionNotice::NoDaemon),
+        "gone with the root's word"
+    );
+}
+
+/// Its Try again makes one start, as `IdStartBusy`'s does: offered while
+/// the notice shows with no start for it, not from its press until the
+/// start answers, and offered again when that start is refused the same
+/// way (§6, The comparison outlasts the bound).
+///
+/// Mutations: `offers` not reading the refused notice (Try again not
+/// offered), or `retry_start_asked` leaving it `Shown`, fails it.
+#[test]
+fn a_refused_compared_start_is_retried_once_until_it_answers() {
+    let mut model = refused();
+    model.start_refused(Some(StartBusy::Shown));
+    assert!(model.offers(&Intent::RetryStart), "Try again, enabled");
+    model.retry_start_asked();
+    assert_eq!(
+        model.session_notice(),
+        Some(SessionNotice::StartRefused(StartBusy::Starting)),
+        "the notice stays while the start runs"
+    );
+    assert!(!model.offers(&Intent::RetryStart), "a second press");
+    assert_eq!(
+        SessionNotice::StartRefused(StartBusy::Starting).resolution(),
+        Some(Intent::RetryStart),
+        "still drawn, disabled"
+    );
+    model.start_refused(Some(StartBusy::Shown));
+    assert!(model.offers(&Intent::RetryStart), "refused again: enabled");
 }

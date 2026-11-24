@@ -22,7 +22,7 @@ use interweave_human_android_platform::{
     AvailabilityMode, Expected, FirstRun, IdentityRefused, KeyUnlockPolicy, ResealFailure,
     Resealed, RestoreRefused, UnlockStatus, locked_status, phrase_peer, provision_profile,
     reseal_identity, reseal_needs_presence, restart_requires_user_authentication_at_rest,
-    restore_identity, stand_in, start_identity, start_resealed,
+    restore_identity, stand_in, start_identity, start_resealed, start_resealed_expecting,
 };
 use interweave_human_store::identity_key::FilesystemCustody;
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
@@ -732,9 +732,70 @@ fn only_a_paths_refusal_comes_before_the_custody_step() {
         IdentityRefused::UserNotAuthenticated,
         IdentityRefused::Unavailable("x".to_owned()),
         IdentityRefused::Provisioning("x".to_owned()),
+        IdentityRefused::NotExpected(other_peer()),
     ] {
         assert!(ran.custody_ran(), "{ran:?}");
     }
+}
+
+/// A `PeerId` no record here opens to: a phrase's other identity.
+fn other_peer() -> interweave_transport_api::TransportIdentity {
+    ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a PeerId")
+}
+
+/// C4's `IdStartUnchecked` start (design 2026-10-19-android-identity.md
+/// section 6, A start from C4 after a failed read-back) over a real
+/// custody record: given the `PeerId` C4 shows, which is another than the
+/// one the record opens to, the start is refused `NotExpected` naming the
+/// one it opened, hands no identity back, and writes nothing -- the
+/// record's bytes and the keystore's keys as they were, although the
+/// configured policy would have the reseal write -- and a later start
+/// with no `PeerId` expected opens it as before. Given the record's own
+/// `PeerId` it starts as `start_resealed` does. With no record it
+/// provisions nothing, in a build that would. Mutation: the comparison in
+/// `start_checked` removed, or moved after the reseal, fails here.
+#[test]
+fn a_start_expecting_another_peer_id_fails_closed_and_writes_nothing() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let recorded = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create)
+        .expect("provisioned")
+        .transport_identity()
+        .expect("a PeerId");
+    // The reseal would write: the record is not under this policy.
+    configure_policy(&app, "user-presence");
+    let stored = record(&app);
+    let keys = keystore.generated.lock().unwrap().clone();
+    let shown = other_peer();
+    assert_ne!(shown, recorded, "control: two PeerIds");
+    let refused = start_resealed_expecting(&app.dir, PROFILE, &keystore, &shown)
+        .expect_err("another PeerId than C4's");
+    assert_eq!(refused, IdentityRefused::NotExpected(recorded.clone()));
+    assert_eq!(record(&app), stored, "nothing resealed");
+    assert_eq!(*keystore.generated.lock().unwrap(), keys, "no key made");
+
+    let started = start_resealed_expecting(&app.dir, PROFILE, &keystore, &recorded)
+        .expect("the PeerId C4 shows");
+    assert_eq!(
+        started.identity.transport_identity().expect("a PeerId"),
+        recorded
+    );
+    assert_eq!(started.resealed, Resealed::Changed, "a start as any other");
+
+    let none = fresh_install();
+    provision_profile(&none.dir, PROFILE).expect("the profile");
+    assert_eq!(
+        start_resealed_expecting(&none.dir, PROFILE, &keystore, &recorded).expect_err("no record"),
+        IdentityRefused::Unprovisioned
+    );
+    assert_eq!(
+        start_identity(&none.dir, PROFILE, &keystore, FirstRun::Refuse)
+            .expect_err("control: still none"),
+        IdentityRefused::Unprovisioned,
+        "nothing provisioned"
+    );
 }
 
 /// Plan section 20 gate (a), the client clauses: a key the platform lost
