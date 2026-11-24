@@ -428,18 +428,30 @@ fn brought_over(home: Home) -> Operated {
         .chain([name(&config_path)])
         .collect();
     // The commands, not the operator, rewrote the overlay: the label's
-    // member carried to the id `endpoint init --alias` printed for it.
+    // member carried to the id `endpoint init --alias` printed for it --
+    // when the tree held an overlay to carry. A build that predates the
+    // overlay left none, and carrying writes nothing for an absent file.
     let overlay = EndpointOverlay::path_for(&home.paths);
-    expected.push(name(&overlay));
+    let held_overlay = frozen.contains_key(Path::new(&name(&overlay)));
+    if held_overlay {
+        expected.push(name(&overlay));
+    }
     expected.sort();
     assert_eq!(changed(&frozen, &operated), expected);
-    let carried: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&overlay).expect("the overlay")).expect("json");
-    assert_eq!(
-        carried,
-        serde_json::json!({"enabled": {ids["claude"].as_str(): false}}),
-        "the label's member is carried to the id, and no label is left"
-    );
+    if held_overlay {
+        let carried: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&overlay).expect("the overlay")).expect("json");
+        assert_eq!(
+            carried,
+            serde_json::json!({"enabled": {ids["claude"].as_str(): false}}),
+            "the label's member is carried to the id, and no label is left"
+        );
+    } else {
+        assert!(
+            !overlay.exists(),
+            "a tree with no overlay still has none: nothing is minted for an absent file"
+        );
+    }
     for id in ids.values() {
         assert!(
             !frozen.contains_key(Path::new(&name(&endpoint_key::key_path(&home.paths, id)))),
@@ -1239,8 +1251,10 @@ async fn a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded() {
         );
         let mut daemon = package::start_daemon_of(&old_daemon, &fresh);
         daemon.serving(&fresh).await;
+        // The old daemon is read by the old build's own client: this
+        // build's is refused by its major.
         assert_eq!(
-            package::status_peer(&fresh).await.as_str(),
+            package::status_peer_of(&old_ctl, &fresh),
             GOLDEN_PEER,
             "{label}"
         );
