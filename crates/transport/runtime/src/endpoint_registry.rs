@@ -26,7 +26,7 @@
 
 use std::collections::BTreeMap;
 
-use interweave_local_client_api::Generation;
+use interweave_local_client_api::{EndpointSource, Generation};
 use interweave_transport_api::{
     DirectRejectReason, EndpointId, MAX_DIRECTORY_ENTRIES, TransportError, TransportIdentity,
 };
@@ -63,6 +63,15 @@ pub struct RegisteredEndpoint {
     pub inbound: EndpointTrustPolicy,
     /// The authored outbound filter over the operator's list, likewise.
     pub outbound: EndpointTrustPolicy,
+    /// The entry's local alias, what the administrative list reports: no
+    /// decision in this module reads it.
+    pub alias: Option<String>,
+    /// Whether `config.yaml` authored the entry or the administrative add
+    /// did. Held HERE, beside the endpoint, so the list reports the
+    /// runtime's view: after a removal that left the overlay ahead of the
+    /// runtime, the overlay no longer holds the entry and the runtime
+    /// still serves it (`LOCAL-IPC.md`, `admin.endpoints.remove`).
+    pub source: EndpointSource,
 }
 
 /// An endpoint's own trusted sets, one per direction, from the endpoint
@@ -85,6 +94,8 @@ impl Default for RegisteredEndpoint {
             allowed_client_kinds: Vec::new(),
             inbound: EndpointTrustPolicy::default(),
             outbound: EndpointTrustPolicy::default(),
+            alias: None,
+            source: EndpointSource::Authored,
         }
     }
 }
@@ -346,6 +357,51 @@ impl EndpointRegistry {
         self.default_direct_endpoint = endpoint;
     }
 
+    /// Register an endpoint the administrative add created (IPC 3.0),
+    /// leasable from now on. Answers `false`, changing nothing, for an id
+    /// already registered: an add never replaces an endpoint, or a live
+    /// lease would be left on an entry it was not granted under
+    /// (`an_insert_never_replaces_and_a_remove_takes_everything`).
+    pub fn insert(&mut self, endpoint: EndpointId, registered: RegisteredEndpoint) -> bool {
+        if self.endpoints.contains_key(&endpoint) {
+            return false;
+        }
+        self.endpoints.insert(endpoint, registered);
+        true
+    }
+
+    /// Unregister an endpoint (`admin.endpoints.remove`): its live lease is
+    /// revoked -- the epoch returned, as [`Self::revoke`] returns it -- its
+    /// own sets dropped, and a default naming it cleared, so nothing the
+    /// registry holds outlives the endpoint. `None` for an id not
+    /// registered.
+    pub fn remove(&mut self, endpoint: &EndpointId) -> Option<Option<Generation>> {
+        self.endpoints.remove(endpoint)?;
+        self.own.remove(endpoint);
+        if self.default_direct_endpoint.as_ref() == Some(endpoint) {
+            self.default_direct_endpoint = None;
+        }
+        Some(self.revoke(endpoint))
+    }
+
+    /// Set whether `endpoint` may appear in the directory; `false` for an
+    /// id not registered.
+    pub fn set_advertise(&mut self, endpoint: &EndpointId, advertise: bool) -> bool {
+        self.endpoints
+            .get_mut(endpoint)
+            .map(|e| e.advertise = advertise)
+            .is_some()
+    }
+
+    /// Set `endpoint`'s alias as the list reports it; `false` for an id
+    /// not registered.
+    pub fn set_alias(&mut self, endpoint: &EndpointId, alias: Option<String>) -> bool {
+        self.endpoints
+            .get_mut(endpoint)
+            .map(|e| e.alias = alias)
+            .is_some()
+    }
+
     /// Every configured endpoint, in id order: what the administrative
     /// view lists, whether or not it is leased.
     pub fn endpoints(&self) -> impl Iterator<Item = (&EndpointId, &RegisteredEndpoint)> {
@@ -527,6 +583,54 @@ mod tests {
         endpoints.insert(ep("human"), RegisteredEndpoint::default());
         endpoints.insert(ep("claude"), RegisteredEndpoint::default());
         EndpointRegistry::new(endpoints, Some(ep("human")))
+    }
+
+    /// An insert never replaces a registered endpoint (its lease and
+    /// config stay); a remove takes the endpoint, its lease (answering
+    /// the epoch), its own sets and a default naming it, and the other
+    /// endpoint keeps all of its own -- the positive control.
+    #[test]
+    fn an_insert_never_replaces_and_a_remove_takes_everything() {
+        let mut r = registry();
+        r.claim(&ep("human"), session("a"), "k", epoch("e1"))
+            .expect("granted");
+        let replaced = RegisteredEndpoint {
+            enabled: false,
+            ..RegisteredEndpoint::default()
+        };
+        assert!(!r.insert(ep("human"), replaced));
+        assert!(r.endpoints().any(|(id, e)| *id == ep("human") && e.enabled));
+        assert!(
+            r.lease(&ep("human")).is_some(),
+            "the lease survives a refused insert"
+        );
+
+        let added = RegisteredEndpoint {
+            alias: Some("work".into()),
+            source: EndpointSource::Added,
+            ..RegisteredEndpoint::default()
+        };
+        assert!(r.insert(ep("work"), added));
+        r.claim(&ep("work"), session("b"), "k", epoch("e2"))
+            .expect("leasable at once");
+        assert!(r.set_own(&ep("work"), Some(OwnTrust::default())));
+        assert!(r.set_own(&ep("claude"), Some(OwnTrust::default())));
+        r.set_default(Some(ep("work")));
+
+        assert_eq!(r.remove(&ep("work")), Some(Some(epoch("e2"))));
+        assert!(r.endpoints().all(|(id, _)| *id != ep("work")));
+        assert!(r.lease(&ep("work")).is_none());
+        assert_eq!(r.default_endpoint(), None);
+        assert!(
+            !r.set_own(&ep("work"), Some(OwnTrust::default())),
+            "no set can be given an endpoint that is gone"
+        );
+        assert!(!r.own.contains_key(&ep("work")));
+        assert!(r.own.contains_key(&ep("claude")), "another's set stays");
+        assert!(r.lease(&ep("human")).is_some(), "another's lease stays");
+        assert_eq!(r.remove(&ep("work")), None);
+        // A removal with no live lease revokes nothing.
+        assert_eq!(r.remove(&ep("claude")), Some(None));
     }
 
     #[test]
