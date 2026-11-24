@@ -354,6 +354,13 @@ out="$(run "$R")"
 R="$TMP/ipc-stray-name"; make_ipc "$R" '{ "name": "stray", "body": {"a": 1}, "test_only_endpoints": {"/a": "human"}, "frame_hex": "000000077b2261223a317d" }'
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"holds no EndpointId"* ]] && ok "a name for a pointer that holds no endpoint is refused" || bad "a stray name should be refused: $out"
+# An endpoint-list row carries its EndpointId as `id`: a label there is refused,
+# and the derived id named by its seed passes (the control).
+R="$TMP/ipc-list-label"; make_ipc "$R" '{ "name": "list-label", "body": {"result": {"endpoints": [{"id": "human", "enabled": true}]}}, "frame_hex": "000000387b22726573756c74223a7b22656e64706f696e7473223a5b7b226964223a2268756d616e222c22656e61626c6564223a747275657d5d7d7d" }'
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"derived ids only"* ]] && ok "a label id inside an endpoint-list row is refused" || bad "a label row id should be refused: $out"
+R="$TMP/ipc-list-derived"; make_ipc "$R" '{ "name": "list-derived", "body": {"result": {"endpoints": [{"id": "12D3KooWK26ch85cLfzj6U4MegkVaGjpTcecHrnDX1zeFV3DCycr", "enabled": true}]}}, "test_only_endpoints": {"/result/endpoints/0/id": "human"}, "frame_hex": "000000677b22726573756c74223a7b22656e64706f696e7473223a5b7b226964223a22313244334b6f6f574b323663683835634c667a6a3655344d65676b5661476a705463656348726e4458317a654656334443796372222c22656e61626c6564223a747275657d5d7d7d" }'
+[ "$(run_code "$R")" = "0" ] && ok "a derived id in an endpoint-list row, named by its seed, recomputes" || bad "a derived endpoint-list row id should pass: $(run "$R")"
 R="$TMP/ipc-major-2"; make_ipc "$R" '{ "name": "major-2", "body": {"type": "hello_response", "ipc_version": {"major": 2, "minor": 0}, "transport_contract_version": "3.0", "peer": "p", "granted_capabilities": []}, "frame_hex": "000000857b2274797065223a2268656c6c6f5f726573706f6e7365222c226970635f76657273696f6e223a7b226d616a6f72223a322c226d696e6f72223a307d2c227472616e73706f72745f636f6e74726163745f76657273696f6e223a22332e30222c2270656572223a2270222c226772616e7465645f6361706162696c6974696573223a5b5d7d" }'
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"speaks major 3"* ]] && ok "a hello_response at major 2 is refused" || bad "major 2 should be refused: $out"

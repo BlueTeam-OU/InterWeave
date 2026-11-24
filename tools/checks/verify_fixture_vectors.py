@@ -1152,7 +1152,16 @@ def _ipc_endpoint_pointers(value: object, pointer: str = "") -> list[str]:
             elif k == "endpoint" and isinstance(item, dict) and isinstance(item.get("id"), str):
                 found.append(f"{here}/id")
             elif k in _IPC_ENDPOINT_LIST_KEYS and isinstance(item, list):
-                found.extend(f"{here}/{i}" for i, e in enumerate(item) if isinstance(e, str))
+                # An endpoint-list row is a bare EndpointId string, or an
+                # object whose `id` is one; the row's other fields recurse.
+                for i, row in enumerate(item):
+                    row_pointer = f"{here}/{i}"
+                    if isinstance(row, str):
+                        found.append(row_pointer)
+                        continue
+                    if isinstance(row, dict) and isinstance(row.get("id"), str):
+                        found.append(f"{row_pointer}/id")
+                    found.extend(_ipc_endpoint_pointers(row, row_pointer))
             else:
                 found.extend(_ipc_endpoint_pointers(item, here))
     elif isinstance(value, list):
