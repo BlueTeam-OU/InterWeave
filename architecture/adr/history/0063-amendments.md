@@ -330,3 +330,16 @@ note's section 7 for Remove taking the key path first. The ruling on a
 Remove that fails after the key path adds a sentence to decision 2, to
 the log row and to the digest entry; identities section 7 and its
 acceptance run follow on #751.
+
+The fourth review of #751 found one of those sentences behind ADR-0061
+decision 7 (F10). That decision's amendment of 2026-11-24 ruled that
+while ADR-0028's overlay is left ahead of the runtime the endpoint
+list still holds the id, so Remove again ends not finished each time
+until the daemon's next start; its note left decision 2 unchanged,
+and decision 2 went on saying Remove "stays offered and completes".
+That was true of every other failure before the administrative remove
+commits and false of this one. Decision 2's sentence, the log row and
+the digest entry now carry the exception and point to ADR-0061
+decision 7: Remove stays offered, and what finishes it while the
+overlay is ahead is the daemon's next start. Nothing in this record's
+ruling changed.

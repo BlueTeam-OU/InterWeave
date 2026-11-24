@@ -196,8 +196,20 @@ edit of the configuration into the loss of an identity's
 conversations while its key still exists. As this was ruled, Remove
 was not built and `admin.endpoints.remove` was not on `main`.
 
+The fourth review of #751 found part 4 not carried through (F10,
+again). Decision 7's earlier clause still said a Remove that stops
+before the remove commits "is finished by Remove again", the digest
+entry said "Remove again finishes it", and ADR-0063 decision 2, which
+this note had left unchanged, said Remove "stays offered and
+completes". Each was true of every failure but the overlay left
+ahead, where part 4 says Remove again ends not finished each time.
+Each of the three now names that exception and what finishes the
+Remove there, the daemon's next start. Nothing in the ruling changed.
+
 Propagation: decision 7; this note; the log row; the digest entry.
-ADR-0063 decision 2 is unchanged. `LOCAL-IPC.md`'s remove text, not
+ADR-0063 decision 2 was left unchanged as this was first written, and
+gained the exception on the fourth review, with its note, log row and
+digest entry. `LOCAL-IPC.md`'s remove text, not
 on `main`, gains the reading of a remove while the overlay is ahead
 and of one applied late, on its own supply. The design notes
 (identities sections 1 and 7 and acceptance 13) follow on #751.
