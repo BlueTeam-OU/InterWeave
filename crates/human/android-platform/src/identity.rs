@@ -255,8 +255,10 @@ pub fn start_resealed(
 
 /// [`start_resealed`] for a start that must open the record to
 /// `expected`: C4's `IdStartUnchecked`, after a read-back that could not
-/// tell whether the record opens (design 2026-10-19-android-identity.md
-/// section 6, A start from C4 after a failed read-back). Custody's unlock
+/// tell whether the record opens, and every later start of that process
+/// until one opens the record to it (design
+/// 2026-10-19-android-identity.md section 6, A start from C4 after a
+/// failed read-back; The comparison outlasts the bound). Custody's unlock
 /// checks the seed against the record's own `PeerId` field only; this
 /// comparison is the app's, made after the unlock and before the reseal
 /// and before the identity is handed to anything, so a record opening to
