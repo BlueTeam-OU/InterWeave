@@ -410,10 +410,11 @@ built it, with the internal error's words for both a mismatch and
 a refused start, that the build did not have. A start without network
 compares nothing and does not end the comparison. A start made from
 C4 answers on C4 before the bound. R4's Continue after K1 ends the
-comparison, at that press only, at architect-cto's answer to Q17
-(REPLY 01a20c86, §11f); before this revision, the end was provisional,
-and `IdRestoreOther`'s Continue on R2 after K1 ended it too, which it
-no longer does.
+comparison, and no earlier step of the restore ends it
+(architect-cto's answer to Q17, REPLY 01a20c86, §11f). Before this
+revision, that end was provisional, and this note also ended the
+comparison at `IdRestoreOther`'s Continue on R2 after K1; this
+revision removes that end.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1300,38 +1301,43 @@ that a PeerId was created.
   process (GrapheneOS, unlock note §11), that is an end of the
   process, and it ends the comparison as below says.
   The press of R4's Continue, after a start shows K1, ends the
-  comparison, and only that press does. The start that this
+  comparison, and no earlier step of the restore does. The start that this
   Continue makes, and every start after it in that process, compares
-  nothing, as at a launch. Nothing before that press ends it: K1
-  showing, R2 opened, words entered and checked, then Back, or a
-  cancelled prompt, leaves K1 with nothing restored, and the next
-  start of that process still compares. Why: on R4 the person has
-  just entered a phrase that restores the PeerId that the record
-  names, so that phrase, not the one written down on C4, is the one
-  that restores the identity that runs. If the comparison still
-  applied, that start would be refused, and nothing in the process
-  would lead on. `IdRestoreOther`'s Continue on R2 after K1 does not
-  end the comparison: a build cannot reach it there (K1 offers R2
-  only with the record's own PeerId, the another-identity row), and
-  should one reach it, the start of that Continue compares and is
-  answered as An answer after the bound says. Ending it there would
-  need the notice to say that the words written down on C4 do not
-  restore the PeerId below it, words this note does not add for a
-  case a build cannot reach.
-  Why the comparison lasts until then: the person pressed "Go online
-  with this PeerId" (`IdStartUnchecked`), and the phrase they wrote
-  down restores that PeerId. If a Try again went online with a
+  nothing, as at a launch. Why: on R4 the person has just entered a
+  phrase that restores the PeerId that the record names, so that
+  phrase, not the one written down on C4, is the one that restores the
+  identity that runs. If the comparison still applied to the start of
+  that Continue, that start would be refused, and nothing in the
+  process would lead on. No step of the restore before that press ends
+  the comparison. When K1 shows and the person opens R2, enters and
+  checks the words, and then presses Back or cancels a prompt, nothing
+  is restored, and the next start of that process still compares.
+  `IdRestoreOther`'s Continue on R2 after K1 does not end the
+  comparison either. A build cannot reach that Continue there: K1
+  offers R2 only with the record's own PeerId. If a build reaches that
+  Continue anyway, the another-identity row applies, and the start of
+  that Continue compares and is answered as An answer after the bound
+  says. To end the comparison there, the notice would have to say that
+  the words written down on C4 do not restore the PeerId below it, and
+  this note does not add that text for a case that a build cannot
+  reach.
+  Why the comparison lasts until one of the three events above: the
+  person pressed "Go online with this PeerId" (`IdStartUnchecked`),
+  and the phrase they wrote down restores that PeerId. If a Try
+  again went online with a
   different PeerId, it would answer that press with another
   identity, with no word to the person, and the phrase on paper
   would no longer restore the identity that runs. The ruling on Q15
   (§11d) lets nothing run from C4 as an identity other than C4's;
   the bound changes the screen, not the rule (architect-cto's REPLY
-  01a20aa8: the comparison binds every start of that process, until
-  R4's Continue after K1, REPLY 01a20c86). The end at R4's Continue
-  narrows that ruling, at architect-cto's answer to Q17 (§11f). The expected PeerId is kept in memory only. Nothing stores
+  01a20aa8: the comparison binds every start of that process). The
+  answer to Q17 (architect-cto's REPLY 01a20c86, §11f) narrows the
+  ruling of REPLY 01a20aa8: the comparison ends at R4's Continue
+  after K1. The expected PeerId is kept in memory only. Nothing stores
   it, and nothing stores the fact that the press happened. So, after a
   mismatch, only two things lead on: the end of the process, as on
-  C4, and R4's Continue after a restore from a phrase when K1 shows.
+  C4, and R4's Continue after K1, at the end of a restore from a
+  phrase.
   After the end of the
   process, the next launch runs whatever the record opens to, with no
   comparison (§12). When the system ends the process in the
@@ -2424,7 +2430,7 @@ landscape:
     than C4's: K1 shows over Chats with that PeerId. The phrase of that
     PeerId is entered on R2 and checked; Back returns to K1 through the
     discard dialog (`IdDiscard`), and Back from K1 leaves the app. The
-    launcher launches it again in the same process: the start of that
+    launcher launches the app again in the same process: the start of that
     launch compares, and the double answers it `RecoveryRequired`
     again, so K1 shows again. The phrase is entered on R2 again, and
     R4's Continue is pressed. The hook
@@ -3434,17 +3440,20 @@ here; the first was already answered on this branch.
 ## 11f. After #750 (Q17 answered)
 
 - **Q17. Does a restore from a phrase end the comparison with C4's
-  PeerId?** Answered by architect-cto, REPLY 01a20c86: yes for R4's
-  Continue after K1, at that press only. That press ends it for the
-  start it makes and every later start of the process; nothing is
-  stored. K1 showing, R2 opened, words entered, then Back or a
-  cancelled prompt, leaves K1 with nothing restored, and the
-  comparison still binds. `IdRestoreOther`'s Continue on R2 after K1
-  would end it only if that notice also said that the words written
-  down on C4 do not restore the PeerId below it; the note does not
-  add those words, because a build cannot reach that notice there
-  (K1 offers R2 only with the record's own PeerId), so its start stays
-  compared. No ADR or contract change follows. §6 (The comparison
+  PeerId?** Answered by architect-cto, REPLY 01a20c86: yes, at the
+  press of R4's Continue after K1, and at no earlier step of the
+  restore. That press ends the comparison for the start that the press
+  makes and for every later start of the process; nothing is stored.
+  No step of the restore before that press ends it: when K1 shows and
+  the person opens R2, enters the words, and then presses Back or
+  cancels a prompt, nothing is restored, and the comparison still
+  binds. `IdRestoreOther`'s Continue on R2 after K1 would end the
+  comparison only if that notice also said that the words written down
+  on C4 do not restore the PeerId below it. The note does not add that
+  text, because a build cannot reach that notice there (K1 offers R2
+  only with the record's own PeerId), so the start of that Continue
+  still compares. No ADR or contract
+  change follows. §6 (The comparison
   outlasts the bound) and acceptance 12's fifth run carry the answer.
   architect-cto's REPLY 01a20aa8 had said that the comparison binds
   every start of the process; this answer narrows that ruling. The
