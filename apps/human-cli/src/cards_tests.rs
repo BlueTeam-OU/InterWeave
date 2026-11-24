@@ -283,7 +283,6 @@ async fn a_shared_card_is_a_proposal_that_accept_makes_a_contact() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -314,7 +313,6 @@ async fn a_proposal_shown_and_left_undecided_is_gone_from_the_next_run() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -340,7 +338,6 @@ async fn decline_writes_nothing() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
-            accept_key_change: vec![],
             decline: vec![id],
         },
         true,
@@ -364,7 +361,6 @@ async fn a_decision_naming_no_proposal_refuses_before_anything_is_read() {
             Verb::ProposalsRead {
                 conversation: alice.route(),
                 accept,
-                accept_key_change: vec![],
                 decline,
             },
             false,
@@ -381,7 +377,6 @@ async fn a_decision_naming_no_proposal_refuses_before_anything_is_read() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id.clone()],
-            accept_key_change: vec![],
             decline: vec![id],
         },
         false,
@@ -407,7 +402,6 @@ async fn a_decision_that_fails_after_the_read_still_prints_the_proposals() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -429,7 +423,6 @@ async fn a_contact_is_renamed_its_photo_removed_and_deleted_by_the_person() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
-            accept_key_change: vec![],
             decline: vec![],
         },
         false,
@@ -707,7 +700,6 @@ async fn an_accept_made_before_another_fails_is_printed_accepted() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: ids.clone(),
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -732,7 +724,6 @@ async fn proposals_are_read_on_a_route_naming_its_endpoint() {
                 endpoint: None,
             },
             accept: vec![],
-            accept_key_change: vec![],
             decline: vec![],
         },
         false,
@@ -757,7 +748,6 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
     let accept = |id: String| Verb::ProposalsRead {
         conversation: alice.route(),
         accept: vec![id],
-        accept_key_change: vec![],
         decline: vec![],
     };
     run(&mut b_run, accept(id), true).await.1.expect("accepted");
@@ -781,7 +771,6 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
-            accept_key_change: vec![],
             decline: vec![id],
         },
         true,
@@ -791,12 +780,11 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
     assert_eq!(lines(&out)[0]["status"], "declined");
 }
 
-fn read_with(conversation: ConversationKey, accept: &[&str], key_change: &[&str]) -> Verb {
+fn read_with(conversation: ConversationKey, accept: &[&str]) -> Verb {
     let ids = |ids: &[&str]| ids.iter().map(|s| (*s).to_owned()).collect();
     Verb::ProposalsRead {
         conversation,
         accept: ids(accept),
-        accept_key_change: ids(key_change),
         decline: vec![],
     }
 }
@@ -888,7 +876,7 @@ async fn a_route_is_deleted_and_the_last_is_refused_as_a_contact_delete() {
     let (alice, bob, mut b_run) = Box::pin(shared()).await;
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
-    run(&mut b_run, read_with(alice.route(), &[&id], &[]), false)
+    run(&mut b_run, read_with(alice.route(), &[&id]), false)
         .await
         .1
         .expect("accepted");
@@ -1379,7 +1367,6 @@ async fn proposals_read_finds_a_card_older_than_the_held_row_ceiling() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![format!("u{}", card_row(&bob))],
-            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -1404,7 +1391,6 @@ async fn contacts_refuse_when_the_start_could_not_read_them() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
-            accept_key_change: vec![],
             decline: vec![],
         },
         false,

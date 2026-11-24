@@ -823,7 +823,7 @@ fn share_heard(a: &Home, b: &Home, to_b: &str) -> Value {
 
 /// ADR-0063 decisions 4 and 6, and ADR-0059 decision 9's route deletion,
 /// as a shell runs them across two daemons: A's identity shows its
-/// fingerprint, B accepts A's first card (never as a key change), A's key
+/// fingerprint, B accepts A's first card (the withdrawn --accept-key-change is a usage error), A's key
 /// file is damaged and `identity show` reports it, leaving the file as it
 /// was. B's contact has one route, A's, so its deletion is refused as a
 /// contact delete and nothing changes: no flow makes a second route yet
@@ -862,12 +862,7 @@ async fn a_first_card_is_accepted_the_only_route_is_kept_and_a_damaged_key_file_
         &["proposals", "read", &to_a, "--accept-key-change", &id],
         "",
     );
-    assert_eq!(
-        code(&out),
-        Some(1),
-        "a first card is no key change: {}",
-        said(&out)
-    );
+    assert_eq!(code(&out), Some(2), "the flag is withdrawn: {}", said(&out));
     let out = human(&b, &["proposals", "read", &to_a, "--accept", &id], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&b, &["contacts", "--json"], "");

@@ -88,14 +88,9 @@ pub(crate) async fn run<B: interweave_human_transport_client::SessionBinding, A:
         Verb::ProposalsRead {
             conversation,
             accept,
-            accept_key_change,
             decline,
         } => {
-            let decided = crate::cards::Decided {
-                accept,
-                accept_key_change,
-                decline,
-            };
+            let decided = crate::cards::Decided { accept, decline };
             crate::cards::proposals_read(s, r, conversation, &decided, out).await
         }
         Verb::Contacts => crate::cards::contacts(s, r, out).await,

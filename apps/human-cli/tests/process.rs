@@ -57,7 +57,6 @@ fn help_names_every_verb_and_every_exit_code() {
         "peers add|remove",
         "peers show",
         "identity show",
-        "--accept-key-change",
         "contacts route delete",
         "peers add -|--file",
     ] {

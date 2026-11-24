@@ -40,7 +40,7 @@ usage:
   interweave-human --profile <name> card share <conversation> [--json]
   interweave-human --profile <name> proposals [--json]
   interweave-human --profile <name> proposals read <conversation>
-                   [--accept <id>]... [--accept-key-change <id>]...
+                   [--accept <id>]...
                    [--decline <id>]... [--json]
   interweave-human --profile <name> contacts [--json]
   interweave-human --profile <name> contacts show <contact> [--json]
@@ -265,12 +265,8 @@ pub(crate) enum Verb {
     ProposalsRead {
         /// The conversation.
         conversation: ConversationKey,
-        /// The proposals to accept, by id: none of them a key change.
+        /// The proposals to accept, by id.
         accept: Vec<String>,
-        /// The key changes to accept, by id: each must be one (ADR-0063
-        /// decision 4: a changed key is accepted only by the person's
-        /// act, named for it).
-        accept_key_change: Vec<String>,
         /// The proposals to decline, by id.
         decline: Vec<String>,
     },
@@ -348,7 +344,6 @@ struct Flags {
     photo: Option<String>,
     no_photo: bool,
     accept: Vec<String>,
-    accept_key_change: Vec<String>,
     decline: Vec<String>,
     confirm: Option<String>,
     file: Option<String>,
@@ -443,7 +438,6 @@ fn flags_and_words(args: Vec<String>) -> Result<Option<(Flags, Vec<String>)>, St
             }
             "--keep" => flags.keep.push(value("--keep")?),
             "--accept" => flags.accept.push(value("--accept")?),
-            "--accept-key-change" => flags.accept_key_change.push(value("--accept-key-change")?),
             "--decline" => flags.decline.push(value("--decline")?),
             "--photo" => {
                 let v = value("--photo")?;
@@ -604,7 +598,6 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::ProposalsRead {
                 conversation: conversation(c)?,
                 accept: std::mem::take(&mut flags.accept),
-                accept_key_change: std::mem::take(&mut flags.accept_key_change),
                 decline: std::mem::take(&mut flags.decline),
             },
             true,
@@ -714,11 +707,8 @@ fn unused(flags: &Flags) -> Result<(), String> {
     if flags.none {
         return Err("--none applies to identities default and contacts photo only".to_owned());
     }
-    if !flags.accept.is_empty() || !flags.accept_key_change.is_empty() || !flags.decline.is_empty()
-    {
-        return Err(
-            "--accept, --accept-key-change and --decline apply to proposals read only".to_owned(),
-        );
+    if !flags.accept.is_empty() || !flags.decline.is_empty() {
+        return Err("--accept and --decline apply to proposals read only".to_owned());
     }
     if flags.confirm.is_some() {
         return Err("--confirm applies to store discard only".to_owned());
@@ -822,8 +812,6 @@ mod tests {
                 &c,
                 "--accept",
                 "u3",
-                "--accept-key-change",
-                "u5",
                 "--decline",
                 "u4",
             ],
@@ -929,6 +917,26 @@ mod tests {
     }
 
     #[test]
+    fn the_withdrawn_accept_key_change_flag_is_an_unknown_flag() {
+        let c = format!("{PEER}/{}", endpoint_id("human").as_str());
+        // The control: the flag that stays parses.
+        assert!(run(&["--profile", "p", "proposals", "read", &c, "--accept", "u1"]).is_ok());
+        assert_eq!(
+            run(&[
+                "--profile",
+                "p",
+                "proposals",
+                "read",
+                &c,
+                "--accept-key-change",
+                "u1"
+            ])
+            .map(|_| ()),
+            Err("an unknown flag".to_owned())
+        );
+    }
+
+    #[test]
     fn flags_that_do_not_apply_are_usage_errors() {
         let c = format!("{PEER}/{}", endpoint_id("human").as_str());
         for args in [
@@ -945,15 +953,6 @@ mod tests {
             ],
             vec!["--profile", "p", "card", "set", "A", "B", "C"],
             vec!["--profile", "p", "read", &c, "--accept", "u1"],
-            vec!["--profile", "p", "read", &c, "--accept-key-change", "u1"],
-            vec![
-                "--profile",
-                "p",
-                "proposals",
-                "read",
-                &c,
-                "--accept-key-change",
-            ],
             vec!["--profile", "p", "status", "--photo", "x"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],
