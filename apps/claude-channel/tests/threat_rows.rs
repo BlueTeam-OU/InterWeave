@@ -40,7 +40,6 @@ use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, Buf
 use tokio::net::{UnixListener, UnixStream};
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
-/// The remote's peer-asserted endpoint: a peer's string.
 const PATIENCE: Duration = Duration::from_secs(10);
 
 struct Daemon {
@@ -104,6 +103,7 @@ impl Daemon {
     async fn direct(&mut self, sequence: u8, media_type: Option<&str>, bytes: &[u8]) {
         let message = ReceivedDirect {
             source_peer: TransportIdentity::parse(PEER).expect("peer"),
+            // The remote's peer-asserted endpoint: a peer's string.
             source_endpoint: endpoint_id("source"),
             destination_endpoint: endpoint_id("claude"),
             message_id: MessageId::from_bytes([sequence; 16]),
