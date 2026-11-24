@@ -817,6 +817,14 @@ impl ServiceHost {
         let boundary = TrustBoundary::new(app_data_dir).map_err(|e| refused(e.into()))?;
         let paths =
             ProfilePaths::resolve_embedded(profile, boundary).map_err(|e| refused(e.into()))?;
+        // This posture reaches no host, so the host's half of M3 (form 1
+        // beside one sealed first key -> form 2) runs here too, under the
+        // profile lock taken without waiting; another holder is left to
+        // the steps below to answer
+        // (`a_start_without_network_finishes_m3_beside_one_sealed_key`).
+        if let Ok(_held) = interweave_profile_config::ProfileLock::acquire(&paths, Duration::ZERO) {
+            interweave_transport_embedded::finish_first_identity(&paths).map_err(refused)?;
+        }
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
         let store = self.open_store(&paths, &endpoint, &*store_cipher)?;

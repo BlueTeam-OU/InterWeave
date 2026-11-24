@@ -1819,3 +1819,46 @@ fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
     assert_eq!(service.identity_key_refused(), None, "cleared");
     let _ = service.stop(GRACE);
 }
+
+/// The start without network reaches no embedded host, so it finishes M3
+/// itself: form 1 beside one sealed first key (onboarding sealed it and
+/// was cut short before writing form 2) starts on that key's identity
+/// and leaves form 2; the control, form 1 with no key, is still refused.
+#[test]
+fn a_start_without_network_finishes_m3_beside_one_sealed_key() {
+    use interweave_profile_config::endpoint_key;
+    use interweave_profile_config::provision::embedded_identity_document;
+    let control = app();
+    provision_profile(&control.dir, PROFILE).expect("form 1");
+    let service = ServiceHost::new();
+    assert!(
+        service
+            .start_without_network(
+                &control.dir,
+                PROFILE,
+                Arc::new(interweave_human_store::key_custody::FilesystemCustody),
+            )
+            .is_err(),
+        "form 1 with no key does not start"
+    );
+
+    let app = app();
+    provision_profile(&app.dir, PROFILE).expect("form 1");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let id = endpoint_key::mint_filesystem(&paths).expect("a sealed first key");
+    let service = ServiceHost::new();
+    service
+        .start_without_network(
+            &app.dir,
+            PROFILE,
+            Arc::new(interweave_human_store::key_custody::FilesystemCustody),
+        )
+        .expect("form 1 beside one key starts");
+    service.stop(GRACE).expect("it ran");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("config"),
+        embedded_identity_document(PROFILE, &id),
+        "form 2 names the key's id"
+    );
+}
