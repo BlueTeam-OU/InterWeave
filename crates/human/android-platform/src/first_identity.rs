@@ -27,7 +27,8 @@ use interweave_profile_config::provision::{
     FIRST_IDENTITY_ALIAS, embedded_document, provision_identity,
 };
 use interweave_profile_config::{
-    MAX_PROFILE_BYTES, PersistError, ProfileLock, ProfilePaths, read_private_within,
+    MAX_PROFILE_BYTES, PersistError, PrivateReadError, ProfileLock, ProfilePaths,
+    read_private_within,
 };
 use interweave_transport_api::EndpointId;
 use interweave_transport_embedded::custody::{self, RecordName};
@@ -35,8 +36,9 @@ use interweave_transport_embedded::custody::{self, RecordName};
 /// What [`finish`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Finished {
-    /// The document is not form 1 -- form 2, or one this module does not
-    /// move: nothing was read of a key and nothing written.
+    /// The document is not the app's owner-only form 1 -- form 2, one
+    /// this module does not move, or one open to others or past the
+    /// bound: nothing was read of a key and nothing written.
     NotForm1,
     /// Form 1 and no seed record: a first run before Create or Restore,
     /// so no key was minted.
@@ -109,8 +111,18 @@ pub fn finish(
             Err(e) => return Err(FirstIdentityRefused::Lock(e.to_string())),
         },
     };
-    let text = read_private_within(&paths.config_file(), paths.boundary(), MAX_PROFILE_BYTES)
-        .map_err(|e| FirstIdentityRefused::Document(e.to_string()))?;
+    // Only the app's own owner-only form-1 text is the app's to move. A
+    // document open to others, or past the bound, is not that text and
+    // is left as `provision_embedded` leaves it: its load judges it by
+    // its own rule (`a_document_open_to_others_is_not_form_1_and_starts`).
+    let text = match read_private_within(&paths.config_file(), paths.boundary(), MAX_PROFILE_BYTES)
+    {
+        Ok(text) => text,
+        Err(PrivateReadError::NotPrivate { .. } | PrivateReadError::TooLarge) => {
+            return Ok(Finished::NotForm1);
+        }
+        Err(e) => return Err(FirstIdentityRefused::Document(e.to_string())),
+    };
     if text.as_deref() != Some(embedded_document(paths.profile()).as_str()) {
         return Ok(Finished::NotForm1);
     }

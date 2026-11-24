@@ -634,6 +634,64 @@ fn form_2_is_left_as_it_is() {
     );
 }
 
+/// A document open to others -- form 2 or form 1, at 0644 -- is not the
+/// app's owner-only form 1: the start's M3 step leaves it, reads no key
+/// and writes nothing, and the start goes on (the profile's load allows a
+/// document others can read). The owner-only form 2 beside it is
+/// `form_2_is_left_as_it_is`. Mutation: a private-read refusal answered
+/// `Document` again refuses both cases and the start.
+#[test]
+fn a_document_open_to_others_is_not_form_1_and_starts() {
+    let open_to_others = |app: &App| {
+        std::fs::set_permissions(
+            paths(app).config_file(),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .expect("chmod");
+    };
+    // Form 1 at 0644 beside a seed and no key: nothing is minted.
+    let app = fresh_install();
+    let keys = Arc::new(KeyKeystore::default());
+    provision_profile(&app.dir, PROFILE).expect("M1");
+    seal_a_seed(&app, &SeedKeystore::default());
+    open_to_others(&app);
+    let before = document(&app);
+    assert_eq!(
+        first_identity::at_start(&app.dir, PROFILE, &*keys),
+        Ok(Finished::NotForm1)
+    );
+    assert_eq!(keys.seals(), 0);
+    assert_eq!(document(&app), before);
+    assert!(
+        identity_key::sealed(&paths(&app))
+            .expect("listed")
+            .is_empty()
+    );
+
+    // Form 2 at 0644 under the Keystore: the start succeeds.
+    let app = fresh_install();
+    let keys = Arc::new(KeyKeystore::default());
+    seal_a_seed(&app, &SeedKeystore::default());
+    let id = common::provision_first_identity_with(&app.dir, PROFILE, |paths| {
+        identity_key::create(paths, &*keys)
+            .expect("the first identity's key")
+            .endpoint()
+            .clone()
+    });
+    open_to_others(&app);
+    let before = document(&app);
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE, keys.clone())
+        .expect("a document open to others starts");
+    let _ = service.stop(GRACE);
+    assert_eq!(document(&app), before);
+    assert_eq!(
+        identity_key::sealed(&paths(&app)).expect("listed"),
+        vec![id]
+    );
+}
+
 /// The lock [`first_identity::finish`] takes is released on every path,
 /// a refusal's included, and a lock another holds is waited for by
 /// nobody: nothing is tried. Mutation: the lock kept past the return

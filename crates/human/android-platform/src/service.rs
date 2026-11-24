@@ -1104,9 +1104,6 @@ fn client_config(
     }
 }
 
-/// What a refused start answers of the store, or `None` for a runtime
-/// refused network access: the Service then starts the network-denied
-/// posture, whose answer is the start's.
 /// A start's half of M3, before the embedded host takes the profile's
 /// lock: the host's start refuses form 1, and finishes it beside a sealed
 /// key alone (`crate::first_identity`).
@@ -1116,6 +1113,9 @@ fn first_identity(launch: &ServiceLaunch) -> Result<(), StartRefused> {
         .map_err(StartRefused::FirstIdentity)
 }
 
+/// What a refused start answers of the store, or `None` for a runtime
+/// refused network access: the Service then starts the network-denied
+/// posture, whose answer is the start's.
 const fn store_answer(why: &StartRefused) -> Option<StoreAnswer> {
     match why {
         StartRefused::StoreNeedsRecovery => Some(StoreAnswer::Refused(StoreRefusal::Recovery)),
