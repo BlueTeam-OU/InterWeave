@@ -618,10 +618,6 @@ fn the_trust_row_shapes_agree_with_the_schema_both_ways() {
     }
 }
 
-/// `ipc/endpoint-list` 1.1.0 widens `persisted` from the literal
-/// `false` to a boolean -- the 2.0 row and the 2.5 row -- and the mirror
-/// reads exactly what the schema admits: both values pass both, and a
-/// row missing it or naming it as anything else fails both.
 /// Major 3 carries the derived `EndpointId` alone (ADR-0067 decision 7):
 /// in every IPC document that holds one, a label of the retired grammar
 /// -- well formed under it, inside every length bound -- is refused by the
@@ -745,6 +741,10 @@ fn a_label_is_refused_wherever_an_ipc_document_carries_an_endpoint_id() {
     }
 }
 
+/// `ipc/endpoint-list` (2.0.0) admits `persisted` as either boolean --
+/// `false` on the 2.0 row, `true` on the 2.5 row -- and the mirror reads
+/// exactly what the schema admits: both values pass both, and a row
+/// missing it or naming it as anything else (`null`, a string) fails both.
 #[test]
 fn the_endpoint_row_shapes_agree_with_the_schema_both_ways() {
     let path = "architecture/contracts/schemas/ipc/endpoint-list.schema.json";
