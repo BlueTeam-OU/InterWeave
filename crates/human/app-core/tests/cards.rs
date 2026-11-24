@@ -123,10 +123,12 @@ fn facade_with_wall(
     key: Option<IdentityKey>,
     wall: impl Fn() -> u64 + Send + Sync + 'static,
 ) -> FacadeSide<FakeNode, FakeNode> {
+    // The store opens as the profile's identity, the one the client
+    // leases: a client leases the identity its store speaks as.
     let store = HumanStore::open_profile(
         &profile.paths,
         &FilesystemCustody,
-        &interweave_test_support::endpoint_keys::endpoint_id("human"),
+        &profile.key_id,
         StoreOptions::default(),
     )
     .expect("store");
