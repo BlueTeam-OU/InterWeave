@@ -198,7 +198,7 @@ where
             reason.as_str()
         ))),
         Err(TransportError::ProtocolUnsupported) => Err(Failure::Refused(
-            "the daemon does not add a list of addresses (IPC 2.9): is it older?".to_owned(),
+            "the daemon does not serve that method (admin.peers.add_addresses)".to_owned(),
         )),
         Err(e) => Err(refused(e)),
     }
@@ -255,7 +255,7 @@ pub(crate) async fn peers(
             Ok(rows) => rows,
             Err(TransportError::ProtocolUnsupported) => {
                 return Err(Failure::Refused(
-                    "the daemon does not list its peers (IPC 2.2): is it older?".to_owned(),
+                    "the daemon does not serve that method (admin.peers.list)".to_owned(),
                 ));
             }
             Err(e) => return Err(refused(e)),
@@ -265,7 +265,7 @@ pub(crate) async fn peers(
     }
     if !port.port().holds(AdminCapability::Peers) {
         return Err(Failure::Refused(
-            "the daemon does not grant the peers capability (IPC 2.7): is it older?".to_owned(),
+            "the daemon did not grant the peers capability".to_owned(),
         ));
     }
     match verb {
@@ -291,8 +291,7 @@ pub(crate) async fn peers(
             Ok(own) => out.push_str(&own_lines(&own, json)),
             Err(TransportError::ProtocolUnsupported) => {
                 return Err(Failure::Refused(
-                    "the daemon does not report its own addresses (IPC 2.8): is it older?"
-                        .to_owned(),
+                    "the daemon does not serve that method (its own addresses)".to_owned(),
                 ));
             }
             Err(e) => return Err(refused(e)),
@@ -393,7 +392,7 @@ pub(crate) async fn identities(
     };
     if !port.port().holds(AdminCapability::Endpoints) {
         return Err(Failure::Refused(
-            "the daemon does not grant the endpoints capability: is it older?".to_owned(),
+            "the daemon did not grant the endpoints capability".to_owned(),
         ));
     }
     match verb {
@@ -654,7 +653,7 @@ mod tests {
         assert!(matches!(short, Err(Failure::Refused(_))), "{short:?}");
         let old = add_list(lines, answer(Err(TransportError::ProtocolUnsupported))).await;
         assert!(
-            matches!(&old, Err(Failure::Refused(why)) if why.contains("2.9")),
+            matches!(&old, Err(Failure::Refused(why)) if why.contains("add_addresses") && !why.contains("older")),
             "{old:?}"
         );
     }
