@@ -53,6 +53,8 @@ use crate::translate::{
 };
 use crate::write_order::{Admission, AdmissionOrder, LastWrites, WriteKey};
 
+mod endpoint_set;
+
 /// How a runtime is composed beyond what the profile says.
 ///
 /// [`CompositionOptions::from_profile`] is the production construction:
@@ -84,6 +86,11 @@ pub struct CompositionOptions {
     /// binding supplies one; without one -- a test construction -- an add
     /// lasts until the runtime stops.
     pub bootstrap_overlay_file: Option<PathBuf>,
+    /// The profile's paths, where `admin.endpoints.add` reads the header
+    /// of the key file it names (`<state_dir>/endpoint-keys/`). Every
+    /// production binding supplies them; without them -- a test
+    /// construction -- every add is refused `key_missing`.
+    pub profile_paths: Option<ProfilePaths>,
     /// Where the overlay files' directory walk stops (ADR-0028 A
     /// 2026-10-08): the profile paths' boundary -- `/` on the desktop,
     /// the app's data directory with its runtime root for an embedded
@@ -110,6 +117,7 @@ impl CompositionOptions {
             trust_overlay_file: Some(TrustOverlay::path_for(paths)),
             endpoint_overlay_file: Some(EndpointOverlay::path_for(paths)),
             bootstrap_overlay_file: Some(BootstrapOverlay::path_for(paths)),
+            profile_paths: Some(paths.clone()),
             trust_boundary: paths.boundary().clone(),
             queue_bound: usize::try_from(profile.ipc.client_event_queue).unwrap_or(usize::MAX),
             ..Self::default()
@@ -125,6 +133,7 @@ impl Default for CompositionOptions {
             trust_overlay_file: None,
             endpoint_overlay_file: None,
             bootstrap_overlay_file: None,
+            profile_paths: None,
             trust_boundary: TrustBoundary::root(),
             queue_bound: 256,
             event_capacity: 1024,
@@ -254,6 +263,31 @@ pub(crate) enum Request {
     SetDefaultEndpoint(
         Option<EndpointId>,
         oneshot::Sender<Result<(), TransportError>>,
+    ),
+    /// Add an endpoint by its key file's name (`admin.endpoints.add`).
+    AddEndpoint(
+        String,
+        String,
+        Vec<String>,
+        oneshot::Sender<Result<interweave_local_client_api::EndpointAddChange, TransportError>>,
+    ),
+    /// Remove an added endpoint (`admin.endpoints.remove`).
+    RemoveEndpoint(
+        EndpointId,
+        oneshot::Sender<Result<interweave_local_client_api::EndpointRemoveChange, TransportError>>,
+    ),
+    /// Set whether an endpoint is advertised
+    /// (`admin.endpoints.set_advertise`).
+    SetEndpointAdvertise(
+        EndpointId,
+        bool,
+        oneshot::Sender<Result<(), TransportError>>,
+    ),
+    /// Rename an added endpoint (`admin.endpoints.set_alias`).
+    SetEndpointAlias(
+        EndpointId,
+        String,
+        oneshot::Sender<Result<interweave_local_client_api::AliasChange, TransportError>>,
     ),
     /// Add a bootstrap address (`admin.peers.add_address`).
     AddBootstrap(
@@ -505,13 +539,19 @@ impl ComposedRuntime {
                 bootstrap.peers().len()
             );
         }
-        let composition = translate(profile, &local, options.queue_bound)?
+        let mut composition = translate(profile, &local, options.queue_bound)?
             .with_allowed(allowed.clone(), &local)?
             .with_own_sets(crate::translate::own_sets(
                 &endpoint_overlay,
                 &profile.endpoints,
             ))?
             .with_added_bootstrap(static_how, bootstrap.peers())?;
+        // The registry says which entries the add created: what
+        // `admin.endpoints.list` reports, and what it keeps reporting for
+        // an endpoint a removal left ahead of the runtime.
+        composition.direct = composition
+            .direct
+            .with_added(endpoint_overlay.added().map(|e| &e.id));
         // Discovery offers the admission set: who may connect (ADR-0067 d.6).
         let admitted = composition.peer_trust.allowed_peers().cloned().collect();
         // The operator inputs besides the bootstrap entries: a removed
@@ -642,6 +682,7 @@ impl ComposedRuntime {
             authored,
             endpoint_overlay,
             endpoint_overlay_file: options.endpoint_overlay_file.clone(),
+            profile_paths: options.profile_paths.clone(),
             bootstrap,
             bootstrap_file: options.bootstrap_overlay_file.clone(),
             static_how,
@@ -1007,6 +1048,9 @@ struct Driver {
     endpoint_overlay: EndpointOverlay,
     /// Where the endpoint overlay is kept; `None` in a test construction.
     endpoint_overlay_file: Option<PathBuf>,
+    /// The profile's paths, where an add reads its key file's header;
+    /// `None` in a test construction.
+    profile_paths: Option<ProfilePaths>,
     /// Where both overlay files' directory walk stops.
     trust_boundary: TrustBoundary,
     /// The failures the next overlay writes meet, in order (test builds).
@@ -1419,6 +1463,18 @@ impl Driver {
                         .map_err(|_| TransportError::BackendUnavailable)?
                 };
                 let _ = reply.send(self.set_endpoints("set_default", moved, publish).await);
+            }
+            Request::AddEndpoint(key, alias, kinds, reply) => {
+                let _ = reply.send(self.add_endpoint(key, alias, kinds).await);
+            }
+            Request::RemoveEndpoint(endpoint, reply) => {
+                let _ = reply.send(self.remove_endpoint(endpoint).await);
+            }
+            Request::SetEndpointAdvertise(endpoint, advertise, reply) => {
+                let _ = reply.send(self.set_endpoint_advertise(endpoint, advertise).await);
+            }
+            Request::SetEndpointAlias(endpoint, alias, reply) => {
+                let _ = reply.send(self.set_endpoint_alias(endpoint, alias).await);
             }
             Request::AddBootstrap(by, address, reply) => {
                 let _ = reply.send(self.add_bootstrap(&by, address).await);

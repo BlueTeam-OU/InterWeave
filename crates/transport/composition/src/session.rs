@@ -816,6 +816,58 @@ impl AdminPort for InProcessAdmin {
         .await?
     }
 
+    // THE ENDPOINT SET'S METHODS go to the driver, which holds the endpoint
+    // overlay: the IPC binding and the embedded host reach the same
+    // runtime function, with the same refusals in the same order
+    // (LOCAL-IPC.md §The endpoint set's methods).
+    async fn add_endpoint(
+        &self,
+        key: String,
+        alias: String,
+        allowed_client_kinds: Vec<String>,
+    ) -> Result<interweave_local_client_api::EndpointAddChange, TransportError> {
+        self.require(AdminCapability::Endpoints)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::AddEndpoint(key, alias, allowed_client_kinds, reply)
+        })
+        .await?
+    }
+
+    async fn remove_endpoint(
+        &self,
+        endpoint: EndpointId,
+    ) -> Result<interweave_local_client_api::EndpointRemoveChange, TransportError> {
+        self.require(AdminCapability::Endpoints)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::RemoveEndpoint(endpoint, reply)
+        })
+        .await?
+    }
+
+    async fn set_endpoint_advertise(
+        &self,
+        endpoint: EndpointId,
+        advertise: bool,
+    ) -> Result<(), TransportError> {
+        self.require(AdminCapability::Endpoints)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::SetEndpointAdvertise(endpoint, advertise, reply)
+        })
+        .await?
+    }
+
+    async fn set_endpoint_alias(
+        &self,
+        endpoint: EndpointId,
+        alias: String,
+    ) -> Result<interweave_local_client_api::AliasChange, TransportError> {
+        self.require(AdminCapability::Endpoints)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::SetEndpointAlias(endpoint, alias, reply)
+        })
+        .await?
+    }
+
     async fn trust(&self) -> Result<TrustAdminView, TransportError> {
         self.require(AdminCapability::Trust)?;
         ask_driver(&self.driver()?, Request::Trust).await
