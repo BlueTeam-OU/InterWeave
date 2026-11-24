@@ -386,7 +386,7 @@ fn envelope(n: u8, text: &str) -> Payload {
         "app_message_id": format!("{n:032x}"),
         "text": text,
         "sent_at_ms": 1,
-        "from_endpoint": CARRIER,
+        "from_endpoint": endpoint(CARRIER).as_str(),
     });
     Payload::at_ceiling(
         Some(
