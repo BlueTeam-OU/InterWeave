@@ -201,7 +201,7 @@ async fn case_1_client_the_transport_is_called_only_while_the_pending_copy_is_on
         },
         a.clone(),
         store,
-        config(agent()),
+        config(human()),
         Box::new(|| 1_786_600_000_000),
         0,
     )
@@ -253,7 +253,7 @@ async fn case_5_client_every_message_drain_hands_over_is_already_an_unread_row()
             StoreOptions::default(),
         )
         .expect("store"),
-        config(agent()),
+        config(human()),
         Box::new(|| 1_786_600_000_000),
         0,
     )

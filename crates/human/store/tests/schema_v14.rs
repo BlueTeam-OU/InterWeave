@@ -18,11 +18,11 @@
 mod common;
 
 use interweave_human_store::{
-    AppMessageId, DiscardedAtV14, HumanStore, InboundKind, InboundOrigin, NewInbound,
-    READ_PAIR_CAP, SCHEMA_VERSION, StoreError, StoreOptions,
+    AppMessageId, DiscardedAtV14, HumanStore, InboundKind, InboundOrigin, NewInbound, NewOutbound,
+    OutboundDestination, READ_PAIR_CAP, SCHEMA_VERSION, StoreError, StoreOptions,
 };
 use interweave_test_support::endpoint_keys::{endpoint_id, signing_key};
-use interweave_transport_api::{EndpointId, TransportIdentity};
+use interweave_transport_api::{DirectDestination, EndpointId, MessageId, TransportIdentity};
 
 /// The first identity: the id the client hands to the open.
 fn me() -> EndpointId {
@@ -1181,4 +1181,72 @@ fn a_new_store_keeps_no_page_the_migrations_replaced() {
 #[test]
 fn this_build_writes_v14() {
     assert_eq!(SCHEMA_VERSION, 14);
+}
+
+fn outbound(n: u32, peer: &TransportIdentity, endpoint: &EndpointId) -> NewOutbound {
+    NewOutbound {
+        app_message_id: AppMessageId::parse(id(n)).expect("an id"),
+        transport_message_id: MessageId::parse_hex(&format!("{:032x}", u128::from(n) + (1 << 100)))
+            .expect("an id"),
+        destination: OutboundDestination::Direct(DirectDestination {
+            peer: peer.clone(),
+            endpoint: Some(endpoint.clone()),
+        }),
+        media_type: None,
+        payload: vec![1],
+        created_at: u64::from(n),
+    }
+}
+
+/// A handle opened as the first identity and re-scoped with
+/// `speaking_as` speaks as the other: it lists none of the first's rows,
+/// and what it writes the first does not see; the open's own argument,
+/// the migration's target, is untouched, so the first reopened finds its
+/// rows as they were. Mutation: `speaking_as` returning the handle without
+/// its new identity.
+#[test]
+fn a_handle_speaking_as_another_identity_reads_and_writes_its_rows_alone() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let peer = TransportIdentity::parse(node("p")).expect("a PeerId");
+    let alice = endpoint_id("alice");
+
+    let mut first = HumanStore::open(&path, &me(), StoreOptions::default()).expect("me");
+    first
+        .commit_unread_inbound(&inbound(1, &peer, &alice))
+        .expect("mine");
+    first
+        .commit_pending_outbound(&outbound(2, &peer, &alice))
+        .expect("my send");
+    drop(first);
+
+    let mut second = HumanStore::open(&path, &me(), StoreOptions::default())
+        .expect("opened as the first")
+        .speaking_as(other());
+    assert_eq!(second.identity(), &other());
+    assert!(
+        second.unread_inbound().expect("unread").is_empty(),
+        "the first's unread row is not the other's"
+    );
+    assert!(
+        second.pending_outbound().expect("pending").is_empty(),
+        "the first's send is not the other's"
+    );
+    second
+        .commit_unread_inbound(&inbound(3, &peer, &alice))
+        .expect("the other's");
+    second
+        .commit_pending_outbound(&outbound(4, &peer, &alice))
+        .expect("the other's send");
+    assert_eq!(second.unread_inbound().expect("unread").len(), 1);
+    assert_eq!(second.pending_outbound().expect("pending").len(), 1);
+    drop(second);
+
+    let first = HumanStore::open(&path, &me(), StoreOptions::default()).expect("me again");
+    let unread = first.unread_inbound().expect("unread");
+    assert_eq!(unread.len(), 1, "mine alone, as they were");
+    assert_eq!(unread[0].app_message_id.as_str(), id(1));
+    let pending = first.pending_outbound().expect("pending");
+    assert_eq!(pending.len(), 1, "my send alone");
+    assert_eq!(pending[0].app_message_id.as_str(), id(2));
 }

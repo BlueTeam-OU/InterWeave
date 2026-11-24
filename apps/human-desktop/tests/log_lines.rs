@@ -164,11 +164,7 @@ impl Opener for NoLinks {
 /// the planted body word, and a contact on that route with the planted
 /// name and surname.
 fn planted(from: &TransportIdentity, count: u32) -> HumanStore {
-    let mut store = HumanStore::open_in_memory(
-        &interweave_test_support::endpoint_keys::endpoint_id("human"),
-        StoreOptions::default(),
-    )
-    .expect("store");
+    let mut store = HumanStore::open_in_memory(&human(), StoreOptions::default()).expect("store");
     plant(&mut store, from, count);
     store
 }
@@ -482,20 +478,11 @@ fn a_degraded_store_is_logged_as_storage_degraded_alone() {
     let faults = Arc::new(StoreFaults::default());
     let dir = tempfile::tempdir().expect("a directory");
     let path = dir.path().join("state").join("human.sqlite3");
-    let mut store = HumanStore::open(
-        &path,
-        &interweave_test_support::endpoint_keys::endpoint_id("human"),
-        StoreOptions::default(),
-    )
-    .expect("a store");
+    let mut store = HumanStore::open(&path, &human(), StoreOptions::default()).expect("a store");
     plant(&mut store, &from, 1);
     drop(store);
-    let tight = HumanStore::open(
-        &path,
-        &interweave_test_support::endpoint_keys::endpoint_id("human"),
-        StoreOptions { max_pages: Some(1) },
-    )
-    .expect("opens degraded");
+    let tight = HumanStore::open(&path, &human(), StoreOptions { max_pages: Some(1) })
+        .expect("opens degraded");
     let mut app = desktop(tight, &faults, &WORKING);
     let line = until_line(&mut app, "session ");
     assert!(
@@ -677,11 +664,7 @@ impl Remote {
         let client = TransportClient::new(
             node.clone(),
             node.clone(),
-            HumanStore::open_in_memory(
-                &interweave_test_support::endpoint_keys::endpoint_id("human"),
-                StoreOptions::default(),
-            )
-            .expect("store"),
+            HumanStore::open_in_memory(&human(), StoreOptions::default()).expect("store"),
             ClientConfig {
                 client_kind: "human-client".to_owned(),
                 endpoints: vec![human()],

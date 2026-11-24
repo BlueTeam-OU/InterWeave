@@ -299,28 +299,20 @@ async fn a_send_goes_out_and_reads_as_accepted_never_as_read() {
 }
 
 /// A sent message names the endpoint the facade leases, not the first it
-/// was configured with: here the runtime has the first disabled, so the
-/// open leased the second (ADR-0028 A 2026-10-11).
+/// was configured with: here the store speaks as the second, so the open
+/// leased the second, the identity whose rows the client keeps.
+/// Mutation: the open leasing the first configured endpoint.
 #[tokio::test]
 async fn a_send_names_the_endpoint_leased_not_the_first_configured() {
-    use interweave_local_client_api::{AdminBinding, AdminCapability, AdminPort};
     let mut config = node();
     config
         .endpoints
         .push(FakeEndpoint::open(endpoint("human-spare"), false));
     let (a, b) = FakeNetwork::pair(config, node());
-    a.admin(std::collections::BTreeSet::from([
-        AdminCapability::Endpoints,
-    ]))
-    .await
-    .expect("admin")
-    .set_endpoint_enabled(endpoint("human"), false)
-    .await
-    .expect("disabled");
     let client = TransportClient::new(
         a.clone(),
         a.clone(),
-        memory(),
+        memory().speaking_as(endpoint("human-spare")),
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: vec![endpoint("human"), endpoint("human-spare")],

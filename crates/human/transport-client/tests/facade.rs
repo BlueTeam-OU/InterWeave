@@ -62,11 +62,14 @@ fn node_config() -> FakeConfig {
 
 type Client = TransportClient<FakeNode, FakeNode>;
 
+/// A client leasing `endpoint`: its store re-scoped to speak as it, as a
+/// composition root does for the identity it leases, since a client
+/// leases the identity its store speaks as and no other.
 fn client(node: &FakeNode, endpoint: EndpointId, store: HumanStore) -> Client {
     TransportClient::new(
         node.clone(),
         node.clone(),
-        store,
+        store.speaking_as(endpoint.clone()),
         ClientConfig {
             client_kind: "human-client".to_owned(),
             endpoints: vec![endpoint],
@@ -498,12 +501,14 @@ async fn a_pending_row_that_does_not_decode_is_resent_after_a_restart() {
     let held = raw(&b, Some(human())).await;
     let transport = MessageId::parse_hex(&format!("{:032x}", rand_id() + 7)).expect("an id");
     {
+        // Planted as the identity the restarted client speaks as.
         let mut store = HumanStore::open(
             &path,
             &interweave_test_support::endpoint_keys::endpoint_id("human"),
             StoreOptions::default(),
         )
-        .expect("store");
+        .expect("store")
+        .speaking_as(agent());
         store
             .commit_pending_outbound(&NewOutbound {
                 app_message_id: AppMessageId::parse(format!("{:032x}", rand_id())).expect("an id"),
@@ -739,34 +744,40 @@ async fn an_endpoint_in_use_is_refused_and_not_retried_until_the_person_asks() {
 }
 
 fn spare() -> EndpointId {
-    // Its derived id sorts before `human`'s (asserted: the ids are derived,
-    // so the labels' order says nothing), so a preference order lost to
-    // sorting shows.
-    let spare = endpoint_id("backup");
-    assert!(spare.as_str() < human().as_str());
-    spare
+    endpoint_id("backup")
 }
 
-/// A node with a second endpoint this client may lease, and a client
-/// preferring `human` then `spare`.
-fn two_endpoints() -> (FakeNode, Client) {
+/// A remote node, and a node with a second endpoint this client kind may
+/// lease.
+fn spare_pair() -> (FakeNode, FakeNode) {
     let mut config = node_config();
     config.endpoints.push(FakeEndpoint::open(spare(), false));
-    let (_a, b) = FakeNetwork::pair(node_config(), config);
-    let client = TransportClient::new(
-        b.clone(),
-        b.clone(),
-        memory(),
+    FakeNetwork::pair(node_config(), config)
+}
+
+/// A client on `node` offered `endpoints`, holding `store`.
+fn offered(node: &FakeNode, store: HumanStore, endpoints: Vec<EndpointId>) -> Client {
+    TransportClient::new(
+        node.clone(),
+        node.clone(),
+        store,
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoints: vec![human(), spare()],
+            endpoints,
             channels: vec![room()],
             max_payload_bytes: LIMIT,
         },
         wall(),
         0,
     )
-    .expect("pending rows read");
+    .expect("pending rows read")
+}
+
+/// The node with the spare, and a client offered both endpoints whose
+/// store speaks as `human`, the first.
+fn two_endpoints() -> (FakeNode, Client) {
+    let (_a, b) = spare_pair();
+    let client = offered(&b, memory(), vec![human(), spare()]);
     (b, client)
 }
 
@@ -779,29 +790,38 @@ async fn set_enabled(node: &FakeNode, endpoint: EndpointId, enabled: bool) {
         .expect("set");
 }
 
-/// What the runtime says is enabled decides, never the configuration: an
-/// endpoint an administrator disabled is passed over for the next one
-/// the client may lease, and what a send names follows the lease.
-#[tokio::test]
-async fn an_open_passes_a_disabled_endpoint_for_the_next() {
-    let (node, mut c) = two_endpoints();
-    assert_eq!(c.endpoint(), Some(&human()), "before any lease: the first");
-    set_enabled(&node, human(), false).await;
-    c.tick(0).await;
-    assert_eq!(
-        c.session_state(),
-        &SessionState::Ready {
-            endpoint: Some(spare())
-        }
-    );
-    assert_eq!(c.endpoint(), Some(&spare()), "a send names the lease");
+/// How many endpoints the node holds leased, by its admin view.
+async fn leases(node: &FakeNode) -> usize {
+    node.admin(BTreeSet::from([AdminCapability::Status]))
+        .await
+        .expect("admin")
+        .status()
+        .await
+        .expect("status")
+        .active_leases
 }
 
+/// The spare is free: a session of another client can lease it.
+async fn spare_is_free(node: &FakeNode) {
+    let held = raw(node, Some(spare())).await;
+    held.close().await.expect("released");
+}
+
+/// The client leases the identity its store speaks as and no other: one an
+/// administrator disabled is the session's refusal, and the spare the
+/// configuration also offers is never leased for it (`human-client-ui.md`
+/// §13: a disabled identity is off, nothing sending as it; ADR-0061
+/// decisions 1 and 9). Re-enabled, the next open leases it. Mutation: the
+/// open walking the configured endpoints past a disabled one.
 #[tokio::test]
-async fn every_endpoint_disabled_is_refused() {
+async fn a_disabled_store_identity_is_refused_and_no_other_is_leased() {
     let (node, mut c) = two_endpoints();
+    assert_eq!(
+        c.endpoint(),
+        Some(&human()),
+        "before any lease: the store's"
+    );
     set_enabled(&node, human(), false).await;
-    set_enabled(&node, spare(), false).await;
     c.tick(0).await;
     assert_eq!(
         c.session_state(),
@@ -809,6 +829,14 @@ async fn every_endpoint_disabled_is_refused() {
             problem: SessionProblem::NotAvailableToThisClient
         }
     );
+    assert_eq!(leases(&node).await, 0, "nothing leased");
+    spare_is_free(&node).await;
+    assert_eq!(
+        c.endpoint(),
+        Some(&human()),
+        "a send still names the store's"
+    );
+
     set_enabled(&node, human(), true).await;
     c.reopen(1);
     c.tick(1).await;
@@ -817,30 +845,15 @@ async fn every_endpoint_disabled_is_refused() {
         &SessionState::Ready {
             endpoint: Some(human())
         },
-        "re-enabled, the first is preferred again"
-    );
-}
-
-/// The walk moves on for a disabled endpoint only: one another window
-/// holds is this client's own, busy, and taking the next would split one
-/// person's conversations across two endpoints.
-#[tokio::test]
-async fn an_endpoint_in_use_stops_the_walk() {
-    let (node, mut c) = two_endpoints();
-    let _holder = raw(&node, Some(human())).await;
-    c.tick(0).await;
-    assert_eq!(
-        c.session_state(),
-        &SessionState::Refused {
-            problem: SessionProblem::EndpointInUse
-        }
+        "re-enabled, the store's identity is leased"
     );
 }
 
 /// Disabling the leased endpoint revokes the lease (`LOCAL-CLIENT.md`);
-/// the re-open leases the next.
+/// the re-open is refused and leases nothing else. Mutation: the open
+/// walking the configured endpoints past a disabled one.
 #[tokio::test]
-async fn a_disable_while_leased_moves_the_next_open() {
+async fn a_disable_while_leased_is_refused_at_the_reopen() {
     let (node, mut c) = two_endpoints();
     c.tick(0).await;
     assert_eq!(
@@ -857,10 +870,135 @@ async fn a_disable_while_leased_moves_the_next_open() {
     c.tick(next_at).await;
     assert_eq!(
         c.session_state(),
+        &SessionState::Refused {
+            problem: SessionProblem::NotAvailableToThisClient
+        }
+    );
+    assert_eq!(leases(&node).await, 0, "the spare is not leased instead");
+    spare_is_free(&node).await;
+}
+
+/// The store's identity held by another window is this client's own,
+/// busy: refused, and the spare is not taken, which would split one
+/// person's conversations across two endpoints. Mutation: the open
+/// walking the configured endpoints past any refusal.
+#[tokio::test]
+async fn an_endpoint_in_use_is_refused_and_no_other_is_leased() {
+    let (node, mut c) = two_endpoints();
+    let _holder = raw(&node, Some(human())).await;
+    c.tick(0).await;
+    assert_eq!(
+        c.session_state(),
+        &SessionState::Refused {
+            problem: SessionProblem::EndpointInUse
+        }
+    );
+    assert_eq!(leases(&node).await, 1, "the holder's lease alone");
+    spare_is_free(&node).await;
+}
+
+/// A store identity the configuration does not offer is a composition
+/// fault: refused before the runtime is asked, nothing leased, the
+/// offered endpoint not taken in its place. Mutation: the check left out,
+/// the open leasing the store's identity unoffered.
+#[tokio::test]
+async fn a_store_identity_the_config_does_not_offer_is_refused_unasked() {
+    let (_a, b) = spare_pair();
+    let mut c = offered(&b, memory().speaking_as(spare()), vec![human()]);
+    c.tick(0).await;
+    assert_eq!(
+        c.session_state(),
+        &SessionState::Refused {
+            problem: SessionProblem::Internal
+        }
+    );
+    assert_eq!(leases(&b).await, 0, "nothing leased");
+}
+
+/// A client whose store speaks as the spare -- the first identity's store,
+/// re-scoped, as a session of the second identity composes it -- leases
+/// the spare, sends the spare's pending rows and none of the first's, and
+/// commits what it receives under the spare: a handle as the first lists
+/// none of it. Mutation: the open leasing the first configured endpoint
+/// rather than the store's identity.
+#[tokio::test]
+async fn a_client_speaking_as_the_spare_leases_it_and_writes_its_rows() {
+    use interweave_human_store::{AppMessageId, NewOutbound, OutboundDestination};
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (a, b) = spare_pair();
+    let held = raw(&a, Some(human())).await;
+    // The first identity's own pending row, which no session of the spare
+    // may send.
+    let firsts = MessageId::parse_hex(&format!("{:032x}", rand_id())).expect("an id");
+    let mut store = HumanStore::open(&path, &human(), StoreOptions::default()).expect("store");
+    store
+        .commit_pending_outbound(&NewOutbound {
+            app_message_id: AppMessageId::parse(format!("{:032x}", rand_id())).expect("an id"),
+            transport_message_id: firsts,
+            destination: OutboundDestination::Direct(DirectDestination::to_default(
+                a.peer().clone(),
+            )),
+            media_type: None,
+            payload: serde_json::to_vec(&envelope("the first's")).expect("json"),
+            created_at: 0,
+        })
+        .expect("committed");
+    let mut c = offered(&b, store.speaking_as(spare()), vec![human(), spare()]);
+    assert_eq!(c.endpoint(), Some(&spare()));
+    c.send(to(a.peer()), &envelope("the spare's"), 0)
+        .await
+        .expect("committed");
+    let spares = c.store_mut().pending_outbound().expect("read");
+    assert_eq!(spares.len(), 1, "the spare's row alone");
+    let spares = spares[0].transport_message_id;
+
+    ready(&mut c, 0).await;
+    assert_eq!(
+        c.session_state(),
         &SessionState::Ready {
             endpoint: Some(spare())
         }
     );
+    c.tick(1).await;
+    assert_eq!(
+        raw_direct_ids(&held).await,
+        [spares],
+        "the spare's row went out, the first's did not"
+    );
+
+    let from = raw(&a, Some(agent())).await;
+    from.send_direct(
+        DirectDestination {
+            peer: b.peer().clone(),
+            endpoint: Some(spare()),
+        },
+        MessageId::from_bytes([7; 16]),
+        Payload::at_ceiling(
+            Some(
+                MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("valid"),
+            ),
+            serde_json::to_vec(&envelope("to the spare")).expect("json"),
+        )
+        .expect("fits"),
+    )
+    .await
+    .expect("accepted");
+    assert_eq!(c.drain(16, 2).await.len(), 1, "received");
+    assert_eq!(c.store_mut().unread_inbound().expect("read").len(), 1);
+
+    let first = HumanStore::open(&path, &human(), StoreOptions::default()).expect("first");
+    assert!(
+        first.unread_inbound().expect("read").is_empty(),
+        "what the spare received is not the first's"
+    );
+    let pending: Vec<_> = first
+        .pending_outbound()
+        .expect("read")
+        .into_iter()
+        .map(|r| r.transport_message_id)
+        .collect();
+    assert_eq!(pending, [firsts], "the first's row is the first's alone");
 }
 
 #[tokio::test]

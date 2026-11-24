@@ -187,14 +187,8 @@ fn run(
         Ok(profile) => profile,
         Err(failure) => return failure.into(),
     };
-    // `--endpoint`: one of the profile's human endpoints is leased in place
-    // of the first, by its alias or its id. Never one it does not offer: no
-    // endpoint is made here (G2; ENDPOINTS.md, configured only).
-    if let Some(selector) = endpoint {
-        match startup::identity(&profile, selector) {
-            Ok(id) => profile.endpoints = vec![id],
-            Err(failure) => return failure.into(),
-        }
+    if let Some(Err(failure)) = endpoint.map(|selector| startup::narrow(&mut profile, selector)) {
+        return failure.into();
     }
     // One worker, as the desktop's facade runtime: the IPC client's reader
     // task runs there, so a store call blocking this thread cannot starve
