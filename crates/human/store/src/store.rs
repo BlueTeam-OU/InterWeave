@@ -84,7 +84,10 @@ pub struct HumanStore {
     /// every row it writes carries it as `local_endpoint_id`, and every
     /// read, count, probe and bound is of its rows alone -- another
     /// identity's rows are never consulted (ADR-0061 decision 9). The id
-    /// the open was handed, derived from the identity's key.
+    /// the open was handed (the first identity's) unless
+    /// [`HumanStore::speaking_as`] re-scoped the handle before it was
+    /// used; never the migration's target as such, which is the open's
+    /// argument alone.
     identity: EndpointId,
     health: StorageHealth,
     /// The page ceiling asked for (`StoreOptions::max_pages`), kept
@@ -308,12 +311,17 @@ impl HumanStore {
     /// step of that rewrite is resumed by the next open
     /// ([`crate::at_rest`], ADR-0060 decision 6).
     ///
-    /// `identity` is the first identity's `EndpointId`, derived from its key
-    /// (ADR-0067): the handle speaks as it ([`Self::identity`]), and schema
-    /// v14 gives it to every row an older store holds (STATE.md
-    /// §Migrations). The client hands it over because the store reads no
-    /// configuration, so a profile the client refuses at load leaves the
-    /// store unopened at the version it had.
+    /// `identity` is the FIRST identity's `EndpointId`, derived from its key
+    /// (ADR-0067), and it is two things: schema v14's migration target,
+    /// the id every row an older store holds is given (STATE.md
+    /// §Migrations (a)), and the handle's default scope
+    /// ([`Self::identity`]). A client speaking as another identity opens
+    /// as the first all the same, so a migration never gives the rows to
+    /// whichever identity happened to be leased, and re-scopes the handle
+    /// with [`speaking_as`](Self::speaking_as) before using it. The client
+    /// hands the id over because the store reads no configuration, so a
+    /// profile the client refuses at load leaves the store unopened at the
+    /// version it had.
     ///
     /// # Errors
     /// As [`open`](Self::open), and [`StoreError::KeyInvalidated`] and
@@ -526,10 +534,31 @@ impl HumanStore {
     }
 
     /// The local identity this handle speaks as: the id its open was
-    /// handed.
+    /// handed, or the one [`speaking_as`](Self::speaking_as) gave it.
     #[must_use]
     pub const fn identity(&self) -> &EndpointId {
         &self.identity
+    }
+
+    /// This handle, re-scoped to speak as `identity`: every row it writes
+    /// from here carries `identity`, and every read, count, probe and bound
+    /// is of `identity`'s rows alone (ADR-0061 decision 9). The open's own
+    /// argument stays what it was -- the first identity, the migration's
+    /// target -- so an identity other than the first is spoken as without
+    /// a migration ever giving it the first's rows (STATE.md §Migrations
+    /// (a)).
+    ///
+    /// It CONSUMES the handle rather than setting a field on a borrowed
+    /// one: a handle never changes identity once in use. Decision 9's
+    /// switch of identity is a visible act of the person's, not a mutation
+    /// under a running client, so the re-scoping happens before the handle
+    /// is handed to anything, and a client holding a handle can trust the
+    /// identity it read from it for as long as it holds it
+    /// (`a_handle_speaking_as_another_identity_reads_and_writes_its_rows_alone`).
+    #[must_use]
+    pub fn speaking_as(mut self, identity: EndpointId) -> Self {
+        self.identity = identity;
+        self
     }
 
     /// What schema v14 discarded when it upgraded this store (STATE.md
