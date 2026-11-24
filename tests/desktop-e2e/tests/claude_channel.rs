@@ -77,7 +77,8 @@ const META_KEYS: [&str; 16] = [
 /// The derived id of the endpoint the shipped examples configure with the
 /// alias `claude`, the one the bridge leases (a TEST-ONLY key,
 /// `endpoint_keys`). The bridge's `--endpoint claude` stays an alias: it
-/// resolves through the daemon to this id.
+/// resolves itself, from `config.yaml` and the endpoint overlay before it
+/// connects, and sends the daemon only this id.
 fn claude() -> EndpointId {
     interweave_test_support::endpoint_keys::endpoint_id("claude")
 }
