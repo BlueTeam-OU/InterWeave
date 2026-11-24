@@ -447,6 +447,26 @@ impl ServiceHost {
         }
     }
 
+    /// [`refused_before_start_with`](Self::refused_before_start_with)
+    /// when `custody_ran`, else
+    /// [`refused_before_start`](Self::refused_before_start), by a start
+    /// that compared the identity it unlocks with C4's `PeerId` and was
+    /// refused for it -- another `PeerId`, or a refusal that says nothing
+    /// of the record: the view shows `Refused` with Try again where it
+    /// would show no service running (design
+    /// 2026-10-19-android-identity.md section 6, An answer after the
+    /// bound). Nothing while the client runs.
+    pub fn refused_compared(&self, unlock: Option<UnlockStatus>, custody_ran: bool) {
+        let running = self.lock();
+        if running.is_none() {
+            if custody_ran {
+                *self.unlock_slot() = unlock;
+                self.unlock_start_ran();
+            }
+            self.hub.set_compared_refusal();
+        }
+    }
+
     /// [`refused_before_start_with`](Self::refused_before_start_with) by a
     /// start refused `UserNotAuthenticated`, with its
     /// [`crate::identity::locked_status`]: answered as
