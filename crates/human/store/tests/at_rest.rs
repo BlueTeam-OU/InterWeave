@@ -36,7 +36,7 @@ use interweave_human_store::{
 use interweave_profile_config::TrustBoundary;
 use interweave_profile_config::paths::ProfilePaths;
 use interweave_profile_config::profile_format;
-use interweave_transport_api::TransportIdentity;
+use interweave_transport_api::{EndpointId, TransportIdentity};
 use keystore::SoftKeystore;
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -820,12 +820,16 @@ fn older_store(paths: &ProfilePaths) {
     );
 }
 
-/// Every row of the upgrade tree's store reached schema v14: its one
-/// pending, unread and kept row are all of one `{peer, label}` that no
-/// keyed route names, so v14 discards them (STATE.md §Migrations (c), (e))
-/// and its counts row says each -- a row the rewrite lost before the
-/// migration would be missing from the counts.
-fn every_row_reached_the_migration(store: &HumanStore, when: &str) {
+/// The upgrade tree's store reached schema v14: its one pending, unread
+/// and kept row are all of one `{peer, label}` that no keyed route names,
+/// so v14 discards them (STATE.md §Migrations (c), (e)) and its counts row
+/// says each. This shows that the MIGRATION ran on the copy that was
+/// kept; it cannot show that the rewrite's export kept a row, since the
+/// open migrates the plaintext before it exports it, so v14 has already
+/// discarded these rows and written the counts by then.
+/// [`a_keyed_older_stores_rewrite_killed_beside_its_copy_loses_no_row`]
+/// holds the rows that must survive the export.
+fn the_migration_ran_on_the_kept_copy(store: &HumanStore, when: &str) {
     assert_eq!(
         store.discarded_at_v14().unwrap(),
         Some(interweave_human_store::DiscardedAtV14 {
@@ -848,12 +852,13 @@ fn every_row_reached_the_migration(store: &HumanStore, when: &str) {
 /// The rewrite of a store an older build wrote, killed after each step
 /// that leaves a complete copy beside the plaintext: the open migrates
 /// the plaintext before it exports it, so the copy is at this build's
-/// schema, opens under its key, and the next open promotes it with every
-/// row -- each reaching schema v14, which counts what it discards
-/// ([`every_row_reached_the_migration`]) -- and a discard planned meanwhile removes
-/// the unfinished plaintext alone (ADR-0060 decision 6; review F1 of #377).
+/// schema, opens under its key, and the next open promotes it, already
+/// migrated ([`the_migration_ran_on_the_kept_copy`]), and a discard
+/// planned meanwhile removes the unfinished plaintext alone (ADR-0060
+/// decision 6; review F1 of #377). Rows kept through the export are the
+/// next test's, not this one's.
 #[test]
-fn an_older_stores_rewrite_killed_beside_its_copy_loses_no_row_and_keeps_the_copy() {
+fn an_older_stores_rewrite_killed_beside_its_copy_keeps_and_promotes_the_migrated_copy() {
     for step in [
         RewriteStep::Marked,
         RewriteStep::ScrubDeleted,
@@ -876,9 +881,103 @@ fn an_older_stores_rewrite_killed_beside_its_copy_loses_no_row_and_keeps_the_cop
             StoreOptions::default(),
         )
         .unwrap_or_else(|e| panic!("after {step:?}: {e}"));
-        every_row_reached_the_migration(&store, &format!("after {step:?}"));
+        the_migration_ran_on_the_kept_copy(&store, &format!("after {step:?}"));
         drop(store);
         assert_eq!(names_in(&paths.human_dir()), [STORE_FILE], "after {step:?}");
+    }
+}
+
+/// A plaintext store at schema v13 holding rows v14 KEEPS: a keyed route
+/// (the key of `endpoint_id("keyed")`, so v14 rebinds it rather than
+/// discarding its pair), its conversation, one unread and one kept row. A
+/// build's own file faked back to v13, since v7's tree has no
+/// `identity_key` column to hold a key.
+fn keyed_older_store(paths: &ProfilePaths) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let scratch = common::private_tempdir();
+    let from = scratch.path().join("state").join("seed.sqlite3");
+    drop(
+        HumanStore::open(
+            &from,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .expect("a store"),
+    );
+    let key = interweave_test_support::endpoint_keys::signing_key("keyed")
+        .verifying_key()
+        .to_bytes()
+        .to_vec();
+    {
+        let conn = rusqlite::Connection::open(&from).expect("a second connection");
+        conn.execute_batch(common::UNDO_V14).expect("back to v13");
+        conn.execute_batch(&format!(
+            "INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
+                 VALUES ('c1', 'Keyed', 1, 1);
+             INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
+                 VALUES ('c1', '{PEER}', 'keyed-label', x'{}');
+             INSERT INTO conversation_index (conversation_id, peer_id, endpoint_id)
+                 VALUES ('direct/{PEER}/keyed-label', '{PEER}', 'keyed-label');
+             INSERT INTO unread_inbound
+                 (app_message_id, source_peer, source_endpoint, payload, received_at, kind)
+                 VALUES ('{:032x}', '{PEER}', 'keyed-label', x'7b7d', 1, 'text');
+             INSERT INTO kept_inbound
+                 (app_message_id, source_peer, source_endpoint, payload, received_at,
+                  read_at, kept_at, kind)
+                 VALUES ('{:032x}', '{PEER}', 'keyed-label', x'7b7d', 1, 1, 1, 'text');
+             PRAGMA wal_checkpoint(TRUNCATE);",
+            key.iter()
+                .fold(String::new(), |hex, b| hex + &format!("{b:02x}")),
+            1,
+            2,
+        ))
+        .expect("the keyed rows");
+    }
+    let to = db(paths);
+    std::fs::copy(&from, &to).expect("the seeded store");
+    std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+/// The rewrite of a store holding rows v14 keeps, killed after each step
+/// that leaves a complete copy: the unread and the kept row the keyed
+/// route rebinds are still there after the next open promotes the copy,
+/// so an export that dropped a content table's rows fails here, which the
+/// upgrade tree's store cannot show (its rows are discarded before the
+/// export).
+#[test]
+fn a_keyed_older_stores_rewrite_killed_beside_its_copy_loses_no_row() {
+    let keyed = interweave_test_support::endpoint_keys::endpoint_id("keyed");
+    for step in [
+        RewriteStep::Marked,
+        RewriteStep::ScrubDeleted,
+        RewriteStep::Scrubbed,
+    ] {
+        let (dir, paths) = profile();
+        keyed_older_store(&paths);
+        crash_after(dir.path(), step);
+        let store = HumanStore::open_profile(
+            &paths,
+            &FilesystemCustody,
+            &interweave_test_support::endpoint_keys::endpoint_id("human"),
+            StoreOptions::default(),
+        )
+        .unwrap_or_else(|e| panic!("after {step:?}: {e}"));
+        let when = format!("after {step:?}");
+        let unread = store.unread_inbound().unwrap();
+        let kept = store.kept_inbound().unwrap();
+        assert_eq!(unread.len(), 1, "{when}: the unread row");
+        assert_eq!(kept.len(), 1, "{when}: the kept row");
+        assert_eq!(
+            unread[0].origin.endpoint.as_ref().map(EndpointId::as_str),
+            Some(keyed.as_str()),
+            "{when}: rebound to the id the key derives"
+        );
+        assert_eq!(
+            store.discarded_at_v14().unwrap(),
+            None,
+            "{when}: v14 discarded nothing, so the rows are the migration's own"
+        );
+        drop(store);
     }
 }
 
@@ -941,7 +1040,7 @@ fn a_copy_an_earlier_build_left_at_its_schema_is_kept_and_migrated() {
         StoreOptions::default(),
     )
     .unwrap();
-    every_row_reached_the_migration(&store, "promoted");
+    the_migration_ran_on_the_kept_copy(&store, "promoted");
     drop(store);
     assert_eq!(names_in(&paths.human_dir()), [STORE_FILE]);
     assert_no_plaintext_header(&paths);
