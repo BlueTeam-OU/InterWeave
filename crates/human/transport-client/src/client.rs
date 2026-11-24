@@ -166,13 +166,17 @@ pub type WallClock = Box<dyn Fn() -> u64 + Send + Sync>;
 pub struct ClientConfig {
     /// The client kind the session declares.
     pub client_kind: String,
-    /// The endpoints this client may lease, in the order it prefers them;
-    /// empty for a session that sends only broadcasts and receives none
-    /// directly. Each open leases the first the runtime does not refuse
-    /// as disabled: whether an endpoint is enabled is the runtime's
-    /// effective state, which an administrator's change kept across
-    /// restarts makes differ from the profile's file (ADR-0028 A
-    /// 2026-10-11), so the client never decides it from configuration.
+    /// The endpoints this client may lease; empty for a session that sends
+    /// only broadcasts and receives none directly. It decides WHETHER the
+    /// client leases, never WHICH: when it is not empty, every open asks
+    /// for the identity the store speaks as ([`HumanStore::identity`]) and
+    /// no other, and a store identity it does not list is refused before
+    /// the runtime is asked (`a_store_identity_the_config_does_not_offer_is_refused_unasked`).
+    /// Whether that identity is enabled is the runtime's effective state,
+    /// which an administrator's change kept across restarts makes differ
+    /// from the profile's file (ADR-0028 A 2026-10-11), so the client never
+    /// decides it from configuration: a disabled one is the session's
+    /// refusal.
     pub endpoints: Vec<EndpointId>,
     /// The channels to join while the session is ready: the only ones a
     /// broadcast may go to.
@@ -401,15 +405,15 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     /// The endpoint a message sent now names as its own: the one the last
-    /// open leased, or before any lease the first this client prefers.
-    /// A message queued while no session holds may leave on a different
-    /// endpoint if the next open's walk lands elsewhere; the field is the
-    /// sender's assertion, never the route (`HUMAN-CHAT.md`).
+    /// open leased, or before any lease the identity the store speaks as,
+    /// the only one an open ever asks for; `None` for a broadcast-only
+    /// client. The field is the sender's assertion, never the route
+    /// (`HUMAN-CHAT.md`).
     #[must_use]
     pub fn endpoint(&self) -> Option<&EndpointId> {
         self.leased
             .as_ref()
-            .or_else(|| self.config.endpoints.first())
+            .or_else(|| (!self.config.endpoints.is_empty()).then(|| self.store.identity()))
     }
 
     /// The diagnostic counts.
@@ -1113,43 +1117,52 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         }
     }
 
-    /// Open a session on the first configured endpoint the runtime does
-    /// not refuse as disabled, and make its joins; a join that fails
-    /// closes it. Answers the session and the endpoint it leased.
+    /// Open a session leasing the identity the store speaks as, and make
+    /// its joins; a join that fails closes it. Answers the session and the
+    /// endpoint it leased: none for a broadcast-only configuration.
     ///
-    /// Only `EndpointDisabled` moves on to the next endpoint: it is the
-    /// one refusal an administrator's kept change makes, and the next
-    /// endpoint is as much this client's. Any other refusal -- one in
-    /// use, say, held by another window -- stops the walk, so a client
-    /// never takes a second endpoint because its own is busy. All of them
-    /// disabled answers `EndpointDisabled`.
+    /// THE ONE CANDIDATE IS THE STORE'S IDENTITY, never another endpoint
+    /// the configuration lists. The rows the client reads and writes are
+    /// that identity's (STATE.md schema v14), so a lease of any other
+    /// would send one identity's pending rows as another and commit what
+    /// the other receives into the first's rows. A refusal of it -- one
+    /// disabled, by an administrator's change kept across restarts, or in
+    /// use -- is therefore the session's refusal and not a reason to try
+    /// the next: `human-client-ui.md` §13 lists a disabled identity as
+    /// off, its conversations and contacts readable, nothing sending as
+    /// it; and an endpoint authored by hand for this client kind is a
+    /// route, not an identity, though `leasable_endpoints` lists it
+    /// (ADR-0061 decision 1), and no action may take an identity implied
+    /// by state the person cannot see (decision 9)
+    /// (`a_disabled_store_identity_is_refused_and_no_other_is_leased`).
+    ///
+    /// A store identity the configuration does not list is a composition
+    /// fault, not the runtime's refusal: answered `Internal` before the
+    /// runtime is asked, so nothing is leased for it.
     async fn open(&self) -> Result<(B::Session, Option<EndpointId>), TransportError> {
-        let candidates: Vec<Option<EndpointId>> = if self.config.endpoints.is_empty() {
-            vec![None]
+        let endpoint = if self.config.endpoints.is_empty() {
+            None
         } else {
-            self.config.endpoints.iter().cloned().map(Some).collect()
-        };
-        for endpoint in candidates {
-            let request = SessionRequest::new(
-                self.config.client_kind.clone(),
-                endpoint.clone(),
-                [DataCapability::Commands, DataCapability::Events],
-            )
-            .map_err(|_| TransportError::InvalidArgument)?;
-            let session = match self.binding.open(request).await {
-                Ok(session) => session,
-                Err(TransportError::EndpointDisabled) => continue,
-                Err(e) => return Err(e),
-            };
-            for channel in &self.config.channels {
-                if let Err(e) = session.join(channel.clone()).await {
-                    let _ = session.close().await;
-                    return Err(e);
-                }
+            let identity = self.store.identity();
+            if !self.config.endpoints.contains(identity) {
+                return Err(TransportError::Internal);
             }
-            return Ok((session, endpoint));
+            Some(identity.clone())
+        };
+        let request = SessionRequest::new(
+            self.config.client_kind.clone(),
+            endpoint.clone(),
+            [DataCapability::Commands, DataCapability::Events],
+        )
+        .map_err(|_| TransportError::InvalidArgument)?;
+        let session = self.binding.open(request).await?;
+        for channel in &self.config.channels {
+            if let Err(e) = session.join(channel.clone()).await {
+                let _ = session.close().await;
+                return Err(e);
+            }
         }
-        Err(TransportError::EndpointDisabled)
+        Ok((session, endpoint))
     }
 
     async fn tick_connectivity(&mut self, now: u64) {
