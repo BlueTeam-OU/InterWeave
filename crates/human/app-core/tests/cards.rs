@@ -5,9 +5,8 @@
 //! `human-client-ui.md` §13): Share sends the conversation's identity's
 //! card and nothing else; the card arrives as a proposal; Accept writes
 //! the contact and names the conversation; Decline leaves nothing; an
-//! unread card is a proposal again after a restart; a changed key is a
-//! key change; a local edit stands; and the identity's private key is in
-//! no file of the store.
+//! unread card is a proposal again after a restart; a local edit stands;
+//! and the identity's private key is in no file of the store.
 
 #![allow(clippy::expect_used, clippy::panic)]
 
@@ -1258,9 +1257,11 @@ async fn shared_again(
 // value the person's or already the card's -- and Update whenever a value
 // that is not the person's would change. Mutations: `changes_nothing`
 // ignoring the person's name (the "Countess" case is Update); ignoring the
-// photo (the photo case is Close). Ignoring the key is caught by
-// `a_changed_key_on_a_known_route_is_a_key_change_and_a_local_edit_stands`,
-// whose card matches the person's name and holds no photo.
+// photo (the photo case is Close). The key is read too, but under ADR-0067
+// decision 5 a card's key derives its route (a card whose key does not is
+// malformed), so a route's recorded key equals the card's or is unrecorded
+// and a key that differs does not arrive: nothing here would tell
+// `changes_nothing` reading the key from ignoring it.
 #[tokio::test]
 async fn a_card_that_changes_nothing_offers_close_alone_and_one_that_changes_a_card_value_updates()
 {
