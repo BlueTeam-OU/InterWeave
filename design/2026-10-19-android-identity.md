@@ -1334,11 +1334,12 @@ that a PeerId was created.
   A start without network (the start that runs when the person has
   denied the network, `startWithoutNetwork`) opens the store and
   does not unlock the node's seed, so it has no PeerId to compare. At
-  a first run (Stage 22), a start without network can write the first
-  user identity's key and entry, and it writes nothing else; no PeerId
-  binds that key or that entry. Such a start does not end the
-  comparison: the next start of that process that unlocks the node's
-  seed compares. Where the network prompt's Allow ends the
+  a first run (Stage 22), a start without network can write two things
+  and nothing else: the first user identity's sealed key file, and the
+  endpoint entry for that identity in the profile's configuration. No
+  PeerId binds the key file or the endpoint entry. Such a start does
+  not end the comparison: the next start of that process that unlocks
+  the node's seed compares. Where the network prompt's Allow ends the
   process (GrapheneOS, unlock note §11), that is an end of the
   process, and it ends the comparison as below says.
   The press of R4's Continue, after a start shows K1, ends the
