@@ -418,6 +418,31 @@ comparison, and no earlier step of the restore ends it
 revision, the comparison ended only when a start opened the record to
 C4's PeerId, or when the process ended.
 
+Revised 2026-11-24 again, at rust-ui-dev-01's INFO 01a20daf. §9's
+rows for `IdStartUnchecked` and `IdStorageUnknownRestore` now quote
+language-culture-en's final text (REPLY 01a20daf; rust-ui-dev-01's
+126b78815). `IdStartUnchecked` keeps its words. The last sentence of
+`IdStorageUnknownRestore` reads "That phrase restores this PeerId."
+Before, it read "It restores this PeerId.", where "It" could mean the
+app or the phrase.
+
+Revised 2026-11-24 a third time, to answer Q18 (§11f), which #753's
+review left open. When a compared start from R2 after K1, from R3, or
+from R4 when R4 was not reached after K1 is answered `Unavailable` or
+a mismatch before the bound, Chats opens with focus on `Refused` (§6,
+§8). When such a start is answered `RecoveryRequired` before the
+bound, it shows K1, with focus on its heading. Acceptance 12 gains a
+sixth run, for
+Back on R2 after K1 after a check that showed `IdStorageUnknown`, and
+a seventh, for the two decisions above. §12 says
+that, when that check saved the restore and the person presses Back
+on R2 and then Back on K1, only the end of the process leads on, and
+that no words say so. Before, the note left all three open. §6 (The
+comparison outlasts the bound) now says that a start without network
+does not unlock the node's seed, and gives examples of what such a
+start can write, none of which is tied to a PeerId (architect-cto's request
+of 2026-11-24). Before, §6 said that such a start unlocks no identity.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -1290,9 +1315,14 @@ that a PeerId was created.
   before the bound to a PeerId other than C4's, Chats opens, and
   `Refused` shows there. `LockHeld` keeps its own row, the profile-in-use
   row, and a cancelled or denied prompt keeps the Authentication needed
-  row. Where focus goes when Chats opens in this way, and what the
-  app shows when such a start is answered `RecoveryRequired` before
-  the bound, are not specified yet (Q18, §11f).
+  row. When Chats opens in this way, focus goes to `Refused` (§8, A
+  compared start answered before the bound; Q18, §11f). Such a start
+  answered `RecoveryRequired` before the bound shows K1 (§3.4) in place
+  of the held screen, as any start answered `RecoveryRequired` does,
+  with its reason by cause and the PeerId that the record names as the
+  expected one, and focus goes to K1's heading (§8, a refused start
+  raises a screen). K1 does not end the comparison; R4's Continue
+  after it does (The comparison outlasts the bound).
 - **The comparison outlasts the bound.** Until a start
   opens the record to C4's PeerId, until the person presses R4's
   Continue after K1 (below), or until the process ends, every
@@ -1308,9 +1338,17 @@ that a PeerId was created.
   answer after the bound says, and nothing runs as that other PeerId.
   A start without network (the start that runs when the person has
   denied the network, `startWithoutNetwork`) opens the store and
-  unlocks no identity, so it has nothing to compare. It does not end
-  the comparison: the next start of that process that unlocks the
-  identity compares. Where the network prompt's Allow ends the
+  does not unlock the node's seed, so it has no PeerId to compare.
+  Nothing it writes is tied to a PeerId. For example, at a first run
+  (Stage 22) it can write the first user identity's sealed key file
+  and that identity's endpoint entry in the profile's configuration,
+  where onboarding did not write them, and it creates the store, the
+  store's sealed key file and the profile's format marker, where they
+  do not exist yet. On a phone that an earlier release set up, it can
+  also reseal that release's identity key and remove the key's old
+  file. Such a start does
+  not end the comparison: the next start of that process that unlocks
+  the node's seed compares. Where the network prompt's Allow ends the
   process (GrapheneOS, unlock note §11), that is an end of the
   process, and it ends the comparison as below says.
   The press of R4's Continue, after a start shows K1, ends the
@@ -1348,9 +1386,9 @@ that a PeerId was created.
   K1: an answer of
   `Unavailable` or a mismatch opens Chats, and `Refused` shows there;
   `LockHeld` keeps the profile-in-use row, and a cancelled or denied
-  prompt keeps the Authentication needed row. What the app shows when
-  the start of that Continue is answered `RecoveryRequired` before
-  the bound is not specified yet (Q18). To end
+  prompt keeps the Authentication needed row. `RecoveryRequired`
+  shows K1, as the last sentences of An answer after the bound say.
+  To end
   the comparison there, the notice would have
   to say that the words written down on C4 do not restore the PeerId
   below it, and
@@ -2047,6 +2085,26 @@ access.
   at its press, and its results move focus as §6 says (A start
   refused with the profile in use after the bound). Each case is a
   row of `design/2026-10-22-add-a-peer.md` §8 item 1's table.
+- **A compared start answered before the bound** (§6, An answer
+  after the bound), made from R2 after K1, from R3, or from R4 when
+  R4 was not reached after K1, and answered `Unavailable` or with a
+  record that opens to a PeerId other than C4's: the held screen
+  closes, Chats opens, and focus goes to `Refused` under its app bar,
+  as a §6 notice takes focus (the error-banner rule). Focus there is
+  where the person hears the notice, so it is not announced a second
+  time. Why: the person pressed the control that made this start and
+  is still waiting on its answer, and that control has closed with
+  its screen, so the notice is the answer to their press. A cancelled
+  or denied prompt before the bound moves focus to the locked notice
+  in the same way (After `IdRestoreOther`'s Continue, above). After
+  the bound,
+  `Refused` takes no focus, because by then it answers nothing the
+  person is doing (§6). The notice's Try again, and the results of
+  that Try again, move focus as they do after the bound. When such a start
+  is answered `RecoveryRequired` before the bound, it raises K1, and
+  the rule below for a refused start that raises a screen applies. Each
+  case is a row of `design/2026-10-22-add-a-peer.md` §8 item 1's
+  table.
 - **A start retried at a return** to C4, R4, R3 or R2 after K1 while
   `IdStartBusy` shows there (§6, A return to a screen showing
   `IdStartBusy`) moves no focus while it holds the screen. Refused
@@ -2151,8 +2209,8 @@ names are suggestions; rust-ui-dev names them.
 | `Authenticate` (the app's, #313, not yet on main) | Unlock | The locked notice's action; it raises the prompt (§6) |
 | `UnlockPromptTitle` (the app's, #313, not yet on main) | Unlock InterWeave | The system prompt's title for a key operation or a launch; S1's prompt keeps its own |
 | `CopyPeerId`, `PeerIdCopied` (the app's, #313, not yet on main) | Copy PeerId · PeerId copied | The button under a PeerId and its confirmation below Android 13 (§5) |
-| `IdStartUnchecked` (new) | Go online with this PeerId | C4's text button under Try again while `IdStorageUnknown` shows after a failed read-back and it is offered (§6, A start from C4 after a failed read-back). It must say that the app starts with the PeerId shown, and never that a PeerId was created or saved. "Go online" is `IdStartBusy`'s verb for the same start |
-| `IdStorageUnknownRestore` (new) | If the app then asks for your recovery phrase, enter the phrase you just wrote down. It restores this PeerId. | C4's line under `IdStartUnchecked` (§6). It must say what the person does if the start leads to K1, and that the phrase restores the PeerId (§11d, Q15). It names K1 by what K1 asks for (`IdQTitle`), so it promises nothing where K1 cannot restore (`IdQTitleNoPath`). "Then" is the press of `IdStartUnchecked` above it |
+| `IdStartUnchecked` (new, final 2026-11-24) | Go online with this PeerId | C4's text button under Try again while `IdStorageUnknown` shows after a failed read-back and it is offered (§6, A start from C4 after a failed read-back). It must say that the app starts with the PeerId shown, and never that a PeerId was created or saved. "Go online" is `IdStartBusy`'s verb for the same start |
+| `IdStorageUnknownRestore` (new, final 2026-11-24) | If the app then asks for your recovery phrase, enter the phrase you just wrote down. That phrase restores this PeerId. | C4's line under `IdStartUnchecked` (§6). It must say what the person does if the start leads to K1, and that the phrase restores the PeerId (§11d, Q15). It names K1 by what K1 asks for (`IdQTitle`), so it promises nothing where K1 cannot restore (`IdQTitleNoPath`). "Then" is the press of `IdStartUnchecked` above it |
 | `IdStorageUnknown` (new) | The app does not know whether your PeerId was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back and writes nothing |
 | `IdRestoreOther` (new) | Your PeerId was not restored. This phone already has a different saved PeerId, shown below. Choose Continue to go online with the PeerId below. | §6's another-identity-on-record row, at a restore (a record that names a PeerId other than the one restored), three lines, the PeerId in full below it. "A different saved PeerId, shown below" ties the shown PeerId to the phone's record, so it is not read as the person's own. Its last sentence says what Continue does before the person presses it: Continue opens the PeerId shown below, the one already on this phone, and the first sentence says that the PeerId the person tried to restore was not restored. "Go online" is `IdStartUnchecked`'s and `IdStartBusy`'s verb for the same start |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
@@ -2460,7 +2518,7 @@ landscape:
     next start runs `startWithoutNetwork`: the custody records no
     `unlock` call for that start (the `unlock` count above; this run
     is blocked until that count exists), and the next start that
-    unlocks the identity compares and is answered as in the first
+    unlocks the node's seed compares and is answered as in the first
     run. In a fifth run, the held start is answered after the bound with
     `RecoveryRequired`, and the double's record names a PeerId other
     than C4's: K1 shows over Chats with that PeerId. The phrase of that
@@ -2478,6 +2536,41 @@ landscape:
     After Back and a new launch in the same process, the start of that
     launch compares nothing either. The fifth run is blocked until the
     build ends the comparison at R4's Continue after K1.
+    A sixth run goes as the fifth until K1 shows over Chats with the
+    other PeerId. That PeerId's phrase is entered on R2 and checked.
+    The double answers the restore with `OldKeyRemains` and its
+    read-back as failing: R2 shows `IdStorageUnknown`, with focus on it,
+    and R4 does not open. Back returns to K1 through the discard dialog
+    (`IdDiscard`), and Back from K1 leaves the app. The launcher
+    launches the app again in the same process, and the double answers
+    the start of that launch as opening the record to that other
+    PeerId, as a restore that was saved would: the start compares,
+    `Refused` shows, and the hook records no service start. Try again
+    is pressed: its start compares too, is answered the same way, and
+    the hook still records no service start. The sixth run is blocked
+    as the fifth is.
+    A seventh run makes a compared start before the bound from R4 when
+    R4 was not reached after K1 (§6, An answer after the bound). It
+    goes as the first run, with its start held past the bound, until
+    `Refused` shows. Then the double removes its record, Back finishes
+    the Activity, and the launcher launches it again in the same
+    process: W shows. A fixture phrase
+    is restored through R2 and R3 to R4, and R4's Continue is pressed.
+    The seventh run has three variants. In the first, the double
+    answers that start before the 10 s bound as opening
+    the record to a PeerId other than C4's: the hook records no service
+    start, Chats opens, `Refused` shows under its app bar, and focus is
+    on `Refused`. In the second variant, that start is answered
+    `Unavailable` before the bound, and the result is the same. In the
+    third variant, that start is answered `RecoveryRequired` before
+    the bound, and the double's record names the fixture phrase's
+    PeerId: K1 shows with
+    that PeerId, and focus is on K1's heading. The phrase is entered on
+    R2 and checked, R4 shows, and R4's Continue is pressed; the double
+    answers its start as opening the record to that PeerId, the hook
+    records one service start, and the service runs. The seventh run
+    is blocked as the first three runs are, and its third variant is
+    also blocked as the fifth run is.
     Back goes where §6 (Back from a notice) says: on R2 after K1, to
     K1, through the discard dialog, with the words dropped only by
     `IdDiscard`; on R3, to R2 with all 24 words kept. On C4, Back
@@ -3477,7 +3570,7 @@ here; the first was already answered on this branch.
   not restore (Q7 already says the label binds its meaning, not its
   words).
 
-## 11f. After #750 (Q17 answered, Q18 open)
+## 11f. After #750 (Q17 and Q18 answered)
 
 - **Q17. Does a restore from a phrase end the comparison with C4's
   PeerId?** Answered by architect-cto, REPLY 01a20c86: yes, at the
@@ -3503,8 +3596,8 @@ here; the first was already answered on this branch.
   still compares. No ADR or contract
   change follows. §6 (The comparison
   outlasts the bound) carries the answer. Acceptance 12's fifth run
-  walks Back before any check, and it walks R4's Continue; no run yet
-  walks Back after a check that did not open R4 (Q18).
+  walks Back before any check, and it walks R4's Continue; its sixth
+  run walks Back after a check that showed `IdStorageUnknown` (Q18).
   architect-cto's REPLY 01a20aa8 had said that the comparison binds
   every start of the process; this answer narrows that ruling. The
   question, as asked: after `IdStartUnchecked`,
@@ -3515,8 +3608,25 @@ here; the first was already answered on this branch.
   leads on. Is the person's committed restore, with the phrase they
   have just entered, an end of the comparison, as the end of the
   process is?
-- **Q18. What this revision leaves open.** Open, ux-designer's to
-  decide (review of #753). Three things are open. First, where focus
+- **Q18. What this revision leaves open.** Answered by ux-designer,
+  2026-11-24, whose question it was. First, when Chats opens before
+  the bound, focus goes to `Refused`, since the person is waiting on
+  the start that their press made, and the control they pressed has
+  closed (§8, A
+  compared start answered before the bound). Second, a
+  `RecoveryRequired` answer before the bound shows K1, as for any
+  start, with focus on its heading; K1 does not end the comparison,
+  and R4's Continue after it does (§6, An answer after the bound).
+  Third, acceptance 12's sixth run walks Back on R2 after K1 after a
+  check that showed `IdStorageUnknown`; its seventh run checks the
+  first two parts of this answer. After that sixth run's Back, and
+  Back from K1,
+  every later start of the process compares and is refused, and
+  nothing tells the person that only the end of the process leads on
+  (§12, Words for a read-back that keeps failing). Before that Back,
+  R2's Try again under `IdStorageUnknown` is the way on: a read-back
+  that opens the record opens R4. The question, as asked: three
+  things are open. First, where focus
   goes when Chats opens because a compared start from R2 after K1,
   from R3, or from R4 when R4 was not reached after K1 is answered
   `Unavailable` or a mismatch before the bound (§6, An answer after
@@ -3582,6 +3692,11 @@ here; the first was already answered on this branch.
   on, and its words say it (§6, Q15), except after a start from it met
   another PeerId than C4's: then only the end of the process leads on,
   the next launch runs the record's identity, and no words say either.
+  The same holds after K1, when a check on R2 showed
+  `IdStorageUnknown`, the restore was saved, and the person pressed
+  Back on R2 and then Back on K1: every later start of that process
+  compares and is refused (§6, The comparison outlasts the bound;
+  acceptance 12's sixth run).
   An end of the process by the system in the background, with the app
   later restored from saved state, counts as that end (§6, The
   comparison outlasts the bound). To carry the expected PeerId across
