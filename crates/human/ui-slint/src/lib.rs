@@ -44,6 +44,7 @@ pub mod code;
 mod connect;
 mod copied;
 mod gesture;
+mod identities;
 mod identity;
 mod peer_clip;
 mod peers;
@@ -1170,6 +1171,8 @@ pub struct View {
     /// ([`View::after_next_frame`]); `None` until the window's one
     /// rendering notifier is set.
     frame_tasks: Option<FrameTasks>,
+    /// The identity switch, the switcher and the line above Send.
+    identities: identities::IdentityViews,
 }
 
 /// What showing `key` reads: its unread messages, and the card
@@ -1477,6 +1480,7 @@ impl View {
         wire_measure(&window, &shared);
         wire_swipe(&window, &shared);
         wire_conversation_pane(&window, &shared);
+        let identities = identities::IdentityViews::wire(&window, &shared);
 
         Ok(Self {
             window,
@@ -1510,6 +1514,7 @@ impl View {
                 turn: OPENING_TURN,
             },
             frame_tasks: None,
+            identities,
             seen: Seen::default(),
             next_slot_b,
             selection_unrendered: false,
@@ -2992,6 +2997,11 @@ impl View {
         let cards = self.render_cards(model);
         let window = self.render_window();
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
+        let (identities, identity_focus) =
+            self.identities.render(&self.window, model, &self.shared);
+        if let Some(target) = identity_focus {
+            self.focus_key(target.to_owned());
+        }
         let said = [
             conversation,
             trust,
@@ -3001,6 +3011,7 @@ impl View {
             cards,
             window,
             outcome,
+            identities,
         ]
         .into_iter()
         .flatten()

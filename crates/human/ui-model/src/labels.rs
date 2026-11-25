@@ -1532,6 +1532,77 @@ ui_texts! {
     /// A Chats preview whose last item is a contact card someone sent
     /// (contact-cards §5.4.5): never the claimed name.
     CardPreviewReceived => "Contact card",
+    /// SEVERAL IDENTITIES (plan §30 step 1; contact-cards §5.7 as
+    /// design/2026-11-04-identities.md amends it, the texts its §13's and
+    /// contact-cards §10's): shown only while two or more identities are
+    /// held, except the `One` forms (`crate::identities`). `{identity}` and
+    /// `{front}` are an identity's name, isolated; `{n}` and `{count}` a
+    /// number in digits. The identity switch's accessible name.
+    IdentitySwitch => "Identity: {identity}. Switch identity",
+    /// The switch's badge, spoken: 1 unread item over the other identities,
+    /// one other identity held.
+    IdentityOthersUnreadOneInOther => "1 unread message in your other identity",
+    /// The same, `{n}` unread, one other identity held.
+    IdentityOthersUnreadInOther => "{n} unread messages in your other identity",
+    /// The same, 1 unread, two or more other identities held.
+    IdentityOthersUnreadOneInOthers => "1 unread message in your other identities",
+    /// The same, `{n}` unread, two or more other identities held.
+    IdentityOthersUnreadInOthers => "{n} unread messages in your other identities",
+    /// The switch's accessible name: a message of the one other identity
+    /// held was not sent (worded as the unread keys are, so "another" is
+    /// never heard as a third identity).
+    IdentityOthersNotSentInOther => "A message in your other identity was not sent.",
+    /// The same, two or more other identities held.
+    IdentityOthersNotSentInOthers => "A message in one of your other identities was not sent.",
+    /// The switcher's title.
+    IdentitySwitchTitle => "Switch identity",
+    /// The switcher's text button at the bottom, which opens Your
+    /// identities without switching; also that page's title.
+    IdentitiesTitle => "Your identities",
+    /// A switcher row's unread count, spoken: one.
+    IdentityRowUnreadOne => "1 unread message",
+    /// The same, `{n}`.
+    IdentityRowUnread => "{n} unread messages",
+    /// A switcher row: a message of that identity was not sent.
+    IdentityNotSent => "A message was not sent",
+    /// The snackbar after a switch, with `SwitchBack`.
+    ConfirmIdentitySwitched => "You are now using {identity}",
+    /// That snackbar's action.
+    SwitchBack => "Switch back",
+    /// The full-screen transition before a notification of another
+    /// identity opens.
+    SwitchingTo => "Switching to {identity}",
+    /// A conversation: the line above the send control.
+    ComposerAs => "As {identity}",
+    /// The send control's accessible name.
+    SendAs => "Send as {identity}",
+    /// The new-conversation flow, at its top.
+    NewConversationAs => "You are starting this conversation as {identity}.",
+    /// The share sheet, under the title.
+    ShareCardAs => "as {identity}",
+    /// Accept's context, its last sentence, in every case but S.
+    ProposalAs => "If you accept, the card is saved in the contacts of {identity}.",
+    /// An identity's page when that identity is not the one in front.
+    IdentityNotInFront => "You are using {front}. What you change on this page applies to {identity}.",
+    /// An identity that is asserting its advertise setting or taking its
+    /// lease: its row, the switcher and its composer line.
+    IdentityStarting => "{identity} is connecting and cannot send yet.",
+    /// The same with one identity held, naming none.
+    IdentityStartingOne => "Connecting. You cannot send yet.",
+    /// An identity whose advertise assertion failed, so no lease was
+    /// taken; with `TryAgain`.
+    IdentityNotHidden => "{identity} is not connected. This device could not make sure that {identity} stays unlisted.",
+    /// The same with one identity held, naming none.
+    IdentityNotHiddenOne => "You are not connected. This device could not make sure that you stay unlisted.",
+    /// An identity with no lease, or whose endpoint is turned off.
+    IdentityUnavailable => "{identity} cannot send or receive right now.",
+    /// The accessible name of an identity's short `EndpointId` line;
+    /// `{short}` is that line's text (`ShortPeer`'s template).
+    IdentityIdLabel => "People who exchange messages with this identity see it as {short}",
+    /// A notification group summary's line: one new message.
+    NotificationIdentityLineOne => "{identity}: 1 new message",
+    /// The same, `{count}` new messages.
+    NotificationIdentityLine => "{identity}: {count} new messages",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -2305,6 +2376,8 @@ mod tests {
             ("percent", "53%"),
             ("line", "/ip4/192.168.1.20/tcp/4001/p2p/x"),
             ("identity", "Ada"),
+            ("front", "Grace"),
+            ("short", "…abcd1234"),
             (
                 "path",
                 "/home/ada/.local/state/interweave/default/identity-keys",
