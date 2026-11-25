@@ -766,11 +766,15 @@ async fn without_a_state_directory_the_order_is_the_same() {
         EndpointAddRefusal::AliasInvalid
     );
     // The control: the same name with an alias in the grammar reaches the
-    // key's check, whose file this runtime cannot read.
-    assert_eq!(
-        refused(port.add_endpoint(key, "work".to_owned(), vec![]).await),
-        EndpointAddRefusal::KeyMissing
-    );
+    // key's check, whose file this runtime cannot read -- and its detail
+    // says why, not that the file (minted above) is absent.
+    match port.add_endpoint(key, "work".to_owned(), vec![]).await {
+        Ok(EndpointAddChange::Refused { reason, detail }) => {
+            assert_eq!(reason, EndpointAddRefusal::KeyMissing);
+            assert!(detail.contains("no state directory"), "{detail}");
+        }
+        other => panic!("not refused: {other:?}"),
+    }
     drop(port);
     runtime.stop().await.expect("stops");
 }
