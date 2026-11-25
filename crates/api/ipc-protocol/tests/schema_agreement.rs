@@ -12,19 +12,22 @@ use std::path::PathBuf;
 use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
     AuthorityDomain, Cancel, ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult,
-    EndpointList, EndpointParams, Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello,
-    HelloResponse, HelloTag, IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce,
-    OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId,
-    RequestedCapability, ResponseFrame, SendParams, SendResult, ServerCounters, ServerState,
-    SessionLossesResult, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams,
-    Since, TrustList, TrustListParams, TrustSeedParams, TrustSeedResult, TrustSetParams,
-    TrustSetResult, UnsupportedMajor, encode_frame, supported,
+    EndpointAddParams, EndpointAddResult, EndpointList, EndpointParams, EndpointRemoveResult,
+    Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello, HelloResponse, HelloTag,
+    IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce, OwnAddressList, PeerList,
+    PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId, RequestedCapability,
+    ResponseFrame, SendParams, SendResult, ServerCounters, ServerState, SessionLossesResult,
+    SetAdvertiseParams, SetAliasParams, SetAliasResult, SetDefaultParams, SetEnabledParams,
+    SetEnabledResult, ShutdownParams, Since, TrustList, TrustListParams, TrustSeedParams,
+    TrustSeedResult, TrustSetParams, TrustSetResult, UnsupportedMajor, encode_frame, supported,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminCapability, AdminStatus,
-    BootstrapAddress, DataCapability, EndpointAdminView, Generation, LeaseRecord, LineChange,
-    LocalSessionEvent, OwnAddress, OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome,
-    ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView, TrustDirection,
+    AliasChange, AliasRefusal, BootstrapAddress, DataCapability, EndpointAddChange,
+    EndpointAddRefusal, EndpointAdminView, EndpointRemoveChange, EndpointRemoveRefusal,
+    EndpointSource, Generation, LeaseRecord, LineChange, LocalSessionEvent, OwnAddress,
+    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, ReceivedBroadcast, ReceivedDirect,
+    SessionEvent, TrustAdminView, TrustDirection,
 };
 use interweave_transport_api::{
     ChannelId, ConnectivitySummary, DirectInboundState, EndpointDirectoryV1, EndpointId, Health,
@@ -489,15 +492,18 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 41] = [
+const IPC_SCHEMAS: [&str; 47] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
     "architecture/contracts/schemas/ipc/channel-params.schema.json",
     "architecture/contracts/schemas/ipc/close.schema.json",
     "architecture/contracts/schemas/ipc/empty-result.schema.json",
+    "architecture/contracts/schemas/ipc/endpoint-add-params.schema.json",
+    "architecture/contracts/schemas/ipc/endpoint-add-result.schema.json",
     "architecture/contracts/schemas/ipc/endpoint-list.schema.json",
     "architecture/contracts/schemas/ipc/endpoint-params.schema.json",
+    "architecture/contracts/schemas/ipc/endpoint-remove-result.schema.json",
     "architecture/contracts/schemas/ipc/error-code.schema.json",
     "architecture/contracts/schemas/ipc/event.schema.json",
     "architecture/contracts/schemas/ipc/frame.schema.json",
@@ -521,6 +527,9 @@ const IPC_SCHEMAS: [&str; 41] = [
     "architecture/contracts/schemas/ipc/send-params.schema.json",
     "architecture/contracts/schemas/ipc/send-result.schema.json",
     "architecture/contracts/schemas/ipc/session-losses-result.schema.json",
+    "architecture/contracts/schemas/ipc/set-advertise-params.schema.json",
+    "architecture/contracts/schemas/ipc/set-alias-params.schema.json",
+    "architecture/contracts/schemas/ipc/set-alias-result.schema.json",
     "architecture/contracts/schemas/ipc/set-default-params.schema.json",
     "architecture/contracts/schemas/ipc/set-enabled-params.schema.json",
     "architecture/contracts/schemas/ipc/set-enabled-result.schema.json",
@@ -669,6 +678,24 @@ fn a_label_is_refused_wherever_an_ipc_document_carries_an_endpoint_id() {
             Box::new(params(Method::AdminEndpointsSetDefault)),
         ),
         (
+            "ipc/set-advertise-params",
+            serde_json::json!({"endpoint": HUMAN, "advertise": true}),
+            "/endpoint",
+            Box::new(params(Method::AdminEndpointsSetAdvertise)),
+        ),
+        (
+            "ipc/set-alias-params",
+            serde_json::json!({"endpoint": HUMAN, "alias": "work"}),
+            "/endpoint",
+            Box::new(params(Method::AdminEndpointsSetAlias)),
+        ),
+        (
+            "ipc/endpoint-add-result",
+            serde_json::json!({"outcome": "added", "endpoint": HUMAN}),
+            "/endpoint",
+            Box::new((|v| serde_json::from_value::<EndpointAddResult>(v.clone()).is_ok()) as Reads),
+        ),
+        (
             "ipc/send-result",
             serde_json::json!({"resolved_endpoint": HUMAN}),
             "/resolved_endpoint",
@@ -676,7 +703,8 @@ fn a_label_is_refused_wherever_an_ipc_document_carries_an_endpoint_id() {
         ),
         (
             "ipc/endpoint-list",
-            serde_json::json!({"endpoints": [{"id": HUMAN, "enabled": true, "default": true, "persisted": true}]}),
+            serde_json::json!({"endpoints": [{"id": HUMAN, "source": "authored", "enabled": true,
+                "default": true, "advertise": false, "persisted": true}]}),
             "/endpoints/0/id",
             Box::new((|v| serde_json::from_value::<EndpointList>(v.clone()).is_ok()) as Reads),
         ),
@@ -750,7 +778,8 @@ fn the_endpoint_row_shapes_agree_with_the_schema_both_ways() {
     let path = "architecture/contracts/schemas/ipc/endpoint-list.schema.json";
     let schema = validator(path);
     let row = |persisted: Option<Value>| {
-        let mut row = serde_json::json!({"id": HUMAN, "enabled": true, "default": false});
+        let mut row = serde_json::json!({"id": HUMAN, "source": "added", "alias": "work",
+            "enabled": true, "default": false, "advertise": true});
         if let Some(p) = persisted {
             row["persisted"] = p;
         }
@@ -855,6 +884,22 @@ fn every_request() -> Vec<Request> {
             enabled: false,
         }),
         Request::AdminEndpointsSetDefault(SetDefaultParams { endpoint: None }),
+        Request::AdminEndpointsAdd(EndpointAddParams {
+            key: format!("{HUMAN}.key"),
+            alias: "work".into(),
+            allowed_client_kinds: vec!["human".into(), "cli".into()],
+        }),
+        Request::AdminEndpointsRemove(EndpointParams {
+            endpoint: ep("human"),
+        }),
+        Request::AdminEndpointsSetAdvertise(SetAdvertiseParams {
+            endpoint: ep("human"),
+            advertise: true,
+        }),
+        Request::AdminEndpointsSetAlias(SetAliasParams {
+            endpoint: ep("human"),
+            alias: "home".into(),
+        }),
         Request::AdminShutdown(ShutdownParams {
             grace_ms: Some(1000),
         }),
@@ -970,6 +1015,9 @@ fn every_result() -> Vec<(&'static str, Value)> {
             enabled: false,
             default: false,
             persisted: false,
+            alias: None,
+            source: EndpointSource::Authored,
+            advertise: false,
             lease: None,
         },
         EndpointAdminView {
@@ -977,6 +1025,9 @@ fn every_result() -> Vec<(&'static str, Value)> {
             enabled: true,
             default: true,
             persisted: true,
+            alias: None,
+            source: EndpointSource::Authored,
+            advertise: false,
             lease: Some(LeaseRecord {
                 endpoint: ep("human"),
                 epoch: epoch(),
@@ -1013,7 +1064,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
         ttl_ms: u32::MAX,
         endpoints: vec![ep("human"), ep("bot")],
     });
-    vec![
+    let mut results = Vec::from([
         (
             "architecture/contracts/schemas/ipc/empty-result.schema.json",
             json(&EmptyResult {}),
@@ -1131,6 +1182,62 @@ fn every_result() -> Vec<(&'static str, Value)> {
                 queue_overflow: u64::MAX,
                 ingress_refused: 0,
             }),
+        ),
+    ]);
+    results.extend(endpoint_set_results());
+    results
+}
+
+/// The endpoint set's results (IPC 3.0), every outcome shape, for
+/// [`every_result`].
+fn endpoint_set_results() -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "architecture/contracts/schemas/ipc/endpoint-add-result.schema.json",
+            json(&EndpointAddResult(EndpointAddChange::Added(ep("human")))),
+        ),
+        (
+            "architecture/contracts/schemas/ipc/endpoint-add-result.schema.json",
+            json(&EndpointAddResult(EndpointAddChange::Unchanged(ep(
+                "human",
+            )))),
+        ),
+        (
+            "architecture/contracts/schemas/ipc/endpoint-add-result.schema.json",
+            json(&EndpointAddResult(EndpointAddChange::Refused {
+                reason: EndpointAddRefusal::KeyMismatch,
+                detail: "x".repeat(600),
+            })),
+        ),
+        (
+            "architecture/contracts/schemas/ipc/endpoint-remove-result.schema.json",
+            json(&EndpointRemoveResult(EndpointRemoveChange::Removed {
+                revoked_epoch: Some(epoch()),
+            })),
+        ),
+        (
+            "architecture/contracts/schemas/ipc/endpoint-remove-result.schema.json",
+            json(&EndpointRemoveResult(EndpointRemoveChange::Removed {
+                revoked_epoch: None,
+            })),
+        ),
+        (
+            "architecture/contracts/schemas/ipc/endpoint-remove-result.schema.json",
+            json(&EndpointRemoveResult(EndpointRemoveChange::Refused {
+                reason: EndpointRemoveRefusal::Default,
+                detail: String::new(),
+            })),
+        ),
+        (
+            "architecture/contracts/schemas/ipc/set-alias-result.schema.json",
+            json(&SetAliasResult(AliasChange::Renamed)),
+        ),
+        (
+            "architecture/contracts/schemas/ipc/set-alias-result.schema.json",
+            json(&SetAliasResult(AliasChange::Refused {
+                reason: AliasRefusal::AliasTaken,
+                detail: "held".into(),
+            })),
         ),
     ]
 }
@@ -1399,8 +1506,17 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             | Method::SessionLosses => {
                 return None;
             }
-            Method::AdminEndpointsRevoke => {
+            Method::AdminEndpointsRevoke | Method::AdminEndpointsRemove => {
                 "architecture/contracts/schemas/ipc/endpoint-params.schema.json"
+            }
+            Method::AdminEndpointsAdd => {
+                "architecture/contracts/schemas/ipc/endpoint-add-params.schema.json"
+            }
+            Method::AdminEndpointsSetAdvertise => {
+                "architecture/contracts/schemas/ipc/set-advertise-params.schema.json"
+            }
+            Method::AdminEndpointsSetAlias => {
+                "architecture/contracts/schemas/ipc/set-alias-params.schema.json"
             }
             Method::AdminEndpointsSetEnabled => {
                 "architecture/contracts/schemas/ipc/set-enabled-params.schema.json"
@@ -1940,7 +2056,8 @@ fn a_schema_only_bound_counts_characters() {
     assert!(Event::decode("peer.disconnected", Some(&raw), supported()[0]).is_ok());
 
     let kind = "ა".repeat(64);
-    let list = json!({"endpoints": [{"id": HUMAN, "enabled": true, "default": true,
+    let list = json!({"endpoints": [{"id": HUMAN, "source": "authored", "enabled": true,
+        "default": true, "advertise": false,
         "persisted": false, "lease": {"epoch": "AAAAAAAAAAAAAAAA", "client_kind": kind}}]});
     assert_valid(
         "architecture/contracts/schemas/ipc/endpoint-list.schema.json",
@@ -2731,4 +2848,249 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
             "{broken:?} for {lines} lines"
         );
     }
+}
+
+/// `endpoint-add-params` both ways (IPC 3.0): a key and an alias OUTSIDE
+/// their grammars are well-formed requests -- the method answers them by
+/// name -- while the bounds, the closed member set and the kinds' bounds
+/// are the schema's and the mirror's alike.
+#[test]
+fn the_endpoint_add_params_hold_what_the_contract_says() {
+    let path = "architecture/contracts/schemas/ipc/endpoint-add-params.schema.json";
+    let schema = validator(path);
+    let decodes = |v: &Value| {
+        let raw = serde_json::value::to_raw_value(v).expect("raw");
+        Request::decode(Method::AdminEndpointsAdd, Some(&raw)).is_ok()
+    };
+    let base = serde_json::json!({"key": format!("{HUMAN}.key"), "alias": "work",
+        "allowed_client_kinds": ["human"]});
+    let kinds = |n: usize| (0..n).map(|i| format!("k{i}")).collect::<Vec<_>>();
+    for (value, legal) in [
+        (base.clone(), true),
+        (
+            member(&base, "key", serde_json::json!("not a key file")),
+            true,
+        ),
+        (
+            member(&base, "alias", serde_json::json!("Not An Alias")),
+            true,
+        ),
+        (
+            member(&base, "allowed_client_kinds", serde_json::json!([])),
+            true,
+        ),
+        (
+            member(&base, "allowed_client_kinds", serde_json::json!(kinds(16))),
+            true,
+        ),
+        (
+            member(&base, "allowed_client_kinds", serde_json::json!(kinds(17))),
+            false,
+        ),
+        (
+            member(&base, "allowed_client_kinds", serde_json::json!(["a", "a"])),
+            false,
+        ),
+        (
+            member(&base, "allowed_client_kinds", serde_json::json!([""])),
+            false,
+        ),
+        (member(&base, "key", serde_json::json!("")), false),
+        (
+            member(&base, "key", serde_json::json!("k".repeat(257))),
+            false,
+        ),
+        (
+            member(&base, "key", serde_json::json!("é".repeat(256))),
+            true,
+        ),
+        (
+            member(&base, "alias", serde_json::json!("a".repeat(257))),
+            false,
+        ),
+        (member(&base, "id", serde_json::json!(HUMAN)), false),
+        (member(&base, "advertise", serde_json::json!(true)), false),
+        (
+            serde_json::json!({"key": format!("{HUMAN}.key"), "alias": "w"}),
+            false,
+        ),
+    ] {
+        assert_eq!(schema.is_valid(&value), legal, "the schema on {value}");
+        assert_eq!(decodes(&value), legal, "the mirror on {value}");
+    }
+}
+
+/// The three endpoint set results both ways: every outcome and every
+/// refusal the mirror writes validates and reads back as written; a
+/// refusal without its rule, a rule without a refusal, an unknown rule,
+/// an add answer without its endpoint, a refusal naming one, and a
+/// refused remove with an epoch fail the schema and the mirror alike.
+#[test]
+fn the_endpoint_set_results_hold_what_the_contract_says() {
+    let add = validator("architecture/contracts/schemas/ipc/endpoint-add-result.schema.json");
+    let mut changes = vec![
+        EndpointAddChange::Added(ep("human")),
+        EndpointAddChange::Unchanged(ep("bot")),
+    ];
+    changes.extend(
+        EndpointAddRefusal::ALL.map(|reason| EndpointAddChange::Refused {
+            reason,
+            detail: "d".into(),
+        }),
+    );
+    for change in changes {
+        let wire = json(&EndpointAddResult(change.clone()));
+        assert!(add.is_valid(&wire), "{wire}");
+        let back: EndpointAddResult = serde_json::from_value(wire).expect("reads back");
+        assert_eq!(back.0, change);
+    }
+    for bad in [
+        serde_json::json!({"outcome": "added"}),
+        serde_json::json!({"outcome": "refused", "detail": "d"}),
+        serde_json::json!({"outcome": "refused", "refused": "bound", "endpoint": HUMAN}),
+        serde_json::json!({"outcome": "added", "endpoint": HUMAN, "refused": "bound"}),
+        serde_json::json!({"outcome": "refused", "refused": "unknown_rule"}),
+        serde_json::json!({"outcome": "added", "endpoint": HUMAN, "extra": 1}),
+        serde_json::json!({"outcome": "refused", "refused": "bound", "detail": "x".repeat(513)}),
+    ] {
+        assert!(!add.is_valid(&bad), "the schema on {bad}");
+        assert!(
+            serde_json::from_value::<EndpointAddResult>(bad.clone()).is_err(),
+            "the mirror on {bad}"
+        );
+    }
+
+    let remove = validator("architecture/contracts/schemas/ipc/endpoint-remove-result.schema.json");
+    let mut changes = vec![
+        EndpointRemoveChange::Removed {
+            revoked_epoch: Some(epoch()),
+        },
+        EndpointRemoveChange::Removed {
+            revoked_epoch: None,
+        },
+    ];
+    changes.extend(
+        EndpointRemoveRefusal::ALL.map(|reason| EndpointRemoveChange::Refused {
+            reason,
+            detail: String::new(),
+        }),
+    );
+    for change in changes {
+        let wire = json(&EndpointRemoveResult(change.clone()));
+        assert!(remove.is_valid(&wire), "{wire}");
+        let back: EndpointRemoveResult = serde_json::from_value(wire).expect("reads back");
+        assert_eq!(back.0, change);
+    }
+    for bad in [
+        serde_json::json!({"outcome": "refused"}),
+        serde_json::json!({"outcome": "removed", "refused": "authored"}),
+        serde_json::json!({"outcome": "refused", "refused": "authored",
+            "revoked_epoch": "AAAAAAAAAAAAAAAAAAAAAQ"}),
+        serde_json::json!({"outcome": "refused", "refused": "exists"}),
+        serde_json::json!({"outcome": "unchanged"}),
+    ] {
+        assert!(!remove.is_valid(&bad), "the schema on {bad}");
+        assert!(
+            serde_json::from_value::<EndpointRemoveResult>(bad.clone()).is_err(),
+            "the mirror on {bad}"
+        );
+    }
+
+    let alias = validator("architecture/contracts/schemas/ipc/set-alias-result.schema.json");
+    let mut changes = vec![AliasChange::Renamed, AliasChange::Unchanged];
+    changes.extend(AliasRefusal::ALL.map(|reason| AliasChange::Refused {
+        reason,
+        detail: String::new(),
+    }));
+    for change in changes {
+        let wire = json(&SetAliasResult(change.clone()));
+        assert!(alias.is_valid(&wire), "{wire}");
+        let back: SetAliasResult = serde_json::from_value(wire).expect("reads back");
+        assert_eq!(back.0, change);
+    }
+    for bad in [
+        serde_json::json!({"outcome": "refused"}),
+        serde_json::json!({"outcome": "renamed", "refused": "authored"}),
+        serde_json::json!({"outcome": "refused", "refused": "default"}),
+        serde_json::json!({"outcome": "renamed", "endpoint": HUMAN}),
+    ] {
+        assert!(!alias.is_valid(&bad), "the schema on {bad}");
+        assert!(
+            serde_json::from_value::<SetAliasResult>(bad.clone()).is_err(),
+            "the mirror on {bad}"
+        );
+    }
+}
+
+/// The 3.0 row's three members both ways: an authored row without an
+/// alias, an added one with; a row missing `source` or `advertise`, an
+/// unknown source, and an alias outside its grammar fail both.
+#[test]
+fn the_endpoint_row_carries_alias_source_and_advertise() {
+    let schema = validator("architecture/contracts/schemas/ipc/endpoint-list.schema.json");
+    let base = serde_json::json!({"id": HUMAN, "source": "authored", "enabled": true,
+        "default": true, "advertise": false, "persisted": true});
+    let list = |row: Value| serde_json::json!({ "endpoints": [row] });
+    let without = |key: &str| {
+        let mut row = base.clone();
+        row.as_object_mut().expect("object").remove(key);
+        row
+    };
+    for (row, legal) in [
+        (base.clone(), true),
+        (member(&base, "alias", serde_json::json!("work")), true),
+        (member(&base, "source", serde_json::json!("added")), true),
+        (
+            member(&base, "source", serde_json::json!("configured")),
+            false,
+        ),
+        (member(&base, "alias", serde_json::json!("Work")), false),
+        (member(&base, "alias", serde_json::json!(null)), false),
+        (without("source"), false),
+        (without("advertise"), false),
+    ] {
+        let doc = list(row);
+        assert_eq!(schema.is_valid(&doc), legal, "the schema on {doc}");
+        assert_eq!(
+            serde_json::from_value::<EndpointList>(doc.clone()).is_ok(),
+            legal,
+            "the mirror on {doc}"
+        );
+    }
+    let view = EndpointAdminView {
+        endpoint: ep("human"),
+        enabled: true,
+        default: false,
+        persisted: true,
+        lease: None,
+        alias: Some("work".into()),
+        source: EndpointSource::Added,
+        advertise: true,
+    };
+    let list = EndpointList::from_views(vec![view.clone()]).expect("a row");
+    let back: EndpointList = serde_json::from_value(json(&list)).expect("reads back");
+    assert_eq!(
+        back.endpoints
+            .into_iter()
+            .map(EndpointAdminView::from)
+            .collect::<Vec<_>>(),
+        vec![view.clone()]
+    );
+    assert!(
+        EndpointList::from_views(vec![EndpointAdminView {
+            alias: Some("Bad Alias".into()),
+            ..view
+        }])
+        .is_err(),
+        "a port's alias outside the grammar is refused, never served"
+    );
+}
+
+/// `base` with its top-level `key` set to `value`, added when absent.
+fn member(base: &Value, key: &str, value: Value) -> Value {
+    let mut out = base.clone();
+    out.as_object_mut()
+        .expect("an object")
+        .insert(key.to_owned(), value);
+    out
 }

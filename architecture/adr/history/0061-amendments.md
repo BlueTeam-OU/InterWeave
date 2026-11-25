@@ -92,6 +92,57 @@ as the design proposed. Propagation: `human-client-ui.md` §10 and
 §13's notification and lock-screen bullets, the plan's §30 exit gate,
 this note, the log row, the digest entry.
 
+### Amendment 2026-11-20 — The add, remove and set_advertise methods are IPC 3.0, and a refusal is an answer
+
+Decision 2 said the three administrative methods were p2p-network-dev's
+to shape "under ADR-0017's minor rule", written when they were expected
+to follow a released major. Stage 22 opened IPC major 3, which has no
+production build before the stage's release, so ADR-0017's pre-release
+rule applies and what the stage adds is 3.0 (`LOCAL-IPC.md` §Version
+negotiation and phases, ruled 2026-11-19 for the trust dimension).
+p2p-network-dev-02 proposed the shapes on 2026-11-20 (their j119) and
+architect-cto ruled them the same day. Taken as proposed: the add takes
+the key file's name and no public key, writes `advertise: false` and two
+empty trust sets, needs the file present, and is safe to repeat; the
+remove takes added endpoints alone, refuses the default, drops every
+overlay member of the id, and leaves the key file to the client;
+`set_advertise` syncs the overlay and updates the directory's answer
+source before it answers. Changed from the proposal: an add's or a
+remove's refusal is a named outcome in the result, as
+`admin.peers.add_address`'s is, where the proposal asked for three new
+error codes, so the closed error vocabulary stays as it was; the add has
+no `enabled` member, so that a repeated add compares the alias and the
+client kinds alone; `admin.endpoints.list`'s row gains `alias`, `source`
+and `advertise`; add and remove are audited. Propagation: `LOCAL-IPC.md`
+§Method catalogue and its capability list, `ENDPOINTS.md` §Configured
+endpoint set, ADR-0067 decision 4, this note, the log row, the digest
+entries.
+
+This note and its two rows reached `main` after the amendment of
+2026-11-24 (ii) below, which corrected decision 2's phrase on `main`
+without it; the two agree, and that note's account of the phrase
+still standing is of `main` as it was that day.
+
+### Amendment 2026-11-20 — An added identity's alias is renamed by its own method, and the first identity's alias is the configuration's
+
+Decision 7 says a rename changes "the display name on its card and its
+local alias", and plan §30 step 1 puts the rename on the admin
+connection, but the three administrative methods decision 2 names (add,
+remove, set_advertise) give an alias no door: an added entry's alias is
+in the endpoint overlay, which the daemon alone writes. Found by
+architect-cto while ruling p2p-network-dev-02's shapes of those three
+methods (their j119). Ruled: a fourth method of IPC 3.0,
+`admin.endpoints.set_alias`, rewrites an added entry's alias with the
+add's alias refusals. The first identity's alias is authored in
+`config.yaml`, which no program rewrites (ADR-0067 A 2026-11-19), and an
+alias delta in the overlay would leave the file's alias and the
+effective one disagreeing for every reader of the file, so the method
+refuses an authored entry and that identity's rename changes its card
+alone. Not yet confirmed by the builders: sent to p2p-network-dev-02 and
+rust-ui-dev with the ruling. Propagation: `LOCAL-IPC.md` §Method
+catalogue and its capability list, `ENDPOINTS.md`'s alias paragraph,
+this note, the log row, the digest entry.
+
 ### Amendment 2026-11-21 — On the phone the first identity is the entry the app writes after its key is sealed
 
 Decision 1 named the first identity as the profile's "authored human endpoint (`human-client-ui.md` §2 step 4; `runtime.android.endpoint` on the phone)". Under ADR-0067 that endpoint is named by its key, and on the phone no key exists when the app first writes its profile document, so the document holds no identity until onboarding seals the first key (ADR-0067 A 2026-11-21 has the ruling and what it refused). The parenthesis now says what the phone's first identity is: the entry `runtime.android.endpoint` names in the app's own document, an entry of `config.yaml` as the desktop's is and never one of the overlay's `added`. Nothing of the decision changes; making the first identity an added one was the alternative refused, since decision 7's rule for it (never removed, only turned off) rests on its standing.

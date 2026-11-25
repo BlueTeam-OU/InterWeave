@@ -7,16 +7,19 @@ use std::time::Duration;
 
 use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
-    EmptyResult, EndpointList, EndpointParams, IpcVersion, MAX_BOOTSTRAP_ADDRESS_CHARS,
-    MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList, PeerList, PeerListParams, Request,
-    RequestedCapability, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams,
-    TrustList, TrustListParams, TrustSeedParams, TrustSeedResult, TrustSetParams, TrustSetResult,
+    EmptyResult, EndpointAddParams, EndpointAddResult, EndpointList, EndpointParams,
+    EndpointRemoveResult, IpcVersion, MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_SHUTDOWN_GRACE_MS, Method,
+    OwnAddressList, PeerList, PeerListParams, Request, RequestedCapability, SetAdvertiseParams,
+    SetAliasParams, SetAliasResult, SetDefaultParams, SetEnabledParams, SetEnabledResult,
+    ShutdownParams, TrustList, TrustListParams, TrustSeedParams, TrustSeedResult, TrustSetParams,
+    TrustSetResult,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressesChange, AdminBinding, AdminCapability, AdminPort,
-    AdminStatus, BootstrapAddress, EndpointAdminView, EndpointTrustView, Generation,
-    LocalAdminPort, OwnAddresses, PeerGateView, PeerLastSeen, TrustAdminView, TrustChange,
-    TrustDirection, TrustSeed, TrustedPeer,
+    AdminStatus, AliasChange, BootstrapAddress, EndpointAddChange, EndpointAdminView,
+    EndpointRemoveChange, EndpointTrustView, Generation, LocalAdminPort, OwnAddresses,
+    PeerGateView, PeerLastSeen, TrustAdminView, TrustChange, TrustDirection, TrustSeed,
+    TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -365,6 +368,65 @@ impl AdminPort for IpcAdmin {
             }))
             .await
             .map(|_| ())
+    }
+
+    /// `endpoint-add-result`: a refusal by its name, never an error.
+    async fn add_endpoint(
+        &self,
+        key: String,
+        alias: String,
+        allowed_client_kinds: Vec<String>,
+    ) -> Result<EndpointAddChange, TransportError> {
+        self.connection
+            .call::<EndpointAddResult>(Request::AdminEndpointsAdd(EndpointAddParams {
+                key,
+                alias,
+                allowed_client_kinds,
+            }))
+            .await
+            .map(|result| result.0)
+    }
+
+    /// `endpoint-remove-result`: a refusal by its name, never an error.
+    async fn remove_endpoint(
+        &self,
+        endpoint: EndpointId,
+    ) -> Result<EndpointRemoveChange, TransportError> {
+        self.connection
+            .call::<EndpointRemoveResult>(Request::AdminEndpointsRemove(EndpointParams {
+                endpoint,
+            }))
+            .await
+            .map(|result| result.0)
+    }
+
+    async fn set_endpoint_advertise(
+        &self,
+        endpoint: EndpointId,
+        advertise: bool,
+    ) -> Result<(), TransportError> {
+        self.connection
+            .call::<EmptyResult>(Request::AdminEndpointsSetAdvertise(SetAdvertiseParams {
+                endpoint,
+                advertise,
+            }))
+            .await
+            .map(|_| ())
+    }
+
+    /// `set-alias-result`: a refusal by its name, never an error.
+    async fn set_endpoint_alias(
+        &self,
+        endpoint: EndpointId,
+        alias: String,
+    ) -> Result<AliasChange, TransportError> {
+        self.connection
+            .call::<SetAliasResult>(Request::AdminEndpointsSetAlias(SetAliasParams {
+                endpoint,
+                alias,
+            }))
+            .await
+            .map(|result| result.0)
     }
 
     async fn shutdown(&self, grace: Duration) -> Result<(), TransportError> {

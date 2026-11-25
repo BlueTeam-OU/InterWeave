@@ -1052,6 +1052,86 @@ impl SwarmCommander {
             .await
     }
 
+    /// Register `endpoint` and adopt `trust` -- which gives it its own
+    /// sets -- in one step of the Swarm task (`admin.endpoints.add`; the
+    /// composition writes its overlay first). Answers whether this
+    /// registered it: `false` when it already was registered.
+    ///
+    /// # Errors
+    /// [`SubstrateError::Stopped`] if the task is gone.
+    pub async fn add_endpoint(
+        &self,
+        endpoint: EndpointId,
+        registered: interweave_transport_runtime::endpoint_registry::RegisteredEndpoint,
+        trust: TrustSources,
+    ) -> Result<bool, SubstrateError> {
+        self.ask(|reply| SwarmCommand::AddEndpoint {
+            endpoint,
+            registered: Box::new(registered),
+            trust: Box::new(trust),
+            reply,
+        })
+        .await
+    }
+
+    /// Unregister `endpoint` and adopt `trust` -- without its sets -- in
+    /// one step (`admin.endpoints.remove`): its live lease revoked, a peer
+    /// no set holds any more closed.
+    ///
+    /// # Errors
+    /// [`SubstrateError::Stopped`] if the task is gone; the inner error is
+    /// `EndpointUnknown` for an endpoint not registered.
+    pub async fn remove_endpoint(
+        &self,
+        endpoint: EndpointId,
+        trust: TrustSources,
+    ) -> Result<Result<Option<interweave_local_client_api::Generation>, DirectError>, SubstrateError>
+    {
+        self.ask(|reply| SwarmCommand::RemoveEndpoint {
+            endpoint,
+            trust: Box::new(trust),
+            reply,
+        })
+        .await
+    }
+
+    /// Set whether `endpoint` may appear in the directory, read by the
+    /// next directory answer.
+    ///
+    /// # Errors
+    /// [`SubstrateError::Stopped`] if the task is gone; the inner error is
+    /// `EndpointUnknown` for an endpoint not registered.
+    pub async fn set_endpoint_advertise(
+        &self,
+        endpoint: EndpointId,
+        advertise: bool,
+    ) -> Result<Result<(), DirectError>, SubstrateError> {
+        self.ask(|reply| SwarmCommand::SetEndpointAdvertise {
+            endpoint,
+            advertise,
+            reply,
+        })
+        .await
+    }
+
+    /// Set `endpoint`'s alias as the administrative list reports it.
+    ///
+    /// # Errors
+    /// [`SubstrateError::Stopped`] if the task is gone; the inner error is
+    /// `EndpointUnknown` for an endpoint not registered.
+    pub async fn set_endpoint_alias(
+        &self,
+        endpoint: EndpointId,
+        alias: Option<String>,
+    ) -> Result<Result<(), DirectError>, SubstrateError> {
+        self.ask(|reply| SwarmCommand::SetEndpointAlias {
+            endpoint,
+            alias,
+            reply,
+        })
+        .await
+    }
+
     /// Every configured endpoint, in id order, with its live lease.
     ///
     /// # Errors

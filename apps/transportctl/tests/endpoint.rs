@@ -854,17 +854,20 @@ fn listed(_: &str) -> Value {
     let (human, bare) = ids();
     let unconfigured = EndpointId::from_ed25519_public(&test_key(23).1);
     json!({"endpoints": [
-        {"id": human.as_str(), "enabled": true, "default": true, "persisted": true},
-        {"id": bare.as_str(), "enabled": false, "default": false, "persisted": true},
-        {"id": unconfigured.as_str(), "enabled": true, "default": false, "persisted": true}
+        {"id": human.as_str(), "source": "authored", "enabled": true, "default": true,
+            "advertise": false, "persisted": true},
+        {"id": bare.as_str(), "source": "authored", "enabled": false, "default": false,
+            "advertise": false, "persisted": true},
+        {"id": unconfigured.as_str(), "source": "added", "enabled": true, "default": false,
+            "advertise": false, "persisted": true}
     ]})
 }
 
 /// `endpoints list` shows each row's alias beside its id: the alias,
 /// `-` for an entry that carries none, `(unknown)` for an id the
 /// configuration does not name -- in the text. `--json` is the daemon's
-/// result as sent, which the `ipc/endpoint-list` schema describes: no
-/// alias member.
+/// result as sent: the scripted rows carry no `alias`, and the
+/// configuration's is not added to them.
 #[test]
 fn endpoints_list_shows_alias_and_id() {
     let home = Home::new();
@@ -892,7 +895,7 @@ fn endpoints_list_shows_alias_and_id() {
     assert_eq!(rows[0]["id"], json!(human.as_str()));
     assert!(
         rows.iter().all(|row| row.get("alias").is_none()),
-        "no alias member: {value}"
+        "no alias member the daemon did not send: {value}"
     );
     assert_eq!(rows[0]["default"], true, "the daemon's members kept");
 }

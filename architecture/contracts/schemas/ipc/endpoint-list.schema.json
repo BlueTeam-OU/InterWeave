@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:endpoint-list",
   "title": "IPC admin.endpoints.list result",
-  "description": "Every configured local endpoint with its effective state: config.yaml's endpoints with the state directory's endpoint overlay composed over them (ADR-0028 A 2026-10-11). `persisted: true` on every row: what admin.endpoints.set_enabled and set_default changed survives a daemon restart. A lease is a session's, not configuration: admin.endpoints.revoke stays runtime-only.\n\n2.0.0 (ADR-0067 decision 7, IPC major 3): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major. One row is served on major 3 (LOCAL-IPC.md §Version negotiation and phases, one shape per document on 3.0): the row 2.5 brought, `persisted: true`. The `persisted: false` row -- all that 1.0.0 described, and what 1.1.0 kept for a major-2 connection below 2.5 (ADR-0017 A 2026-10-07) -- is sent on no connection of this major, a row the runtime cannot persist being answered `Internal` and not served. `persisted` stays a boolean, the shape 2.13 served.",
+  "description": "Every configured local endpoint with its effective state: config.yaml's endpoints with the state directory's endpoint overlay composed over them (ADR-0028 A 2026-10-11). `persisted: true` on every row: what admin.endpoints.set_enabled and set_default changed survives a daemon restart. A lease is a session's, not configuration: admin.endpoints.revoke stays runtime-only.\n\n2.0.0 (ADR-0067 decision 7, IPC major 3): every EndpointId here is the derived id of `endpoints/endpoint-id` 2.0.0 -- the 52-character name of the endpoint's Ed25519 key -- and a label of the grammar ADR-0067 retired is refused; no reader of the earlier major tolerates the value, so the shape takes a major. One row is served on major 3 (LOCAL-IPC.md §Version negotiation and phases, one shape per document on 3.0): the row 2.5 brought, `persisted: true`. The `persisted: false` row -- all that 1.0.0 described, and what 1.1.0 kept for a major-2 connection below 2.5 (ADR-0017 A 2026-10-07) -- is sent on no connection of this major, a row the runtime cannot persist being answered `Internal` and not served. `persisted` stays a boolean, the shape 2.13 served. Stage 22's major (IPC 3.0, LOCAL-IPC.md §The endpoint set's methods) carries `alias`, `source` and `advertise` on every row: `alias` absent only for an authored entry that has none, `source` what admin.endpoints.remove accepts, `advertise` the effective value.",
   "type": "object",
   "required": [
     "endpoints"
@@ -18,6 +18,8 @@
           "id",
           "enabled",
           "default",
+          "source",
+          "advertise",
           "persisted"
         ],
         "additionalProperties": false,
@@ -25,11 +27,27 @@
           "id": {
             "$ref": "urn:interweave:schemas:endpoints:endpoint-id"
           },
+          "alias": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{0,63}$",
+            "description": "The entry's local alias, absent for an authored entry that carries none. Never on the wire to a peer."
+          },
+          "source": {
+            "enum": [
+              "authored",
+              "added"
+            ],
+            "description": "authored: a config.yaml entry. added: added over admin.endpoints.add and kept in the endpoint overlay; what admin.endpoints.remove accepts."
+          },
           "enabled": {
             "type": "boolean"
           },
           "default": {
             "type": "boolean"
+          },
+          "advertise": {
+            "type": "boolean",
+            "description": "The effective advertise: whether the endpoint may appear in the directory."
           },
           "persisted": {
             "type": "boolean",
@@ -69,7 +87,8 @@
       "0017",
       "0037",
       "0028",
-      "0067"
+      "0067",
+      "0061"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

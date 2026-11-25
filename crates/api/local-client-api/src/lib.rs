@@ -38,6 +38,10 @@ pub use binding::{
     ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionLosses, SessionRequest, TrustAdminView,
     TrustChange, TrustRefusal, TrustSource, TrustedPeer,
 };
+pub use binding::{
+    AliasChange, AliasRefusal, EndpointAddChange, EndpointAddRefusal, EndpointRemoveChange,
+    EndpointRemoveRefusal, EndpointSource,
+};
 pub use binding::{EndpointSetKind, EndpointTrustView, TrustDirection, TrustSeed};
 
 use interweave_transport_api::{

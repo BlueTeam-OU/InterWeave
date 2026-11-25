@@ -93,6 +93,36 @@
       "status": "active"
     },
     {
+      "name": "endpoint-add-params",
+      "file": "endpoint-add-params.schema.json",
+      "status": "active"
+    },
+    {
+      "name": "endpoint-add-result",
+      "file": "endpoint-add-result.schema.json",
+      "status": "active"
+    },
+    {
+      "name": "endpoint-remove-result",
+      "file": "endpoint-remove-result.schema.json",
+      "status": "active"
+    },
+    {
+      "name": "set-advertise-params",
+      "file": "set-advertise-params.schema.json",
+      "status": "active"
+    },
+    {
+      "name": "set-alias-params",
+      "file": "set-alias-params.schema.json",
+      "status": "active"
+    },
+    {
+      "name": "set-alias-result",
+      "file": "set-alias-result.schema.json",
+      "status": "active"
+    },
+    {
       "name": "shutdown-params",
       "file": "shutdown-params.schema.json",
       "status": "active"
