@@ -159,9 +159,9 @@ if [ -n "$members" ]; then
   done
 fi
 
-# STUB — CLAUDE.md stays an import of AGENTS.md until every login loads
-# AGENTS.md itself (the owner's word of 2026-11-19); then it is removed,
-# and an absent CLAUDE.md passes. Blank lines and trailing spaces aside,
+# STUB — CLAUDE.md stays an import of AGENTS.md for as long as AGENTS.md
+# §1 says it does (the removal condition lives there, not here); once it
+# is removed, an absent CLAUDE.md passes. Blank lines and trailing spaces aside,
 # its whole content must be the import line: any other line is prose the
 # checks above never read.
 STUB="$ROOT/CLAUDE.md"
