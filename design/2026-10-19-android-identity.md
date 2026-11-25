@@ -502,7 +502,8 @@ screen its opening focus. §6's rule does not allow that focus, and the
 build owes the rule: focus on the control that had it. Acceptance 15's
 sixth return run and acceptance 12's R2 recreation run are no longer
 blocked on j311: they are device runs, and both fail until the build
-puts focus on the control that had it. Acceptance 15's ten return runs
+puts focus on the control that had it. Acceptance 12's run is still
+blocked on the `unlock` count, as its other R2 runs are. Acceptance 15's ten return runs
 are device runs, and host tests check the layer below them
 (rust-ui-dev-01's REPLY 01a2130d). Before, the note said that a
 recreation restarted the flow at its first screen, that those two runs
