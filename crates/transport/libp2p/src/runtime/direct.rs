@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use libp2p::swarm::SwarmEvent as Libp2pSwarmEvent;
 
 use interweave_local_client_api::{
-    EndpointAdminView, EndpointLease, Generation, LeaseRecord, LocalSessionEvent,
+    EndpointAdminView, EndpointLease, EndpointSource, Generation, LeaseRecord, LocalSessionEvent,
 };
 use interweave_transport_api::TransportError as DirectError;
 use interweave_transport_api::{
@@ -431,6 +431,79 @@ impl DirectState {
         Ok(revoked)
     }
 
+    /// Register an endpoint the administrative add created (IPC 3.0):
+    /// leasable from this step on, no queue until a claim opens one.
+    /// Its own sets arrive with the trust sources the same command
+    /// carries, adopted AFTER this, so the new endpoint is given its
+    /// empty set in the one step. `false` for an id already registered,
+    /// which keeps what it has: an add does not replace an endpoint
+    /// (the registry's `an_insert_never_replaces_and_a_remove_takes_everything`).
+    pub(super) fn add_endpoint(
+        &mut self,
+        endpoint: EndpointId,
+        registered: RegisteredEndpoint,
+    ) -> bool {
+        self.registry.insert(endpoint, registered)
+    }
+
+    /// Unregister `endpoint` (`admin.endpoints.remove`): a live lease ends
+    /// as [`revoke`](Self::revoke) ends one -- holder told, queue closed --
+    /// and the registry drops its own sets and a default naming it.
+    /// Returns the epoch that ended.
+    ///
+    /// # Errors
+    /// [`DirectError::EndpointUnknown`] for an endpoint not registered.
+    pub(super) fn remove_endpoint(
+        &mut self,
+        endpoint: &EndpointId,
+    ) -> Result<Option<Generation>, DirectError> {
+        if self.registry.endpoints().all(|(id, _)| id != endpoint) {
+            return Err(DirectError::EndpointUnknown);
+        }
+        self.owe_notice(endpoint);
+        self.own.remove(endpoint);
+        let revoked = self
+            .registry
+            .remove(endpoint)
+            .ok_or(DirectError::EndpointUnknown)?;
+        self.queues.close(endpoint);
+        Ok(revoked)
+    }
+
+    /// Set whether `endpoint` may appear in the directory: the source
+    /// [`advertised_for`](Self::advertised_for) answers from, so the next
+    /// directory answer reads it.
+    ///
+    /// # Errors
+    /// [`DirectError::EndpointUnknown`] for an endpoint not registered.
+    pub(super) fn set_advertise(
+        &mut self,
+        endpoint: &EndpointId,
+        advertise: bool,
+    ) -> Result<(), DirectError> {
+        if self.registry.set_advertise(endpoint, advertise) {
+            Ok(())
+        } else {
+            Err(DirectError::EndpointUnknown)
+        }
+    }
+
+    /// Set `endpoint`'s alias as the administrative list reports it.
+    ///
+    /// # Errors
+    /// [`DirectError::EndpointUnknown`] for an endpoint not registered.
+    pub(super) fn set_alias(
+        &mut self,
+        endpoint: &EndpointId,
+        alias: Option<String>,
+    ) -> Result<(), DirectError> {
+        if self.registry.set_alias(endpoint, alias) {
+            Ok(())
+        } else {
+            Err(DirectError::EndpointUnknown)
+        }
+    }
+
     /// Point omitted destinations at `endpoint`, or at nothing.
     ///
     /// A default must be able to receive: one naming an endpoint that is
@@ -474,6 +547,9 @@ impl DirectState {
                     client_kind: lease.client_kind.clone(),
                     session_id: Some(lease.owner.0.clone()),
                 }),
+                alias: registered.alias.clone(),
+                source: registered.source,
+                advertise: registered.advertise,
             })
             .collect()
     }
@@ -566,6 +642,57 @@ pub struct DirectEndpoints {
 }
 
 impl DirectEndpoints {
+    /// One configuration entry as the registry holds it, with where it
+    /// came from: the one translation, for the start's entries and for
+    /// an entry the administrative add creates while the runtime runs.
+    ///
+    /// An ADDED entry's filters are the overlay's `ADDED_TRUST`, which
+    /// admits nobody, whatever the entry carries: the registry falls back
+    /// to them whenever it holds the endpoint without its own set, and an
+    /// added endpoint admits nobody until a set names a peer (ADR-0067
+    /// decision 6; `an_added_endpoints_filters_admit_nobody`).
+    #[must_use]
+    pub fn registered(
+        entry: &interweave_profile_config::EndpointConfig,
+        source: EndpointSource,
+    ) -> RegisteredEndpoint {
+        let filter = |authored: &interweave_trust_api::EndpointTrustPolicy| match source {
+            EndpointSource::Added => interweave_profile_config::endpoint_overlay::ADDED_TRUST,
+            EndpointSource::Authored => authored.clone(),
+        };
+        RegisteredEndpoint {
+            enabled: entry.enabled,
+            advertise: entry.advertise,
+            allowed_client_kinds: entry
+                .allowed_client_kinds
+                .iter()
+                .map(|k| k.as_str().to_owned())
+                .collect(),
+            inbound: filter(&entry.inbound),
+            outbound: filter(&entry.outbound),
+            alias: entry.alias.as_ref().map(ToString::to_string),
+            source,
+        }
+    }
+
+    /// These endpoints with `added` marked as the administrative add's
+    /// (`EndpointSource::Added`): `from_profile` reads a composed profile,
+    /// which no longer says which entries `config.yaml` authored. Their
+    /// filters become `ADDED_TRUST`, as [`Self::registered`] gives an
+    /// added entry.
+    #[must_use]
+    pub fn with_added<'a>(mut self, added: impl IntoIterator<Item = &'a EndpointId>) -> Self {
+        let added: std::collections::BTreeSet<&EndpointId> = added.into_iter().collect();
+        for (id, registered) in &mut self.endpoints {
+            if added.contains(id) {
+                registered.source = EndpointSource::Added;
+                registered.inbound = interweave_profile_config::endpoint_overlay::ADDED_TRUST;
+                registered.outbound = interweave_profile_config::endpoint_overlay::ADDED_TRUST;
+            }
+        }
+        self
+    }
+
     /// The daemon-wide direct bucket's `(per_minute, burst)` this
     /// configuration installs, for a composition that states what it
     /// built.
@@ -609,17 +736,7 @@ impl DirectEndpoints {
             .map(|entry| {
                 (
                     entry.id.clone(),
-                    RegisteredEndpoint {
-                        enabled: entry.enabled,
-                        advertise: entry.advertise,
-                        allowed_client_kinds: entry
-                            .allowed_client_kinds
-                            .iter()
-                            .map(|k| k.as_str().to_owned())
-                            .collect(),
-                        inbound: entry.inbound.clone(),
-                        outbound: entry.outbound.clone(),
-                    },
+                    Self::registered(entry, EndpointSource::Authored),
                 )
             })
             .collect();
@@ -1648,10 +1765,13 @@ mod admin_tests {
 #[cfg(test)]
 mod own_trust_tests {
     use super::{DirectEndpoints, DirectState};
+    use interweave_local_client_api::EndpointSource;
     use interweave_transport_api::{EndpointId, TransportIdentity};
     use interweave_transport_runtime::endpoint_registry::RegisteredEndpoint;
     use interweave_transport_runtime::{OwnTrust, TrustSources};
-    use interweave_trust_api::{EndpointSet, InfrastructureSet, PeerTrustPolicy};
+    use interweave_trust_api::{
+        EndpointSet, EndpointTrustPolicy, InfrastructureSet, PeerTrustPolicy,
+    };
 
     const OPERATORS: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
     const IDENTITYS: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
@@ -1724,5 +1844,55 @@ mod own_trust_tests {
         state.adopt_trust(&sources(false));
         assert!(sends(&state, "human", OPERATORS));
         assert!(!sends(&state, "human", IDENTITYS));
+    }
+
+    /// Whether `peer` may reach `at` inbound, as the inbound path asks.
+    fn reaches(state: &DirectState, at: &str, from: &str) -> bool {
+        !matches!(
+            state
+                .registry
+                .resolve_inbound(Some(&endpoint(at)), |trust| {
+                    state
+                        .operator
+                        .decide_at_endpoint(&peer(from), trust)
+                        .is_allowed()
+                }),
+            Err(interweave_transport_runtime::endpoint_registry::ResolveFailure::EndpointPolicyDenied)
+        )
+    }
+
+    /// An added endpoint held without its own set -- what an overlay left
+    /// ahead of the runtime publishes -- admits nobody in either
+    /// direction, a peer of the operator's list included, whether it was
+    /// registered by the add (`registered`, fed an entry whose filters
+    /// inherit) or at the start (`with_added`). The control: an authored
+    /// endpoint beside it, also without a set, admits that peer both ways.
+    #[test]
+    fn an_added_endpoints_filters_admit_nobody() {
+        let inheriting = interweave_profile_config::EndpointConfig {
+            id: endpoint("work"),
+            alias: None,
+            key_state: interweave_profile_config::EndpointKeyState::NotRead,
+            enabled: true,
+            advertise: false,
+            allowed_client_kinds: Vec::new(),
+            inbound: EndpointTrustPolicy::InheritProfileTrust,
+            outbound: EndpointTrustPolicy::InheritProfileTrust,
+        };
+        let authored = DirectEndpoints::registered(&inheriting, EndpointSource::Authored);
+        assert_eq!(authored.inbound, EndpointTrustPolicy::InheritProfileTrust);
+        let mut state = DirectState::new(0);
+        state.configure(endpoints().with_added([&endpoint("claude")]), 0);
+        assert!(state.add_endpoint(
+            endpoint("work"),
+            DirectEndpoints::registered(&inheriting, EndpointSource::Added)
+        ));
+        state.adopt_trust(&sources(false));
+        for added in ["work", "claude"] {
+            assert!(!sends(&state, added, OPERATORS), "{added} outbound");
+            assert!(!reaches(&state, added, OPERATORS), "{added} inbound");
+        }
+        assert!(sends(&state, "human", OPERATORS), "the authored control");
+        assert!(reaches(&state, "human", OPERATORS), "the authored control");
     }
 }

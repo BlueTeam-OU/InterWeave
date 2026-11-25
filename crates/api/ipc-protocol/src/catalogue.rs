@@ -52,6 +52,20 @@ pub enum Method {
     /// Set or clear the default endpoint (kept in the endpoint overlay).
     #[serde(rename = "admin.endpoints.set_default")]
     AdminEndpointsSetDefault,
+    /// Add an endpoint by its sealed key file's name (3.0, ADR-0061
+    /// decision 2); kept in the endpoint overlay's `added` member.
+    #[serde(rename = "admin.endpoints.add")]
+    AdminEndpointsAdd,
+    /// Remove an added endpoint (3.0, ADR-0061 decision 7).
+    #[serde(rename = "admin.endpoints.remove")]
+    AdminEndpointsRemove,
+    /// Set whether an endpoint may appear in the directory (3.0, ADR-0061
+    /// decision 5).
+    #[serde(rename = "admin.endpoints.set_advertise")]
+    AdminEndpointsSetAdvertise,
+    /// Rename an added endpoint's local alias (3.0, ADR-0061 decision 7).
+    #[serde(rename = "admin.endpoints.set_alias")]
+    AdminEndpointsSetAlias,
     /// Shut the runtime down.
     #[serde(rename = "admin.shutdown")]
     AdminShutdown,
@@ -111,7 +125,7 @@ impl Method {
     /// Every method, in catalogue order. `tests/schema_agreement.rs`
     /// holds this list to the enum's own variants, so a variant missing
     /// here fails a test rather than escaping one.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 25] = [
         Self::ChannelJoin,
         Self::ChannelLeave,
         Self::BroadcastPublish,
@@ -122,6 +136,10 @@ impl Method {
         Self::AdminEndpointsRevoke,
         Self::AdminEndpointsSetEnabled,
         Self::AdminEndpointsSetDefault,
+        Self::AdminEndpointsAdd,
+        Self::AdminEndpointsRemove,
+        Self::AdminEndpointsSetAdvertise,
+        Self::AdminEndpointsSetAlias,
         Self::AdminShutdown,
         Self::AdminTrustList,
         Self::AdminTrustSet,
@@ -153,7 +171,11 @@ impl Method {
             Self::AdminEndpointsList
             | Self::AdminEndpointsRevoke
             | Self::AdminEndpointsSetEnabled
-            | Self::AdminEndpointsSetDefault => (Admin, C::AdminEndpoints),
+            | Self::AdminEndpointsSetDefault
+            | Self::AdminEndpointsAdd
+            | Self::AdminEndpointsRemove
+            | Self::AdminEndpointsSetAdvertise
+            | Self::AdminEndpointsSetAlias => (Admin, C::AdminEndpoints),
             Self::AdminShutdown => (Admin, C::AdminShutdown),
             Self::AdminTrustList | Self::AdminTrustSet | Self::AdminTrustSeed => {
                 (Admin, C::AdminTrust)
@@ -185,6 +207,10 @@ impl Method {
             Self::AdminEndpointsRevoke => "admin.endpoints.revoke",
             Self::AdminEndpointsSetEnabled => "admin.endpoints.set_enabled",
             Self::AdminEndpointsSetDefault => "admin.endpoints.set_default",
+            Self::AdminEndpointsAdd => "admin.endpoints.add",
+            Self::AdminEndpointsRemove => "admin.endpoints.remove",
+            Self::AdminEndpointsSetAdvertise => "admin.endpoints.set_advertise",
+            Self::AdminEndpointsSetAlias => "admin.endpoints.set_alias",
             Self::AdminShutdown => "admin.shutdown",
             Self::AdminTrustList => "admin.trust.list",
             Self::AdminTrustSet => "admin.trust.set",
@@ -297,6 +323,27 @@ mod tests {
             let entry = method.entry();
             assert!(
                 entry.since >= entry.capability.since(),
+                "{}",
+                method.as_str()
+            );
+        }
+    }
+
+    /// The endpoint set's four writes (3.0) are admin methods under
+    /// `admin.endpoints`, never on the data socket.
+    #[test]
+    fn the_endpoint_set_methods_are_admin_under_endpoints() {
+        for method in [
+            Method::AdminEndpointsAdd,
+            Method::AdminEndpointsRemove,
+            Method::AdminEndpointsSetAdvertise,
+            Method::AdminEndpointsSetAlias,
+        ] {
+            let entry = method.entry();
+            assert_eq!(entry.domain, AuthorityDomain::Admin, "{}", method.as_str());
+            assert_eq!(
+                entry.capability,
+                RequestedCapability::AdminEndpoints,
                 "{}",
                 method.as_str()
             );

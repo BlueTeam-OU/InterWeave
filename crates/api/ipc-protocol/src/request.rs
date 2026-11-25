@@ -188,6 +188,85 @@ pub struct SetDefaultParams {
     pub endpoint: Option<EndpointId>,
 }
 
+/// The most characters an `admin.endpoints.add` `key` or an alias may
+/// carry (`ipc/endpoint-add-params`, `ipc/set-alias-params`,
+/// `maxLength`): a bound that refuses an absurd string before the method
+/// judges its grammar, not the grammar -- a string inside it and outside
+/// the grammar is answered by name (`id_not_derived`, `alias_invalid`).
+pub const MAX_ENDPOINT_TEXT_CHARS: usize = 256;
+
+/// The most client kinds an added entry may name
+/// (`ipc/endpoint-add-params`, `allowed_client_kinds.maxItems`), the
+/// configuration's own bound on an entry.
+pub const MAX_ADD_CLIENT_KINDS: usize = 16;
+
+/// `admin.endpoints.add` params (IPC 3.0): the key file's name, the alias
+/// and the client kinds, closed. No key material, no id (derived).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointAddParams {
+    /// The key file's name, `<EndpointId>.key` when well made; judged by
+    /// the method.
+    #[serde(deserialize_with = "bounded_endpoint_text")]
+    pub key: String,
+    /// The local alias; judged by the method.
+    #[serde(deserialize_with = "bounded_endpoint_text")]
+    pub alias: String,
+    /// The client kinds that may lease the endpoint: at most
+    /// [`MAX_ADD_CLIENT_KINDS`], each once, each 1..=64 characters.
+    #[serde(deserialize_with = "bounded_client_kinds")]
+    pub allowed_client_kinds: Vec<String>,
+}
+
+/// `admin.endpoints.set_advertise` params (IPC 3.0).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetAdvertiseParams {
+    /// The configured endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
+    pub endpoint: EndpointId,
+    /// Whether it may appear in the directory.
+    pub advertise: bool,
+}
+
+/// `admin.endpoints.set_alias` params (IPC 3.0).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetAliasParams {
+    /// The added endpoint.
+    #[serde(deserialize_with = "crate::derived::endpoint")]
+    pub endpoint: EndpointId,
+    /// Its new alias; judged by the method.
+    #[serde(deserialize_with = "bounded_endpoint_text")]
+    pub alias: String,
+}
+
+fn bounded_endpoint_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let text = String::deserialize(d)?;
+    if text.is_empty() || text.chars().count() > MAX_ENDPOINT_TEXT_CHARS {
+        return Err(serde::de::Error::custom("1..=256 characters"));
+    }
+    Ok(text)
+}
+
+fn bounded_client_kinds<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    let kinds = Vec::<String>::deserialize(d)?;
+    if kinds.len() > MAX_ADD_CLIENT_KINDS {
+        return Err(serde::de::Error::custom("at most 16 client kinds"));
+    }
+    if kinds.iter().any(|k| {
+        k.is_empty() || k.chars().count() > interweave_local_client_api::MAX_CLIENT_KIND_CHARS
+    }) {
+        return Err(serde::de::Error::custom(
+            "a client kind is 1..=64 characters",
+        ));
+    }
+    if kinds.iter().collect::<BTreeSet<_>>().len() != kinds.len() {
+        return Err(serde::de::Error::custom("each client kind once"));
+    }
+    Ok(kinds)
+}
+
 /// `admin.shutdown` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -409,6 +488,14 @@ pub enum Request {
     AdminEndpointsSetEnabled(SetEnabledParams),
     /// `admin.endpoints.set_default`.
     AdminEndpointsSetDefault(SetDefaultParams),
+    /// `admin.endpoints.add` (3.0).
+    AdminEndpointsAdd(EndpointAddParams),
+    /// `admin.endpoints.remove` (3.0).
+    AdminEndpointsRemove(EndpointParams),
+    /// `admin.endpoints.set_advertise` (3.0).
+    AdminEndpointsSetAdvertise(SetAdvertiseParams),
+    /// `admin.endpoints.set_alias` (3.0).
+    AdminEndpointsSetAlias(SetAliasParams),
     /// `admin.shutdown`.
     AdminShutdown(ShutdownParams),
     /// `admin.trust.list` (2.1).
@@ -448,6 +535,10 @@ impl Request {
             Self::AdminEndpointsRevoke(_) => Method::AdminEndpointsRevoke,
             Self::AdminEndpointsSetEnabled(_) => Method::AdminEndpointsSetEnabled,
             Self::AdminEndpointsSetDefault(_) => Method::AdminEndpointsSetDefault,
+            Self::AdminEndpointsAdd(_) => Method::AdminEndpointsAdd,
+            Self::AdminEndpointsRemove(_) => Method::AdminEndpointsRemove,
+            Self::AdminEndpointsSetAdvertise(_) => Method::AdminEndpointsSetAdvertise,
+            Self::AdminEndpointsSetAlias(_) => Method::AdminEndpointsSetAlias,
             Self::AdminShutdown(_) => Method::AdminShutdown,
             Self::AdminTrustList(_) => Method::AdminTrustList,
             Self::AdminTrustSet(_) => Method::AdminTrustSet,
@@ -502,6 +593,10 @@ impl Request {
             Method::AdminEndpointsRevoke => Self::AdminEndpointsRevoke(typed(params)?),
             Method::AdminEndpointsSetEnabled => Self::AdminEndpointsSetEnabled(typed(params)?),
             Method::AdminEndpointsSetDefault => Self::AdminEndpointsSetDefault(typed(params)?),
+            Method::AdminEndpointsAdd => Self::AdminEndpointsAdd(typed(params)?),
+            Method::AdminEndpointsRemove => Self::AdminEndpointsRemove(typed(params)?),
+            Method::AdminEndpointsSetAdvertise => Self::AdminEndpointsSetAdvertise(typed(params)?),
+            Method::AdminEndpointsSetAlias => Self::AdminEndpointsSetAlias(typed(params)?),
             Method::AdminShutdown => Self::AdminShutdown(typed(params)?),
             Method::AdminTrustList => Self::AdminTrustList(typed(params)?),
             Method::AdminTrustSet => Self::AdminTrustSet(typed(params)?),
@@ -538,7 +633,12 @@ impl Request {
             | Self::AdminPeersListAddresses
             | Self::AdminPeersOwnAddresses
             | Self::SessionLosses => serde_json::value::to_raw_value(&EmptyParams {}),
-            Self::AdminEndpointsRevoke(p) => serde_json::value::to_raw_value(p),
+            Self::AdminEndpointsRevoke(p) | Self::AdminEndpointsRemove(p) => {
+                serde_json::value::to_raw_value(p)
+            }
+            Self::AdminEndpointsAdd(p) => serde_json::value::to_raw_value(p),
+            Self::AdminEndpointsSetAdvertise(p) => serde_json::value::to_raw_value(p),
+            Self::AdminEndpointsSetAlias(p) => serde_json::value::to_raw_value(p),
             Self::AdminEndpointsSetEnabled(p) => serde_json::value::to_raw_value(p),
             Self::AdminEndpointsSetDefault(p) => serde_json::value::to_raw_value(p),
             Self::AdminShutdown(p) => serde_json::value::to_raw_value(p),
@@ -1019,6 +1119,20 @@ mod tests {
                 enabled: false,
             }),
             Request::AdminEndpointsSetDefault(SetDefaultParams { endpoint: None }),
+            Request::AdminEndpointsAdd(EndpointAddParams {
+                key: format!("{}.key", ep().as_str()),
+                alias: "work".to_owned(),
+                allowed_client_kinds: vec!["human".to_owned()],
+            }),
+            Request::AdminEndpointsRemove(EndpointParams { endpoint: ep() }),
+            Request::AdminEndpointsSetAdvertise(SetAdvertiseParams {
+                endpoint: ep(),
+                advertise: true,
+            }),
+            Request::AdminEndpointsSetAlias(SetAliasParams {
+                endpoint: ep(),
+                alias: "home".to_owned(),
+            }),
             Request::AdminShutdown(ShutdownParams { grace_ms: None }),
             Request::AdminTrustList(TrustListParams::default()),
             Request::AdminTrustSet(TrustSetParams {

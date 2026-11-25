@@ -14,6 +14,10 @@
     "admin.endpoints.revoke",
     "admin.endpoints.set_enabled",
     "admin.endpoints.set_default",
+    "admin.endpoints.add",
+    "admin.endpoints.remove",
+    "admin.endpoints.set_advertise",
+    "admin.endpoints.set_alias",
     "admin.shutdown",
     "admin.trust.list",
     "admin.trust.set",
@@ -29,13 +33,14 @@
   "x-contract": {
     "name": "ipc.method",
     "status": "active",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "adr": [
       "0017",
       "0037",
       "0032",
       "0062",
-      "0067"
+      "0067",
+      "0061"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

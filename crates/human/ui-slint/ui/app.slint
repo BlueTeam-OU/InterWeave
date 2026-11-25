@@ -15,6 +15,7 @@
 // take focus and does not report it would leave a stale row named there.
 
 import { Palette as Style } from "std-widgets.slint";
+import { IdLook, IdSwitch, IdSwitcherView, IdComposer, IdentitySwitch, IdentitySwitcher, ComposerAs } from "identities.slint";
 
 // What a row's swipe does in one direction (design/2026-10-16-message-
 // swipe.md section 3): `none` when it does nothing that way, and then the
@@ -1088,6 +1089,14 @@ component FocusHeading inherits FocusScope {
                     font-size: root.font-size;
                     color: Palette.on-surface;
                     wrap: root.wraps ? word-wrap : no-wrap;
+                    // A wrapped Text's own minimum width is its longest
+                    // word, so a word wider than the heading's width would
+                    // be laid out wider still and cut by the clip. At zero
+                    // the heading's width reaches the text, and a word too
+                    // wide for it breaks inside the word, all of it shown
+                    // (identities section 12; tests/identities.rs
+                    // at_twice_the_text_the_title_is_whole_or_wrapped_never_cut).
+                    min-width: 0px;
                     min-height: self.preferred-height;
                     overflow: root.wraps ? clip : elide;
                     horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
@@ -1659,6 +1668,8 @@ component IconButton inherits FocusScope {
     }
     in property <Glyph> glyph;
     in property <string> label;
+    // What a screen reader adds to the label: empty for most controls.
+    in property <string> description;
     in property <string> focus-key;
     in property <color> ink: Palette.on-surface-variant;
     // A filled round button: the icon in `on-primary` on `primary`.
@@ -1676,6 +1687,7 @@ component IconButton inherits FocusScope {
     callback focused(string);
     accessible-role: button;
     accessible-label: Drawn.spoken(root.label);
+    accessible-description: Drawn.spoken(root.description);
     accessible-enabled: root.active;
     accessible-action-default => { root.press(); }
     function press() {
@@ -4785,6 +4797,8 @@ export component AppWindow inherits Window {
     in property <int> draft-written-seq;
     in property <string> refused;
     in property <string> send-label;
+    // The state text a disabled Send carries as its description.
+    in property <string> send-description;
     in property <string> show-source-label;
     in property <string> show-formatted-label;
     // The platform's monospaced family, by name: Slint reads a
@@ -4831,6 +4845,49 @@ export component AppWindow inherits Window {
     in property <string> snack-text;
     in property <bool> snack-undo;
     in property <string> undo-label;
+    // The identities (identities.slint, plan section 30 step 1): the
+    // switch, the switcher, the switch's snackbar and the line above
+    // Send, each left empty by Rust with fewer than two held.
+    in property <IdSwitch> id-switch;
+    in property <IdSwitcherView> id-switcher;
+    in property <IdComposer> id-composer;
+    // Send held back by the identity's state (identities section 5.2).
+    in property <bool> id-send-held;
+    in property <bool> id-snack-shown;
+    in property <int> id-snack-id;
+    in property <string> id-snack-text;
+    in property <string> id-snack-action;
+    callback id-switch-pressed();
+    callback id-switcher-closed();
+    callback id-row-chosen(int);
+    callback id-try-again(int);
+    callback id-your-identities();
+    callback id-snack-pressed(int);
+    callback id-snack-closed(int);
+    // What identities.slint draws with, which cannot import this file.
+    property <IdLook> id-look: {
+        surface: Palette.surface,
+        surface-container: Palette.surface-container,
+        surface-container-high: Palette.surface-container-high,
+        surface-variant: Palette.surface-variant,
+        on-surface: Palette.on-surface,
+        on-surface-variant: Palette.on-surface-variant,
+        outline: Palette.outline,
+        primary: Palette.primary,
+        on-primary: Palette.on-primary,
+        unread-dot: Palette.unread-dot,
+        tertiary: Palette.tertiary,
+        on-tertiary: Palette.on-tertiary,
+        error: Palette.error,
+        scrim: #00000052,
+        keyboard: FocusMode.keyboard,
+        ring-reach: FocusMode.ring-reach,
+        title-large: Type.title-large,
+        body-large: Type.body-large,
+        body-medium: Type.body-medium,
+        body-small: Type.body-small,
+        label-large: Type.label-large,
+    };
     // The open conversation's "Hide conversation", when it is offered.
     in property <bool> hide-conversation-shown;
     in property <string> hide-conversation-label;
@@ -4865,6 +4922,12 @@ export component AppWindow inherits Window {
         : !root.narrow ? 280px
         : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
         : 0px;
+    // The Chats bar's height and its title's widths on one line and of its
+    // longest word, for the tests of its one row or two
+    // (tests/identities.rs the_chats_bar_*): the bar itself names nothing.
+    out property <length> chats-bar-height: chats-bar.height;
+    out property <length> chats-title-whole: chats-bar.title-whole;
+    out property <length> chats-title-word: chats-bar.title-word;
     in-out property <bool> chats-menu-open;
     // Bumped when the menu closes or Trust is left: focus goes back to
     // the button.
@@ -5643,6 +5706,11 @@ export component AppWindow inherits Window {
             root.identity-back();
             return true;
         }
+        // Back closes the identity switcher with nothing changed.
+        if (root.id-switcher.open) {
+            root.id-switcher-closed();
+            return true;
+        }
         // Back on Connect is Not now (section 5.1); on a page it opened,
         // that page's own Back, below.
         if (root.connect-shown) {
@@ -5802,32 +5870,96 @@ export component AppWindow inherits Window {
                 // name. Trust is a settings action, apart from every
                 // conversation (human-client-ui.md section 8): nothing a
                 // message shows can reach it.
-                HorizontalLayout {
-                    min-height: 64px;
-                    padding-left: root.rtl ? 4px : 16px;
-                    padding-right: root.rtl ? 16px : 4px;
-                    spacing: 8px;
-                    if root.rtl: VerticalLayout {
-                        alignment: center;
-                        IconButton {
-                            glyph: Glyph.more;
-                            label: root.app-options-label;
-                            focus-key: "app-options";
-                            focus-seq: root.chats-menu-closed-seq;
-                            focus-wanted: true;
-                            pressed => { root.open-chats-menu(); }
-                            focused(k) => { root.focus-id = k; }
-                        }
+                //
+                // With two identities held the identity switch stands
+                // between them (cards section 5.7.1), on one row when the
+                // whole title, the switch at its minimum and the app's
+                // options fit, else on a second row under the title
+                // (design/2026-11-04-identities.md section 12, "The Chats
+                // bar when the switch does not fit beside the title"). The
+                // row count is a function of the bar's width, the text size
+                // (through the measures) and the title alone: the switch's
+                // minimum is the widest held identity's, never the front's,
+                // so a switch never reflows the bar
+                // (tests/identities.rs the_chats_bar_*).
+                //
+                // One element tree for both layouts, each control placed:
+                // an `if` on the row count would make the controls anew and
+                // drop the focus a person has on one. Declared in reading
+                // order, which is the Tab order (identities section 11: the
+                // title, the switch, the app's options), in either
+                // direction; a right-to-left window mirrors the places.
+                chats-bar := Rectangle {
+                    property <bool> has-switch: root.id-switch.shown;
+                    // The title on one line, and its longest word.
+                    out property <length> title-whole: title-measure.preferred-width;
+                    out property <length> title-word: title-measure.min-width;
+                    out property <bool> two-rows: self.has-switch
+                        && 16px + self.title-whole + 8px + chats-switch.least-any + 8px + 48px + 4px > self.width;
+                    // The switch: as wide as its name asks, within what the
+                    // row leaves it, never below its own minimum.
+                    property <length> switch-room: self.two-rows ? self.width - 8px - 8px - 48px - 4px
+                        : self.width - 16px - self.title-whole - 8px - 8px - 48px - 4px;
+                    property <length> switch-w: max(chats-switch.min-width, min(chats-switch.preferred-width, self.switch-room));
+                    property <length> switch-h: max(48px, chats-switch.preferred-height);
+                    // The title and the network line under it: the whole
+                    // width on the first of two rows, what the controls
+                    // leave on one.
+                    property <length> block-w: self.two-rows ? self.width - 32px
+                        : self.width - 16px - 8px - 48px - 4px - (self.has-switch ? self.switch-w + 8px : 0px);
+                    property <length> block-h: title-block.preferred-height;
+                    property <length> row1-h: self.two-rows ? max(64px, self.block-h + 16px)
+                        : max(64px, self.block-h, self.switch-h);
+                    property <length> row2-h: self.two-rows ? max(56px, self.switch-h + 8px) : 0px;
+                    // Each place as left to right; `place` mirrors it.
+                    property <length> switch-x: self.two-rows ? 8px
+                        : self.width - 4px - 48px - 8px - self.switch-w;
+                    property <length> controls-y: self.two-rows ? self.row1-h : 0px;
+                    property <length> controls-h: self.two-rows ? self.row2-h : self.row1-h;
+                    // Where the switcher and the app's options menu hang:
+                    // under the controls, whichever row they are on.
+                    out property <length> controls-bottom: self.controls-y + (self.controls-h + 48px) / 2;
+                    pure function place(x: length, w: length) -> length {
+                        root.rtl ? self.width - x - w : x
                     }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        alignment: center;
+                    height: self.row1-h + self.row2-h;
+                    // The title's widths at its own size and weight, never
+                    // shown. Word-wrapped and clipped, so the toolkit
+                    // measures its longest word as the minimum and the one
+                    // line as the preferred width (i-slint-core 1.18.1
+                    // items/text.rs text_layout_info).
+                    title-measure := Text {
+                        text: root.conversations-heading;
+                        font-size: Type.title-large;
+                        font-weight: 400;
+                        wrap: word-wrap;
+                        overflow: clip;
+                        // Never drawn; held to by tests/compile.rs.
+                        min-height: self.preferred-height;
+                        visible: false;
+                        accessible-role: none;
+                    }
+                    title-block := VerticalLayout {
+                        x: chats-bar.place(16px, self.width);
+                        y: (chats-bar.row1-h - self.height) / 2;
+                        width: chats-bar.block-w;
+                        height: self.preferred-height;
                         spacing: FocusMode.ring-reach;
                         FocusHeading {
                             text: root.conversations-heading;
                             font-size: Type.title-large;
                             font-weight: 400;
                             rtl: root.rtl;
+                            // On the first of two rows the title wraps at a
+                            // word boundary, and a word wider than the row
+                            // breaks inside the word (parley
+                            // OverflowWrap::Anywhere): never an ellipsis,
+                            // which would hide part of an enlarged heading
+                            // (identities section 12, 2026-11-23). With the
+                            // switch shown, one row is chosen only when the
+                            // title fits whole; with no switch the bar is one
+                            // row as before and the title elides.
+                            wraps: chats-bar.two-rows;
                             focus-key: "conversations-heading";
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "heading";
@@ -5871,17 +6003,35 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                    if !root.rtl: VerticalLayout {
-                        alignment: center;
-                        IconButton {
-                            glyph: Glyph.more;
-                            label: root.app-options-label;
-                            focus-key: "app-options";
-                            focus-seq: root.chats-menu-closed-seq;
-                            focus-wanted: true;
-                            pressed => { root.open-chats-menu(); }
-                            focused(k) => { root.focus-id = k; }
-                        }
+                    // The identity switch, between the title and the
+                    // app's options (cards section 5.7.1). Hidden with one
+                    // identity held, and then out of the Tab order.
+                    chats-switch := IdentitySwitch {
+                        visible: chats-bar.has-switch;
+                        enabled: chats-bar.has-switch;
+                        x: chats-bar.place(chats-bar.switch-x, self.width);
+                        y: chats-bar.controls-y + (chats-bar.controls-h - self.height) / 2;
+                        width: chats-bar.switch-w;
+                        height: chats-bar.switch-h;
+                        look: root.id-look;
+                        view: root.id-switch;
+                        rtl: root.rtl;
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "identity-switch";
+                        pressed => { root.id-switch-pressed(); }
+                        focused(k) => { root.focus-id = k; }
+                        keyboard-mode(on) => { FocusMode.keyboard = on; }
+                    }
+                    IconButton {
+                        x: chats-bar.place(chats-bar.width - 4px - 48px, 48px);
+                        y: chats-bar.controls-y + (chats-bar.controls-h - 48px) / 2;
+                        glyph: Glyph.more;
+                        label: root.app-options-label;
+                        focus-key: "app-options";
+                        focus-seq: root.chats-menu-closed-seq;
+                        focus-wanted: true;
+                        pressed => { root.open-chats-menu(); }
+                        focused(k) => { root.focus-id = k; }
                     }
                 }
                 // The no-reach notice (section 5.6), in reading order after the
@@ -6170,6 +6320,24 @@ export component AppWindow inherits Window {
                     rtl: root.rtl;
                     undo-pressed(id) => { root.undo(id); }
                     dismissed(id) => { root.snack-closed(id); }
+                    focused(k) => { root.focus-id = k; }
+                }
+                }
+                // A switch's snackbar, with Switch back (cards section
+                // 5.7.3), where the switch is.
+                if root.id-snack-shown: HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-bottom: 12px;
+                Snackbar {
+                    text: root.id-snack-text;
+                    undo: true;
+                    undo-label: root.id-snack-action;
+                    snack-id: root.id-snack-id;
+                    action-key: "identity-switch-back";
+                    rtl: root.rtl;
+                    undo-pressed(id) => { root.id-snack-pressed(id); }
+                    dismissed(id) => { root.id-snack-closed(id); }
                     focused(k) => { root.focus-id = k; }
                 }
                 }
@@ -9090,6 +9258,21 @@ export component AppWindow inherits Window {
                         accessible-label: Drawn.spoken(self.text);
                         accessible-live-region: polite;
                     }
+                    // The identity it sends as, directly above Send (cards
+                    // section 5.7.2 N2), or why it cannot send now.
+                    // The field's ring reaches above the field: the line
+                    // stands that far off it.
+                    if root.composer-enabled && root.id-composer.shown: VerticalLayout {
+                        padding-bottom: FocusMode.ring-reach;
+                        ComposerAs {
+                            look: root.id-look;
+                            view: root.id-composer;
+                            rtl: root.rtl;
+                            try-again => { root.id-try-again(-1); }
+                            focused(k) => { root.focus-id = k; }
+                            keyboard-mode(on) => { FocusMode.keyboard = on; }
+                        }
+                    }
                     // The composer (section 6): a filled, fully rounded field and a
                     // round Send. It exists only for an open conversation: an
                     // empty, disabled box would offer nothing to type into.
@@ -9218,9 +9401,11 @@ export component AppWindow inherits Window {
                             glyph: Glyph.send;
                             rtl: root.rtl;
                             label: root.send-label;
+                            description: root.send-description;
                             filled: true;
-                            // Dimmed and inactive while the field is empty.
-                            active: root.draft != "";
+                            // Dimmed and inactive while the field is empty,
+                            // or the identity cannot send now.
+                            active: root.draft != "" && !root.id-send-held;
                             focus-key: "send";
                             pressed => { root.send(); }
                             focused(k) => { root.focus-id = k; }
@@ -9896,7 +10081,7 @@ export component AppWindow inherits Window {
         if root.chats-menu-open: Rectangle {
             x: root.rtl ? root.safe-area-insets.left + 8px
                 : root.safe-area-insets.left + root.list-width - self.width - 8px;
-            y: root.safe-area-insets.top + 56px;
+            y: root.safe-area-insets.top + chats-bar.controls-bottom;
             width: max(200px, chats-menu-items.preferred-width);
             height: chats-menu-items.preferred-height;
             background: Palette.surface-container-high;
@@ -9957,6 +10142,25 @@ export component AppWindow inherits Window {
                     focused(k) => { root.focus-id = k; }
                 }
             }
+        }
+        // The identity switcher (cards section 5.7.1), over the window.
+        if root.id-switcher.open: IdentitySwitcher {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            look: root.id-look;
+            view: root.id-switcher;
+            narrow: root.narrow;
+            rtl: root.rtl;
+            anchor-x: root.safe-area-insets.left + 8px;
+            anchor-y: root.safe-area-insets.top + chats-bar.controls-bottom;
+            closed => { root.id-switcher-closed(); }
+            chosen(i) => { root.id-row-chosen(i); }
+            try-again(i) => { root.id-try-again(i); }
+            identities => { root.id-your-identities(); }
+            focused(k) => { root.focus-id = k; }
+            keyboard-mode(on) => { FocusMode.keyboard = on; }
         }
         // The overflow menu (section 6), under its button at the line's end.
         if root.menu-open: Rectangle {
