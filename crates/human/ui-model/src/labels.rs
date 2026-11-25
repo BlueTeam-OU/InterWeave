@@ -1538,95 +1538,70 @@ ui_texts! {
     /// held, except the `One` forms (`crate::identities`). `{identity}` and
     /// `{front}` are an identity's name, isolated; `{n}` and `{count}` a
     /// number in digits. The identity switch's accessible name.
-    // PLACEHOLDER (en)
     IdentitySwitch => "Identity: {identity}. Switch identity",
     /// The switch's badge, spoken: 1 unread item over the other identities,
     /// one other identity held.
-    // PLACEHOLDER (en)
     IdentityOthersUnreadOneInOther => "1 unread message in your other identity",
     /// The same, `{n}` unread, one other identity held.
-    // PLACEHOLDER (en)
     IdentityOthersUnreadInOther => "{n} unread messages in your other identity",
     /// The same, 1 unread, two or more other identities held.
-    // PLACEHOLDER (en)
     IdentityOthersUnreadOneInOthers => "1 unread message in your other identities",
     /// The same, `{n}` unread, two or more other identities held.
-    // PLACEHOLDER (en)
     IdentityOthersUnreadInOthers => "{n} unread messages in your other identities",
-    /// The switch's accessible name: a message of another identity was not
-    /// sent.
-    // PLACEHOLDER (en)
-    IdentityOthersNotSent => "A message in another identity was not sent.",
+    /// The switch's accessible name: a message of the one other identity
+    /// held was not sent (worded as the unread keys are, so "another" is
+    /// never heard as a third identity).
+    IdentityOthersNotSentInOther => "A message in your other identity was not sent.",
+    /// The same, two or more other identities held.
+    IdentityOthersNotSentInOthers => "A message in one of your other identities was not sent.",
     /// The switcher's title.
-    // PLACEHOLDER (en)
     IdentitySwitchTitle => "Switch identity",
     /// The switcher's text button at the bottom, which opens Your
     /// identities without switching; also that page's title.
-    // PLACEHOLDER (en)
     IdentitiesTitle => "Your identities",
     /// A switcher row's unread count, spoken: one.
-    // PLACEHOLDER (en)
     IdentityRowUnreadOne => "1 unread message",
     /// The same, `{n}`.
-    // PLACEHOLDER (en)
     IdentityRowUnread => "{n} unread messages",
     /// A switcher row: a message of that identity was not sent.
-    // PLACEHOLDER (en)
     IdentityNotSent => "A message was not sent",
     /// The snackbar after a switch, with `SwitchBack`.
-    // PLACEHOLDER (en)
     ConfirmIdentitySwitched => "You are now using {identity}",
     /// That snackbar's action.
-    // PLACEHOLDER (en)
     SwitchBack => "Switch back",
     /// The full-screen transition before a notification of another
     /// identity opens.
-    // PLACEHOLDER (en)
-    SwitchingTo => "Opening as {identity}",
+    SwitchingTo => "Switching to {identity}",
     /// A conversation: the line above the send control.
-    // PLACEHOLDER (en)
     ComposerAs => "As {identity}",
     /// The send control's accessible name.
-    // PLACEHOLDER (en)
     SendAs => "Send as {identity}",
     /// The new-conversation flow, at its top.
-    // PLACEHOLDER (en)
-    NewConversationAs => "You are starting this conversation as {identity}",
+    NewConversationAs => "You are starting this conversation as {identity}.",
     /// The share sheet, under the title.
-    // PLACEHOLDER (en)
     ShareCardAs => "as {identity}",
     /// Accept's context, its last sentence, in every case but S.
-    // PLACEHOLDER (en)
     ProposalAs => "If you accept, the card is saved in the contacts of {identity}.",
     /// An identity's page when that identity is not the one in front.
-    // PLACEHOLDER (en)
     IdentityNotInFront => "You are using {front}. What you change on this page applies to {identity}.",
     /// An identity that is asserting its advertise setting or taking its
     /// lease: its row, the switcher and its composer line.
-    // PLACEHOLDER (en)
     IdentityStarting => "{identity} is connecting and cannot send yet.",
     /// The same with one identity held, naming none.
-    // PLACEHOLDER (en)
     IdentityStartingOne => "Connecting. You cannot send yet.",
     /// An identity whose advertise assertion failed, so no lease was
     /// taken; with `TryAgain`.
-    // PLACEHOLDER (en)
     IdentityNotHidden => "{identity} is not connected. This device could not make sure that {identity} stays unlisted.",
     /// The same with one identity held, naming none.
-    // PLACEHOLDER (en)
     IdentityNotHiddenOne => "You are not connected. This device could not make sure that you stay unlisted.",
     /// An identity with no lease, or whose endpoint is turned off.
-    // PLACEHOLDER (en)
-    IdentityUnavailable => "{identity} cannot send or receive right now",
+    IdentityUnavailable => "{identity} cannot send or receive right now.",
     /// The accessible name of an identity's short `EndpointId` line;
     /// `{short}` is that line's text (`ShortPeer`'s template).
-    // PLACEHOLDER (en)
-    IdentityIdLabel => "Shown to the people you write to as {short}",
+    IdentityIdLabel => "People who exchange messages with this identity see it as {short}",
     /// A notification group summary's line: one new message.
-    // PLACEHOLDER (en)
     NotificationIdentityLineOne => "{identity}: 1 new message",
     /// The same, `{count}` new messages.
-    // PLACEHOLDER (en)
     NotificationIdentityLine => "{identity}: {count} new messages",
 }
 

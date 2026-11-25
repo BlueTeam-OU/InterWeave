@@ -392,7 +392,8 @@ pub struct SwitchView {
     /// Its badge, if any.
     pub badge: Option<Badge>,
     /// Its accessible name, sentence by sentence: `IdentitySwitch`, then
-    /// the badge's unread text, then `IdentityOthersNotSent`.
+    /// the badge's unread text, then `IdentityOthersNotSentInOther` or
+    /// `IdentityOthersNotSentInOthers`, by the same one-other test.
     pub accessible: Vec<Said>,
 }
 
@@ -978,8 +979,8 @@ impl Identities {
         let badge = self.badge();
         let mut accessible = vec![Said::naming(UiText::IdentitySwitch, front)];
         if let Some(b) = badge {
+            let one_other = self.held.len() == 2;
             if b.unread > 0 {
-                let one_other = self.held.len() == 2;
                 let text = match (b.unread == 1, one_other) {
                     (true, true) => UiText::IdentityOthersUnreadOneInOther,
                     (false, true) => UiText::IdentityOthersUnreadInOther,
@@ -989,7 +990,11 @@ impl Identities {
                 accessible.push(Said::of(text).with("n", b.unread.to_string()));
             }
             if b.not_sent {
-                accessible.push(Said::of(UiText::IdentityOthersNotSent));
+                accessible.push(Said::of(if one_other {
+                    UiText::IdentityOthersNotSentInOther
+                } else {
+                    UiText::IdentityOthersNotSentInOthers
+                }));
             }
         }
         Some(SwitchView {
@@ -1507,7 +1512,7 @@ mod tests {
                 .skip(1)
                 .map(|s| s.text)
                 .collect::<Vec<_>>()),
-            Some(vec![UiText::IdentityOthersNotSent])
+            Some(vec![UiText::IdentityOthersNotSentInOthers])
         );
         // Both: the count and both strings.
         held[1].unread = 1;
@@ -1521,7 +1526,7 @@ mod tests {
                 .collect::<Vec<_>>()),
             Some(vec![
                 UiText::IdentityOthersUnreadOneInOthers,
-                UiText::IdentityOthersNotSent
+                UiText::IdentityOthersNotSentInOthers
             ])
         );
         // Nothing there: no badge.
@@ -1542,12 +1547,18 @@ mod tests {
         let texts = |m: &Identities| m.switch_view().map(|v| v.accessible[1].text);
         assert_eq!(texts(&m), Some(UiText::IdentityOthersUnreadOneInOther));
         held[1].unread = 4;
-        m.held_changed(held).ok();
+        m.held_changed(held.clone()).ok();
         assert_eq!(texts(&m), Some(UiText::IdentityOthersUnreadInOther));
         assert_eq!(
             m.switch_view().map(|v| v.accessible[1].english()),
             Some("4 unread messages in your other identity".to_owned())
         );
+        // A message of the one other identity not sent is said in the
+        // same form, never as "another" identity.
+        held[1].unread = 0;
+        held[1].not_sent = true;
+        m.held_changed(held).ok();
+        assert_eq!(texts(&m), Some(UiText::IdentityOthersNotSentInOther));
     }
 
     #[test]
@@ -1591,7 +1602,10 @@ mod tests {
         assert_eq!(b.second_line, key("b").short());
         assert_eq!(
             b.second_line_label.english(),
-            format!("Shown to the people you write to as {}", key("b").short())
+            format!(
+                "People who exchange messages with this identity see it as {}",
+                key("b").short()
+            )
         );
         assert_eq!(
             b.unread_said.as_ref().map(Said::english),
@@ -1705,7 +1719,7 @@ mod tests {
         let b = name("b");
         assert_eq!(
             m.new_conversation_line().map(|s| s.english()),
-            Some(format!("You are starting this conversation as {b}"))
+            Some(format!("You are starting this conversation as {b}."))
         );
         assert_eq!(
             m.share_card_line().map(|s| s.english()),
@@ -1759,7 +1773,7 @@ mod tests {
             panic!("no transition: {out:?}");
         };
         assert_eq!(t.to, key("b"));
-        assert_eq!(t.said.english(), format!("Opening as {}", name("b")));
+        assert_eq!(t.said.english(), format!("Switching to {}", name("b")));
         assert_eq!(m.front(), Some(&key("b")), "in front before anything shows");
         // Held a second, not yet ready.
         assert_eq!(m.tick(2_500), None);

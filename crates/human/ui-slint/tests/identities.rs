@@ -265,7 +265,7 @@ fn the_switch_names_the_identity_in_front_and_the_badges_words() {
     one(
         &view,
         &format!(
-            "{}. A message in another identity was not sent.",
+            "{}. A message in your other identity was not sent.",
             switch_label("a")
         ),
     );
