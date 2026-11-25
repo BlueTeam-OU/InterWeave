@@ -793,22 +793,17 @@ impl Unmanaged {
             common::private_dir(dir);
         }
         let id = this.stub.join("id");
-        std::fs::write(
+        common::write_script(
             &id,
             "#!/bin/sh\n[ \"$1\" = -u ] && { echo 2147480000; exit 0; }\nexec /usr/bin/id \"$@\"\n",
-        )
-        .expect("an id stand-in");
-        std::fs::set_permissions(&id, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-            .expect("executable");
+            0o755,
+        );
         assert!(
             !Path::new("/run/user/2147480000").exists(),
             "the stand-in uid has a runtime directory on this host"
         );
         for exe in PROGRAMS {
-            let path = this.bins.join(exe);
-            std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("a stand-in");
-            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-                .expect("executable");
+            common::write_script(&this.bins.join(exe), "#!/bin/sh\nexit 0\n", 0o755);
         }
         let out = this.script("install.sh", &[&this.bins]);
         assert!(
@@ -954,9 +949,9 @@ fn uninstall_refuses_a_running_manager_it_cannot_reach() {
 /// instance `state` otherwise; `is-active` fails as a failed query does.
 fn failing_manager(account: &Unmanaged, fails: &str, state: &str) {
     let stub = account.stub.join("systemctl");
-    std::fs::write(
+    common::write_script(
         &stub,
-        format!(
+        &format!(
             "#!/bin/sh\nfor a; do case \"$a\" in\n\
              {fails}) exit 1 ;;\n\
              show-environment|list-units) exit 0 ;;\n\
@@ -964,10 +959,8 @@ fn failing_manager(account: &Unmanaged, fails: &str, state: &str) {
              is-active) exit 4 ;;\n\
              esac; done\nexit 0\n"
         ),
-    )
-    .expect("a systemctl stand-in");
-    std::fs::set_permissions(&stub, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("executable");
+        0o755,
+    );
 }
 
 /// A manager that answers and then fails to list its instances, or to say
@@ -1047,11 +1040,8 @@ fn scratch_install(
         if exe == missing && !unexecutable {
             continue;
         }
-        let path = bins.join(exe);
-        std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("a stand-in");
         let mode = if exe == missing { 0o644 } else { 0o755 };
-        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(mode))
-            .expect("a mode");
+        common::write_script(&bins.join(exe), "#!/bin/sh\nexit 0\n", mode);
     }
     plant(&home.join(".local/bin"), &config.join("systemd/user"));
     let out = Command::new("sh")

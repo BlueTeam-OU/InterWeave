@@ -157,6 +157,35 @@ pub fn private_dir(path: &Path) {
         .expect("a private directory");
 }
 
+/// Writes `text` to `path` as a script of `mode`, by a child `sh`: the
+/// writable descriptor is that child's, not this process's. Tests run on
+/// threads of one process, and a child another thread forks between a
+/// write's open and its close inherits the descriptor until that child
+/// execs -- close-on-exec closes it only at the exec -- so running the
+/// script meanwhile fails `ETXTBSY` ("Text file busy"). A write in this
+/// process followed by `set_permissions` is that race.
+pub fn write_script(path: &Path, text: &str, mode: u32) {
+    use std::io::Write as _;
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod \"$2\" \"$1\"", "sh"])
+        .arg(path)
+        .arg(format!("{mode:o}"))
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("sh writes the script");
+    child
+        .stdin
+        .take()
+        .expect("its stdin")
+        .write_all(text.as_bytes())
+        .expect("the script's text");
+    assert!(
+        child.wait().expect("sh ends").success(),
+        "{} written",
+        path.display()
+    );
+}
+
 /// A daemon log in `dir` no other start in this process has named, created
 /// exclusively. A name from the clock repeats within one tick or after a
 /// step back, and opening it truncating would cut the log a daemon still
@@ -653,7 +682,33 @@ mod tests {
 
     use super::{
         binary_in, create_fresh, new_daemon_log, private_tempdir, refuse_beside_a_package,
+        write_script,
     };
+
+    /// `write_script` leaves exactly the text it was given at exactly the
+    /// mode it was given -- an executable one runs, and a `0644` one, the
+    /// stand-in for a program that cannot be run, does not carry an
+    /// execute bit the test meant to withhold.
+    #[test]
+    fn write_script_writes_the_text_at_the_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = private_tempdir();
+        let text = "#!/bin/sh\necho \"ran $1\"\n";
+        for mode in [0o755, 0o700, 0o644] {
+            let path = dir.path().join(format!("s{mode:o}"));
+            write_script(&path, text, mode);
+            assert_eq!(std::fs::read_to_string(&path).expect("read"), text);
+            let got = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o7777;
+            assert_eq!(got, mode, "{mode:o}");
+            if mode & 0o100 != 0 {
+                let out = std::process::Command::new(&path)
+                    .arg("x")
+                    .output()
+                    .expect("the script runs");
+                assert_eq!(out.stdout, b"ran x\n");
+            }
+        }
+    }
 
     /// With no package named, a workspace program is not refused.
     #[test]
