@@ -494,7 +494,17 @@ on main, which stopped being true when #313 merged on 2026-10-21. §6's
 Before, each gave a shorter reason of its own. Q18's answer now says
 that no writer can replace the record on R2 after K1, which its quoted
 question assumed. Acceptance 12's seventh run also names f8c122108,
-which puts focus on `Refused`.
+which puts focus on `Refused`. §6 (The hold) and acceptance 12 and
+15 now say that the build keeps a flow screen through a recreation
+(4d33c9352) and gives it its opening focus, which §6's rule does not
+allow; the build owes that focus. Acceptance 15's sixth return run
+and acceptance 12's R2 recreation run are no longer blocked on j311:
+they are device runs, and the sixth fails until the build keeps the
+focus. Acceptance 15's ten return runs are device runs, with host
+tests below them (rust-ui-dev-01's REPLY 01a2130d). Before, the note
+said that a recreation started the flow again, that both runs were
+blocked until j311 landed, and that the ten return runs were host
+tests.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -1511,15 +1521,17 @@ this notice wherever it shows also keeps the app predictable
   was at the return: the retry moves no focus. A recreation moves
   none either: the recreated window puts focus on the control that
   had it before, as on Chats (A return or a recreation, under A
-  start refused with the profile in use after the bound). On the
-  flow screens the build cannot yet put focus back after a
-  recreation. A recreation starts the
-  identity flow again at its first screen, so C4, R4, R3 and R2 after
-  K1 are not kept, and neither is the focus on them (rust-ui-dev-01's
-  INFO 01a1fde3, their job j311). The rule that a recreation moves no
-  focus is still the target on these screens, and the two runs that
-  check it there, acceptance 15's sixth return run and acceptance
-  12's R2 recreation run, are blocked until j311 lands. The 1 s before
+  start refused with the profile in use after the bound). The build
+  keeps the flow through a recreation: C4, R4, R3 and R2 after K1
+  show again in the new window with their words, the profile's lock
+  and a held start (4d33c9352). The new window gives each screen its
+  opening focus, though: the title on C4 and R4, the question on R3,
+  and the keypad's first enabled key on R2 (rust-ui-dev-01's REPLY
+  01a2130d). That focus moves the person, against this rule. The
+  build owes the rule: the kept flow carries the control that had
+  focus, and the new window puts focus on that same control, the same
+  keypad key or chip included. Acceptance 15's sixth return run and
+  acceptance 12's R2 recreation run check it, on a device. The 1 s before
   `ConnectStarting` and add-a-peer §5.1's 10 s bound count from the
   return, never from when `IdStartBusy` first showed. Why: the
   bound limits how long the person waits on a held screen, and while
@@ -2504,9 +2516,11 @@ landscape:
     custody records one more read-back and no restore. In a second
     run, a recreation of the window, as a change of the system language makes it, takes the rotation's place, and in a third
     run, the app sent to the background and back. Each is blocked on
-    the same count, and the second run is also blocked until the
-    build keeps R2 through a recreation (rust-ui-dev-01's j311; §6,
-    The hold). Removing the notice first is what makes each run
+    the same count. The second run is a device run, because no host
+    test drives the Activity (rust-ui-dev-01's REPLY 01a2130d); the
+    build keeps R2 through a recreation (4d33c9352). This run checks
+    the count; focus after the recreation is §6's (The hold), which
+    the build does not yet keep. Removing the notice first is what makes each run
     check the read-back owed and not the notice: with the notice
     shown, `IdCheckWords` reads back by the notice's rule alone. A read-back that keeps
     failing, in host tests: on R2 after K1, Back, `IdDiscard`, K1's
@@ -2822,9 +2836,9 @@ scale would also be a finding of the Android review
       notice. In a sixth run, the test recreates the window as a
       change of the system language does: the hook records one start,
       answered as in the second run. A rotation instead records no
-      start. The sixth run is blocked, not passed, until the build
-      keeps a flow screen through a recreation (rust-ui-dev-01's
-      j311; §6, The hold). In a seventh run, made with Stay
+      start. After either, focus stays on the control that had it
+      (§6, The hold); the build keeps the flow (4d33c9352) but does not yet
+      keep that focus, so the sixth run fails until it does. In a seventh run, made with Stay
       reachable on only, the
       test presses Enter on Try again, the hook leaves that start
       unanswered, and the test then sends the app to the background
@@ -2846,7 +2860,17 @@ scale would also be a finding of the Android review
       app's comparison before the start. #750 built that comparison
       (180448d96), and the retry at a return makes the same
       comparison (`apps/human-android/src/unchecked_start.rs`). These
-      runs are host tests.
+      ten runs are device runs: the return and the recreation run in
+      the Activity, which no host test drives, and only a device shows
+      the hook's start counts across them, the timing of
+      `ConnectStarting` and Chats from the return, and focus in the
+      drawn window (rust-ui-dev-01's REPLY 01a2130d). Host tests check
+      the layer below: `showing_started` holds C4, R4, R3 and R2 after
+      K1 once for a showing's start (`identity_flow`); a return leaves
+      the held screen to it (`android-platform`'s view side); the
+      comparison a return's retry makes, the tenth run's refusal and
+      its focus (`unchecked_start.rs`); and the park past a destroy
+      (`flow_park.rs`).
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
