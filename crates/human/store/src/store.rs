@@ -171,6 +171,10 @@ const WALK_KEPT: &str = "SELECT row_id, app_message_id, source_peer, source_endp
 /// kept under (STATE.md schema v10).
 const INBOUND_KIND_SETTING: &str = "inbound_kind_version";
 
+/// The `settings` key of the identity last in front of the client
+/// (STATE.md, one client process, several identities, A 2026-11-25).
+const LAST_FRONT_SETTING: &str = "last_front";
+
 /// How long a statement waits for another connection's write before it
 /// fails busy. Two connections of one process may hold one store: on
 /// Android a facade left running past its stop's grace finishes its
@@ -667,6 +671,34 @@ impl HumanStore {
         self.lock().forget_discarded_at_v14()
     }
 
+    /// The identity last in front of the client, as [`Self::set_last_front`]
+    /// wrote it (STATE.md, one client process, several identities, A
+    /// 2026-11-25): one content-free row of `settings`, the `EndpointId` and
+    /// nothing else. The row is the client's, not an identity's, so every
+    /// handle of one open reads the same one
+    /// (`the_last_front_row_is_one_for_every_handle`). `None` with no row:
+    /// a store never switched, or one recreated after a discard, which
+    /// takes the row with it. Whether the id is still held is not the
+    /// store's to say: the root resolves a missing row, or one naming an
+    /// identity it does not hold, to the default or the first.
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for a row that is not a
+    /// derived `EndpointId`, which this build does not write
+    /// (`a_last_front_row_that_is_no_endpoint_is_corrupt`).
+    pub fn last_front(&self) -> Result<Option<EndpointId>, StoreError> {
+        self.lock().last_front()
+    }
+
+    /// Write `identity` as the one last in front: at the switch, in place
+    /// of the row before it.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn set_last_front(&mut self, identity: &EndpointId) -> Result<(), StoreError> {
+        self.lock().set_last_front(identity)
+    }
+
     /// Open a store that exists only for this process.
     ///
     /// For tests of logic that does not involve restart. Anything
@@ -1078,6 +1110,30 @@ impl Core {
             .execute(
                 "DELETE FROM settings WHERE key = ?1",
                 params![crate::schema::V14_DISCARDED],
+            )
+            .map_err(|e| self.note_failure(e))?;
+        Ok(())
+    }
+
+    pub(crate) fn last_front(&self) -> Result<Option<EndpointId>, StoreError> {
+        let value: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![LAST_FRONT_SETTING],
+                |r| r.get(0),
+            )
+            .optional()?;
+        value
+            .map(|v| EndpointId::parse_derived(v).map_err(|e| StoreError::Corrupt(e.to_string())))
+            .transpose()
+    }
+
+    pub(crate) fn set_last_front(&mut self, identity: &EndpointId) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+                params![LAST_FRONT_SETTING, identity.as_str()],
             )
             .map_err(|e| self.note_failure(e))?;
         Ok(())
