@@ -109,28 +109,15 @@ impl Driver {
             .map(ClientKind::parse)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| TransportError::InvalidArgument)?;
-        let added = match &self.profile_paths {
-            Some(paths) => {
-                self.endpoint_overlay
-                    .add(&self.authored.endpoints, paths, &key, &alias, kinds)
-            }
-            // A test construction has no state directory: no key file can
-            // be read, which is what `key_missing` says -- after the name's
-            // own check, which comes first in the contract's order, so a
-            // name that derives no id is `id_not_derived` here as well.
-            None => match interweave_profile_config::endpoint_key::parse_key_file_name(&key) {
-                Ok(id) => Added::Refused {
-                    reason: overlay::AddRefusal::KeyMissing,
-                    endpoint: Some(id),
-                    detail: "this runtime keeps no state directory".to_owned(),
-                },
-                Err(_) => Added::Refused {
-                    reason: overlay::AddRefusal::IdNotDerived,
-                    endpoint: None,
-                    detail: "the key's name is not <EndpointId>.key".to_owned(),
-                },
-            },
-        };
+        // Without a state directory (a test construction) the overlay
+        // reads no key file: its order still decides every refusal.
+        let added = self.endpoint_overlay.add(
+            &self.authored.endpoints,
+            self.profile_paths.as_ref(),
+            &key,
+            &alias,
+            kinds,
+        );
         let (moved, endpoint) = match added {
             Added::Refused {
                 reason,

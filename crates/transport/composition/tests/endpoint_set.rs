@@ -734,11 +734,13 @@ async fn set_alias_renames_an_added_entry_and_refuses_in_order() {
 }
 
 /// A runtime with no state directory (a test construction) reads no key
-/// file, so a well-formed key name is `key_missing`; the name's own check
-/// still comes first, so a name that derives no id is `id_not_derived`,
-/// the contract's first refusal, as with a state directory.
+/// file, and still refuses in the contract's order, which the overlay's
+/// add alone decides: a name that derives no id is `id_not_derived`, a
+/// well-formed name with an alias outside the grammar is `alias_invalid`,
+/// and only an add that passes both is `key_missing`, the file being
+/// unreadable here.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn without_a_state_directory_the_names_check_still_comes_first() {
+async fn without_a_state_directory_the_order_is_the_same() {
     let (identity, _) = id();
     let runtime = ComposedRuntime::start(&identity, &profile(), CompositionOptions::default())
         .await
@@ -748,16 +750,23 @@ async fn without_a_state_directory_the_names_check_still_comes_first() {
         Ok(EndpointAddChange::Refused { reason, .. }) => reason,
         other => panic!("not refused: {other:?}"),
     };
+    let (_, key) = mint(&paths());
     assert_eq!(
         refused(
-            port.add_endpoint("not-a-key".to_owned(), "work".to_owned(), vec![])
+            port.add_endpoint("not-a-key".to_owned(), "bad alias!".to_owned(), vec![])
                 .await
         ),
         EndpointAddRefusal::IdNotDerived
     );
-    // The control: a name that derives an id, whose file this runtime
-    // cannot read.
-    let (_, key) = mint(&paths());
+    assert_eq!(
+        refused(
+            port.add_endpoint(key.clone(), "bad alias!".to_owned(), vec![])
+                .await
+        ),
+        EndpointAddRefusal::AliasInvalid
+    );
+    // The control: the same name with an alias in the grammar reaches the
+    // key's check, whose file this runtime cannot read.
     assert_eq!(
         refused(port.add_endpoint(key, "work".to_owned(), vec![]).await),
         EndpointAddRefusal::KeyMissing

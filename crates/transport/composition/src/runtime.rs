@@ -89,7 +89,9 @@ pub struct CompositionOptions {
     /// The profile's paths, where `admin.endpoints.add` reads the header
     /// of the key file it names (`<state_dir>/endpoint-keys/`). Every
     /// production binding supplies them; without them -- a test
-    /// construction -- every add is refused `key_missing`.
+    /// construction -- no key file is read, so an add that passes the
+    /// checks before the key's is refused `key_missing`, in the same order
+    /// (`without_a_state_directory_the_order_is_the_same`).
     pub profile_paths: Option<ProfilePaths>,
     /// Where the overlay files' directory walk stops (ADR-0028 A
     /// 2026-10-08): the profile paths' boundary -- `/` on the desktop,
