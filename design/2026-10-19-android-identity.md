@@ -484,6 +484,31 @@ comparison run at a return to C4 showing `IdStartBusy`. Before,
 acceptance 15 said that the run was blocked until the comparison
 existed.
 
+Revised 2026-11-25 again, for the items that #760's reviews carried.
+§9's rows for `AuthenticationNeeded`, `Authenticate`,
+`UnlockPromptTitle`, `CopyPeerId` and `PeerIdCopied` now say that
+#313 added them (1bd60a83b). Before, they said the keys were not yet
+on main, which stopped being true when #313 merged on 2026-10-21. §6's
+`IdRestoreOther` paragraph and §11f's Q17 answer now point to the
+`RecordNamesOther` row for why R2 after K1 cannot reach that notice.
+Before, each gave a shorter reason of its own. Q18's answer now says
+that no writer can replace the record on R2 after K1. The question
+that the answer quotes assumed that another writer could change the
+record on R2 after K1. Acceptance 12's seventh run also names
+f8c122108, the commit that puts focus on `Refused`. §6 (The hold) and
+acceptance 12 and 15 now say that the build keeps a flow screen
+through a recreation (4d33c9352) and that the new window gives the
+screen its opening focus. §6's rule does not allow that focus, and the
+build owes the rule: focus on the control that had it. Acceptance 15's
+sixth return run and acceptance 12's R2 recreation run are no longer
+blocked on j311: they are device runs, and both fail until the build
+keeps the focus. Acceptance 15's ten return runs
+are device runs, and host tests check the layer below them
+(rust-ui-dev-01's REPLY 01a2130d). Before, the note said that a
+recreation restarted the flow at its first screen, that those two runs
+were blocked until j311 landed, and that the ten return runs were host
+tests.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -1418,8 +1443,8 @@ that a PeerId was created.
   binds, and the next start of that process compares the PeerId that
   the record opens to at that start.
   `IdRestoreOther`'s Continue on R2 after K1 does not end the
-  comparison either. A build cannot reach that Continue there: K1
-  offers R2 only with the record's own PeerId. If a build reaches that
+  comparison either. A build cannot reach that Continue there (the
+  `RecordNamesOther` row says why). If a build reaches that
   Continue anyway, the another-identity row applies, and the start of
   that Continue compares. After the bound, it is answered as An answer
   after the bound says. Before the bound, it is answered as the end of
@@ -1499,15 +1524,18 @@ this notice wherever it shows also keeps the app predictable
   was at the return: the retry moves no focus. A recreation moves
   none either: the recreated window puts focus on the control that
   had it before, as on Chats (A return or a recreation, under A
-  start refused with the profile in use after the bound). On the
-  flow screens the build cannot yet put focus back after a
-  recreation. A recreation starts the
-  identity flow again at its first screen, so C4, R4, R3 and R2 after
-  K1 are not kept, and neither is the focus on them (rust-ui-dev-01's
-  INFO 01a1fde3, their job j311). The rule that a recreation moves no
-  focus is still the target on these screens, and the two runs that
-  check it there, acceptance 15's sixth return run and acceptance
-  12's R2 recreation run, are blocked until j311 lands. The 1 s before
+  start refused with the profile in use after the bound). The build
+  keeps the flow through a recreation: C4, R4, R3 and R2 after K1 show
+  again in the new window with the words of the recovery phrase, the
+  profile's lock and a held start (4d33c9352). The new window gives
+  each screen its opening focus, though: the title on C4 and R4, the
+  question on R3, and the keypad's first enabled key on R2
+  (rust-ui-dev-01's REPLY 01a2130d). This rule does not allow that
+  move of focus. The build owes the rule: the kept flow carries the
+  control that had focus, and the new window puts focus on that same
+  control, the same keypad key or chip included. Acceptance
+  15's sixth return run and acceptance 12's R2 recreation run check
+  this rule, on a device. The 1 s before
   `ConnectStarting` and add-a-peer §5.1's 10 s bound count from the
   return, never from when `IdStartBusy` first showed. Why: the
   bound limits how long the person waits on a held screen, and while
@@ -2246,10 +2274,10 @@ names are suggestions; rust-ui-dev names them.
 | `IdShowWords` | Show my words | C1's primary |
 | `IdNotWalletSeed` (new; changed 2026-11-23) | InterWeave recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen. The contract's label also says "transport" and "identity"; both are left out, "transport" as a word the person does not know and "identity" as `IdC1Point2` says |
 | `IdFormatLine` (new) | Phrase format: | C2 and S2, before the untranslated format identifier (§3.2), one line. "Phrase format" says whose format it is; a bare "Format" could be read as the screen's layout. The label stands alone before a value, so a translation needs no template |
-| `AuthenticationNeeded` (the app's, #313, not yet on main) | InterWeave is offline because it is locked. To unlock it, tap Unlock and enter your phone's PIN, pattern or password. Your conversations are saved on this phone and appear again after you unlock InterWeave. | The locked notice: offline after a cancelled unlock at S2's Done, at a launch, or after C4's or R4's continue (§6) |
-| `Authenticate` (the app's, #313, not yet on main) | Unlock | The locked notice's action; it raises the prompt (§6) |
-| `UnlockPromptTitle` (the app's, #313, not yet on main) | Unlock InterWeave | The system prompt's title for a key operation or a launch; S1's prompt keeps its own |
-| `CopyPeerId`, `PeerIdCopied` (the app's, #313, not yet on main) | Copy PeerId · PeerId copied | The button under a PeerId and its confirmation below Android 13 (§5) |
+| `AuthenticationNeeded` (the app's, #313) | InterWeave is offline because it is locked. To unlock it, tap Unlock and enter your phone's PIN, pattern or password. Your conversations are saved on this phone and appear again after you unlock InterWeave. | The locked notice: offline after a cancelled unlock at S2's Done, at a launch, or after C4's or R4's continue (§6) |
+| `Authenticate` (the app's, #313) | Unlock | The locked notice's action; it raises the prompt (§6) |
+| `UnlockPromptTitle` (the app's, #313) | Unlock InterWeave | The system prompt's title for a key operation or a launch; S1's prompt keeps its own |
+| `CopyPeerId`, `PeerIdCopied` (the app's, #313) | Copy PeerId · PeerId copied | The button under a PeerId and its confirmation below Android 13 (§5) |
 | `IdStartUnchecked` (new, final 2026-11-24) | Go online with this PeerId | C4's text button under Try again while `IdStorageUnknown` shows after a failed read-back and it is offered (§6, A start from C4 after a failed read-back). It must say that the app starts with the PeerId shown, and never that a PeerId was created or saved. "Go online" is `IdStartBusy`'s verb for the same start |
 | `IdStorageUnknownRestore` (new, final 2026-11-24) | If the app then asks for your recovery phrase, enter the phrase you just wrote down. That phrase restores this PeerId. | C4's line under `IdStartUnchecked` (§6). It must say what the person does if the start leads to K1, and that the phrase restores the PeerId (§11d, Q15). It names K1 by what K1 asks for (`IdQTitle`), so it promises nothing where K1 cannot restore (`IdQTitleNoPath`). "Then" is the press of `IdStartUnchecked` above it |
 | `IdStorageUnknown` (new) | The app does not know whether your PeerId was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back and writes nothing |
@@ -2322,8 +2350,8 @@ point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestored
 on 2026-10-20 `IdPeerIdTitle`, `IdPeerIdWritten`, `IdNext` and
 `IdPeerIdNoteShown`, on 2026-10-21 `IdS1Unlock`, and on 2026-11-18 `IdStartBusy`. The locked notice and its prompt
 (`AuthenticationNeeded`, `Authenticate`, `UnlockPromptTitle`) are the
-app's keys, not this flow's, added to `labels.rs` by #313 and not yet
-on main; so are `CopyPeerId` and `PeerIdCopied` (§5). Their rows are
+app's keys, not this flow's, added to `labels.rs` by #313
+(1bd60a83b); so are `CopyPeerId` and `PeerIdCopied` (§5). Their rows are
 in the table above. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
 `IdContinueEntering`. `IdBack` is `AddClose`.
@@ -2492,9 +2520,15 @@ landscape:
     custody records one more read-back and no restore. In a second
     run, a recreation of the window, as a change of the system language makes it, takes the rotation's place, and in a third
     run, the app sent to the background and back. Each is blocked on
-    the same count, and the second run is also blocked until the
-    build keeps R2 through a recreation (rust-ui-dev-01's j311; §6,
-    The hold). Removing the notice first is what makes each run
+    the same count. The second run is a device run, because no host
+    test drives the Activity (rust-ui-dev-01's REPLY 01a2130d); the
+    build keeps R2 through a recreation (4d33c9352). The second run
+    checks the count, and it also checks §6's focus rule (The hold):
+    after the recreation, focus is on the control that had it before
+    the recreation, the same keypad key or chip included. The build
+    does not yet keep that focus, so the second run fails until it
+    does. Removing
+    the notice first is what makes each run
     check the read-back owed and not the notice: with the notice
     shown, `IdCheckWords` reads back by the notice's rule alone. A read-back that keeps
     failing, in host tests: on R2 after K1, Back, `IdDiscard`, K1's
@@ -2618,7 +2652,7 @@ landscape:
     records one service start, and the service runs. The seventh run
     needs the rule for a compared start answered before the bound
     (§6, An answer after the bound; Q18, §11f); #758 built that rule
-    (f75f09e0b, 97d01bf35).
+    (f75f09e0b, 97d01bf35) and the focus on `Refused` (f8c122108).
     In an eighth run, a compared start from R3 is answered before the
     bound. It goes as the seventh run until W shows. Then, before R2
     opens and takes the profile lock (§2), the double writes a record
@@ -2810,9 +2844,11 @@ scale would also be a finding of the Android review
       notice. In a sixth run, the test recreates the window as a
       change of the system language does: the hook records one start,
       answered as in the second run. A rotation instead records no
-      start. The sixth run is blocked, not passed, until the build
-      keeps a flow screen through a recreation (rust-ui-dev-01's
-      j311; §6, The hold). In a seventh run, made with Stay
+      start. After either, focus must stay on the control that had
+      it (§6, The hold). The build keeps the flow through the
+      recreation (4d33c9352) but does not yet keep that focus, so the
+      sixth run fails until the build keeps it. In a seventh run,
+      made with Stay
       reachable on only, the
       test presses Enter on Try again, the hook leaves that start
       unanswered, and the test then sends the app to the background
@@ -2834,7 +2870,18 @@ scale would also be a finding of the Android review
       app's comparison before the start. #750 built that comparison
       (180448d96), and the retry at a return makes the same
       comparison (`apps/human-android/src/unchecked_start.rs`). These
-      runs are host tests.
+      ten runs are device runs: the return and the recreation happen in
+      the Activity, which no host test drives, and only a device shows
+      the hook's start counts across them, the timing of
+      `ConnectStarting` and Chats from the return, and focus in the
+      drawn window (rust-ui-dev-01's REPLY 01a2130d). Host tests check
+      the layer below: that `showing_started` holds C4, R4, R3 and R2
+      after K1 once for a showing's start (`identity_flow`); that a
+      return leaves the held screen to `showing_started`
+      (`android-platform`'s view side); the comparison that a return's
+      retry makes, the tenth run's refusal and its focus
+      (`unchecked_start.rs`); and the park of the flow past a destroy
+      (`flow_park.rs`).
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
@@ -3660,9 +3707,9 @@ here; the first was already answered on this branch.
   Continue on R2 after K1 would end the
   comparison only if that notice also said that the words written down
   on C4 do not restore the PeerId below it. The note does not add that
-  text, because a build cannot reach that notice there (K1 offers R2
-  only with the record's own PeerId), so the start of that Continue
-  still compares. No ADR or contract
+  text, so the start of that Continue still compares. It does not
+  add it because a build cannot reach that notice there (§6, the
+  `RecordNamesOther` row). No ADR or contract
   change follows. §6 (The comparison
   outlasts the bound) carries the answer. Acceptance 12's fifth run
   walks Back before any check, and it walks R4's Continue; its sixth
@@ -3696,7 +3743,10 @@ here; the first was already answered on this branch.
   nothing tells the person that only the end of the process leads on
   (§12, Words for a read-back that keeps failing). Before that Back,
   R2's Try again under `IdStorageUnknown` is the way on: a read-back
-  that opens the record opens R4. The question, as asked: three
+  that opens the record opens R4. The question below speaks of
+  another writer changing the record on R2 after K1; no writer can
+  replace it there (§6, the `RecordNamesOther` row). The question, as
+  asked: three
   things are open. First, where focus
   goes when Chats opens because a compared start from R2 after K1,
   from R3, or from R4 when R4 was not reached after K1 is answered
