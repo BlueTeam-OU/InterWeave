@@ -770,6 +770,50 @@ fn refused_takes_focus_only_when_asked() {
     assert_ne!(view.window().get_focus_id(), "notice", "the ask was spent");
 }
 
+/// An asked `Refused` (identity note section 8, A compared start answered
+/// before the bound) taking focus leaves a pending locked-notice ask in
+/// place, so the locked notice that then shows in `Refused`'s place, in
+/// one render, takes focus. Two other moves spend the asks and are not
+/// this case: the locked notice showing spends `Refused`'s ask
+/// (`refused_takes_focus_only_when_asked`), and `Refused` leaving for no
+/// notice clears both (`follow_locked_notice`'s last branch). This
+/// pins the view whatever order its callers ask in; no shell or app-core
+/// path is traced here that leaves both asks pending together. Mutation:
+/// the refused branch clearing `locked_focus_wanted` as well fails here.
+#[test]
+fn a_pending_locked_ask_survives_an_asked_refused() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.render(&model);
+    settle();
+    view.show_identity(Some(interweave_human_ui_slint::IdentityPage::default()));
+    view.focus_locked_notice();
+    view.focus_refused_notice();
+    model.start_refused(Some(StartBusy::Shown));
+    view.render(&model);
+    settle();
+    assert_ne!(view.window().get_focus_id(), "notice", "under the screen");
+    view.show_identity(None);
+    view.render(&model);
+    settle();
+    assert_eq!(view.window().get_focus_id(), "notice", "Refused, asked");
+
+    // Focus leaves the card, so only the locked ask can bring it back.
+    let moved = tab(&view);
+    settle();
+    assert_ne!(moved, "notice", "control: focus off the card");
+    model.start_refused(None);
+    model.authentication_needed(true);
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id(),
+        "notice",
+        "the locked notice takes its ask"
+    );
+}
+
 /// TAB on R until its Try again holds focus, as the person's tap left it.
 fn focus_try_again(view: &View) {
     let window = view.window().window();
