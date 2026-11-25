@@ -1063,6 +1063,9 @@ pub struct View {
     /// no identity or store screen and no reader up takes focus there; one
     /// on another page spends it.
     locked_focus_wanted: std::cell::Cell<bool>,
+    /// [`Self::focus_refused_notice`] asked: as `locked_focus_wanted`, for
+    /// `Refused` ([`SessionNotice::StartRefused`]).
+    refused_focus_wanted: std::cell::Cell<bool>,
     /// The discard's notice asks focus once it shows
     /// ([`Self::focus_once_notice`]).
     once_focus_wanted: std::cell::Cell<bool>,
@@ -1521,6 +1524,7 @@ impl View {
             removing: None,
             focus_wanted: Rc::new(RefCell::new(None)),
             locked_focus_wanted: std::cell::Cell::new(false),
+            refused_focus_wanted: std::cell::Cell::new(false),
             once_focus_wanted: std::cell::Cell::new(false),
             trust_announced: 0,
             unlock_lines: unlock::Lines::default(),
@@ -2023,6 +2027,22 @@ impl View {
     /// other page focus stays where it is, and the ask is spent.
     pub fn focus_locked_notice(&self) {
         self.locked_focus_wanted.set(true);
+    }
+
+    /// Focus `Refused`'s Try again ([`SessionNotice::StartRefused`]) once
+    /// it shows on Chats or in a conversation, as
+    /// [`Self::focus_locked_notice`] does the locked notice's Unlock:
+    /// after a compared start held on R2, R3 or R4 was refused before the
+    /// bound and Chats opened in place of the held screen, so the notice
+    /// answers the person's press (identity note section 8, A compared
+    /// start answered before the bound). Unasked, `Refused` takes no
+    /// focus (section 6, An answer after the bound). The locked notice in
+    /// its place -- Try again's prompt cancelled -- spends the ask, and so
+    /// does `Refused` leaving; until `Refused` shows, the facade's own
+    /// notice before the hub's answer reaches the model included, it
+    /// waits.
+    pub fn focus_refused_notice(&self) {
+        self.refused_focus_wanted.set(true);
     }
 
     /// Focus the discard's notice ([`Self::show_once`]) once it shows,
@@ -4146,14 +4166,16 @@ impl View {
     /// Unlock once the notice shows on Chats or a conversation -- never on
     /// another page, where the notice does not show; and when the notice
     /// leaves with focus on it, focus goes to a conversation's composer,
-    /// else to Chats' heading.
+    /// else to Chats' heading. `Refused` takes focus the same way when
+    /// [`Self::focus_refused_notice`] asked, and gives it back the same
+    /// way.
     fn follow_locked_notice(&self, was: Option<SessionNotice>, now: Option<SessionNotice>) {
         const LOCKED: Option<SessionNotice> = Some(SessionNotice::AuthenticationNeeded);
         // `IdStartBusy` shows, Try again enabled or not: it never takes
         // focus by itself, and a `LockHeld` again leaves focus where it
         // is (identity note section 6, Focus does not move). `Refused`
         // for a start that compared with C4's `PeerId` is placed the same
-        // (section 6, An answer after the bound).
+        // unless asked (section 6, An answer after the bound; section 8).
         let busy = |notice: Option<SessionNotice>| {
             matches!(
                 notice,
@@ -4161,15 +4183,23 @@ impl View {
             )
         };
         let on_chats = self.window.get_narrow() && self.window.get_list_shown();
-        if now == LOCKED {
+        let refused = matches!(now, Some(SessionNotice::StartRefused(_)));
+        if now == LOCKED || (refused && self.refused_focus_wanted.get()) {
+            // The ask of the notice that shows. The locked notice in
+            // `Refused`'s place -- Try again's prompt cancelled -- spends
+            // `Refused`'s; the locked one's waits for its notice, as it did
+            // before `Refused` could be asked.
+            let wanted = if refused {
+                &self.refused_focus_wanted
+            } else {
+                self.refused_focus_wanted.set(false);
+                &self.locked_focus_wanted
+            };
             if self.page != Page::Conversation {
                 // Another page keeps focus, and leaving it hands focus back
                 // to what opened it: the ask is spent there.
-                self.locked_focus_wanted.set(false);
-            } else if !self.window.get_identity_active()
-                && self.reader.is_none()
-                && self.locked_focus_wanted.take()
-            {
+                wanted.set(false);
+            } else if !self.window.get_identity_active() && self.reader.is_none() && wanted.take() {
                 // An identity or store screen, or the reader, still up
                 // keeps the ask for the render after it goes, which shows
                 // the card.
@@ -4186,6 +4216,7 @@ impl View {
             }
         } else if was == LOCKED || (busy(was) && !busy(now)) {
             self.locked_focus_wanted.set(false);
+            self.refused_focus_wanted.set(false);
             let focus = self.window.get_focus_id();
             // Either card's Unlock reports the one key, "notice", and so
             // does `IdStartBusy`'s Try again: a start that succeeds takes
