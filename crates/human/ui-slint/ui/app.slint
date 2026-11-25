@@ -408,6 +408,10 @@ export struct IdKey {
     enabled: bool,
     // Its place in its layout's reading order, from 0: its focus stop.
     index: int,
+    // Its place in the other layout's reading order: where a key kept
+    // through a recreation into a window of the other layout stands
+    // (section 6, The hold; IdentityScreen's `kept-key`).
+    other: int,
     // The layout's first enabled key, where focus goes after a chip
     // fills a position (section 8).
     first: bool,
@@ -428,9 +432,11 @@ export struct IdSlot {
 // recreation moves no focus). `seg` and `idx` are the page's own focus
 // stops (IdentityScreen's `at-seg`, `at-idx`), -1 for the page itself;
 // `under-*` is what the discard dialog gives focus back to when it
-// closes. `asked` false: nothing kept, the page's opening rule applies.
+// closes. `alpha` is the keypad layout both keys' indexes are in.
+// `asked` false: nothing kept, the page's opening rule applies.
 export struct IdFocusStop {
     asked: bool,
+    alpha: bool,
     seg: int,
     idx: int,
     typing: bool,
@@ -2394,6 +2400,7 @@ component IdentityScreen inherits FocusScope {
     function publish() {
         root.stop = {
             asked: true,
+            alpha: root.keys-alpha,
             seg: root.at-seg,
             idx: root.at-idx,
             typing: root.typing,
@@ -2408,6 +2415,23 @@ component IdentityScreen inherits FocusScope {
     changed saved-seg => { root.publish(); }
     changed saved-idx => { root.publish(); }
     changed saved-typing => { root.publish(); }
+    // The keypad's layout: alphabetical sevens below 340, else QWERTY
+    // (section 4.3).
+    property <bool> keys-alpha: root.width < 340px;
+    changed keys-alpha => { root.publish(); }
+    // A kept stop's index in this page's keypad layout: a key kept from
+    // a window of the other layout is the same letter here, at its
+    // `other` place (`IdKey.other`); any other stop is where it was. The
+    // rows are QWERTY's 10, 9 and 7 and the alphabet's sevens
+    // (identity.rs).
+    function kept-key(seg: int, idx: int, alpha: bool) -> int {
+        if (seg != 3 || alpha == root.keys-alpha || idx < 0 || idx >= 26) { return idx; }
+        if (alpha) {
+            return root.page.alpha-rows[floor(idx / 7)].keys[mod(idx, 7)].other;
+        }
+        let row = idx < 10 ? 0 : idx < 19 ? 1 : 2;
+        return root.page.rows[row].keys[idx - (row == 0 ? 0 : row == 1 ? 10 : 19)].other;
+    }
     // The stop the last window's page had, set by the window
     // (`View::keep_identity_stop`) for a flow kept through a recreation
     // (section 6, The hold): taken once, in place of the opening rule,
@@ -2420,17 +2444,17 @@ component IdentityScreen inherits FocusScope {
         root.kept = { asked: false };
         if (root.page.dialog) {
             if (k.seg != 9 && k.seg != 10) { return false; }
-            root.dialog-shown = true;
             root.saved-seg = k.under-seg;
-            root.saved-idx = k.under-idx;
+            root.saved-idx = root.kept-key(k.under-seg, k.under-idx, k.alpha);
             root.saved-typing = k.under-typing;
             root.typing = k.typing;
             root.go(k.seg, 0);
             return true;
         }
-        if (k.seg >= 0 && (k.seg > 8 || k.idx < 0 || k.idx >= root.size(k.seg))) { return false; }
+        let idx = root.kept-key(k.seg, k.idx, k.alpha);
+        if (k.seg >= 0 && (k.seg > 8 || idx < 0 || idx >= root.size(k.seg))) { return false; }
         root.typing = k.typing;
-        root.again(k.seg, k.idx);
+        root.again(k.seg, idx);
         return true;
     }
     changed kept => { root.kept-asked(); }
@@ -2695,7 +2719,8 @@ component IdentityScreen inherits FocusScope {
         root.review-shown = root.page.review;
         root.screen-shown = root.page.screen;
         // A refused start's heading first, then the stop a recreation
-        // kept, then the screen's opening focus.
+        // kept, then the screen's opening focus. A kept stop the heading
+        // left unused goes when the page does (`View::show_identity`).
         if (!root.heading-asked() && !root.kept-asked()) { root.opened(); }
     }
     changed page => {
@@ -3465,7 +3490,7 @@ component IdentityScreen inherits FocusScope {
             // key of a layout is one width.
             keypad := VerticalLayout {
                 spacing: 4px;
-                property <bool> alphabetical: root.width < 340px;
+                property <bool> alphabetical: root.keys-alpha;
                 property <int> per-row: self.alphabetical ? 7 : 10;
                 property <length> key-width: (self.width - (self.per-row - 1) * 4px) / self.per-row;
                 for row in (self.alphabetical ? root.page.alpha-rows : root.page.rows): HorizontalLayout {

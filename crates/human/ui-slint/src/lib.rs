@@ -100,13 +100,22 @@ pub use generated::Glyph;
 pub use generated::IdentityPage;
 
 /// The identity page's focused stop -- its place among the page's
-/// stops, a keypad key or a chip by its index -- and the mode that went
+/// stops, a chip by its index, a keypad key by its index in the layout
+/// it was in, found as the same letter in the other -- and the mode that went
 /// with it, read from one window ([`View::identity_stop`]) and handed to
 /// the next ([`View::keep_identity_stop`]). Opaque to the app: the page
 /// reads it.
 /// Plain data, so a flow parked between two windows' threads carries it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct IdentityStop(generated::IdFocusStop);
+
+/// Says nothing of the stop: a key's index and its layout name a letter,
+/// and no log may spell the phrase.
+impl std::fmt::Debug for IdentityStop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("IdentityStop(..)")
+    }
+}
 /// A message row as drawn, for a test that reads its cut line and handle.
 pub use generated::MessageRow;
 /// The colour roles of design/2026-10-16-android-look.md section 3, so a
@@ -1949,6 +1958,10 @@ impl View {
             self.copied.page_shown(&self.window, None);
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
+            // A kept stop no page took is no later page's (section 6,
+            // The hold).
+            self.window
+                .set_identity_kept(generated::IdFocusStop::default());
             // The focused control went with the screen, and Slint moves
             // focus nowhere then: R's Try again granted lands on Chats with
             // nothing focused (j98, A14). Chats' heading, as when the
