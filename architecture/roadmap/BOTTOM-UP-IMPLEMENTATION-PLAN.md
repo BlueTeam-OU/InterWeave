@@ -8175,7 +8175,9 @@ the stage runs beside the open one, since the guards expire a deferral
 only once the status passes it. The order is Activate's and is not
 loosened by the opening: p2p-network-dev's ADR-0067 batch first, as its
 own PR, then the administrative add, remove and set_advertise methods,
-then steps 1–3, none of which is built against a label; what
+then steps 1–3 (from 2026-11-25 the part of step 1 that calls none of
+the three may land before them with the first identity alone, the
+dated note of that day below), none of which is built against a label; what
 rust-ui-dev and rust-services-dev do before that batch is on `main` is
 the work that names no EndpointId's form (step 4's acceptance criteria
 as a proposal, the §Logical tables review as a text, the bridge's
@@ -8439,6 +8441,67 @@ release is cut from a tree that runs v14 and shows no notice, since a
 released upgrade that discards a person's pending messages without a
 word is the case the criterion exists for; and the stage does not
 close without it.
+
+**2026-11-25, step 1's wiring may land before the administrative
+methods, with the first identity alone.** Ruled for rust-ui-dev-02
+(their QUESTION 01a21199-ebc6 and REPLY 01a2119d-6077; architect-cto's
+REPLY 01a2119c-3445 and 01a2119e-dea5). Activate's order protected two
+things: nothing built against a label, met since the ADR-0067 batch
+reached `main` (#752), and no second identity before the add, remove
+and set_advertise methods, which this note keeps by a condition in
+place of the order. The part of step 1 that calls none of the three
+methods (a session and a lease per held identity, the identity in
+front, the switch) may be built and may land before them when a build
+from that head holds the first identity and no other and behaves for
+it as `main` did before the wiring. Exit gate (a) is unchanged. What
+holds until the methods are on `main`:
+
+- The held list is the first identity alone. An entry in the overlay's
+  `added` member is not leased by a graphical client, whatever its
+  `advertise` says: before the add method nothing but a hand edit can
+  have written it, and a hand-written endpoint is a route, no identity
+  (ADR-0061 decisions 1 and 2). Once the methods have landed, ADR-0061
+  decision 5 is the whole rule and this clause ends.
+- The first identity leases as on `main`, with no `advertise`
+  assertion and no new refusal: the assertion and the refusal of a
+  lease it guards arrive with the call to `set_advertise` (ADR-0061
+  decision 5), not before it.
+- The control that creates a second identity is reachable in no build,
+  on either platform or from the command line, until every trust act
+  of that client carries the endpoint of the identity in front and the
+  first identity's seed has run (Activate; ADR-0067 decision 6). An
+  endpoint-less trust act writes the operator's list, which reaches
+  every inheriting endpoint and is no identity's set, so trust per
+  identity lands before Add or with it, the methods being on `main`
+  or not.
+- The command-line client's `--endpoint` stays as #752 left it: one
+  run leases the one entry it names, any entry admitting
+  `human-client`, authored or added (`ENDPOINTS.md` §Configured
+  endpoint set, A 2026-11-19), and its store speaks as that entry, so
+  a run writes no row under an identity it does not lease. Such an
+  entry is leased with no `advertise` assertion, as the first
+  identity's is. In the change that builds the command-line client's
+  identity verbs (step 1), `--endpoint` resolves within the held list,
+  the first authored `human-client` entry and the overlay's added
+  entries admitting it, and a later authored entry is refused by a
+  name of its own, as configured and no identity of this client
+  (`human-client-ui.md` §13). Not verified as of this note: whether a
+  deployed profile names a second authored `human-client` entry that a
+  script leases by `--endpoint`; fabric-coordinator is asked before
+  that change lands, and a yes makes it a release note.
+
+A limit carried by name, which no text changes now: the identities a
+client holds connected are counted against the daemon's IPC connection
+limit, `ipc.max_clients` less what the client's own administrative
+connection and every other local client hold (`LOCAL-IPC.md` §Multiple
+clients, a limit on connections, not applications). The profile's 64
+endpoints therefore do not all fit as connected identities even at the
+limit's ceiling of 64; the default of 16 holds fewer. An identity past
+the limit is shown as one that cannot act now and is retried
+(`human-client-ui.md` §13), which is a state the person can read and
+no loss of what the others hold. Whether the limit rises, or a session
+comes to carry several leases, is a decision for the first report of a
+person who meets it, on the embedded runtime as on the daemon.
 
 ### Record
 
