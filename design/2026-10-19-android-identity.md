@@ -502,7 +502,7 @@ screen its opening focus. §6's rule does not allow that focus, and the
 build owes the rule: focus on the control that had it. Acceptance 15's
 sixth return run and acceptance 12's R2 recreation run are no longer
 blocked on j311: they are device runs, and both fail until the build
-keeps the focus. Acceptance 15's ten return runs
+puts focus on the control that had it. Acceptance 15's ten return runs
 are device runs, and host tests check the layer below them
 (rust-ui-dev-01's REPLY 01a2130d). Before, the note said that a
 recreation restarted the flow at its first screen, that those two runs
@@ -2523,11 +2523,11 @@ landscape:
     the same count. The second run is a device run, because no host
     test drives the Activity (rust-ui-dev-01's REPLY 01a2130d); the
     build keeps R2 through a recreation (4d33c9352). The second run
-    checks the count, and it also checks §6's focus rule (The hold):
-    after the recreation, focus is on the control that had it before
-    the recreation, the same keypad key or chip included. The build
-    does not yet keep that focus, so the second run fails until it
-    does. Removing
+    checks the count, and it also checks the focus rule of §6 (The
+    hold): after the recreation, focus is on the control that had it
+    before the recreation, the same keypad key or chip included. The
+    build does not yet keep that focus, so the second run fails until
+    the build keeps it. Removing
     the notice first is what makes each run
     check the read-back owed and not the notice: with the notice
     shown, `IdCheckWords` reads back by the notice's rule alone. A read-back that keeps
