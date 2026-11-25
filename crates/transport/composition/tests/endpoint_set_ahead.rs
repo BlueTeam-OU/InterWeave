@@ -307,7 +307,6 @@ async fn a_trust_write_after_a_removal_left_ahead_keeps_the_added_endpoint_close
         "a trust write that republishes the sources, without work's set"
     );
     ends.check("after the trust write").await;
-    drop(ends);
     drop((sending, at_work, at_human, port));
 }
 
