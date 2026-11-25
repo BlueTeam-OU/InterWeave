@@ -481,7 +481,7 @@ open it.
 ### 5.4 The result
 
 **Replaced.** The client switches to the new identity visibly, as
-cards §5.7.5's transition does ("Opening as {identity}"), and shows
+cards §5.7.5's transition does ("Switching to {identity}"), and shows
 the new identity's card page: its fingerprint row, and under it
 `KeyReplaced` ("{new} has replaced {old}. Your contacts get the card
 of {new} only when you share that card with them."). The line is that session's: it is
