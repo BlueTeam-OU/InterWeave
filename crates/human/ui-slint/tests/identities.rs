@@ -32,7 +32,7 @@ use slint::ComponentHandle as _;
 use slint::platform::{Key, WindowEvent};
 
 fn key(tag: &str) -> IdentityKey {
-    IdentityKey::new(format!("test-endpoint-{tag}"))
+    IdentityKey::new(endpoint_id(tag).as_str())
 }
 
 fn held(tags: &[&str]) -> Vec<HeldIdentity> {

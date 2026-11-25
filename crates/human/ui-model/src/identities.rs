@@ -7,11 +7,13 @@
 //! it). Presentation state, no I/O: the composition root hands it the held
 //! identities and the person's acts, and renders what it returns.
 //!
-//! An identity is held here by an opaque [`IdentityKey`]. Its `EndpointId`
-//! form is not decided yet (ADR-0067's batch), so the model takes the
-//! key as the root hands it and does nothing with its text but show its
-//! last eight characters (`ShortPeer`'s template, identities §6.1;
-//! `a_key_is_shown_by_its_last_eight_characters`).
+//! An identity is held here by an opaque [`IdentityKey`]: the text of the
+//! identity's derived `EndpointId` (ADR-0067 decision 2), which the root
+//! hands over. The model only compares keys and shows the last eight
+//! characters of one (`ShortPeer`'s template, identities §6.1;
+//! `a_key_is_shown_by_its_last_eight_characters`), so it holds the text
+//! and not the transport type: presentation state has no use for parsing
+//! an id and no way to refuse one.
 //!
 //! With one identity held nothing of the naming is shown (ADR-0061 d. 3,
 //! identities §4): every text below answers `None`, or its `One` form
@@ -1193,12 +1195,14 @@ const fn try_again(state: IdentityState) -> Option<TryAgainControl> {
 
 #[cfg(test)]
 mod tests {
+    use interweave_test_support::endpoint_keys::endpoint_id;
+
     use super::*;
 
-    /// The one place a test key is made: the form an `EndpointId` takes is
-    /// not decided, so it changes here and nowhere else.
+    /// The one place a test key is made: the derived `EndpointId` the root
+    /// would hand over, of the tag's deterministic test key.
     fn key(tag: &str) -> IdentityKey {
-        IdentityKey::new(format!("test-endpoint-{tag}"))
+        IdentityKey::new(endpoint_id(tag).as_str())
     }
 
     fn ident(tag: &str) -> HeldIdentity {
@@ -1246,8 +1250,13 @@ mod tests {
 
     #[test]
     fn a_key_is_shown_by_its_last_eight_characters() {
-        let k = key("abcdefgh12345678");
-        assert_eq!(k.short(), "…12345678");
+        let id = endpoint_id("a").as_str().to_owned();
+        assert_eq!(id.len(), 52, "the premise: a derived id");
+        assert_eq!(
+            key("a").short(),
+            format!("…{}", &id[id.len() - 8..]),
+            "a derived id, by its last eight characters"
+        );
         assert_eq!(IdentityKey::new("abc").short(), "…abc");
         assert_eq!(IdentityKey::new("abcdefgh").short(), "…abcdefgh");
         // By character, so a key in any script cuts between characters.
