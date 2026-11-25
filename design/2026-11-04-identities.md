@@ -402,11 +402,12 @@ the cross-fade that cards §5.7.3 gave the list before this revision.
   identity's screen model, and nothing is drawn, since that identity
   is not in front; a later switch back shows them at once. A switch
   back while that read is still pending waits for it, as above, and
-  starts no second read; the 250 ms counts from that read's start, so
-  if it has been pending that long the progress row shows at once. A
-  read that fails while its identity is not in front leaves no failure
-  row to show: the next switch back reads again. After a switch away
-  from the failure row, the next switch back reads again too.
+  starts no second read; the 250 ms are counted from the start of that
+  read, so if that read started 250 ms or more before the switch back,
+  the progress row shows at once. A read that fails while its identity
+  is not in front leaves no failure row to show: the next switch back
+  to that identity reads its list again. After a switch away while the
+  failure row is shown, the next switch back reads again too.
 - **What the screen reader reads**: when the rows arrive, nothing is
   announced and focus does not move; the failure row's announcement
   is the only one this section adds (§12).
@@ -1380,14 +1381,17 @@ pass before it lands.
     the read has answered, its rows show at once, and the store
     records one read of its list. In a fifth run, with the read made to
     answer after 2 s, the test switches back to the old identity 0.5 s
-    after the switch and to the identity whose read is pending 1 s
-    after the switch: the progress row shows at once, the rows show
-    when the read answers, and the store records one read of its list.
-    In a sixth run, with the first read made to fail 1 s after the
-    switch and the next read made to answer, the test switches back to
-    the old identity 0.5 s after the switch and to the other identity
-    again 1.5 s after it: no failure row shows, the store records a
-    second read of its list, and its rows show when that read answers.
+    after the first switch, and to the identity whose read is pending
+    1 s after the first switch: the progress row shows at once on the
+    switch at 1 s, the rows show when the read answers, and the store
+    records one read of its list. In a sixth run, with the first read
+    made to fail 1 s after the first switch and the second read made
+    to answer, the
+    test switches back to the old identity 0.5 s after the first
+    switch, and again to the identity whose read failed 1.5 s after the
+    first switch: no failure row shows at any point in the run, the
+    store records a second read of its list, and its rows show when
+    that read answers.
     The test needs a store read that it can delay or make fail; the
     builder says how. *(§5.4.)*
 28. With two identities A and B, and a message to A that was read in A's
