@@ -779,9 +779,7 @@ pub enum Added {
         reason: AddRefusal,
         /// The id the key's name derives: `None` only for
         /// [`AddRefusal::IdNotDerived`], which is refused because there is
-        /// none (`the_add_refusals_are_checked_in_order`; the composition's
-        /// runtime without a state directory keeps the same order,
-        /// `without_a_state_directory_the_names_check_still_comes_first`).
+        /// none (`the_add_refusals_are_checked_in_order`).
         endpoint: Option<EndpointId>,
         /// For a log.
         detail: String,
@@ -1534,7 +1532,11 @@ impl EndpointOverlay {
     /// methods). The refusals are checked in [`AddRefusal::ALL`]'s order,
     /// each with nothing to write; the key file's header is read under
     /// `paths` as the load reads an authored entry's
-    /// (`crate::load::read_entry_key`). `unchanged` is decided at the
+    /// (`crate::load::read_entry_key`). `None` -- a runtime that keeps no
+    /// state directory, a test construction -- reads no key file, so every
+    /// add that passes the checks before it is `key_missing`: the order
+    /// stays this function's alone
+    /// (`without_a_state_directory_the_order_is_the_same`). `unchanged` is decided at the
     /// `exists` step, after the key checks, so a retry whose key file has
     /// since gone is `key_missing`. On [`Added::Added`] the entry is in
     /// `added` -- enabled, `advertise: false`, no trust member written,
@@ -1545,7 +1547,7 @@ impl EndpointOverlay {
     pub fn add(
         &self,
         config: &EndpointsConfig,
-        paths: &ProfilePaths,
+        paths: Option<&ProfilePaths>,
         key: &str,
         alias: &str,
         allowed_client_kinds: Vec<ClientKind>,
@@ -1579,7 +1581,12 @@ impl EndpointOverlay {
             inbound: ADDED_TRUST,
             outbound: ADDED_TRUST,
         };
-        let mismatch = crate::load::read_entry_key(paths, &mut entry);
+        let mismatch = if let Some(paths) = paths {
+            crate::load::read_entry_key(paths, &mut entry)
+        } else {
+            entry.key_state = crate::EndpointKeyState::Missing(crate::KeyMissing::Absent);
+            None
+        };
         if let crate::EndpointKeyState::Missing(why) = &entry.key_state {
             let detail = match why {
                 crate::KeyMissing::Absent => "the key file is absent".to_owned(),

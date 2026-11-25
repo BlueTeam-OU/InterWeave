@@ -85,7 +85,7 @@ fn add_minted(
     let minted = endpoint_key::mint_filesystem(&p.paths).expect("minted");
     match overlay.add(
         &config(),
-        &p.paths,
+        Some(&p.paths),
         &endpoint_key::key_file_name(&minted),
         alias,
         kinds(&["human"]),
@@ -175,7 +175,7 @@ fn the_add_refusals_are_checked_in_order() {
     let minted = endpoint_key::mint_filesystem(&p.paths).expect("minted");
     let key = endpoint_key::key_file_name(&minted);
     let add = |overlay: &EndpointOverlay, key: &str, alias: &str| {
-        overlay.add(&config(), &p.paths, key, alias, kinds(&["human"]))
+        overlay.add(&config(), Some(&p.paths), key, alias, kinds(&["human"]))
     };
     // id_not_derived beats alias_invalid.
     assert_eq!(
@@ -281,27 +281,49 @@ fn a_retry_is_unchanged_and_a_different_one_exists() {
     let p = profile();
     let minted = endpoint_key::mint_filesystem(&p.paths).expect("minted");
     let key = endpoint_key::key_file_name(&minted);
-    let Added::Added { overlay, .. } =
-        EndpointOverlay::default().add(&config(), &p.paths, &key, "work", kinds(&["human", "cli"]))
-    else {
+    let Added::Added { overlay, .. } = EndpointOverlay::default().add(
+        &config(),
+        Some(&p.paths),
+        &key,
+        "work",
+        kinds(&["human", "cli"]),
+    ) else {
         panic!("added")
     };
     assert_eq!(
-        overlay.add(&config(), &p.paths, &key, "work", kinds(&["cli", "human"])),
+        overlay.add(
+            &config(),
+            Some(&p.paths),
+            &key,
+            "work",
+            kinds(&["cli", "human"])
+        ),
         Added::Unchanged(minted.clone())
     );
     assert_eq!(
-        refusal(&overlay.add(&config(), &p.paths, &key, "home", kinds(&["human", "cli"]))),
+        refusal(&overlay.add(
+            &config(),
+            Some(&p.paths),
+            &key,
+            "home",
+            kinds(&["human", "cli"])
+        )),
         Some(AddRefusal::Exists)
     );
     assert_eq!(
-        refusal(&overlay.add(&config(), &p.paths, &key, "work", kinds(&["human"]))),
+        refusal(&overlay.add(&config(), Some(&p.paths), &key, "work", kinds(&["human"]))),
         Some(AddRefusal::Exists)
     );
     // A retry whose key file has gone is key_missing, not unchanged.
     std::fs::remove_file(endpoint_key::key_path(&p.paths, &minted)).expect("removed");
     assert_eq!(
-        refusal(&overlay.add(&config(), &p.paths, &key, "work", kinds(&["human", "cli"]))),
+        refusal(&overlay.add(
+            &config(),
+            Some(&p.paths),
+            &key,
+            "work",
+            kinds(&["human", "cli"])
+        )),
         Some(AddRefusal::KeyMissing)
     );
 }
@@ -323,7 +345,7 @@ fn the_sixty_fifth_endpoint_is_refused_bound() {
     assert_eq!(
         refusal(&overlay.add(
             &config(),
-            &p.paths,
+            Some(&p.paths),
             &endpoint_key::key_file_name(&minted),
             "last",
             kinds(&[]),
