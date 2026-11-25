@@ -87,6 +87,16 @@ impl Driver {
     /// the contract's order with nothing written, `unchanged` for a retry,
     /// else the entry and its two empty sets written, and the endpoint
     /// registered with its sets in one substrate step before the answer.
+    ///
+    /// `unchanged` writes nothing and STILL PUBLISHES the entry the
+    /// overlay holds, as every set the overlay already records does
+    /// (`Driver::set_endpoints`): an add left ahead -- written, its
+    /// publish and its restore failed -- leaves the overlay holding an
+    /// endpoint the runtime never registered, and the retry is what
+    /// registers it. A registered endpoint keeps what it has (the
+    /// registry's insert never replaces), and the sources re-apply the
+    /// sets the overlay holds. `unchanged` is answered only once that
+    /// publish succeeded (`a_retried_add_left_ahead_registers_the_endpoint`).
     pub(super) async fn add_endpoint(
         &mut self,
         key: String,
@@ -118,36 +128,32 @@ impl Driver {
                 return Ok(EndpointAddChange::Refused { reason, detail });
             }
             Added::Unchanged(endpoint) => {
-                audit(METHOD, Some(&endpoint), "unchanged", "");
+                let held = self.endpoint_overlay.clone();
+                let published = match self.publish_added(&held, &endpoint) {
+                    Ok(publish) => publish.await.map(|_| ()),
+                    Err(refused) => Err(refused),
+                };
+                audit(
+                    METHOD,
+                    Some(&endpoint),
+                    match &published {
+                        Ok(()) => "unchanged",
+                        Err(TransportError::InvalidArgument) => "refused",
+                        Err(_) => "failed",
+                    },
+                    "",
+                );
+                published?;
                 return Ok(EndpointAddChange::Unchanged(endpoint));
             }
             Added::Added { overlay, endpoint } => (overlay, endpoint),
         };
-        let entry = moved
-            .apply(&self.authored.endpoints)
-            .entries
-            .into_iter()
-            .find(|e| e.id == endpoint)
-            .ok_or(TransportError::Internal)?;
-        let sources = match self.sources(self.trust.clone(), &moved) {
-            Ok(sources) => sources,
+        let publish = match self.publish_added(&moved, &endpoint) {
+            Ok(publish) => publish,
             Err(refused) => {
                 audit(METHOD, Some(&endpoint), "refused", "");
                 return Err(refused);
             }
-        };
-        let registered = DirectEndpoints::registered(&entry, EndpointSource::Added);
-        let fault = self.take_publish_fault();
-        let commander = self.swarm.commander();
-        let id = endpoint.clone();
-        let publish = async move {
-            if fault {
-                return Err(TransportError::BackendUnavailable);
-            }
-            commander
-                .add_endpoint(id, registered, sources)
-                .await
-                .map_err(|_| TransportError::BackendUnavailable)
         };
         let before = self.admission();
         let (published, unwritten) = self
@@ -164,11 +170,50 @@ impl Driver {
         Ok(EndpointAddChange::Added(endpoint))
     }
 
+    /// The substrate step that registers the added `endpoint` as
+    /// `overlay` holds it, with the trust sources `overlay` derives: the
+    /// add's publish, and an `unchanged` retry's. `Internal` when the
+    /// overlay does not compose the entry, `InvalidArgument` when its
+    /// sources are past their bound.
+    fn publish_added(
+        &mut self,
+        overlay: &EndpointOverlay,
+        endpoint: &EndpointId,
+    ) -> Result<impl Future<Output = Result<bool, TransportError>> + use<>, TransportError> {
+        let entry = overlay
+            .apply(&self.authored.endpoints)
+            .entries
+            .into_iter()
+            .find(|e| &e.id == endpoint)
+            .ok_or(TransportError::Internal)?;
+        let sources = self.sources(self.trust.clone(), overlay)?;
+        let registered = DirectEndpoints::registered(&entry, EndpointSource::Added);
+        let fault = self.take_publish_fault();
+        let commander = self.swarm.commander();
+        let id = endpoint.clone();
+        Ok(async move {
+            if fault {
+                return Err(TransportError::BackendUnavailable);
+            }
+            commander
+                .add_endpoint(id, registered, sources)
+                .await
+                .map_err(|_| TransportError::BackendUnavailable)
+        })
+    }
+
     /// `admin.endpoints.remove {endpoint}`: refused `authored`, then
     /// `default`, nothing written; else the entry and every overlay member
     /// keyed by the id gone in one write, and the endpoint unregistered
     /// with the trust sources that no longer hold its sets in one
     /// substrate step -- its lease revoked, a peer no set holds closed.
+    ///
+    /// An endpoint the overlay holds and the runtime does not register --
+    /// an add left ahead -- is removed too: the registry's not-registered
+    /// is agreement, no lease to revoke and `revoked_epoch` absent, and
+    /// the sources are still adopted, so the answer is `removed` and the
+    /// next start does not bring the endpoint back
+    /// (`a_remove_of_an_add_left_ahead_is_removed_and_gone_at_the_restart`).
     pub(super) async fn remove_endpoint(
         &mut self,
         endpoint: EndpointId,
@@ -208,10 +253,18 @@ impl Driver {
             if fault {
                 return Err(TransportError::BackendUnavailable);
             }
-            commander
-                .remove_endpoint(id, sources)
+            match commander
+                .remove_endpoint(id, sources.clone())
                 .await
                 .map_err(|_| TransportError::BackendUnavailable)?
+            {
+                Err(TransportError::EndpointUnknown) => commander
+                    .set_trust(sources)
+                    .await
+                    .map(|_| None)
+                    .map_err(|_| TransportError::BackendUnavailable),
+                answer => answer,
+            }
         };
         let before = self.admission();
         let (published, unwritten) = self

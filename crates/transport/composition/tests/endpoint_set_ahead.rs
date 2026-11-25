@@ -23,7 +23,7 @@ use interweave_transport_composition::{ComposedRuntime, CompositionOptions, InPr
 mod endpoint_set_common;
 
 use endpoint_set_common::{
-    add_minted, admin, ep, id, mint, options, paths, profile, profile_with, row_of,
+    add_minted, admin, bytes, ep, id, mint, options, paths, profile, profile_with, row_of,
 };
 
 const PATIENCE: Duration = Duration::from_secs(20);
@@ -369,4 +369,126 @@ impl Ends<'_> {
             "{phase}: control, human reaches the sender"
         );
     }
+}
+
+/// An add left ahead of the runtime: its write lands, its publish fails
+/// and the restore's write fails before its rename, so the overlay holds
+/// the entry the runtime never registered. Answered `Internal`.
+async fn add_left_ahead(
+    runtime: &ComposedRuntime,
+    port: &impl AdminPort,
+    key: &str,
+) -> Result<EndpointAddChange, TransportError> {
+    use interweave_transport_composition::OverlayFault::{BeforeRename, Clean};
+
+    runtime.fail_publishes(1).await.expect("queued");
+    runtime
+        .fail_overlay_writes(vec![Clean, BeforeRename])
+        .await
+        .expect("queued");
+    port.add_endpoint(key.to_owned(), "work".to_owned(), vec![])
+        .await
+}
+
+/// A lease claim on `endpoint`, its error when refused.
+async fn lease(runtime: &ComposedRuntime, endpoint: &EndpointId) -> Result<(), TransportError> {
+    runtime
+        .sessions()
+        .open(
+            SessionRequest::new(
+                "human-client",
+                Some(endpoint.clone()),
+                [DataCapability::Events],
+            )
+            .expect("in bounds"),
+        )
+        .await
+        .map(drop)
+}
+
+/// The retry of an add left ahead (LOCAL-IPC.md, `admin.endpoints.add`)
+/// is judged by the overlay, which holds the entry: `unchanged`, nothing
+/// written -- and the endpoint registered by it, leasable from the answer
+/// on. The control: after the `Internal` and before the retry, the
+/// runtime lists no such endpoint and a lease claim is `EndpointUnknown`.
+/// Fed what a client holds: the same key, alias and kinds sent again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retried_add_left_ahead_registers_the_endpoint() {
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        add_left_ahead(&runtime, &port, &key).await,
+        Err(TransportError::Internal)
+    );
+    assert!(row_of(&port, &work).await.is_none(), "control: not served");
+    assert_eq!(
+        lease(&runtime, &work).await,
+        Err(TransportError::EndpointUnknown),
+        "control: not leasable before the retry"
+    );
+    let written = bytes(&p);
+    assert_eq!(
+        port.add_endpoint(key, "work".to_owned(), vec![]).await,
+        Ok(EndpointAddChange::Unchanged(work.clone()))
+    );
+    assert_eq!(bytes(&p), written, "nothing written");
+    let row = row_of(&port, &work).await.expect("served after the retry");
+    assert_eq!(row.alias.as_deref(), Some("work"));
+    assert_eq!(lease(&runtime, &work).await, Ok(()), "leasable");
+    drop(port);
+    runtime.stop().await.expect("stops");
+}
+
+/// A remove of an add left ahead (LOCAL-IPC.md, `admin.endpoints.
+/// remove`): the overlay holds the entry, so it is `removed`, no lease to
+/// revoke, and the endpoint does not come back at the next start. The
+/// control: before the restart the runtime never listed it, and the
+/// overlay on disk held it until the remove.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_remove_of_an_add_left_ahead_is_removed_and_gone_at_the_restart() {
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        add_left_ahead(&runtime, &port, &key).await,
+        Err(TransportError::Internal)
+    );
+    assert!(row_of(&port, &work).await.is_none(), "control: not served");
+    let on_disk = |p: &endpoint_set_common::Profile| {
+        String::from_utf8(bytes(p).expect("an overlay")).expect("utf-8")
+    };
+    assert!(on_disk(&p).contains(work.as_str()), "control: held on disk");
+    assert_eq!(
+        port.remove_endpoint(work.clone()).await,
+        Ok(EndpointRemoveChange::Removed {
+            revoked_epoch: None
+        })
+    );
+    assert!(!on_disk(&p).contains(work.as_str()), "written without it");
+    drop(port);
+    runtime.stop().await.expect("stops");
+
+    let again = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("restarts");
+    let port = admin(&again).await;
+    assert!(
+        row_of(&port, &work).await.is_none(),
+        "gone at the next start"
+    );
+    assert_eq!(
+        lease(&again, &work).await,
+        Err(TransportError::EndpointUnknown)
+    );
+    drop(port);
+    again.stop().await.expect("stops");
 }
