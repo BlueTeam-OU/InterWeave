@@ -1581,12 +1581,13 @@ impl EndpointOverlay {
             inbound: ADDED_TRUST,
             outbound: ADDED_TRUST,
         };
-        let mismatch = if let Some(paths) = paths {
-            crate::load::read_entry_key(paths, &mut entry)
-        } else {
-            entry.key_state = crate::EndpointKeyState::Missing(crate::KeyMissing::Absent);
-            None
+        let Some(paths) = paths else {
+            return refused(
+                AddRefusal::KeyMissing,
+                "this runtime keeps no state directory: no key file is read".to_owned(),
+            );
         };
+        let mismatch = crate::load::read_entry_key(paths, &mut entry);
         if let crate::EndpointKeyState::Missing(why) = &entry.key_state {
             let detail = match why {
                 crate::KeyMissing::Absent => "the key file is absent".to_owned(),
