@@ -475,7 +475,8 @@ yet on main. The `RecordNamesOther` row now says that the case cannot
 be reached on R2 after K1 because words that derive another PeerId
 write nothing and custody never replaces a record with one that names
 another PeerId. Before, the row gave the profile lock as the reason,
-but the flow does not hold the lock between K1 and R2. In acceptance
+but the flow takes the lock only after the record has been read for
+K1, so the lock does not cover the PeerId that K1 shows. In acceptance
 15, the tenth return run is no longer blocked, because #750 built the
 comparison before the start. That run repeats acceptance 12's
 comparison run at a return to C4 showing `IdStartBusy`. Before,
