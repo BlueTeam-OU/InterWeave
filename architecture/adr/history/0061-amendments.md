@@ -333,7 +333,7 @@ Propagation: decision 7; this note; the log row; the digest entry.
 design's until the store change that builds the replacement states it
 there.
 
-### Amendment 2026-11-25 — A replaces record is discarded by removing the new identity, key path first
+### Amendment 2026-11-25 — A replaces record whose new identity the list lacks is settled by sending the add again
 
 The note of 2026-11-24 had the client discard, at the next open, a
 record "whose new identity was never added", and named no test for
@@ -345,40 +345,57 @@ after the client that sent it stopped waiting. A record discarded on
 the list alone would in both leave an added identity nothing ties to
 the old one, with Replace offered again: the third identity the record
 exists to prevent (the review of this change at 29743549, its finding
-F5, judged real). The key file does not tell the cases apart either,
-being sealed before the add in all of them.
+F5). The key file does not tell the cases apart either, being sealed
+before the add in all of them.
 
-So the discard no longer reads whether the add happened; it makes the
-add one that did not. In order: the new identity's key path and
-platform key are emptied, after which an add applied late is refused
-`key_missing` and writes nothing; the administrative remove of the new
-id is sent, which takes an entry an add left ahead out of the overlay
-(`removed`, the daemon's next start not bringing it in) and answers
-`EndpointUnknown` where no entry holds the id; and only on one of those
-two answers is the record deleted, with whatever rows the new identity
-has. Any other answer, `Internal` and no answer included, keeps the
-record, and so does a list that failed; the next open takes the discard
-up again while the list still lacks the id. This is Remove's own order
-(A 2026-11-23) with one difference, the record and the rows waiting for
-the remove's answer, because here nobody is asked to press Remove
-again. A record whose new identity the list holds is, as before, what
-the replacement is finished from. One case is left to the person: a
-discard whose remove did not answer, over an entry left ahead, followed
-by a daemon start, leaves the new identity listed without its key. The
-client removes no listed identity on its own, since a listed identity
-without its key is also what a lost key looks like (ADR-0067 decision
-2): the record stays, so Replace is not offered a second time, and the
-person's Remove of the key-missing identity deletes the record with it.
+So the client reads nothing from the list's silence and sends the same
+add again, the one question the contract answers without doubt:
+`added` and `unchanged` both mean registered from the answer on, a late
+copy of the first add then being `unchanged` too, and the state is the
+one the design already has for a replacement stopped after its add,
+finished from the record. Only `refused` discards. A refusal writes
+nothing, but one of its reasons, `key_missing`, is decided before the
+overlay is asked, so an entry left ahead can stand behind it; the
+discard therefore empties the new key path and platform key, which
+makes any add applied late `key_missing`, sends the administrative
+remove, which takes an entry left ahead out of the overlay (`removed`)
+and answers `EndpointUnknown` where none holds the id, and deletes the
+record with the new identity's rows only on one of those two answers.
+Anything else, `Internal` and no answer included, keeps the record for
+the next open.
 
-Sending the add again at the next open was the other way to settle it,
-and was not taken: it would finish adding an identity the person saw
-fail, where the design shows the old identity as before and offers
-Replace again (`design/2026-10-24-identity-key.md` §5.3, unchanged).
-The replacement is not built (`STATE.md` §Logical tables), so no build
-did otherwise. The 2026-11-24 note stands as the record of its day;
-this one corrects its "discards it at the next open".
+Three sentences close what that order would otherwise leave open (the
+review of the first wording of this note at 051c83fb, its finding F7
+and two of its risks). Replace pressed on an old identity a record
+names settles that record and mints no second key, so two records
+never name one old identity. The clean-up rule of 2026-11-24, which
+deletes the rows of an identity the list lacks and whose key path is
+empty, takes no replaces record and no rows of an identity a record
+names: after a discard that emptied the key path and whose remove did
+not answer, that identity can still come back at the daemon's next
+start. And no replacement is finished toward a new identity whose key
+is missing, whether a discard emptied its path or the key was lost
+after the add, which was reachable before this note: the identity is
+listed as any whose key is missing is, the person removes it, and the
+record goes in that Remove.
+
+The first wording of this note, of the same day, discarded on the
+list's silence after undoing the add, and never sent the add again, so
+as to leave the old identity as the design shows it after a failure.
+It was given up for this one: undoing an add the person asked for
+needed every rule above and one more state, where sending it again
+needs the contract's two answers. What the person sees changes in one
+case, a Replace whose add failed or was cut: at the next open, or on
+pressing Replace again, the replacement shows as unfinished with
+Finish replacing, where the design's §5.3 shows the old identity as
+before; the design's text is its owner's to bring to this
+(`design/2026-10-24-identity-key.md` §5.3, unchanged here). The
+replacement is not built (`STATE.md` §Logical tables), so no build did
+otherwise. The 2026-11-24 note stands as the record of its day; this
+one corrects its "discards it at the next open".
 
 Propagation: decision 7; this note; the log row; the digest entry.
-`LOCAL-IPC.md` is unchanged: the three answers this order leans on are
-its own (`key_missing` for a late add, `removed` for an entry left
-ahead, `EndpointUnknown` for an id no entry holds).
+`LOCAL-IPC.md` is unchanged: the answers this leans on are its own
+(`added` and `unchanged` registered from the answer on, `key_missing`
+for a late add, `removed` for an entry left ahead, `EndpointUnknown`
+for an id no entry holds).
