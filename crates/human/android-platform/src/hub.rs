@@ -762,14 +762,17 @@ impl Hub {
         Self::say_refused(&mut slot, compared.then_some(StartBusy::Shown));
     }
 
-    /// A start was asked, `for_notice` when it is one `IdStartBusy`
-    /// waits on: its Try again, or a return's retry while it shows
-    /// (identity note §6, Try again; A return or a recreation). Its notice
-    /// then stays, its start running, until that start answers. Any other
-    /// start -- a launch, a held identity screen's -- takes the notice
-    /// away: a new launch shows its own start's answer, never this
-    /// notice, and a held screen shows its own (§6, How long). Nothing
-    /// changes for a retry asked while no notice shows.
+    /// A start was asked, `for_notice` when it is one a session notice
+    /// waits on -- `IdStartBusy`, or the compared start's `Refused`
+    /// (`set_compared_refusal`): its Try
+    /// again, or a return's retry while it shows (identity note §6, Try
+    /// again; A return or a recreation; The comparison outlasts the
+    /// bound). Whichever notice shows then stays, its start running,
+    /// until that start answers. Any other start -- a launch, a held
+    /// identity screen's -- takes either notice away: a new launch shows
+    /// its own start's answer, never a notice, and a held screen shows
+    /// its own (§6, How long). Nothing changes for a retry asked while
+    /// no notice shows.
     pub fn start_asked(&self, for_notice: bool) {
         let mut slot = self.slot();
         let running = |shown: Option<StartBusy>| match (for_notice, shown) {
@@ -778,8 +781,8 @@ impl Hub {
         };
         let busy = running(slot.busy);
         Self::say_busy(&mut slot, busy);
-        // `Refused`'s Try again is the same one start (§6, The comparison
-        // outlasts the bound).
+        // `Refused`'s Try again is the same one start, so it follows the
+        // same rule (§6, The comparison outlasts the bound).
         let refused = running(slot.refused);
         Self::say_refused(&mut slot, refused);
     }

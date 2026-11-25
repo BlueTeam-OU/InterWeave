@@ -1216,7 +1216,8 @@ impl UiModel {
     }
 
     /// A start that compared with C4's `PeerId` was refused after the
-    /// bound, as the root says it (`Some`), or it was not (`None`): while
+    /// bound, or before it from a held R2, R3 or R4 that opened Chats in
+    /// its place, as the root says it (`Some`), or it was not (`None`): while
     /// it was, the session's notice is [`SessionNotice::StartRefused`],
     /// where [`SessionNotice::StartBusy`] shows and below the same two
     /// (`a_refused_compared_start_shows_where_the_busy_notice_does`). Kept
