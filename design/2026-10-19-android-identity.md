@@ -493,8 +493,9 @@ on main, which stopped being true when #313 merged on 2026-10-21. §6's
 `RecordNamesOther` row for why R2 after K1 cannot reach that notice.
 Before, each gave a shorter reason of its own. Q18's answer now says
 that no writer can replace the record on R2 after K1 with a record
-that names another PeerId. The question
-that the answer quotes assumed that another writer could change the
+that names another PeerId, and that the flow's own restore replaces
+the record with one of the same PeerId. The question that the answer
+quotes assumed that another writer could change the
 record on R2 after K1. Acceptance 12's seventh run also names
 f8c122108, the commit that puts focus on `Refused`. §6 (The hold) and
 acceptance 12 and 15 now say that the build keeps a flow screen
@@ -508,9 +509,10 @@ run is still blocked on the `unlock` count, like the other R2 runs of
 acceptance 12. Acceptance 15's ten return runs are device runs, and
 host tests check the layer below them
 (rust-ui-dev-01's REPLY 01a2130d). The first, seventh, eighth and
-tenth of them are blocked until the debug build has a hook that each
-needs; the other six can be made on the device now. Before, the note said that a
-recreation restarted the flow at its first screen, that those two runs
+tenth of them are blocked until the debug build has the hook that
+each one needs; the other six can be made on the device now. Before,
+the note said that a recreation restarted the flow at its first
+screen, that those two runs
 were blocked until j311 landed, and that the ten return runs were host
 tests.
 
@@ -2891,15 +2893,15 @@ scale would also be a finding of the Android review
       ninth runs can be made on this build with the debug build's
       `busyStarts` launch extra (`DebugHooks.kt`). The first, seventh,
       eighth and tenth runs are blocked, not passed, until rust-ui-dev
-      adds a debug-build hook for each: the first and seventh need a
-      start other than the launch's first left unanswered, and
-      `holdStartMs` holds only that first start
-      (`apps/human-android/src/start_hook.rs`), which the refused
-      start that put `IdStartBusy` up has already used; the eighth
-      needs the return's start answered as started after a delay; the
-      tenth needs a failed read-back on the device, so that
-      `IdStartUnchecked` is offered, and a record that names another
-      PeerId, and the double that makes both exists only in host
+      adds a debug-build hook for each. The first and seventh need a
+      start that is left unanswered and is not the first start after
+      the launch: `holdStartMs` holds only that first start
+      (`apps/human-android/src/start_hook.rs`), and that first start
+      is the refused start that put `IdStartBusy` up. The eighth
+      needs the return's start answered as started after a delay. The
+      tenth needs two things on the device: a failed read-back, so
+      that `IdStartUnchecked` is offered, and a record that names
+      another PeerId; the double that makes both exists only in host
       tests.
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
@@ -3765,10 +3767,9 @@ here; the first was already answered on this branch.
   that opens the record opens R4. The question below speaks of
   another writer changing the record on R2 after K1; no writer can
   replace it there with a record that names another PeerId (§6, the
-  `RecordNamesOther` row). The flow's own restore does replace it
-  with a record of the same PeerId (§6, the read-back row). The question, as
-  asked: three
-  things are open. First, where focus
+  `RecordNamesOther` row). The flow's own restore replaces it, but
+  with a record of the same PeerId (§6, the read-back row). The
+  question, as asked: three things are open. First, where focus
   goes when Chats opens because a compared start from R2 after K1,
   from R3, or from R4 when R4 was not reached after K1 is answered
   `Unavailable` or a mismatch before the bound (§6, An answer after

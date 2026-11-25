@@ -1283,13 +1283,15 @@ each an act of the person's and each named to them right after:
 
 Starting the app otherwise, opening a contact, Your identities or an
 identity's page, adding an identity and Make default change nothing.
-A switch, by any of these, changes everything shown together, at once: the old identity's rows
-leave the Chats list and the new identity's conversations show as
-`design/2026-11-04-identities.md` §5.4 says, the switch shows its name, and on a wide
+A switch, by any of these, changes everything shown at the same
+moment, except the new identity's conversations: the old identity's
+rows leave the Chats list, the switch shows its name, and on a wide
 layout, where the switch stays on screen beside the second pane (§4),
 whatever that pane holds of one identity closes — a conversation,
 Contacts, a contact page, an identity's page — and the pane shows the
-new identity's empty-pane placeholder. Two pages there belong to no
+new identity's empty-pane placeholder. The new identity's
+conversations show in the list as `design/2026-11-04-identities.md`
+§5.4 says. Two pages in that pane belong to no
 identity and stay: Trust (the device's) and Your identities, whose check
 mark moves. On a narrow layout those pages cover Chats, so the switcher
 is reached only from Chats; a sheet or a dialog covers the switch on
@@ -2062,12 +2064,12 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     default each leave the identity in front unchanged; each of the
     five acts switches and names the identity right after, except act 4
     with one identity left, where `ConfirmIdentityRemoved` names the
-    removed one and nothing else; choosing
-    another identity in the switcher removes the old
-    identity's rows from the list (the new rows show as
-    `design/2026-11-04-identities.md` §5.4 says) and changes the
-    switch's name and every "As" line at once and shows
-    `ConfirmIdentitySwitched`; Switch back returns. On a wide layout a
+    removed one and nothing else; choosing another identity in the
+    switcher, at once, removes the old identity's rows from the list,
+    changes the switch's name and every "As" line, and shows
+    `ConfirmIdentitySwitched` (the new rows show as
+    `design/2026-11-04-identities.md` §5.4 says); Switch back
+    returns. On a wide layout a
     switch closes an open conversation, Contacts, a contact page and an
     identity's page to the placeholder, and leaves Trust and Your
     identities open; with a card's unsaved changes, the
