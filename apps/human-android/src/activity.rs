@@ -331,6 +331,17 @@ pub(crate) fn focus_locked_notice() {
 
 static NOTICE_FOCUS: AtomicBool = AtomicBool::new(false);
 
+/// `Refused` is to take focus once it shows on Chats or a conversation:
+/// Chats opened in place of a held R2, R3 or R4 whose compared start was
+/// refused before the bound (identity note section 8, A compared start
+/// answered before the bound). Asked as [`focus_locked_notice`] is.
+pub(crate) fn focus_refused_notice() {
+    REFUSED_FOCUS.store(true, Ordering::SeqCst);
+    invoke_on_window(apply_notice_focus);
+}
+
+static REFUSED_FOCUS: AtomicBool = AtomicBool::new(false);
+
 /// K1 over the window that shows, for a start the Service made that
 /// answered `RecoveryRequired` (onboard.rs, `recovery_refused`); with no
 /// window, nothing here: the next window's check answers recovery for the
@@ -352,6 +363,9 @@ fn apply_notice_focus() {
             view.try_borrow().map(|view| {
                 if NOTICE_FOCUS.swap(false, Ordering::SeqCst) {
                     view.focus_locked_notice();
+                }
+                if REFUSED_FOCUS.swap(false, Ordering::SeqCst) {
+                    view.focus_refused_notice();
                 }
             })
         })
