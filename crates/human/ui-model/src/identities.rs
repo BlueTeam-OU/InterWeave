@@ -453,8 +453,13 @@ pub enum SendControl {
         /// `SendAs`, or `None` for the control's own name.
         name: Option<Said>,
     },
-    /// It does not send; `reason` is the state's text.
+    /// It does not send; `reason` is the state's text, which the control
+    /// carries as its accessible description.
     Disabled {
+        /// `SendAs` with two or more held, as when enabled: the control's
+        /// name does not change with its state
+        /// (`the_composer_names_the_identity_or_its_state`).
+        name: Option<Said>,
         /// Why, or `None` where the design gives no text (an unavailable
         /// identity with one held: the session's own refusal says why).
         reason: Option<Said>,
@@ -1091,6 +1096,7 @@ impl Identities {
             let line = self.state_line(h);
             ComposerLine {
                 send: SendControl::Disabled {
+                    name: named.then(|| Said::naming(UiText::SendAs, h)),
                     reason: line.clone(),
                 },
                 line,
@@ -1298,7 +1304,10 @@ mod tests {
             m.composer(&a),
             Some(ComposerLine {
                 line: None,
-                send: SendControl::Disabled { reason: None },
+                send: SendControl::Disabled {
+                    name: None,
+                    reason: None
+                },
                 try_again: None,
             })
         );
@@ -1673,8 +1682,11 @@ mod tests {
             assert_eq!(line.as_ref().map(|l| l.text), Some(text), "{state:?}");
             assert_eq!(
                 c.as_ref().map(|c| &c.send),
-                Some(&SendControl::Disabled { reason: line }),
-                "{state:?}: disabled with the line as its reason"
+                Some(&SendControl::Disabled {
+                    name: Some(Said::naming(UiText::SendAs, &held[0])),
+                    reason: line
+                }),
+                "{state:?}: disabled, named as when enabled, with the line as its reason"
             );
             assert_eq!(
                 c.and_then(|c| c.try_again).map(|t| (t.enabled, t.progress)),

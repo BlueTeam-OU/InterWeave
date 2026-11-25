@@ -321,11 +321,18 @@ impl IdentityViews {
                 try_progress,
             }
         }));
-        let (send_name, held) = match line.as_ref().map(|l| &l.send) {
-            Some(SendControl::Enabled { name }) => (name.as_ref().map(Said::english), false),
-            Some(SendControl::Disabled { .. }) => (None, true),
-            None => (None, false),
+        // The name does not depend on the state; a disabled control adds
+        // the state's text as its description (identities §5.2).
+        let (send_name, send_description, held) = match line.as_ref().map(|l| &l.send) {
+            Some(SendControl::Enabled { name }) => (name.as_ref().map(Said::english), None, false),
+            Some(SendControl::Disabled { name, reason }) => (
+                name.as_ref().map(Said::english),
+                reason.as_ref().map(Said::english),
+                true,
+            ),
+            None => (None, None, false),
         };
+        window.set_send_description(send_description.unwrap_or_default().into());
         window.set_send_label(
             send_name
                 .unwrap_or_else(|| placeholder_en::text(UiText::Send).to_owned())

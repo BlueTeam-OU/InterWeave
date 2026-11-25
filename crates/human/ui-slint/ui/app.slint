@@ -1668,6 +1668,8 @@ component IconButton inherits FocusScope {
     }
     in property <Glyph> glyph;
     in property <string> label;
+    // What a screen reader adds to the label: empty for most controls.
+    in property <string> description;
     in property <string> focus-key;
     in property <color> ink: Palette.on-surface-variant;
     // A filled round button: the icon in `on-primary` on `primary`.
@@ -1685,6 +1687,7 @@ component IconButton inherits FocusScope {
     callback focused(string);
     accessible-role: button;
     accessible-label: Drawn.spoken(root.label);
+    accessible-description: Drawn.spoken(root.description);
     accessible-enabled: root.active;
     accessible-action-default => { root.press(); }
     function press() {
@@ -4794,6 +4797,8 @@ export component AppWindow inherits Window {
     in property <int> draft-written-seq;
     in property <string> refused;
     in property <string> send-label;
+    // The state text a disabled Send carries as its description.
+    in property <string> send-description;
     in property <string> show-source-label;
     in property <string> show-formatted-label;
     // The platform's monospaced family, by name: Slint reads a
@@ -9394,6 +9399,7 @@ export component AppWindow inherits Window {
                             glyph: Glyph.send;
                             rtl: root.rtl;
                             label: root.send-label;
+                            description: root.send-description;
                             filled: true;
                             // Dimmed and inactive while the field is empty,
                             // or the identity cannot send now.

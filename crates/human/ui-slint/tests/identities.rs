@@ -507,8 +507,15 @@ fn a_starting_identity_disables_send_with_its_reason() {
     assert!(labelled(&view, &format!("As {}", name("a"))).is_empty());
     // Text in the field, so only the identity's state holds Send back.
     view.window().set_draft("hi".into());
-    let send = one(&view, "Send");
+    // The name does not change with the state; the reason rides on the
+    // control as its description.
+    let send = one(&view, &format!("Send as {}", name("a")));
     assert_eq!(send.accessible_enabled(), Some(false), "Send disabled");
+    assert_eq!(
+        send.accessible_description().as_deref(),
+        Some(reason.as_str()),
+        "the reason is Send's description"
+    );
     assert_eq!(focus_id(&view), "composer", "F21");
 }
 
