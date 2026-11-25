@@ -191,7 +191,7 @@ and static agreeing, six of six connected. §Address-scoped failure
 already said a never-successful address failure does not advance the
 PeerId into punitive backoff while another known-good address exists;
 the retry schedule is per peer, so a good address arriving after the
-failure inherited the stale one's wait. CLAUDE.md §5's "a bad/mismatched
+failure inherited the stale one's wait. AGENTS.md §5's "a bad/mismatched
 address must not unnecessarily suppress a known-good route to a trusted
 PeerId" names the same intent.
 

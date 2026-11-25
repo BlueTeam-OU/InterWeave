@@ -96,7 +96,7 @@ The schemas describe shapes only. No key material, no capability grant, and no t
 
 ## Operational implications
 
-`tools/checks/validate_contracts.py` and `tools/checks/verify_fixture_vectors.py` run before pushing and are listed in `AGENTS.md` §9. Both take `--root` so they can be run against an extracted archive, which is how a handoff recipient confirms the vectors they received.
+`tools/checks/validate_contracts.py` and `tools/checks/verify_fixture_vectors.py` run before pushing: `cargo xtask checks` runs both with every other tree check (`AGENTS.md` §9), and CI invokes each by name. Both take `--root` so they can be run against an extracted archive, which is how a handoff recipient confirms the vectors they received.
 
 ## Implementation implications
 
@@ -107,3 +107,11 @@ The `endpoints` family is deliberately the first and only one populated. Remaini
 ## Revisit conditions
 
 Revisit if byte-level framing needs a schema language JSON Schema cannot express, in which case the direct v2 wire moves to Protobuf or CDDL while the JSON-shaped contracts stay; if generated schemas from implementation types become preferable once implementations are the source of truth for shape rather than its consumer; or if the prose and schema pair proves to drift in practice despite the provenance pointers, which would argue for generating one from the other rather than maintaining both.
+
+## Amendments
+
+Full notes: [`history/0049-amendments.md`](./history/0049-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-11-25 | The two checks run under `cargo xtask checks` | A reader looks for the two checks in `cargo xtask checks` and the CI workflow, not in a list in the instruction file |
