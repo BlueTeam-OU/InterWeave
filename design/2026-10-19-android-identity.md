@@ -502,9 +502,10 @@ screen its opening focus. §6's rule does not allow that focus, and the
 build owes the rule: focus on the control that had it. Acceptance 15's
 sixth return run and acceptance 12's R2 recreation run are no longer
 blocked on j311: they are device runs, and both fail until the build
-puts focus on the control that had it. Acceptance 12's run is still
-blocked on the `unlock` count, as its other R2 runs are. Acceptance 15's ten return runs
-are device runs, and host tests check the layer below them
+puts focus on the control that had it. Acceptance 12's R2 recreation
+run is still blocked on the `unlock` count, like the other R2 runs of
+acceptance 12. Acceptance 15's ten return runs are device runs, and
+host tests check the layer below them
 (rust-ui-dev-01's REPLY 01a2130d). Before, the note said that a
 recreation restarted the flow at its first screen, that those two runs
 were blocked until j311 landed, and that the ten return runs were host
@@ -1534,9 +1535,9 @@ this notice wherever it shows also keeps the app predictable
   (rust-ui-dev-01's REPLY 01a2130d). This rule does not allow that
   move of focus. The build owes the rule: the kept flow carries the
   control that had focus, and the new window puts focus on that same
-  control, the same keypad key or chip included. Acceptance
-  15's sixth return run and acceptance 12's R2 recreation run check
-  this rule, on a device. The 1 s before
+  control, also when that control is a keypad key or a chip.
+  Acceptance 15's sixth return run and acceptance 12's R2 recreation
+  run check this rule, on a device. The 1 s before
   `ConnectStarting` and add-a-peer §5.1's 10 s bound count from the
   return, never from when `IdStartBusy` first showed. Why: the
   bound limits how long the person waits on a held screen, and while
@@ -2526,7 +2527,8 @@ landscape:
     build keeps R2 through a recreation (4d33c9352). The second run
     checks the count, and it also checks the focus rule of §6 (The
     hold): after the recreation, focus is on the control that had it
-    before the recreation, the same keypad key or chip included. The
+    before the recreation, also when that control is a keypad key or
+    a chip. The
     build does not yet keep that focus, so the second run fails until
     the build keeps it. Removing
     the notice first is what makes each run
