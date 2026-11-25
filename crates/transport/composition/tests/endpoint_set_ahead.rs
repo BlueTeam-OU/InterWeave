@@ -15,9 +15,10 @@ use interweave_local_client_api::{
     EndpointRemoveChange, SessionRequest, TrustChange,
 };
 use interweave_transport_api::{
-    DirectDestination, MessageId, Payload, TransportError, TransportEvent, TransportRuntime,
+    DirectDestination, EndpointId, MessageId, Payload, TransportError, TransportEvent,
+    TransportIdentity, TransportRuntime,
 };
-use interweave_transport_composition::{ComposedRuntime, CompositionOptions};
+use interweave_transport_composition::{ComposedRuntime, CompositionOptions, InProcessSession};
 
 mod endpoint_set_common;
 
@@ -208,4 +209,164 @@ async fn an_add_over_a_removal_left_ahead_empties_the_runtimes_sets_and_keeps_th
     assert_eq!(row.alias.as_deref(), Some("work"));
     assert_eq!(row.lease, leased, "the held lease stays");
     drop((sending, port));
+}
+
+/// A trust write after a removal left ahead -- the overlay no longer
+/// holds `work`, the runtime still serves and leases it -- publishes
+/// sources without `work`'s own set, and `work` still admits nobody in
+/// either direction: an added endpoint's filters are the empty subset,
+/// never the operator's list (ADR-0067 decision 6). Fed what a client
+/// holds: the operator's list names the sender, which `work`'s set never
+/// did, and the trust write is an ordinary one on `human`. The controls,
+/// before the faults and after the write: the sender reaches `human`, and
+/// `human` reaches the sender.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trust_write_after_a_removal_left_ahead_keeps_the_added_endpoint_closed() {
+    use interweave_transport_composition::OverlayFault::{BeforeRename, Clean};
+
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let p = paths();
+    let (r_id, r) = id();
+    let (s_id, s) = id();
+    let (_, bystander) = id();
+    let listen = |base: CompositionOptions| CompositionOptions {
+        listen: vec![format!("/ip4/{ip}/tcp/0")],
+        ..base
+    };
+    let mut receiver = ComposedRuntime::start(
+        &r_id,
+        &profile_with(&[&s], &[], &[], 8),
+        listen(options(&p)),
+    )
+    .await
+    .expect("r composes");
+    let port = admin(&receiver).await;
+    let work = add_minted(&p, &port, "work").await;
+    let both = [DataCapability::Events, DataCapability::Commands];
+    let at_work = receiver
+        .sessions()
+        .open(SessionRequest::new("human-client", Some(work.clone()), both).expect("in bounds"))
+        .await
+        .expect("leases work");
+    let at_human = receiver
+        .sessions()
+        .open(SessionRequest::new("human-client", Some(ep("human")), both).expect("in bounds"))
+        .await
+        .expect("leases human");
+
+    let r_addr = format!("{}/p2p/{}", receiver.listening()[0], r.as_str());
+    let sender = ComposedRuntime::start(
+        &s_id,
+        &profile_with(&[&r], &[r_addr], &[], 8),
+        listen(CompositionOptions::default()),
+    )
+    .await
+    .expect("s composes");
+    loop {
+        match tokio::time::timeout(PATIENCE, receiver.next_event()).await {
+            Ok(Some(TransportEvent::PeerConnected { peer, .. })) if peer == s => break,
+            Ok(Some(_)) => {}
+            other => panic!("no connection from the sender: {other:?}"),
+        }
+    }
+    let sending = sender
+        .sessions()
+        .open(SessionRequest::new("human-client", Some(ep("human")), both).expect("in bounds"))
+        .await
+        .expect("s leases");
+
+    let ends = Ends {
+        sending: &sending,
+        at_work: &at_work,
+        at_human: &at_human,
+        r: &r,
+        s: &s,
+        work: &work,
+        tag: std::cell::Cell::new(0),
+    };
+    ends.check("before the faults").await;
+
+    receiver.fail_publishes(1).await.expect("queued");
+    receiver
+        .fail_overlay_writes(vec![Clean, BeforeRename])
+        .await
+        .expect("queued");
+    assert_eq!(
+        port.remove_endpoint(work.clone()).await,
+        Err(TransportError::Internal)
+    );
+    assert!(
+        row_of(&port, &work)
+            .await
+            .is_some_and(|row| row.lease.is_some()),
+        "the runtime still serves and leases work"
+    );
+    assert_eq!(
+        port.set_endpoint_trust(ep("human"), bystander, true).await,
+        Ok(TrustChange::Set),
+        "a trust write that republishes the sources, without work's set"
+    );
+    ends.check("after the trust write").await;
+    drop(ends);
+    drop((sending, at_work, at_human, port));
+}
+
+/// The four sends of one phase: the sender to `work` and to `human`, and
+/// `work` and `human` to the sender.
+struct Ends<'a> {
+    sending: &'a InProcessSession,
+    at_work: &'a InProcessSession,
+    at_human: &'a InProcessSession,
+    r: &'a TransportIdentity,
+    s: &'a TransportIdentity,
+    work: &'a EndpointId,
+    tag: std::cell::Cell<u8>,
+}
+
+impl Ends<'_> {
+    async fn send(
+        &self,
+        from: &InProcessSession,
+        peer: &TransportIdentity,
+        endpoint: Option<&EndpointId>,
+    ) -> Result<EndpointId, TransportError> {
+        let tag = self.tag.get() + 1;
+        self.tag.set(tag);
+        tokio::time::timeout(
+            PATIENCE,
+            from.send_direct(
+                DirectDestination {
+                    peer: peer.clone(),
+                    endpoint: endpoint.cloned(),
+                },
+                MessageId::from_bytes([tag; 16]),
+                Payload::at_ceiling(None, vec![tag]).expect("within the ceiling"),
+            ),
+        )
+        .await
+        .expect("answered")
+    }
+
+    async fn check(&self, phase: &str) {
+        assert_eq!(
+            self.send(self.sending, self.r, Some(self.work)).await,
+            Err(TransportError::RemoteEndpointUnavailable),
+            "{phase}: the sender reaches work"
+        );
+        assert_eq!(
+            self.send(self.sending, self.r, Some(&ep("human"))).await,
+            Ok(ep("human")),
+            "{phase}: control, the sender reaches human"
+        );
+        assert_eq!(
+            self.send(self.at_work, self.s, None).await,
+            Err(TransportError::UnauthorizedPeer),
+            "{phase}: work reaches the sender"
+        );
+        assert_eq!(
+            self.send(self.at_human, self.s, None).await,
+            Ok(ep("human")),
+            "{phase}: control, human reaches the sender"
+        );
+    }
 }
