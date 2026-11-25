@@ -492,7 +492,8 @@ on main, which stopped being true when #313 merged on 2026-10-21. §6's
 `IdRestoreOther` paragraph and §11f's Q17 answer now point to the
 `RecordNamesOther` row for why R2 after K1 cannot reach that notice.
 Before, each gave a shorter reason of its own. Q18's answer now says
-that no writer can replace the record on R2 after K1. The question
+that no writer can replace the record on R2 after K1 with a record
+that names another PeerId. The question
 that the answer quotes assumed that another writer could change the
 record on R2 after K1. Acceptance 12's seventh run also names
 f8c122108, the commit that puts focus on `Refused`. §6 (The hold) and
@@ -506,7 +507,9 @@ puts focus on the control that had it. Acceptance 12's R2 recreation
 run is still blocked on the `unlock` count, like the other R2 runs of
 acceptance 12. Acceptance 15's ten return runs are device runs, and
 host tests check the layer below them
-(rust-ui-dev-01's REPLY 01a2130d). Before, the note said that a
+(rust-ui-dev-01's REPLY 01a2130d). The first, seventh, eighth and
+tenth of them are blocked until the debug build has a hook that each
+needs; the other six can be made on the device now. Before, the note said that a
 recreation restarted the flow at its first screen, that those two runs
 were blocked until j311 landed, and that the ten return runs were host
 tests.
@@ -2884,7 +2887,20 @@ scale would also be a finding of the Android review
       (`android-platform`'s view side); the comparison that a return's
       retry makes, the tenth run's refusal and its focus
       (`unchecked_start.rs`); and the park of the flow past a destroy
-      (`flow_park.rs`).
+      (`flow_park.rs`). The second, third, fourth, fifth, sixth and
+      ninth runs can be made on this build with the debug build's
+      `busyStarts` launch extra (`DebugHooks.kt`). The first, seventh,
+      eighth and tenth runs are blocked, not passed, until rust-ui-dev
+      adds a debug-build hook for each: the first and seventh need a
+      start other than the launch's first left unanswered, and
+      `holdStartMs` holds only that first start
+      (`apps/human-android/src/start_hook.rs`), which the refused
+      start that put `IdStartBusy` up has already used; the eighth
+      needs the return's start answered as started after a delay; the
+      tenth needs a failed read-back on the device, so that
+      `IdStartUnchecked` is offered, and a record that names another
+      PeerId, and the double that makes both exists only in host
+      tests.
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
@@ -3748,7 +3764,9 @@ here; the first was already answered on this branch.
   R2's Try again under `IdStorageUnknown` is the way on: a read-back
   that opens the record opens R4. The question below speaks of
   another writer changing the record on R2 after K1; no writer can
-  replace it there (§6, the `RecordNamesOther` row). The question, as
+  replace it there with a record that names another PeerId (§6, the
+  `RecordNamesOther` row). The flow's own restore does replace it
+  with a record of the same PeerId (§6, the read-back row). The question, as
   asked: three
   things are open. First, where focus
   goes when Chats opens because a compared start from R2 after K1,
