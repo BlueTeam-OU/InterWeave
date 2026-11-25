@@ -432,14 +432,15 @@ export struct IdSlot {
 // recreation moves no focus). `seg` and `idx` are the page's own focus
 // stops (IdentityScreen's `at-seg`, `at-idx`), -1 for the page itself;
 // `under-*` is what the discard dialog gives focus back to when it
-// closes. `alpha` is the keypad layout both keys' indexes are in.
-// `asked` false: nothing kept, the page's opening rule applies.
+// closes. `alpha` and `under-alpha` say which keypad layout each index
+// was taken in. `asked` false: nothing kept, the opening rule applies.
 export struct IdFocusStop {
     asked: bool,
     alpha: bool,
     seg: int,
     idx: int,
     typing: bool,
+    under-alpha: bool,
     under-seg: int,
     under-idx: int,
     under-typing: bool,
@@ -2400,10 +2401,11 @@ component IdentityScreen inherits FocusScope {
     function publish() {
         root.stop = {
             asked: true,
-            alpha: root.keys-alpha,
+            alpha: root.at-alpha,
             seg: root.at-seg,
             idx: root.at-idx,
             typing: root.typing,
+            under-alpha: root.saved-alpha,
             under-seg: root.saved-seg,
             under-idx: root.saved-idx,
             under-typing: root.saved-typing,
@@ -2418,7 +2420,13 @@ component IdentityScreen inherits FocusScope {
     // The keypad's layout: alphabetical sevens below 340, else QWERTY
     // (section 4.3).
     property <bool> keys-alpha: root.width < 340px;
-    changed keys-alpha => { root.publish(); }
+    // The layout `at-idx` and `saved-idx` were taken in: stamped when a
+    // stop takes focus and when the dialog saves it, never when the
+    // window's width later crosses 340.
+    property <bool> at-alpha;
+    property <bool> saved-alpha;
+    changed at-alpha => { root.publish(); }
+    changed saved-alpha => { root.publish(); }
     // A kept stop's index in this page's keypad layout: a key kept from
     // a window of the other layout is the same letter here, at its
     // `other` place (`IdKey.other`); any other stop is where it was. The
@@ -2445,7 +2453,8 @@ component IdentityScreen inherits FocusScope {
         if (root.page.dialog) {
             if (k.seg != 9 && k.seg != 10) { return false; }
             root.saved-seg = k.under-seg;
-            root.saved-idx = root.kept-key(k.under-seg, k.under-idx, k.alpha);
+            root.saved-idx = root.kept-key(k.under-seg, k.under-idx, k.under-alpha);
+            root.saved-alpha = root.keys-alpha;
             root.saved-typing = k.under-typing;
             root.typing = k.typing;
             root.go(k.seg, 0);
@@ -2484,6 +2493,7 @@ component IdentityScreen inherits FocusScope {
         root.heading-held = false;
         root.at-seg = seg;
         root.at-idx = idx;
+        root.at-alpha = root.keys-alpha;
         root.focused(key);
     }
     // A stop the page's own render may have just made misses the first
@@ -2807,6 +2817,7 @@ component IdentityScreen inherits FocusScope {
                 root.dialog-shown = true;
                 root.saved-seg = root.at-seg;
                 root.saved-idx = root.at-idx;
+                root.saved-alpha = root.at-alpha;
                 root.saved-typing = root.typing;
                 root.go(10, 0);
             }

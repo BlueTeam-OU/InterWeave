@@ -3962,3 +3962,62 @@ fn a_kept_stop_no_page_took_goes_with_the_page() {
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Enter], "typing: the opening");
 }
+
+/// A stop's Debug output names nothing of it: a key's index and its
+/// layout would name a letter of the phrase (#764 F3).
+#[test]
+fn a_kept_stops_debug_says_nothing_of_it() {
+    let mut page = Identity::at_r2();
+    page.tab();
+    assert_eq!(
+        format!("{:?}", page.view.identity_stop()),
+        "Some(IdentityStop(..))"
+    );
+}
+
+/// The window's width crossing 340 says no stop of its own: Welcome,
+/// which opens on none, holds none after it; and on R2 the key focus
+/// stands on after a live resize is the one kept, stamped with the layout
+/// it took focus in (#764 round 2, risk a). The live switch itself puts
+/// focus on the key at the same place in the new layout, as before this
+/// change: b's place in the sevens is w's in QWERTY.
+#[test]
+fn a_resize_across_the_layout_switch_says_no_stop() {
+    use interweave_human_ui_model::{IdentityFlow, Start};
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::new(IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    ));
+    width(&page.view, 330.0);
+    page.settle();
+    width(&page.view, 400.0);
+    page.settle();
+    assert_eq!(page.view.identity_stop(), None, "Welcome: no stop focused");
+
+    // On to R2, through R1, in the same window.
+    for input in [IdentityInput::Secondary, IdentityInput::Primary] {
+        interweave_human_ui_slint::apply_identity(&mut page.flow, input);
+    }
+    assert_eq!(
+        page.flow.screen(),
+        interweave_human_ui_model::ScreenId::R2,
+        "control: at R2"
+    );
+    width(&page.view, 330.0);
+    page.settle();
+    // a, the first enabled key in the sevens, then b; then wider, where
+    // focus stands on w.
+    page.tab();
+    width(&page.view, 400.0);
+    page.settle();
+    page.take();
+    page.recreate_with(true, |view| width(view, 330.0));
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Key('w')],
+        "w, the key focused at the recreation"
+    );
+}
