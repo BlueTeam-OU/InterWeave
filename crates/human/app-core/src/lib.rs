@@ -24,6 +24,7 @@ mod listing;
 mod model_side;
 mod profile;
 mod protocol;
+mod roster;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
 
@@ -37,6 +38,7 @@ pub use profile::{
     resolve_identity,
 };
 pub use protocol::{Command, Failure, Start, Update, WindowCommand};
+pub use roster::{FrontChange, Roster, RosterConfig, RosterError, Routed, SwitchOutcome};
 
 // ui-model does not depend on profile-config, so this is the one place
 // that can hold the two bounds equal: the model refuses a held list longer
