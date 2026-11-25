@@ -206,9 +206,13 @@ Shown while two or more identities are held; with one, the menu opens
   label is no secret from the peers this device trusts: one that learns
   or guesses it can write to that identity, and no setting narrows
   that today: an identity has the device's trust (ADR-0061 d. 5);
-- the identities, one row each, in the order they were created: a 40 dp
-  avatar (the card's photo, or its initials, §6.1, on the hue of the
-  identity's EndpointId, so two identities of one PeerId do not look
+- the identities, one row each, in this order: the first identity first,
+  then the others in the order they were created; after a discard and
+  recreate (§7), the first identity first and the others in an order
+  that stays the same from one start to the next
+  (`design/2026-11-04-identities.md` §6.1 has the rule). Each row holds
+  a 40 dp avatar (the card's photo, or its initials, §6.1, on the hue of
+  the identity's EndpointId, so two identities of one PeerId do not look
   alike), the card's name and family name in title medium, and under it
   in body medium the route label (the EndpointId as `DirectTitle`
   shows a route, `IdentityRouteLabel`) and, on one row only, **Default**
@@ -1195,7 +1199,7 @@ identity's card is reached as Your card (§4).
 
 #### 5.7.1 The switch
 
-**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs what the switch and the switcher's rows name an identity by (§6.1) where the two differ.
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs what the switch and the switcher's rows name an identity by, the rows' order and when Your identities shows (§6.1) where the two differ.
 
 On the Chats screen's top app bar, between the title and the ⋮ (§4):
 the **identity switch**, a control showing the identity in front's
@@ -1229,12 +1233,13 @@ layout, a menu-anchored dialog on a wide one; Back, Escape and a tap on
 the scrim close it with nothing changed. It holds:
 
 - title `IdentitySwitchTitle` ("Switch identity");
-- the identities as single-choice rows (56 dp): avatar, name, route
-  label, and at the end the row's unread count and, when any message of
-  that identity was not sent, `IdentityNotSent`; the identity in front
-  is the chosen row;
+- the identities as single-choice rows (56 dp) in §5.1's order, each
+  with its avatar, name, route label, and at the end the row's unread
+  count and, when any message of that identity was not sent,
+  `IdentityNotSent`; the identity in front is the chosen row;
 - at the bottom, **Your identities** (`IdentitiesTitle`, a text
-  button), which opens §5.1 without switching.
+  button), which opens §5.1 without switching; shown only in a build
+  where §5.1 exists (`design/2026-11-04-identities.md` §6.1).
 
 Choosing another row switches at once (§5.7.3) and closes the sheet;
 choosing the row already chosen closes it with nothing changed.
@@ -1260,7 +1265,7 @@ front, because only its conversations are shown.
 
 #### 5.7.3 Switching
 
-**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs which pages a switch closes on a wide layout, Trust and Peers included (§5.3) where the two differ.
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs which pages a switch closes on a wide layout, Trust and Peers included (§5.3), and what the Chats list shows across a switch (§5.4) where the two differ.
 
 **What changes the identity in front**, all of it and nothing else,
 each an act of the person's and each named to them right after:
@@ -1278,12 +1283,15 @@ each an act of the person's and each named to them right after:
 
 Starting the app otherwise, opening a contact, Your identities or an
 identity's page, adding an identity and Make default change nothing.
-A switch, by any of these, changes everything shown together, at once: the Chats list becomes the
-new identity's conversations, the switch shows its name, and on a wide
+A switch, by any of these, changes everything shown at the same
+moment, except the new identity's conversations: the old identity's
+rows leave the Chats list, the switch shows its name, and on a wide
 layout, where the switch stays on screen beside the second pane (§4),
 whatever that pane holds of one identity closes — a conversation,
 Contacts, a contact page, an identity's page — and the pane shows the
-new identity's empty-pane placeholder. Two pages there belong to no
+new identity's empty-pane placeholder. The new identity's
+conversations show in the list as `design/2026-11-04-identities.md`
+§5.4 says. Two pages in that pane belong to no
 identity and stay: Trust (the device's) and Your identities, whose check
 mark moves. On a narrow layout those pages cover Chats, so the switcher
 is reached only from Chats; a sheet or a dialog covers the switch on
@@ -1301,9 +1309,11 @@ A snackbar shown before the switch closes with it: its Undo belonged to
 a screen of the old identity, and what it confirmed stays done, as a
 kill inside its window would leave it.
 
-Feedback: the list cross-fades (under reduced motion it changes at
-once); the snackbar `ConfirmIdentitySwitched` ("You are now
-using {identity}") with **Switch back** (`SwitchBack`), which switches to the
+Feedback: the old rows leave at once and the new rows fade in, as
+`design/2026-11-04-identities.md` §5.4 says, which also says what the
+list shows until the new rows are read; the snackbar
+`ConfirmIdentitySwitched` ("You are now using {identity}") with **Switch
+back** (`SwitchBack`), which switches to the
 previous identity by the same rule; its text is announced. Focus goes to
 the switch, which now names the new identity. A switch is not a
 destructive act, so it is not confirmed beforehand; its result is named
@@ -1329,7 +1339,7 @@ The new-conversation flow is plan §18 carry 11's, not designed here
 (§11); what it must do, while two or more identities are held, is name
 the identity in front at its top before anything can be sent
 (`NewConversationAs`, "You are starting this conversation as
-{identity}"),
+{identity}."),
 and ask nothing: no choice of identity, since a chooser that could pick
 another identity while this one is in front is the confusion the
 owner's rule forbids (ADR-0061 d. 3). To start as another identity, the
@@ -1356,7 +1366,7 @@ notification names no identity: there is one runtime (ADR-0061 d. 9).
 Opening a notification of the identity in front opens its conversation,
 as today. Opening one of **another identity** switches first, visibly,
 before anything of that identity is shown: a full-screen transition
-with that identity's 96 dp avatar and `SwitchingTo` ("Opening as
+with that identity's 96 dp avatar and `SwitchingTo` ("Switching to
 {identity}"), held for at least one second and until the conversation
 is ready, announced; then the conversation opens, and the snackbar
 `ConfirmIdentitySwitched` with Switch back shows in it. Switch back
@@ -1372,7 +1382,7 @@ none is specified here (§11).
 
 #### 5.7.6 States of an identity
 
-**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the Starting and Could not start states, and an identity named by its alias (§5.2, §6.1) where the two differ.
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the Starting, Could not start and No room at the daemon states, an identity unable to send because the device cannot store new messages, and an identity named by its alias (§5.2, §6.1) where the two differ.
 
 - **Cannot send or receive** (its session holds no lease, or its
   endpoint is turned off, by the first identity's Turn off, §5.2, or in
@@ -1775,7 +1785,9 @@ schemes; rust-ui-dev measures and reports the figures):
 | `SwitchingTo` text | the transition's surface | 4.5:1 |
 
 **Motion**: the sheets slide in, the proposal's in-place replacement
-and a switch's list cross-fade, and §5.7.5's transition fades; under
+cross-fades, a switch's new rows fade in
+(`design/2026-11-04-identities.md` §5.4), and §5.7.5's transition
+fades; under
 reduced motion each appears without movement, the transition keeping
 its duration.
 
@@ -2052,10 +2064,12 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     default each leave the identity in front unchanged; each of the
     five acts switches and names the identity right after, except act 4
     with one identity left, where `ConfirmIdentityRemoved` names the
-    removed one and nothing else; choosing
-    another identity in the switcher changes the
-    list, the switch's name and every "As" line at once and shows
-    `ConfirmIdentitySwitched`; Switch back returns. On a wide layout a
+    removed one and nothing else; choosing another identity in the
+    switcher, at once, removes the old identity's rows from the list,
+    changes the switch's name and every "As" line, and shows
+    `ConfirmIdentitySwitched` (the new rows show as
+    `design/2026-11-04-identities.md` §5.4 says); Switch back
+    returns. On a wide layout a
     switch closes an open conversation, Contacts, a contact page and an
     identity's page to the placeholder, and leaves Trust and Your
     identities open; with a card's unsaved changes, the
@@ -2304,12 +2318,12 @@ and are for them to write.
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
 | `IdentityOthersUnread` | One other identity: 1 unread message in your other identity / {n} unread messages in your other identity. Two or more other identities: 1 unread message in your other identities / {n} unread messages in your other identities. | the switch's badge, accessible; plural rules language-culture's |
 | `IdentitySwitchTitle` | Switch identity | switcher title |
-| `IdentityOthersNotSent` | A message in another identity was not sent. | the switch's accessible name when the badge has no count (language-culture-en's text) |
+| `IdentityOthersNotSent` | One other identity: A message in your other identity was not sent. Two or more other identities: A message in one of your other identities was not sent. | the switch's accessible name when the badge has no count (language-culture-en's text, OBSERVATION 01a211a6; where the build keeps one form, it reads "A message in another identity was not sent.") |
 | `IdentityRowUnread` | 1 unread message / {n} unread messages | a switcher row's unread count, spoken (language-culture-en's text) |
 | `IdentityNotSent` | A message was not sent | switcher row, when a message of that identity was not sent |
 | `ConfirmIdentitySwitched` | You are now using {identity} | snackbar after a switch; must say which identity is now in use, not only that it changed |
 | `SwitchBack` | Switch back | that snackbar's action |
-| `SwitchingTo` | Opening as {identity} | §5.7.5 transition |
+| `SwitchingTo` | Switching to {identity} | §5.7.5 transition |
 | `ComposerAs` | As {identity} | the line above the send control |
 | `SendAs` | Send as {identity} | the send control's accessible name with two or more identities |
 | `ShareCardAs` | as {identity} | share sheet, under the title |
@@ -2317,8 +2331,8 @@ and are for them to write.
 | `ShareCardNoName` | Your card has no name yet. Add your name, then share the card. | share sheet, no name |
 | `IdentityNotInFront` | You are using {front}. What you change on this page applies to {identity}. | §5.2 when the page's identity is not in front |
 | `TrustAllIdentities` | When you trust a peer, you trust them for all your identities on this device. | Trust page with two or more identities |
-| `NewConversationAs` | You are starting this conversation as {identity} | new-conversation flow, when built |
-| `IdentityUnavailable` | {identity} cannot send or receive right now | §5.7.6 |
+| `NewConversationAs` | You are starting this conversation as {identity}. | new-conversation flow, when built |
+| `IdentityUnavailable` | {identity} cannot send or receive right now. | §5.7.6 |
 | `CardSharesDevice` | This card comes from the same device as your contact {name}. | case P |
 | `CardSharesDeviceMany` | This card comes from the same device as your contact {name} and 1 other contact. / This card comes from the same device as your contact {name} and {n} other contacts. | case P, several |
 | `CardSharesDeviceNote` | One device can hold several identities. You can save this card as a separate contact. | case P, under it |
