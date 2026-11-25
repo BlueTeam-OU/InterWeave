@@ -37,3 +37,10 @@ pub use profile::{
     resolve_identity,
 };
 pub use protocol::{Command, Failure, Start, Update, WindowCommand};
+
+// ui-model does not depend on profile-config, so this is the one place
+// that can hold the two bounds equal: the model refuses a held list longer
+// than IDENTITY_CAP, and a profile holds at most MAX_ENDPOINTS endpoints.
+// A change to either fails the build here, not a test that reads one side.
+const _: () =
+    assert!(interweave_human_ui_model::IDENTITY_CAP == interweave_profile_config::MAX_ENDPOINTS);

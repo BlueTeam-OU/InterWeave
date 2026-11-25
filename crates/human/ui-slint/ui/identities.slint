@@ -260,8 +260,9 @@ component IdOneLine inherits Rectangle {
 
 // The identity switch on Chats' bar: the avatar, the name, a ▾ and the
 // badge. At least 48 px high; its name ellipsises at the end, never below
-// the avatar and three graphemes (`least`), the whole name in its
-// accessible name.
+// the avatar and three graphemes (`least`;
+// `a_wide_name_never_ellipsises_the_switch_below_its_three_graphemes`), the
+// whole name in its accessible name.
 export component IdentitySwitch inherits FocusScope {
     in property <IdLook> look;
     in property <IdSwitch> view;

@@ -24,7 +24,8 @@ use crate::labels::{UiText, by_count, fill, isolated, placeholder_en};
 
 /// How many identities a profile holds at most: the profile's endpoint
 /// bound (`interweave-profile-config`'s `MAX_ENDPOINTS`), which this crate
-/// does not depend on. [`Identities::held_changed`] refuses a longer list
+/// does not depend on; `interweave-human-app-core` asserts the two equal at
+/// compile time. [`Identities::held_changed`] refuses a longer list
 /// and Add is refused at it (`more_than_the_bound_is_refused_and_add_stops_at_it`).
 pub const IDENTITY_CAP: usize = 64;
 
@@ -380,7 +381,9 @@ pub struct SwitchView {
     /// The name's first three graphemes, or the whole of a shorter name:
     /// the switch ellipsises its name, never below the avatar and these
     /// (cards §5.7.1, identities §12;
-    /// `the_switch_keeps_three_graphemes_of_the_name`).
+    /// `the_switch_keeps_three_graphemes_of_the_name`, and drawn,
+    /// `a_wide_name_never_ellipsises_the_switch_below_its_three_graphemes`
+    /// in ui-slint's tests).
     pub least: String,
     /// Every held identity's `least`, in the held order, the one in front
     /// among them: the Chats bar decides between one row and two by the

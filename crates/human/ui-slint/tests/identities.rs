@@ -1018,3 +1018,38 @@ fn with_one_identity_the_chats_bar_is_one_row_without_a_switch() {
     press(&view, Key::Tab);
     assert_eq!(focus_id(&view), "app-options", "no switch between");
 }
+
+/// The switch's name ellipsises, never below the avatar and the name's
+/// first three graphemes (identities.slint `IdentitySwitch`, cards
+/// §5.7.1): a very wide name, in windows too narrow for it, draws a switch
+/// no narrower than the one whose whole name is `Wid…` drawn with all the
+/// room it wants, which is the avatar, the three graphemes and the
+/// ellipsis. Mutation: `min-width` taken off the switch and off its name
+/// (identities.slint `IdentitySwitch`).
+#[test]
+fn a_wide_name_never_ellipsises_the_switch_below_its_three_graphemes() {
+    let wide = format!("Wid{}", "W".repeat(80));
+    let width_of = |name: &str, window: f32| {
+        let mut model = named(name, "Ilo");
+        let mut view = view(window);
+        turn(&mut view, &mut model);
+        let label = format!("Identity: {}. Switch identity", isolated(name));
+        one(&view, &label).size().width
+    };
+    let floor = width_of("Wid\u{2026}", 1000.0);
+    assert!(
+        floor > 48.0,
+        "the premise: the floor is more than the avatar"
+    );
+    assert!(
+        width_of(&wide, 1000.0) > floor + 100.0,
+        "the premise: with room the wide name is much wider"
+    );
+    for window in [280.0, 200.0, 160.0, 120.0] {
+        let drawn = width_of(&wide, window);
+        assert!(
+            drawn >= floor - 0.5,
+            "at {window} px the switch is {drawn} wide, below {floor}"
+        );
+    }
+}
