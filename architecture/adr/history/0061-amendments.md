@@ -298,3 +298,110 @@ IPC minor under ADR-0017" stand as written, being what was true on
 their day. Propagation: decision 2; this note; the log row; this
 record's digest entry and ADR-0028's, which carried the same phrase;
 plan §30 Activate.
+
+### Amendment 2026-11-24 — The replaces record is written before the add and lives until either identity is removed
+
+The note of 2026-11-22 said "the replaces record exists only while both
+identities do and is deleted with the removed one", and decision 7 said
+the record "is the store's while both exist". `STATE.md` §Logical
+tables, written in the same batch, has the record written before the
+administrative add of the new endpoint, for the reason that note itself
+gave: a process that ends between the add and a later write would
+otherwise leave an added identity nothing ties to the old one, and a
+second replacement would make a third. So the record exists before the
+new identity does, and after a process that ended before the add it
+names an identity not yet added; the two texts disagreed on when it
+exists (the Stage 22 batch's review, its finding F4 at 658dd3ee).
+`STATE.md` was right, and decision 7 now says what it says: written
+before the add, deleted in the transaction that removes either
+identity, kept beside a first identity that is turned off and never
+removed. What the earlier clause protected is kept, and is the bound
+that matters: no row names a removed identity, so no record of a
+removal exists (A 2026-11-04). A row whose new identity was never
+added names no removed identity either, and no identity the node holds:
+the client discards it at the next open and shows the old identity as
+before, Replace offered again, so a record alone never shows as
+unfinished (`design/2026-10-24-identity-key.md` §5.3; this change's
+own review, its finding F3, found the first wording of this note
+giving that row the finishing role). Only a record whose add happened
+is what the replacement is finished from. So the record leaves in two
+ways, with either identity's Remove and by that discard. The 2026-11-22 note stands as written,
+being the record of its day; this one corrects its one clause.
+
+Propagation: decision 7; this note; the log row; the digest entry.
+`STATE.md` is unchanged; it does not state the discard, which is the
+design's until the store change that builds the replacement states it
+there.
+
+### Amendment 2026-11-25 — A replaces record whose new identity the list lacks is settled by sending the add again
+
+The note of 2026-11-24 had the client discard, at the next open, a
+record "whose new identity was never added", and named no test for
+never added. The client's view of what the node holds is
+`admin.endpoints.list`, and `LOCAL-IPC.md` has two adds that list does
+not show: one that left the overlay ahead of the runtime, answered
+`Internal` and loaded at the daemon's next start, and one applied late,
+after the client that sent it stopped waiting. A record discarded on
+the list alone would in both leave an added identity nothing ties to
+the old one, with Replace offered again: the third identity the record
+exists to prevent (the review of this change at 29743549, its finding
+F5). The key file does not tell the cases apart either, being sealed
+before the add in all of them.
+
+So the client reads nothing from the list's silence and sends the same
+add again, the one question the contract answers without doubt:
+`added` and `unchanged` both mean registered from the answer on, a late
+copy of the first add then being `unchanged` too, and the state is the
+one the design already has for a replacement stopped after its add,
+finished from the record. Only `refused` discards. A refusal writes
+nothing, but one of its reasons, `key_missing`, is decided before the
+overlay is asked, so an entry left ahead can stand behind it; the
+discard therefore empties the new key path and platform key, which
+makes any add applied late `key_missing`, sends the administrative
+remove, which takes an entry left ahead out of the overlay (`removed`)
+and answers `EndpointUnknown` where none holds the id, and deletes the
+record with the new identity's rows only on one of those two answers.
+Anything else, `Internal` and no answer included, keeps the record for
+the next open.
+
+Three sentences close what that order would otherwise leave open (the
+review of the first wording of this note at 051c83fb, its finding F7
+and two of its risks). Replace pressed on an old identity a record
+names settles that record and mints no second key, so two records
+never name one old identity. The clean-up rule of 2026-11-24, which
+deletes the rows of an identity the list lacks and whose key path is
+empty, takes no replaces record and no rows of the new identity a
+record names: after a discard that emptied the key path and whose remove did
+not answer, that identity can still come back at the daemon's next
+start. And no replacement is finished toward a new identity whose key
+is missing, whether a discard emptied its path or the key was lost
+after the add, which was reachable before this note: the identity is
+listed as any whose key is missing is, the person removes it, and the
+record goes in that Remove.
+
+The first wording of this note, of the same day, discarded on the
+list's silence after undoing the add, and never sent the add again, so
+as to leave the old identity as the design shows it after a failure.
+It was given up for this one: undoing an add the person asked for
+needed every rule above and one more state, where sending it again
+needs the contract's two answers. What the person sees changes in one
+case, a Replace whose add failed or was cut: at the next open, or on
+pressing Replace again, the replacement shows as unfinished with
+Finish replacing, where the design's §5.3 shows the old identity as
+before; the design's text is its owner's to bring to this
+(`design/2026-10-24-identity-key.md` §5.3, unchanged here). The
+replacement is not built (`STATE.md` §Logical tables), so no build did
+otherwise. The 2026-11-24 note stands as the record of its day; this
+one corrects its "discards it at the next open".
+
+Propagation: decision 7; this note; the log row; the digest entry,
+its replacement bullet and its Remove bullet's clean-up clause. Two
+design texts state the rules this note changes and are their owner's
+to bring to it, unchanged here: `design/2026-10-24-identity-key.md`
+§5.3 (the discard at the next open, and Finish replacing offered
+whatever the new identity's key) and `design/2026-11-04-identities.md`
+§7 (the clean-up rule without its exception).
+`LOCAL-IPC.md` is unchanged: the answers this leans on are its own
+(`added` and `unchanged` registered from the answer on, `key_missing`
+for a late add, `removed` for an entry left ahead, `EndpointUnknown`
+for an id no entry holds).

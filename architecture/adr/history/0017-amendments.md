@@ -167,3 +167,9 @@ note; the log row; the digest entry; `LOCAL-IPC.md` §Push events and
 overload and §Version negotiation and phases (the major-3 rule, which
 before this said the in-process binding honoured the request);
 `LOCAL-CLIENT.md` §2's `PeerPathChanged` and §7 item 15.
+
+### Amendment 2026-11-24 — The body names the IPC without a major where it said IPC v2
+
+The amendment of 2026-11-19 moved the server to major 3 and listed as its propagation "the Decision's sentence on the major". Three sentences of the body and the README row went on reading "IPC v2" as current beside it: "Advance implementation target to **IPC v2**", "IPC v2 negotiates bounded server ping/client pong keepalive" and "IPC v2 is mandatory for daemon-attached desktop/server clients", and the row's "128 KiB IPC v2 bodies" (the Stage 22 batch's review, its finding F8 at 36db29c5; this change's own review, its finding F2, which found the edit made without this note). The first keeps what the record set and names the major it is now; the other two name the IPC without a major; the row names both majors. One reading rule is written where it was implied: what this record says of the IPC it says of the major the release speaks, since the 2026-11-19 amendment has the server speak major 3 alone with everything 2.13 held. No rule of the record changes: the framing, the ceiling, the two sockets, the keepalive and the negotiation are as they were.
+
+Propagation: the Decision's target sentence and keepalive sentence; Platform scope's sentence; this note; the log row; the digest entry; the README row.

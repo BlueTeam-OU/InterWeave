@@ -4,7 +4,7 @@ Recovery-format vectors for `interweave-ed25519-bip39-entropy-v1` (ADR-0033).
 
 ## `ed25519-bip39-entropy-v1.json`
 
-**TEST-ONLY KEY MATERIAL.** The all-zero entropy is the standard public BIP-39 vector with no secrecy whatsoever, and exists only to prove the reconstruction path. A real recovery phrase is private-key-equivalent: it must never enter this repository, a log, a diagnostic, a crash report, or a config fixture (`CLAUDE.md` §6, ADR-0033).
+**TEST-ONLY KEY MATERIAL.** The all-zero entropy is the standard public BIP-39 vector with no secrecy whatsoever, and exists only to prove the reconstruction path. A real recovery phrase is private-key-equivalent: it must never enter this repository, a log, a diagnostic, a crash report, or a config fixture (`AGENTS.md` §6, ADR-0033).
 
 The golden proves what an implementation can silently get wrong:
 

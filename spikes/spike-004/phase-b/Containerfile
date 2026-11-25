@@ -34,7 +34,7 @@ FROM docker.io/library/alpine@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9b
 # this release ages out the BUILD fails loudly rather than the
 # measurement changing quietly. Bumping these is then a decision with a
 # commit behind it, which is the same trade the dependency allow-list
-# makes in CLAUDE.md §8.
+# makes in AGENTS.md §8.
 RUN apk add --no-cache \
       nftables=1.1.3-r0 \
       iproute2=6.15.0-r0 \
