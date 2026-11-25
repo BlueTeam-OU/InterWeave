@@ -1359,9 +1359,6 @@ mod tests {
         // has no target, though `a` is still held.
         assert_eq!(m.switch_snackbar(), None);
         assert_eq!(m.previous(), None);
-        // Switch back to an identity no longer held is gone with it.
-        m.held_changed(holding(&["b", "c"])).ok();
-        assert_eq!(m.previous(), None);
     }
 
     #[test]
@@ -2095,10 +2092,14 @@ mod tests {
         m.act(IdentityIntent::OpenSwitcher, false);
         switched(m.act(IdentityIntent::Choose(key("b")), false));
         m.act(IdentityIntent::OpenSwitcher, false);
-        // The one Switch back returns to goes: so does its snackbar.
+        // The one Switch back returns to goes: so does its snackbar, and
+        // Switch back has no target, while the front stays.
+        assert_eq!(m.previous(), Some(&key("a")));
         m.held_changed(holding(&["b", "c"])).ok();
         assert!(m.switcher_open(), "two still held");
+        assert_eq!(m.front(), Some(&key("b")));
         assert_eq!(m.switch_snackbar(), None);
+        assert_eq!(m.previous(), None);
         m.held_changed(holding(&["b"])).ok();
         assert!(!m.switcher_open());
         // Held again, it does not come back open.
