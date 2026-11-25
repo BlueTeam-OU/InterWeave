@@ -591,17 +591,18 @@ Outcomes other than Done, each with nothing half-made shown as made:
   for a replaces record (identity-key §5.3). `added` or `unchanged`:
   the identity exists, named by its alias until it has a card (the
   card case below). `refused`, whatever the reason: the key file is
-  deleted, and then the client sends the administrative remove of
-  that id, so that an add applied later finds no key; whatever the
-  remove answers, nothing more is kept, and an endpoint that an add
-  applied later still lists shows as an identity whose key is missing,
-  which the person removes (§7). Any other answer, or a list that
-  failed: the key is kept, and settled again at the next start or the
-  next opening of Your identities. Nothing is shown for this settle:
-  the person already left the form, and a registered identity appears
-  in Your identities as any new identity does. The key of a new
-  identity that a replaces record names is not settled here; the
-  record settles it (§7, "An identity that cannot come back").
+  deleted, so that an add applied later finds no key, and then the
+  client sends the administrative remove of that id; whatever the
+  remove answers, nothing more is kept. If an add applied later
+  leaves the id listed all the same, that id shows as an identity
+  whose key is missing, which the person removes (§7). Any other
+  answer, or a list that failed: the key is kept, and settled again
+  at the next start or the next opening of Your identities. Nothing is
+  shown for this settle: the person already left the form, and a
+  registered identity appears in Your identities as any new identity
+  does. The key of a new identity that a replaces record names is not
+  settled here; it is settled with that record (§7, "An identity that
+  cannot come back").
 - **The add answers that the id exists** (the first add landed between
   a retry's list and its add, D1): as Found, the client goes on with
   step 3; nothing is shown as refused.
@@ -723,7 +724,7 @@ where focus lands — with its dialog changed for ADR-0067:
     an identity whose id that list does not hold and whose key path
     holds no key file. Nothing is deleted on a list that failed, and an
     identity whose key file is still there keeps its rows, since it can
-    be configured again. **The one exception is a replacement's** (ADR-0061
+    be configured again. **The one exception is a replacement** (ADR-0061
     decision 7, A 2026-11-25): the rule never takes a replaces record,
     nor the rows of the new identity that a record names, even when the
     list lacks that identity's id and its key path is empty, because
@@ -731,8 +732,8 @@ where focus lands — with its dialog changed for ADR-0067:
     ahead of the running device, or applied late). That record is
     settled as identity-key §5.3 says, by sending the same add again;
     the settle deletes the new identity's rows when it discards the
-    record, and the rule applies to that identity again only once no
-    record names it. The identity leaves Your identities, the
+    record, and the rule applies to that identity again only when no
+    record names it any more. The identity leaves Your identities, the
     switcher and the switch, as one that Remove ended as done leaves
     them (cards §5.2), with no snackbar of its own: after a Remove, the
     person already chose to remove it, and
@@ -1241,7 +1242,7 @@ pass before it lands.
     it; after the daemon's next start the identity is listed with its
     key, never as an identity whose key is missing. With the second add
     refused by a seam, the key file is deleted before the remove is sent
-    (the client's log order). Needs D1.
+    (read in the client's log order). Needs D1.
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
