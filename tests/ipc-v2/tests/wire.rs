@@ -1207,10 +1207,11 @@ async fn until_ok(
 fn admin_requests(
     b: &interweave_transport_api::TransportIdentity,
     bootstrap: impl Fn() -> interweave_ipc_protocol::AddressParams,
-) -> [(&'static str, interweave_ipc_protocol::Request); 18] {
+) -> [(&'static str, interweave_ipc_protocol::Request); 22] {
     use interweave_ipc_protocol::{
-        AddressesParams, EndpointParams, PeerListParams, Request, SetDefaultParams,
-        SetEnabledParams, ShutdownParams, TrustListParams, TrustSeedParams, TrustSetParams,
+        AddressesParams, EndpointAddParams, EndpointParams, PeerListParams, Request,
+        SetAdvertiseParams, SetAliasParams, SetDefaultParams, SetEnabledParams, ShutdownParams,
+        TrustListParams, TrustSeedParams, TrustSetParams,
     };
     let endpoint = interweave_test_support::endpoint_keys::endpoint_id;
     let added = bootstrap();
@@ -1282,6 +1283,38 @@ fn admin_requests(
             "revoke",
             Request::AdminEndpointsRevoke(EndpointParams {
                 endpoint: endpoint("agent"),
+            }),
+        ),
+        // The endpoint set (IPC 3.0), each answered `ok` and nothing
+        // moved: the add names a key file this profile does not hold
+        // (`key_missing`), the remove and the rename an authored endpoint
+        // (`authored`), the advertise a value already in effect.
+        (
+            "endpoint_add",
+            Request::AdminEndpointsAdd(EndpointAddParams {
+                key: format!("{}.key", endpoint("absent").as_str()),
+                alias: "absent".to_owned(),
+                allowed_client_kinds: vec![],
+            }),
+        ),
+        (
+            "endpoint_remove",
+            Request::AdminEndpointsRemove(EndpointParams {
+                endpoint: endpoint("human"),
+            }),
+        ),
+        (
+            "endpoint_advertise",
+            Request::AdminEndpointsSetAdvertise(SetAdvertiseParams {
+                endpoint: endpoint("human"),
+                advertise: true,
+            }),
+        ),
+        (
+            "endpoint_alias",
+            Request::AdminEndpointsSetAlias(SetAliasParams {
+                endpoint: endpoint("human"),
+                alias: "renamed".to_owned(),
             }),
         ),
         ("add", Request::AdminPeersAddAddress(added.clone())),
@@ -1426,6 +1459,9 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
             ("remove", "removed"),
             ("adds", "added"),
             ("seed", "present"),
+            ("endpoint_add", "refused"),
+            ("endpoint_remove", "refused"),
+            ("endpoint_alias", "refused"),
         ] {
             if id == move_id {
                 assert!(

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:endpoint-add-result",
+  "title": "IPC admin.endpoints.add result",
+  "description": "What an add did. A REFUSAL IS AN ANSWER, not an error: `outcome: refused` names its rule in `refused`, nothing written. `added`: the entry is in the endpoint overlay's `added` member and its two own sets are present and empty; the endpoint is registered and leasable from the answer on. `unchanged`: the overlay's `added` member already holds the id with the same alias and the same client kinds, nothing written (a retry after a lost answer). `endpoint` is the derived EndpointId on `added` and `unchanged`. `detail` is for a log, never parsed.",
+  "type": "object",
+  "required": [
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "enum": [
+        "added",
+        "unchanged",
+        "refused"
+      ]
+    },
+    "endpoint": {
+      "$ref": "urn:interweave:schemas:endpoints:endpoint-id"
+    },
+    "refused": {
+      "$comment": "Present exactly when outcome is refused, checked in this order: id_not_derived (key is not `<EndpointId>.key`); alias_invalid (outside the alias grammar); key_missing (the key file absent or unreadable); key_mismatch (the file's header derives another id than the name's stem); exists (the id is an authored entry's, or an added one's with another alias or other kinds); alias_taken (another entry, authored or added, holds the alias); bound (authored and added entries would pass 64).",
+      "enum": [
+        "id_not_derived",
+        "alias_invalid",
+        "key_missing",
+        "key_mismatch",
+        "exists",
+        "alias_taken",
+        "bound"
+      ]
+    },
+    "detail": {
+      "type": "string",
+      "maxLength": 512
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "refused"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "refused"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "refused"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "added",
+              "unchanged"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "endpoint"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "endpoint"
+          ]
+        }
+      }
+    }
+  ],
+  "x-contract": {
+    "name": "ipc.endpoint-add-result",
+    "status": "active",
+    "version": "1.0.0",
+    "adr": [
+      "0017",
+      "0028",
+      "0061",
+      "0067"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

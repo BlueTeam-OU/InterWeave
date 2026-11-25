@@ -1124,6 +1124,9 @@ impl AdminPort for FakeAdmin {
                 default: state.default.as_ref() == Some(&e.id),
                 // Kept across `restart`, as the endpoint overlay is.
                 persisted: true,
+                alias: None,
+                source: interweave_local_client_api::EndpointSource::Authored,
+                advertise: e.advertise,
                 lease: state.leases.get(&e.id).map(|lease| LeaseRecord {
                     endpoint: e.id.clone(),
                     epoch: lease.epoch.clone(),

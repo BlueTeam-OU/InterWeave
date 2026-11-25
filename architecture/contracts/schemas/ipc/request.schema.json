@@ -171,6 +171,70 @@
       "additionalProperties": false,
       "properties": {
         "method": {
+          "const": "admin.endpoints.add"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:endpoint-add-params"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "admin.endpoints.remove"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:endpoint-params"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "admin.endpoints.set_advertise"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:set-advertise-params"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "admin.endpoints.set_alias"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:set-alias-params"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
           "const": "admin.shutdown"
         },
         "params": {
@@ -339,14 +403,15 @@
   "x-contract": {
     "name": "ipc.request",
     "status": "active",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "adr": [
       "0017",
       "0037",
       "0030",
       "0032",
       "0062",
-      "0067"
+      "0067",
+      "0061"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

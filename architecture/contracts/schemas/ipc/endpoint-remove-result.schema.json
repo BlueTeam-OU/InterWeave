@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:endpoint-remove-result",
+  "title": "IPC admin.endpoints.remove result",
+  "description": "What a removal of an ADDED endpoint did. A REFUSAL IS AN ANSWER: `outcome: refused` names its rule, nothing written. `removed`: in one overlay write before the answer the entry and every overlay member keyed by the id are gone, a live lease was revoked (its epoch in `revoked_epoch`), and a peer the removal took from the last set that held it was disconnected. An id no entry holds is the error `EndpointUnknown`. `detail` is for a log.",
+  "type": "object",
+  "required": [
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "enum": [
+        "removed",
+        "refused"
+      ]
+    },
+    "refused": {
+      "$comment": "Present exactly when outcome is refused, checked in this order: authored (a config.yaml entry, turned off and never removed); default (the default endpoint: the client moves the default first).",
+      "enum": [
+        "authored",
+        "default"
+      ]
+    },
+    "revoked_epoch": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "The lease epoch the removal revoked, when one was live; only on removed."
+    },
+    "detail": {
+      "type": "string",
+      "maxLength": 512
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "refused"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "refused"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "refused"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "refused"
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "revoked_epoch"
+          ]
+        }
+      }
+    }
+  ],
+  "x-contract": {
+    "name": "ipc.endpoint-remove-result",
+    "status": "active",
+    "version": "1.0.0",
+    "adr": [
+      "0017",
+      "0028",
+      "0061",
+      "0067"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

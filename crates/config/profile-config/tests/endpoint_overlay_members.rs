@@ -15,8 +15,8 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use interweave_profile_config::endpoint_overlay::{
-    ENDPOINT_OVERLAY_FILE, EndpointOverlay, EndpointOverlayError, MAX_ENDPOINT_OVERLAY_BYTES,
-    Normalised, OverlayMember, Seeded,
+    ADDED_TRUST, ENDPOINT_OVERLAY_FILE, EndpointOverlay, EndpointOverlayError,
+    MAX_ENDPOINT_OVERLAY_BYTES, Normalised, OverlayMember, Seeded,
 };
 use interweave_profile_config::{
     ClientKind, EndpointConfig, EndpointKeyState, EndpointsConfig, KeyMissing, MAX_ENDPOINTS,
@@ -397,9 +397,8 @@ fn an_added_entry_never_carries_trust() {
 
 /// An added entry whose id stands in neither `inbound` nor `outbound` is
 /// refused at load, naming the id: an added endpoint's trust is its set
-/// alone, `[]` at the add, and "no own set" would let it inherit the
-/// operator's list. The same file with `[]` in both loads and `d` has an
-/// own, empty set.
+/// alone, `[]` at the add, and the file states it. The same file with
+/// `[]` in both loads and `d` has an own, empty set.
 #[test]
 fn an_added_entry_without_a_set_is_refused_naming_the_id() {
     let file = json!({"enabled": {}, "added": [added("d", Some("d"))]});
@@ -578,6 +577,46 @@ fn apply_composes_the_added_entries() {
         off.set_default(&config(), Some(&id("d"))),
         Err(EndpointOverlayError::Disabled)
     ));
+}
+
+/// A loaded added entry's own filters admit nobody in either direction,
+/// a peer of the operator's list included, so a runtime that holds it
+/// without its own set (an overlay left ahead of it) fails closed:
+/// `ADDED_TRUST`, never the inheritance the entry reader gives an absent
+/// member. The control: an authored entry with no member beside it
+/// admits that peer.
+#[test]
+fn a_loaded_added_entrys_filters_admit_nobody() {
+    let (overlay, _) = loads(
+        &with_empty_sets(
+            json!({"enabled": {}, "added": [added("d", Some("d"))]}),
+            &["d"],
+        ),
+        &config(),
+    )
+    .expect("loads");
+    let composed = overlay.apply(&config());
+    let operator = PeerTrustPolicy::new([peer(1)]).expect("bounded");
+    let entry_of = |name: &str| {
+        composed
+            .entries
+            .iter()
+            .find(|e| e.id == id(name))
+            .expect("composed")
+    };
+    let d = entry_of("d");
+    assert_eq!(d.inbound, ADDED_TRUST);
+    assert_eq!(d.outbound, ADDED_TRUST);
+    for policy in [&d.inbound, &d.outbound] {
+        assert!(!operator.decide_for_endpoint(&peer(1), policy).is_allowed());
+    }
+    let a = entry_of("a");
+    assert!(
+        operator
+            .decide_for_endpoint(&peer(1), &a.inbound)
+            .is_allowed(),
+        "control: an authored entry with no member inherits the list"
+    );
 }
 
 /// A written overlay reads back as itself with its added entries and

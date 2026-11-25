@@ -331,6 +331,56 @@ impl AdminPort for FakeAdmin {
         Ok(())
     }
 
+    async fn add_endpoint(
+        &self,
+        key: String,
+        alias: String,
+        allowed_client_kinds: Vec<String>,
+    ) -> Result<interweave_local_client_api::EndpointAddChange, TransportError> {
+        self.fake.call(format!(
+            "add_endpoint {key} {alias} {}",
+            allowed_client_kinds.join(",")
+        ));
+        Ok(interweave_local_client_api::EndpointAddChange::Refused {
+            reason: interweave_local_client_api::EndpointAddRefusal::KeyMismatch,
+            detail: "scripted".to_owned(),
+        })
+    }
+
+    async fn remove_endpoint(
+        &self,
+        endpoint: EndpointId,
+    ) -> Result<interweave_local_client_api::EndpointRemoveChange, TransportError> {
+        self.fake
+            .call(format!("remove_endpoint {}", name(&endpoint)));
+        Ok(interweave_local_client_api::EndpointRemoveChange::Removed {
+            revoked_epoch: None,
+        })
+    }
+
+    async fn set_endpoint_advertise(
+        &self,
+        endpoint: EndpointId,
+        advertise: bool,
+    ) -> Result<(), TransportError> {
+        self.fake
+            .call(format!("set_advertise {} {advertise}", name(&endpoint)));
+        Ok(())
+    }
+
+    async fn set_endpoint_alias(
+        &self,
+        endpoint: EndpointId,
+        alias: String,
+    ) -> Result<interweave_local_client_api::AliasChange, TransportError> {
+        self.fake
+            .call(format!("set_alias {} {alias}", name(&endpoint)));
+        Ok(interweave_local_client_api::AliasChange::Refused {
+            reason: interweave_local_client_api::AliasRefusal::AliasTaken,
+            detail: String::new(),
+        })
+    }
+
     async fn shutdown(&self, grace: Duration) -> Result<(), TransportError> {
         self.fake.call(format!("shutdown {}", grace.as_millis()));
         let (stop, panic) = {

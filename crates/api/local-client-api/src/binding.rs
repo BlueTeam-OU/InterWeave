@@ -331,6 +331,10 @@ pub struct LeaseRecord {
 /// `enabled` and `default` are the effective state: `config.yaml` with
 /// the endpoint overlay composed over it (ADR-0028 A 2026-10-11).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one member per flag of the endpoint-list row the schema fixes"
+)]
 pub struct EndpointAdminView {
     /// The endpoint.
     pub endpoint: EndpointId,
@@ -346,6 +350,190 @@ pub struct EndpointAdminView {
     pub persisted: bool,
     /// Its live lease, if one is held.
     pub lease: Option<LeaseRecord>,
+    /// The entry's local alias (`ENDPOINTS.md`: a peer is sent the id,
+    /// not the alias); `None` for an authored entry that has none (IPC
+    /// 3.0).
+    pub alias: Option<String>,
+    /// Whether `config.yaml` authored the entry or the administrative add
+    /// did: what `admin.endpoints.remove` accepts (IPC 3.0).
+    pub source: EndpointSource,
+    /// The effective `advertise` (IPC 3.0).
+    pub advertise: bool,
+}
+
+/// Where a configured endpoint comes from (`endpoint-list`'s `source`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum EndpointSource {
+    /// A `config.yaml` entry.
+    #[default]
+    Authored,
+    /// Added over `admin.endpoints.add` and kept in the endpoint overlay.
+    Added,
+}
+
+impl EndpointSource {
+    /// Both, in the wire's order.
+    pub const ALL: [Self; 2] = [Self::Authored, Self::Added];
+
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Authored => "authored",
+            Self::Added => "added",
+        }
+    }
+}
+
+/// Why an `admin.endpoints.add` was refused, in the order the runtime
+/// checks them (`LOCAL-IPC.md` §The endpoint set's methods).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointAddRefusal {
+    /// The `key` value is not `<EndpointId>.key`.
+    IdNotDerived,
+    /// The alias is outside the alias grammar.
+    AliasInvalid,
+    /// The key file is absent or unreadable.
+    KeyMissing,
+    /// The key file's header derives another id than its name's.
+    KeyMismatch,
+    /// Another entry holds the id.
+    Exists,
+    /// Another entry holds the alias.
+    AliasTaken,
+    /// Sixty-four endpoints are configured.
+    Bound,
+}
+
+impl EndpointAddRefusal {
+    /// Every reason, in the order they are checked.
+    /// `every_endpoint_refusal_is_in_all` keeps it whole.
+    pub const ALL: [Self; 7] = [
+        Self::IdNotDerived,
+        Self::AliasInvalid,
+        Self::KeyMissing,
+        Self::KeyMismatch,
+        Self::Exists,
+        Self::AliasTaken,
+        Self::Bound,
+    ];
+
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::IdNotDerived => "id_not_derived",
+            Self::AliasInvalid => "alias_invalid",
+            Self::KeyMissing => "key_missing",
+            Self::KeyMismatch => "key_mismatch",
+            Self::Exists => "exists",
+            Self::AliasTaken => "alias_taken",
+            Self::Bound => "bound",
+        }
+    }
+}
+
+/// What an `admin.endpoints.add` did (`endpoint-add-result`). A refusal is
+/// an answer, not an error.
+#[must_use = "a refused add created no endpoint"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndpointAddChange {
+    /// The endpoint is registered and leasable, its two sets empty.
+    Added(EndpointId),
+    /// The overlay already holds it with the same alias and kinds:
+    /// nothing written.
+    Unchanged(EndpointId),
+    /// Refused, nothing written.
+    Refused {
+        /// Why.
+        reason: EndpointAddRefusal,
+        /// For a log.
+        detail: String,
+    },
+}
+
+/// Why an `admin.endpoints.remove` was refused, in the order checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointRemoveRefusal {
+    /// A `config.yaml` entry: turned off, never removed.
+    Authored,
+    /// The default endpoint: the client moves the default first.
+    Default,
+}
+
+impl EndpointRemoveRefusal {
+    /// Every reason, in the order they are checked.
+    pub const ALL: [Self; 2] = [Self::Authored, Self::Default];
+
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Authored => "authored",
+            Self::Default => "default",
+        }
+    }
+}
+
+/// What an `admin.endpoints.remove` did (`endpoint-remove-result`).
+#[must_use = "a refused remove removed nothing"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndpointRemoveChange {
+    /// Removed; the epoch of the lease it revoked, when one was live.
+    Removed {
+        /// The revoked lease's epoch.
+        revoked_epoch: Option<Generation>,
+    },
+    /// Refused, nothing written.
+    Refused {
+        /// Why.
+        reason: EndpointRemoveRefusal,
+        /// For a log.
+        detail: String,
+    },
+}
+
+/// Why an `admin.endpoints.set_alias` was refused, in the order checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AliasRefusal {
+    /// An authored entry, whose alias is `config.yaml`'s.
+    Authored,
+    /// Outside the alias grammar.
+    AliasInvalid,
+    /// Another entry holds the alias.
+    AliasTaken,
+}
+
+impl AliasRefusal {
+    /// Every reason, in the order they are checked.
+    pub const ALL: [Self; 3] = [Self::Authored, Self::AliasInvalid, Self::AliasTaken];
+
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Authored => "authored",
+            Self::AliasInvalid => "alias_invalid",
+            Self::AliasTaken => "alias_taken",
+        }
+    }
+}
+
+/// What an `admin.endpoints.set_alias` did (`set-alias-result`).
+#[must_use = "a refused rename changed nothing"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AliasChange {
+    /// The added entry carries the new alias.
+    Renamed,
+    /// It already had it: nothing written.
+    Unchanged,
+    /// Refused, nothing written.
+    Refused {
+        /// Why.
+        reason: AliasRefusal,
+        /// For a log.
+        detail: String,
+    },
 }
 
 /// The profile's peer trust policy as it stands (`ipc/trust-list`): the
@@ -937,6 +1125,83 @@ pub trait AdminPort {
         endpoint: Option<EndpointId>,
     ) -> impl Future<Output = Result<(), TransportError>> + Send;
 
+    /// Add an endpoint (`admin.endpoints.add`, IPC 3.0): `key` the name
+    /// of the key file the client sealed under `endpoint-keys/`, `alias`
+    /// and `allowed_client_kinds` the entry's. Checked in
+    /// [`EndpointAddRefusal::ALL`]'s order; an accepted add is written to
+    /// the endpoint overlay -- enabled, not advertised, its two own sets
+    /// empty -- before it reaches the runtime and before the answer, and
+    /// is leasable from the answer on. Not implemented by a port that
+    /// predates it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.endpoints`, `InvalidArgument` for
+    /// a result the composed profile would refuse, `Internal` when the
+    /// overlay could not be written (nothing changed),
+    /// `ProtocolUnsupported`, or `BackendUnavailable`.
+    fn add_endpoint(
+        &self,
+        key: String,
+        alias: String,
+        allowed_client_kinds: Vec<String>,
+    ) -> impl Future<Output = Result<EndpointAddChange, TransportError>> + Send {
+        let _ = (key, alias, allowed_client_kinds);
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Remove an ADDED endpoint (`admin.endpoints.remove`, IPC 3.0):
+    /// refused `authored`, then `default`; removed, its overlay members go
+    /// in one write, a live lease is revoked, and a peer the removal took
+    /// from the last set that held it is disconnected. Not implemented by
+    /// a port that predates it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.endpoints`, `EndpointUnknown` for
+    /// an id no entry holds, `Internal` when the overlay could not be
+    /// written or was left ahead of the runtime, `ProtocolUnsupported`, or
+    /// `BackendUnavailable`.
+    fn remove_endpoint(
+        &self,
+        endpoint: EndpointId,
+    ) -> impl Future<Output = Result<EndpointRemoveChange, TransportError>> + Send {
+        let _ = endpoint;
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Set whether `endpoint` may appear in the directory
+    /// (`admin.endpoints.set_advertise`, IPC 3.0), written to the overlay
+    /// and in force in the directory's answers before the answer. Not
+    /// implemented by a port that predates it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.endpoints`, `EndpointUnknown`,
+    /// `InvalidArgument` past `directory.max_advertised`, `Internal`,
+    /// `ProtocolUnsupported`, or `BackendUnavailable`.
+    fn set_endpoint_advertise(
+        &self,
+        endpoint: EndpointId,
+        advertise: bool,
+    ) -> impl Future<Output = Result<(), TransportError>> + Send {
+        let _ = (endpoint, advertise);
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Rename an ADDED endpoint's alias (`admin.endpoints.set_alias`, IPC
+    /// 3.0): refused `authored`, `alias_invalid`, `alias_taken` in that
+    /// order. Not implemented by a port that predates it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.endpoints`, `EndpointUnknown`,
+    /// `Internal`, `ProtocolUnsupported`, or `BackendUnavailable`.
+    fn set_endpoint_alias(
+        &self,
+        endpoint: EndpointId,
+        alias: String,
+    ) -> impl Future<Output = Result<AliasChange, TransportError>> + Send {
+        let _ = (endpoint, alias);
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
     /// The profile's peer trust policy.
     ///
     /// # Errors
@@ -1173,6 +1438,47 @@ mod tests {
         };
         for (i, reason) in TrustRefusal::ALL.into_iter().enumerate() {
             assert_eq!(position(reason), i, "{reason:?}");
+        }
+    }
+
+    /// As `every_refusal_is_in_all`, for the endpoint set's reasons: each
+    /// `ALL` holds every variant once, in the order the contract checks.
+    #[test]
+    fn every_endpoint_refusal_is_in_all() {
+        use super::{AliasRefusal, EndpointAddRefusal, EndpointRemoveRefusal, EndpointSource};
+        let add = |reason| match reason {
+            EndpointAddRefusal::IdNotDerived => 0,
+            EndpointAddRefusal::AliasInvalid => 1,
+            EndpointAddRefusal::KeyMissing => 2,
+            EndpointAddRefusal::KeyMismatch => 3,
+            EndpointAddRefusal::Exists => 4,
+            EndpointAddRefusal::AliasTaken => 5,
+            EndpointAddRefusal::Bound => 6,
+        };
+        for (i, reason) in EndpointAddRefusal::ALL.into_iter().enumerate() {
+            assert_eq!(add(reason), i, "{reason:?}");
+        }
+        let remove = |reason| match reason {
+            EndpointRemoveRefusal::Authored => 0,
+            EndpointRemoveRefusal::Default => 1,
+        };
+        for (i, reason) in EndpointRemoveRefusal::ALL.into_iter().enumerate() {
+            assert_eq!(remove(reason), i, "{reason:?}");
+        }
+        let alias = |reason| match reason {
+            AliasRefusal::Authored => 0,
+            AliasRefusal::AliasInvalid => 1,
+            AliasRefusal::AliasTaken => 2,
+        };
+        for (i, reason) in AliasRefusal::ALL.into_iter().enumerate() {
+            assert_eq!(alias(reason), i, "{reason:?}");
+        }
+        let source = |s| match s {
+            EndpointSource::Authored => 0,
+            EndpointSource::Added => 1,
+        };
+        for (i, s) in EndpointSource::ALL.into_iter().enumerate() {
+            assert_eq!(source(s), i, "{s:?}");
         }
     }
 
