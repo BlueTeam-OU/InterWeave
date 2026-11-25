@@ -328,8 +328,8 @@ the same text as its reason:
 - **Off** and **no lease** as cards §5.7.6 says.
 - **No room at the daemon** (rust-ui-dev-02's QUESTION 01a2119d, U4):
   the daemon closed the identity's data connection with `Overloaded` at
-  its connection limit (`human-client-ui.md` §13, A 2026-11-25, on
-  #761's branch as e5592d726). The client shows it as it shows no lease:
+  its connection limit (`human-client-ui.md` §13, A 2026-11-25, landed
+  with #761). The client shows it as it shows no lease:
   `IdentityUnavailable`, with no words of its own and no Try again: the
   client already retries, at the pace at which it reconnects a lost
   session, and the other identities keep working meanwhile; nothing the
@@ -461,8 +461,8 @@ Cards §5.1 stands, with these changes:
   with a route-label field.
 - **The order** of the rows, here and in the switcher (rust-ui-dev-02's
   QUESTION 01a2119d, U5; the held list's order, ruled by architect-cto
-  in `human-client-ui.md` §13, A 2026-11-25, on #761's branch as
-  e5592d726): the first identity first, whenever its card was made. The
+  in `human-client-ui.md` §13, A 2026-11-25, landed with #761): the
+  first identity first, whenever its card was made. The
   others follow in the order their cards were created; two whose cards
   were created at the same moment are in the order of their EndpointIds.
   After a discard and recreate (cards §7) that order is lost with the
