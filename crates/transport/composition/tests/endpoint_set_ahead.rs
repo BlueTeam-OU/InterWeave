@@ -540,3 +540,44 @@ async fn an_add_left_ahead_takes_effect_at_the_next_start_with_empty_sets() {
     drop(port);
     again.stop().await.expect("stops");
 }
+
+/// The retry of an add left ahead whose own publish the runtime does not
+/// take is answered `BackendUnavailable` (LOCAL-IPC.md, the endpoint
+/// methods' errors): nothing written, the entry still in the overlay and
+/// still not registered. The control: the same retry once the runtime
+/// takes its publish is `unchanged`, and the endpoint is served.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retry_whose_publish_fails_is_backend_unavailable_and_registers_nothing() {
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        add_left_ahead(&runtime, &port, &key).await,
+        Err(TransportError::Internal)
+    );
+    let written = bytes(&p);
+    runtime.fail_publishes(1).await.expect("queued");
+    assert_eq!(
+        port.add_endpoint(key.clone(), "work".to_owned(), vec![])
+            .await,
+        Err(TransportError::BackendUnavailable)
+    );
+    assert_eq!(bytes(&p), written, "nothing written");
+    assert!(row_of(&port, &work).await.is_none(), "still not served");
+    assert_eq!(
+        lease(&runtime, &work).await,
+        Err(TransportError::EndpointUnknown)
+    );
+    assert_eq!(
+        port.add_endpoint(key, "work".to_owned(), vec![]).await,
+        Ok(EndpointAddChange::Unchanged(work.clone())),
+        "control: a publish the runtime takes"
+    );
+    assert!(row_of(&port, &work).await.is_some(), "control: served");
+    drop(port);
+    runtime.stop().await.expect("stops");
+}
