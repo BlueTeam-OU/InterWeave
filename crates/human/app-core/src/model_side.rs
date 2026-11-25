@@ -78,7 +78,8 @@ pub trait Opener {
     /// before it from a held R2, R3 or R4 that opened Chats in its place
     /// (`SessionNotice::StartRefused`), by the path a granted Unlock uses
     /// (design/2026-10-19-android-identity.md §11d, Q12; §6, An answer
-    /// after the bound). Raised only while the model offers it -- either
+    /// after the bound; §8, A compared start answered before the bound).
+    /// Raised only while the model offers it -- either
     /// notice shows and no start for it runs -- so at most once per
     /// answer; a platform that never says either notice never raises it
     /// (`a_busy_starts_try_again_reaches_the_platform_once`,
