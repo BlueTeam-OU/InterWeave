@@ -370,8 +370,8 @@ and two of its risks). Replace pressed on an old identity a record
 names settles that record and mints no second key, so two records
 never name one old identity. The clean-up rule of 2026-11-24, which
 deletes the rows of an identity the list lacks and whose key path is
-empty, takes no replaces record and no rows of an identity a record
-names: after a discard that emptied the key path and whose remove did
+empty, takes no replaces record and no rows of the new identity a
+record names: after a discard that emptied the key path and whose remove did
 not answer, that identity can still come back at the daemon's next
 start. And no replacement is finished toward a new identity whose key
 is missing, whether a discard emptied its path or the key was lost
@@ -394,7 +394,13 @@ replacement is not built (`STATE.md` §Logical tables), so no build did
 otherwise. The 2026-11-24 note stands as the record of its day; this
 one corrects its "discards it at the next open".
 
-Propagation: decision 7; this note; the log row; the digest entry.
+Propagation: decision 7; this note; the log row; the digest entry,
+its replacement bullet and its Remove bullet's clean-up clause. Two
+design texts state the rules this note changes and are their owner's
+to bring to it, unchanged here: `design/2026-10-24-identity-key.md`
+§5.3 (the discard at the next open, and Finish replacing offered
+whatever the new identity's key) and `design/2026-11-04-identities.md`
+§7 (the clean-up rule without its exception).
 `LOCAL-IPC.md` is unchanged: the answers this leans on are its own
 (`added` and `unchanged` registered from the answer on, `key_missing`
 for a late add, `removed` for an entry left ahead, `EndpointUnknown`
