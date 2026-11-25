@@ -475,7 +475,11 @@ yet on main. The `RecordNamesOther` row now says that the case cannot
 be reached on R2 after K1 because words that derive another PeerId
 write nothing and custody never replaces a record with one that names
 another PeerId. Before, the row gave the profile lock as the reason,
-but the flow does not hold the lock between K1 and R2.
+but the flow does not hold the lock between K1 and R2. In acceptance
+15, the tenth return run, which repeats acceptance 12's comparison
+run at a return to `IdStartBusy`, is no longer blocked either, for
+the same reason. Before, it said that it was blocked until that
+comparison existed.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -2824,8 +2828,10 @@ scale would also be a finding of the Android review
       service start), `IdStorageUnknown` shows with Try again only
       and focus on the notice, and `IdStartUnchecked` stays hidden.
       Like acceptance 12's comparison run, the tenth run needs the
-      app's comparison before the start, and is blocked until that
-      comparison exists. These runs are host tests.
+      app's comparison before the start; #750 built that comparison
+      (180448d96), and a return's retry compares as well
+      (`apps/human-android/src/unchecked_start.rs`). These runs are
+      host tests.
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
       bound). In each run below, the test records an address before
