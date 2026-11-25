@@ -6,7 +6,7 @@
     "0033"
   ],
   "status": "frozen",
-  "WARNING": "TEST-ONLY KEY MATERIAL. The all-zero entropy below is the standard public BIP-39 vector and has no secrecy whatsoever. It exists to prove the reconstruction path. NEVER use it as a production identity, and never treat a real recovery phrase this way: a real phrase is private-key-equivalent and must not enter this repository, a log, a diagnostic, or any file (CLAUDE.md §6, ADR-0033).",
+  "WARNING": "TEST-ONLY KEY MATERIAL. The all-zero entropy below is the standard public BIP-39 vector and has no secrecy whatsoever. It exists to prove the reconstruction path. NEVER use it as a production identity, and never treat a real recovery phrase this way: a real phrase is private-key-equivalent and must not enter this repository, a log, a diagnostic, or any file (AGENTS.md §6, ADR-0033).",
   "algorithm": {
     "id": "ed25519-bip39-entropy-v1",
     "steps": [
