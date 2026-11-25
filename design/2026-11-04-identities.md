@@ -326,35 +326,34 @@ the same text as its reason:
   are not connected. This device could not make sure that you stay
   unlisted.").
 - **Off** and **no lease** as cards §5.7.6 says.
-- **No room at the daemon** (rust-ui-dev-02's QUESTION 01a2119d,
-  U4): the daemon closed the identity's data connection `Overloaded`
-  at its connection limit (`human-client-ui.md` §13, A 2026-11-25,
-  on #761's branch as e5592d726).
-  It reads as no lease, `IdentityUnavailable`, with no words of its
-  own and no Try again: the client already retries at the pace it
-  reconnects a lost session at, the others acting meanwhile, and
-  nothing the person can do in this client makes room sooner. Words
-  of its own would name the daemon's connection limit, which the
-  person cannot act on here. When the retry gets the lease, the
-  line goes back to `ComposerAs`, as after any no-lease state.
-  (Hypothesis: a person who meets it waits or retries later; falsified
-  by the first report of a person who meets it, which plan §30's note of
-  2026-11-25 makes the moment the limit is decided again.)
-- **The store cannot keep new messages** (U4): every identity releases
+- **No room at the daemon** (rust-ui-dev-02's QUESTION 01a2119d, U4):
+  the daemon closed the identity's data connection with `Overloaded` at
+  its connection limit (`human-client-ui.md` §13, A 2026-11-25, on
+  #761's branch as e5592d726). The client shows it as it shows no lease:
+  `IdentityUnavailable`, with no words of its own and no Try again: the
+  client already retries, at the pace at which it reconnects a lost
+  session, and the other identities keep working meanwhile; nothing the
+  person can do in this client makes room sooner. Words of its own would
+  name the daemon's connection limit, which the person cannot act on
+  here. When the retry gets the lease, the composer line goes back to
+  `ComposerAs`, as after any no-lease state. (Hypothesis: a person who
+  meets this state waits, or retries later; falsified if a person who
+  meets it reports it, and plan §30's note of 2026-11-25 makes the first
+  such report the moment at which the limit is decided again.)
+- **The device cannot store new messages** (U4): every identity releases
   its endpoint (STATE.md, A 2026-11-25), so the cause is the device's
-  and not one identity's. The app's `StorageDegraded` notice shows
-  once, where it shows today, and names no identity. It stays across
-  a switch, since it is the device's state and nothing of another
-  identity's (§4). Every identity's row, switcher row and composer line
-  reads `IdentityUnavailable`, which is true of each. No identity gets
-  words of its own: the notice is the one cause, said once. When
-  storage is available again, each identity takes its lease again
-  as after no lease.
+  and not one identity's. The app's `StorageDegraded` notice shows once,
+  where it shows today, and names no identity. It stays across a switch,
+  since it is the device's state and not the state of another identity
+  (§4). Every identity's row, switcher row and composer line reads
+  `IdentityUnavailable`, which is true of each. No identity gets words
+  of its own: the notice states the one cause, once. When storage is
+  available again, each identity takes its lease again, as it does after
+  no lease.
 
 Entering any state of this list in which Send is disabled, while the
-send control has focus, moves focus to
-the composer's field, which stays (§11 F21); focus on the field stays
-there.
+send control has focus, moves focus to the composer's field, which stays
+(§11 F21); focus on the field stays there.
 
 ### 5.3 A switch and the identity's pages
 
@@ -370,21 +369,21 @@ page is open at a switch.
 ### 5.4 Chats across a switch
 
 Asked by rust-ui-dev-02 (QUESTION 01a2119d, U1, U2, U6), for a client
-that keeps one screen model per identity held. This section replaces
+that holds one screen model for each identity held. This section replaces
 cards §5.7.3's "the list cross-fades".
 
 - **At the switch**, at once: the switch names the new identity,
   `ConfirmIdentitySwitched` shows, focus goes to the switch (cards
   §5.7.3), and every row of the old identity leaves the list. From
   that moment no old row is drawn and none takes input, so a tap that
-  lands during the switch can never open the old identity's
-  conversation. No frame shows the new identity's name over the old
+  lands during the switch can never open a conversation of the old
+  identity. No frame shows the new identity's name over the old
   identity's rows.
 - **The new identity's rows** show as soon as its list is ready: at
   once when the client already holds its screen model, else when the
-  store read answers. Until then the list's place is empty. It never
-  shows a state that claims something about the list: not the
-  no-reach notice (§5.1), which is decided only once this identity's
+  store read answers. Until then the list's place is empty. That place
+  never shows a state that claims something about the list: not the
+  no-reach notice (§5.1), which is decided only after this identity's
   trust set and the address list are read, and no other empty-list
   text. If the read has not answered within 250 ms, the progress row
   of `design/2026-10-27-start-window.md` §5 shows at the top of the
@@ -394,18 +393,18 @@ cards §5.7.3's "the list cross-fades".
 - **If the read fails**, the list's place shows one failure row,
   `ChatsLoadFailed` and Try again (`TryAgain`), in the shape of
   Contacts' failure row (start-window §11, "When the contacts cannot
-  be read"). It is announced once, politely, if it arises while Chats
-  is shown. Try again reads the list again: the row goes at once,
+  be read"). It is announced once, politely, if it appears while Chats
+  is shown. Try again reads the list again: the failure row goes at once,
   focus goes to the switch (§11 F23), and the progress row follows the 250 ms
   rule. A switch away while the read is pending or has failed drops
   nothing: the next switch back reads again.
 - **Feedback**: the new rows fade in over 150 ms. There is no
   cross-fade, since a cross-fade would draw the old rows under the new
-  name. Under reduced motion the rows appear at once. The fade takes
-  no input time: the rows take input from the moment they are drawn.
+  name. Under reduced motion the rows appear at once. The fade does
+  not delay input: the rows take input from the moment they are drawn.
 - **Switching back shows what the identity's screens showed** (U2).
-  The screen model the client keeps for each identity in the session
-  is kept across a switch. An inbound message that was read and not
+  The screen model that the client holds for each identity during the
+  session stays across a switch. An inbound message that was read and not
   kept is still shown in its conversation when the person switches
   back, as it would be with no switch. The store removed its durable
   copy when it was read (RETENTION.md). The session's display copy
@@ -414,16 +413,16 @@ cards §5.7.3's "the list cross-fades".
   is in front. It never changes what the person can find, and a
   message that vanished because the person looked at another identity
   would read as lost. What ends the display copy is what ends it
-  today: the app's process ending, a discard (cards §7), and the
+  today: the end of the app's process, a discard (cards §7), or the
   identity's removal (§7).
 - **Not specified here, and owed to this note before it is built:**
-  any bound on how many identities' models a client keeps. Today the
+  any bound on how many identities' models a client holds. Today the
   one model holds at most `SESSION_ITEM_CAP` session-only rows, evicted
-  in start-window §1's order. Each identity's model keeps that bound,
+  in start-window §1's order. Each identity's model has that bound,
   and this section adds none. A bound across identities that dropped
   a model would drop read-and-not-kept messages that no store holds.
-  That loss would be the person's, so it comes back to this note
-  before it is built.
+  That loss would be the person's, so such a bound comes back to this
+  note before it is built.
 
 ## 6. Your identities and Add an identity
 
@@ -463,13 +462,13 @@ Cards §5.1 stands, with these changes:
 - **The order** of the rows, here and in the switcher (rust-ui-dev-02's
   QUESTION 01a2119d, U5; the held list's order, ruled by architect-cto
   in `human-client-ui.md` §13, A 2026-11-25, on #761's branch as
-  e5592d726): the first identity first,
-  whenever its card was made. The others follow in the order their
-  cards were created; two created at the same moment are in the order
-  of their EndpointIds. After a discard and recreate (cards §7) that
-  order is lost with the cards, so the first identity stays first and
-  the others follow in the order of their EndpointIds. Cards §5.1's
-  sentence says the same in the person's terms.
+  e5592d726): the first identity first, whenever its card was made. The
+  others follow in the order their cards were created; two whose cards
+  were created at the same moment are in the order of their EndpointIds.
+  After a discard and recreate (cards §7) that order is lost with the
+  cards, so the first identity stays first and the others follow in the
+  order of their EndpointIds. Cards §5.1's sentence says the same in the
+  person's terms.
 - **Your identities in the switcher before the page exists** (U3): the
   switcher's Your identities button (cards §5.7.1) is shown only in a
   build where it opens this list. A build without the page shows the
@@ -928,7 +927,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F18 | a notification of another identity opens the app | after the transition, the conversation list's title of that identity | device |
 | F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
 | F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
-| F21 | the identity in front becomes Starting, Could not start, No room at the daemon, or unable to send because the store cannot keep new messages, while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted, and again with acceptance 30's two runs |
+| F21 | the identity in front becomes Starting, Could not start, No room at the daemon, or unable to send because the device cannot store new messages, while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted, and again with acceptance 30's two runs |
 | F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each of the four runs, a reconnection to the device makes `admin.endpoints.list` answer |
 | F23 | Try again on Chats' failure row after a switch (§5.4) | the switch | keyboard, with acceptance 27's failing read |
 
@@ -1070,8 +1069,8 @@ front.
 | `RemoveRoute` | Remove from this contact | route menu | remove from this contact |
 | `ConfirmRouteRemoved` | Conversation removed from {contact} | snackbar, with Undo, when the route is not trusted | removed the route from {contact} |
 | `ConfirmRouteRemovedTrusted` / `ConfirmRouteRemovedTrustedAs` | Conversation removed from {contact}. You still trust {peer}. / Conversation removed from {contact}. {identity} still trusts {peer}. | the same snackbar when the route is trusted, with one identity / with two or more | removed, and trust is unchanged; each case one whole template, never a clause added to another |
-| `ChatsLoading` | Loading your conversations (proposed; language-culture-en's to word) | the accessible name of Chats' progress row after a switch (§5.4); never visible text | that the identity's conversations are being read |
-| `ChatsLoadFailed` | Could not load your conversations. (proposed; language-culture-en's to word) | Chats' failure row after a switch (§5.4), before Try again | the conversations could not be read; Try again reads them again |
+| `ChatsLoading` | Loading your conversations | the accessible name of Chats' progress row after a switch (§5.4); never visible text | that the identity's conversations are being read |
+| `ChatsLoadFailed` | Could not load your conversations. | Chats' failure row after a switch (§5.4), before Try again | the conversations could not be read; Try again reads them again |
 
 **Existing trust strings, their form with two or more identities.**
 Each is shown in place of the key it names, with two or more
@@ -1353,33 +1352,36 @@ pass before it lands.
     is drawn and a tap on the list opens nothing; no no-reach notice
     and no other empty-list text shows; the progress row shows from
     250 ms on, its accessible name `ChatsLoading`; then the rows show.
-    With the read made to answer within 250 ms, no progress row is
-    drawn. With the read made to fail, the failure row shows with
-    `ChatsLoadFailed` and Try again; Try again moves focus to the switch
-    (F23) and reads again. Needs a read the test can delay or fail (the
-    builder names how). *(§5.4.)*
-28. With two identities A and B, a message to A read and not kept in
-    A's conversation: switch to B, then back to A; the message is still
-    shown in that conversation, and the store holds no copy of it.
-    After the app's process ends and starts again, it is not shown.
-    *(§5.4; RETENTION.md.)*
+    In a second run, with the read made to answer within 250 ms, no
+    progress row is drawn. In a third run, with the read made to fail,
+    the failure row shows with `ChatsLoadFailed` and Try again; Try
+    again moves focus to the switch (F23) and reads again. The test
+    needs a store read that it can delay or make fail; the builder says
+    how. *(§5.4.)*
+28. With two identities A and B, and a message to A that was read in A's
+    conversation and not kept: switch to B, then back to A; the message
+    is still shown in that conversation, and the store holds no copy of
+    it. After the app's process ends and the app starts again, it is not
+    shown. *(§5.4; RETENTION.md.)*
 29. After a switch the new rows fade in over 150 ms, and a tap on a row
-    at 50 ms opens it; with the platform's reduced motion on (Android's
-    Remove animations; the desktop's setting where the toolkit reads
-    one), they appear at once. *(§5.4; §12.)*
-30. With two identities, one closed `Overloaded` at the daemon's
-    connection limit (`ipc.max_clients` set low enough in the test's
-    profile): its row, its switcher row and its composer line read
-    `IdentityUnavailable`, with no Try again; the other identity sends.
-    Once room is made, it takes its lease again with no act of the
-    person's, and the line reads `ComposerAs`. With the store made
-    unable to commit, `StorageDegraded` shows once on Chats in front of
-    either identity, and every identity's row reads
-    `IdentityUnavailable`. *(§5.2.)*
-31. With two identities held, in a build without §6.1's list, the switcher shows its title and
-    the identities' rows, and no Your identities button; in the order
-    of §6.1: the first identity first, then the others by their card's
-    creation. *(§6.1; cards §5.7.1.)*
+    50 ms into the fade opens it; with the platform's reduced motion on
+    (Android's Remove animations; the desktop's setting where the
+    toolkit reads one), they appear at once. *(§5.4; §12.)*
+30. With two identities, and the data connection of one closed with
+    `Overloaded` at the daemon's connection limit (`ipc.max_clients` set
+    low enough in the test's profile): its row, its switcher row and its
+    composer line read `IdentityUnavailable`, with no Try again; the
+    other identity sends. Once room is made, it takes its lease again
+    with nothing done by the person, and its composer line reads
+    `ComposerAs`. In a second run, with the store made unable to commit,
+    `StorageDegraded` shows once on Chats, whichever identity is in
+    front, and every identity's row reads `IdentityUnavailable`.
+    *(§5.2.)*
+31. With two identities held, in a build without §6.1's list, the
+    switcher shows its title and the identities' rows, and no Your
+    identities button. The rows are in §6.1's order: the first identity
+    first, then the others in the order their cards were created.
+    *(§6.1; cards §5.7.1.)*
 
 ## 15. Deliberately left out
 
@@ -1503,7 +1505,7 @@ Asked by rust-ui-dev-02 for the step 1 wiring (QUESTION 01a2119d,
 - **U3** Your identities in the switcher before its page: hidden until
   the page is built (§6.1).
 - **U4** an identity refused for lack of room, and every identity when
-  the store cannot keep new messages: both read `IdentityUnavailable`,
+  the device cannot store new messages: both read `IdentityUnavailable`,
   the second with the device's `StorageDegraded` notice shown once
   (§5.2).
 - **U5** the order of the identities: architect-cto's held-list order,

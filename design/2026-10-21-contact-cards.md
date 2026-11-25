@@ -206,13 +206,13 @@ Shown while two or more identities are held; with one, the menu opens
   label is no secret from the peers this device trusts: one that learns
   or guesses it can write to that identity, and no setting narrows
   that today: an identity has the device's trust (ADR-0061 d. 5);
-- the identities, one row each, the first identity first, then the
-  others in the order they were created; after a discard and recreate
-  (§7), the first identity first and the others in an order that
-  stays the same from one start to the next
-  (`design/2026-11-04-identities.md` §6.1 has the rule): a 40 dp
-  avatar (the card's photo, or its initials, §6.1, on the hue of the
-  identity's EndpointId, so two identities of one PeerId do not look
+- the identities, one row each, in this order: the first identity first,
+  then the others in the order they were created; after a discard and
+  recreate (§7), the first identity first and the others in an order
+  that stays the same from one start to the next
+  (`design/2026-11-04-identities.md` §6.1 has the rule). Each row holds
+  a 40 dp avatar (the card's photo, or its initials, §6.1, on the hue of
+  the identity's EndpointId, so two identities of one PeerId do not look
   alike), the card's name and family name in title medium, and under it
   in body medium the route label (the EndpointId as `DirectTitle`
   shows a route, `IdentityRouteLabel`) and, on one row only, **Default**
@@ -1233,10 +1233,10 @@ layout, a menu-anchored dialog on a wide one; Back, Escape and a tap on
 the scrim close it with nothing changed. It holds:
 
 - title `IdentitySwitchTitle` ("Switch identity");
-- the identities as single-choice rows (56 dp), in §5.1's order: avatar, name, route
-  label, and at the end the row's unread count and, when any message of
-  that identity was not sent, `IdentityNotSent`; the identity in front
-  is the chosen row;
+- the identities as single-choice rows (56 dp) in §5.1's order, each
+  with its avatar, name, route label, and at the end the row's unread
+  count and, when any message of that identity was not sent,
+  `IdentityNotSent`; the identity in front is the chosen row;
 - at the bottom, **Your identities** (`IdentitiesTitle`, a text
   button), which opens §5.1 without switching; shown only in a build
   where §5.1 exists (`design/2026-11-04-identities.md` §6.1).
@@ -1307,9 +1307,10 @@ a screen of the old identity, and what it confirmed stays done, as a
 kill inside its window would leave it.
 
 Feedback: the old rows leave at once and the new rows fade in, as
-`design/2026-11-04-identities.md` §5.4 says, with what the list shows
-until they are read; the snackbar `ConfirmIdentitySwitched` ("You are now
-using {identity}") with **Switch back** (`SwitchBack`), which switches to the
+`design/2026-11-04-identities.md` §5.4 says, which also says what the
+list shows until the new rows are read; the snackbar
+`ConfirmIdentitySwitched` ("You are now using {identity}") with **Switch
+back** (`SwitchBack`), which switches to the
 previous identity by the same rule; its text is announced. Focus goes to
 the switch, which now names the new identity. A switch is not a
 destructive act, so it is not confirmed beforehand; its result is named
@@ -1781,8 +1782,9 @@ schemes; rust-ui-dev measures and reports the figures):
 | `SwitchingTo` text | the transition's surface | 4.5:1 |
 
 **Motion**: the sheets slide in, the proposal's in-place replacement
-and a switch's new rows fade in (`design/2026-11-04-identities.md`
-§5.4), and §5.7.5's transition fades; under
+cross-fades, a switch's new rows fade in
+(`design/2026-11-04-identities.md` §5.4), and §5.7.5's transition
+fades; under
 reduced motion each appears without movement, the transition keeping
 its duration.
 
