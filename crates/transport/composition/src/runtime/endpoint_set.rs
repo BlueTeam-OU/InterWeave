@@ -115,11 +115,20 @@ impl Driver {
                     .add(&self.authored.endpoints, paths, &key, &alias, kinds)
             }
             // A test construction has no state directory: no key file can
-            // be read, which is what `key_missing` says.
-            None => Added::Refused {
-                reason: overlay::AddRefusal::KeyMissing,
-                endpoint: interweave_profile_config::endpoint_key::parse_key_file_name(&key).ok(),
-                detail: "this runtime keeps no state directory".to_owned(),
+            // be read, which is what `key_missing` says -- after the name's
+            // own check, which comes first in the contract's order, so a
+            // name that derives no id is `id_not_derived` here as well.
+            None => match interweave_profile_config::endpoint_key::parse_key_file_name(&key) {
+                Ok(id) => Added::Refused {
+                    reason: overlay::AddRefusal::KeyMissing,
+                    endpoint: Some(id),
+                    detail: "this runtime keeps no state directory".to_owned(),
+                },
+                Err(_) => Added::Refused {
+                    reason: overlay::AddRefusal::IdNotDerived,
+                    endpoint: None,
+                    detail: "the key's name is not <EndpointId>.key".to_owned(),
+                },
             },
         };
         let (moved, endpoint) = match added {

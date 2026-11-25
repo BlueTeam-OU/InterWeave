@@ -779,7 +779,9 @@ pub enum Added {
         reason: AddRefusal,
         /// The id the key's name derives: `None` only for
         /// [`AddRefusal::IdNotDerived`], which is refused because there is
-        /// none (`the_add_refusals_are_checked_in_order`).
+        /// none (`the_add_refusals_are_checked_in_order`; the composition's
+        /// runtime without a state directory keeps the same order,
+        /// `without_a_state_directory_the_names_check_still_comes_first`).
         endpoint: Option<EndpointId>,
         /// For a log.
         detail: String,

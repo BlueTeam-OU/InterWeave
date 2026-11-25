@@ -732,3 +732,36 @@ async fn set_alias_renames_an_added_entry_and_refuses_in_order() {
     drop(port);
     runtime.stop().await.expect("stops");
 }
+
+/// A runtime with no state directory (a test construction) reads no key
+/// file, so a well-formed key name is `key_missing`; the name's own check
+/// still comes first, so a name that derives no id is `id_not_derived`,
+/// the contract's first refusal, as with a state directory.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_a_state_directory_the_names_check_still_comes_first() {
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), CompositionOptions::default())
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let refused = |answer: Result<EndpointAddChange, TransportError>| match answer {
+        Ok(EndpointAddChange::Refused { reason, .. }) => reason,
+        other => panic!("not refused: {other:?}"),
+    };
+    assert_eq!(
+        refused(
+            port.add_endpoint("not-a-key".to_owned(), "work".to_owned(), vec![])
+                .await
+        ),
+        EndpointAddRefusal::IdNotDerived
+    );
+    // The control: a name that derives an id, whose file this runtime
+    // cannot read.
+    let (_, key) = mint(&paths());
+    assert_eq!(
+        refused(port.add_endpoint(key, "work".to_owned(), vec![]).await),
+        EndpointAddRefusal::KeyMissing
+    );
+    drop(port);
+    runtime.stop().await.expect("stops");
+}
