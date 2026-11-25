@@ -32,7 +32,9 @@
 //!   `outbound`: an added entry's trust is its overlay set alone, so its
 //!   id stands in both of those members, `[]` for no trusted peer
 //!   ([`EndpointOverlayError::AddedEntryWithoutSet`]); an absent id is
-//!   "no own set" for an AUTHORED endpoint only.
+//!   "no own set" for an AUTHORED endpoint only. The entry's own filters
+//!   are [`ADDED_TRUST`], which admits nobody, so a runtime that holds
+//!   the endpoint without its set fails closed in both directions.
 //!   Authored and added entries together are at most
 //!   [`MAX_ENDPOINTS`](crate::MAX_ENDPOINTS), and an added id or alias
 //!   that an authored or another added entry holds refuses the load.
@@ -148,7 +150,8 @@ pub struct EndpointOverlay {
     outbound: EndpointSets,
     /// The entries added through the administrative path, by id, written
     /// as a list. Never carries trust of its own: an added entry's is its
-    /// set above, which a loaded overlay always holds for it.
+    /// set above, which a loaded overlay always holds for it, and its
+    /// filters are [`ADDED_TRUST`] whether it was loaded or added.
     #[serde(
         skip_serializing_if = "BTreeMap::is_empty",
         serialize_with = "added_out"
@@ -518,7 +521,8 @@ pub enum EndpointOverlayError {
     },
     /// An added entry's id stands in neither `inbound` nor `outbound`.
     /// An added endpoint's trust is its overlay set alone, `[]` at the
-    /// add; no set would leave it inheriting the operator's list.
+    /// add; the file states it rather than leave the endpoint to its
+    /// filter, [`ADDED_TRUST`], which admits nobody.
     AddedEntryWithoutSet {
         /// The added endpoint.
         endpoint: EndpointId,
@@ -665,6 +669,23 @@ impl EndpointOverlayError {
         matches!(self, Self::Write(PersistError::Unsynced(_)))
     }
 }
+
+/// An added entry's `inbound` and `outbound` filter: the empty static
+/// subset, never the inheritance an absent member reads as in
+/// `config.yaml` (ADR-0067 decision 6: an added endpoint admits nobody
+/// until a set names a peer). The runtime falls back to an entry's filter
+/// whenever it holds the endpoint without its own set -- after a removal
+/// left the overlay ahead of it, a later trust write publishes sources
+/// without that set -- and an inheriting filter there would admit every
+/// operator-listed peer (the composition crate's
+/// `tests/endpoint_set_ahead.rs`). Every construction of an added entry,
+/// the add's and the load's, sets both members to it
+/// (`an_add_writes_the_entry_and_its_two_empty_sets`,
+/// `a_loaded_added_entrys_filters_admit_nobody`).
+pub const ADDED_TRUST: interweave_trust_api::EndpointTrustPolicy =
+    interweave_trust_api::EndpointTrustPolicy::StaticSubset {
+        allowed_peers: BTreeSet::new(),
+    };
 
 /// What an added entry is judged against when it is not an authored
 /// one's: the member's name for the error that names it.
@@ -886,9 +907,11 @@ impl EndpointOverlay {
         let added = Self::resolve_added(raw.added, config)?;
         let (inbound, outbound) = Self::resolve_sets(raw.inbound, raw.outbound)?;
         // ADR-0067 decision 6's "an absent id is no own set" is the
-        // authored endpoint's case: an added one that took it would
-        // inherit the operator's list, which its set alone replaces.
-        // Both members hold the same ids by now, so one is asked.
+        // authored endpoint's case: an added endpoint's trust is its set
+        // alone, so the file must state it, `[]` for nobody. Its filter
+        // (`ADDED_TRUST`) admits nobody either, so the refusal keeps the
+        // file exact rather than closing a widening. Both members hold
+        // the same ids by now, so one is asked.
         if let Some(endpoint) = added.keys().find(|id| !inbound.contains_key(*id)) {
             return Err(EndpointOverlayError::AddedEntryWithoutSet {
                 endpoint: endpoint.clone(),
@@ -977,8 +1000,12 @@ impl EndpointOverlay {
                     }
                 }
             }
-            let entry: EndpointConfig = serde_json::from_value(value)
+            let mut entry: EndpointConfig = serde_json::from_value(value)
                 .map_err(|e| EndpointOverlayError::Parse(format!("an added endpoint: {e}")))?;
+            // The entry reader reads an absent member as inheritance, which
+            // an added endpoint never has.
+            entry.inbound = ADDED_TRUST;
+            entry.outbound = ADDED_TRUST;
             if config.entries.iter().any(|e| e.id == entry.id) || added.contains_key(&entry.id) {
                 return Err(EndpointOverlayError::AddedIdCollides(entry.id));
             }
@@ -1504,8 +1531,9 @@ impl EndpointOverlay {
     /// (`crate::load::read_entry_key`). `unchanged` is decided at the
     /// `exists` step, after the key checks, so a retry whose key file has
     /// since gone is `key_missing`. On [`Added::Added`] the entry is in
-    /// `added` -- enabled, `advertise: false`, no trust member of its own
-    /// -- and its id in `inbound` and `outbound` with an empty set each;
+    /// `added` -- enabled, `advertise: false`, no trust member written,
+    /// its filters [`ADDED_TRUST`] -- and its id in `inbound` and
+    /// `outbound` with an empty set each;
     /// the default is left where it is. Kinds are compared as a set.
     #[must_use]
     pub fn add(
@@ -1534,8 +1562,8 @@ impl EndpointOverlay {
             enabled: true,
             advertise: false,
             allowed_client_kinds,
-            inbound: interweave_trust_api::EndpointTrustPolicy::default(),
-            outbound: interweave_trust_api::EndpointTrustPolicy::default(),
+            inbound: ADDED_TRUST,
+            outbound: ADDED_TRUST,
         };
         let mismatch = crate::load::read_entry_key(paths, &mut entry);
         if let crate::EndpointKeyState::Missing(why) = &entry.key_state {

@@ -12,8 +12,8 @@
 use std::path::PathBuf;
 
 use interweave_profile_config::endpoint_overlay::{
-    AddRefusal, Added, AliasRefusal, ENDPOINT_OVERLAY_FILE, EndpointOverlay, EndpointOverlayError,
-    RemoveRefusal, Removed, Renamed,
+    ADDED_TRUST, AddRefusal, Added, AliasRefusal, ENDPOINT_OVERLAY_FILE, EndpointOverlay,
+    EndpointOverlayError, RemoveRefusal, Removed, Renamed,
 };
 use interweave_profile_config::{
     ClientKind, EndpointsConfig, MAX_ENDPOINTS, ProfilePaths, TrustBoundary, XdgRoots, endpoint_key,
@@ -112,7 +112,8 @@ fn file_json(p: &Profile) -> Value {
 /// The add writes the entry into `added` with no trust member of its own,
 /// advertise false and enabled, and its id into both set members with
 /// `[]`; the default stays; the file loads back to the same overlay and
-/// composes a leasable, unadvertised entry.
+/// composes a leasable, unadvertised entry whose filters are
+/// `ADDED_TRUST`, admitting nobody, as added and as loaded.
 #[test]
 fn an_add_writes_the_entry_and_its_two_empty_sets() {
     let p = profile();
@@ -137,6 +138,16 @@ fn an_add_writes_the_entry_and_its_two_empty_sets() {
     assert_eq!(back, overlay);
     let composed = back.apply(&config());
     assert_eq!(composed.default_direct_endpoint, Some(id("a")));
+    // Its filters admit nobody, as the add built them and as they load.
+    for entry in [&overlay, &back].map(|o| {
+        o.apply(&config())
+            .entries
+            .into_iter()
+            .find(|e| e.id == endpoint)
+            .expect("composed")
+    }) {
+        assert_eq!((entry.inbound, entry.outbound), (ADDED_TRUST, ADDED_TRUST));
+    }
     assert!(
         back.own_sets(&endpoint)
             .is_some_and(|(i, o)| i.is_empty() && o.is_empty())
