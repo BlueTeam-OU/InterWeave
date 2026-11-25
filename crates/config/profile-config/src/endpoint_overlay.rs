@@ -777,6 +777,10 @@ pub enum Added {
     Refused {
         /// Why.
         reason: AddRefusal,
+        /// The id the key's name derives: `None` only for
+        /// [`AddRefusal::IdNotDerived`], which is refused because there is
+        /// none (`the_add_refusals_are_checked_in_order`).
+        endpoint: Option<EndpointId>,
         /// For a log.
         detail: String,
     },
@@ -1544,12 +1548,20 @@ impl EndpointOverlay {
         alias: &str,
         allowed_client_kinds: Vec<ClientKind>,
     ) -> Added {
-        let refused = |reason, detail: String| Added::Refused { reason, detail };
         let id = match crate::endpoint_key::parse_key_file_name(key) {
             Ok(id) => id,
             Err(e) => {
-                return refused(AddRefusal::IdNotDerived, format!("key {key:?}: {e}"));
+                return Added::Refused {
+                    reason: AddRefusal::IdNotDerived,
+                    endpoint: None,
+                    detail: format!("key {key:?}: {e}"),
+                };
             }
+        };
+        let refused = |reason, detail: String| Added::Refused {
+            reason,
+            endpoint: Some(id.clone()),
+            detail,
         };
         let alias = match EndpointAlias::parse(alias) {
             Ok(alias) => alias,

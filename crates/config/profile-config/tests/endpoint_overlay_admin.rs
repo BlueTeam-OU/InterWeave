@@ -105,6 +105,14 @@ fn refusal(added: &Added) -> Option<AddRefusal> {
     }
 }
 
+/// The id a refusal carries: `None` for anything but a refusal.
+fn refused_endpoint(added: &Added) -> Option<Option<EndpointId>> {
+    match added {
+        Added::Refused { endpoint, .. } => Some(endpoint.clone()),
+        _ => None,
+    }
+}
+
 fn file_json(p: &Profile) -> Value {
     serde_json::from_str(&std::fs::read_to_string(&p.overlay).expect("read")).expect("json")
 }
@@ -156,7 +164,9 @@ fn an_add_writes_the_entry_and_its_two_empty_sets() {
 
 /// Every refusal by name, in the contract's order: each case carries the
 /// fault being named AND every later one, so a check moved later answers
-/// another name. The control is the same add, every fault cleared.
+/// another name. The control is the same add, every fault cleared. Every
+/// refusal after `id_not_derived` carries the id the key's name derives,
+/// and `id_not_derived` none.
 #[test]
 fn the_add_refusals_are_checked_in_order() {
     let p = profile();
@@ -172,6 +182,10 @@ fn the_add_refusals_are_checked_in_order() {
         Some(AddRefusal::IdNotDerived)
     );
     assert_eq!(
+        refused_endpoint(&add(&base, "not-a-key", "Bad Alias")),
+        Some(None)
+    );
+    assert_eq!(
         refusal(&add(&base, minted.as_str(), "ok")),
         Some(AddRefusal::IdNotDerived),
         "a bare id is not a key file's name"
@@ -181,11 +195,19 @@ fn the_add_refusals_are_checked_in_order() {
         refusal(&add(&base, &key_of("nofile"), "Bad Alias")),
         Some(AddRefusal::AliasInvalid)
     );
+    assert_eq!(
+        refused_endpoint(&add(&base, &key_of("nofile"), "Bad Alias")),
+        Some(Some(id("nofile")))
+    );
     // key_missing beats exists and alias_taken: `a` is authored and
     // `taken` is held, and `a`'s key was never minted.
     assert_eq!(
         refusal(&add(&base, &key_of("a"), "taken")),
         Some(AddRefusal::KeyMissing)
+    );
+    assert_eq!(
+        refused_endpoint(&add(&base, &key_of("a"), "taken")),
+        Some(Some(id("a")))
     );
     // key_mismatch: a file under one id whose header derives another.
     let other = endpoint_key::mint_filesystem(&p.paths).expect("minted");
@@ -199,11 +221,19 @@ fn the_add_refusals_are_checked_in_order() {
         refusal(&add(&base, &key_of("forged"), "taken")),
         Some(AddRefusal::KeyMismatch)
     );
+    assert_eq!(
+        refused_endpoint(&add(&base, &key_of("forged"), "taken")),
+        Some(Some(id("forged")))
+    );
     // exists beats alias_taken: the authored id, given a key file.
     let authored = profile_with_authored_key(&p);
     assert_eq!(
         refusal(&add(&base, &authored, "taken")),
         Some(AddRefusal::Exists)
+    );
+    assert_eq!(
+        refused_endpoint(&add(&base, &authored, "taken")),
+        Some(Some(id("a")))
     );
     // alias_taken against an added entry and against an authored one.
     assert_eq!(
@@ -213,6 +243,10 @@ fn the_add_refusals_are_checked_in_order() {
     assert_eq!(
         refusal(&add(&base, &key, "b")),
         Some(AddRefusal::AliasTaken)
+    );
+    assert_eq!(
+        refused_endpoint(&add(&base, &key, "b")),
+        Some(Some(minted.clone()))
     );
     // The control: the same key under a free alias is added.
     assert!(matches!(add(&base, &key, "free"), Added::Added { .. }));
