@@ -923,10 +923,10 @@ pub(crate) fn expected_start() -> Option<TransportIdentity> {
 static UNCHECKED: Mutex<Option<UncheckedAnswer>> = Mutex::new(None);
 
 /// A start told to expect C4's `PeerId` was refused for its identity: the
-/// screen held for it answers it ([`start_decided`]) -- C4, whichever C4
-/// start it was, in place; R2 after K1, R3 or R4 not reached after K1 by
-/// opening Chats with `Refused` focused, or K1 for a record that does not
-/// open.
+/// screen held for it answers it ([`start_decided`]): a mismatch or
+/// `Unavailable` on C4, whichever C4 start it was, in place, and on R2
+/// after K1, R3 or R4 not reached after K1 by opening Chats with `Refused`
+/// focused; a record that does not open, on any of them, by K1.
 pub(crate) fn unchecked_refused(refused: UncheckedRefused) {
     let before = ServiceHost::global().hub().store_generation().count();
     *UNCHECKED.lock().unwrap_or_else(PoisonError::into_inner) =
