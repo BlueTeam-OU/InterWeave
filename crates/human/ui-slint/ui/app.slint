@@ -5955,8 +5955,10 @@ export component AppWindow inherits Window {
                             // breaks inside the word (parley
                             // OverflowWrap::Anywhere): never an ellipsis,
                             // which would hide part of an enlarged heading
-                            // (identities section 12, 2026-11-23). On one
-                            // row it fits whole.
+                            // (identities section 12, 2026-11-23). With the
+                            // switch shown, one row is chosen only when the
+                            // title fits whole; with no switch the bar is one
+                            // row as before and the title elides.
                             wraps: chats-bar.two-rows;
                             focus-key: "conversations-heading";
                             focus-seq: root.focus-seq;
