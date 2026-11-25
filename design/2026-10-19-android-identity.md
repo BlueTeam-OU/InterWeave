@@ -492,18 +492,21 @@ on main, which stopped being true when #313 merged on 2026-10-21. §6's
 `IdRestoreOther` paragraph and §11f's Q17 answer now point to the
 `RecordNamesOther` row for why R2 after K1 cannot reach that notice.
 Before, each gave a shorter reason of its own. Q18's answer now says
-that no writer can replace the record on R2 after K1, which its quoted
-question assumed. Acceptance 12's seventh run also names f8c122108,
-which puts focus on `Refused`. §6 (The hold) and acceptance 12 and
-15 now say that the build keeps a flow screen through a recreation
-(4d33c9352) and gives it its opening focus, which §6's rule does not
-allow; the build owes that focus. Acceptance 15's sixth return run
-and acceptance 12's R2 recreation run are no longer blocked on j311:
-they are device runs, and the sixth fails until the build keeps the
-focus. Acceptance 15's ten return runs are device runs, with host
-tests below them (rust-ui-dev-01's REPLY 01a2130d). Before, the note
-said that a recreation started the flow again, that both runs were
-blocked until j311 landed, and that the ten return runs were host
+that no writer can replace the record on R2 after K1. The question
+that the answer quotes assumed that another writer could change the
+record on R2 after K1. Acceptance 12's seventh run also names
+f8c122108, the commit that puts focus on `Refused`. §6 (The hold) and
+acceptance 12 and 15 now say that the build keeps a flow screen
+through a recreation (4d33c9352) and that the new window gives the
+screen its opening focus. §6's rule does not allow that focus, and the
+build owes the rule: focus on the control that had it. Acceptance 15's
+sixth return run and acceptance 12's R2 recreation run are no longer
+blocked on j311: they are device runs, and acceptance 15's sixth run
+fails until the build keeps the focus. Acceptance 15's ten return runs
+are device runs, and host tests check the layer below them
+(rust-ui-dev-01's REPLY 01a2130d). Before, the note said that a
+recreation restarted the flow at its first screen, that those two runs
+were blocked until j311 landed, and that the ten return runs were host
 tests.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
@@ -1522,16 +1525,17 @@ this notice wherever it shows also keeps the app predictable
   none either: the recreated window puts focus on the control that
   had it before, as on Chats (A return or a recreation, under A
   start refused with the profile in use after the bound). The build
-  keeps the flow through a recreation: C4, R4, R3 and R2 after K1
-  show again in the new window with their words, the profile's lock
-  and a held start (4d33c9352). The new window gives each screen its
-  opening focus, though: the title on C4 and R4, the question on R3,
-  and the keypad's first enabled key on R2 (rust-ui-dev-01's REPLY
-  01a2130d). That focus moves the person, against this rule. The
-  build owes the rule: the kept flow carries the control that had
-  focus, and the new window puts focus on that same control, the same
-  keypad key or chip included. Acceptance 15's sixth return run and
-  acceptance 12's R2 recreation run check it, on a device. The 1 s before
+  keeps the flow through a recreation: C4, R4, R3 and R2 after K1 show
+  again in the new window with the words of the recovery phrase, the
+  profile's lock and a held start (4d33c9352). The new window gives
+  each screen its opening focus, though: the title on C4 and R4, the
+  question on R3, and the keypad's first enabled key on R2
+  (rust-ui-dev-01's REPLY 01a2130d). This rule does not allow that
+  move of focus. The build owes the rule: the kept flow carries the
+  control that had focus, and the new window puts focus on that same
+  control, the same keypad key or chip included. Acceptance
+  15's sixth return run and acceptance 12's R2 recreation run check
+  this rule, on a device. The 1 s before
   `ConnectStarting` and add-a-peer §5.1's 10 s bound count from the
   return, never from when `IdStartBusy` first showed. Why: the
   bound limits how long the person waits on a held screen, and while
@@ -2518,9 +2522,10 @@ landscape:
     run, the app sent to the background and back. Each is blocked on
     the same count. The second run is a device run, because no host
     test drives the Activity (rust-ui-dev-01's REPLY 01a2130d); the
-    build keeps R2 through a recreation (4d33c9352). This run checks
-    the count; focus after the recreation is §6's (The hold), which
-    the build does not yet keep. Removing the notice first is what makes each run
+    build keeps R2 through a recreation (4d33c9352). The second run
+    checks the count. §6 (The hold) gives the focus after the
+    recreation, and the build does not yet keep that focus. Removing
+    the notice first is what makes each run
     check the read-back owed and not the notice: with the notice
     shown, `IdCheckWords` reads back by the notice's rule alone. A read-back that keeps
     failing, in host tests: on R2 after K1, Back, `IdDiscard`, K1's
@@ -2836,9 +2841,11 @@ scale would also be a finding of the Android review
       notice. In a sixth run, the test recreates the window as a
       change of the system language does: the hook records one start,
       answered as in the second run. A rotation instead records no
-      start. After either, focus stays on the control that had it
-      (§6, The hold); the build keeps the flow (4d33c9352) but does not yet
-      keep that focus, so the sixth run fails until it does. In a seventh run, made with Stay
+      start. After either, focus must stay on the control that had
+      it (§6, The hold). The build keeps the flow through the
+      recreation (4d33c9352) but does not yet keep that focus, so the
+      sixth run fails until the build keeps it. In a seventh run,
+      made with Stay
       reachable on only, the
       test presses Enter on Try again, the hook leaves that start
       unanswered, and the test then sends the app to the background
@@ -2860,16 +2867,17 @@ scale would also be a finding of the Android review
       app's comparison before the start. #750 built that comparison
       (180448d96), and the retry at a return makes the same
       comparison (`apps/human-android/src/unchecked_start.rs`). These
-      ten runs are device runs: the return and the recreation run in
+      ten runs are device runs: the return and the recreation happen in
       the Activity, which no host test drives, and only a device shows
       the hook's start counts across them, the timing of
       `ConnectStarting` and Chats from the return, and focus in the
       drawn window (rust-ui-dev-01's REPLY 01a2130d). Host tests check
-      the layer below: `showing_started` holds C4, R4, R3 and R2 after
-      K1 once for a showing's start (`identity_flow`); a return leaves
-      the held screen to it (`android-platform`'s view side); the
-      comparison a return's retry makes, the tenth run's refusal and
-      its focus (`unchecked_start.rs`); and the park past a destroy
+      the layer below: that `showing_started` holds C4, R4, R3 and R2
+      after K1 once for a showing's start (`identity_flow`); that a
+      return leaves the held screen to `showing_started`
+      (`android-platform`'s view side); the comparison that a return's
+      retry makes, the tenth run's refusal and its focus
+      (`unchecked_start.rs`); and the park of the flow past a destroy
       (`flow_park.rs`).
     - A service start refused with the profile in use after the
       bound (§6, A start refused with the profile in use after the
@@ -3696,9 +3704,9 @@ here; the first was already answered on this branch.
   Continue on R2 after K1 would end the
   comparison only if that notice also said that the words written down
   on C4 do not restore the PeerId below it. The note does not add that
-  text, because a build cannot reach that notice there (§6, the
-  `RecordNamesOther` row), so the start of that Continue
-  still compares. No ADR or contract
+  text, so the start of that Continue still compares. It does not
+  add it because a build cannot reach that notice there (§6, the
+  `RecordNamesOther` row). No ADR or contract
   change follows. §6 (The comparison
   outlasts the bound) carries the answer. Acceptance 12's fifth run
   walks Back before any check, and it walks R4's Continue; its sixth
