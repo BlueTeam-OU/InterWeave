@@ -74,7 +74,8 @@ pub trait Opener {
 
     /// Make one service start for the notice of a start refused with the
     /// profile in use (`SessionNotice::StartBusy`), or of a start that
-    /// compared with C4's `PeerId` and was refused after the bound
+    /// compared with C4's `PeerId` and was refused after the bound, or
+    /// before it from a held R2, R3 or R4 that opened Chats in its place
     /// (`SessionNotice::StartRefused`), by the path a granted Unlock uses
     /// (design/2026-10-19-android-identity.md §11d, Q12; §6, An answer
     /// after the bound). Raised only while the model offers it -- either
@@ -282,7 +283,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     }
 
     /// Whether the last start compared with C4's `PeerId` and was refused
-    /// after the bound, and whether a start for its notice runs, as the
+    /// after the bound, or before it from a held R2, R3 or R4 that opened
+    /// Chats in its place, and whether a start for its notice runs, as the
     /// root learns it from the platform ([`UiModel::start_refused`]).
     pub fn start_refused(&mut self, refused: Option<StartBusy>) {
         self.model.start_refused(refused);
