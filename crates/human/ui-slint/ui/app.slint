@@ -2422,7 +2422,9 @@ component IdentityScreen inherits FocusScope {
     property <bool> keys-alpha: root.width < 340px;
     // The layout `at-idx` and `saved-idx` were taken in: stamped when a
     // stop takes focus and when the dialog saves it, never when the
-    // window's width later crosses 340.
+    // window's width later crosses 340 (trace.rs
+    // a_resize_across_the_layout_switch_says_no_stop,
+    // a_dialogs_way_back_keeps_the_layout_it_was_saved_in).
     property <bool> at-alpha;
     property <bool> saved-alpha;
     changed at-alpha => { root.publish(); }

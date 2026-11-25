@@ -3976,11 +3976,11 @@ fn a_kept_stops_debug_says_nothing_of_it() {
 }
 
 /// The window's width crossing 340 says no stop of its own: Welcome,
-/// which opens on none, holds none after it; and on R2 the key focus
-/// stands on after a live resize is the one kept, stamped with the layout
-/// it took focus in (#764 round 2, risk a). The live switch itself puts
-/// focus on the key at the same place in the new layout, as before this
-/// change: b's place in the sevens is w's in QWERTY.
+/// which opens on none, holds none after it (#764 round 2, risk a); and
+/// on R2 the key kept is the one focus stands on at the recreation. A
+/// live switch puts focus on the key at the same place in the new
+/// layout, as before this change: b's place in the sevens is w's in
+/// QWERTY.
 #[test]
 fn a_resize_across_the_layout_switch_says_no_stop() {
     use interweave_human_ui_model::{IdentityFlow, Start};
@@ -4020,4 +4020,42 @@ fn a_resize_across_the_layout_switch_says_no_stop() {
         [IdentityInput::Key('w')],
         "w, the key focused at the recreation"
     );
+}
+
+/// The dialog's way back keeps the layout it was saved in through a live
+/// switch while the dialog shows: b saved in the sevens, the window
+/// widened under the dialog, focus moved between its actions there, then
+/// a recreation; Keep gives focus back to b, not w (#764 round 3 F4).
+#[test]
+fn a_dialogs_way_back_keeps_the_layout_it_was_saved_in() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    width(&page.view, 330.0);
+    page.settle();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(page.word(0), Some("act"), "control: a word entered");
+    // a, the first enabled key in the sevens, then b, navigating.
+    page.tab();
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    width(&page.view, 400.0);
+    page.settle();
+    // Keep to Delete and back, each stamped in QWERTY.
+    page.tab();
+    page.tab();
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-dialog-keep",
+        "control"
+    );
+    page.take();
+    page.recreate_with(true, |view| width(view, 400.0));
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not w");
 }
