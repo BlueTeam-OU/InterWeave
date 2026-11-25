@@ -804,8 +804,8 @@ impl Onboarding {
 /// waits past.
 struct Parked {
     /// The identity page's focused stop when its window ended, a keypad
-    /// key or a chip by its place: the next window's page takes it in
-    /// place of its screen's opening focus (`View::keep_identity_stop`).
+    /// key or a chip included: the next window's page takes it in place
+    /// of its screen's opening focus (`View::keep_identity_stop`).
     focus: Option<IdentityStop>,
     flow: IdentityFlow,
     creation: Option<Creation>,
