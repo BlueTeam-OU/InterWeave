@@ -1779,7 +1779,8 @@ else names them.
   when phase 1b's config half was about to model
   `transport.connectivity` — whose schema makes `relay.client.enabled` a
   `literal[true]`, so modelling it is what would otherwise construct a
-  relay client by default. Recorded here rather than only in `AGENTS.md`
+  relay client by default. Recorded here rather than only in the instruction file (today the
+  `libp2p-connectivity` skill states it beside this record)
   because this is where the construction order lives: a decision about
   ordering stated only in the operating contract is the shape Stage 10's
   exit gate had, where a shipping decision sat somewhere that could not
