@@ -75,3 +75,25 @@ whatever release follows it.
 
 **Propagation.** Decision 2; this note; the log row; the digest entry;
 the README row; plan §22's record.
+
+### Amendment 2026-11-24 — The public API is the wire majors of the release it speaks for, direct `3.0.0` and IPC `3` from the Stage 22 release
+
+Decision 2 listed the public API with the wire as it stood on 2026-10-23:
+"the wire protocols in their `active` contracts
+(`/interweave/direct/2.0.0`, …)" and "IPC v2's method table", and
+decision 4 spoke of "IPC v2's `{major, minor}`". ADR-0067 decision 7
+moved both majors in the Stage 22 release, and the texts that named
+them followed in that batch; this record, its README row and its digest
+entry did not, which the batch's review found (its finding F8 at
+36db29c5). The list now names the direct protocol and the IPC major of
+the release it speaks for, with both values, and decision 4 names the
+IPC without a major, since its rule holds across them. What the record
+decides is unchanged, and it already decided this case: an IPC major or
+a schema MAJOR raise makes the release MAJOR, MINOR before `1.0.0` and
+said in the release notes as breaking (decisions 3 and 4). The Context's
+"IPC v2" stays, being what was true when the record was written.
+
+**Propagation.** Decisions 2 and 4; this note; the log row; the digest
+entry; the README row. ADR-0017's Decision, its remaining "IPC v2"
+sentences and its README row were brought to its own amendment of
+2026-11-19 in the same change, which that amendment had left unfolded.

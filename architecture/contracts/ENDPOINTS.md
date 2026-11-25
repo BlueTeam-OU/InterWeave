@@ -32,8 +32,8 @@ Rules:
 
 - 52 ASCII bytes, under every 64-byte ceiling the label grammar met (`ipc/hello`, the payload budgets), so no ceiling moves;
 - case-sensitive, one canonical form: the text is a base58btc number, compared byte for byte;
-- derived, never chosen: an id written by hand in a configuration or an administrative add is refused as `EndpointIdNotDerived`, and the daemon or embedded host derives every id from the key the entry names at load;
-- unique by construction within a node and across nodes — two equal ids are one key;
+- derived, never chosen, wherever the key can be read: an id written by hand in the retired `id` member is refused as `EndpointIdNotDerived`, an administrative add takes no id, only a key file's name, and creates no endpoint from one written by hand — a `key` value that is not `<EndpointId>.key` is `id_not_derived`, a well-formed name whose file is absent or unreadable `key_missing`, one whose file holds a key deriving another id `key_mismatch` (`LOCAL-IPC.md`, `admin.endpoints.add`; A 2026-11-25) — and the daemon or embedded host derives the id from the public key in the entry's key file at load. One entry's id is stated and not derived (A 2026-11-24): an entry whose key file is absent or unreadable takes the id its `key` name states (§Configured endpoint set, the key-missing state), so a name written by hand loads an id no key on this node derived — a selector under this node's PeerId that holds a lease and routes and signs nothing, under which no card and no signed claim can exist;
+- unique by construction within a node and across nodes wherever the id is derived — two equal ids are one key. A stated id (the key-missing entry of the rule above) may equal one another node's key derives, since nothing derived it here; it still names at most one key, and within the node an id equal to another entry's is refused at load;
 - no wildcard endpoint exists;
 - no endpoint may be addressed as a broadcast substitute;
 - endpoint IDs are peer-asserted routing metadata when received from the network: a remote `source_endpoint` proves that the authenticated PeerId claimed that endpoint, and a signature under the endpoint's key — a contact card's (HUMAN-CHAT.md §Contact card), whose key the receiver checks derives the endpoint — proves the key behind it.
@@ -314,7 +314,7 @@ Existing per-session event-queue and direct-send concurrency limits continue to 
 
 ## Versioning
 
-Endpoint addressing is a **transport contract major-version change** from v1 to v2 and a local IPC major-version change from v1 to v2.
+Endpoint addressing is a **transport contract major-version change** from v1 to v2 and a local IPC major-version change from v1 to v2. The derived EndpointId is a second one of each, from v2 to v3, with the Stage 22 release (ADR-0067 decision 7 and its A 2026-11-24; ADR-0030, A 2026-11-19 and A 2026-11-24; `TRANSPORT.md` §Versioning; `LOCAL-IPC.md` §Version negotiation).
 
 The direct wire protocol is `/interweave/direct/3.0.0`, the protocol of the derived EndpointId (ADR-0067 decision 7; `transport/libp2p/DIRECT.md` §Selected primitive). `/interweave/direct/2.0.0`, which carried the label grammar, is retired with the Stage 22 release and is not spoken beside it: a node on either side of that release fails the other at protocol negotiation, by name. No release implemented `/direct/1.0.0`, and no compatibility with an older direct protocol may be used as an implicit fan-out escape hatch.
 

@@ -14,7 +14,7 @@ Rule 4 now classifies such an envelope as too large before compression is consid
 
 ### Amendment 2026-08-17 — Bridge decodes content-encoding before classifying content
 
-Rule 6 required the Claude bridge's defense-in-depth checks to run on decompressed bytes, but `contracts/CHANNEL-EVENT.md` independently required non-UTF-8 payloads to be forwarded as base64url and stated that the bridge "does not parse JSON/application protocols to infer meaning". A brotli-compressed envelope is non-UTF-8, so a bridge conforming to that contract would forward opaque base64url and never invoke the decoder, while a bridge following rule 6 would violate the event contract. Two accepted documents in conflict is precisely what must not be resolved silently in code (`CLAUDE.md` §2).
+Rule 6 required the Claude bridge's defense-in-depth checks to run on decompressed bytes, but `contracts/CHANNEL-EVENT.md` independently required non-UTF-8 payloads to be forwarded as base64url and stated that the bridge "does not parse JSON/application protocols to infer meaning". A brotli-compressed envelope is non-UTF-8, so a bridge conforming to that contract would forward opaque base64url and never invoke the decoder, while a bridge following rule 6 would violate the event contract. Two accepted documents in conflict is precisely what must not be resolved silently in code (`AGENTS.md` §2).
 
 `CHANNEL-EVENT.md` now states that a content-encoding parameter is decoded before content classification, and that decoding is representation rather than the application-protocol parsing it forbids — the bridge still reads no envelope field to infer meaning. `meta.content_type` reports the media type with the encoding parameter removed. Rule 6 cites that rule rather than restating it.
 

@@ -3,7 +3,7 @@
 #
 # SPIKE-006 harness — EVIDENCE ONLY, and deliberately not a workspace
 # member. Nothing depends on it, and its results reach production as
-# permanent tests rather than as code (CLAUDE.md §4, spikes/README.md).
+# permanent tests rather than as code (AGENTS.md §4, spikes/README.md).
 #
 # The single question: does the pinned rust-libp2p identity API expose and
 # accept the EXACT 32-byte Ed25519 secret seed that
@@ -21,7 +21,7 @@
 # joined `[workspace].members` would be built and linted by `cargo xtask
 # ci`, would appear in Cargo.lock, and would be one `path = ` away from
 # becoming a production dependency by accident — the exact thing
-# spikes/README.md and CLAUDE.md §4 forbid.
+# spikes/README.md and AGENTS.md §4 forbid.
 [workspace]
 
 [package]
