@@ -601,6 +601,13 @@ impl Identities {
         if self.front_held().is_none() {
             self.front = self.fallback();
             change.came_in_front.clone_from(&self.front);
+            // Not a switch: the identity the snackbar names is no longer
+            // in front, and Switch back would find its target already
+            // there or beside the point; Remove's own snackbar and focus
+            // are the root's (cards §5.7.3, identities §7;
+            // `the_front_gone_brings_the_default_in_front`).
+            self.previous = None;
+            self.snackbar = None;
         } else if let (Some((key, true)), Some(now)) = (was_sending, self.front_held()) {
             change.send_disabled = key == now.key && now.state != IdentityState::Ready;
         }
@@ -1336,8 +1343,26 @@ mod tests {
         let change = m.held_changed(held);
         assert_eq!(change.map(|c| c.came_in_front), Ok(Some(key("b"))));
         assert_eq!(m.front(), Some(&key("b")));
+        // Not a switch: no snackbar of the switch is up, and Switch back
+        // has no target, though `a` is still held.
+        assert_eq!(m.switch_snackbar(), None);
+        assert_eq!(m.previous(), None);
         // Switch back to an identity no longer held is gone with it.
         m.held_changed(holding(&["b", "c"])).ok();
+        assert_eq!(m.previous(), None);
+    }
+
+    #[test]
+    fn the_front_gone_to_the_old_previous_closes_the_switch_snackbar() {
+        let mut m = model(&["a", "b", "c"]);
+        switched(m.switch(&key("c"), false));
+        assert_eq!(m.previous(), Some(&key("a")));
+        assert!(m.switch_snackbar().is_some());
+        // `a`, the default and Switch back's target, comes in front.
+        let change = m.held_changed(holding(&["a", "b"]));
+        assert_eq!(change.map(|c| c.came_in_front), Ok(Some(key("a"))));
+        assert_eq!(m.front(), Some(&key("a")));
+        assert_eq!(m.switch_snackbar(), None);
         assert_eq!(m.previous(), None);
     }
 
