@@ -580,29 +580,10 @@ Outcomes other than Done, each with nothing half-made shown as made:
   add still running may yet use it. At the client's next start, and
   whenever Your identities opens, the client lists the endpoints: a
   kept key whose id is listed is an identity, named by its alias until
-  it has a card (the card case below). A list that answered without
-  the id does not say that the add never happened: it also lacks an
-  add the daemon wrote and left ahead of the running device, which
-  answered `Internal` and takes effect at the daemon's next start, and
-  an add applied after that list answered (`LOCAL-IPC.md`
-  §Method catalogue, `admin.endpoints.add`). So the client deletes
-  nothing on such a list: it sends the same add again with the kept
-  key, as a retry of Create does (step 2), and the answer decides, as
-  for a replaces record (identity-key §5.3). `added` or `unchanged`:
-  the identity exists, named by its alias until it has a card (the
-  card case below). `refused`, whatever the reason: the key file is
-  deleted, so that an add applied later finds no key, and then the
-  client sends the administrative remove of that id; whatever the
-  remove answers, nothing more is kept. If an add applied later
-  leaves the id listed all the same, that id shows as an identity
-  whose key is missing, which the person removes (§7). Any other
-  answer, or a list that failed: the key is kept, and settled again
-  at the next start or the next opening of Your identities. Nothing is
-  shown for this settle: the person already left the form, and a
-  registered identity appears in Your identities as any new identity
-  does. The key of a new identity that a replaces record names is not
-  settled here; it is settled with that record (§7, "An identity that
-  cannot come back").
+  it has a card (the card case below); one whose id is not listed by a
+  list that answered is deleted. A key is never deleted on a list that
+  failed, nor the key of a new identity that a replaces record names
+  (§7, "An identity that cannot come back").
 - **The add answers that the id exists** (the first add landed between
   a retry's list and its add, D1): as Found, the client goes on with
   step 3; nothing is shown as refused.
@@ -1235,14 +1216,7 @@ pass before it lands.
     reads the list, does not find the id, and adds with the same key. In
     both, no second EndpointId exists, and after Back on
     `IdentityAddUnknown` with the daemon down, the key file stays until
-    a list that answers. A third run: (c) the add written and left
-    ahead of the running daemon (it answers `Internal`), Back on
-    `IdentityAddUnknown`, Your identities opened again: the list lacks
-    the id, the key file is still there, and the add is sent again with
-    it; after the daemon's next start the identity is listed with its
-    key, never as an identity whose key is missing. With the second add
-    refused by a seam, the key file is deleted before the remove is sent
-    (read in the client's log order). Needs D1.
+    a list that answers. Needs D1.
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
