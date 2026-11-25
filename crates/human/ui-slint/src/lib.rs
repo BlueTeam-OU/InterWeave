@@ -98,6 +98,15 @@ pub use generated::FocusMode;
 /// The icons the views draw; a test reads which one a status takes.
 pub use generated::Glyph;
 pub use generated::IdentityPage;
+
+/// The identity page's focused stop -- its place among the page's
+/// stops, a keypad key or a chip by its index -- and the mode that went
+/// with it, read from one window ([`View::identity_stop`]) and handed to
+/// the next ([`View::keep_identity_stop`]). Opaque to the app: the page
+/// reads it.
+/// Plain data, so a flow parked between two windows' threads carries it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IdentityStop(generated::IdFocusStop);
 /// A message row as drawn, for a test that reads its cut line and handle.
 pub use generated::MessageRow;
 /// The colour roles of design/2026-10-16-android-look.md section 3, so a
@@ -1977,6 +1986,27 @@ impl View {
     /// it, so the root does not ask then, and focus stays where it was.
     pub fn raise_identity_heading(&self) {
         self.window.set_identity_heading_wanted(true);
+    }
+
+    /// The identity page's focused stop and its mode, for a flow kept
+    /// past this window's end ([`Self::keep_identity_stop`] on the next
+    /// window's view). None while no identity page shows, or while its
+    /// page has had no stop focused.
+    #[must_use]
+    pub fn identity_stop(&self) -> Option<IdentityStop> {
+        let stop = self.window.get_identity_stop();
+        (self.window.get_identity_active() && stop.asked).then_some(IdentityStop(stop))
+    }
+
+    /// `stop`, the focused stop the last window's identity page had, is
+    /// where the next identity page this view shows puts focus, in place
+    /// of its screen's opening focus: a recreation of the window moves no
+    /// focus (design/2026-10-19-android-identity.md section 6, The hold).
+    /// A stop that page lacks is dropped, and the page opens as it
+    /// would have. A refused start's heading ask
+    /// ([`Self::raise_identity_heading`]) still comes first.
+    pub fn keep_identity_stop(&self, stop: IdentityStop) {
+        self.window.set_identity_kept(stop.0);
     }
 
     /// The system prompt rose over the identity screen, or the app went

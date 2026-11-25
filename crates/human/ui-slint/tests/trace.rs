@@ -3630,3 +3630,154 @@ fn a_page_under_an_identity_screen_is_said_when_the_screen_goes() {
         "after the screen went"
     );
 }
+
+impl Identity {
+    /// The window recreated (a language change, Don't keep activities):
+    /// this view ends and a new one shows the same flow, as the Android
+    /// root's park and rebind do (human-android onboard.rs), handed the
+    /// stop this page had when `keep` is set and nothing when it is not.
+    /// One test backend serves both windows.
+    fn recreate(&mut self, keep: bool) {
+        let stop = self.view.identity_stop();
+        assert!(stop.is_some(), "control: a stop was focused");
+        let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+        view.window().show().expect("shown");
+        let to = Rc::clone(&self.said);
+        view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+        view.render(&UiModel::new());
+        let into = Rc::clone(&self.queued);
+        view.on_identity(move |input| into.borrow_mut().push(input));
+        if let (true, Some(stop)) = (keep, stop) {
+            view.keep_identity_stop(stop);
+        }
+        let _ = self.view.window().hide();
+        self.view = view;
+        self.said.borrow_mut().clear();
+        self.settle();
+    }
+}
+
+/// A recreation moves no focus (section 6, The hold): R2's keypad key
+/// that had focus has it in the new window, by its place, and so does
+/// the mode -- navigating, so Enter presses it. Without the kept stop
+/// the new window gives R2 its opening focus, the first enabled key,
+/// typing.
+#[test]
+fn a_recreation_keeps_focus_on_r2s_key() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    // Control: today's opening focus, q, typing.
+    page.recreate(false);
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Enter],
+        "typing: no key pressed"
+    );
+    // From q to w, navigating.
+    page.tab();
+    page.recreate(true);
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')], "w, navigating");
+    // A letter typed on w returns typing, which the new window keeps:
+    // Enter is the suggestion rule's and presses no key.
+    page.key("w");
+    page.take();
+    page.recreate(true);
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Enter],
+        "typing: no key pressed"
+    );
+}
+
+/// The chip that had focus has it in the new window, the keypad's
+/// first enabled key not.
+#[test]
+fn a_recreation_keeps_focus_on_r2s_chip() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    // From q: actor, then action.
+    page.backtab();
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-chip", "control");
+    page.take();
+    page.recreate(true);
+    assert_eq!(page.last(), "ui-trace focus=identity-chip");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Chip("action".to_owned())]);
+}
+
+/// R3 kept with focus on Copy `PeerId` shows it there again, not on its
+/// question.
+#[test]
+fn a_recreation_keeps_focus_on_r3s_copy() {
+    use slint::platform::Key;
+    let mut page = Identity::at_r3();
+    page.key(Key::DownArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "control");
+    page.recreate(true);
+    assert_eq!(page.last(), "ui-trace focus=identity-copy");
+    page.key(Key::DownArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "from Copy");
+}
+
+/// R2's discard dialog kept: focus on the action that had it, and
+/// closing the dialog gives focus back to what had it before the
+/// dialog, as in the window that opened it.
+#[test]
+fn a_recreation_keeps_focus_in_r2s_discard_dialog() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(page.word(0), Some("act"), "control: a word entered");
+    // From q, the first enabled key, to w, navigating.
+    page.tab();
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-delete");
+    page.take();
+    page.recreate(true);
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-delete");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-keep");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    assert_eq!(page.last(), "ui-trace focus=identity-key", "back under it");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')], "w, navigating");
+}
+
+/// A page that hid takes its stop with it: shown again with no stop
+/// focused (Welcome opens on none), the window holds no stop for a
+/// recreation, and the next window opens the page as it would have.
+#[test]
+fn a_page_shown_again_holds_no_stop_of_the_last() {
+    use interweave_human_ui_model::{IdentityFlow, Start};
+    use slint::platform::Key;
+    let mut page = Identity::at_r3();
+    page.key(Key::DownArrow);
+    assert!(page.view.identity_stop().is_some(), "control: Copy focused");
+    page.view.show_identity(None);
+    // The page's element goes once the tree is walked, as a real
+    // window's next draw takes it away.
+    let _ = ElementHandle::find_by_accessible_label(page.view.window(), "q").count();
+    page.flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
+    page.settle();
+    assert_eq!(page.view.identity_stop(), None);
+}

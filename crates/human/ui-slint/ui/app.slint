@@ -423,6 +423,22 @@ export struct IdSlot {
     current: bool,
 }
 
+// The identity page's focused stop and the mode that went with it, as
+// the window that ends hands them to the next (section 6, The hold: a
+// recreation moves no focus). `seg` and `idx` are the page's own focus
+// stops (IdentityScreen's `at-seg`, `at-idx`), -1 for the page itself;
+// `under-*` is what the discard dialog gives focus back to when it
+// closes. `asked` false: nothing kept, the page's opening rule applies.
+export struct IdFocusStop {
+    asked: bool,
+    seg: int,
+    idx: int,
+    typing: bool,
+    under-seg: int,
+    under-idx: int,
+    under-typing: bool,
+}
+
 // Which identity screen a page is (design/2026-10-19-android-identity.md
 // section 3): the view tells a screen opening, or left by Back, from a
 // page rebuilt, and section 8 puts focus by it.
@@ -2371,6 +2387,53 @@ component IdentityScreen inherits FocusScope {
         return true;
     }
     changed heading-wanted => { root.heading-asked(); }
+    // The stop focus stands on, with its mode and the dialog's way back,
+    // said after each change for the window to read when it ends
+    // (`View::identity_stop`): the next window's page takes it as `kept`.
+    in-out property <IdFocusStop> stop;
+    function publish() {
+        root.stop = {
+            asked: true,
+            seg: root.at-seg,
+            idx: root.at-idx,
+            typing: root.typing,
+            under-seg: root.saved-seg,
+            under-idx: root.saved-idx,
+            under-typing: root.saved-typing,
+        };
+    }
+    changed at-seg => { root.publish(); }
+    changed at-idx => { root.publish(); }
+    changed typing => { root.publish(); }
+    changed saved-seg => { root.publish(); }
+    changed saved-idx => { root.publish(); }
+    changed saved-typing => { root.publish(); }
+    // The stop the last window's page had, set by the window
+    // (`View::keep_identity_stop`) for a flow kept through a recreation
+    // (section 6, The hold): taken once, in place of the opening rule,
+    // as the heading's ask is. A stop this page lacks is not kept: the
+    // page then opens as it would have.
+    in-out property <IdFocusStop> kept;
+    function kept-asked() -> bool {
+        if (!root.kept.asked) { return false; }
+        let k = root.kept;
+        root.kept = { asked: false };
+        if (root.page.dialog) {
+            if (k.seg != 9 && k.seg != 10) { return false; }
+            root.dialog-shown = true;
+            root.saved-seg = k.under-seg;
+            root.saved-idx = k.under-idx;
+            root.saved-typing = k.under-typing;
+            root.typing = k.typing;
+            root.go(k.seg, 0);
+            return true;
+        }
+        if (k.seg >= 0 && (k.seg > 8 || k.idx < 0 || k.idx >= root.size(k.seg))) { return false; }
+        root.typing = k.typing;
+        root.again(k.seg, k.idx);
+        return true;
+    }
+    changed kept => { root.kept-asked(); }
     // Where segment `seg`'s first stop stands among the page's.
     function base(seg: int) -> int {
         return (seg > 0 ? root.size(0) : 0) + (seg > 1 ? root.size(1) : 0)
@@ -2621,6 +2684,9 @@ component IdentityScreen inherits FocusScope {
         root.go(0, root.page.question-key != "" ? root.question-idx() : root.heading-idx());
     }
     init => {
+        // The window's copy outlives a page it hid: nothing is said for
+        // this page until one of its stops takes focus.
+        root.stop = { asked: false };
         root.dialog-shown = root.page.dialog;
         root.chips-shown = root.page.chips-taken;
         root.positions-shown = root.page.positions-chosen;
@@ -2628,7 +2694,9 @@ component IdentityScreen inherits FocusScope {
         root.notices-shown = root.page.notices-raised;
         root.review-shown = root.page.review;
         root.screen-shown = root.page.screen;
-        if (!root.heading-asked()) { root.opened(); }
+        // A refused start's heading first, then the stop a recreation
+        // kept, then the screen's opening focus.
+        if (!root.heading-asked() && !root.kept-asked()) { root.opened(); }
     }
     changed page => {
         // Asked with the page that raised it, whichever change runs first:
@@ -4636,6 +4704,11 @@ export component AppWindow inherits Window {
     // Set by `View::raise_identity_heading`, taken by the page: focus to
     // its heading once it shows.
     in-out property <bool> identity-heading-wanted;
+    // The identity page's focused stop, as the page says it, and the
+    // stop a recreation kept for the page to take (`IdFocusStop`; the
+    // view's `identity_stop` and `keep_identity_stop`).
+    in-out property <IdFocusStop> identity-stop;
+    in-out property <IdFocusStop> identity-kept;
     // The `PeerIdCopied` snackbar's text while it shows over the identity
     // page's actions, empty for none: the view's (`copied.rs`).
     in property <string> identity-copied;
@@ -11071,6 +11144,8 @@ export component AppWindow inherits Window {
             copied: root.identity-copied;
             focused(k) => { root.focus-id = k; }
             heading-wanted <=> root.identity-heading-wanted;
+            stop <=> root.identity-stop;
+            kept <=> root.identity-kept;
             init => { self.focus(); }
         }
     }
