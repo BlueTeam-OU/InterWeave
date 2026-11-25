@@ -60,9 +60,10 @@ mod refused {
     /// the hub's `StoreAnswer::ProfileBusy`.
     pub(super) const LOCK_HELD: jint = -14;
     /// The record opened to another `PeerId` than C4's
-    /// (`IdentityRefused::NotExpected`): nothing runs, and the held C4
-    /// answers it (identity note section 6, A start from C4 after a
-    /// failed read-back). Native.kt names no constant for it: the Service
+    /// (`IdentityRefused::NotExpected`): nothing runs, and the screen held
+    /// for the start answers it -- C4, or R2 after K1, R3 or R4 not reached
+    /// after K1 (identity note section 6, A start from C4 after a failed
+    /// read-back; An answer after the bound). Native.kt names no constant for it: the Service
     /// answers it as any refusal it does not tell apart.
     pub(super) const NOT_EXPECTED: jint = -15;
 }

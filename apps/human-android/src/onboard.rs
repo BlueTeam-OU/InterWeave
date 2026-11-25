@@ -477,8 +477,8 @@ pub(crate) fn showing_starts() {
 /// flow's to prompt for ([`FLOW_START`]) unless an answer was counted
 /// already, before this hop. An answer landing between that count's read
 /// and the store leaves `FLOW_START` set for no start, which only keeps
-/// the screen held until its bound. A refusal of C4's compared start said
-/// before this hop is still this hold's: [`start_decided`] takes it by
+/// the screen held until its bound. A refusal of a compared start held
+/// on C4, R2, R3 or R4 said before this hop is still this hold's: [`start_decided`] takes it by
 /// the count it was said with ([`UncheckedAnswer::for_hold`]), and nothing
 /// here clears it. BLOCKED on a device run: no host test drives
 /// the Activity (ui-slint's views.rs, the `IdStartBusy` after the bound
@@ -518,7 +518,8 @@ pub(crate) fn launched() {
 }
 
 /// The Try again of `IdStartBusy`, or of a compared start's `Refused`, on
-/// Chats or a conversation, after the bound (identity note section 6): one
+/// Chats or a conversation -- after the bound, or, for `Refused`, after a
+/// held R2, R3 or R4 answered before it (identity note sections 6 and 8): one
 /// service start, by the path a granted Unlock uses ([`authenticated`]), as
 /// the person's, so a refusal for the screen lock prompts (L1) and Connect
 /// counts its openings from here (add-a-peer section 5.1). The hub shows the
@@ -916,14 +917,16 @@ pub(crate) fn expected_start() -> Option<TransportIdentity> {
 
 /// How the last start told to expect a `PeerId` was refused, said by
 /// jni.rs's `start` before the hub hears the start's answer, so the turn
-/// that decides the held C4 finds it ([`start_decided`]). Said with the
+/// that decides the held screen finds it ([`start_decided`]). Said with the
 /// hub's count then, so a hold takes the answer of its own start alone
 /// ([`UncheckedAnswer::for_hold`]) and no screen step has to clear it.
 static UNCHECKED: Mutex<Option<UncheckedAnswer>> = Mutex::new(None);
 
-/// A start told to expect C4's `PeerId` was refused for its identity: a
-/// C4 held for it, whichever C4 start it was, answers it rather than
-/// handing over to Chats ([`start_decided`]).
+/// A start told to expect C4's `PeerId` was refused for its identity: the
+/// screen held for it answers it ([`start_decided`]) -- C4, whichever C4
+/// start it was, in place; R2 after K1, R3 or R4 not reached after K1 by
+/// opening Chats with `Refused` focused, or K1 for a record that does not
+/// open.
 pub(crate) fn unchecked_refused(refused: UncheckedRefused) {
     let before = ServiceHost::global().hub().store_generation().count();
     *UNCHECKED.lock().unwrap_or_else(PoisonError::into_inner) =
@@ -1992,8 +1995,9 @@ pub(crate) fn start_decided() {
                             crate::unchecked_start::answer_held(&mut o.flow, refused);
                         match focus {
                             AnswerFocus::K1Heading => o.view.borrow().raise_identity_heading(),
-                            // Asked before the render that ends the flow,
-                            // so the handover finds it.
+                            // The view keeps the ask until `Refused` shows
+                            // with no identity screen up, so it lands on
+                            // whichever render follows the handover.
                             AnswerFocus::Refused => crate::activity::focus_refused_notice(),
                             AnswerFocus::Kept => {}
                         }

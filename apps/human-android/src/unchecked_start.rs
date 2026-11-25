@@ -123,10 +123,12 @@ impl UncheckedAnswer {
 
 /// How a start told to `expect` a `PeerId` answers the flow when its
 /// identity is refused (design section 6, Its results): another `PeerId`
-/// than C4's, and any refusal that says nothing of the record, are C4's
+/// than C4's, and any refusal that says nothing of the record, are told
+/// apart from a record that does not open, which is K1, built by
+/// `recovery` as at a launch. On a held C4 the first two are its
 /// `IdStorageUnknown` again -- the first with Try again only (ui-model's
-/// `every_compared_start_held_on_c4_answers_on_c4`) -- and a record that
-/// does not open is K1, built by `recovery` as at a launch. A refusal
+/// `every_compared_start_held_on_c4_answers_on_c4`); elsewhere, as
+/// below. A refusal
 /// for the person is not here (`None`): the screen's prompt answers it,
 /// as for any held start. A start told to expect nothing answers no
 /// flow (`None`): its refusal hands a held screen over as before
