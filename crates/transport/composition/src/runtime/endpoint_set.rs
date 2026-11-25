@@ -118,13 +118,20 @@ impl Driver {
             // be read, which is what `key_missing` says.
             None => Added::Refused {
                 reason: overlay::AddRefusal::KeyMissing,
+                endpoint: interweave_profile_config::endpoint_key::parse_key_file_name(&key).ok(),
                 detail: "this runtime keeps no state directory".to_owned(),
             },
         };
         let (moved, endpoint) = match added {
-            Added::Refused { reason, detail } => {
+            Added::Refused {
+                reason,
+                endpoint,
+                detail,
+            } => {
+                // The id the key's name derives, absent only when it
+                // derives none (`endpoint_add_audit.rs`).
                 let reason = add_refusal(reason);
-                audit(METHOD, None, "refused", reason.as_str());
+                audit(METHOD, endpoint.as_ref(), "refused", reason.as_str());
                 return Ok(EndpointAddChange::Refused { reason, detail });
             }
             Added::Unchanged(endpoint) => {
