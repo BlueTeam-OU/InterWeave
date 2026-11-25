@@ -3,13 +3,14 @@
 #
 # SPIKE-004 harness — EVIDENCE ONLY, and deliberately not a workspace
 # member. Nothing depends on it, and its results reach production as
-# permanent tests rather than as code (CLAUDE.md §4, spikes/README.md).
+# permanent tests rather than as code (AGENTS.md §4, spikes/README.md).
 #
 # Staying outside the workspace is what keeps `autonat`, `relay` and
 # `dcutr` off the production feature list. Cargo unifies features across
 # one build of one workspace, so as a member this harness would switch
-# all three on inside `interweave-transport-libp2p` — undoing CLAUDE.md
-# §3's "absent from the feature list rather than merely unused", and
+# all three on inside `interweave-transport-libp2p` — undoing AGENTS.md §3's
+# "keep later-stage functionality inert even if a dependency exposes it
+# early", and
 # doing it invisibly, because nothing in the production crate would have
 # changed. That rule is the whole reason this spike runs BEFORE Stage 11
 # rather than during it, and it binds harder here than it did for
@@ -64,7 +65,7 @@ futures = "=0.3.34"
 # spike exists to answer is whether AutoNAT, relay and DCUtR dials are
 # subject to the root admission AND distinguishable from each other
 # there, and measuring a copy of the gate would measure a copy. The
-# dependency runs spike -> product, which is the direction CLAUDE.md §4
+# dependency runs spike -> product, which is the direction AGENTS.md §4
 # permits; the reverse is what it forbids.
 # BY REVISION, NOT BY PATH -- a33efbd, which is the PARENT of 64407c5,
 # the last commit that RECORDED A RUN of this harness ("spike-004:
@@ -106,7 +107,7 @@ futures = "=0.3.34"
 # because the question this spike answers is whether AutoNAT, relay and
 # DCUtR dials are subject to the root admission AND distinguishable
 # there, and measuring a copy of the gate would measure a copy. The
-# dependency runs spike -> product, which is the direction CLAUDE.md §4
+# dependency runs spike -> product, which is the direction AGENTS.md §4
 # permits; the reverse is what it forbids. A path dependency follows
 # the tree, so a root-manifest bump drags today's libp2p into a graph
 # pinned at the version measured. Ruled by architect-cto, 2026-09-19; a

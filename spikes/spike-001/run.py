@@ -6,7 +6,7 @@
                               [--no-dev-flag] [--prompt-file <file>]
 
 Each run gets a fresh scratch directory outside this repository (so no
-project settings, hooks or CLAUDE.md load) holding an MCP config for the
+project settings, hooks or AGENTS.md load) holding an MCP config for the
 stub, and an allow-listed environment. Its RAW output goes to
 ``$SPIKE_RAW_DIR/<run-name>/``, outside the tree:
 

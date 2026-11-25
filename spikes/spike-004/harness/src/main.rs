@@ -6,7 +6,7 @@
 //!
 //! EVIDENCE ONLY. Not a workspace member, not a dependency of anything,
 //! and its results reach production as permanent tests rather than as
-//! code (CLAUDE.md §4).
+//! code (AGENTS.md §4).
 //!
 //! Phase A: loopback. Everything here is protocol semantics, dial
 //! attribution, admission-class enforcement and state machines — the

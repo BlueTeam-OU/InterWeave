@@ -3,7 +3,7 @@
 #
 # SPIKE-002 harness — EVIDENCE ONLY, and deliberately not a workspace
 # member. Nothing depends on it, and its results reach production as
-# permanent tests rather than as code (CLAUDE.md §4, spikes/README.md).
+# permanent tests rather than as code (AGENTS.md §4, spikes/README.md).
 #
 # Staying outside the workspace matters MORE here than it did for
 # SPIKE-006, and not only for the reasons that applied there. This
@@ -11,8 +11,9 @@
 # `libp2p` dependency the substrate uses, and Cargo unifies features
 # across one build of one workspace. As a member, it would switch both
 # protocols on inside `interweave-transport-libp2p` — undoing the whole
-# point of CLAUDE.md §3's "absent from the feature list rather than
-# merely unused", and doing it invisibly, because nothing in the
+# point of AGENTS.md §3's
+# "keep later-stage functionality inert even if a dependency exposes it
+# early", and doing it invisibly, because nothing in the
 # production crate would have changed.
 #
 # An EMPTY workspace table is what keeps it out: the package is its own
@@ -77,7 +78,7 @@ cbor4ii = { version = "=0.3.3", features = ["use_std", "serde1"] }
 # The question this spike asks about concurrency is whether those exact
 # structures survive the real request-response scheduler, so measuring a
 # copy of them would measure a copy. The dependency runs spike -> product,
-# which is the direction CLAUDE.md §4 permits; the reverse is what it
+# which is the direction AGENTS.md §4 permits; the reverse is what it
 # forbids.
 # BY REVISION, NOT BY PATH -- 94f72cc, the tree the last recorded runs
 # built against: the production commit the five spike-only commits of
