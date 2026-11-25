@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use interweave_local_client_api::{
     AdminPort, DataCapability, DataSessionBinding, DataSessionPort, EndpointAddChange,
-    EndpointRemoveChange, SessionRequest, TrustChange,
+    EndpointRemoveChange, EndpointSetKind, SessionRequest, TrustChange, TrustDirection,
 };
 use interweave_transport_api::{
     DirectDestination, EndpointId, MessageId, Payload, TransportError, TransportEvent,
@@ -488,6 +488,55 @@ async fn a_remove_of_an_add_left_ahead_is_removed_and_gone_at_the_restart() {
         lease(&again, &work).await,
         Err(TransportError::EndpointUnknown)
     );
+    drop(port);
+    again.stop().await.expect("stops");
+}
+
+/// An add left ahead that is neither retried nor removed takes effect at
+/// the next start (LOCAL-IPC.md, `admin.endpoints.add`): the overlay kept
+/// on disk holds the entry, so the start registers it, leasable, with
+/// its own set EMPTY in both directions, admitting nobody until a set
+/// names a peer. The control: before the restart the runtime never
+/// listed it and a lease claim was `EndpointUnknown`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_add_left_ahead_takes_effect_at_the_next_start_with_empty_sets() {
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        add_left_ahead(&runtime, &port, &key).await,
+        Err(TransportError::Internal)
+    );
+    assert!(row_of(&port, &work).await.is_none(), "control: not served");
+    assert_eq!(
+        lease(&runtime, &work).await,
+        Err(TransportError::EndpointUnknown),
+        "control: not leasable before the restart"
+    );
+    drop(port);
+    runtime.stop().await.expect("stops");
+
+    let again = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("restarts");
+    let port = admin(&again).await;
+    let row = row_of(&port, &work)
+        .await
+        .expect("served at the next start");
+    assert_eq!(row.alias.as_deref(), Some("work"));
+    for direction in [TrustDirection::Inbound, TrustDirection::Outbound] {
+        let view = port
+            .endpoint_trust(work.clone(), direction)
+            .await
+            .expect("the endpoint's set");
+        assert_eq!(view.set, EndpointSetKind::Own, "{direction:?}");
+        assert!(view.allowed.is_empty(), "{direction:?}: admits nobody");
+    }
+    assert_eq!(lease(&again, &work).await, Ok(()), "leasable");
     drop(port);
     again.stop().await.expect("stops");
 }
