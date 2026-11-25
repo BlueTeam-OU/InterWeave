@@ -402,8 +402,11 @@ the cross-fade that cards §5.7.3 gave the list before this revision.
   identity's screen model, and nothing is drawn, since that identity
   is not in front; a later switch back shows them at once. A switch
   back while that read is still pending waits for it, as above, and
-  starts no second read. After a switch away from the failure row, the next
-  switch back reads again.
+  starts no second read; the 250 ms counts from that read's start, so
+  if it has been pending that long the progress row shows at once. A
+  read that fails while its identity is not in front leaves no failure
+  row to show: the next switch back reads again. After a switch away
+  from the failure row, the next switch back reads again too.
 - **What the screen reader reads**: when the rows arrive, nothing is
   announced and focus does not move; the failure row's announcement
   is the only one this section adds (§12).
@@ -1375,8 +1378,18 @@ pass before it lands.
     is pending is drawn, before or after its read answers. When the
     test switches again to the identity whose read was pending, after
     the read has answered, its rows show at once, and the store
-    records one read of its list. The test needs a store read that it
-    can delay or make fail; the builder says how. *(§5.4.)*
+    records one read of its list. In a fifth run, with the read made to
+    answer after 2 s, the test switches back to the old identity 0.5 s
+    after the switch and to the identity whose read is pending 1 s
+    after the switch: the progress row shows at once, the rows show
+    when the read answers, and the store records one read of its list.
+    In a sixth run, with the first read made to fail 1 s after the
+    switch and the next read made to answer, the test switches back to
+    the old identity 0.5 s after the switch and to the other identity
+    again 1.5 s after it: no failure row shows, the store records a
+    second read of its list, and its rows show when that read answers.
+    The test needs a store read that it can delay or make fail; the
+    builder says how. *(§5.4.)*
 28. With two identities A and B, and a message to A that was read in A's
     conversation and not kept: switch to B, then back to A; the message
     is still shown in that conversation, and the store holds no copy of
