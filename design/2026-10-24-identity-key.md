@@ -43,7 +43,8 @@ What part 2 adds and changes (§10): added `KeyReplace`,
 `KeyReplaceOldNewer`, `KeyReplacePending`, `KeyReplaceConfirm`,
 `KeyReplacing`, `KeyReplaced`, `KeyReplacedBy`, `KeyReplaceFailed`,
 `KeyReplaceUnfinished`, `KeyReplaceTrustFull`, `KeyReplaceFinish`,
-`KeyShareAgainDone`; brought back changed: `KeyShareAgainTitle`; reused
+`KeyReplaceUnknown`, `KeyReplaceNewKeyMissing`, `KeyReplaceOpenNew`,
+`KeyReplaceNewRemove`, `KeyShareAgainDone`; brought back changed: `KeyShareAgainTitle`; reused
 unchanged from `design/2026-11-04-identities.md` §7: `IdentityRemoveLoses`,
 `IdentityRemoveKey`, `IdentityRemoveMayHaveReached`,
 `IdentityRemoveOthersKeep`. The other retired keys stay retired.
@@ -387,6 +388,16 @@ The step, in this order:
    the key, so it knows the new EndpointId first, and a kill between
    the add and a later write would leave an added identity with no
    record, which the next Replace would turn into a third identity.
+   The order is: the key minted and sealed at the new identity's key
+   path, the record, the add, then the card (Add's Create, too,
+   writes the card after the add, identities §6.2). The add's answer
+   decides what follows, as a settled record's does (below). On
+   `added` or `unchanged`, the step goes on. On `refused`, the record
+   is settled as below: it is discarded and the step ends as failed
+   (§5.4), unless the key path or the platform key cannot be emptied
+   or the remove gives any other answer; then it is kept, and the step
+   ends with `KeyReplaceUnknown`. On any other answer of the add, the
+   record is kept and the step ends with `KeyReplaceUnknown` (below).
    Nothing of the old identity is touched before this step has stored
    the new one, so a failure here leaves the old identity exactly as
    it was.
@@ -450,12 +461,54 @@ The step, in this order:
 **Every point the step can stop at resolves to a state the person
 already knows**:
 
-- stopped before step 1 has stored the new identity: the old identity
-  is in this state as before, unchanged; after a failure (not a kill)
+- stopped before step 1 has written its record: the old identity is
+  in this state as before, unchanged; after a failure (not a kill)
   `KeyReplaceFailed` shows under its actions, and Replace is offered
-  again. A record of step 1 whose new identity was never added names
-  no identity the node holds; the client discards it at the next open
-  and shows this case, so a record alone never shows as unfinished.
+  again.
+- **a record whose new identity the endpoint list lacks** (ADR-0061
+  decision 7, A 2026-11-25): the add was cut, failed, left ahead of
+  the running device, or applied late. A list that answered without
+  the new id therefore does not say that the add never happened, and
+  the client reads nothing from such a list: it **settles** the record by
+  sending the same add again, with the key at the new identity's key
+  path, at the app's next open and whenever Replace is pressed on the
+  old identity. Replace then opens no dialog and mints no second key
+  while a record names the old identity. While the client settles
+  the record, the old identity's block shows `KeyReplacing` with its
+  progress line in place of its actions, and Remove and Turn off are
+  not offered, as while the step runs. The add's answer decides:
+  - `added` or `unchanged`: the new identity is registered, and the
+    replacement is one stopped after its add: the next case,
+    `KeyReplaceUnfinished` and Finish replacing. After a Replace
+    whose add failed or was cut, this is what the person sees at the
+    next open, or on pressing Replace again.
+  - `refused`, whatever the reason: the one answer on which the record
+    is discarded. The client first empties the new identity's key path
+    and its platform key (after which an add applied late is refused
+    as `key_missing`), then sends the administrative remove of the new
+    id, and, once that remove answers `removed` or `EndpointUnknown`,
+    deletes the record together with the new identity's rows. The
+    old identity then stands as before, with `KeyReplaceFailed` under
+    its actions for this session and Replace offered again; the next
+    Replace opens §5.2's dialog and makes a new key. Emptying the key
+    path fails in the same ways as Remove's does (ADR-0063 decision 2,
+    §5.3 step 5): an entry this user cannot remove, a read-only or busy
+    file system, an I/O error, or a platform key that cannot be
+    deleted. On such a failure the remove is not sent and the record
+    is kept, as on the next item's answers, so a record never goes
+    while the new key is still on disk: an add applied late would then
+    register an identity that no record names.
+  - any other answer of the add or of that remove, a key path or
+    platform key that could not be emptied, or a list that
+    failed: the record is kept, and the old identity's block shows
+    `KeyReplaceUnknown` under Replace, not in `error`, since nothing
+    is known to have failed. Replace settles the record again, as does the
+    next open. `KeyReplaceFailed` is never shown while a record is
+    kept, since its "Choose Replace with a new identity to try again"
+    would promise a fresh start that Replace does not make then.
+  A record alone thus shows as unfinished only after its add has
+  answered `added` or `unchanged`, and as the old identity's former
+  state only after the record is discarded.
 - stopped after step 1, before step 5 is done: both identities exist.
   The old identity's page shows `KeyReplaceUnfinished` ("{new} was
   made to replace this identity, but the replacement did not
@@ -467,11 +520,44 @@ already knows**:
   would make a third identity, which this design does not accept.
   A refusal anywhere in steps 2 to 5 leaves this state too, never
   `KeyReplaceFailed`, whose words are true only before step 1 has
-  stored the new identity. Step 2 resumes where it stopped: a trusted
-  peer or a contact already copied is not written twice. When step 2
+  stored the new identity. If the new identity has no card,
+  Finish replacing first writes it. Step 1 writes the card after the
+  add, and the new identity has none when the process ended between
+  the add and the card. Finish replacing writes the card with the old
+  card's name and photo as they are when Finish replacing runs; a card
+  the new identity already has is never rewritten. Without that card
+  the new identity would be finished under its alias, and the
+  contacts it is shared with would get a card with no name. Step 2
+  resumes where it stopped: a trusted peer or a contact already
+  copied is not written twice. When step 2
   stopped at the trust overlay's row bound, the page also shows `KeyReplaceTrustFull`
   under `KeyReplaceUnfinished`, and Finish replacing is offered again
   (Q-bound).
+  **The new identity's key is missing**, however that came to be (its
+  key file deleted, or an add applied late after a settle emptied its key
+  path): no replacement is finished toward it (ADR-0061 decision 7, A
+  2026-11-25). The old identity's page then shows
+  `KeyReplaceNewKeyMissing` ("{new} was made to replace this
+  identity, but the key of {new} is missing, so the replacement cannot
+  finish. Remove {new}, then replace this identity again.") in place
+  of `KeyReplaceUnfinished`, and in place of Finish replacing a text
+  button **Open {new}** (`KeyReplaceOpenNew`), which opens the new
+  identity's page as its row in Your identities opens it. That page
+  shows the missing key (§4.1) and, while the replacement is
+  unfinished, `KeyReplaceNewRemove` ("This identity was made to
+  replace {old}, but the key of this identity is missing, so the
+  replacement cannot finish. Remove this identity, then replace {old}
+  again.") in place of `KeyNoNewKey`, and no Replace:
+  replacing it would make a third identity and leave {old} unreplaced.
+  Its Remove is identities §7's, offered as there (where the new
+  identity has already become the default in step 4, another identity
+  is made the default first, as for every default); the record goes
+  in that Remove's transaction, and the old identity's page then shows
+  this state's block with Replace again. The key is checked whenever
+  the old or the new identity's page is shown and before Finish
+  replacing runs; a key that goes missing while the page is open
+  shows this case at the next showing, and Finish replacing pressed
+  then ends in it without a write.
 - after step 5: the result (§5.4).
 
 The client never shows "replaced" before step 5 is done, and never
@@ -520,11 +606,27 @@ named contact, and the counterparty's reply to the shared card is
 admitted. The counterparty still sees a new identity, and still has
 their contact for the old identity until they accept the new card.
 
-**Failed** (step 1 refused — a key that cannot be minted or sealed, the
-add refused): `KeyReplaceFailed` ("InterWeave could not make the new
+**Failed** (step 1 refused — a key that cannot be minted or sealed, or
+an add answered `refused`, whose record has been discarded as §5.3
+says): `KeyReplaceFailed` ("InterWeave could not make the new
 identity. {identity} has not changed. Choose Replace with a new
 identity to try again."), in `error`, under the actions, and Replace
-offered again.
+offered again. Its words are true because it is shown only when no
+record is left: the next Replace opens §5.2's dialog and starts over.
+
+**Not known** (the add, or the remove that discards a refused add's
+record, gave any other answer; the new key path or platform key could
+not be emptied; or the list failed; §5.3): the record is
+kept, and `KeyReplaceUnknown` ("InterWeave could not check whether the
+new identity was made. {identity} has not changed. Choose Replace with
+a new identity to check again. Checking again does not make a second
+new identity. If the check finds that the new identity was made,
+you can then finish replacing {identity} with it.")
+shows under the actions, not in `error`, with Replace offered. Replace
+settles the record (§5.3) and opens no dialog. The line follows each
+settle's outcome, the one at the next open included, so after a
+restart it shows again only when that settle also ended with the
+record kept.
 
 The old identity, after a replacement:
 
@@ -611,6 +713,12 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | Replace confirmed, while `KeyReplacing` shows | the block's progress line (the button that held focus is gone) | keyboard; screen reader announces `KeyReplacing` once |
 | replaced | after the switch to the new identity (cards §5.7.5), the `KeyReplaced` line on its card page, which is announced by being focused, not again | keyboard; screen reader |
 | the replacement failed | `KeyReplaceFailed`, announced by being focused, not again | keyboard; screen reader |
+| Replace pressed while a record names the old identity (§5.3, settling) | the block's progress line, as while `KeyReplacing` shows; then as `added`/`unchanged` (the `KeyReplaceUnfinished` row below), `refused` (as "the replacement failed") or kept (the next row) | keyboard; screen reader announces `KeyReplacing` once |
+| a settle ended with the record kept | `KeyReplaceUnknown`, announced by being focused, not again; it is placed under the actions, so Shift+Tab reaches Replace and Tab the page's next control | keyboard; screen reader |
+| the old identity's page opened while a settle at the app's open runs | the page title, as §4.1; the progress line is read in order and announced once when the settle ends, with the line it ends on | keyboard; screen reader |
+| the old identity's page with `KeyReplaceNewKeyMissing` opened, or Finish replacing pressed and ended in it | the page title when opened; after Finish replacing, `KeyReplaceNewKeyMissing`, announced by being focused, not again; Tab reaches Open {new} after it | keyboard; screen reader |
+| Open {new} pressed | the new identity's page title, as §4.1; `KeyReplaceNewRemove` read in order, then the page's controls; Back returns to the old identity's page, focus on Open {new} | keyboard |
+| the new identity removed from its page while the replacement was unfinished | as identities §7's Remove done; on returning to the old identity's page, Replace with a new identity, in the block | keyboard |
 | the old identity's page with `KeyReplaceUnfinished` opened | the page title, as §4.1; Tab reaches Finish replacing after `KeyReplaceUnfinished` | keyboard |
 | Finish replacing pressed | the progress line, then as "replaced", or as one of the two refusals below | keyboard; screen reader |
 | steps 2 to 5 refused for another reason, under Replace or Finish replacing | `KeyReplaceUnfinished`, announced by being focused, not again; Tab reaches Finish replacing after it | keyboard; screen reader |
@@ -619,7 +727,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | back on the new identity's card page from a row's conversation, the card shared | the next row of the list, else Done | keyboard |
 | back on the new identity's card page from a row's conversation, not shared | the row that opened it | keyboard |
 | Done under the list | the new identity's fingerprint row (the list and Done are gone) | keyboard |
-| the page goes to the background during `KeyReplacing` | on return, as "replaced", "failed" or unfinished by what the step left; the announcement is made on return, once | keyboard; screen reader |
+| the page goes to the background during `KeyReplacing` (the step, or a settle) | on return, as "replaced", "failed", "not known" (`KeyReplaceUnknown`), unfinished, or the new identity's key missing, by what the step or settle left; the announcement is made on return, once | keyboard; screen reader |
 | a card row's Cancel answered while the step runs (§5.3 step 3) | stays where it is; a success is announced once after the step's own announcement | keyboard; desktop screen reader |
 | Try again, opened | the fingerprint row | keyboard |
 | the `KeyDirUnsafePath` line ("key folder not safe"), on the page | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
@@ -644,8 +752,8 @@ state; `error` repeats them. The icon's colour and the heading in
 dark.
 
 **Targets**: Try again, Replace with a new identity, Finish replacing,
-each row under `KeyShareAgainTitle` and Done are at least 48 dp tall
-on Android and 24 px on the desktop.
+Open {new}, each row under `KeyShareAgainTitle` and Done are at least
+48 dp tall on Android and 24 px on the desktop.
 
 **Motion**: the progress indicator (§5.3) and the switch's transition
 (cards §5.7.5) are the platform's; with reduced motion each is the
@@ -771,12 +879,16 @@ Items 1, 6 and 19's "no action" describe part 1's interim. With
 part 2 built, every kind that shows `KeyNoNewKey` also shows Replace
 with a new identity after it, and item 21 replaces "no action" in
 items 1, 6 and 19.
-Items 21–35 are part 2's. Q-link, Q-list, Q-trust and Q-carry are
+Items 21–40 are part 2's. Q-link, Q-list, Q-trust and Q-carry are
 ruled (REPLY 01a20525); items 33 and 35 rest on Q-bound and are
 blocked, not passed, until it is answered. A cut "at a point" in
-items 24 and 31 is a test seam that ends the process there,
-rust-ui-dev's to provide beside item 26's holding seam; until it
-exists those runs are blocked.
+items 24 and 31 is a test seam that ends the process there, and so is
+item 39's end between the add and the card; rust-ui-dev is to provide
+these seams beside item 26's holding seam. Items 36 and 37 need seams on
+the add's and the remove's answers, item 36 (c) needs one that keeps
+a written overlay from the running daemon, and item 37's last run
+needs one that fails the unlink of the new key; until each exists,
+the runs that need it are blocked.
 
 21. With part 2 built: every kind that shows `KeyNoNewKey` shows
     Replace with a new identity after it; "temporarily unusable"
@@ -808,11 +920,15 @@ exists those runs are blocked.
     Replace; the new identity is the default. After leaving the page,
     and after a restart, `KeyReplaced` is not shown and the list is.
 24. Killed during `KeyReplacing`, at each point the step can be cut:
-    before the record of step 1 is written, and after it is written
-    but before the administrative add, the next start shows the old
-    identity in this state, unchanged (its card rows not withdrawn),
-    with no new identity, no `KeyReplaceUnfinished`, and Replace,
-    which then makes exactly one new identity; after the add and
+    before the record of step 1 is written, the next start shows the
+    old identity in this state, unchanged (its card rows not
+    withdrawn), with no new identity, no `KeyReplaceUnfinished`, and
+    Replace, which then makes exactly one new identity; after the
+    record is written but before the administrative add, the next
+    start settles the record (§5.3): the add is sent once with the key
+    the cut step minted, and the old identity's page shows
+    `KeyReplaceUnfinished` and Finish replacing, which completes the
+    replacement under that key and makes no third identity; after the add and
     before the old one is removed or turned off (inside step 2
     included), the old identity's page shows `KeyReplaceUnfinished`
     and Finish replacing, which completes the replacement and makes no
@@ -838,7 +954,11 @@ exists those runs are blocked.
     identity, it is still there after its conversations were deleted.
 28. Creating the new identity refused (a test seam): `KeyReplaceFailed`
     under the actions, the old identity unchanged, Replace offered
-    again, and no second identity listed.
+    again, and no second identity listed. With the add answered
+    `refused` by the seam: the new key path is empty and the platform
+    key gone before the administrative remove is sent (read in the
+    client's log order), no record and none of the new identity's rows
+    are left, and the next Replace opens §5.2's dialog.
 29. Q-trust and Q-carry: the old identity, added, trusts peers P and
     Q and holds contacts A (name, photo) and B. After Replace, the
     endpoint dimension of `admin.trust.list` for the new EndpointId
@@ -875,6 +995,49 @@ exists those runs are blocked.
 35. Q-bound: the list at its bound, with more conversations matching
     the predicate than the bound holds, behaves as Q-bound states;
     blocked until then.
+
+36. Settling (§5.3), each with a test seam on the add after the record
+    is written: (a) the add answers `Internal`: the old identity shows
+    `KeyReplaceUnknown`, not `KeyReplaceFailed`, focused, with Replace;
+    the record is still stored; Replace opens no dialog, writes no new
+    key file (the key directory listed before and after), and sends
+    the add again with the same key; (b) the seam lets that add
+    answer `added`: `KeyReplaceUnfinished` and Finish replacing; before
+    Finish the node lists the old identity and exactly one new one,
+    and after it, when the old one was added, the new one alone; (c) the add left ahead (the
+    daemon writes the overlay and the seam keeps it from the running
+    device), the app restarted: the list lacks the new id, the open
+    re-sends the add, and its `unchanged` or `added` leads to (b), never
+    to `KeyReplaceFailed`; (d) the list fails at the open: the record
+    and the new key are kept and `KeyReplaceUnknown` shows.
+37. A refused settle whose remove answers `Internal`: the record is
+    kept, `KeyReplaceUnknown` shows, and the next settle (the add now
+    refused as `key_missing`, since the key path is empty) sends the
+    remove again; on `EndpointUnknown` the record and the new
+    identity's rows are deleted and `KeyReplaceFailed` shows. A
+    refused settle whose unlink of the new key fails (a seam): no
+    remove is sent (read in the client's log), the record and the key
+    file are kept, and `KeyReplaceUnknown` shows.
+38. Neither identities §7's clean-up rule nor §6.2's kept-key rule
+    takes a record, the new identity's key or its rows while a record
+    names it: with the add left ahead (item 36 (c)) and the list
+    answering without the new id, the new key file and the record are
+    still there after the list is read, before the settle's add.
+39. The process ended between the add and the card (a seam): the new
+    identity is listed by its alias; Finish replacing writes its card
+    with the old card's name and photo as they are then (the old
+    card renamed before Finish: the new name), and completes. With the
+    new card already written and renamed by the person, Finish
+    replacing leaves it as it is.
+40. The new identity's key file deleted while the replacement is
+    unfinished: the old identity's page shows `KeyReplaceNewKeyMissing`
+    and Open {new}, no Finish replacing and no Replace; Finish
+    replacing pressed on a page shown before the deletion ends in that
+    state, with nothing written (the store and `admin.trust.list`
+    unchanged). The new identity's page shows `KeyReplaceNewRemove`
+    and no Replace. Removing it deletes the record, and the old
+    identity's page shows Replace again; Replace then makes exactly
+    one new identity.
 
 ## 10. Strings
 
@@ -938,10 +1101,14 @@ identity's, each as `{identity}` is.
 | `KeyReplacing` | *proposed:* Replacing {identity}… | §5.3 |
 | `KeyReplaced` | {new} has replaced {old}. Your contacts get the card of {new} only when you share that card with them. | §5.4, the new identity's page, that session only; must name both identities and that contacts get the new card only after a share; as `KeyReplaceBody`, never that they cannot see the identity before it |
 | `KeyReplacedBy` | {new} has replaced this identity. | §5.4, the first identity's page after it was replaced |
-| `KeyReplaceFailed` | *proposed:* InterWeave could not make the new identity. {identity} has not changed. Choose Replace with a new identity to try again. | §5.4, step 1 failed; true only because nothing of the old identity is touched before step 1 (§5.3) |
+| `KeyReplaceFailed` | *proposed:* InterWeave could not make the new identity. {identity} has not changed. Choose Replace with a new identity to try again. | §5.4, step 1 failed and no record left; true only because nothing of the old identity is touched before step 1 (§5.3) and because it is never shown while a record is kept |
 | `KeyReplaceUnfinished` | {new} was made to replace this identity, but the replacement did not finish. | §5.3, the old identity's page after a stop between steps 1 and 5 |
 | `KeyReplaceTrustFull` | *proposed, first sentence final:* InterWeave stopped before {new} trusted all the people that this identity trusts, because this device cannot hold more trusted people. | §5.3, under `KeyReplaceUnfinished` when step 2 stopped at the trust overlay's row bound; must say what did not finish and why; what the person can do, and the bound's name, wait for Q-bound |
 | `KeyReplaceFinish` | *proposed:* Finish replacing | §5.3 action, in place of Replace |
+| `KeyReplaceUnknown` | *proposed:* InterWeave could not check whether the new identity was made. {identity} has not changed. Choose Replace with a new identity to check again. Checking again does not make a second new identity. If the check finds that the new identity was made, you can then finish replacing {identity} with it. | §5.4, a replaces record kept after a settle; must not say that anything failed or promise a fresh start, and must say that no second new identity is made |
+| `KeyReplaceNewKeyMissing` | *proposed:* {new} was made to replace this identity, but the key of {new} is missing, so the replacement cannot finish. Remove {new}, then replace this identity again. | §5.3, the old identity's page, an unfinished replacement whose new identity's key is missing; must say why it cannot finish and point to the new identity's Remove |
+| `KeyReplaceOpenNew` | *proposed:* Open {new} | §5.3 action, in place of Finish replacing; opens the new identity's page, switches nothing |
+| `KeyReplaceNewRemove` | *proposed:* This identity was made to replace {old}, but the key of this identity is missing, so the replacement cannot finish. Remove this identity, then replace {old} again. | §5.3, the new identity's page in that case, in place of `KeyNoNewKey` |
 | `KeyShareAgainDone` | *proposed:* Done | §5.4, closes the share-again list |
 
 `TryAgain` and `Cancel` are the existing keys.
