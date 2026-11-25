@@ -332,3 +332,53 @@ Propagation: decision 7; this note; the log row; the digest entry.
 `STATE.md` is unchanged; it does not state the discard, which is the
 design's until the store change that builds the replacement states it
 there.
+
+### Amendment 2026-11-25 — A replaces record is discarded by removing the new identity, key path first
+
+The note of 2026-11-24 had the client discard, at the next open, a
+record "whose new identity was never added", and named no test for
+never added. The client's view of what the node holds is
+`admin.endpoints.list`, and `LOCAL-IPC.md` has two adds that list does
+not show: one that left the overlay ahead of the runtime, answered
+`Internal` and loaded at the daemon's next start, and one applied late,
+after the client that sent it stopped waiting. A record discarded on
+the list alone would in both leave an added identity nothing ties to
+the old one, with Replace offered again: the third identity the record
+exists to prevent (the review of this change at 29743549, its finding
+F5, judged real). The key file does not tell the cases apart either,
+being sealed before the add in all of them.
+
+So the discard no longer reads whether the add happened; it makes the
+add one that did not. In order: the new identity's key path and
+platform key are emptied, after which an add applied late is refused
+`key_missing` and writes nothing; the administrative remove of the new
+id is sent, which takes an entry an add left ahead out of the overlay
+(`removed`, the daemon's next start not bringing it in) and answers
+`EndpointUnknown` where no entry holds the id; and only on one of those
+two answers is the record deleted, with whatever rows the new identity
+has. Any other answer, `Internal` and no answer included, keeps the
+record, and so does a list that failed; the next open takes the discard
+up again while the list still lacks the id. This is Remove's own order
+(A 2026-11-23) with one difference, the record and the rows waiting for
+the remove's answer, because here nobody is asked to press Remove
+again. A record whose new identity the list holds is, as before, what
+the replacement is finished from. One case is left to the person: a
+discard whose remove did not answer, over an entry left ahead, followed
+by a daemon start, leaves the new identity listed without its key. The
+client removes no listed identity on its own, since a listed identity
+without its key is also what a lost key looks like (ADR-0067 decision
+2): the record stays, so Replace is not offered a second time, and the
+person's Remove of the key-missing identity deletes the record with it.
+
+Sending the add again at the next open was the other way to settle it,
+and was not taken: it would finish adding an identity the person saw
+fail, where the design shows the old identity as before and offers
+Replace again (`design/2026-10-24-identity-key.md` §5.3, unchanged).
+The replacement is not built (`STATE.md` §Logical tables), so no build
+did otherwise. The 2026-11-24 note stands as the record of its day;
+this one corrects its "discards it at the next open".
+
+Propagation: decision 7; this note; the log row; the digest entry.
+`LOCAL-IPC.md` is unchanged: the three answers this order leans on are
+its own (`key_missing` for a late add, `removed` for an entry left
+ahead, `EndpointUnknown` for an id no entry holds).
