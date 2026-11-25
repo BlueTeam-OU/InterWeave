@@ -462,6 +462,20 @@ to Q18 now names, checks that rule from R3. Before, no run checked it
 from R3, and the note did not say why none checks it from R2 after
 K1.
 
+Revised 2026-11-25, for the items that #757's reviews carried. In
+acceptance 12, the run in which the double's record opens to a PeerId
+other than C4's is no longer blocked, since #750 built the comparison
+before the start (180448d96), and the seventh and eighth runs are no
+longer blocked, since #758 built Q18's rule (f75f09e0b, 97d01bf35).
+Before, the note said that all three were blocked. §6's read-back row
+and An edit on R2 now say that main has the read-back notices and the
+read-back owed (e9a3d809b, 28553eb26). Before, both said that these
+were on rust-ui-dev-01's branch and not yet on main. The
+`RecordNamesOther` row now says that the case cannot be reached on R2
+after K1 because custody never replaces a record with one that names
+another PeerId. Before, it gave the profile lock as the reason, but
+the flow does not hold the lock between K1 and R2.
+
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
@@ -1086,10 +1100,10 @@ comparison a matter of groups, not of single characters.
 | Service start refused: profile in use (the runtime's `LockHeld`, `StartRefused::Runtime`) | The service start after C4's or R4's Continue (or C4's Try again in its place), C4's Continue under `IdAlreadyCreated`, C4's `IdStartUnchecked`, and `IdRestoreOther`'s Continue (R3, R2 after K1) | The start takes the profile lock itself with no wait, so it is refused as soon as the start takes its lock, and no progress state shows (§5). When the refusal comes before add-a-peer §5.1's 10 s bound ends, the hold ends, and a notice (`IdStartBusy`) says that the app could not go online because the profile is in use, with Try again. It never says that the identity was not created or not restored: an identity is on record (the one this flow committed, or, under `IdAlreadyCreated` and `IdRestoreOther`, the one already there). It shows where the screen's notices show: on C4 and R4 (R4 has C4's layout, §3.3) in C4's notice place, with Try again in Continue's place; on R3 and on R2 after K1, in `IdRestoreOther`'s place, with the PeerId that `IdRestoreOther` showed kept under `IdStartBusy`, and Try again in the place of `IdRestoreOther`'s Continue. Under `IdAlreadyCreated` and `IdRestoreOther` the rest of the screen stays as that notice left it (on C4, the title `IdAlreadyTitle` and the hidden PeerId, label, `CopyPeerId` and `IdCreatedBody`). Try again makes one service start and nothing else: no seal, no restore, no words. It is pressed as the Continue it replaces, and after `IdStartUnchecked` it is pressed as `IdStartUnchecked` is, the app's comparison with C4's PeerId included (A start from C4 after a failed read-back): the screen is held from its press, as after that Continue (Seal running, Restore running, Check running; §8), and the 1 s before `ConnectStarting` and the 10 s bound count from that press (`design/2026-10-22-add-a-peer.md` §5.1). The app never retries the start on its own, except at a return or a recreation (A return to a screen showing `IdStartBusy`, below the table). A refusal after the bound, with Chats already open, shows on Chats or a conversation instead (A start refused with the profile in use after the bound, below the table) | Try again (C4 and R4 have no Back; on R3 and R2 after K1, Back as it works at any other time: Back from a notice, below the table) |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
-| Read-back fails, or the record does not open to that PeerId | after those two refusals. The record is always there after them (both follow the publish, and nothing removes it), so no row for a missing record is needed. A record opening to another PeerId cannot follow this flow's own write while it holds the profile lock (§2); should one appear anyway, the app cannot tell what happened, so it is this row | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again and never writes again, on C4, R3 and R2 after K1 alike: the record is there (this row's second column), so what is unknown is whether it opens, which only a read-back answers: a second seal would be refused as another identity on record, and a read-back answers it without writing. A read-back can do no more than report a record whose key opens nothing; a new restore replaces that key, and is the way on when the read-back keeps failing (A read-back that keeps failing, below the table). While the notice shows, R3's `IdR3Yes` does what its Try again does, and so does R2's `IdCheckWords` until the words change. On R2 after K1, an edit of the words removes the notice (An edit on R2, below the table) but does not end this: until a read-back opens the record to that PeerId (the success row) or R2 closes, a check whose words derive the PeerId that the refused restore confirmed reads back instead of restoring, and words that derive another PeerId are checked as any words are (the checksum banner, `IdOtherIdentity`). The record's state is what is unknown, not the notice's, so no edit can turn the next check into a second write. A read-back that opens to the PeerId shown or confirmed before the refusal is the success row above; any other answer shows `IdStorageUnknown` again. A read-back refused because authentication is needed raises the prompt (Authentication needed), and a cancel or denial of that prompt shows `IdStorageUnknown` again. Entered words stay while the screen is open. On R2 after K1, the read-back owed lasts as long as the words do: a rotation, a return to the app and a recreation of the window keep both, and process death, which drops the words, ends both with R2 (§7). rust-ui-dev-01's branch (not yet on main) holds the words and the read-back owed together, and a rotation keeps them; that a recreation keeps them is not yet verified (rust-ui-dev-01's REPLY 01a1f33c), and acceptance 12's recreation run checks it | Try again, or Back (Back from a notice, below the table); on C4, after a failed read-back, `IdStartUnchecked` too while it is offered (below the table) |
+| Read-back fails, or the record does not open to that PeerId | after those two refusals. The record is always there after them (both follow the publish, and nothing removes it), so no row for a missing record is needed. A record opening to another PeerId cannot follow this flow's own write while it holds the profile lock (§2); should one appear anyway, the app cannot tell what happened, so it is this row | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again and never writes again, on C4, R3 and R2 after K1 alike: the record is there (this row's second column), so what is unknown is whether it opens, which only a read-back answers: a second seal would be refused as another identity on record, and a read-back answers it without writing. A read-back can do no more than report a record whose key opens nothing; a new restore replaces that key, and is the way on when the read-back keeps failing (A read-back that keeps failing, below the table). While the notice shows, R3's `IdR3Yes` does what its Try again does, and so does R2's `IdCheckWords` until the words change. On R2 after K1, an edit of the words removes the notice (An edit on R2, below the table) but does not end this: until a read-back opens the record to that PeerId (the success row) or R2 closes, a check whose words derive the PeerId that the refused restore confirmed reads back instead of restoring, and words that derive another PeerId are checked as any words are (the checksum banner, `IdOtherIdentity`). The record's state is what is unknown, not the notice's, so no edit can turn the next check into a second write. A read-back that opens to the PeerId shown or confirmed before the refusal is the success row above; any other answer shows `IdStorageUnknown` again. A read-back refused because authentication is needed raises the prompt (Authentication needed), and a cancel or denial of that prompt shows `IdStorageUnknown` again. Entered words stay while the screen is open. On R2 after K1, the read-back owed lasts as long as the words do: a rotation, a return to the app and a recreation of the window keep both, and process death, which drops the words, ends both with R2 (§7). Main holds the words and the read-back owed together (`identity_flow.rs`, 28553eb26), and a rotation keeps them; that a recreation keeps them is not yet verified (rust-ui-dev-01's REPLY 01a1f33c), and acceptance 12's recreation run checks it | Try again, or Back (Back from a notice, below the table); on C4, after a failed read-back, `IdStartUnchecked` too while it is offered (below the table) |
 | Any other refusal: nothing was written | C4, R3's yes, R2's check after K1 | Every refusal no other row names. That is `Storage` with any inner error but `Unsynced` (an I/O error, a directory or lock file that is not private, an unsupported platform); `Cipher` other than `UserNotAuthenticated` (the Keystore unavailable, a key invalidated, missing or refused); `CipherShape`; `Identity`; and `Unreadable` (a record that cannot be read, at R3 or after K1). All come before the publish, so `IdStorageFailed`: nothing was changed, with Try again. A restore after K1 never reaches R4 this way | Try again, or Back (Back from a notice, below the table) |
 | Another identity already on record (`AlreadyProvisioned`; at a restore, a record naming another PeerId) | C4's continue; at a restore, R3's yes and R2's check after K1 | The record was there before this flow's write. `recorded_identity` names the PeerId the phone holds. Not this row: on R3, a restore of other words after this flow's own restore was refused and its read-back failed, which custody also answers `RecordNamesOther`; it is not designed here (A read-back that keeps failing, below the table; §12), and until it is, a build shows `IdStorageUnknown` again for it, with focus on it, and writes nothing; its Try again and `IdR3Yes` then read back against the PeerId the record names, the earlier restore's, so a read-back that opens the record goes to R4 for that PeerId, shown on R4, and words of the new PeerId stay unused. `IdAlreadyCreated`: the words just shown were not used; Continue opens the identity on record. At a restore, a record naming another PeerId shows `IdRestoreOther` with that PeerId, and its Continue opens that PeerId. Each notice says what its Continue does before the person presses it (§9) | Continue |
-| The record names another identity (`RecordNamesOther`) | R2's check after K1; R3's yes after this flow's own refused restore | Not reachable on R2 after K1 while the flow holds the profile lock: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it there, the another-identity row above applies (`IdRestoreOther`). On R3 it is reachable after this flow's own refused restore, which that row excepts | Continue |
+| The record names another identity (`RecordNamesOther`) | R2's check after K1; R3's yes after this flow's own refused restore | Not reachable on R2 after K1: K1 offers R2 only with the record's own PeerId (§3.4), words of another PeerId are answered `IdOtherIdentity` and write nothing, and custody never replaces a record with one naming another PeerId (a seal is refused while a record exists, and a restore whose record names another is refused), so the record K1 read still names that PeerId. If a build reaches it there, the another-identity row above applies (`IdRestoreOther`). On R3 it is reachable after this flow's own refused restore, which that row excepts | Continue |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
 
 Errors appear inline on the screen they belong to, never in a snackbar.
@@ -1194,9 +1208,9 @@ Nielsen 1). `IdStartBusy` speaks of the start that
 shows `IdRestoreOther` again, whose Continue makes the start again.
 On main, `IdentityFlow::edit` and `IdentityFlow::choose`
 (`crates/human/ui-model/src/identity_flow.rs`) remove the notice on
-these two inputs, and `press` does not, for the notices main has;
-the read-back notices and the read-back owed are on rust-ui-dev-01's
-branch, not yet on main (REPLYs 01a1f330, 01a1f33c). Removing
+these two inputs, and `press` does not, the read-back notices
+included (e9a3d809b); an edit there keeps the read-back owed
+(28553eb26). Removing
 `IdStorageUnknown` changes nothing about the record: the read-back
 owed on R2 after K1 outlives the notice, as its row says. Each of the
 two inputs names where focus goes (§8: a grid position chosen goes to
@@ -2514,8 +2528,8 @@ landscape:
     with Try again only and focus on the notice. Then Try again,
     answered by the read-back as opening to that other PeerId:
     `IdStorageUnknown` shows again, and `IdStartUnchecked` stays
-    hidden. This run needs the app's comparison before the start, and
-    is blocked until it exists.
+    hidden. This run needs the app's comparison before the start,
+    which #750 built (180448d96).
     With the start held past the 10 s bound (§6, An answer after the
     bound): Chats opens at the bound, with focus on its title. The
     start is then answered with the double's record opening to a
@@ -2594,9 +2608,9 @@ landscape:
     R2 and checked, R4 shows, and R4's Continue is pressed; the double
     answers its start as opening the record to that PeerId, the hook
     records one service start, and the service runs. The seventh run
-    is blocked until the build has the rule for a compared start
-    answered before the bound (§6, An answer after the bound), which
-    Q18 (§11f) gave after #750 merged.
+    needs the rule for a compared start answered before the bound
+    (§6, An answer after the bound; Q18, §11f), which #758 built
+    (f75f09e0b, 97d01bf35).
     In an eighth run, a compared start from R3 is answered before the
     bound. It goes as the seventh run until W shows. Then, before R2
     opens and takes the profile lock (§2), the double writes a record
@@ -2611,8 +2625,8 @@ landscape:
     three variants for the start of that Continue, with the same
     results; in the third, K1 shows with the second phrase's PeerId,
     and the second phrase is the one entered on R2 after K1. The
-    eighth run is
-    blocked as the seventh is. Q18's rule also covers a start from R2
+    eighth run
+    needs what the seventh needs. Q18's rule also covers a start from R2
     after K1, but no run checks that case: on R2 after K1, the compared
     start is `IdRestoreOther`'s Continue, and a build cannot reach that
     notice on R2 after K1 (§11f, Q17).
