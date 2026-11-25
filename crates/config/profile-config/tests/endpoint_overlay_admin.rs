@@ -105,11 +105,12 @@ fn refusal(added: &Added) -> Option<AddRefusal> {
     }
 }
 
-/// The id a refusal carries: `None` for anything but a refusal.
-fn refused_endpoint(added: &Added) -> Option<Option<EndpointId>> {
+/// The id a refusal carries, `None` for an id not derived; anything but a
+/// refusal fails the test.
+fn refused_endpoint(added: &Added) -> Option<EndpointId> {
     match added {
-        Added::Refused { endpoint, .. } => Some(endpoint.clone()),
-        _ => None,
+        Added::Refused { endpoint, .. } => endpoint.clone(),
+        _ => panic!("the add was not refused"),
     }
 }
 
@@ -183,7 +184,7 @@ fn the_add_refusals_are_checked_in_order() {
     );
     assert_eq!(
         refused_endpoint(&add(&base, "not-a-key", "Bad Alias")),
-        Some(None)
+        None
     );
     assert_eq!(
         refusal(&add(&base, minted.as_str(), "ok")),
@@ -197,7 +198,7 @@ fn the_add_refusals_are_checked_in_order() {
     );
     assert_eq!(
         refused_endpoint(&add(&base, &key_of("nofile"), "Bad Alias")),
-        Some(Some(id("nofile")))
+        Some(id("nofile"))
     );
     // key_missing beats exists and alias_taken: `a` is authored and
     // `taken` is held, and `a`'s key was never minted.
@@ -207,7 +208,7 @@ fn the_add_refusals_are_checked_in_order() {
     );
     assert_eq!(
         refused_endpoint(&add(&base, &key_of("a"), "taken")),
-        Some(Some(id("a")))
+        Some(id("a"))
     );
     // key_mismatch: a file under one id whose header derives another.
     let other = endpoint_key::mint_filesystem(&p.paths).expect("minted");
@@ -223,7 +224,7 @@ fn the_add_refusals_are_checked_in_order() {
     );
     assert_eq!(
         refused_endpoint(&add(&base, &key_of("forged"), "taken")),
-        Some(Some(id("forged")))
+        Some(id("forged"))
     );
     // exists beats alias_taken: the authored id, given a key file.
     let authored = profile_with_authored_key(&p);
@@ -233,7 +234,7 @@ fn the_add_refusals_are_checked_in_order() {
     );
     assert_eq!(
         refused_endpoint(&add(&base, &authored, "taken")),
-        Some(Some(id("a")))
+        Some(id("a"))
     );
     // alias_taken against an added entry and against an authored one.
     assert_eq!(
@@ -246,7 +247,7 @@ fn the_add_refusals_are_checked_in_order() {
     );
     assert_eq!(
         refused_endpoint(&add(&base, &key, "b")),
-        Some(Some(minted.clone()))
+        Some(minted.clone())
     );
     // The control: the same key under a free alias is added.
     assert!(matches!(add(&base, &key, "free"), Added::Added { .. }));
