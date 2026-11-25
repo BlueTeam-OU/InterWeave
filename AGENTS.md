@@ -560,7 +560,9 @@ check agent-fabric out at `.agent-fabric/fabric-ref`.
 A clone with no sibling is not a working development setup: the
 forwarders exit naming the path they looked in, the guard hooks ask on
 every call, and the session has no fabric context and no inbox, with an
-empty status line as the visible sign. The fabric's `bootstrap.sh` is what
+empty status line as the visible sign. A Claude Code session there is not
+given this file either: the session-start hook that supplies it (§1) is
+the fabric's, and without it nothing loads these rules. The fabric's `bootstrap.sh` is what
 puts the sibling there.
 
 ### Always
