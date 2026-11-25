@@ -825,6 +825,17 @@ impl HumanStore {
         self.lock().own_card(endpoint)
     }
 
+    /// When an identity's own card was made, if it has one: the held
+    /// list's order after the first identity (`human-client-ui.md` §13,
+    /// A 2026-11-25). An edit of the card leaves it as it was
+    /// (`an_own_cards_creation_time_is_its_first_write`).
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for a negative time.
+    pub fn own_card_created_at(&self, endpoint: &EndpointId) -> Result<Option<u64>, StoreError> {
+        self.lock().own_card_created_at(endpoint)
+    }
+
     /// Write an identity's own card, as the person edited it.
     ///
     /// # Errors
@@ -1676,6 +1687,21 @@ impl Core {
                 surname,
                 photo,
             }))
+    }
+
+    pub(crate) fn own_card_created_at(
+        &self,
+        endpoint: &EndpointId,
+    ) -> Result<Option<u64>, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT created_at FROM own_cards WHERE endpoint_id = ?1",
+                params![endpoint.as_str()],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .map(|t| stored_ms("created_at", t))
+            .transpose()
     }
 
     pub(crate) fn set_own_card(&mut self, card: &OwnCard, at_ms: u64) -> Result<(), StoreError> {

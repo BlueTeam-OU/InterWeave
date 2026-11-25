@@ -1279,3 +1279,25 @@ fn a_contacts_name_reads_back_as_written_not_as_its_keys() {
         .expect("standing");
     assert_eq!(standing.same_name[0].display_name, NAME, "the standing");
 }
+
+/// An own card's creation time is its first write, which an edit leaves:
+/// the held list orders identities by it. None without a card. Mutation:
+/// the upsert setting `created_at` on conflict too -- the edit moves it.
+#[test]
+fn an_own_cards_creation_time_is_its_first_write() {
+    let (_dir, mut store) = store();
+    let second = endpoint("second");
+    assert_eq!(store.own_card_created_at(&second).expect("read"), None);
+    let made = store.ensure_own_card(&second, 7).expect("made");
+    assert_eq!(store.own_card_created_at(&second).expect("read"), Some(7));
+    let edited = OwnCard {
+        name: "Grace".to_owned(),
+        ..made
+    };
+    store.set_own_card(&edited, 9).expect("edited");
+    assert_eq!(
+        store.own_card_created_at(&second).expect("read"),
+        Some(7),
+        "an edit is no creation"
+    );
+}
