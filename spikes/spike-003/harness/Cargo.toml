@@ -8,9 +8,9 @@
 # Staying outside the workspace is what KEPT `kad` off the production
 # feature list. Cargo unifies features across one build of one
 # workspace, so as a member this harness would have switched Kademlia on
-# inside `interweave-transport-libp2p` — undoing AGENTS.md §3's
-# "keep later-stage functionality inert even if a dependency exposes it
-# early", and doing it
+# inside `interweave-transport-libp2p` — undoing the plan's
+# Stage 4 rule that they are absent from the `libp2p` feature list
+# rather than merely unused, and doing it
 # invisibly, because nothing in the production crate would have changed.
 # That rule is the whole reason this spike ran BEFORE Stage 10 rather
 # than during it.
