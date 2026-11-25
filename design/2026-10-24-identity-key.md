@@ -389,15 +389,15 @@ The step, in this order:
    the add and a later write would leave an added identity with no
    record, which the next Replace would turn into a third identity.
    The order is: the key minted and sealed at the new identity's key
-   path, the record, the add, then the card (as Add's Create writes
-   the card after the add, identities §6.2). The add's answer decides
-   what follows, as a settled record's does (below): `added` or
-   `unchanged`, the step goes on; `refused`, the record is settled as
-   below: discarded, and the step ends as failed (§5.4), or, where the
-   key path or platform key cannot be emptied or the remove gives any
-   other answer, kept, and the step ends with `KeyReplaceUnknown`; any
-   other answer of the add, the record is kept and the step ends with
-   `KeyReplaceUnknown` (below).
+   path, the record, the add, then the card (Add's Create, too,
+   writes the card after the add, identities §6.2). The add's answer
+   decides what follows, as a settled record's does (below). On
+   `added` or `unchanged`, the step goes on. On `refused`, the record
+   is settled as below: it is discarded and the step ends as failed
+   (§5.4), unless the key path or the platform key cannot be emptied
+   or the remove gives any other answer; then it is kept, and the step
+   ends with `KeyReplaceUnknown`. On any other answer of the add, the
+   record is kept and the step ends with `KeyReplaceUnknown` (below).
    Nothing of the old identity is touched before this step has stored
    the new one, so a failure here leaves the old identity exactly as
    it was.
@@ -490,19 +490,19 @@ already knows**:
     deletes the record together with the new identity's rows. The
     old identity then stands as before, with `KeyReplaceFailed` under
     its actions for this session and Replace offered again; the next
-    Replace opens §5.2's dialog and makes a new key. Emptying the key path fails as
-    Remove's does (ADR-0063 decision 2, §5.3 step 5): an entry this
-    user cannot remove, a read-only or busy file system, an I/O error,
-    or a platform key that cannot be deleted. On such a failure the
-    remove is not sent and the record is kept, as on the next item's
-    answers, so a record never goes while the new key is still on
-    disk, where an add applied late would register an identity that no
-    record names.
+    Replace opens §5.2's dialog and makes a new key. Emptying the key
+    path fails in the same ways as Remove's does (ADR-0063 decision 2,
+    §5.3 step 5): an entry this user cannot remove, a read-only or busy
+    file system, an I/O error, or a platform key that cannot be
+    deleted. On such a failure the remove is not sent and the record
+    is kept, as on the next item's answers, so a record never goes
+    while the new key is still on disk: an add applied late would then
+    register an identity that no record names.
   - any other answer of the add or of that remove, a key path or
     platform key that could not be emptied, or a list that
     failed: the record is kept, and the old identity's block shows
     `KeyReplaceUnknown` under Replace, not in `error`, since nothing
-    is known to have failed. Replace settles it again, as does the
+    is known to have failed. Replace settles the record again, as does the
     next open. `KeyReplaceFailed` is never shown while a record is
     kept, since its "Choose Replace with a new identity to try again"
     would promise a fresh start that Replace does not make then.
@@ -615,8 +615,8 @@ offered again. Its words are true because it is shown only when no
 record is left: the next Replace opens §5.2's dialog and starts over.
 
 **Not known** (the add, or the remove that discards a refused add's
-record, gave any other answer, the new key path or platform key could
-not be emptied, or the list failed; §5.3): the record is
+record, gave any other answer; the new key path or platform key could
+not be emptied; or the list failed; §5.3): the record is
 kept, and `KeyReplaceUnknown` ("InterWeave could not check whether the
 new identity was made. {identity} has not changed. Choose Replace with
 a new identity to check again. Checking again does not make a second
@@ -752,9 +752,8 @@ state; `error` repeats them. The icon's colour and the heading in
 dark.
 
 **Targets**: Try again, Replace with a new identity, Finish replacing,
-Open {new},
-each row under `KeyShareAgainTitle` and Done are at least 48 dp tall
-on Android and 24 px on the desktop.
+Open {new}, each row under `KeyShareAgainTitle` and Done are at least
+48 dp tall on Android and 24 px on the desktop.
 
 **Motion**: the progress indicator (§5.3) and the switch's transition
 (cards §5.7.5) are the platform's; with reduced motion each is the
@@ -883,13 +882,13 @@ items 1, 6 and 19.
 Items 21–40 are part 2's. Q-link, Q-list, Q-trust and Q-carry are
 ruled (REPLY 01a20525); items 33 and 35 rest on Q-bound and are
 blocked, not passed, until it is answered. A cut "at a point" in
-items 24 and 31, and item 39's end between the add and the card, is
-a test seam that ends the process there, rust-ui-dev's to provide
-beside item 26's holding seam; items 36 and 37 need seams on the add's
-and the remove's answers, item 36 (c) one that keeps a written overlay
-from the running daemon, and item 37's last run one that fails the
-unlink of the new key; until each exists, the runs that need it are
-blocked.
+items 24 and 31 is a test seam that ends the process there, and so is
+item 39's end between the add and the card; rust-ui-dev is to provide
+these seams beside item 26's holding seam. Items 36 and 37 need seams on
+the add's and the remove's answers, item 36 (c) needs one that keeps
+a written overlay from the running daemon, and item 37's last run
+needs one that fails the unlink of the new key; until each exists,
+the runs that need it are blocked.
 
 21. With part 2 built: every kind that shows `KeyNoNewKey` shows
     Replace with a new identity after it; "temporarily unusable"
@@ -1017,8 +1016,8 @@ blocked.
     remove again; on `EndpointUnknown` the record and the new
     identity's rows are deleted and `KeyReplaceFailed` shows. A
     refused settle whose unlink of the new key fails (a seam): no
-    remove is sent (the client's log), the record and the key file are
-    kept, and `KeyReplaceUnknown` shows.
+    remove is sent (read in the client's log), the record and the key
+    file are kept, and `KeyReplaceUnknown` shows.
 38. Neither identities §7's clean-up rule nor §6.2's kept-key rule
     takes a record, the new identity's key or its rows while a record
     names it: with the add left ahead (item 36 (c)) and the list
