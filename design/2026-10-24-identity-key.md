@@ -392,9 +392,12 @@ The step, in this order:
    path, the record, the add, then the card (as Add's Create writes
    the card after the add, identities §6.2). The add's answer decides
    what follows, as a settled record's does (below): `added` or
-   `unchanged`, the step goes on; `refused`, the record is discarded
-   as below and the step ends as failed (§5.4); any other answer, the
-   record is kept and the step ends with `KeyReplaceUnknown` (below).
+   `unchanged`, the step goes on; `refused`, the record is settled as
+   below: discarded, and the step ends as failed (§5.4), or, where the
+   key path or platform key cannot be emptied or the remove gives any
+   other answer, kept, and the step ends with `KeyReplaceUnknown`; any
+   other answer of the add, the record is kept and the step ends with
+   `KeyReplaceUnknown` (below).
    Nothing of the old identity is touched before this step has stored
    the new one, so a failure here leaves the old identity exactly as
    it was.
@@ -487,8 +490,16 @@ already knows**:
     deletes the record with the new identity's rows. The old identity
     then stands as before, with `KeyReplaceFailed` under its actions
     for this session and Replace offered again; the next Replace opens
-    §5.2's dialog and makes a new key.
-  - any other answer of the add or of that remove, or a list that
+    §5.2's dialog and makes a new key. Emptying the key path fails as
+    Remove's does (ADR-0063 decision 2, §5.3 step 5): an entry this
+    user cannot remove, a read-only or busy file system, an I/O error,
+    or a platform key that cannot be deleted. On such a failure the
+    remove is not sent and the record is kept, as on the next item's
+    answers, so a record never goes while the new key is still on
+    disk, where an add applied late would register an identity that no
+    record names.
+  - any other answer of the add or of that remove, a key path or
+    platform key that could not be emptied, or a list that
     failed: the record is kept, and the old identity's block shows
     `KeyReplaceUnknown` under Replace, not in `error`, since nothing
     is known to have failed. Replace settles it again, as does the
@@ -602,7 +613,8 @@ offered again. Its words are true because it is shown only when no
 record is left: the next Replace opens §5.2's dialog and starts over.
 
 **Not known** (the add, or the remove that discards a refused add's
-record, gave any other answer, or the list failed; §5.3): the record is
+record, gave any other answer, the new key path or platform key could
+not be emptied, or the list failed; §5.3): the record is
 kept, and `KeyReplaceUnknown` ("InterWeave could not check whether the
 new identity was made. {identity} has not changed. Choose Replace with
 a new identity to check again. If the new identity was made, you can
@@ -699,7 +711,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | replaced | after the switch to the new identity (cards §5.7.5), the `KeyReplaced` line on its card page, which is announced by being focused, not again | keyboard; screen reader |
 | the replacement failed | `KeyReplaceFailed`, announced by being focused, not again | keyboard; screen reader |
 | Replace pressed while a record names the old identity (§5.3, settling) | the block's progress line, as while `KeyReplacing` shows; then as `added`/`unchanged` (the `KeyReplaceUnfinished` row below), `refused` (as "the replacement failed") or kept (the next row) | keyboard; screen reader announces `KeyReplacing` once |
-| a settle ended with the record kept | `KeyReplaceUnknown`, announced by being focused, not again; Tab reaches Replace after it | keyboard; screen reader |
+| a settle ended with the record kept | `KeyReplaceUnknown`, announced by being focused, not again; it is placed under the actions, so Shift+Tab reaches Replace and Tab the page's next control | keyboard; screen reader |
 | the old identity's page opened while a settle at the app's open runs | the page title, as §4.1; the progress line is read in order and announced once when the settle ends, with the line it ends on | keyboard; screen reader |
 | the old identity's page with `KeyReplaceNewKeyMissing` opened, or Finish replacing pressed and ended in it | the page title when opened; after Finish replacing, `KeyReplaceNewKeyMissing`, announced by being focused, not again; Tab reaches Open {new} after it | keyboard; screen reader |
 | Open {new} pressed | the new identity's page title, as §4.1; `KeyReplaceNewRemove` read in order, then the page's controls; Back returns to the old identity's page, focus on Open {new} | keyboard |
@@ -712,7 +724,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line (with
 | back on the new identity's card page from a row's conversation, the card shared | the next row of the list, else Done | keyboard |
 | back on the new identity's card page from a row's conversation, not shared | the row that opened it | keyboard |
 | Done under the list | the new identity's fingerprint row (the list and Done are gone) | keyboard |
-| the page goes to the background during `KeyReplacing` | on return, as "replaced", "failed" or unfinished by what the step left; the announcement is made on return, once | keyboard; screen reader |
+| the page goes to the background during `KeyReplacing` (the step, or a settle) | on return, as "replaced", "failed", "not known" (`KeyReplaceUnknown`), unfinished, or the new identity's key missing, by what the step or settle left; the announcement is made on return, once | keyboard; screen reader |
 | a card row's Cancel answered while the step runs (§5.3 step 3) | stays where it is; a success is announced once after the step's own announcement | keyboard; desktop screen reader |
 | Try again, opened | the fingerprint row | keyboard |
 | the `KeyDirUnsafePath` line ("key folder not safe"), on the page | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
@@ -737,6 +749,7 @@ state; `error` repeats them. The icon's colour and the heading in
 dark.
 
 **Targets**: Try again, Replace with a new identity, Finish replacing,
+Open {new},
 each row under `KeyShareAgainTitle` and Done are at least 48 dp tall
 on Android and 24 px on the desktop.
 
@@ -864,12 +877,16 @@ Items 1, 6 and 19's "no action" describe part 1's interim. With
 part 2 built, every kind that shows `KeyNoNewKey` also shows Replace
 with a new identity after it, and item 21 replaces "no action" in
 items 1, 6 and 19.
-Items 21–35 are part 2's. Q-link, Q-list, Q-trust and Q-carry are
+Items 21–40 are part 2's. Q-link, Q-list, Q-trust and Q-carry are
 ruled (REPLY 01a20525); items 33 and 35 rest on Q-bound and are
 blocked, not passed, until it is answered. A cut "at a point" in
-items 24 and 31 is a test seam that ends the process there,
-rust-ui-dev's to provide beside item 26's holding seam; until it
-exists those runs are blocked.
+items 24 and 31, and item 39's end between the add and the card, is
+a test seam that ends the process there, rust-ui-dev's to provide
+beside item 26's holding seam; items 36 and 37 need seams on the add's
+and the remove's answers, item 36 (c) one that keeps a written overlay
+from the running daemon, and item 37's last run one that fails the
+unlink of the new key; until each exists, the runs that need it are
+blocked.
 
 21. With part 2 built: every kind that shows `KeyNoNewKey` shows
     Replace with a new identity after it; "temporarily unusable"
@@ -995,7 +1012,10 @@ exists those runs are blocked.
     kept, `KeyReplaceUnknown` shows, and the next settle (the add now
     refused as `key_missing`, since the key path is empty) sends the
     remove again; on `EndpointUnknown` the record and the new
-    identity's rows are deleted and `KeyReplaceFailed` shows.
+    identity's rows are deleted and `KeyReplaceFailed` shows. A
+    refused settle whose unlink of the new key fails (a seam): no
+    remove is sent (the client's log), the record and the key file are
+    kept, and `KeyReplaceUnknown` shows.
 38. Neither identities §7's clean-up rule nor §6.2's kept-key rule
     takes a record, the new identity's key or its rows while a record
     names it: with the add left ahead (item 36 (c)) and the list
