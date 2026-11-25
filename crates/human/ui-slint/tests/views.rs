@@ -770,11 +770,13 @@ fn refused_takes_focus_only_when_asked() {
     assert_ne!(view.window().get_focus_id(), "notice", "the ask was spent");
 }
 
-/// `Refused` spends only its own ask: a pending locked-notice ask outlives
-/// an asked `Refused` (identity note section 8, A compared start answered
-/// before the bound) that takes focus first, and lands when the locked
-/// notice then shows in `Refused`'s place. The locked notice, by contrast,
-/// spends `Refused`'s ask (`refused_takes_focus_only_when_asked`). This
+/// An asked `Refused` (identity note section 8, A compared start answered
+/// before the bound) taking focus leaves a pending locked-notice ask in
+/// place, so the locked notice that then shows in `Refused`'s place, in
+/// one render, takes focus. Two other moves spend the asks and are not
+/// this case: the locked notice showing spends `Refused`'s ask
+/// (`refused_takes_focus_only_when_asked`), and `Refused` leaving for no
+/// notice clears both (`follow_locked_notice`'s last branch). This
 /// pins the view whatever order its callers ask in; no shell or app-core
 /// path is traced here that leaves both asks pending together. Mutation:
 /// the refused branch clearing `locked_focus_wanted` as well fails here.
