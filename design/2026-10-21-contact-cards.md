@@ -1199,7 +1199,7 @@ identity's card is reached as Your card (§4).
 
 #### 5.7.1 The switch
 
-**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs what the switch and the switcher's rows name an identity by (§6.1) where the two differ.
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs what the switch and the switcher's rows name an identity by, the rows' order and when Your identities shows (§6.1) where the two differ.
 
 On the Chats screen's top app bar, between the title and the ⋮ (§4):
 the **identity switch**, a control showing the identity in front's
@@ -1265,7 +1265,7 @@ front, because only its conversations are shown.
 
 #### 5.7.3 Switching
 
-**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs which pages a switch closes on a wide layout, Trust and Peers included (§5.3) where the two differ.
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs which pages a switch closes on a wide layout, Trust and Peers included (§5.3), and what the Chats list shows across a switch (§5.4) where the two differ.
 
 **What changes the identity in front**, all of it and nothing else,
 each an act of the person's and each named to them right after:
@@ -1283,8 +1283,9 @@ each an act of the person's and each named to them right after:
 
 Starting the app otherwise, opening a contact, Your identities or an
 identity's page, adding an identity and Make default change nothing.
-A switch, by any of these, changes everything shown together, at once: the Chats list becomes the
-new identity's conversations, the switch shows its name, and on a wide
+A switch, by any of these, changes everything shown together, at once: the old identity's rows
+leave the Chats list and the new identity's conversations show as
+`design/2026-11-04-identities.md` §5.4 says, the switch shows its name, and on a wide
 layout, where the switch stays on screen beside the second pane (§4),
 whatever that pane holds of one identity closes — a conversation,
 Contacts, a contact page, an identity's page — and the pane shows the
@@ -1379,7 +1380,7 @@ none is specified here (§11).
 
 #### 5.7.6 States of an identity
 
-**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the Starting and Could not start states, and an identity named by its alias (§5.2, §6.1) where the two differ.
+**Since ADR-0067 (A 2026-10-28):** `design/2026-11-04-identities.md` governs the Starting, Could not start and No room at the daemon states, an identity unable to send because the device cannot store new messages, and an identity named by its alias (§5.2, §6.1) where the two differ.
 
 - **Cannot send or receive** (its session holds no lease, or its
   endpoint is turned off, by the first identity's Turn off, §5.2, or in
@@ -2062,8 +2063,10 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     five acts switches and names the identity right after, except act 4
     with one identity left, where `ConfirmIdentityRemoved` names the
     removed one and nothing else; choosing
-    another identity in the switcher changes the
-    list, the switch's name and every "As" line at once and shows
+    another identity in the switcher removes the old
+    identity's rows from the list (the new rows show as
+    `design/2026-11-04-identities.md` §5.4 says) and changes the
+    switch's name and every "As" line at once and shows
     `ConfirmIdentitySwitched`; Switch back returns. On a wide layout a
     switch closes an open conversation, Contacts, a contact page and an
     identity's page to the placeholder, and leaves Trust and Your

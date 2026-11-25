@@ -36,7 +36,8 @@ read §5.1 and §6.1: since ADR-0067 d. 6 trust is the identity's (and
 contact-cards is revised: a dependency until #553 is on `main`). What this note does not mention there
 stands as written: the editor's photo step and unsaved-changes dialog
 (cards §5.2), the switch and its switcher (cards §5.7.1) but for that
-rule, what changes the identity in front (cards §5.7.3) but for §5.3
+rule and for §6.1's order of the rows and its Your identities button,
+what changes the identity in front (cards §5.7.3) but for §5.3 and §5.4
 below, the new-conversation rule (cards §5.7.4) and Make default and
 Turn off (cards §5.2). A rule is stated in one place;
 other sections point to it.
@@ -370,7 +371,7 @@ page is open at a switch.
 
 Asked by rust-ui-dev-02 (QUESTION 01a2119d, U1, U2, U6), for a client
 that holds one screen model for each identity held. This section replaces
-cards §5.7.3's "the list cross-fades".
+the cross-fade that cards §5.7.3 gave the list before this revision.
 
 - **At the switch**, at once: the switch names the new identity,
   `ConfirmIdentitySwitched` shows, focus goes to the switch (cards
@@ -396,8 +397,16 @@ cards §5.7.3's "the list cross-fades".
   be read"). It is announced once, politely, if it appears while Chats
   is shown. Try again reads the list again: the failure row goes at once,
   focus goes to the switch (§11 F23), and the progress row follows the 250 ms
-  rule. A switch away while the read is pending or has failed drops
-  nothing: the next switch back reads again.
+  rule. A switch away while the read is pending drops nothing: when
+  the read answers, its rows go to that identity's screen model and
+  nothing is drawn, since that identity is not in front; a switch back
+  then shows them at once. A switch back while that read is still
+  pending waits for it, as above, and starts no second read. A switch
+  away from the failure row drops nothing either: the next switch back
+  reads again.
+- **What the screen reader reads**: the rows' arrival announces
+  nothing and moves no focus; the failure
+  row's announcement is the only one this section adds (§12).
 - **Feedback**: the new rows fade in over 150 ms. There is no
   cross-fade, since a cross-fade would draw the old rows under the new
   name. Under reduced motion the rows appear at once. The fade does
@@ -927,7 +936,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F18 | a notification of another identity opens the app | after the transition, the conversation list's title of that identity | device |
 | F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
 | F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
-| F21 | the identity in front becomes Starting, Could not start, No room at the daemon, or unable to send because the device cannot store new messages, while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted, and again with acceptance 30's two runs |
+| F21 | the identity in front becomes Starting, Could not start, No room at the daemon, unable to send because the device cannot store new messages, Off by the configuration, or without a lease, while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted, again with acceptance 30's two runs, and again with the identity's endpoint turned off in the configuration while the client runs |
 | F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each of the four runs, a reconnection to the device makes `admin.endpoints.list` answer |
 | F23 | Try again on Chats' failure row after a switch (§5.4) | the switch | keyboard, with acceptance 27's failing read |
 
@@ -945,7 +954,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
   in each of its forms (`ConfirmRouteRemoved`,
   `ConfirmRouteRemovedTrusted`, `ConfirmRouteRemovedTrustedAs`) and
   the switch's snackbar are announced once through the live region
-  (WCAG 4.1.3); the transition's `SwitchingTo` too.
+  (WCAG 4.1.3); the transition's `SwitchingTo` too, and Chats'
+  failure row `ChatsLoadFailed` when it appears while Chats is shown
+  (§5.4).
 - **Targets**: the switch, each switcher row, the route menu button and
   Try again are at least 48 dp high on Android, 24 px on the desktop
   (WCAG 2.5.8).
@@ -1354,8 +1365,16 @@ pass before it lands.
     250 ms on, its accessible name `ChatsLoading`; then the rows show.
     In a second run, with the read made to answer within 250 ms, no
     progress row is drawn. In a third run, with the read made to fail,
-    the failure row shows with `ChatsLoadFailed` and Try again; Try
-    again moves focus to the switch (F23) and reads again. The test
+    the failure row shows with `ChatsLoadFailed` and Try again, and
+    `ChatsLoadFailed` is announced once; Try again moves focus to the
+    switch (F23) and reads again. The announcement is checked on the
+    desktop; on Android it waits for the build to expose an
+    accessibility tree (acceptance 23). In a fourth run, with the read
+    made to answer after 2 s, the test switches back to the old
+    identity 0.5 s after the switch: no row of the identity whose read
+    is pending is drawn, before or after its read answers; switched to
+    that identity again after the read has answered, its rows show at
+    once, and the store records one read of its list. The test
     needs a store read that it can delay or make fail; the builder says
     how. *(§5.4.)*
 28. With two identities A and B, and a message to A that was read in A's
@@ -1377,10 +1396,16 @@ pass before it lands.
     `StorageDegraded` shows once on Chats, whichever identity is in
     front, and every identity's row reads `IdentityUnavailable`.
     *(§5.2.)*
-31. With two identities held, in a build without §6.1's list, the
+31. With three identities held, in a build without §6.1's list, the
     switcher shows its title and the identities' rows, and no Your
-    identities button. The rows are in §6.1's order: the first identity
-    first, then the others in the order their cards were created.
+    identities button. The two added identities' cards are made first,
+    and the first identity's card is written after them. The rows are
+    in §6.1's order: the first identity first, then the two others in
+    the order their cards were created. In a second run, after a
+    discard and recreate (cards §7), the first identity is still first
+    and the two others are in the order of their EndpointIds; the
+    cards were made so that this order differs from their creation
+    order.
     *(§6.1; cards §5.7.1.)*
 
 ## 15. Deliberately left out
