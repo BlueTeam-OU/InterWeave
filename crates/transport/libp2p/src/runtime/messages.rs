@@ -311,7 +311,8 @@ pub enum SwarmCommand {
     /// Register an endpoint the administrative add created AND adopt the
     /// trust sources that give it its own empty sets, in one step of the
     /// Swarm task: no command between them sees the endpoint without its
-    /// set, which would leave it inheriting the operator's list.
+    /// set. (Without one it would fall back to its filters, which for an
+    /// added entry admit nobody: `DirectEndpoints::registered`.)
     AddEndpoint {
         /// The new endpoint.
         endpoint: EndpointId,
