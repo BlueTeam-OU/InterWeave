@@ -363,7 +363,9 @@ pub(crate) enum Request {
 #[cfg(feature = "test-hooks")]
 #[derive(Debug)]
 pub struct PublishHold {
-    reached: oneshot::Receiver<()>,
+    /// `None` once it has resolved `Ok`: a oneshot receiver polled again
+    /// after completing panics, and `reached` may be asked twice.
+    reached: Option<oneshot::Receiver<()>>,
     release: oneshot::Sender<()>,
 }
 
@@ -375,11 +377,16 @@ impl PublishHold {
     ///
     /// # Errors
     /// `BackendUnavailable` when the hold was dropped unreached (the
-    /// driver ended).
+    /// driver ended). Asked again after it resolved, `Ok` at once.
     pub async fn reached(&mut self) -> Result<(), TransportError> {
-        (&mut self.reached)
+        let Some(reached) = self.reached.as_mut() else {
+            return Ok(());
+        };
+        reached
             .await
-            .map_err(|_| TransportError::BackendUnavailable)
+            .map_err(|_| TransportError::BackendUnavailable)?;
+        self.reached = None;
+        Ok(())
     }
 
     /// Let the held publish go on.
@@ -1018,7 +1025,10 @@ impl ComposedRuntime {
         let (release, release_rx) = oneshot::channel();
         self.ask(|reply| Request::HoldEndpointPublish(reached_tx, release_rx, reply))
             .await?;
-        Ok(PublishHold { reached, release })
+        Ok(PublishHold {
+            reached: Some(reached),
+            release,
+        })
     }
 
     /// Make the next overlay writes, trust or endpoint, meet `faults`, one each, in

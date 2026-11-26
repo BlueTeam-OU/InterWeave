@@ -56,9 +56,12 @@ async fn start(p: &Profile) -> ComposedRuntime {
 /// Poll `f` once without a waker: an admin call's first poll sends its
 /// request into the driver's channel (room for 64), so after a `Pending`
 /// the request is queued -- accepted -- and the call only waits for its
-/// answer.
+/// answer. The poll runs outside tokio's cooperative budget: a spent
+/// budget would make the send itself answer `Pending` with nothing queued,
+/// and the request would then be accepted later than the test says.
 fn poll_once<T>(f: &mut Pin<Box<impl Future<Output = T> + ?Sized>>) -> Poll<T> {
-    f.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+    let mut once = std::pin::pin!(tokio::task::unconstrained(f.as_mut()));
+    once.as_mut().poll(&mut Context::from_waker(Waker::noop()))
 }
 
 async fn within<T>(f: impl Future<Output = T>) -> T {
@@ -306,5 +309,39 @@ async fn an_endpoint_trust_set_behind_a_held_remove_is_endpoint_unknown() {
     assert!(!overlay.contains(peer.as_str()), "nothing of the set");
     drop((set, remove));
     drop((setting, removing));
+    runtime.stop().await.expect("stops");
+}
+
+/// The hold is taken by the first write that reaches its publish, not by
+/// the first request: an add the overlay refuses before writing leaves it
+/// armed, and the next add, which writes, takes it. `reached` asked again
+/// after it resolved answers at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hold_is_taken_by_the_first_write_that_reaches_its_publish() {
+    let p = paths();
+    let runtime = start(&p).await;
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+
+    let mut hold = runtime.hold_next_endpoint_publish().await.expect("held");
+    // Refused before any write: the alias is outside the grammar.
+    match within(port.add_endpoint(key.clone(), "bad alias!".to_owned(), vec![])).await {
+        Ok(EndpointAddChange::Refused { reason, .. }) => {
+            assert_eq!(reason, EndpointAddRefusal::AliasInvalid);
+        }
+        other => panic!("not refused: {other:?}"),
+    }
+    let mut add = Box::pin(port.add_endpoint(key, "work".to_owned(), vec![]));
+    assert!(poll_once(&mut add).is_pending(), "the add is queued");
+    within(hold.reached()).await.expect("the add took the hold");
+    within(hold.reached()).await.expect("asked again, at once");
+    assert!(
+        tokio::time::timeout(QUEUED, &mut add).await.is_err(),
+        "the add answered while held"
+    );
+    hold.release();
+    assert_eq!(within(&mut add).await, Ok(EndpointAddChange::Added(work)));
+    drop(add);
+    drop(port);
     runtime.stop().await.expect("stops");
 }
