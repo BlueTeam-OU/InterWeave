@@ -1357,11 +1357,12 @@ pass before it lands.
     (c) up to `IdentityAddUnknown`, then the key file moved aside and
     Create chosen, refused `key_missing`: `IdentityAddUnknown` shows,
     never `IdentityAddFailed`. Back deletes nothing: the record stays,
-    and the moved key file is left where it was moved. The settle then
-    finds the key path empty, empties the platform key, and sends the
-    remove, which answers `removed`; the record is deleted, and after
-    the daemon is restarted the list lacks the id. (k) The record's write made to fail:
-    `IdentityAddFailed`, no key file sealed, no add sent; a second
+    and the key file stays in the place it was moved to. The settle
+    then finds the key path empty, empties the platform key on Android,
+    and sends the remove, which answers `removed`; the record is
+    deleted, and after the daemon is restarted the list lacks the id.
+    (k) The record's write made to fail: `IdentityAddFailed`, no key
+    file sealed, no add sent; a second
     Create, with the write no longer made to fail, writes the record
     before its add. (l) A first add answered `BackendUnavailable`:
     `IdentityAddUnknown`. (m) An add left ahead as in (c), the entry's
