@@ -87,25 +87,27 @@ acceptance case in §14 that needs one says so:
   `admin.endpoints.set_advertise` (p2p-network-dev, plan §30 Activate;
   `LOCAL-IPC.md` lists only `list`, `revoke`, `set_enabled` and
   `set_default` today), and the embedded host's configuration path for
-  the same three on Android. §6.2 relies on these answers of the add
+  the same three on Android. §6.2 relies on these behaviours of the add
   and the remove, which D1 must name. An add sent again with the key,
   alias and client kinds of an entry the profile already holds answers
   `unchanged`, creates nothing new and registers the endpoint, so a
-  retry is one identity; with another alias or other kinds it is
-  refused `exists`. An add whose key file is absent when the daemon
-  applies it is refused (`key_missing`) and creates nothing, so an add
-  the client stopped waiting for cannot create an endpoint once the
-  client has emptied its key path. An add that leaves the configuration
-  ahead of the running device (ADR-0028) answers `Internal`, as a write
-  that failed does, and the client cannot tell the two apart. A remove
-  of the id takes such an entry out of the configuration and answers
-  `removed`. An add sent again after one left ahead can be answered
-  `BackendUnavailable` in place of `unchanged`, the entry still in the
-  configuration and not registered (`LOCAL-IPC.md`, the endpoint set's
-  methods, A 2026-11-25). A refusal says that the add it answers created nothing.
+  retry is one identity; with a different alias or different client
+  kinds it is refused `exists`. An add whose key file is absent when
+  the daemon applies it is refused (`key_missing`) and creates nothing,
+  so an add the client stopped waiting for cannot create an endpoint
+  once the client has emptied that key's path. An add that leaves the
+  configuration ahead of the running device (ADR-0028) answers
+  `Internal`, as a write that failed does, and the client cannot tell
+  the two apart. A remove of the id takes such an entry out of the
+  configuration and answers `removed`. An add sent again after one
+  left ahead can be answered `BackendUnavailable` in place of
+  `unchanged`, with the entry still in the configuration and not yet
+  registered (`LOCAL-IPC.md`, the endpoint set's methods, A
+  2026-11-25). A refusal says that the add it answers created nothing.
   It says nothing about an earlier add of the same key whose outcome
-  was unknown, since an entry left ahead can stand behind a later
-  refusal (architect-cto's ruling of 2026-11-25, REPLY 01a21460, Q1).
+  was unknown, since the entry that the earlier add left ahead can
+  still be in the configuration when a later add is refused
+  (architect-cto's ruling of 2026-11-25, REPLY 01a21460, Q1).
   Neither the add nor the remove
   promises more about an answer that was lost: a write the client
   stopped waiting for may still commit after a later list has answered
@@ -549,32 +551,32 @@ no card is named by it.
    add, on every Create while the form has no record, it writes a
    **pending-add record** in the store, which
    names the new identity's EndpointId and holds nothing else (no key,
-   no name). Only after that does it seal the key (its file under
-   `endpoint-keys/`, and on Android its platform key) and call the
-   add, naming that key file, with the alias and the client kinds of
-   an identity (D1; ADR-0067 d. 4). The endpoint is created with
-   advertise off and an empty trusted set (ADR-0067 d. 6). The record
-   is how the client knows later that a key is one the form made:
-   `endpoint-keys/` is not the client's alone, since a deployment
-   mints keys there with no daemon (ADR-0067 d. 4). So a key file that
-   no record names is never deleted by the client, and a key that
-   Replace minted (identity-key §5.3 step 1) is named by no such
+   no name). It seals the key only after the record is written (its
+   file under `endpoint-keys/`, and on Android its platform key), and
+   then calls the add, naming that key file, with the alias and the
+   client kinds of an identity (D1; ADR-0067 d. 4). The endpoint is
+   created with advertise off and an empty trusted set (ADR-0067
+   d. 6). The record is how the client knows later that a key is one
+   the form made: `endpoint-keys/` is not the client's alone, since a
+   deployment mints keys there with no daemon (ADR-0067 d. 4). So a
+   key file that no record names is never deleted by the client. A key
+   that Replace minted (identity-key §5.3 step 1) is named by no such
    record (ruled 2026-11-25, REPLY 01a21460, Q3). If the record cannot
-   be written, nothing is sealed, and Create ends as refused with
-   nothing created (below).
+   be written, nothing is sealed, and Create ends as "Refused, with
+   nothing created" says (below).
    The form keeps that key for as long as it is open: **every later
    Create on the same form calls the add with the same key**, never a
    new one, so a retry can only make the same EndpointId, which is one
    identity whether the first add landed or not. Once an add of that
    key has ended unknown (below), every later Create also sends the
    alias and kinds of the first add of that key that ended unknown,
-   whatever the Name field says by then: the alias was decided by
-   that add, and another alias would be
-   refused `exists` (D1). A name changed after that goes to the card
-   only (step 3), as a later rename does (the alias rule above).
+   whatever the Name field says by then: the alias was decided by that
+   add, and if that add landed, a different alias would be refused
+   `exists` (D1). A name changed after that goes to the card only
+   (step 3), as a later rename does (the alias rule above).
    The record is deleted when the id becomes an identity (the add
-   answers `added` or `unchanged`, or a list finds the id), before
-   step 3, or when its discard ends (below).
+   answers `added` or `unchanged`, or a list finds the id), which comes
+   before step 3, or when its discard ends (below).
 3. It writes the identity's card.
 4. **Done**: Your identities opens, the new row focused, and
    `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
@@ -590,33 +592,36 @@ Outcomes other than Done, each with nothing half-made shown as made:
 - **At the bound** (64 endpoints, authored and added together; the add
   refuses by name): Create is not offered and `IdentityLimit` shows in
   its place, focused; the form was never opened if the list knew it
-  (cards §5.1, "At the bound"). `bound` shows this whether or not an
-  earlier add of the form's key ended unknown; Back from it leaves the
-  form as "The form is left" says.
-- **Refused, with nothing created**: the add answered `refused` for a
-  reason other than `exists` or `bound`, or `InvalidArgument`; or
-  Create stopped before the add, because the record or the key could
-  not be written. Each of these only when no earlier add of the form's
-  key ended unknown; after one, they are an unknown outcome (below).
+  (cards §5.1, "At the bound"). An add refused `bound` leads here
+  whether or not an earlier add of the form's key ended unknown; Back
+  from here leaves the form as "The form is left" says.
+- **Refused, with nothing created**: the add answered
+  `InvalidArgument`, or `refused` for a reason other than `exists` or
+  `bound`; or Create stopped before the add, because the record or the
+  key could not be written. Each of these only when no earlier add of
+  the form's key ended unknown; after one, they are an unknown outcome
+  (below).
   Nothing is created, the form stays filled, `IdentityAddFailed` above
   Create, focus on it. The key stays with the form (step 2), and the
-  next Create makes the alias again from the Name field as it is then.
+  next Create takes the alias again from what the Name field says
+  then.
   These are the only cases in which the client knows that nothing was
   created (D1; ruled 2026-11-25, REPLY 01a21460, Q1).
-- **The add answers that the id is held**: `unchanged` (the first add
-  landed, D1) is as Found: the record is deleted and the client goes
-  on with step 3; nothing is shown as refused. `exists` (the id is held
-  with another alias or other kinds, D1) sends the client to the list,
+- **The add answers that the id is held**: `unchanged` (an earlier add
+  landed, D1) is handled as Found: the record is deleted and the client
+  goes on with step 3; nothing is shown as refused. `exists` (the id is
+  held with a different alias or different client kinds, D1) sends the
+  client to the list,
   as the next item does: Found if the id is listed, else the outcome is
   unknown.
-- **The outcome is unknown**: every other ending of an add. That is
+- **The outcome is unknown**: every other ending of an add. These are
   `Internal` (a write that failed, or an add left ahead of the running
-  device, which the client cannot tell apart, D1), any other error,
+  device, which the client cannot tell apart, D1); any other error,
   `BackendUnavailable` included (the device can answer it in place of
-  `unchanged`, D1), a refusal of any reason but `bound`, or a Create
-  stopped before its add, after an earlier add of the form's key ended
-  unknown, the connection to the
-  daemon dropping, or no answer within **the add's wait, 30 seconds**
+  `unchanged`, D1); a refusal for any reason other than `bound`, or a
+  Create stopped before its add, after an earlier add of the form's key
+  ended unknown; the connection to the daemon dropping; or no answer
+  within **the add's wait, 30 seconds**
   (a hypothesis: well past a key's sealing and one configuration write
   on the slowest supported phone; falsified if rust-ui-dev measures an
   add that lands later than that). The client knows the EndpointId it
@@ -634,21 +639,24 @@ Outcomes other than Done, each with nothing half-made shown as made:
   first add had landed.
 - **The form is left** (Back, or the app ends):
   - when no add of its key ended unknown (no add was sent, or each
-    was refused with nothing created), on Back: the client deletes the
-    key file and, on Android, the platform key, then the record. A
-    delete that fails keeps the record, and an app that ended deletes
-    nothing; the record is then settled as the next item says.
+    was refused with nothing created): on Back, the client deletes the
+    key file and, on Android, the platform key, then the record. If a
+    delete fails, the record is kept. If the app ends, nothing is
+    deleted. In both of these cases the record is then settled as the
+    next item says.
   - after an add of its key ended unknown, or while an add was running
     (the app ended during Create): the key and the record are kept,
-    since an add still running may yet use the key, and the record is
+    since an add still running, or one whose answer was lost, may yet
+    use the key, and the record is
     settled as the next item says.
 - **A pending-add record is settled** at the client's next start and
   whenever Your identities opens, so also right after Back, which
-  lands there. The settle takes every record but the one of a form
-  that is open now. For each, the client lists the endpoints:
+  opens Your identities. The settle handles every record except the
+  record of a form that is open now. For each record, the client lists
+  the endpoints:
   - The list fails: nothing is deleted and the record is kept, to be
     settled again.
-  - The id is listed and its key file is at its key path: it is an
+  - The id is listed and its key file is at its key path: the id is an
     identity, named by its alias until it has a card (the card case
     below), and the record is deleted.
   - Otherwise (the id is absent from a list that answered, or its key
@@ -664,18 +672,17 @@ Outcomes other than Done, each with nothing half-made shown as made:
     is kept. On any other answer of the remove, the record is kept.
     A kept record is settled again at the next start and the next
     opening of Your identities.
-  Nothing is shown for a settle. The person left a form that said it
-  could not check, and an identity found here appears in Your
-  identities as any identity does. The settle reaches only keys a
-  pending-add record names, so a key that Replace minted is never
-  reached, before its replaces record is written or after (§7, "An
-  identity that cannot come back"). **Alternative named:** settle the
-  record as a replaces record is, by sending the same add again
-  (identity-key §5.3). Rejected (ruled 2026-11-25, REPLY 01a21460,
-  Q2): a replacement is finished because the person asked for it and
-  the old identity waits on it, while nothing waits on a form that was
-  left; and the add would need the alias and kinds stored after the
-  form is gone.
+  Nothing is shown for a settle. The person has left the form, and an
+  identity found here appears in Your identities as any identity does.
+  The settle reaches only keys a pending-add record names, so a key
+  that Replace minted is never reached, before or after Replace writes
+  its replaces record (§7, "An identity that cannot come back").
+  **Alternative named:** settle the record as a replaces record is, by
+  sending the same add again (identity-key §5.3). Rejected (ruled
+  2026-11-25, REPLY 01a21460, Q2): a replacement is finished because
+  the person asked for it and the old identity waits for it, while
+  nothing waits for a form that was left; and the add would need the
+  alias and kinds stored after the form is gone.
 - **The endpoint exists and the card could not be written** (store
   degraded or failed): the identity exists and is named by its alias
   until it has a card (ADR-0061 d. 1, "named by its label"). Your
@@ -1240,7 +1247,7 @@ the same text, and so do `ContactRouteTrustedAs` and
 |---|---|---|
 | `IdentitiesShareDevice` | First half as cards §10, each platform's, up to and not including "Any peer you trust who knows an identity's label"; then: Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device. That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel. | the second half, for ADR-0067 (§6.1) |
 | `IdentityRemoveLoses` | This deletes from this device: / The conversations of {identity}, with their unread and kept messages and the messages waiting to be sent / The contacts of {identity} / The list of peers that {identity} trusts / The card of {identity}, with its name and photo / `IdentityRemoveKey` / People who write to {identity} will no longer reach you. This cannot be undone. | its items are §7's, in its order, the trusted peers and the key added; one item a line, each "/" a line break |
-| `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button; shown only where nothing is known to be created (§6.2, "Refused, with nothing created"), never on `Internal`, which shows `IdentityAddUnknown` |
+| `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button; shown only where the client knows that nothing was created (§6.2, "Refused, with nothing created"), never on `Internal`, which shows `IdentityAddUnknown` |
 | `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
 | `TrustExplanation` | The peers listed here can exchange messages with you. A change made here stays until you change it again. | from the Stage 22 release: no "Only", no claim about this profile (§5.1, §16 Q9) |
 | `ConfirmRevoke` | Do you want to stop trusting {peer}? Messages that this peer sends to you are then refused, until you trust it again. | from the Stage 22 release: it states the route's refusal only, no claim that connections close or about channels (§5.1, §16 Q9, Q10); `{peer}` the exact PeerId, whole, as today |
@@ -1309,33 +1316,34 @@ pass before it lands.
     (`admin.endpoints.list`), `endpoint-keys/` and the store:
     (c) an add left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): `IdentityAddUnknown`
-    shows, never `IdentityAddFailed`; the Name field is then changed and
-    Create chosen: the add carries the first add's alias, answers
-    `unchanged`, the id is listed, the record is gone and the card has
-    the new name. (d) As (c) until `IdentityAddUnknown` shows, then Back: Your identities opens with no
-    new row and nothing shown; the key file and, on Android, the
-    platform key are gone, the remove answered `removed`, the record is
-    gone, and after the daemon is restarted the list lacks the id.
-    (e) As (d) with the unlink of the key file made to fail: no remove
-    is sent, the record stays, and the next start settles it once the
-    unlink succeeds. (f) A key file sealed in `endpoint-keys/` by
-    another program, named by no record, with its id unlisted: after a
-    start and an opening of Your identities it is still there. (g) A
-    Replace stopped after its step 1 sealed the new key and before its
-    replaces record was written: no settle touches that key.
-    (h) As (d), with the settle's remove answering `BackendUnavailable`,
-    then a list that answers: the record stays, §7's clean-up rule does
-    not take it, and the next settle removes the id and deletes it.
-    (i) A first Create refused `alias_taken`, then Back: the key file,
-    the platform key and the record are deleted at once, with no
-    remove sent. (j) As (c) until `IdentityAddUnknown`, then a Create
-    refused (any reason but `bound`): `IdentityAddUnknown` shows, never
-    `IdentityAddFailed`; Back keeps the key and the record for the
-    settle, which ends as in (d). (k) The record's write made to fail:
-    `IdentityAddFailed`, no key file sealed, no add sent; Create again
-    writes the record before its add. (l) A first add answered
-    `BackendUnavailable`: `IdentityAddUnknown`. Needs D1
-    and ADR-0061 decision 7 as amended for j188.
+    shows, never `IdentityAddFailed`. Then the Name field is changed and
+    Create is chosen. The add carries the first add's alias and answers
+    `unchanged`; the id is listed, the record is gone and the card has
+    the new name. (d) As (c) up to `IdentityAddUnknown`, then Back: Your
+    identities opens with no new row and nothing shown; the key file
+    and, on Android, the platform key are gone, the remove answered
+    `removed`, the record is gone, and after the daemon is restarted the
+    list lacks the id. (e) As (d) with the unlink of the key file made
+    to fail: no remove is sent and the record stays; once the unlink is
+    no longer made to fail, the next start settles the record. (f) A
+    key file sealed in `endpoint-keys/` by another program, named by
+    no record, with its id unlisted: after a start and an opening of
+    Your identities the key file is still there. (g) A Replace stopped
+    after its step 1 sealed the new key and before its replaces record
+    was written: no settle touches that key. (h) As (d), with the
+    settle's remove answering `BackendUnavailable`, then a list that
+    answers: the record stays, §7's clean-up rule does not take it, and
+    the next settle removes the id and deletes the record. (i) A first
+    Create refused `alias_taken`, then Back: the key file, the platform
+    key and the record are deleted at once, with no remove sent. (j) As
+    (c) up to `IdentityAddUnknown`, then a Create refused for any reason
+    but `bound`: `IdentityAddUnknown` shows, never `IdentityAddFailed`;
+    Back keeps the key and the record for the settle, which ends as in
+    (d). (k) The record's write made to fail: `IdentityAddFailed`, no
+    key file sealed, no add sent; Create again writes the record before
+    its add. (l) A first add answered `BackendUnavailable`:
+    `IdentityAddUnknown`. Needs D1 and ADR-0061 decision 7 as amended
+    for j188.
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
