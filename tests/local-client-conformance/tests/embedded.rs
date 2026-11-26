@@ -597,6 +597,21 @@ fn trust_administration_revokes_as_policy() {
     pair.stop();
 }
 
+#[test]
+fn endpoint_trust_is_the_endpoints_own() {
+    let pair = EmbeddedPair::start();
+    let (a, b) = pair.bindings();
+    pair.run(suite::endpoint_trust_is_the_endpoints_own(
+        &a,
+        &b,
+        &pair.b_peer,
+        &pair.a_peer,
+        &human(),
+        &agent(),
+    ));
+    pair.stop();
+}
+
 /// Gate (d)'s row: the host's paths refuse a private directory under the
 /// platform's `files/`, naming the runtime root, and create nothing; the
 /// walk alone -- the same boundary without the root -- accepts it, which

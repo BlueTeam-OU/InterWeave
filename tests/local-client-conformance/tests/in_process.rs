@@ -943,6 +943,22 @@ async fn trust_administration_revokes_as_policy() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn endpoint_trust_is_the_endpoints_own() {
+    let pair = Pair::start().await;
+    let (a, b) = pair.bindings();
+    suite::endpoint_trust_is_the_endpoints_own(
+        &a,
+        &b,
+        &pair.b_peer,
+        &pair.a_peer,
+        &human(),
+        &agent(),
+    )
+    .await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn item_9_an_ended_session_answers_events_with_its_end() {
     use interweave_transport_api::TransportRuntime as _;
     let pair = Pair::start().await;
