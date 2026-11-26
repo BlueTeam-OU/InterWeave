@@ -1220,7 +1220,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F21 | the identity in front becomes Starting, Could not start, No room at the daemon, unable to send because the device cannot store new messages, Off by the configuration, or with no lease, while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted, again with acceptance 30's two runs, and again with the identity's endpoint turned off in the configuration while the client runs |
 | F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each of the four runs, a reconnection to the device makes `admin.endpoints.list` answer |
 | F23 | Try again on Chats' failure row after a switch (§5.4) | the switch | keyboard, with acceptance 27's failing read |
-| F24 | Create finds the form's key gone (§6.2) | `IdentityAddKeyGone`, in Create's place | keyboard, with acceptance 10's runs (j) and (p), the variant of (n), and 11a (d) |
+| F24 | Create finds the form's key gone (§6.2) | `IdentityAddKeyGone`, in Create's place | keyboard, with acceptance 10's runs (j), (p) and (q), the variant of (n), and 11a (d) |
 
 ## 12. Accessibility beyond focus
 
@@ -1489,7 +1489,7 @@ pass before it lands.
     `IdentityAddUnknown` with the daemon down, the key file and the
     pending-add record stay until a list that answers. Needs D1.
 
-    Add's kept key, fourteen more runs, each observed from the daemon
+    Add's kept key, fifteen more runs, each observed from the daemon
     (`admin.endpoints.list`), `endpoint-keys/` and the store:
     (c) an add left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): `IdentityAddUnknown`
@@ -1551,7 +1551,17 @@ pass before it lands.
     sealed and before the add): `IdentityAddKeyGone` in Create's place,
     focused, never `IdentityAddFailed`. Back deletes the platform key on Android, then
     the record, and sends no remove; the key file stays in the place it
-    was moved to. Needs
+    was moved to. (q) Desktop: as (n) up to `IdentityAddUnknown`; then
+    the key file set to mode 0000 (owned by this user, so a read of it
+    is refused), the list read made to fail again, and Create chosen:
+    the add is sent and refused `key_missing`, and
+    `IdentityAddKeyGone` shows in Create's place, focused. Back deletes
+    nothing: the key file, still at mode 0000, and the record stay. The
+    settle on Your identities' opening finds the id listed and a file
+    at its key path, deletes the record and sends no remove. The id is
+    then an identity: its row is named by its alias, with
+    `IdentityCardNotSaved` under it, and its page shows `KeyDamaged`
+    (identity-key §3) with Remove (§7). Needs
     D1 and ADR-0061 decision 7 (A 2026-11-26).
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
