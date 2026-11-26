@@ -34,8 +34,9 @@ use crate::translate::{CompositionError, DiscoveryPlan, KADEMLIA_WIRE_MAJOR};
 const DRAIN_PER_ROUND: usize = 256;
 
 /// Batches of [`DRAIN_PER_ROUND`] that empty the larger of the two
-/// configured providers' bounded queues: what a whole drain at start
-/// takes at most, so it ends even against a provider that misbehaves.
+/// configured providers' pending-event caps. A whole drain at start
+/// takes at most this many batches per provider, whatever the provider
+/// returns.
 const WHOLE_DRAIN_BATCHES: usize = {
     let statics = interweave_discovery_static::MAX_PENDING_EVENTS;
     let cache = interweave_discovery_cache::provider::MAX_PENDING_EVENTS;

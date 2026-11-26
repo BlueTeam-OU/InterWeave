@@ -758,7 +758,7 @@ impl ComposedRuntime {
         };
         // THE FIRST ROUND RUNS HERE, BEFORE START RETURNS, not in the
         // driver: a session's send reads the substrate's book directly
-        // (`swarm.commander()` above), never through the driver, so a
+        // (`swarm.commander()` above), not through the driver, so a
         // round the spawned driver had not yet run -- starved under load
         // -- answered a configured peer `PeerUnknown`, a not-dispatched
         // category (`contracts/TRANSPORT.md` §send, ruled 2026-11-26).
