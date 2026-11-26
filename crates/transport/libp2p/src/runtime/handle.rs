@@ -102,6 +102,17 @@ impl SwarmRuntime {
     /// With port 0 the assigned port is only knowable from this answer,
     /// so it waits for the listener to report it.
     ///
+    /// On an UNSPECIFIED IP (`0.0.0.0`, `::`) the listener reports one
+    /// address per interface, and the answer -- still the first it
+    /// reported -- waits until the Swarm has nothing more ready, so
+    /// every interface its watcher already holds is bound, recorded and
+    /// counted by ADR-0052 rule 3 ([`Self::listener_widenings`]) when
+    /// this returns. As this was found (j237) it answered at the first,
+    /// the loopback address, and a private candidate learned at once
+    /// raced the LAN address's report
+    /// (`a_wildcard_listen_answers_once_its_lan_address_is_observed`).
+    /// An interface the watcher has not seen yet is not waited for.
+    ///
     /// # Errors
     /// Returns [`SubstrateError::Stopped`] if the task is gone,
     /// [`SubstrateError::ListenDenied`] if the platform refused this

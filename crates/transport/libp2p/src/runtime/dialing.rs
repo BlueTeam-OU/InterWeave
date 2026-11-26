@@ -939,9 +939,12 @@ fn learn_advertised(
 /// The addresses each connected peer's last Identify advertised that
 /// rule 3 refused for want of a private listener of their family -- the
 /// one verdict this node's own listeners decide -- judged again when
-/// that boundary WIDENS (`NetworkSet::widenings`): a wildcard listener
-/// reporting its LAN address after its loopback one, a Wi-Fi joining
-/// while the peer is connected over another path. Without it the
+/// that boundary WIDENS (`NetworkSet::widenings`): a Wi-Fi joining
+/// while the peer is connected over another path, a listener bound
+/// later. (A wildcard listener's LAN address reported after its
+/// loopback one was such a widening only while `listen` answered at the
+/// first address; it now answers after the listener's interfaces are
+/// reported, j237.) Without it the
 /// peer's LAN address waited for its next Identify, five minutes by the
 /// crate's default, as composition's discovery memo waited its relearn
 /// interval for the same refusal (j133).
@@ -2054,9 +2057,112 @@ pub(super) fn held_connections<'a>(
     best.into_values().map(|(_, _, id)| id).collect()
 }
 
-/// Listen commands whose bound address has not arrived yet.
-pub(super) type PendingListens =
-    HashMap<ListenerId, oneshot::Sender<Result<Multiaddr, super::SubstrateError>>>;
+/// Listen commands not yet answered.
+pub(super) type PendingListens = HashMap<ListenerId, PendingListen>;
+
+/// One `listen` waiting for its answer.
+#[derive(Debug)]
+pub(super) struct PendingListen {
+    pub(super) reply: oneshot::Sender<Result<Multiaddr, super::SubstrateError>>,
+    /// The listen named an unspecified IP (`0.0.0.0`, `::`), so its
+    /// listener reports one address per interface and the answer waits
+    /// for all of them ([`is_wildcard_listen`]).
+    pub(super) wildcard: bool,
+    /// The first address a wildcard listener reported: what `listen`
+    /// answers with, held until the Swarm has nothing more ready
+    /// ([`answer_settled_listens`]). `None` until the listener has
+    /// bound; a listener holding one is in [`ActiveListeners`] too.
+    pub(super) first: Option<Multiaddr>,
+}
+
+impl PendingListen {
+    pub(super) fn new(
+        address: &Multiaddr,
+        reply: oneshot::Sender<Result<Multiaddr, super::SubstrateError>>,
+    ) -> Self {
+        Self {
+            reply,
+            wildcard: is_wildcard_listen(address),
+            first: None,
+        }
+    }
+}
+
+/// Whether a listen address names an unspecified IP, the one listen
+/// whose listener reports an address per interface the host holds
+/// (`a_wildcard_listen_answers_once_its_lan_address_is_observed`, and
+/// `a_wildcard_listen_is_one_on_an_unspecified_ip` for the predicate).
+pub(super) fn is_wildcard_listen(address: &Multiaddr) -> bool {
+    match address.iter().next() {
+        Some(Protocol::Ip4(ip)) => ip.is_unspecified(),
+        Some(Protocol::Ip6(ip)) => ip.is_unspecified(),
+        _ => false,
+    }
+}
+
+/// Whether a wildcard listen is held bound and unanswered, waiting for
+/// the Swarm to have nothing ready ([`answer_settled_listens`]).
+pub(super) fn holds_settling_listen(listens: &PendingListens) -> bool {
+    listens.values().any(|pending| pending.first.is_some())
+}
+
+/// How many listeners hold an OS socket, each counted once: a held
+/// wildcard listen is in both tables, so the pending one counted is
+/// only one not bound yet (`a_held_wildcard_listen_counts_once_against_the_listener_bound`).
+pub(super) fn bound_or_binding(listens: &PendingListens, active: &ActiveListeners) -> usize {
+    listens
+        .values()
+        .filter(|pending| pending.first.is_none())
+        .count()
+        .saturating_add(active.len())
+}
+
+/// Answer every held wildcard listen with its first address, returning
+/// the listeners whose caller has gone, for the caller to close.
+///
+/// THE SWARM HAD NOTHING READY, which is when every address the
+/// listener's interface watcher already holds has been reported, and
+/// so observed by the network-change detector and recorded in
+/// `active`, before the caller resumes: if-watch 3.2.2's Linux backend
+/// polls its rtnetlink connection inline in `poll_if_event`, so the
+/// address dump that brought the first address brought the rest into
+/// its queue; the fallback backend Android uses runs `get_if_addrs`
+/// synchronously at its first poll and queues every address; and
+/// libp2p-tcp 0.45's `ListenStream` yields one address per poll, so the
+/// Swarm stays ready until the queue is out. None of that is budgeted
+/// by tokio's cooperative scheduling. What the watcher has not seen yet
+/// -- on Android, an interface `getifaddrs` does not answer until the
+/// platform's view arrives -- is not waited for: rule 3's widening
+/// counts it when it comes.
+///
+/// ALSO WHEN THE SWARM CANNOT BE POLLED for want of outbox room: the
+/// caller is answered at once, as before the hold, rather than wait for
+/// an idle Swarm nobody may poll -- `ComposedRuntime::start` awaits
+/// `listen` before anything drains the outbox
+/// (`settling_names_a_held_listen_whose_caller_left_and_skips_an_unbound_one`
+/// pins what it answers; no test reaches the loop with a held listen and
+/// no room, since the outbox fills past its base only through progress
+/// events a test cannot hold there).
+pub(super) fn answer_settled_listens(listens: &mut PendingListens) -> Vec<ListenerId> {
+    let settled: Vec<ListenerId> = listens
+        .iter()
+        .filter(|(_, pending)| pending.first.is_some())
+        .map(|(id, _)| *id)
+        .collect();
+    let mut gone = Vec::new();
+    for id in settled {
+        if let Some(PendingListen {
+            reply,
+            first: Some(first),
+            ..
+        }) = listens.remove(&id)
+            && reply.send(Ok(first)).is_err()
+        {
+            gone.push(id);
+        }
+    }
+    gone
+}
 
 /// Listeners that have bound and are still serving.
 ///
