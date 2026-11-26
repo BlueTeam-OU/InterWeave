@@ -33,6 +33,16 @@ use crate::translate::{CompositionError, DiscoveryPlan, KADEMLIA_WIRE_MAJOR};
 /// Events drained from one provider per round.
 const DRAIN_PER_ROUND: usize = 256;
 
+/// Batches of [`DRAIN_PER_ROUND`] that empty the larger of the two
+/// configured providers' bounded queues: what a whole drain at start
+/// takes at most, so it ends even against a provider that misbehaves.
+const WHOLE_DRAIN_BATCHES: usize = {
+    let statics = interweave_discovery_static::MAX_PENDING_EVENTS;
+    let cache = interweave_discovery_cache::provider::MAX_PENDING_EVENTS;
+    let larger = if statics > cache { statics } else { cache };
+    larger.div_ceil(DRAIN_PER_ROUND)
+};
+
 /// Reconnects asked of the substrate per round. A peer in backoff is
 /// refused by the gate before any socket, so the cost of asking again is
 /// a command; the bound keeps a large candidate set from turning each
@@ -265,25 +275,66 @@ impl Discovery {
     /// manager's contract working (an untrusted or malformed candidate)
     /// and is counted there, not here.
     pub(crate) fn pump(&mut self, now_ms: u64) {
-        let providers: [Option<&mut dyn DiscoveryProvider>; 4] = [
-            self.statics
-                .as_mut()
-                .map(|p| p as &mut dyn DiscoveryProvider),
-            self.cache.as_mut().map(|p| p as &mut dyn DiscoveryProvider),
-            self.mdns.as_mut().map(|p| p as &mut dyn DiscoveryProvider),
-            self.kademlia
-                .as_mut()
-                .map(|p| p as &mut dyn DiscoveryProvider),
+        self.drain(now_ms, false);
+    }
+
+    /// [`Self::pump`], with the CONFIGURED providers -- static-bootstrap
+    /// and peer-cache -- drained whole rather than one batch: what start
+    /// runs before the runtime serves, so every address the profile
+    /// configures is a candidate before the first send can ask
+    /// (`contracts/TRANSPORT.md` §send, ruled 2026-11-26). A cache of
+    /// more than [`DRAIN_PER_ROUND`] events otherwise left the rest to
+    /// later rounds (`a_full_peer_cache_is_drained_whole_at_start`).
+    /// mDNS and Kademlia learn while running, so they keep one batch.
+    pub(crate) fn pump_configured_whole(&mut self, now_ms: u64) {
+        self.drain(now_ms, true);
+    }
+
+    fn drain(&mut self, now_ms: u64, configured_whole: bool) {
+        let providers: [(Option<&mut dyn DiscoveryProvider>, bool); 4] = [
+            (
+                self.statics
+                    .as_mut()
+                    .map(|p| p as &mut dyn DiscoveryProvider),
+                true,
+            ),
+            (
+                self.cache.as_mut().map(|p| p as &mut dyn DiscoveryProvider),
+                true,
+            ),
+            (
+                self.mdns.as_mut().map(|p| p as &mut dyn DiscoveryProvider),
+                false,
+            ),
+            (
+                self.kademlia
+                    .as_mut()
+                    .map(|p| p as &mut dyn DiscoveryProvider),
+                false,
+            ),
         ];
         let mut seeds = Vec::new();
-        for provider in providers.into_iter().flatten() {
+        for (provider, configured) in providers {
+            let Some(provider) = provider else { continue };
             let source = provider.descriptor().name;
             let seeding = self.seed_sources.contains(&source);
-            for event in provider.drain_events(now_ms, DRAIN_PER_ROUND) {
-                if seeding && let DiscoveryEvent::CandidateObserved { candidate } = &event {
-                    seeds.push(candidate.clone());
+            let batches = if configured_whole && configured {
+                WHOLE_DRAIN_BATCHES
+            } else {
+                1
+            };
+            for _ in 0..batches {
+                let events = provider.drain_events(now_ms, DRAIN_PER_ROUND);
+                let short = events.len() < DRAIN_PER_ROUND;
+                for event in events {
+                    if seeding && let DiscoveryEvent::CandidateObserved { candidate } = &event {
+                        seeds.push(candidate.clone());
+                    }
+                    let _ = self.manager.on_event(&source, event, now_ms, &self.trust);
                 }
-                let _ = self.manager.on_event(&source, event, now_ms, &self.trust);
+                if short {
+                    break;
+                }
             }
         }
         // SEED SOURCES FEED KADEMLIA (`kademlia-integration.md` §8): the
@@ -621,6 +672,57 @@ mod tests {
         commands
             .iter()
             .any(|c| matches!(c, KademliaCommand::OfferRoutingPeer { peer, .. } if peer == seed))
+    }
+
+    /// A peer cache past one round's drain: 300 reached peers, so 301
+    /// events with the health transition, where a round drains 256.
+    fn full_cache(dir: &std::path::Path) -> (Discovery, usize) {
+        use interweave_discovery_cache::{CacheLimits, PeerCache};
+        let file = dir.join("peers.json");
+        let peers: Vec<TransportIdentity> = (0..300).map(|_| peer()).collect();
+        let mut cache = PeerCache::load(&file, CacheLimits::default()).expect("loads");
+        for (i, p) in peers.iter().enumerate() {
+            cache
+                .record_success(p, &format!("/ip4/8.8.{}.{}/tcp/4001", i / 200, i % 200), 0)
+                .expect("in bounds");
+        }
+        cache.flush(0).expect("written");
+        let plan = DiscoveryPlan {
+            peer_cache: Some((CacheLimits::default(), 20)),
+            ..DiscoveryPlan::default()
+        };
+        let trusted: BTreeSet<TransportIdentity> = peers.iter().cloned().collect();
+        let discovery = Discovery::new(
+            plan,
+            Some(&file),
+            PeerTrustPolicy::new(trusted.clone()).expect("in bounds"),
+            trusted,
+            &peer(),
+            0,
+        )
+        .expect("composes");
+        (discovery, peers.len())
+    }
+
+    /// What start offers the book is the configured providers' WHOLE
+    /// initial state (`contracts/TRANSPORT.md` §send, ruled 2026-11-26),
+    /// not one round's batch. The control: one `pump` leaves the cache's
+    /// tail for later rounds -- the gap a whole drain closes.
+    #[test]
+    fn a_full_peer_cache_is_drained_whole_at_start() {
+        let scratch = tempfile::tempdir().expect("scratch");
+        let (mut whole, held) = full_cache(scratch.path());
+        whole.pump_configured_whole(0);
+        assert_eq!(whole.changed_candidates(0, 0).len(), held);
+
+        let scratch = tempfile::tempdir().expect("scratch");
+        let (mut one_batch, held) = full_cache(scratch.path());
+        one_batch.pump(0);
+        let offered = one_batch.changed_candidates(0, 0).len();
+        assert!(
+            offered > 0 && offered < held,
+            "the control: one batch offers part of the cache ({offered} of {held})"
+        );
     }
 
     #[test]

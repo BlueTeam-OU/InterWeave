@@ -716,7 +716,7 @@ impl ComposedRuntime {
         // driver's request queue.
         let network = swarm.network_monitor();
         let (ended_tx, ended) = watch::channel(());
-        let driver = Driver {
+        let mut driver = Driver {
             _ended_on_drop: ended_tx,
             local: local.clone(),
             swarm,
@@ -756,6 +756,15 @@ impl ComposedRuntime {
             refusals: ReconnectRefusals::default(),
             writes: LastWrites::new(order),
         };
+        // THE FIRST ROUND RUNS HERE, BEFORE START RETURNS, not in the
+        // driver: a session's send reads the substrate's book directly
+        // (`swarm.commander()` above), never through the driver, so a
+        // round the spawned driver had not yet run -- starved under load
+        // -- answered a configured peer `PeerUnknown`, a not-dispatched
+        // category (`contracts/TRANSPORT.md` §send, ruled 2026-11-26).
+        // The configured providers are drained whole first; the driver's
+        // interval then starts one period on.
+        driver.first_round().await;
         let task = tokio::spawn(driver.run(options.discovery_interval));
         Ok(Self {
             identity: LocalIdentity {
@@ -1178,9 +1187,22 @@ struct Driver {
 }
 
 impl Driver {
+    /// The round `start` runs before the runtime serves: every address
+    /// the profile configures offered to the book, then the round a tick
+    /// runs (`a_configured_peer_is_not_unknown_before_the_first_tick`).
+    async fn first_round(&mut self) {
+        let now = (self.clock)();
+        self.discovery.pump_configured_whole(now);
+        self.discovery_round().await;
+    }
+
     async fn run(mut self, interval: Duration) {
         let mut tick = tokio::time::interval(interval);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // ONE PERIOD ON, not at once: `start` ran the first round. An
+        // interval's first tick completes at once; taken here, it is not
+        // a second round (and no `now + interval` can overflow).
+        tick.tick().await;
         let mut shutdown_reply = None;
         // The default, until a shutdown request names its own.
         let mut shutdown_grace = interweave_transport_libp2p::runtime::SHUTDOWN_GRACE;
