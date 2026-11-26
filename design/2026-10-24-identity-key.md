@@ -396,7 +396,18 @@ The step, in this order:
    (Add's Create, too, writes the card after the add, identities
    §6.2). If the record cannot be written, nothing is sealed and no
    add is sent: the step ends as failed (§5.4), the old identity
-   unchanged. The add names the key, takes the alias the client
+   unchanged. If the seal or the platform key fails after the record
+   is written, the step first empties the new key path and the
+   platform key, as the settle's `refused` item does (a key file the
+   seal wrote, without its platform key, would otherwise be added);
+   then, the record being there, it settles the record at once, as a
+   cut step's record is settled (below): the add is refused
+   `key_missing`, the remove is sent and the record discarded, and
+   the step ends as failed. If the key path or the platform key cannot
+   be emptied, no add is sent and the record is kept; that, and any
+   other answer that keeps the record, ends the step with
+   `KeyReplaceUnknown`, as a kept record does, never
+   `KeyReplaceFailed`. The add names the key, takes the alias the client
    chooses for a new identity of the old card's name, and the client
    kinds of an identity; the record holds none of these, only the two
    ids (`STATE.md`). The add's answer
@@ -625,9 +636,10 @@ named contact, and the counterparty's reply to the shared card is
 admitted. The counterparty still sees a new identity, and still has
 their contact for the old identity until they accept the new card.
 
-**Failed** (step 1 refused — a key that cannot be minted or sealed, or
-an add answered `refused`, whose record has been discarded as §5.3
-says): `KeyReplaceFailed` ("InterWeave could not make the new
+**Failed** (step 1 refused — a key pair that cannot be generated or a
+record that cannot be written, which leave no record; or a seal or
+platform key that failed after the record, or an add answered
+`refused`, once the record has been discarded as §5.3 says): `KeyReplaceFailed` ("InterWeave could not make the new
 identity. {identity} has not changed. Choose Replace with a new
 identity to try again."), in `error`, under the actions, and Replace
 offered again. Its words are true because it is shown only when no
@@ -989,7 +1001,14 @@ the runs that need it are blocked.
     `refused` by the seam: the new key path is empty and the platform
     key gone before the administrative remove is sent (read in the
     client's log order), no record and none of the new identity's rows
-    are left, and the next Replace opens §5.2's dialog.
+    are left, and the next Replace opens §5.2's dialog. With the seal
+    of the new key made to fail after the record is written: the add
+    is answered `key_missing`, the record is discarded, and the same
+    holds. On Android, with the platform key made to fail after the
+    seal: the key file is deleted before the add is sent, the add is
+    answered `key_missing`, and the same holds; with, in addition, the
+    key file's unlink made to fail: no add is sent, the record is kept
+    and `KeyReplaceUnknown` shows, never `KeyReplaceFailed`.
 29. Q-trust and Q-carry: the old identity, added, trusts peers P and
     Q and holds contacts A (name, photo) and B. After Replace, the
     endpoint dimension of `admin.trust.list` for the new EndpointId
