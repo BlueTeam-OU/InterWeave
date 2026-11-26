@@ -1605,12 +1605,18 @@ pub(super) fn translate(
                 // after this event no longer finds it in `listens`, so it
                 // is closed here as `NewListenAddr` closes one
                 // (`a_listener_error_closes_a_held_listen_whose_caller_has_gone`).
+                // One with no address yet is answered with the error, and
+                // a caller told its listen failed owns nothing: the error
+                // is not fatal, so the listener is closed here or its
+                // later addresses would be reported as `Listening` for a
+                // listen its caller saw refused
+                // (`a_listen_answered_with_a_listener_error_leaves_no_listener_open`).
                 let bound = pending.first.is_some();
                 let answer = match pending.first {
                     Some(first) => Ok(first),
                     None => Err(listen_refusal(&error, None)),
                 };
-                if pending.reply.send(answer).is_err() && bound {
+                if pending.reply.send(answer).is_err() || !bound {
                     abandoned.push(listener_id);
                 }
             }
@@ -2499,6 +2505,41 @@ mod command_helper_tests {
         assert_eq!(abandoned, vec![gone_id]);
         assert!(matches!(kept_answer.try_recv(), Ok(Ok(a)) if a == addr(13)));
         assert!(listens.is_empty());
+    }
+
+    #[test]
+    fn a_listen_answered_with_a_listener_error_leaves_no_listener_open() {
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let unbound_id = ListenerId::next();
+        let (unbound, mut unbound_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(unbound_id, unbound);
+        // Control: a held listen with an address, its caller waiting, is
+        // answered with it and kept open.
+        let held_id = ListenerId::next();
+        let (held, mut held_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(held_id, held);
+        super::translate(
+            new_listen_addr(held_id, addr(14)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        for id in [unbound_id, held_id] {
+            super::translate(
+                libp2p::swarm::SwarmEvent::ListenerError {
+                    listener_id: id,
+                    error: std::io::Error::other("the interface watcher failed"),
+                },
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        assert!(matches!(unbound_answer.try_recv(), Ok(Err(_))));
+        assert!(matches!(held_answer.try_recv(), Ok(Ok(a)) if a == addr(14)));
+        assert_eq!(abandoned, vec![unbound_id]);
     }
 
     #[test]
