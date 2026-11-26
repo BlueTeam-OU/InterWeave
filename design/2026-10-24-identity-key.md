@@ -392,15 +392,18 @@ The step, in this order:
    would mint another key and make a third identity (ADR-0061
    decision 7, A 2026-11-26 (ii)). The order is: the key pair
    generated, the record, the key sealed at the new identity's key
-   path, the platform key made (on Android), the add, then the card
+   path, the add, then the card. On Android the seal makes the
+   platform key first and writes the key file only after it, so a key
+   file never stands at the path without its platform key (as built:
+   the store's `install` seals before it creates the file)
    (Add's Create, too, writes the card after the add, identities
    §6.2). If the record cannot be written, nothing is sealed and no
    add is sent: the step ends as failed (§5.4), the old identity
-   unchanged. If the seal or the platform key fails after the record
-   is written, the step first empties the new key path and the
-   platform key, as the settle's `refused` item does (a key file the
-   seal wrote, without its platform key, would otherwise be added);
-   then, the record being there, it settles the record at once, as a
+   unchanged. If the seal fails after the record is written (on
+   Android, also after it made the platform key and before the key
+   file was written), the step first empties the new key path and the
+   platform key, as the settle's `refused` item does, so that nothing
+   the seal left can be added later; then, the record being there, it settles the record at once, as a
    cut step's record is settled (below): the add is refused
    `key_missing`, the remove is sent and the record discarded, and
    the step ends as failed. If the key path or the platform key cannot
@@ -920,8 +923,8 @@ item 39's end between the add and the card; rust-ui-dev is to provide
 these seams beside item 26's holding seam. Items 36 and 37 need seams on
 the add's and the remove's answers, item 36 (c) and item 24's last
 run need one that keeps a written overlay from the running daemon,
-item 28's runs need ones that fail the seal, the platform key and the
-unlink of the new key, and item 37's last run
+item 28's runs need ones that fail the seal (on Android, after it
+made the platform key) and the deletion of that platform key, and item 37's last run
 needs one that fails the unlink of the new key; until each exists,
 the runs that need it are blocked.
 
@@ -1008,11 +1011,14 @@ the runs that need it are blocked.
     are left, and the next Replace opens §5.2's dialog. With the seal
     of the new key made to fail after the record is written: the add
     is answered `key_missing`, the record is discarded, and the same
-    holds. On Android, with the platform key made to fail after the
-    seal: the key file is deleted before the add is sent, the add is
-    answered `key_missing`, and the same holds; with, in addition, the
-    key file's unlink made to fail: no add is sent, the record is kept
-    and `KeyReplaceUnknown` shows, never `KeyReplaceFailed`.
+    holds. On Android, with the seal made to fail after it made the
+    platform key and before it wrote the key file: the platform key is
+    deleted before the add is sent, no key file is ever at the new key
+    path, the add is answered `key_missing`, and the same holds; with,
+    in addition, the platform key's deletion made to fail: no add is
+    sent, the record is kept and `KeyReplaceUnknown` shows, never
+    `KeyReplaceFailed`, and the next settle's add, with still no key
+    file at the path, is refused `key_missing`.
 29. Q-trust and Q-carry: the old identity, added, trusts peers P and
     Q and holds contacts A (name, photo) and B. After Replace, the
     endpoint dimension of `admin.trust.list` for the new EndpointId
