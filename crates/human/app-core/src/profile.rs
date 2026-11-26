@@ -42,6 +42,78 @@ pub fn leasable_endpoints(config: &ProfileConfig) -> Vec<EndpointId> {
         .collect()
 }
 
+/// One identity a desktop-hosted human client holds: its endpoint and
+/// the alias its entry carries, if any.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldEntry {
+    /// The identity's endpoint.
+    pub endpoint: EndpointId,
+    /// Its entry's alias, as the entry carries it: `None` for an entry
+    /// without one, never one made up in its place (identities §6.1).
+    pub alias: Option<String>,
+}
+
+/// The identities a desktop-hosted human client holds, and the profile's
+/// default among them (plan §30; architect-cto's ruling A5 of
+/// 2026-11-25 and REPLY 01a216b6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldList {
+    /// The first identity first -- the first authored entry admitting
+    /// [`CLIENT_KIND`], what [`leasable_endpoints`]`(..).first()` names
+    /// -- then every entry the endpoint overlay `added` that admits it,
+    /// in the overlay's order. Empty when no authored entry admits it.
+    pub held: Vec<HeldEntry>,
+    /// The effective default -- the overlay's, else `config.yaml`'s --
+    /// when it is held; else none, and the roster falls back.
+    pub default: Option<EndpointId>,
+}
+
+/// The identities `config` and its endpoint overlay hold for a human
+/// client ([`HeldList`]). A later AUTHORED entry admitting [`CLIENT_KIND`]
+/// is not an identity: an endpoint authored by hand for this client kind
+/// is a route (ADR-0061 decision 1), so only the first is held
+/// (`a_second_authored_human_entry_is_not_held`). The overlay is read
+/// read-only ([`EndpointOverlay::read_within`]), as
+/// [`resolve_identity`] reads it; an absent overlay is no added entry.
+///
+/// # Errors
+/// The overlay's, when it is present and cannot be read: NEVER read as
+/// "no added entries" (architect-cto's REPLY 01a216b6, item 4), since
+/// the client would then show a held list the file may contradict
+/// (`a_present_overlay_that_cannot_be_read_is_an_error_and_an_absent_one_is_none`).
+pub fn held_list(
+    paths: &ProfilePaths,
+    config: &ProfileConfig,
+) -> Result<HeldList, EndpointOverlayError> {
+    let admits = |e: &interweave_profile_config::EndpointConfig| {
+        e.allowed_client_kinds
+            .iter()
+            .any(|k| k.as_str() == CLIENT_KIND)
+    };
+    let entry = |e: &interweave_profile_config::EndpointConfig| HeldEntry {
+        endpoint: e.id.clone(),
+        alias: e.alias.as_ref().map(ToString::to_string),
+    };
+    let (overlay, _normalised) = EndpointOverlay::read_within(
+        &EndpointOverlay::path_for(paths),
+        &config.endpoints,
+        paths.boundary(),
+    )?;
+    let Some(first) = config.endpoints.entries.iter().find(|e| admits(e)) else {
+        return Ok(HeldList {
+            held: Vec::new(),
+            default: None,
+        });
+    };
+    let mut held = vec![entry(first)];
+    held.extend(overlay.added().filter(|e| admits(e)).map(entry));
+    let default = overlay
+        .effective(&config.endpoints)
+        .default
+        .filter(|d| held.iter().any(|h| &h.endpoint == d));
+    Ok(HeldList { held, default })
+}
+
 /// Why [`resolve_identity`] named no endpoint: each a refused start, named
 /// for what the person typed, never a hello sent with it (ENDPOINTS.md,
 /// an alias is resolved by the client).
@@ -385,6 +457,81 @@ channels: {{ desired: [] }}
                 .expect("an id needs no overlay"),
             endpoint_id("human")
         );
+    }
+
+    /// An overlay whose `added` holds `added` (human-client) and `bot`
+    /// (claude-channel alone), each with its empty own set, and whose
+    /// default is `default` when given.
+    fn overlay_with_added(default: Option<&EndpointId>) -> String {
+        let (added, bot) = (endpoint_id("added"), endpoint_id("bot"));
+        let default =
+            default.map_or_else(String::new, |d| format!(r#""default":"{}","#, d.as_str()));
+        format!(
+            r#"{{{default}"enabled":{{}},"added":[{{"key":"{a}.key","alias":"added","enabled":true,"advertise":false,"allowed_client_kinds":["human-client"]}},{{"key":"{b}.key","alias":"bot","enabled":true,"advertise":false,"allowed_client_kinds":["claude-channel"]}}],"inbound":{{"{a}":[],"{b}":[]}},"outbound":{{"{a}":[],"{b}":[]}}}}"#,
+            a = added.as_str(),
+            b = bot.as_str(),
+        )
+    }
+
+    fn ids(list: &HeldList) -> Vec<EndpointId> {
+        list.held.iter().map(|h| h.endpoint.clone()).collect()
+    }
+
+    /// The first authored human-client entry is the first identity, with
+    /// its alias; a second authored one is a route, not an identity; an
+    /// added human-client entry is held, an added entry of another kind
+    /// is not. Mutations: `held_list` taking every authored human-client
+    /// entry -- `human` is held; not filtering the added by kind -- `bot`
+    /// is held; dropping the added -- `added` is missing.
+    #[test]
+    fn a_second_authored_human_entry_is_not_held() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), Some(&overlay_with_added(None)));
+        let list = held_list(&paths, &three()).expect("reads");
+        assert_eq!(ids(&list), [endpoint_id("second"), endpoint_id("added")]);
+        assert_eq!(list.held[0].alias.as_deref(), Some("second"));
+        assert_eq!(list.held[1].alias.as_deref(), Some("added"));
+    }
+
+    /// A present overlay that cannot be read is an error, never "no
+    /// added entries"; an absent one is the first identity alone.
+    /// Mutation: `held_list` reading a failed overlay as the empty one --
+    /// the corrupt case answers `Ok`.
+    #[test]
+    fn a_present_overlay_that_cannot_be_read_is_an_error_and_an_absent_one_is_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), Some("{ not json"));
+        assert!(matches!(
+            held_list(&paths, &three()),
+            Err(EndpointOverlayError::Parse(_))
+        ));
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(dir.path(), None);
+        let list = held_list(&paths, &three()).expect("reads");
+        assert_eq!(ids(&list), [endpoint_id("second")]);
+        assert_eq!(list.default, None);
+    }
+
+    /// The default is the overlay's effective one, an added entry
+    /// included, when it is held; one not held is none. Mutations:
+    /// `held_list` taking `config.yaml`'s default alone -- the added
+    /// default is lost; not filtering by held -- `bot` is the default.
+    #[test]
+    fn the_default_is_the_overlays_when_held() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(
+            dir.path(),
+            Some(&overlay_with_added(Some(&endpoint_id("added")))),
+        );
+        let list = held_list(&paths, &three()).expect("reads");
+        assert_eq!(list.default, Some(endpoint_id("added")));
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = paths_with(
+            dir.path(),
+            Some(&overlay_with_added(Some(&endpoint_id("bot")))),
+        );
+        let list = held_list(&paths, &three()).expect("reads");
+        assert_eq!(list.default, None, "not held");
     }
 
     /// Resolving writes nothing in the profile: an overlay normalising

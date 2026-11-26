@@ -37,8 +37,8 @@ pub use interweave_human_ui_model::KeyProblem;
 pub use listing::kind_of as stored_kind;
 pub use model_side::{ModelSide, Opener, PROBLEM_CAP, Problem, Surface};
 pub use profile::{
-    CLIENT_KIND, IdentityRefused, KeySource, identity_key, identity_key_under, leasable_endpoints,
-    resolve_identity,
+    CLIENT_KIND, HeldEntry, HeldList, IdentityRefused, KeySource, held_list, identity_key,
+    identity_key_under, leasable_endpoints, resolve_identity,
 };
 pub use protocol::{Command, Crossing, Failure, Start, Update, WindowCommand};
 pub use roster::{Roster, RosterConfig, RosterError, Routed, SwitchOutcome};
