@@ -9,12 +9,13 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, Intent, StartBusy, TrustInput, UiModel, UnlockFacts, ViewEvent,
-    WindowEvent, WindowInput,
+    ConnectGate, ConversationKey, IdentityIntent, Intent, StartBusy, TrustInput, UiModel,
+    UnlockFacts, ViewEvent, WindowEvent, WindowInput,
 };
+use interweave_transport_api::EndpointId;
 
 use crate::facade::CANCELLED_CAP;
-use crate::protocol::{Command, Failure, Update, WindowCommand};
+use crate::protocol::{Command, Crossing, Failure, Update, WindowCommand};
 
 /// A view as the root drives it: show the model, then hand back what the
 /// person did. `ui-slint`'s `View` is one; a test can script one.
@@ -37,6 +38,11 @@ pub trait Surface {
     /// state and per attach, under one view; #517 review F1). Nothing by
     /// default: a surface that reports nothing forgets nothing.
     fn model_made(&mut self) {}
+    /// The identity in front changes from `old` to `new` (identities
+    /// §5.3): `left` is `old`'s model, its switch snackbar closed, and the
+    /// next render is of `new`'s. Nothing by default: a surface holding
+    /// nothing per identity has nothing to change.
+    fn front_changed(&mut self, _old: &EndpointId, _new: &EndpointId, _left: &UiModel) {}
 }
 
 /// Opens a link a person activated, outside the client: a browser, a mail
@@ -135,7 +141,38 @@ pub enum Problem {
 /// render, so a root that never takes them must not grow this.
 pub const PROBLEM_CAP: usize = 32;
 
+/// An identity's model while another identity is in front: what the
+/// model side holds per identity (ux ruling U2), the same fields the
+/// front's model is held in on [`ModelSide`] itself.
+struct Behind {
+    model: UiModel,
+    in_flight: HashSet<InFlight>,
+    hidden_unread: usize,
+    hidden_other: usize,
+    kept: usize,
+    reads_owed: bool,
+}
+
+impl Behind {
+    fn new() -> Self {
+        Self {
+            model: UiModel::new(),
+            in_flight: HashSet::new(),
+            hidden_unread: 0,
+            hidden_other: 0,
+            kept: 0,
+            reads_owed: false,
+        }
+    }
+}
+
 /// The model side of the root.
+///
+/// One [`UiModel`] per held identity behind one [`Surface`] (ux ruling U2
+/// of 2026-11-25): the front identity's model is held in the fields
+/// below and is the one rendered; every other identity's is in `behind`,
+/// where an update for it applies and draws nothing
+/// (`an_update_for_an_identity_behind_applies_to_its_model_and_draws_nothing`).
 pub struct ModelSide<S: Surface, O: Opener> {
     model: UiModel,
     surface: S,
@@ -150,6 +187,12 @@ pub struct ModelSide<S: Surface, O: Opener> {
     /// ready with either unread, which is the start for a runtime that is
     /// up, and the first moment both can be answered for one that was not.
     reads_owed: bool,
+    /// The identity in front, once the root named the identities held
+    /// ([`Self::hold`]); `None` for a model side of one that was never
+    /// named, which is every root before Stage 22.
+    identity: Option<EndpointId>,
+    /// The other identities held, each with its model, in held order.
+    behind: Vec<(EndpointId, Behind)>,
 }
 
 impl<S: Surface, O: Opener> ModelSide<S, O> {
@@ -167,7 +210,127 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             hidden_other: 0,
             kept: 0,
             reads_owed: false,
+            identity: None,
+            behind: Vec::new(),
         }
+    }
+
+    /// Name the identities held, `front` among them: the model shown so
+    /// far becomes `front`'s, and every other identity in `held` is given
+    /// a model of its own. The root calls it once, as the facade side says
+    /// what it holds, before any update for a named identity; a model side
+    /// already named is left as it is, and the call answers false
+    /// (`naming_the_held_identities_keeps_the_model_shown_as_the_fronts`).
+    pub fn hold(&mut self, held: &[EndpointId], front: &EndpointId) -> bool {
+        if self.identity.is_some() {
+            return false;
+        }
+        self.identity = Some(front.clone());
+        for identity in held {
+            if identity != front && !self.behind.iter().any(|(e, _)| e == identity) {
+                self.behind.push((identity.clone(), Behind::new()));
+            }
+        }
+        true
+    }
+
+    /// The identity in front, once named ([`Self::hold`]).
+    #[must_use]
+    pub const fn front(&self) -> Option<&EndpointId> {
+        self.identity.as_ref()
+    }
+
+    /// An identity's model: the one in front, or one behind it.
+    #[must_use]
+    pub fn model_of(&self, identity: &EndpointId) -> Option<&UiModel> {
+        if self.identity.as_ref() == Some(identity) {
+            return Some(&self.model);
+        }
+        self.behind
+            .iter()
+            .find(|(e, _)| e == identity)
+            .map(|(_, b)| &b.model)
+    }
+
+    /// Exchange the front's model with `behind`'s, every per-identity
+    /// field of it. The destructuring is whole, so a field added to
+    /// [`Behind`] does not build until it is exchanged here.
+    fn exchange(&mut self, behind: &mut Behind) {
+        let Behind {
+            model,
+            in_flight,
+            hidden_unread,
+            hidden_other,
+            kept,
+            reads_owed,
+        } = behind;
+        std::mem::swap(&mut self.model, model);
+        std::mem::swap(&mut self.in_flight, in_flight);
+        std::mem::swap(&mut self.hidden_unread, hidden_unread);
+        std::mem::swap(&mut self.hidden_other, hidden_other);
+        std::mem::swap(&mut self.kept, kept);
+        std::mem::swap(&mut self.reads_owed, reads_owed);
+    }
+
+    /// Apply what the facade side did as `identity`: to the front's model
+    /// as [`Self::apply`] does, or to the model of an identity behind it,
+    /// which draws nothing until that identity is in front. False when
+    /// `identity` is not held, or the model side was never named: nothing
+    /// was applied.
+    pub fn apply_as(&mut self, identity: &EndpointId, update: Update) -> bool {
+        if self.identity.as_ref() == Some(identity) {
+            self.apply(update);
+            return true;
+        }
+        let Some(i) = self.behind.iter().position(|(e, _)| e == identity) else {
+            return false;
+        };
+        let (named, mut behind) = self.behind.remove(i);
+        // The update is applied as the front's would be, then the models
+        // go back: applying touches neither the surface nor the opener.
+        self.exchange(&mut behind);
+        self.apply(update);
+        self.exchange(&mut behind);
+        self.behind.insert(i, (named, behind));
+        true
+    }
+
+    /// Bring `to` in front, the model side's half of a switch, in its
+    /// order (ruling of 2026-11-25): what the person did under the old
+    /// front that its model has not yet asked is drained into commands
+    /// and sent as the old front's; the old front's switch snackbar
+    /// closes; the surface is told; the models change places; and the
+    /// switch is sent, naming `to`. Everything goes through `send`, in
+    /// that order, so a facade that carries out what it is sent in order
+    /// runs the old front's commands before its own swap
+    /// (`a_switch_drains_sends_closes_tells_then_names_the_new_front`).
+    /// False, and nothing done, when `to` is in front, is not held, or
+    /// the model side was never named.
+    pub fn switch(&mut self, to: &EndpointId, mut send: impl FnMut(Crossing)) -> bool {
+        let Some(old) = self.identity.clone() else {
+            return false;
+        };
+        let Some(i) = self.behind.iter().position(|(e, _)| e == to) else {
+            return false;
+        };
+        for command in self.turn() {
+            send(Crossing::Command {
+                identity: old.clone(),
+                command,
+            });
+        }
+        if let Some(id) = self.model.identities().switch_snackbar().map(|s| s.id) {
+            self.model
+                .identities_mut()
+                .act(IdentityIntent::SnackbarClosed(id), false);
+        }
+        self.surface.front_changed(&old, to, &self.model);
+        let (_, mut behind) = self.behind.remove(i);
+        self.exchange(&mut behind);
+        self.behind.insert(i, (old, behind));
+        self.identity = Some(to.clone());
+        send(Crossing::Front(to.clone()));
+        true
     }
 
     /// Onboarding's Connect is owed (add-a-peer §5.1): a new or restored
@@ -1287,5 +1450,243 @@ mod tests {
             "the oldest three went"
         );
         assert!(side.take_problems().is_empty(), "taken means gone");
+    }
+
+    fn first() -> EndpointId {
+        endpoint_id("human")
+    }
+
+    fn second() -> EndpointId {
+        endpoint_id("second")
+    }
+
+    fn general() -> ConversationKey {
+        ConversationKey::Channel(
+            interweave_transport_api::ChannelId::parse("general").expect("a channel"),
+        )
+    }
+
+    /// Named, the model shown so far is the front's, drafts and all, and
+    /// every other identity held has a model of its own, empty; a second
+    /// naming changes nothing. Mutations: `hold` giving the front a fresh
+    /// model -- the draft is gone; `hold` naming again -- the front moves.
+    #[test]
+    fn naming_the_held_identities_keeps_the_model_shown_as_the_fronts() {
+        let mut side = ModelSide::new(Nothing, Nothing);
+        assert_eq!(side.front(), None);
+        side.carry_drafts(vec![(general(), "written".to_owned())]);
+        assert!(side.hold(&[first(), second()], &first()));
+        assert_eq!(side.front(), Some(&first()));
+        let shown = side.model_of(&first()).expect("the front's");
+        assert_eq!(shown.composer(&general()).draft, "written");
+        let behind = side.model_of(&second()).expect("its own");
+        assert!(behind.drafts().is_empty(), "a model of its own");
+        assert!(side.model_of(&endpoint_id("gone")).is_none());
+
+        assert!(!side.hold(&[first(), second()], &second()));
+        assert_eq!(side.front(), Some(&first()), "named once");
+    }
+
+    /// A surface counting its renders.
+    #[derive(Default)]
+    struct Counting {
+        renders: usize,
+    }
+
+    impl Surface for Counting {
+        fn render(&mut self, _model: &UiModel) {
+            self.renders += 1;
+        }
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            Vec::new()
+        }
+    }
+
+    /// An update for an identity behind the front applies to that
+    /// identity's model, and draws nothing: the front's model is as it
+    /// was, the surface is not drawn, and the identity's model holds it
+    /// when it comes in front; a session of it that became ready owes its
+    /// lists' reads to that identity, asked once it is in front. An
+    /// update for an identity not held, or to a model side never named,
+    /// applies to nothing. Mutations: `apply_as` applying to the front's
+    /// model -- the front counts the rows; `exchange` leaving
+    /// `reads_owed` out -- the reads are asked as the front.
+    #[test]
+    fn an_update_for_an_identity_behind_applies_to_its_model_and_draws_nothing() {
+        let mut unnamed = ModelSide::new(Counting::default(), Nothing);
+        assert!(!unnamed.apply_as(&first(), relisted(3)), "never named");
+        assert_eq!(unnamed.model().rows_not_shown(), 0);
+
+        let mut side = ModelSide::new(Counting::default(), Nothing);
+        side.hold(&[first(), second()], &first());
+        assert!(side.apply_as(&second(), relisted(3)));
+        assert!(side.apply_as(
+            &second(),
+            Update::Client(ClientEvent::Session(SessionState::Ready { endpoint: None }))
+        ));
+        assert!(!side.apply_as(&endpoint_id("gone"), relisted(5)));
+        assert_eq!(side.surface().renders, 0, "nothing drawn");
+        assert_eq!(side.model().rows_not_shown(), 0, "the front's is as it was");
+        assert_eq!(side.hidden_rows(), 0);
+        assert_eq!(
+            side.model_of(&second()).expect("held").rows_not_shown(),
+            3,
+            "its own model holds it"
+        );
+        assert!(side.turn().is_empty(), "the front owes no reads");
+
+        let mut sent = Vec::new();
+        assert!(side.switch(&second(), |c| sent.push(c)));
+        assert_eq!(side.hidden_rows(), 3, "shown at once in front");
+        assert_eq!(side.model().rows_not_shown(), 3);
+        let reads = side.turn();
+        assert!(
+            reads.contains(&Command::ReadTrust) && reads.contains(&Command::ReadAddresses),
+            "its reads, asked in front: {reads:?}"
+        );
+    }
+
+    /// What a recording surface and the crossing saw, in one order.
+    type Log = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+
+    struct Recording {
+        log: Log,
+        events: Vec<ViewEvent>,
+    }
+
+    impl Surface for Recording {
+        fn render(&mut self, _model: &UiModel) {}
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            std::mem::take(&mut self.events)
+        }
+        fn front_changed(&mut self, old: &EndpointId, new: &EndpointId, left: &UiModel) {
+            self.log.borrow_mut().push(format!(
+                "told {} {} snackbar={} drafts={}",
+                name(old),
+                name(new),
+                left.identities().switch_snackbar().is_some(),
+                left.drafts().len()
+            ));
+        }
+    }
+
+    fn name(e: &EndpointId) -> &'static str {
+        [("human", first()), ("second", second())]
+            .into_iter()
+            .find(|(_, id)| id == e)
+            .map_or("?", |(n, _)| n)
+    }
+
+    fn held(key: &str, is_first: bool) -> interweave_human_ui_model::HeldIdentity {
+        interweave_human_ui_model::HeldIdentity {
+            key: interweave_human_ui_model::IdentityKey::new(key),
+            card_name: None,
+            alias: key.to_owned(),
+            state: interweave_human_ui_model::IdentityState::Ready,
+            is_first,
+            is_default: is_first,
+            unread: 0,
+            not_sent: false,
+        }
+    }
+
+    /// A switch, on the model side: the old front's pending acts are
+    /// drained into commands and sent as the old front, its switch
+    /// snackbar closes, the surface is told with the old front's model
+    /// still shown, and only then do the models change places and the
+    /// switch go, naming the new front -- the last thing sent, so a facade
+    /// carrying out what it is sent in order runs the old front's
+    /// commands before its swap. A switch to the identity in front, to
+    /// one not held, or on a side never named, does nothing at all.
+    /// Mutations: the switch sent before the drained commands; the
+    /// commands sent as the new front; the drain skipped; the snackbar
+    /// closed after the surface is told (`snackbar=true`); the surface
+    /// told after the models change places (`drafts=0`); the snackbar
+    /// closed after the exchange (the new front's closes, the old's
+    /// stays).
+    #[test]
+    fn a_switch_drains_sends_closes_tells_then_names_the_new_front() {
+        let log: Log = std::rc::Rc::default();
+        let mut never = ModelSide::new(
+            Recording {
+                log: log.clone(),
+                events: vec![ViewEvent::Intent(Intent::Reopen)],
+            },
+            Nothing,
+        );
+        assert!(!never.switch(&second(), |_| log.borrow_mut().push("sent".into())));
+        let mut side = ModelSide::new(
+            Recording {
+                log: log.clone(),
+                events: vec![ViewEvent::Intent(Intent::Reopen)],
+            },
+            Nothing,
+        );
+        side.hold(&[first(), second()], &first());
+        let send = |c: Crossing| {
+            let line = match c {
+                Crossing::Command { identity, command } => {
+                    format!("command {} {command:?}", name(&identity))
+                }
+                Crossing::Front(to) => format!("front {}", name(&to)),
+            };
+            log.borrow_mut().push(line);
+        };
+        assert!(!side.switch(&first(), send));
+        assert!(!side.switch(&endpoint_id("gone"), send));
+        assert!(log.borrow().is_empty(), "nothing done: {:?}", log.borrow());
+
+        // The old front shows a switch's snackbar and holds a draft.
+        side.carry_drafts(vec![(general(), "written".to_owned())]);
+        let identities = side.model.identities_mut();
+        identities
+            .held_changed(vec![held("a", true), held("b", false)])
+            .expect("two held");
+        identities.start(None);
+        identities.switch(&interweave_human_ui_model::IdentityKey::new("b"), false);
+        assert!(side.model().identities().switch_snackbar().is_some());
+
+        assert!(side.switch(&second(), send));
+        assert_eq!(
+            *log.borrow(),
+            [
+                "command human Reopen",
+                "told human second snackbar=false drafts=1",
+                "front second",
+            ]
+        );
+        assert_eq!(side.front(), Some(&second()));
+        let left = side.model_of(&first()).expect("still held");
+        assert!(left.identities().switch_snackbar().is_none(), "closed");
+        assert_eq!(left.drafts().len(), 1, "kept behind");
+        assert!(side.model().drafts().is_empty(), "the new front's shown");
+    }
+
+    /// What one identity has in flight is its own: a command its model
+    /// sent and that is not answered holds back the same command of that
+    /// identity, never another's, across switches. Mutation: `exchange`
+    /// leaving `in_flight` out -- the second identity's Reopen is held
+    /// back as the first's.
+    #[test]
+    fn a_command_in_flight_is_its_identitys_own() {
+        let log: Log = std::rc::Rc::default();
+        let mut side = ModelSide::new(
+            Recording {
+                log,
+                events: vec![ViewEvent::Intent(Intent::Reopen)],
+            },
+            Nothing,
+        );
+        side.hold(&[first(), second()], &first());
+        assert_eq!(side.turn(), [Command::Reopen], "the first's, in flight");
+        assert!(side.switch(&second(), |_| {}));
+        side.surface_mut().events = vec![ViewEvent::Intent(Intent::Reopen)];
+        assert_eq!(side.turn(), [Command::Reopen], "the second's own");
+        assert!(side.switch(&first(), |_| {}));
+        side.surface_mut().events = vec![ViewEvent::Intent(Intent::Reopen)];
+        assert!(side.turn().is_empty(), "the first's still in flight");
+        side.apply_as(&first(), Update::Done(Command::Reopen));
+        side.surface_mut().events = vec![ViewEvent::Intent(Intent::Reopen)];
+        assert_eq!(side.turn(), [Command::Reopen], "answered: free again");
     }
 }

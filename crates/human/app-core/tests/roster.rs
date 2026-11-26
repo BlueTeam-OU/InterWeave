@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 use interweave_human_app_core::{
-    Command, FacadeSide, FrontChange, Roster, RosterConfig, RosterError, SwitchOutcome, Update,
+    Command, Crossing, FacadeSide, Roster, RosterConfig, RosterError, SwitchOutcome, Update,
 };
 use interweave_human_client_api::{ClientEvent, Connectivity, SessionState};
 use interweave_human_store::{HumanStore, OwnCard, StoreOptions};
@@ -559,91 +559,88 @@ async fn the_front_at_start_is_the_last_held_else_the_default_else_the_first() {
     assert_eq!(roster.front(), &second(), "an unreadable row: the default");
 }
 
-/// The hooks of a switch, recording the order they ran in and what the
-/// last-front row said when the surface was told.
-struct Hooks {
-    log: Vec<String>,
-    store: HumanStore,
-    rows_when_told: Vec<Option<EndpointId>>,
-}
-
-impl FrontChange for Hooks {
-    fn drain(&mut self, old: &EndpointId) -> Vec<Command> {
-        self.log.push(format!("drain {}", name(old)));
-        vec![Command::Reopen]
-    }
-
-    fn answered(&mut self, identity: &EndpointId, _updates: Vec<Update>) {
-        self.log.push(format!("answered {}", name(identity)));
-    }
-
-    fn close_switch_snackbar(&mut self, old: &EndpointId) {
-        self.log.push(format!("close {}", name(old)));
-    }
-
-    fn front_changed(&mut self, old: &EndpointId, new: &EndpointId) {
-        self.log
-            .push(format!("front_changed {} {}", name(old), name(new)));
-        self.rows_when_told
-            .push(self.store.last_front().expect("read"));
-    }
-}
-
-fn name(e: &EndpointId) -> &'static str {
-    [("human", human()), ("second", second()), ("third", third())]
-        .into_iter()
-        .find(|(_, id)| id == e)
-        .map_or("?", |(n, _)| n)
-}
-
-/// A switch drains the old front's pending acts and carries them out as
-/// the old front, closes its switch snackbar, tells the surface, and only
-/// then swaps and writes the row; a switch to the identity in front or to
-/// one not held runs no hook. Mutations: the row written before the hooks
-/// -- the surface is told with the new row in place; the snackbar closed
-/// before the drained acts run -- the order differs.
+/// A change of the identity in front swaps it and only then is the
+/// last-front row written, naming the new front, the open order leading
+/// with it; a change to the identity in front or to one not held changes
+/// nothing and writes no row. The model side's steps, which run before it
+/// on their own thread, are pinned where they live
+/// (`a_switch_drains_sends_closes_tells_then_names_the_new_front`).
+/// Mutations: `set_front` writing the row for an unchanged front -- the
+/// row reads the first identity; `set_front` writing the row without the
+/// swap -- the front stays; the swap without the row -- the row reads
+/// none.
 #[tokio::test]
-async fn a_switch_drains_acts_closes_tells_then_swaps() {
+async fn set_front_swaps_and_writes_the_row_and_an_unchanged_front_writes_nothing() {
     let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
     let spy = Spy::new(a);
     let store = memory();
-    let mut hooks = Hooks {
-        log: Vec::new(),
-        store: store.handle_speaking_as(human()),
-        rows_when_told: Vec::new(),
-    };
+    let rows = store.handle_speaking_as(human());
     let mut roster = build(&spy, store, config(vec![second()], None));
     roster.turn(0).await;
     assert_eq!(roster.front(), &human());
 
     assert!(matches!(
-        roster.switch(&human(), &mut hooks, 1).await,
+        roster.set_front(&human()),
         SwitchOutcome::Unchanged
     ));
     assert!(matches!(
-        roster.switch(&endpoint_id("gone"), &mut hooks, 1).await,
+        roster.set_front(&endpoint_id("gone")),
         SwitchOutcome::Unchanged
     ));
-    assert!(hooks.log.is_empty(), "{:?}", hooks.log);
+    assert_eq!(roster.front(), &human());
+    assert_eq!(rows.last_front().expect("read"), None, "no row written");
 
-    let outcome = roster.switch(&second(), &mut hooks, 1).await;
+    let outcome = roster.set_front(&second());
     assert!(
         matches!(outcome, SwitchOutcome::Switched { remembered: Ok(()) }),
         "{outcome:?}"
     );
-    assert_eq!(
-        hooks.log,
-        [
-            "drain human",
-            "answered human",
-            "close human",
-            "front_changed human second"
-        ]
-    );
-    assert_eq!(hooks.rows_when_told, [None], "the row follows the hooks");
     assert_eq!(roster.front(), &second());
-    assert_eq!(hooks.store.last_front().expect("read"), Some(second()));
+    assert_eq!(rows.last_front().expect("read"), Some(second()));
     assert_eq!(roster.open_order()[0], second(), "the front opens first");
+}
+
+/// What the old front's commands run as when a switch's crossings reach
+/// the roster in the order the model side sent them: each command as the
+/// identity it names, then the swap. A command sent as the old front
+/// after its switch still runs as the old front, since every crossing
+/// names its identity. Mutation: `execute` running a command as the
+/// identity in front rather than the one named -- the old front's answer
+/// is routed to the new front.
+#[tokio::test]
+async fn crossings_run_as_the_identity_they_name_whatever_is_in_front() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let spy = Spy::new(a);
+    let mut roster = build(&spy, memory(), config(vec![second()], None));
+    roster.turn(0).await;
+    let crossings = [
+        Crossing::Command {
+            identity: human(),
+            command: Command::Reopen,
+        },
+        Crossing::Front(second()),
+        Crossing::Command {
+            identity: human(),
+            command: Command::Reopen,
+        },
+    ];
+    let mut answered = Vec::new();
+    for crossing in crossings {
+        match crossing {
+            Crossing::Command { identity, command } => {
+                let routed = roster.execute(&identity, command, 1).await.expect("held");
+                // The first entry is the identity that ran it; the first
+                // identity's connectivity may follow for the others.
+                answered.push(routed[0].0.clone());
+            }
+            Crossing::Front(to) => {
+                roster.set_front(&to);
+                answered.push(endpoint_id("swapped"));
+            }
+        }
+    }
+    assert_eq!(answered, [human(), endpoint_id("swapped"), human()]);
+    assert_eq!(roster.front(), &second());
 }
 
 /// A roster holds at most `IDENTITY_CAP` identities, the first among

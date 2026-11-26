@@ -25,10 +25,15 @@
 //!   (`an_overloaded_identity_retries_at_its_pace_and_the_others_act`);
 //! - the identity in front at start, from the store's last-front row
 //!   (`the_front_at_start_is_the_last_held_else_the_default_else_the_first`);
-//! - the switch's order (`a_switch_drains_acts_closes_tells_then_swaps`).
+//! - a change of the identity in front swaps it and writes the last-front
+//!   row, and a change to the identity in front or to one not held writes
+//!   nothing
+//!   (`set_front_swaps_and_writes_the_row_and_an_unchanged_front_writes_nothing`).
 //!
-//! It is the facade half: a model per identity, which the switch's hooks
-//! reach ([`FrontChange`]), is the root's. What the roster holds is what
+//! It is the facade half: a model per identity is the model side's
+//! ([`crate::ModelSide`]), which runs a switch's own steps on its thread
+//! and sends the roster the new front after the old front's commands
+//! ([`crate::ModelSide::switch`]). What the roster holds is what
 //! the root hands it: in the batch this lands in, the composition hands it
 //! the first identity alone (plan §30, the note of 2026-11-25), and a
 //! roster of one behaves as the facade side `main` composed
@@ -91,24 +96,11 @@ impl From<StoreError> for RosterError {
 /// What each identity answered, by identity, in the order they ran.
 pub type Routed = Vec<(EndpointId, Vec<Update>)>;
 
-/// The model half of a switch, which the roster calls in the switch's
-/// order (ruling of 2026-11-25): drain, act, close, tell, swap.
-pub trait FrontChange {
-    /// What the person did under the identity in front and its model has
-    /// not yet asked: drained against that identity's model, as commands.
-    fn drain(&mut self, old: &EndpointId) -> Vec<Command>;
-    /// What an identity answered to the drained commands.
-    fn answered(&mut self, identity: &EndpointId, updates: Vec<Update>);
-    /// Close the switch snackbar the old front's model shows.
-    fn close_switch_snackbar(&mut self, old: &EndpointId);
-    /// The surface's front-changed hook.
-    fn front_changed(&mut self, old: &EndpointId, new: &EndpointId);
-}
-
-/// What a switch did.
+/// What a change of the identity in front did.
 #[derive(Debug)]
 pub enum SwitchOutcome {
-    /// `to` is in front already, or is not held: no hook ran.
+    /// `to` is in front already, or is not held: nothing changed, and the
+    /// last-front row was not written.
     Unchanged,
     /// `to` is in front. `remembered` is the write of the last-front row:
     /// a failed write leaves the switch done and the next start in front
@@ -354,29 +346,17 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         routed
     }
 
-    /// Bring `to` in front, in the switch's order: drain what the person
-    /// did under the old front, carry it out as the old front, close the
-    /// old front's switch snackbar, tell the surface, then swap, and write
-    /// the last-front row.
-    pub async fn switch(
-        &mut self,
-        to: &EndpointId,
-        hooks: &mut impl FrontChange,
-        now: u64,
-    ) -> SwitchOutcome {
+    /// Bring `to` in front and write the last-front row: the facade's
+    /// half of a switch. The model side's half runs before it, on its own
+    /// thread, and sends the old front's commands ahead of this
+    /// ([`crate::ModelSide::switch`]); each command names the identity it
+    /// runs as, whatever is in front when it arrives
+    /// (`crossings_run_as_the_identity_they_name_whatever_is_in_front`;
+    /// `set_front_swaps_and_writes_the_row_and_an_unchanged_front_writes_nothing`).
+    pub fn set_front(&mut self, to: &EndpointId) -> SwitchOutcome {
         if !self.holds(to) || to == &self.front {
             return SwitchOutcome::Unchanged;
         }
-        let old = self.front.clone();
-        for command in hooks.drain(&old) {
-            if let Some(routed) = self.execute(&old, command, now).await {
-                for (identity, updates) in routed {
-                    hooks.answered(&identity, updates);
-                }
-            }
-        }
-        hooks.close_switch_snackbar(&old);
-        hooks.front_changed(&old, to);
         self.front = to.clone();
         SwitchOutcome::Switched {
             remembered: self.store.set_last_front(to),

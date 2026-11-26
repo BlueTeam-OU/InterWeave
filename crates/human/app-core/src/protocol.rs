@@ -19,6 +19,25 @@ use interweave_human_ui_model::{
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
+/// What the model side hands the facade side, each naming the identity
+/// it is for (plan §30): a wrapper at the crossing, so a [`Command`] stays
+/// the same whichever identity carries it out. What comes back is each
+/// identity's [`Update`]s by identity ([`crate::Routed`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Crossing {
+    /// Carry out `command` as `identity`.
+    Command {
+        /// The identity it is for.
+        identity: EndpointId,
+        /// What to carry out.
+        command: Command,
+    },
+    /// Bring this identity in front ([`crate::Roster::set_front`]): sent
+    /// after every command of the identity it replaces
+    /// ([`crate::ModelSide::switch`]).
+    Front(EndpointId),
+}
+
 /// A person's intent, resolved by the model, for the facade side to carry
 /// out against the facade and the store.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
