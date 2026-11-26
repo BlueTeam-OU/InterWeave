@@ -598,8 +598,16 @@ Outcomes other than Done, each with nothing half-made shown as made:
   refuses by name): Create is not offered and `IdentityLimit` shows in
   its place, focused; the form was never opened if the list knew it
   (cards §5.1, "At the bound"). An add refused `bound` leads here
-  whether or not an earlier add of the form's key ended unknown; Back
-  from here leaves the form as "The form is left" says.
+  whether or not an earlier add of the form's key ended unknown, and
+  the client reads no list for it: the add decides `unchanged` before
+  it checks the bound (`LOCAL-IPC.md` §Method catalogue,
+  `admin.endpoints.add`), so a `bound` answer to an add of the same
+  key, alias and kinds says that the overlay does not hold the id at
+  that moment. An earlier add that is still running and lands later is
+  not missed: Back from here leaves the form as "The form is left"
+  says, which after an unknown add keeps the key and the record, and
+  the settle that Your identities runs on opening finds that id as an
+  identity, or discards it.
 - **Refused, with nothing created**: the add answered
   `InvalidArgument`, or `refused` for a reason other than `exists` or
   `bound`; or Create stopped before the add, because the record or the
