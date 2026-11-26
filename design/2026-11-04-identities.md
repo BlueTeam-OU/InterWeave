@@ -87,8 +87,8 @@ acceptance case in §14 that needs one says so:
   `admin.endpoints.set_advertise` (p2p-network-dev, plan §30 Activate;
   `LOCAL-IPC.md` lists only `list`, `revoke`, `set_enabled` and
   `set_default` today), and the embedded host's configuration path for
-  the same three on Android. §6.2 relies on four answers of the add
-  and the remove that D1 must name. An add sent again with the key,
+  the same three on Android. §6.2 relies on these answers of the add
+  and the remove, which D1 must name. An add sent again with the key,
   alias and client kinds of an entry the profile already holds answers
   `unchanged`, creates nothing new and registers the endpoint, so a
   retry is one identity; with another alias or other kinds it is
@@ -99,7 +99,10 @@ acceptance case in §14 that needs one says so:
   ahead of the running device (ADR-0028) answers `Internal`, as a write
   that failed does, and the client cannot tell the two apart. A remove
   of the id takes such an entry out of the configuration and answers
-  `removed`. A refusal says that the add it answers created nothing.
+  `removed`. An add sent again after one left ahead can be answered
+  `BackendUnavailable` in place of `unchanged`, the entry still in the
+  configuration and not registered (`LOCAL-IPC.md`, the endpoint set's
+  methods, A 2026-11-25). A refusal says that the add it answers created nothing.
   It says nothing about an earlier add of the same key whose outcome
   was unknown, since an entry left ahead can stand behind a later
   refusal (architect-cto's ruling of 2026-11-25, REPLY 01a21460, Q1).
@@ -542,8 +545,9 @@ no card is named by it.
    taking input; Back and Escape do nothing while it runs, for at most
    the add's wait (below), since what it starts cannot be stopped
    halfway.
-2. The client generates the identity's key. On the form's first
-   Create it then writes a **pending-add record** in the store, which
+2. The client generates the identity's key. Before the form's first
+   add, on every Create while the form has no record, it writes a
+   **pending-add record** in the store, which
    names the new identity's EndpointId and holds nothing else (no key,
    no name). Only after that does it seal the key (its file under
    `endpoint-keys/`, and on Android its platform key) and call the
@@ -562,9 +566,10 @@ no card is named by it.
    Create on the same form calls the add with the same key**, never a
    new one, so a retry can only make the same EndpointId, which is one
    identity whether the first add landed or not. Once an add of that
-   key has ended unknown (below), every later Create also sends that
-   first add's alias and kinds, whatever the Name field says by then:
-   the alias was decided by that add, and another alias would be
+   key has ended unknown (below), every later Create also sends the
+   alias and kinds of the first add of that key that ended unknown,
+   whatever the Name field says by then: the alias was decided by
+   that add, and another alias would be
    refused `exists` (D1). A name changed after that goes to the card
    only (step 3), as a later rename does (the alias rule above).
    The record is deleted when the id becomes an identity (the add
@@ -589,9 +594,10 @@ Outcomes other than Done, each with nothing half-made shown as made:
   earlier add of the form's key ended unknown; Back from it leaves the
   form as "The form is left" says.
 - **Refused, with nothing created**: the add answered `refused` for a
-  reason other than `exists` or `bound`, or `InvalidArgument`, and no
-  earlier add of the form's key ended unknown; or Create stopped
-  before the add, because the record or the key could not be written.
+  reason other than `exists` or `bound`, or `InvalidArgument`; or
+  Create stopped before the add, because the record or the key could
+  not be written. Each of these only when no earlier add of the form's
+  key ended unknown; after one, they are an unknown outcome (below).
   Nothing is created, the form stays filled, `IdentityAddFailed` above
   Create, focus on it. The key stays with the form (step 2), and the
   next Create makes the alias again from the Name field as it is then.
@@ -607,8 +613,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
   `Internal` (a write that failed, or an add left ahead of the running
   device, which the client cannot tell apart, D1), any other error,
   `BackendUnavailable` included (the device can answer it in place of
-  `unchanged`, D1), a refusal of any reason but `bound` after an
-  earlier add of the form's key ended unknown, the connection to the
+  `unchanged`, D1), a refusal of any reason but `bound`, or a Create
+  stopped before its add, after an earlier add of the form's key ended
+  unknown, the connection to the
   daemon dropping, or no answer within **the add's wait, 30 seconds**
   (a hypothesis: well past a key's sealing and one configuration write
   on the slowest supported phone; falsified if rust-ui-dev measures an
@@ -786,7 +793,8 @@ where focus lands — with its dialog changed for ADR-0067:
     identity whose key file is still there keeps its rows, since it can
     be configured again. **The one exception is a replacement** (ADR-0061
     decision 7, A 2026-11-25): the rule never takes a replaces record,
-    nor the rows of the new identity that a record names, even when the
+    nor a pending-add record (§6.2), which only §6.2's settle ends,
+    nor the rows of the new identity that a replaces record names, even when the
     list lacks that identity's id and its key path is empty, because
     such a list does not say that its add never happened (an add left
     ahead of the running device, or applied late). That record is
@@ -1297,14 +1305,14 @@ pass before it lands.
     `IdentityAddUnknown` with the daemon down, the key file and the
     pending-add record stay until a list that answers. Needs D1.
 
-    Add's kept key, five more runs, each observed from the daemon
+    Add's kept key, ten more runs, each observed from the daemon
     (`admin.endpoints.list`), `endpoint-keys/` and the store:
     (c) an add left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): `IdentityAddUnknown`
     shows, never `IdentityAddFailed`; the Name field is then changed and
     Create chosen: the add carries the first add's alias, answers
     `unchanged`, the id is listed, the record is gone and the card has
-    the new name. (d) As (c), then Back: Your identities opens with no
+    the new name. (d) As (c) until `IdentityAddUnknown` shows, then Back: Your identities opens with no
     new row and nothing shown; the key file and, on Android, the
     platform key are gone, the remove answered `removed`, the record is
     gone, and after the daemon is restarted the list lacks the id.
@@ -1314,7 +1322,19 @@ pass before it lands.
     another program, named by no record, with its id unlisted: after a
     start and an opening of Your identities it is still there. (g) A
     Replace stopped after its step 1 sealed the new key and before its
-    replaces record was written: no settle touches that key. Needs D1
+    replaces record was written: no settle touches that key.
+    (h) As (d), with the settle's remove answering `BackendUnavailable`,
+    then a list that answers: the record stays, §7's clean-up rule does
+    not take it, and the next settle removes the id and deletes it.
+    (i) A first Create refused `alias_taken`, then Back: the key file,
+    the platform key and the record are deleted at once, with no
+    remove sent. (j) As (c) until `IdentityAddUnknown`, then a Create
+    refused (any reason but `bound`): `IdentityAddUnknown` shows, never
+    `IdentityAddFailed`; Back keeps the key and the record for the
+    settle, which ends as in (d). (k) The record's write made to fail:
+    `IdentityAddFailed`, no key file sealed, no add sent; Create again
+    writes the record before its add. (l) A first add answered
+    `BackendUnavailable`: `IdentityAddUnknown`. Needs D1
     and ADR-0061 decision 7 as amended for j188.
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.

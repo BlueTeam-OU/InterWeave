@@ -973,7 +973,8 @@ before it enters a word. Suggestion chips and the grid's positions are
 When the width crosses 340 dp while R2 or C3 shows (a phone narrower
 than that in portrait, rotated; split screen; a freeform or foldable
 resize), the keypad changes layout in place, and a focused key stays
-focused by its letter, not by its place: `b` stays `b`, as it does
+the same key, by its letter (or as delete or clear), not by its
+place: `b` stays `b`, as it does
 through a recreation of the window (§6). The mode is kept, navigating
 or typing. Focus on a chip, the grid button or the primary action
 stays where it is. The switch announces nothing and types nothing. The
@@ -2736,9 +2737,11 @@ landscape:
     with focus on `b` (second in the alphabetical layout, where QWERTY
     has `w`) and in the other direction on `w`: focus is on the same
     letter after the switch, the mode is unchanged, nothing is typed or
-    announced; with focus on a chip, the grid button or the primary
-    action, focus is unchanged. A host test on the headless backend
-    is enough, since no test phone here crosses 340 dp.
+    announced; with focus on the delete key, it is on the delete key
+    after the switch; with focus on a chip, the grid button or the
+    primary action, focus is unchanged. Run as a host test on the
+    headless backend, and on the Pixel 9a resized live with
+    `wm size`, as item 13 resizes it.
 
 Items 13 and 15 assume that the Android build follows the system font
 scale and takes hardware-keyboard input. rust-ui-dev measures both
