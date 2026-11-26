@@ -464,9 +464,10 @@ arc="$(ls "$SANDBOX"/st/android-toolchain-*.tar.gz 2>/dev/null | head -1)"
     && pass "  the archive and its .sha256 agree" || fail "no archive, or its .sha256 disagrees" "$(ls "$SANDBOX/st")"
 [[ "$out" == *"--install $arc"* ]] && pass "  and the install line is printed" || fail "the next step is missing" "$out"
 # The listing is read whole before it is matched: tar piped into grep -q
-# under pipefail is killed by SIGPIPE when entries follow the match.
-listing="$([[ -n "$arc" ]] && tar -tvzf "$arc" 2>&1)"
-[[ -n "$arc" ]] && grep -qE '^l.* \./platforms/android-37 -> android-37\.0$' <<<"$listing" \
+# under pipefail is killed by SIGPIPE when entries follow the match. tar's
+# own status still counts, so an archive it cannot read fails here.
+listing=""
+[[ -n "$arc" ]] && listing="$(tar -tvzf "$arc" 2>&1)" && grep -qE '^l.* \./platforms/android-37 -> android-37\.0$' <<<"$listing" \
     && pass "  the archive carries the link, relative" || fail "the staged archive has no relative platforms/android-37 link" "$(grep android-37 <<<"$listing")"
 FAKE_EXTRA_DIR=platforms/android-37 run bash "$UNDER_TEST" --stage --dest "$SANDBOX/st"
 expect "a directory where a link goes fails the stage, named" 2 "platforms/android-37 exists and is not a link"
