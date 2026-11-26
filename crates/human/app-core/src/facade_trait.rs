@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! The facade a root drives, as one trait: the roster a client composes,
-//! or one facade side alone. Held here, not in a root, so every client
-//! (desktop, Android) names the same seam. No tokio and no platform code.
+//! or one facade side alone. Held here, not in a root, so another client
+//! can name the same seam; the desktop does today. No tokio and no platform code.
 
 use interweave_human_store::StoreError;
 use interweave_human_transport_client::SessionBinding;
