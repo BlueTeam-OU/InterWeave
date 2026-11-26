@@ -382,15 +382,19 @@ pub struct Diagnostics {
     pub card_over_broadcast: u64,
 }
 
-/// The profile's trust allowlist as the daemon holds it now
-/// (`human-client-ui.md` §8): every peer not listed is denied. A change
-/// made in the settings lasts until it is changed again (ADR-0028 A
-/// 2026-10-07: the daemon keeps it in its state); each row says where it
-/// comes from.
+/// The trust of the identity the client speaks as, as the daemon holds
+/// it now (`human-client-ui.md` §8): that identity's own set, the peers
+/// BOTH its members hold -- who may reach it and whom it may address
+/// (`LOCAL-IPC.md`, the endpoint dimension; ADR-0067 decision 6) -- and
+/// never the operator's list. Every peer not listed is denied to that
+/// identity; a peer one member alone holds is not listed. A change made
+/// in the settings lasts until it is changed again (ADR-0028 A
+/// 2026-11-22: the daemon keeps it in its endpoint overlay).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TrustList {
-    /// This profile's own identity, never a peer to trust; `None` when
-    /// the daemon reports none.
+    /// This profile's own node identity, never a peer to trust: the
+    /// identity's set carries none, so it is the one the session or the
+    /// last status read learned; `None` before either did.
     pub local_peer: Option<TransportIdentity>,
     /// The allowed remote peers, in the daemon's order.
     pub allowed: Vec<TrustRow>,
@@ -416,7 +420,10 @@ impl TrustList {
 pub struct TrustRow {
     /// The peer.
     pub peer: TransportIdentity,
-    /// Where the row comes from.
+    /// Where the row comes from, as the daemon's row says it: kept as
+    /// data and shown by no view, since an identity's own set is every
+    /// row administered, the seeded ones included, and carries no origin
+    /// of them (`LOCAL-IPC.md`; design/2026-11-04-identities.md §16 Q5).
     pub origin: TrustOrigin,
 }
 
@@ -458,15 +465,17 @@ pub enum TrustProblem {
     Unavailable,
     /// This client may not administer trust on this daemon.
     NotPermitted,
-    /// The daemon refused the change: this profile's own identity, or a
-    /// new peer past the allowlist's ceiling.
+    /// The daemon refused the change: this profile's own identity, a new
+    /// peer past the allowlist's ceiling, or a write that would put the
+    /// identities' sets past their row bound.
     Refused,
     /// The daemon and this client do not speak a common version of what
     /// trust needs: a mixed install, where the daemon is not the app's own
     /// release (older, below IPC 2.3, or of another major). Bringing both
     /// to one release is what helps.
     Incompatible,
-    /// Anything else.
+    /// Anything else -- an identity no entry of the daemon holds among
+    /// it, or an answer that is not one direction of one identity's set.
     Internal,
 }
 
@@ -483,9 +492,9 @@ pub enum TrustSetFailure {
     Unconfirmed(TrustProblem),
     /// Made, and the allowlist could not be read back after it.
     MadeNotReadBack(TrustProblem),
-    /// Not made: a later admin connection's change of the same peer
-    /// stands, and the allowlist is that change's -- read it again to
-    /// show it (IPC 2.10, `superseded`; LOCAL-IPC.md).
+    /// Not made: a later admin connection's change of the same peer for
+    /// the same identity stands, and the list is that change's -- read it
+    /// again to show it (IPC 2.10, `superseded`; LOCAL-IPC.md).
     Superseded,
 }
 
