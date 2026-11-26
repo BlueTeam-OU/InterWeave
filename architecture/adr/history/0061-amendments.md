@@ -428,7 +428,10 @@ that nothing was created, but only where no earlier add of that key
 ended unknown: `key_missing` is decided before the overlay is asked,
 so an entry left ahead can stand behind a later refusal. Everything
 else, `Internal`, `BackendUnavailable` and no answer included, is an
-outcome the client does not know, and the key is kept.
+outcome the client does not know, and the key is kept. The method's
+own `BackendUnavailable` says that nothing changed, but a call still
+waiting when its connection ends is answered the same code
+(`LOCAL-IPC.md` §Close), and the overlay may by then hold the entry.
 
 A kept key is settled by discard and not, as a replaces record is, by
 sending the add again. A replacement is finished toward because the
@@ -450,9 +453,16 @@ design recognised a kept key as a key file whose id no list holds; but
 `endpoint-keys/` is not the human client's alone, a deployment minting
 keys there with no daemon running (ADR-0067 decision 4), so that test
 would delete another program's add in progress. The pending-add record
-is content-free, names the new EndpointId, is written before the
-form's first add and is deleted when the id is an identity or the
-discard ends. No alias and no client kinds are stored. A key that
+is content-free, names the new EndpointId, is written before the key
+it names is sealed and before its platform key is made, and is deleted
+when the id is an identity or the discard ends. The first text of this
+note ordered the record before the add alone; a process ending between
+the seal and the record would then have left a key file no record
+names, which this same rule forbids deleting (the review of that text
+at cadd2cf47, its finding F1). With the record first, a record whose
+key was never sealed is settled as one whose key path is already
+empty: nothing to unlink, no platform key to retire, the remove
+answering `EndpointUnknown`. No alias and no client kinds are stored. A key that
 Replace minted is named by no pending-add record, so this rule never
 reaches it before or after its replaces record is written; and the
 clean-up rule of 2026-11-24, whose test (the list lacks the id, the
@@ -476,5 +486,5 @@ arrive with it in one change: `design/2026-11-04-identities.md` D1
 ("cannot create an endpoint after the client deleted its key"), §6.2
 (the kept key deleted on the list's silence, the form left after a
 refusal) and `IdentityAddFailed` shown on `Internal`. How the form
-holds the first add's alias while an add is unknown is the design's.
+holds the alias of the first add that ended unknown is the design's.
 `LOCAL-IPC.md` is unchanged: every answer this leans on is its own.
