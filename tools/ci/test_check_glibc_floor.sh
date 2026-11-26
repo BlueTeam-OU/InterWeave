@@ -77,12 +77,12 @@ obj none.so
 
 # The fixtures are what the test says they are: readelf, not the script,
 # is asked, so a stub that linked without its versions fails here.
-readelf -V -W "$SANDBOX/new.so" | grep -q 'Name: GLIBC_2.43' \
+grep -q 'Name: GLIBC_2.43' <<<"$(readelf -V -W "$SANDBOX/new.so")" \
     && pass "fixture: new.so needs GLIBC_2.43" || fail "fixture: new.so does not need GLIBC_2.43"
-readelf -W --dyn-syms "$SANDBOX/weak.so" | grep -q 'WEAK .*v_2_43@GLIBC_2.43' \
+grep -q 'WEAK .*v_2_43@GLIBC_2.43' <<<"$(readelf -W --dyn-syms "$SANDBOX/weak.so")" \
     && pass "fixture: weak.so's v_2_43@GLIBC_2.43 is a weak symbol" \
     || fail "fixture: weak.so's v_2_43 is not a weak GLIBC_2.43 symbol" "$(readelf -W --dyn-syms "$SANDBOX/weak.so")"
-readelf -V -W "$SANDBOX/none.so" | grep -q 'Version needs' \
+grep -q 'Version needs' <<<"$(readelf -V -W "$SANDBOX/none.so")" \
     && fail "fixture: none.so has version needs" || pass "fixture: none.so needs no version"
 
 # run <floor> <file>...: sets out, err and status.

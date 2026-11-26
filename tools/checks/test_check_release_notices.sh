@@ -152,7 +152,7 @@ release
 
 bash "$UNDER_TEST" --bogus >/dev/null 2>&1
 [[ $? -eq 2 ]] && pass "an unknown argument is usage (2)" || fail "an unknown argument did not exit 2"
-bash "$UNDER_TEST" --help | grep -q '^Would every shipped build' \
+grep -q '^Would every shipped build' <<<"$(bash "$UNDER_TEST" --help)" \
     && pass "--help prints the help block" || fail "--help does not print the help block"
 
 if (( failures )); then

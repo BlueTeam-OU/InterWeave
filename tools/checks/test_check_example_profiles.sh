@@ -81,7 +81,7 @@ else
     fi
 fi
 
-if bash "$CHECK" --help 2>&1 | grep -q 'check_example_profiles.sh'; then
+if grep -q 'check_example_profiles.sh' <<<"$(bash "$CHECK" --help 2>&1)"; then
     echo "ok   --help describes the script"
 else
     echo "FAIL --help" >&2

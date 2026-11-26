@@ -95,7 +95,7 @@ else
 fi
 
 # 7. --help works and says the script's name.
-if bash "$CHECK" --help 2>&1 | grep -q 'check_discovery_config_keys.sh'; then
+if grep -q 'check_discovery_config_keys.sh' <<<"$(bash "$CHECK" --help 2>&1)"; then
     echo "ok   --help describes the script"
 else
     echo "FAIL --help" >&2
