@@ -21,23 +21,26 @@
 # WHAT IS ASKED: every git-tracked file named *.sh or *.bash (git ls-files,
 # from the repository root, or from --root) with a non-comment line that
 # sets pipefail. A pipeline whose LAST command is grep, egrep or fgrep
-# (also by path, /usr/bin/grep) with a quiet flag -- -q, a cluster holding
-# q such as -qxF or -Eqi, --quiet or --silent (-s is not quiet) -- is
-# reported as path:line. The quiet flag is looked for among that grep's own
-# arguments only, which end at ; && || | ) ]] } a whitespace-led # or <<<;
-# a grep followed by another pipe is not last and is left alone. A pipe is
-# | (also |&) outside single quotes; a line starting with | continues the
-# line before it, and so does a line after one ending in |.
+# (also by path, /usr/bin/grep, behind NAME=value assignments, command,
+# env or a leading backslash) with a quiet flag -- -q, a cluster holding
+# q such as -qxF or -Eqi, quoted or not, --quiet or --silent (-s is not
+# quiet) -- is reported as path:line. The quiet flag is looked for among
+# that grep's own arguments only, which end at ; && || | ) ]] } a
+# whitespace-led # or <<<; a grep followed by another pipe is not last
+# and is left alone. A pipe is | (also |&) outside single quotes; a line
+# starting with | continues the line before it, and so does the next
+# non-blank, non-comment line after one ending in | or in | \.
 #
 # OUT OF SCOPE: third_party/ and spikes/ (spike code is empirical evidence),
 # a pipe into grep without a quiet flag, a script without pipefail. This is
 # a subset reader, not a bash parser: an exotic spelling (a pipe built in
-# eval, a grep behind a function or alias) can be missed.
+# eval, a grep behind a function, alias, xargs or another wrapper, a -q
+# on a continuation line after grep's own) can be missed.
 #
 # Exit codes:
 #   0  no such pipeline
 #   1  at least one, each named
-#   2  usage, or not in a git repository
+#   2  usage, not in a git repository, or a listing or read that failed
 # <<< help
 
 set -uo pipefail
@@ -50,7 +53,7 @@ while [ $# -gt 0 ]; do
             sed -n '/^# >>> help$/,/^# <<< help$/p' "$0" | sed '1d;$d;s/^# \{0,1\}//'
             exit 0 ;;
         --root)
-            [ $# -ge 2 ] || { echo "$me: --root needs a directory" >&2; exit 2; }
+            [ $# -ge 2 ] && [ -n "$2" ] || { echo "$me: --root needs a directory" >&2; exit 2; }
             root="$2"; shift 2 ;;
         *)
             echo "$me: unknown argument: $1" >&2; exit 2 ;;
@@ -89,6 +92,7 @@ function args_of(s,    i, c, n, q, out) {
 function quiet(a,    n, t, i) {
     n = split(a, t, /[ \t]+/)
     for (i = 1; i <= n; i++) {
+        gsub(/["\047]/, "", t[i])
         if (t[i] == "--") return 0
         if (t[i] == "--quiet" || t[i] == "--silent") return 1
         if (t[i] ~ /^-[A-Za-z0-9]*q/) return 1
@@ -97,6 +101,11 @@ function quiet(a,    n, t, i) {
 }
 function after_pipe(s,    a) {
     s = ltrim(s)
+    # What runs grep without being grep: assignments ahead of it, the
+    # command and env builtins, and a backslash that skips an alias.
+    while (s ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/ || s ~ /^(command|env)[ \t]+/)
+        sub(/^[^ \t]+[ \t]+/, "", s)
+    sub(/^\\/, "", s)
     if (s !~ /^([^ \t|;&()]*\/)?(e|f)?grep([ \t]|$)/) return 0
     sub(/^[^ \t]+/, "", s)
     a = args_of(s)
@@ -112,6 +121,9 @@ FNR == 1 { pend = 0 }
 {
     line = $0
     if (line ~ /^[ \t]*#/) next
+    # A blank line between a trailing pipe and its command is still one
+    # pipeline, so it leaves pend as it was.
+    if (line ~ /^[ \t]*$/) next
     hit = 0
     if (pend && after_pipe(line)) hit = 1
     pend = 0
@@ -127,26 +139,32 @@ FNR == 1 { pend = 0 }
         if (after_pipe(substr(line, i + 1))) hit = 1
     }
     if (hit) print FILENAME ":" FNR ": " ltrim(line)
-    else if (line ~ /\|[ \t]*$/ && line !~ /\|\|[ \t]*$/) pend = 1
+    else if (line ~ /\|[ \t]*(\\[ \t]*)?$/ && line !~ /\|\|[ \t]*(\\[ \t]*)?$/) pend = 1
 }
 '
+
+# A listing or a read that fails is "could not look", never "found none".
+files="$(git ls-files -- '*.sh' '*.bash')" \
+    || { echo "$me: git ls-files failed in $top -- not checked" >&2; exit 2; }
 
 found=0
 scanned=0
 while IFS= read -r f; do
+    [ -n "$f" ] || continue
     case "$f" in
         third_party/*|spikes/*) continue ;;
     esac
     [ -f "$f" ] || continue
     scanned=$((scanned + 1))
-    out="$(awk "$AWK_PROG" "$f" "$f")"
+    out="$(awk "$AWK_PROG" "$f" "$f")" \
+        || { echo "$me: awk could not read $f -- not checked" >&2; exit 2; }
     [ -n "$out" ] || continue
     found=1
     while IFS= read -r l; do
         echo "$l"
         echo "  a quiet grep ends this pipeline under pipefail: its early exit SIGPIPEs the writer and turns a match into a miss; capture, then grep -q PAT <<<\"\$captured\""
     done <<<"$out"
-done < <(git ls-files -- '*.sh' '*.bash')
+done <<<"$files"
 
 if [ "$found" -ne 0 ]; then
     exit 1

@@ -63,6 +63,15 @@ expect "set -uo pipefail spelling"  1 a.sh $'#!/bin/bash\nset -uo pipefail\ncmd 
 expect ".bash extension"            1 a.bash "$HDR"$'\ncmd | grep -q PAT'
 expect "nested directory"           1 tools/x/a.sh "$HDR"$'\ncmd | grep -q PAT'
 expect "options before -q"          1 a.sh "$HDR"$'\ncmd | grep -E -q PAT'
+expect "trailing | \\ then grep"    1 a.sh "$HDR"$'\ncmd | \\\n  grep -q PAT'
+expect "blank line after a trailing pipe" 1 a.sh "$HDR"$'\ncmd |\n\n  grep -q PAT'
+expect "blank and comment after | \\" 1 a.sh "$HDR"$'\ncmd | \\\n\n  # why\n  grep -q PAT'
+expect "an assignment ahead of grep" 1 a.sh "$HDR"$'\ncmd | LC_ALL=C grep -q PAT'
+expect "two assignments ahead of grep" 1 a.sh "$HDR"$'\ncmd | A=1 B= grep -q PAT'
+expect "command grep"               1 a.sh "$HDR"$'\ncmd | command grep -q PAT'
+expect "env grep"                   1 a.sh "$HDR"$'\ncmd | env LC_ALL=C grep -q PAT'
+expect "backslash grep"             1 a.sh "$HDR"$'\ncmd | \\grep -q PAT'
+expect "a quoted -q"                1 a.sh "$HDR"$'\ncmd | grep "-q" PAT'
 
 echo "check_no_grep_q_pipe: passing shapes"
 expect "here-string"                0 a.sh "$HDR"$'\ngrep -q PAT <<<"$x"'
@@ -72,6 +81,10 @@ expect "comment line"               0 a.sh "$HDR"$'\n  # cmd | grep -q PAT'
 expect "trailing comment"           0 a.sh "$HDR"$'\ncmd | grep PAT # grep -q'
 expect "-c then -eq after pipe"     0 a.sh "$HDR"$'\n[ "$(cmd | grep -c .)" -eq 1 ]'
 expect "-s is not quiet"            0 a.sh "$HDR"$'\ncmd | grep -s PAT'
+expect "trailing || \\ then grep"   0 a.sh "$HDR"$'\ncmd || \\\n  grep -q PAT f'
+expect "blank line, then a quiet grep with no pipe" 0 a.sh "$HDR"$'\ncmd | tee f\n\ngrep -q PAT f'
+expect "an assignment ahead of grep, no pipe" 0 a.sh "$HDR"$'\nLC_ALL=C grep -q PAT f'
+expect "command, then not grep"     0 a.sh "$HDR"$'\ncmd | command cat'
 expect "grep without -q"            0 a.sh "$HDR"$'\ncmd | grep PAT >/dev/null'
 expect "grep -q is not last"        0 a.sh "$HDR"$'\ncmd | grep -q PAT | cat'
 expect "-q after &&"                0 a.sh "$HDR"$'\ncmd | grep PAT && grep -q X f'
@@ -113,6 +126,27 @@ bash "$GUARD" --root "$TMP/notgit" >/dev/null 2>&1; got=$?
 if [ "$got" -eq 2 ]; then ok "not a git repository is 2"; else bad "not a repo (exit $got)"; fi
 bash "$GUARD" --root "$TMP/absent" >/dev/null 2>&1; got=$?
 if [ "$got" -eq 2 ]; then ok "missing directory is 2"; else bad "missing dir (exit $got)"; fi
+bash "$GUARD" --root "" >/dev/null 2>&1; got=$?
+if [ "$got" -eq 2 ]; then ok "an empty --root is 2"; else bad "empty --root (exit $got)"; fi
+
+echo "check_no_grep_q_pipe: could not look is 2, never ok"
+# A listing that fails: the index is garbage, while rev-parse still
+# answers that this is a work tree.
+fixture a.sh "$HDR"$'\ncmd | grep PAT'
+printf 'garbage' > "$FIX/.git/index"
+out="$(bash "$GUARD" --root "$FIX" 2>&1)"; got=$?
+if [ "$got" -eq 2 ]; then ok "a failed git ls-files is 2"; else bad "corrupt index (exit $got): $out"; fi
+# A file awk cannot read. root reads anything, so this case needs a
+# login that permissions bind.
+if [ "$(id -u)" -ne 0 ]; then
+  fixture a.sh "$HDR"$'\ncmd | grep PAT'
+  chmod 000 "$FIX/a.sh"
+  out="$(bash "$GUARD" --root "$FIX" 2>&1)"; got=$?
+  chmod 644 "$FIX/a.sh"
+  if [ "$got" -eq 2 ]; then ok "an unreadable script is 2"; else bad "unreadable script (exit $got): $out"; fi
+else
+  echo "  - an unreadable script: skipped as root"
+fi
 help="$(bash "$GUARD" --help 2>&1)"; got=$?
 if [ "$got" -eq 0 ] && [[ "$help" == *"SIGPIPE"* ]] && [[ "$help" != *">>> help"* ]]; then ok "--help prints the block"; else bad "--help (exit $got)"; fi
 
