@@ -610,10 +610,12 @@ no card is named by it.
    taking input; Back and Escape do nothing while it runs, since what
    it starts cannot be stopped halfway: for at most the add's wait
    (below), and, when the record is refused at the bound, also for the
-   settle of the other records (step 2), which starts no further
-   record once the add's wait has passed since it began and leaves the
-   records it did not reach to the next settle. The progress indicator
-   stays through that settle.
+   settle of the other records (step 2). That settle reaches every
+   record, as the settle when Your identities opens does (ADR-0061
+   decision 7, A 2026-11-26 (iii)); each of its calls, a list or a
+   remove, ends by its command deadline (`LOCAL-IPC.md`, `deadline_ms`),
+   so the settle ends, though up to 64 records can make it long. The
+   progress indicator stays through that settle.
 2. The client generates the identity's key. On each Create while the
    form has no record yet, it writes a **pending-add record** in the
    store before it calls the add. The record
@@ -1635,7 +1637,9 @@ pass before it lands.
     forms whose adds ended unknown, and the daemon is stopped. Create
     settles those records (each list fails, and all the records are
     kept), its record is refused again, and `IdentityAddFailed` shows,
-    with no key file sealed and no add sent. After the daemon is started
+    with no key file sealed and no add sent; while that settle runs,
+    Create shows its progress indicator and Back and Escape do nothing.
+    After the daemon is started
     again, the next Create's settle discards those records, and that
     Create writes its own record. (l) A first add answered
     `BackendUnavailable`:
