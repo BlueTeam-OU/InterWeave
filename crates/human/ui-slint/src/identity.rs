@@ -178,7 +178,8 @@ fn strings(items: impl IntoIterator<Item = String>) -> ModelRc<SharedString> {
 }
 
 /// `rows`' keys, each with its place in `other`, the other layout, for a
-/// key kept through a recreation into a window of that layout.
+/// key taken in one layout and focused in the other: through a
+/// recreation, or a live switch across 340 (section 4.3).
 fn rows(flow: &IdentityFlow, rows: &[&str], other: &[&str]) -> ModelRc<IdKeyRow> {
     let other_place = |letter| {
         other

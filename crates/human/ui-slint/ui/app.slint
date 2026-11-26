@@ -408,9 +408,10 @@ export struct IdKey {
     enabled: bool,
     // Its place in its layout's reading order, from 0: its focus stop.
     index: int,
-    // Its place in the other layout's reading order: where a key kept
-    // through a recreation into a window of the other layout stands
-    // (section 6, The hold; IdentityScreen's `kept-key`).
+    // Its place in the other layout's reading order: where a key taken
+    // in the other layout stands -- kept through a recreation (section
+    // 6, The hold), focused or under the dialog when the width crosses
+    // 340 (section 4.3); IdentityScreen's `kept-key`.
     other: int,
     // The layout's first enabled key, where focus goes after a chip
     // fills a position (section 8).
@@ -2429,8 +2430,34 @@ component IdentityScreen inherits FocusScope {
     property <bool> saved-alpha;
     changed at-alpha => { root.publish(); }
     changed saved-alpha => { root.publish(); }
-    // A kept stop's index in this page's keypad layout: a key kept from
-    // a window of the other layout is the same letter here, at its
+    // A live switch rebuilds the keypad under a focused key: focus stays
+    // on its letter, in the mode it had, and nothing is typed or
+    // announced; a stop off the keypad is not rebuilt and is left where
+    // it is (section 4.3; trace.rs a_live_switch_keeps_*,
+    // a_live_switch_holds_*). Under the dialog the way back maps when
+    // the dialog closes (a_dialogs_way_back_across_a_live_switch_*).
+    // The rule runs at every crossing, the stamp `at-alpha` saying where
+    // the focused key was taken, so a crossing back before the first's
+    // key has taken focus still asks for the letter
+    // (a_live_switch_there_and_back_keeps_the_letter). The rule writes
+    // only `want-idx`, so a stop wanted off the keypad and picked by
+    // `want-idx` -- a new notice's banner, the heading, the question, a
+    // grid position, a chip, not yet drawn -- needs the guard to stay
+    // wanted (a_live_switch_as_a_notice_arrives_*). The dialog's actions read
+    // `want-seg` alone and take focus either way.
+    // It focuses only at the rebump: the old layout's keys stand until
+    // the next draw, and a bump now gives focus to the old key at the
+    // new place, x on the way to b
+    // (a_live_switch_takes_no_other_key_on_the_way_*).
+    changed keys-alpha => {
+        if (root.at-seg == 3 && root.want-seg == 3) {
+            root.want-idx = root.kept-key(3, root.at-idx, root.at-alpha);
+            root.rebump = true;
+        }
+    }
+    // A stop's index in this page's keypad layout: a key taken in the
+    // other layout -- before a live switch, under the dialog, or in a
+    // window before a recreation -- is the same letter here, at its
     // `other` place (`IdKey.other`); any other stop is where it was. The
     // rows are QWERTY's 10, 9 and 7 and the alphabet's sevens
     // (identity.rs).
@@ -2788,7 +2815,7 @@ component IdentityScreen inherits FocusScope {
             } else if (notice-new) {
                 root.go(0, root.banner-idx());
             } else if (root.at-seg >= 0) {
-                root.again(root.at-seg, root.at-idx);
+                root.again(root.at-seg, root.kept-key(root.at-seg, root.at-idx, root.at-alpha));
             }
             return;
         }
@@ -2845,7 +2872,7 @@ component IdentityScreen inherits FocusScope {
         if (root.dialog-shown) {
             root.dialog-shown = false;
             root.typing = root.saved-typing;
-            root.again(root.saved-seg, root.saved-idx);
+            root.again(root.saved-seg, root.kept-key(root.saved-seg, root.saved-idx, root.saved-alpha));
         } else if (notice-new) {
             root.go(0, root.banner-idx());
         } else if (to-check) {
@@ -2864,7 +2891,7 @@ component IdentityScreen inherits FocusScope {
                 root.again(2, at);
             }
         } else if (root.at-seg >= 0) {
-            root.again(root.at-seg, root.at-idx);
+            root.again(root.at-seg, root.kept-key(root.at-seg, root.at-idx, root.at-alpha));
         }
     }
     // A chip taken, by a tap or a press: typing, an exception to "a press
