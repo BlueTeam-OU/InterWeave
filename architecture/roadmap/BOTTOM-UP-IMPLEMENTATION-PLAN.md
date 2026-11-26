@@ -840,7 +840,7 @@ Stage 6 enforces that a frame's `source_endpoint` names a lease the node actuall
 
 That gap is unreachable in Stage 6 — the runtime handle is the only caller and owns every endpoint, so "caller A names endpoint B" has no second party — and becomes real the moment IPC sessions exist, which is here. The property already exists one layer up: `local-client-api` derives the source endpoint from the lease and offers no API accepting one (Stage 1). This stage wires that boundary to the transport.
 
-The shape: `send_direct` takes session or lease context and constructs or overwrites `source_endpoint` from it, rather than trusting the supplied frame. `contracts/ENDPOINTS.md` outbound step 1 and CLAUDE.md §5 are the governing text.
+The shape: `send_direct` takes session or lease context and constructs or overwrites `source_endpoint` from it, rather than trusting the supplied frame. `contracts/ENDPOINTS.md` outbound step 1 and AGENTS.md §5 are the governing text.
 
 ### Implement
 
@@ -1225,7 +1225,7 @@ dials.
 **Three of the four are NOT under `tests/kademlia`, and should not be.**
 This sentence originally said they all would be, which sends an auditor
 to a directory holding two files and invites the conclusion that two
-cases are missing. CLAUDE.md §4 puts a test at the lowest layer that
+cases are missing. AGENTS.md §4 puts a test at the lowest layer that
 completely proves the behaviour, and only two of these need two real
 runtimes over real sockets. Where each one is:
 
@@ -1779,7 +1779,8 @@ else names them.
   when phase 1b's config half was about to model
   `transport.connectivity` — whose schema makes `relay.client.enabled` a
   `literal[true]`, so modelling it is what would otherwise construct a
-  relay client by default. Recorded here rather than only in `CLAUDE.md`
+  relay client by default. Recorded here rather than only in the instruction file (today the
+  `libp2p-connectivity` skill states it beside this record)
   because this is where the construction order lives: a decision about
   ordering stated only in the operating contract is the shape Stage 10's
   exit gate had, where a shipping decision sat somewhere that could not
@@ -1811,7 +1812,7 @@ else names them.
   asserts is only that such a peer is established and then closed.
   Step 3 has to relax that arm anyway for the AutoNAT dial-back, so it is
   the step that must decide whether the documents or the code move
-  (CLAUDE.md §2 — the conflict is named here rather than resolved in
+  (AGENTS.md §2 — the conflict is named here rather than resolved in
   prose). **DECIDED with step 3's adapter (2026-09-17): the code moved
   to the documents.** A retained infrastructure-only connection now
   exists — an AutoNAT server's inbound, kept under `AutonatProbe` while
@@ -1958,7 +1959,7 @@ this block.
    the infrastructure-only peer, and §11 excluded only
    `direct-user-command` and `kademlia-query`, so an accepted document
    arguably permitted the behaviour. ADR-0036's Amendment 2026-09-03
-   added the row and both sections inherited it (CLAUDE.md §2), which
+   added the row and both sections inherited it (AGENTS.md §2), which
    left D2 a code change — and it separated the two relay origins rather
    than moving both, because `RelayReservation` must stay outside the
    predicate or every relay the stack needs is refused. D1 and D2 moved
@@ -2107,8 +2108,8 @@ this block.
    budgets at the request's dial command, before the crate issues the
    dial (not before it parses the request: a flood's request cost is
    the crate's per-connection cap's to bound, and §7 says so); `Attributing`
-   with `always(AutonatProbe)`, so the dial-back is CLAUDE.md §1's
-   route 1, reached for the first time; `ClassGated` for the
+   with `always(AutonatProbe)`, so the dial-back is the
+   `libp2p-connectivity` skill's route 1, reached for the first time; `ClassGated` for the
    infrastructure service, so the dial-request protocol is offered to
    both authorized classes and to nobody else. With the server on, the
    inbound arm retains every authorized inbound under `AutonatProbe`
@@ -2536,7 +2537,7 @@ this block.
 
   **A gating change closes the connection, in whichever direction it moves.** A handler is chosen once at establishment and libp2p never rebuilds it, so a connection whose peer crosses the data-plane boundary carries the wrong protocol set from that moment. Losing the trust is decided by `connections_to_close`, so the closure lands in `set_trust`'s ADR-0012 count; gaining it is decided by `ClassGated::poll`, since a promotion is not a revocation and is not part of that count. Both are ADR-0036's own instruction — close and re-establish "rather than allowing a transient privilege mix" — and the gaining direction is not merely under-privileged, because a peer holding one `Denied` and one `Allowed` handler is a pair `NotifyHandler::Any` can route a `kad` query into, where it is silently dropped. **The comparison is against the class the connection was ADMITTED under**, recorded on `OpenConnection`, and not against `Revoked::was` — which is what keeps ADR-0036's origin/class separation deciding something: a connection admitted while the peer was infrastructure-only has carried a denying handler all along, so nothing is stale and its origin still says whether it survives. Separately, `sync_broadcast_admission` blacklists a downgraded peer from the mesh, which rejects its MESSAGES while leaving `/meshsub/` registered, so that call is authority and this wrapper is exposure and neither substitutes for the other.
 
-  **Step 3 must not regress this.** It reaches an infrastructure-only connection two ways at once — it dials a static AutoNAT server under `AutonatProbe`, which is the `attempt_dial` route (route 2, not the wrapped-behaviour route 1: the client emits no dial, as the step-3 note above records), and it must relax the inbound arm so the client can serve `/libp2p/autonat/2/dial-back`. Both produce a RETAINED infrastructure-only connection, which is the state this invariant now governs and which nothing before step 3 could produce. CLAUDE.md §1 enumerates the three routes to such an origin; the ordering constraint they were written for is discharged, and what remains is that step 3 keep the restriction true rather than land before it.
+  **Step 3 must not regress this.** It reaches an infrastructure-only connection two ways at once — it dials a static AutoNAT server under `AutonatProbe`, which is the `attempt_dial` route (route 2, not the wrapped-behaviour route 1: the client emits no dial, as the step-3 note above records), and it must relax the inbound arm so the client can serve `/libp2p/autonat/2/dial-back`. Both produce a RETAINED infrastructure-only connection, which is the state this invariant now governs and which nothing before step 3 could produce. The `libp2p-connectivity` skill enumerates the three routes to such an origin; the ordering constraint they were written for is discharged, and what remains is that step 3 keep the restriction true rather than land before it.
 
 - AutoNAT server dial-back candidate is literal IP, matches requester observed source IP, and rejects prohibited address classes;
 - statically configured infrastructure is preferred for RELAY, and is what the profile guarantees to DIAL for AutoNAT (ADR-0035's Amendment 2026-09-09: the client can be given no server order, and it offers dial-request only on connections this profile opened, so a server that dialled us is not eligible); Identify-learned relay/probe promotion remains explicit opt-in for both;
@@ -5362,11 +5363,11 @@ Then `tests/android-e2e` proves Android <-> desktop P2P interoperability through
 
 The Android client brings the repository's first non-Cargo dependency graph — the Kotlin/JVM dependencies of `apps/human-android` and the instrumented tests — and none of the workspace's checks see it: `cargo-deny` resolves the Cargo graph against RustSec, Dependabot's Cargo coverage stops at `Cargo.lock`, and `check_vendored_advisories.sh` reads `third_party/`. So this stage adds the Gradle graph's own software-composition analysis beside the Gradle build (the owner, 2026-09-19), on the owner's later words of 2026-10-10 ("remove the nvd check, we will do with osv.dev"; "osv dev check will be only local"), which replaced the OWASP Dependency-Check plan this section first carried (A 2026-10-10):
 
-- **OSV.dev is the source**, not the NVD: no Dependency-Check plugin, no NVD API key, no CI job, no CLAUDE.md §9 context and no ruleset change — the owner's decision, its reason the owner's and not recorded here. The check **runs locally**, by the lane that changes the Gradle graph, before the push that carries the change; the PR body says it ran and what it found.
+- **OSV.dev is the source**, not the NVD: no Dependency-Check plugin, no NVD API key, no CI job, no AGENTS.md §9 context and no ruleset change — the owner's decision, its reason the owner's and not recorded here. The check **runs locally**, by the lane that changes the Gradle graph, before the push that carries the change; the PR body says it ran and what it found.
 - **Shape (architect-cto, on the owner's two words):** `osv-scanner` over the Gradle **lockfiles** (`gradle.lockfile`, `buildscript-gradle.lockfile`), which means dependency locking is turned on in the Gradle build so the scanned input is the resolved graph and not a guess from `build.gradle.kts`; the invocation is one documented command in `apps/human-android/README.md` (devex-tooling's to write and keep with the build, as the Cargo checks are), passing `--config=<the one osv-scanner.toml beside the build>` so one suppressions file governs every lockfile scanned (the tool otherwise reads a config only from each lockfile's own directory), never a Gradle task that would make the build depend on a network service; turning dependency locking on is the Gradle build's owner's (rust-ui-dev), and the command is checked once the lockfiles exist.
 - **Suppressions are reviewed exemptions**, not a way past the check: one `osv-scanner.toml` beside the build, one `[[IgnoredVulns]]` entry per accepted finding with the OSV id and a `reason` that names the artefact, says why the finding does not apply here and what would change the answer (the tool's entry has no artefact field, so the reason carries it; `ignoreUntil` where the exemption is dated), never a `[[PackageOverrides]]` entry, which ignores every finding of a package rather than one — the models are `deny.toml`'s `[advisories].ignore` entries and `tools/checks/license_exempt.txt`, and an entry without its sentence is what a reviewer refuses.
 
-Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `CLAUDE.md` records the gaps: `yamux` with the guard for it, live; a crate vendored under `third_party/`, which `cargo-deny` skips and `check_vendored_advisories.sh` watches; and the store's SQLCipher residual of RUSTSEC-2026-0459, §21's carried item, met from #602's `rusqlite` 0.41 on 2026-11-09 until #637's `rusqlite` 0.42 on 2026-11-12 closed it), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
+Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `AGENTS.md` records the gaps: `yamux` with the guard for it, live; a crate vendored under `third_party/`, which `cargo-deny` skips and `check_vendored_advisories.sh` watches; and the store's SQLCipher residual of RUSTSEC-2026-0459, §21's carried item, met from #602's `rusqlite` 0.41 on 2026-11-09 until #637's `rusqlite` 0.42 on 2026-11-12 closed it), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
 
 The Cargo graph's own policy gained three ignores during this stage (2026-10-18, p2p-network-dev's decision, 2aa72262, bae39f8a and dde0a007 folded into #297), beside RUSTSEC-2024-0436 (`paste`, since Stage 4) and §18 (14)'s RUSTSEC-2026-0192 (`ttf-parser`): RUSTSEC-2026-0370 (`zvariant` 5.15.0), RUSTSEC-2026-0371 (`zbus_names` 4.3.4) and RUSTSEC-2026-0372 (`zvariant_derive` 5.15.0), one announcement — the standalone crates merged into `zbus` 6.0.0, unmaintained on their own, informational with no patched release; the first two are runtime code in the desktop binary, the third a proc-macro — reached through the desktop's AT-SPI path (`i-slint-backend-winit` 1.18.1 names `zbus` 5 directly) and through `tests/desktop-e2e`'s own direct `zbus` 5.19 and `atspi` 0.29 dev-dependencies, absent from the Android graph. Dated 2026-10-16 in the advisory database, they turned every PR's `tree checks` and `tool self-tests` red from 2026-10-18 until the entries landed; a scan of the whole lock against the database at that date found nothing else unanswered. Their revisit is the next Slint or accesskit bump together with the e2e suite's `zbus`/`atspi` pins: a Slint bump alone leaves the crates in the graph through those pins. §18's Stage 15 record stays as the record of that date.
 
@@ -6533,7 +6534,7 @@ none is the status value's, which stays on this stage.
   is carried to §22 (Stage 19, which holds the carries by name),
   architect-cto its holder. The gap it shows, a patched range that
   covers a feature build still carrying the affected source, is
-  `CLAUDE.md` §8's third dependency-check gap, beside the GHSA-only and
+  `AGENTS.md` §8's third dependency-check gap, beside the GHSA-only and
   the vendored-crate ones.
 
   **Dated note, 2026-11-12 (the re-check trigger fired; the item is
@@ -6553,7 +6554,7 @@ none is the status value's, which stays on this stage.
   4.20.0 on SQLite 3.54.1, past the 3.54.0 the advisory names as fixed.
   So from fd4679a7f the store's build no longer compiles the affected
   source, the carry to §22 the item provided for is not taken (Stage 18
-  had not closed), and `CLAUDE.md` §8's third gap is written in the past
+  had not closed), and `AGENTS.md` §8's third gap is written in the past
   tense for this advisory while its rule stays. What the note does not
   change: v0.3.0 was tagged before the bump (on c0bbe40a9, 2026-11-11;
   its lock names `sqlcipher-src` 419.0.6), so a v0.3.0 artifact compiles the
@@ -6669,7 +6670,7 @@ runs beside the open stage (the guards expire a deferral only once the status
 passes it), and the Cargo.toml status comment names Stage 19 beside Stages 17
 and 18 (done in this change). The status value stays the lowest open stage,
 `stage-17-android-human-client`, and this record is the authorisation for the
-stage's packages (`CLAUDE.md` §3) — the packaging roots under Activate below,
+stage's packages (`AGENTS.md` §3) — the packaging roots under Activate below,
 each added to `[workspace].members` in the change that creates it where it is
 a crate. The split, by lane: p2p-network-dev takes packaging/linux beyond §28
 step 4's user units (the Stage 13 supervision-units carry is met by those two
@@ -7064,7 +7065,7 @@ the agents' coordination protocol does not enter this repository —
 "different things, different layer". The stage ran **beside** Stage
 17 and Stage 18 as §19's Stage 16 ran beside Stage 15, and closed the
 same day (Met, below): the status value stays the lowest open stage,
-and this section was the authorisation for its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
+and this section was the authorisation for its packages (§3 of `AGENTS.md`). The decision is ADR-0055; this
 section is the construction order, the gate and the record. It is
 numbered after §27 so that no citation of §23–§27 moves.
 
@@ -7176,8 +7177,9 @@ appears in any of the four.
    the unit retrying every 5 s, no socket of the asking account ever
    appearing — with the same profile on a free port listening as the
    control; single samples on a loaded host, no CI case, as before.)
-5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
-   was built after Stage 9; this record corrects it) — done in the
+5. The clause about mDNS in `AGENTS.md` §1, stale as this record was
+   written (the multicast backend was built after Stage 9; this record
+   corrected it) — done in the
    series that lands this section.
 
 ### Exit gate
@@ -7222,7 +7224,7 @@ ten cases: `a_direct_message_lands_over_a_static_loopback_entry`,
 `a_port_held_without_reuseport_refuses_the_start`); step 3
 (`architecture/clients/automated/AUTOMATED-CLIENT.md`, every row of its
 §2 naming its case or its contract); step 4 (`packaging/linux`: the two
-user units and their README); step 5 (the mDNS clause of `CLAUDE.md`
+user units and their README); step 5 (the mDNS clause of `AGENTS.md`
 §1). The exit gate: (a) steps 1–4 are on `main` with CI green at the
 merge (4a607b2e) and at the next (c9766159), and each fact of decision
 2 is held by a named case or by the contract that states it, as the
@@ -7321,7 +7323,7 @@ paragraph is that word's record); as §19's
 Stage 16 ran beside Stage 15 and §22's Stage 19 runs beside Stage 17.
 The status value stays the lowest open stage,
 `stage-17-android-human-client`, and this record is the authorisation
-for the stage's work (`CLAUDE.md` §3): no new crate but the
+for the stage's work (`AGENTS.md` §3): no new crate but the
 command-line client under Activate, added to `[workspace].members` in
 the change that creates it. The precedent's two constraints hold: no
 `Proof::Stage(21)` deferral and no `stage-21` deadline is written while
@@ -8276,7 +8278,7 @@ sentence gaining the administrative path in the same change.
    that share it; the client operating as one identity at a time, named from the second
    identity on on every acting
    surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
-   chooser; `human-client-ui.md` §3 and §4 as amended. The 64 remote endpoints per PeerId are counted per identity from this step (HUMAN-CHAT.md, A 2026-11-19), so the texts that count them over every identity change with it: `design/2026-10-27-start-window.md` §3, its §9 `NotSentEndpointLimit` row and its acceptance item 11b (ux-designer's), and the string in `crates/human/ui-model/src/labels.rs` ("the limit for all its identities and contacts together"). Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)). Carried from §29 (ruled 2026-10-31, DECISION 01a19125-9eb5): the conversation's record that a card of the identity may have left this device (ADR-0063 decision 1, A 2026-10-27, `Cancelled { may_have_reached: true }`), read by a replacement identity's share-again list over the old EndpointId's conversations, and the old-key own-card row across a restart (#467 R5), the old identity's by its conversation's `local_endpoint_id`; neither needs a key epoch per row. Not built as of 2026-11-23 (rust-ui-dev-02's INFO 01a20a42; their store supply at cf88710ed, folded into the batch at e876e4f7e): the replacement of an identity whose key is lost or refused (`design/2026-10-24-identity-key.md` §5, its part 2; `human-client-ui.md` §13's bullet for it; STATE.md's replaces record and share-again list). No act of the client minted a replacement's key, the store held neither record, and the design's Q-bound (its §12) was open; until the act lands, such an identity shows `KeyNoNewKey` and offers no action, the design's part 1. The §13 bullet is a criterion of step 4 and so of exit gate (a), which it holds open until its tests are green on `main` or the owner carries it by name.
+   chooser; `human-client-ui.md` §3 and §4 as amended. The 64 remote endpoints per PeerId are counted per identity from this step (HUMAN-CHAT.md, A 2026-11-19), so the texts that count them over every identity change with it: `design/2026-10-27-start-window.md` §3, its §9 `NotSentEndpointLimit` row and its acceptance item 11b (ux-designer's), and the string in `crates/human/ui-model/src/labels.rs` ("the limit for all its identities and contacts together"). Move (ADR-0059 decision 4, A 2026-10-21 (ii)) moves one route between two contacts of the identity in front and is the first flow that puts a second route under a contact; it lands with a route-delete control on the contact page beside it (ux-designer's to place), and makes `contacts route delete`'s success path reachable, which batch 4 (#429) proved over a seeded second route only (ADR-0059 A 2026-10-25 (v)). Carried from §29 (ruled 2026-10-31, DECISION 01a19125-9eb5): the conversation's record that a card of the identity may have left this device (ADR-0063 decision 1, A 2026-10-27, `Cancelled { may_have_reached: true }`), read by a replacement identity's share-again list over the old EndpointId's conversations, and the old-key own-card row across a restart (#467 R5), the old identity's by its conversation's `local_endpoint_id`; neither needs a key epoch per row. Not built as of 2026-11-23 (rust-ui-dev-02's INFO 01a20a42; their store supply at cf88710ed, folded into the batch at e876e4f7e): the replacement of an identity whose key is lost or refused (`design/2026-10-24-identity-key.md` §5, its part 2; `human-client-ui.md` §13's bullet for it; STATE.md's replaces record and share-again list). No act of the client minted a replacement's key, the store held neither record, and the design's Q-bound (its §12) was open; until the act lands, such an identity shows `KeyNoNewKey` and offers no action, the design's part 1. The §13 bullet is a criterion of step 4 and so of exit gate (a), which it holds open until its tests are green on `main` or the owner carries it by name. Not built as of 2026-11-24 either (rust-ui-dev-02's INFO 01a20ce6; the client's lease rule at 880100fe9, on `main` with the batch): the explicit switch on the desktop. The client leases the identity its store speaks as and no other, and the desktop's store opens as the first identity (`apps/human-desktop/src/startup.rs`), so a desktop whose first identity is turned off (ADR-0061 decision 7: turned off, never removed) is refused its session at start, the refusal on screen, and leases no other endpoint in its place (`tests/desktop-e2e/tests/human_app/kept_disable.rs`, whose second endpoint is an authored entry; the desktop reads its candidates from `config.yaml` alone, so an added identity was never one); before that rule the start took the next authored endpoint it could lease, a walk no architecture text had named. Until the switch lands a person in that state turns the first identity on again with `transportctl endpoints enable <id>`, over the administrative connection, which takes no lease. This is the exit gate's "first identity turned off and never removed, listed as off" case on the desktop, and it holds gate (b) open until the switch's test is green on `main` or the owner carries it by name.
 3. **Android** (rust-ui-dev): one in-process session and lease per
    identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
    identity switch in the app, identities created through the embedded

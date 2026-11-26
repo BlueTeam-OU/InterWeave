@@ -3630,3 +3630,432 @@ fn a_page_under_an_identity_screen_is_said_when_the_screen_goes() {
         "after the screen went"
     );
 }
+
+impl Identity {
+    /// The window recreated (a language change, Don't keep activities):
+    /// this view ends and a new one shows the same flow, as the Android
+    /// root's park and rebind do (human-android onboard.rs), handed the
+    /// stop this page had when `keep` is set and nothing when it is not.
+    /// One test backend serves both windows.
+    fn recreate(&mut self, keep: bool) {
+        self.recreate_with(keep, |_| {});
+    }
+
+    /// As [`Self::recreate`], with `before` run on the new view before
+    /// its page shows: its size, its font, a heading's ask.
+    fn recreate_with(&mut self, keep: bool, before: impl FnOnce(&View)) {
+        let stop = self.view.identity_stop();
+        assert!(stop.is_some(), "control: a stop was focused");
+        let mut view = View::new(RuntimeHost::Embedded).expect("a window");
+        view.window().show().expect("shown");
+        let to = Rc::clone(&self.said);
+        view.on_trace(move |line| to.borrow_mut().push(line.to_owned()));
+        view.render(&UiModel::new());
+        let into = Rc::clone(&self.queued);
+        view.on_identity(move |input| into.borrow_mut().push(input));
+        if let (true, Some(stop)) = (keep, stop) {
+            view.keep_identity_stop(stop);
+        }
+        before(&view);
+        let _ = self.view.window().hide();
+        self.view = view;
+        self.said.borrow_mut().clear();
+        self.settle();
+    }
+}
+
+/// A recreation moves no focus (section 6, The hold): R2's keypad key
+/// that had focus has it in the new window, by its place, and so does
+/// the mode -- navigating, so Enter presses it. Without the kept stop
+/// the new window gives R2 its opening focus, the first enabled key,
+/// typing.
+#[test]
+fn a_recreation_keeps_focus_on_r2s_key() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    // Control: today's opening focus, q, typing.
+    page.recreate(false);
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Enter],
+        "typing: no key pressed"
+    );
+    // From q to w, navigating.
+    page.tab();
+    page.recreate(true);
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')], "w, navigating");
+    // A letter typed on w returns typing, which the new window keeps:
+    // Enter is the suggestion rule's and presses no key.
+    page.key("w");
+    page.take();
+    page.recreate(true);
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Enter],
+        "typing: no key pressed"
+    );
+}
+
+/// The chip that had focus has it in the new window, the keypad's
+/// first enabled key not.
+#[test]
+fn a_recreation_keeps_focus_on_r2s_chip() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    // From q: actor, then action.
+    page.backtab();
+    page.backtab();
+    assert_eq!(page.last(), "ui-trace focus=identity-chip", "control");
+    page.take();
+    page.recreate(true);
+    assert_eq!(page.last(), "ui-trace focus=identity-chip");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Chip("action".to_owned())]);
+}
+
+/// R3 kept with focus on Copy `PeerId` shows it there again, not on its
+/// question.
+#[test]
+fn a_recreation_keeps_focus_on_r3s_copy() {
+    use slint::platform::Key;
+    let mut page = Identity::at_r3();
+    page.key(Key::DownArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-copy", "control");
+    page.recreate(true);
+    assert_eq!(page.last(), "ui-trace focus=identity-copy");
+    page.key(Key::DownArrow);
+    assert_eq!(page.last(), "ui-trace focus=identity-primary", "from Copy");
+}
+
+/// R2's discard dialog kept: focus on the action that had it, and
+/// closing the dialog gives focus back to what had it before the
+/// dialog, as in the window that opened it.
+#[test]
+fn a_recreation_keeps_focus_in_r2s_discard_dialog() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(page.word(0), Some("act"), "control: a word entered");
+    // From q, the first enabled key, to w, navigating.
+    page.tab();
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-delete");
+    page.take();
+    page.recreate(true);
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-delete");
+    page.tab();
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-keep");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    assert_eq!(page.last(), "ui-trace focus=identity-key", "back under it");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('w')], "w, navigating");
+}
+
+/// A page that hid takes its stop with it: shown again with no stop
+/// focused (Welcome opens on none), the window holds no stop for a
+/// recreation, and the next window opens the page as it would have.
+#[test]
+fn a_page_shown_again_holds_no_stop_of_the_last() {
+    use interweave_human_ui_model::{IdentityFlow, Start};
+    use slint::platform::Key;
+    let mut page = Identity::at_r3();
+    page.key(Key::DownArrow);
+    assert!(page.view.identity_stop().is_some(), "control: Copy focused");
+    page.view.show_identity(None);
+    // The page's element goes once the tree is walked, as a real
+    // window's next draw takes it away.
+    let _ = ElementHandle::find_by_accessible_label(page.view.window(), "q").count();
+    page.flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
+    page.settle();
+    assert_eq!(page.view.identity_stop(), None);
+}
+
+fn width(view: &View, px: f32) {
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(px, 640.0));
+}
+
+/// A key kept into a window on the other side of 340, the keypad's
+/// layout switch (section 4.3), is the same letter there: b in the
+/// alphabetical sevens is b in QWERTY, and n back again, not the key at
+/// its old place (#764 F1).
+#[test]
+fn a_recreation_across_the_layout_switch_keeps_the_letter() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    width(&page.view, 330.0);
+    page.settle();
+    // a, the first enabled key in the alphabetical sevens, then b.
+    page.tab();
+    page.take();
+    page.recreate_with(true, |view| width(view, 400.0));
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not w");
+    // The b taken off, then from b to n, QWERTY's next, and back to the
+    // sevens.
+    page.key(slint::platform::Key::Backspace);
+    page.tab();
+    page.take();
+    page.recreate_with(true, |view| width(view, 330.0));
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('n')], "n, not y");
+}
+
+/// The discard dialog opened while typing gives typing back when it
+/// closes, in the new window as in the old (#764 F2).
+#[test]
+fn a_recreation_keeps_the_dialogs_way_back_typing() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(page.word(0), Some("act"), "control: a word entered");
+    page.key("b");
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    page.take();
+    page.recreate(true);
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Enter],
+        "typing: no key pressed"
+    );
+}
+
+/// A kept stop the new page lacks leaves the page's opening focus: R2's
+/// last grid position kept into a window whose text is over 130 %, where
+/// the grid is one button, opens on the first enabled key, typing (#764
+/// F2).
+#[test]
+fn a_kept_stop_the_page_lacks_leaves_its_opening_focus() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    // From the first key back to the grid's last position.
+    page.backtab();
+    assert!(
+        page.last().starts_with("ui-trace focus=identity-slot"),
+        "control: {}",
+        page.last()
+    );
+    page.take();
+    page.recreate_with(true, |view| {
+        i_slint_core::window::WindowInner::from_pub(view.window().window())
+            .context()
+            .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(20.0)));
+    });
+    page.settle();
+    assert_eq!(page.last(), "ui-trace focus=identity-key");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Enter], "typing: the opening");
+}
+
+/// A refused start's heading comes before a kept stop, and the stop it
+/// left unused is no later page's: C2's `PeerId` page shown again holds
+/// none (#764 F2 and its risk).
+#[test]
+fn a_heading_ask_comes_before_a_kept_stop_and_drops_it() {
+    use interweave_human_ui_model::{IdentityFlow, ScreenId, Start};
+    use interweave_human_ui_slint::{IdentityInput, apply_identity};
+    use interweave_transport_api::TransportIdentity;
+    let mut flow = IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    );
+    apply_identity(&mut flow, IdentityInput::Primary);
+    let words: [&'static str; 24] = WORDS[..24].try_into().expect("24 words");
+    let peer = TransportIdentity::parse("12D3KooW9tHTtS3inCZiYykw4u5G4frbjVFqhkmJX12gSNCVeH3e")
+        .expect("a PeerId");
+    flow.created(words, peer, [8, 20]);
+    // C2's words, then its PeerId page.
+    for _ in 0..2 {
+        apply_identity(&mut flow, IdentityInput::Primary);
+    }
+    assert_eq!(
+        flow.screen(),
+        ScreenId::C2PeerId,
+        "control: the PeerId page"
+    );
+    let mut page = Identity::new(flow);
+    // Off the title to a stop of its own.
+    page.tab();
+    let kept = page.last();
+    assert_ne!(
+        kept, "ui-trace focus=peer-id-heading",
+        "control: off the title"
+    );
+    page.recreate_with(true, View::raise_identity_heading);
+    assert_eq!(page.last(), "ui-trace focus=peer-id-heading");
+    page.view.show_identity(None);
+    let _ = ElementHandle::find_by_accessible_label(page.view.window(), "q").count();
+    page.settle();
+    assert_eq!(page.view.identity_stop(), None, "the kept stop went unused");
+}
+
+/// The dialog's way back to a key, kept into a window of the other
+/// layout, is the same letter there (#764 F1).
+#[test]
+fn a_recreation_across_the_layout_switch_maps_the_dialogs_way_back() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    width(&page.view, 330.0);
+    page.settle();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(page.word(0), Some("act"), "control: a word entered");
+    // a, the first enabled key in the sevens, then b, navigating.
+    page.tab();
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    page.take();
+    page.recreate_with(true, |view| width(view, 400.0));
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not w");
+}
+
+/// A kept stop handed to a page that left before it was ever built is no
+/// later page's: the page shown next opens as it would have.
+#[test]
+fn a_kept_stop_no_page_took_goes_with_the_page() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    // q to w, navigating.
+    page.tab();
+    page.take();
+    let shown = interweave_human_ui_slint::identity_page(&page.flow);
+    page.recreate_with(true, move |view| {
+        view.show_identity(Some(shown));
+        view.show_identity(None);
+        let _ = ElementHandle::find_by_accessible_label(view.window(), "q").count();
+    });
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Enter], "typing: the opening");
+}
+
+/// A stop's Debug output names nothing of it: a key's index and its
+/// layout would name a letter of the phrase (#764 F3).
+#[test]
+fn a_kept_stops_debug_says_nothing_of_it() {
+    let mut page = Identity::at_r2();
+    page.tab();
+    assert_eq!(
+        format!("{:?}", page.view.identity_stop()),
+        "Some(IdentityStop(..))"
+    );
+}
+
+/// The window's width crossing 340 says no stop of its own: Welcome,
+/// which opens on none, holds none after it (#764 round 2, risk a); and
+/// on R2 the key kept is the one focus stands on at the recreation. A
+/// live switch puts focus on the key at the same place in the new
+/// layout, as before this change: b's place in the sevens is w's in
+/// QWERTY.
+#[test]
+fn a_resize_across_the_layout_switch_says_no_stop() {
+    use interweave_human_ui_model::{IdentityFlow, Start};
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::new(IdentityFlow::new(
+        WORDS,
+        interweave_profile_identity::FORMAT,
+        Start::FirstRun { void_paper: false },
+    ));
+    width(&page.view, 330.0);
+    page.settle();
+    width(&page.view, 400.0);
+    page.settle();
+    assert_eq!(page.view.identity_stop(), None, "Welcome: no stop focused");
+
+    // On to R2, through R1, in the same window.
+    for input in [IdentityInput::Secondary, IdentityInput::Primary] {
+        interweave_human_ui_slint::apply_identity(&mut page.flow, input);
+    }
+    assert_eq!(
+        page.flow.screen(),
+        interweave_human_ui_model::ScreenId::R2,
+        "control: at R2"
+    );
+    width(&page.view, 330.0);
+    page.settle();
+    // a, the first enabled key in the sevens, then b; then wider, where
+    // focus stands on w.
+    page.tab();
+    width(&page.view, 400.0);
+    page.settle();
+    page.take();
+    page.recreate_with(true, |view| width(view, 330.0));
+    page.enter();
+    assert_eq!(
+        page.take(),
+        [IdentityInput::Key('w')],
+        "w, the key focused at the recreation"
+    );
+}
+
+/// The dialog's way back keeps the layout it was saved in through a live
+/// switch while the dialog shows: b saved in the sevens, the window
+/// widened under the dialog, focus moved between its actions there, then
+/// a recreation; Keep gives focus back to b, not w (#764 round 3 F4).
+#[test]
+fn a_dialogs_way_back_keeps_the_layout_it_was_saved_in() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    width(&page.view, 330.0);
+    page.settle();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(page.word(0), Some("act"), "control: a word entered");
+    // a, the first enabled key in the sevens, then b, navigating.
+    page.tab();
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    width(&page.view, 400.0);
+    page.settle();
+    // Keep to Delete and back, each stamped in QWERTY.
+    page.tab();
+    page.tab();
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-dialog-keep",
+        "control"
+    );
+    page.take();
+    page.recreate_with(true, |view| width(view, 400.0));
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not w");
+}

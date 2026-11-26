@@ -35,11 +35,12 @@ read §5.1 and §6.1: since ADR-0067 d. 6 trust is the identity's (and
 #553 has `human-client-ui.md` name these four as overridden until
 contact-cards is revised: a dependency until #553 is on `main`). What this note does not mention there
 stands as written: the editor's photo step and unsaved-changes dialog
-(cards §5.2), the switch and its switcher (cards §5.7.1) but for that
-rule, what changes the identity in front (cards §5.7.3) but for §5.3
-below, the new-conversation rule (cards §5.7.4) and Make default and
-Turn off (cards §5.2). A rule is stated in one place;
-other sections point to it.
+(cards §5.2); the switch and its switcher (cards §5.7.1), except for
+that rule and for §6.1's order of the rows and the switcher's Your
+identities button; what changes the identity in front (cards
+§5.7.3), except for §5.3 and §5.4 below; the new-conversation rule
+(cards §5.7.4); and Make default and Turn off (cards §5.2). A rule
+is stated in one place; other sections point to it.
 
 Owner of the design: ux-designer. The words are language-culture's:
 §13 names each string, where it shows and what it must say, and its
@@ -86,25 +87,38 @@ acceptance case in §14 that needs one says so:
   `admin.endpoints.set_advertise` (p2p-network-dev, plan §30 Activate;
   `LOCAL-IPC.md` lists only `list`, `revoke`, `set_enabled` and
   `set_default` today), and the embedded host's configuration path for
-  the same three on Android. §6.2 relies on one behaviour of the add
-  that D1 must name: an add whose key derives an EndpointId the profile
-  already holds answers that the id exists, distinguishable from a
-  refusal, and creates nothing new. The key's cleanup (§6.2) relies on
-  one more answer of the add: an add whose key file is absent when the
-  daemon applies it is refused (`key_missing`) and creates nothing, so
-  an add the client stopped waiting for cannot create an endpoint after
-  the client deleted its key on a list that answered; and a refusal
-  means no add of that key will commit. Neither the add nor the remove
-  promises more about an answer that was lost: a write the client
-  stopped waiting for may still commit after a later list has answered
-  (`LOCAL-IPC.md`, A 2026-10-23; ADR-0061 decision 7, A 2026-11-24).
-  §7's Remove is written for that: when an id is read back present
-  after a lost answer, the Remove is not known to have finished, and
-  what the person is told stays true if the device removes the endpoint
-  a moment later. §7 relies on two answers of the remove and on one
-  behaviour: a remove of an id the device does not
-  hold answers `EndpointUnknown`, told apart from a refusal; a remove
-  that leaves the configuration ahead of the running device (ADR-0028)
+  the same three on Android. §6.2 relies on the following behaviours of
+  the add and the remove, which D1 must name. An add sent again with the
+  key, alias and client kinds of an entry the profile already holds
+  answers `unchanged`, creates nothing new and leaves the endpoint
+  registered, registering it if it was not registered yet (as after an
+  add that was left ahead), so a retry is one identity; with a
+  different alias or different client kinds it is refused `exists`. An
+  add whose key file is absent when the daemon applies it is refused
+  (`key_missing`) and creates nothing, so an add the client stopped
+  waiting for cannot create an endpoint once the client has emptied that
+  key's path. An add that leaves the configuration ahead of the running
+  device (ADR-0028) answers `Internal`, as a write that failed does, and
+  the client cannot tell the two apart. A remove of the id takes such an
+  entry out of the configuration and answers `removed`. An add sent
+  again after an add that was left ahead can be answered
+  `BackendUnavailable` in place of `unchanged`, with the entry still in
+  the configuration and not yet registered (`LOCAL-IPC.md`, the endpoint
+  set's methods, A 2026-11-25). A refusal says that the add it answers
+  created nothing. It says nothing about an earlier add of the same key
+  whose outcome was unknown, since the entry that the earlier add left
+  ahead can still be in the configuration when a later add is refused
+  (ADR-0061 decision 7, A 2026-11-26). Neither the add nor the remove
+  promises more about an answer that was lost: a
+  write the client stopped waiting for may still commit after a later
+  list has answered (`LOCAL-IPC.md`, A 2026-10-23; ADR-0061 decision 7,
+  A 2026-11-24). §7's Remove is written for that: when an id is read
+  back present after a lost answer, the Remove is not known to have
+  finished, and what the person is told stays true if the device removes
+  the endpoint a moment later. §7 relies on two answers of the remove
+  and on one behaviour: a remove of an id the device does not hold
+  answers `EndpointUnknown`, told apart from a refusal; a remove that
+  leaves the configuration ahead of the running device (ADR-0028)
   answers `Internal`, as a write that failed does; and the remove takes
   the identity's trusted set (its `inbound` and `outbound` members,
   ADR-0028) out of the endpoint overlay with the endpoint.
@@ -326,10 +340,34 @@ the same text as its reason:
   are not connected. This device could not make sure that you stay
   unlisted.").
 - **Off** and **no lease** as cards §5.7.6 says.
+- **No room at the daemon** (rust-ui-dev-02's QUESTION 01a2119d, U4):
+  the daemon closed the identity's data connection with `Overloaded` at
+  its connection limit (`human-client-ui.md` §13, A 2026-11-25, landed
+  with #761). The client shows it as it shows no lease:
+  `IdentityUnavailable`, with no words of its own and no Try again: the
+  client already retries, at the pace at which it reconnects a lost
+  session, and the other identities keep working meanwhile; nothing the
+  person can do in this client makes room sooner. Words of its own would
+  name the daemon's connection limit, which the person cannot act on
+  here. When the retry gets the lease, the composer line goes back to
+  `ComposerAs`, as after any no-lease state. (Hypothesis: a person who
+  meets this state waits, or retries later; falsified if a person who
+  meets it reports it, and plan §30's note of 2026-11-25 makes the first
+  such report the moment at which the limit is decided again.)
+- **The device cannot store new messages** (U4): every identity releases
+  its endpoint (STATE.md, A 2026-11-25), so the cause is the device's
+  and not one identity's. The app's `StorageDegraded` notice shows once,
+  where it shows today, and names no identity. It stays across a switch,
+  since it is the device's state and not the state of another identity
+  (§4). Every identity's row, switcher row and composer line reads
+  `IdentityUnavailable`, which is true of each. No identity gets words
+  of its own: the notice states the one cause, once. When storage is
+  available again, each identity takes its lease again, as it does after
+  no lease.
 
-Entering either state while the send control has focus moves focus to
-the composer's field, which stays (§11 F21); focus on the field stays
-there.
+Entering any state of this list in which Send is disabled, while the
+send control has focus, moves focus to the composer's field, which stays
+(§11 F21); focus on the field stays there.
 
 ### 5.3 A switch and the identity's pages
 
@@ -342,6 +380,76 @@ belongs to no identity and stays, its check mark moving. On a narrow
 layout the switch is reached only from Chats (cards §5.7.3), so neither
 page is open at a switch.
 
+### 5.4 Chats across a switch
+
+Asked by rust-ui-dev-02 (QUESTION 01a2119d, U1, U2, U6), for a client
+that holds one screen model for each identity held. This section replaces
+the cross-fade that cards §5.7.3 gave the list before this revision.
+
+- **At the switch**, at once: the switch names the new identity,
+  `ConfirmIdentitySwitched` shows, focus goes to the switch (cards
+  §5.7.3), and every row of the old identity leaves the list. From
+  that moment no old row is drawn and none takes input, so a tap that
+  lands during the switch can never open a conversation of the old
+  identity. No frame shows the new identity's name over the old
+  identity's rows.
+- **The new identity's rows** show as soon as its list is ready: at
+  once when the client already holds its screen model, else when the
+  store read answers. Until then the list's place is empty. That place
+  never shows a state that claims something about the list: not the
+  no-reach notice (§5.1), which is decided only after this identity's
+  trust set and the address list are read, and no other empty-list
+  text. If the read has not answered within 250 ms, the progress row
+  of `design/2026-10-27-start-window.md` §5 shows at the top of the
+  list's place, an indeterminate circular indicator, not focusable and
+  not announced, its accessible name `ChatsLoading`. The 250 ms
+  threshold is that note's, so a fast read does not flicker.
+- **If the read fails**, the list's place shows one failure row,
+  `ChatsLoadFailed` and Try again (`TryAgain`), in the shape of
+  Contacts' failure row (start-window §11, "When the contacts cannot
+  be read"). It is announced once, politely, if it appears while Chats
+  is shown. Try again reads the list again: the failure row goes at once,
+  focus goes to the switch (§11 F23), and the progress row follows the 250 ms
+  rule. A switch away while an identity's read is pending discards
+  nothing: when the read answers, the rows it returns go to that
+  identity's screen model, and nothing is drawn, since that identity
+  is not in front; a later switch back shows them at once. A switch
+  back while that read is still pending waits for it, as above, and
+  starts no second read; the 250 ms are counted from the start of that
+  read, so if that read started 250 ms or more before the switch back,
+  the progress row shows at once. A read that fails while its identity
+  is not in front leaves no failure row to show: the next switch back
+  to that identity reads its list again. After a switch away while the
+  failure row is shown, the next switch back reads again too.
+- **What the screen reader reads**: when the rows arrive, nothing is
+  announced and focus does not move; the failure row's announcement
+  is the only one this section adds (§12).
+- **Feedback**: the new rows fade in over 150 ms. There is no
+  cross-fade, since a cross-fade would draw the old rows under the new
+  name. Under reduced motion the rows appear at once. The fade does
+  not delay input: the rows take input from the moment they are drawn.
+- **Switching back shows what the identity's screens showed** (U2).
+  The screen model that the client holds for each identity during the
+  session stays across a switch. An inbound message that was read and not
+  kept is still shown in its conversation when the person switches
+  back, as it would be with no switch. The store removed its durable
+  copy when it was read (RETENTION.md). The session's display copy
+  is what STATE.md allows a current-session model to hold. What arrived
+  or changed meanwhile is shown too. A switch changes which identity
+  is in front. It never changes what the person can find, and a
+  message that vanished because the person looked at another identity
+  would read as lost. What ends the display copy is what ends it
+  today: the end of the app's process, a discard (cards §7), or the
+  identity's removal (§7).
+- **Not specified here, and owed to this note before it is built:**
+  any bound on how many identities' models a client holds. Today the
+  one model holds at most `SESSION_ITEM_CAP` session-only rows, evicted
+  in start-window §1's order. Each identity's model has that bound,
+  and this section adds none. A bound across identities that dropped
+  a model would drop read-and-not-kept messages that no store holds.
+  That loss would be the person's, so such a bound comes back to this
+  note before it is built.
+
 ## 6. Your identities and Add an identity
 
 ### 6.1 The list
@@ -350,8 +458,8 @@ Cards §5.1 stands, with these changes:
 
 - **The row's second line** is the identity's short EndpointId,
   `ShortEndpoint` built as `ShortPeer` is ("…" and its last eight
-  characters), labelled `IdentityIdLabel` in the accessible name ("Shown
-  to the people you write to as …x6gY6Eri"). The route label of the old design no longer
+  characters), labelled `IdentityIdLabel` in the accessible name ("People
+  who exchange messages with this identity see it as …x6gY6Eri"). The route label of the old design no longer
   exists; the alias is local and is not shown on this line (§6.2).
   Wherever an identity is named, the switch and the switcher's rows
   included, its name is the card's name, else its alias (ADR-0061
@@ -377,6 +485,21 @@ Cards §5.1 stands, with these changes:
   too, as `ChannelTrustNode` does (§5.1).
 - **Add an identity** opens the add form (§6.2), not an empty card page
   with a route-label field.
+- **The order** of the rows, here and in the switcher (rust-ui-dev-02's
+  QUESTION 01a2119d, U5; the held list's order, ruled by architect-cto
+  in `human-client-ui.md` §13, A 2026-11-25, landed with #761): the
+  first identity first, whenever its card was made. The
+  others follow in the order their cards were created; two whose cards
+  were created at the same moment are in the order of their EndpointIds.
+  After a discard and recreate (cards §7) that order is lost with the
+  cards, so the first identity stays first and the others follow in the
+  order of their EndpointIds. Cards §5.1's sentence says the same in the
+  person's terms.
+- **Your identities in the switcher before the page exists** (U3): the
+  switcher's Your identities button (cards §5.7.1) is shown only in a
+  build where it opens this list. A build without the page shows the
+  switcher with its title and its rows alone, and no control that leads
+  nowhere. The button arrives in the change that builds the page.
 
 ### 6.2 Add an identity
 
@@ -424,13 +547,41 @@ no card is named by it.
    taking input; Back and Escape do nothing while it runs, for at most
    the add's wait (below), since what it starts cannot be stopped
    halfway.
-2. The client generates the identity's key, seals it, and calls the add
-   with its public key (D1; ADR-0067 d. 4); the endpoint is created
-   with advertise off and an empty trusted set (ADR-0067 d. 6). The
-   form keeps that key for as long as it is open: **every later Create
-   on the same form calls the add with the same key**, never a new one,
-   so a retry can only make the same EndpointId, which is one identity
-   whether the first add landed or not.
+2. The client generates the identity's key. On each Create while the
+   form has no record yet, it writes a **pending-add record** in the
+   store before it calls the add. The record
+   names the new identity's EndpointId and holds nothing else (no key,
+   no name). It seals the key only after the record is written (its
+   file under `endpoint-keys/`, and on Android its platform key), and
+   then calls the add, naming that key file, with the alias and the
+   client kinds of an identity (D1; ADR-0067 d. 4). The endpoint is
+   created with advertise off and an empty trusted set (ADR-0067
+   d. 6). The record is how the client knows later that a key is one
+   the form made: `endpoint-keys/` is not the client's alone, since a
+   deployment mints keys there with no daemon (ADR-0067 d. 4). So a
+   key file that no record names is never deleted by the form or by
+   the settle below (Remove, §7, deletes only an identity's key). A key
+   that Replace minted (identity-key §5.3 step 1) is named by no such
+   record (ADR-0061 decision 7, A 2026-11-26). If the record cannot
+   be written, nothing is sealed, and Create ends as "Refused, with
+   nothing created" says (below).
+   The form keeps that key for as long as it is open: **every later
+   Create on the same form calls the add with the same key**, never a
+   new one, so a retry can only make the same EndpointId, which is one
+   identity whether the first add landed or not. Once an add of that
+   key has ended unknown (below), every later Create also sends the
+   alias and kinds of the first add of that key that ended unknown,
+   whatever the Name field says by then: the alias was decided by that
+   add, and if that add landed, a different alias would be refused
+   `exists` (D1). A name changed after that goes to the card only
+   (step 3), as a later rename does (the alias rule above).
+   The record is deleted when the id becomes an identity (the add
+   answers `added` or `unchanged`, or a list reads the id as Found,
+   below), which comes before step 3;
+   when the form is left with nothing created and the
+   key is deleted; or when the settle discards the record and the
+   remove it sends answers `removed` or `EndpointUnknown` (below). It
+   is never deleted otherwise.
 3. It writes the identity's card.
 4. **Done**: Your identities opens, the new row focused, and
    `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
@@ -446,39 +597,108 @@ Outcomes other than Done, each with nothing half-made shown as made:
 - **At the bound** (64 endpoints, authored and added together; the add
   refuses by name): Create is not offered and `IdentityLimit` shows in
   its place, focused; the form was never opened if the list knew it
-  (cards §5.1, "At the bound").
-- **Refused or failed** before the endpoint exists (an answer saying
-  so): nothing is created, the form stays filled, `IdentityAddFailed`
-  above Create, focus on it. The key stays with the form (step 2).
-- **The answer was lost**: the connection to the daemon dropped, or no
-  answer came within **the add's wait, 30 seconds** (a hypothesis: well
-  past a key's sealing and one configuration write on the slowest
-  supported phone; falsified if rust-ui-dev measures an add that lands
-  later than that). The client knows the EndpointId it asked for, since
-  it derives from the key it made, so it reads the endpoint list
-  (`admin.endpoints.list`) and looks for that id. Found: it goes on with
-  step 3. Not found, or the read fails: the form stays filled with
+  (cards §5.1, "At the bound"). An add refused `bound` leads here
+  whether or not an earlier add of the form's key ended unknown; Back
+  from here leaves the form as "The form is left" says.
+- **Refused, with nothing created**: the add answered
+  `InvalidArgument`, or `refused` for a reason other than `exists` or
+  `bound`; or Create stopped before the add, because the record or the
+  key could not be written. Each of these is this outcome only when no
+  earlier add of the form's key ended unknown; after such an add, each
+  is an unknown outcome (below).
+  Nothing is created, the form stays filled, `IdentityAddFailed` above
+  Create, focus on it. The key stays with the form (step 2), and the
+  next Create takes the alias again from what the Name field says
+  then.
+  The cases of this item, and a refusal `bound` when no earlier add of
+  the form's key ended unknown, are the only cases in which the client
+  knows that nothing was created (D1; ADR-0061 decision 7, A 2026-11-26).
+- **The add answers that the id is held**: `unchanged` (an earlier add
+  landed, D1) is handled as Found: the record is deleted and the client
+  goes on with step 3; nothing is shown as refused. `exists` (the id is
+  held with a different alias or different client kinds, D1) sends the
+  client to the list,
+  as the next item does: Found as that item defines it, else the
+  outcome is unknown.
+- **The outcome is unknown**: every other ending of an add. These are
+  `Internal` (a write that failed, or an add left ahead of the running
+  device, which the client cannot tell apart, D1); any other error,
+  `BackendUnavailable` included (the device can answer it in place of
+  `unchanged`, D1); after an earlier add of the form's key ended
+  unknown, a refusal for any reason other than `bound` or a Create
+  stopped before its add; the connection to the daemon dropping; or no
+  answer within **the add's wait, 30 seconds**
+  (a hypothesis: well past a key's sealing and one configuration write
+  on the slowest supported phone; falsified if rust-ui-dev measures an
+  add that lands later than that). The client knows the EndpointId it
+  asked for, since it derives from the key it made, so it reads the
+  endpoint list (`admin.endpoints.list`) and looks for that id.
+  **Found** is the id listed while its key file is at its key path
+  (ADR-0061 decision 7, A 2026-11-26). A listed id whose key path is
+  empty is not Found: its key is gone, so it is no identity the person
+  can use, and the settle below discards it. Found:
+  the record is deleted and the client goes on with step 3. Not Found,
+  or the read fails: the form stays filled with
   `IdentityAddUnknown` ("InterWeave could not check whether {name} was
   created. Choose Create to try again. If {name} was already
   created, Create does not create a second one.") above Create, focus on
-  it, and Back enabled. Create there reads the list first and, the id
-  absent, calls the add again with the same key (step 2). **Alternative
-  named:** try the add again at once, with a new key. Rejected: a
-  second key would make a second identity if the first add had landed.
-- **The form is left while the outcome is unknown** (Back after
-  `IdentityAddUnknown`, or the app ends): the key file is kept, since an
-  add still running may yet use it. At the client's next start, and
-  whenever Your identities opens, the client lists the endpoints: a
-  kept key whose id is listed is an identity, named by its alias until
-  it has a card (the card case below); one whose id is not listed by a
-  list that answered is deleted. A key is never deleted on a list that
-  failed.
-- **The add answers that the id exists** (the first add landed between
-  a retry's list and its add, D1): as Found, the client goes on with
-  step 3; nothing is shown as refused.
-- **The form is left after a refusal** (Back after `IdentityAddFailed`):
-  the refusal is an answer that nothing was created, so the key file is
-  deleted with the form.
+  it, and Back enabled. Create there reads the list first and, not
+  Found, calls the add again with the same key, alias and kinds
+  (step 2). **Alternative named:** try the add again at once, with a
+  new key. Rejected: a second key would make a second identity if the
+  first add had landed.
+- **The form is left** (Back, or the app ends):
+  - when no add of its key ended unknown (no add was sent, or each
+    was refused with nothing created): on Back, the client deletes the
+    key file and, on Android, the platform key, then the record; a key
+    path that holds nothing, and a platform key that was never made,
+    count as deleted already. If a delete fails, the record is kept.
+    If the app ends, nothing is deleted.
+    In both of these cases the record is then settled as the
+    next item says.
+  - after an add of its key ended unknown, or while an add was running
+    (the app ended during Create): the key and the record are kept,
+    since an add still running, or one whose answer was lost, may yet
+    use the key, and the record is
+    settled as the next item says.
+- **A pending-add record is settled** at the client's next start and
+  whenever Your identities opens, so also right after Back, which
+  opens Your identities. The settle handles every record except the
+  record of a form that is open now. For each record, the client lists
+  the endpoints:
+  - The list fails: nothing is deleted and the record is kept, to be
+    settled again.
+  - The id is listed and its key file is at its key path: the id is an
+    identity, named by its alias until it has a card (the card case
+    below), and the record is deleted.
+  - Otherwise (the id is absent from a list that answered, or its key
+    path is empty, whether the id is listed or not) the record is
+    discarded, with no second add. The client first empties the key
+    path and the platform key, as Remove does (§7, "Its key path";
+    identity-key §5.3 step 5); a key path that holds nothing, and a
+    platform key that was never made (a process that ended between the
+    record and the seal), count as emptied already (ADR-0061 decision
+    7, A 2026-11-26). After that, an add applied late is
+    refused `key_missing` (D1). The client then sends the
+    administrative remove of the id, which takes out an entry left
+    ahead of the running device (D1). On `removed` or
+    `EndpointUnknown` it deletes the record. If the key path or the
+    platform key cannot be emptied, no remove is sent and the record
+    is kept. On any other answer of the remove, or if it gets no
+    answer, the record is kept.
+    A kept record is settled again at the next start and the next
+    opening of Your identities.
+  Nothing is shown for a settle. The person has left the form, and an
+  identity found here appears in Your identities as any identity does.
+  The settle reaches only keys a pending-add record names, so a key
+  that Replace minted is never reached, before or after Replace writes
+  its replaces record (§7, "An identity that cannot come back").
+  **Alternative named:** settle the record as a replaces record is, by
+  sending the same add again (identity-key §5.3). Rejected (ADR-0061
+  decision 7, A 2026-11-26): a replacement is finished because
+  the person asked for it and the old identity waits for it, while
+  nothing waits for a form that was left; and the add would need the
+  alias and kinds stored after the form is gone.
 - **The endpoint exists and the card could not be written** (store
   degraded or failed): the identity exists and is named by its alias
   until it has a card (ADR-0061 d. 1, "named by its label"). Your
@@ -587,25 +807,37 @@ where focus lands — with its dialog changed for ADR-0067:
     that the device no longer holds, the device answers
     `EndpointUnknown` (D1), and Remove ends as done once the list shows
     the id absent.
-  - **An identity that cannot come back leaves with nothing of it
-    left** (ADR-0061 decision 7, A 2026-11-24): at the app's start,
-    after every reconnection to the device, and whenever
-    `admin.endpoints.list` answers, the client deletes the store rows of
-    an identity whose id that list does not hold and whose key path
-    holds no key file. Nothing is deleted on a list that failed, and an
-    identity whose key file is still there keeps its rows, since it can
-    be configured again. The identity leaves Your identities, the
-    switcher and the switch, as one that Remove ended as done leaves
-    them (cards §5.2), with no snackbar of its own: after a Remove, the
-    person already chose to remove it, and
+  - **An identity that cannot come back leaves with nothing of it left**
+    (ADR-0061 decision 7, A 2026-11-24): at the app's start, after every
+    reconnection to the device, and whenever `admin.endpoints.list`
+    answers, the client deletes the store rows of an identity whose id
+    that list does not hold and whose key path holds no key file.
+    Nothing is deleted on a list that failed, and an identity whose key
+    file is still there keeps its rows, since it can be configured
+    again. The rule deletes only an identity's rows: it never takes a
+    pending-add record (§6.2), which is deleted only as §6.2 says
+    (ADR-0061 decision 7, A 2026-11-26).
+    **The one exception is a replacement**
+    (ADR-0061 decision 7, A 2026-11-25): the rule never takes a replaces
+    record, nor the rows of the new identity that a replaces record
+    names, even when the list lacks that identity's id and its key path
+    is empty, because such a list does not say that its add never
+    happened (an add left ahead of the running device, or applied late).
+    A replaces record is settled as identity-key §5.3 says, by sending the
+    same add again; the settle deletes the new identity's rows when it
+    discards the record, and the rule applies to that identity again
+    only when no record names it any more. The identity leaves Your
+    identities, the switcher and the switch, as one that Remove ended as
+    done leaves them (cards §5.2), with no snackbar of its own: after a
+    Remove, the person already chose to remove it, and
     `IdentityRemoveUnfinishedRows` did not say it was staying. An
     identity whose key file and endpoint were removed by other means,
     with no Remove chosen, also leaves with no snackbar, like any
-    endpoint that is taken out of the configuration. In one case there is a
-    snackbar: when that identity was in front, the default comes in
-    front, and the snackbar is `ConfirmIdentityRemovedSwitched` when
-    two or more identities are left, or `ConfirmIdentityRemoved` when
-    one is left, as after a Remove done (cards §5.2). While two or more
+    endpoint that is taken out of the configuration. In one case there
+    is a snackbar: when that identity was in front, the default comes in
+    front, and the snackbar is `ConfirmIdentityRemovedSwitched` when two
+    or more identities are left, or `ConfirmIdentityRemoved` when one is
+    left, as after a Remove done (cards §5.2). While two or more
     identities are left, the identity in use never changes without the
     person being told which one it now is; with one left, the identity
     in use is shown only where the person asks for it (cards §5.2).
@@ -653,7 +885,7 @@ identity.
   identities in its lines (`NotificationIdentityLine`, "{identity}: 3 new
   messages"), one line each;
 - opening an identity's notification switches to it visibly first
-  (cards §5.7.5's transition, "Opening as {identity}"), then shows its
+  (cards §5.7.5's transition, "Switching to {identity}"), then shows its
   Chats; opening the notification of the identity in front shows its
   Chats with no transition;
 - opening the summary, when every new message belongs to one identity,
@@ -830,8 +1062,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F18 | a notification of another identity opens the app | after the transition, the conversation list's title of that identity | device |
 | F19 | the lock-screen entry or the summary opened with news in two or more identities, switcher shown | the switcher's title | device |
 | F20 | Move done (cards §6.3) | the moved-to contact page's title | keyboard |
-| F21 | the identity in front becomes Starting or Could not start while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted |
+| F21 | the identity in front becomes Starting, Could not start, No room at the daemon, unable to send because the device cannot store new messages, Off by the configuration, or with no lease, while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted, again with acceptance 30's two runs, and again with the identity's endpoint turned off in the configuration while the client runs |
 | F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each of the four runs, a reconnection to the device makes `admin.endpoints.list` answer |
+| F23 | Try again on Chats' failure row after a switch (§5.4) | the switch | keyboard, with acceptance 27's failing read |
 
 ## 12. Accessibility beyond focus
 
@@ -847,7 +1080,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
   in each of its forms (`ConfirmRouteRemoved`,
   `ConfirmRouteRemovedTrusted`, `ConfirmRouteRemovedTrustedAs`) and
   the switch's snackbar are announced once through the live region
-  (WCAG 4.1.3); the transition's `SwitchingTo` too.
+  (WCAG 4.1.3); so are the transition's `SwitchingTo` and, when it
+  appears while Chats is shown, Chats' failure row `ChatsLoadFailed`
+  (§5.4).
 - **Targets**: the switch, each switcher row, the route menu button and
   Try again are at least 48 dp high on Android, 24 px on the desktop
   (WCAG 2.5.8).
@@ -856,8 +1091,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
   surface they sit on (`surface`, `surface-container`, the sheet's
   `surface-container-low`), and text 4.5:1 (WCAG 1.4.3, 1.4.11). Each
   is one row of §14's contrast case.
-- **Reduced motion**: the transition and the list's cross-fade keep
-  their duration and lose their movement (cards §5.7.3, §5.7.5).
+- **Reduced motion**: the transition keeps its duration and loses its
+  movement (cards §5.7.5); after a switch, the new rows appear at once,
+  with no fade (§5.4).
 - **Long names and other scripts**: a name is isolated plain text
   (cards §3); the switch ellipsises at the end, never to less than the
   avatar and three graphemes; every "as" line wraps rather than truncates, so
@@ -951,7 +1187,7 @@ front.
 | `IdentityStarting` / `IdentityStartingOne` | {identity} is connecting and cannot send yet. / Connecting. You cannot send yet. | row, switcher, composer | the identity is starting and cannot send yet |
 | `IdentityNotHidden` / `IdentityNotHiddenOne` | {identity} is not connected. This device could not make sure that {identity} stays unlisted. / You are not connected. This device could not make sure that you stay unlisted. | row, switcher, composer | not connected: could not make sure it stays unlisted |
 | `ShortEndpoint` | …{tail} | Your identities, a row's second line; the switcher's rows; `DetailsIdentity` | the short id, built as `ShortPeer` |
-| `IdentityIdLabel` | Shown to the people you write to as {short} | that line's accessible name | read as what others see |
+| `IdentityIdLabel` | People who exchange messages with this identity see it as {short} | that line's accessible name | read as what others see, including people who write first (language-culture-en, OBSERVATION 01a211a6) |
 | `IdentitiesUnlisted` | Other devices cannot get a list of your identities from this device. A peer that already knows one of your identities can still send messages to that identity if that identity trusts the peer. | Your identities | identities are not listed to other devices; someone who knows one can still write to it if it trusts them |
 | `AddIdentityTitle` | New identity | the add form | a new identity |
 | `IdentityNewNote` | A new identity has no contacts and trusts no peer. No one has its card until you share it. | the add form | it trusts no one and no one has its card until shared |
@@ -970,6 +1206,8 @@ front.
 | `RemoveRoute` | Remove from this contact | route menu | remove from this contact |
 | `ConfirmRouteRemoved` | Conversation removed from {contact} | snackbar, with Undo, when the route is not trusted | removed the route from {contact} |
 | `ConfirmRouteRemovedTrusted` / `ConfirmRouteRemovedTrustedAs` | Conversation removed from {contact}. You still trust {peer}. / Conversation removed from {contact}. {identity} still trusts {peer}. | the same snackbar when the route is trusted, with one identity / with two or more | removed, and trust is unchanged; each case one whole template, never a clause added to another |
+| `ChatsLoading` | Loading your conversations | the accessible name of Chats' progress row after a switch (§5.4); never visible text | that the identity's conversations are being read |
+| `ChatsLoadFailed` | Could not load your conversations. | Chats' failure row after a switch (§5.4), before Try again | the conversations could not be read; Try again reads them again |
 
 **Existing trust strings, their form with two or more identities.**
 Each is shown in place of the key it names, with two or more
@@ -1027,7 +1265,7 @@ the same text, and so do `ContactRouteTrustedAs` and
 |---|---|---|
 | `IdentitiesShareDevice` | First half as cards §10, each platform's, up to and not including "Any peer you trust who knows an identity's label"; then: Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device. That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel. | the second half, for ADR-0067 (§6.1) |
 | `IdentityRemoveLoses` | This deletes from this device: / The conversations of {identity}, with their unread and kept messages and the messages waiting to be sent / The contacts of {identity} / The list of peers that {identity} trusts / The card of {identity}, with its name and photo / `IdentityRemoveKey` / People who write to {identity} will no longer reach you. This cannot be undone. | its items are §7's, in its order, the trusted peers and the key added; one item a line, each "/" a line break |
-| `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button |
+| `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button; shown only where the client knows that nothing was created (§6.2, "Refused, with nothing created"), never on `Internal`, which shows `IdentityAddUnknown` |
 | `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
 | `TrustExplanation` | The peers listed here can exchange messages with you. A change made here stays until you change it again. | from the Stage 22 release: no "Only", no claim about this profile (§5.1, §16 Q9) |
 | `ConfirmRevoke` | Do you want to stop trusting {peer}? Messages that this peer sends to you are then refused, until you trust it again. | from the Stage 22 release: it states the route's refusal only, no claim that connections close or about channels (§5.1, §16 Q9, Q10); `{peer}` the exact PeerId, whole, as today |
@@ -1089,8 +1327,65 @@ pass before it lands.
     daemon stopped before it writes the add, then started again: Create
     reads the list, does not find the id, and adds with the same key. In
     both, no second EndpointId exists, and after Back on
-    `IdentityAddUnknown` with the daemon down, the key file stays until
-    a list that answers. Needs D1.
+    `IdentityAddUnknown` with the daemon down, the key file and the
+    pending-add record stay until a list that answers. Needs D1.
+
+    Add's kept key, thirteen more runs, each observed from the daemon
+    (`admin.endpoints.list`), `endpoint-keys/` and the store:
+    (c) an add left ahead of the running device (its publish and
+    restore made to fail, answered `Internal`): `IdentityAddUnknown`
+    shows, never `IdentityAddFailed`. Then the Name field is changed and
+    Create is chosen. The add carries the first add's alias and answers
+    `unchanged`; the id is listed, the record is gone and the card has
+    the new name. (d) As (c) up to `IdentityAddUnknown`, then Back: Your
+    identities opens with no new row and nothing shown; the key file
+    and, on Android, the platform key are gone, the remove answered
+    `removed`, the record is gone, and after the daemon is restarted the
+    list lacks the id. (e) As (d) with the unlink of the key file made
+    to fail: no remove is sent and the record stays; once the unlink is
+    no longer made to fail, the next start settles the record. (f) A
+    key file sealed in `endpoint-keys/` by another program, named by
+    no record, with its id unlisted: after a start and an opening of
+    Your identities the key file is still there. (g) A Replace stopped
+    after its step 1 sealed the new key and before its replaces record
+    was written: no settle touches that key. (h) As (d), with the
+    settle's remove answering `BackendUnavailable`, then a list that
+    answers: the record stays, §7's clean-up rule does not take it, and
+    the next settle removes the id and deletes the record. (i) A first
+    Create refused `alias_taken`, then Back: the key file, the platform
+    key and the record are deleted on Back, with no remove sent. (j) As
+    (c) up to `IdentityAddUnknown`, then the key file moved aside and
+    Create chosen, refused `key_missing`: `IdentityAddUnknown` shows,
+    never `IdentityAddFailed`. Back deletes nothing: the record stays,
+    and the key file stays in the place it was moved to. The settle
+    then finds the key path empty, empties the platform key on Android,
+    and sends the remove, which answers `removed`; the record is
+    deleted, and after the daemon is restarted the list lacks the id.
+    (k) The record's write made to fail: `IdentityAddFailed`, no key
+    file sealed, no add sent; a second
+    Create, with the write no longer made to fail, writes the record
+    before its add. (l) A first add answered `BackendUnavailable`:
+    `IdentityAddUnknown`. (m) An add left ahead as in (c), the entry's
+    alias then changed from the command line, and Create chosen: the
+    list lacks the id, the add answers `exists`, and the list read after
+    it still lacks the id, so `IdentityAddUnknown` shows. In a variant
+    of (m), the daemon is restarted between that add and the list read
+    after it, and the restart loads the entry: the list reads the id as
+    Found and the card is written. (n) A pending-add record whose id is
+    listed and whose key path is empty. To reach that state, an add
+    registers the id and its answer is cut, and the list that is read
+    after that add is made to fail, so `IdentityAddUnknown` shows; then
+    the key file is moved aside and Back is chosen. The settle sends the
+    remove of that listed id, which answers `removed`, and deletes the
+    record. In a variant of (n) with Create in place of Back: the list
+    does not read the id as Found,
+    the add answers `key_missing`, `IdentityAddUnknown` shows again,
+    and no card is written. (o) The process ended after the record was
+    written and before the key was sealed: at the next start the list
+    lacks the id, the settle counts the empty key path and the absent
+    platform key as emptied, the remove answers `EndpointUnknown`, and
+    the record is deleted. Needs D1 and ADR-0061 decision 7 (A
+    2026-11-26).
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
@@ -1195,7 +1490,7 @@ pass before it lands.
     Tab in that order on the desktop, and by a hardware keyboard on the
     Pixel; Escape and Back close each menu, sheet and dialog with
     focus on the opener; no key switches identity without the switcher.
-21. Focus table: each row F1–F21 holds, checked as its row says.
+21. Focus table: each row F1–F23 holds, checked as its row says.
 22. Contrast: one row per mark and surface named in §12, each measured
     at or above its ratio, light and dark.
 23. TalkBack: each "as" line is read with its control, and each
@@ -1245,6 +1540,69 @@ pass before it lands.
     layouts, and in a right-to-left window too, where the controls
     stand mirrored. *(§12 "The Chats bar when the switch does
     not fit"; §11 Keys.)*
+27. With two identities, switching to one whose list the client has not
+    read this session, with the store read made to answer after 1 s:
+    from the switch until the read answers, no row of the old identity
+    is drawn and a tap on the list opens nothing; no no-reach notice
+    and no other empty-list text shows; the progress row shows from
+    250 ms on, its accessible name `ChatsLoading`; then the rows show.
+    In a second run, with the read made to answer within 250 ms, no
+    progress row is drawn. In a third run, with the read made to fail,
+    the failure row shows with `ChatsLoadFailed` and Try again, and
+    `ChatsLoadFailed` is announced once; Try again moves focus to the
+    switch (F23) and reads again. The announcement is checked on the
+    desktop; on Android that check waits until the build exposes an
+    accessibility tree (acceptance 23). In a fourth run, with the read
+    made to answer after 2 s, the test switches back to the old
+    identity 0.5 s after the switch: no row of the identity whose read
+    is pending is drawn, before or after its read answers. When the
+    test switches again to the identity whose read was pending, after
+    the read has answered, its rows show at once, and the store
+    records one read of its list. In a fifth run, with the read made to
+    answer after 2 s, the test switches back to the old identity 0.5 s
+    after the first switch, and to the identity whose read is pending
+    1 s after the first switch: the progress row shows at once on the
+    switch at 1 s, the rows show when the read answers, and the store
+    records one read of its list. In a sixth run, with the first read
+    made to fail 1 s after the first switch and the second read made
+    to answer, the
+    test switches back to the old identity 0.5 s after the first
+    switch, and again to the identity whose read failed 1.5 s after the
+    first switch: no failure row shows at any point in the run, the
+    store records a second read of its list, and its rows show when
+    that read answers.
+    The test needs a store read that it can delay or make fail; the
+    builder says how. *(§5.4.)*
+28. With two identities A and B, and a message to A that was read in A's
+    conversation and not kept: switch to B, then back to A; the message
+    is still shown in that conversation, and the store holds no copy of
+    it. After the app's process ends and the app starts again, it is not
+    shown. *(§5.4; RETENTION.md.)*
+29. After a switch the new rows fade in over 150 ms, and a tap on a row
+    50 ms into the fade opens it; with the platform's reduced motion on
+    (Android's Remove animations; the desktop's setting where the
+    toolkit reads one), they appear at once. *(§5.4; §12.)*
+30. With two identities, and the data connection of one closed with
+    `Overloaded` at the daemon's connection limit (`ipc.max_clients` set
+    low enough in the test's profile): its row, its switcher row and its
+    composer line read `IdentityUnavailable`, with no Try again; the
+    other identity sends. Once room is made, it takes its lease again
+    with nothing done by the person, and its composer line reads
+    `ComposerAs`. In a second run, with the store made unable to commit,
+    `StorageDegraded` shows once on Chats, whichever identity is in
+    front, and every identity's row reads `IdentityUnavailable`.
+    *(§5.2.)*
+31. With three identities held, in a build without §6.1's list, the
+    switcher shows its title and the identities' rows, and no Your
+    identities button. The two added identities' cards are created
+    first, and the first identity's card is created after them. The
+    rows are in §6.1's order: the first identity first, then the two
+    others in the order their cards were created. In a second run, after a
+    discard and recreate (cards §7), the first identity is still first
+    and the two others are in the order of their EndpointIds; their
+    cards were created in an order that differs from the order of
+    their EndpointIds.
+    *(§6.1; cards §5.7.1.)*
 
 ## 15. Deliberately left out
 
@@ -1355,3 +1713,23 @@ identity, and `IdR1NewKeys`, are §15's. `TrustPeerAs` ("Trust as
 01a1a72b-9f52; the one-identity `TrustExplanation` of §16 Q9 was
 worded in REPLY 01a1a730-ee4c, and `ConfirmRevoke`, first worded
 there, was replaced under Q10 (REPLY 01a1a73b).
+
+Asked by rust-ui-dev-02 for the step 1 wiring (QUESTION 01a2119d,
+2026-11-25) and answered in this note:
+
+- **U1** what Chats shows between a switch and the store read: nothing
+  of either identity, a progress row after 250 ms, a failure row if
+  the read fails; never the empty-list states (§5.4).
+- **U2** a read message not kept, after switching away and back: still
+  shown, as with no switch, until what ends a display copy today ends
+  it (§5.4).
+- **U3** Your identities in the switcher before its page: hidden until
+  the page is built (§6.1).
+- **U4** an identity refused for lack of room, and every identity when
+  the device cannot store new messages: both read `IdentityUnavailable`,
+  the second with the device's `StorageDegraded` notice shown once
+  (§5.2).
+- **U5** the order of the identities: architect-cto's held-list order,
+  in §6.1 and cards §5.1.
+- **U6** motion on a switch: the new rows fade in, and there is no
+  cross-fade; under reduced motion, no fade (§5.4, §12).

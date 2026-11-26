@@ -112,7 +112,7 @@ crate would have changed.
 
 The harness depends on `interweave-transport-runtime`, `-api`,
 `interweave-trust-api` and `interweave-transport-libp2p` **by path**.
-The dependency runs spike → product, the direction CLAUDE.md §4 permits.
+The dependency runs spike → product, the direction AGENTS.md §4 permits.
 
 **The POLICY is production; the HOOK is a proposal, and the difference
 matters.** `InstrumentedGate` asks `ConnectionManager::admit` through a
@@ -408,7 +408,7 @@ different parties.
 
 **But D2 was a document CONFLICT before it was a code defect, and Stage
 11 had to resolve it in that order.** A review on PR #69 was right to
-hold this to CLAUDE.md §2. ADR-0036's enforcement clause forbids the
+hold this to AGENTS.md §2. ADR-0036's enforcement clause forbids the
 admission; at the time this was written, two accepted rows appeared to
 permit it:
 

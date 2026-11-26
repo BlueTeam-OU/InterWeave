@@ -26,7 +26,7 @@ use interweave_human_ui_model::{
     StepFailed, UncheckedRefused,
 };
 use interweave_human_ui_slint::{
-    IdentityInput, View, Wake, apply_identity, defer, identity_page, invoke_on_window,
+    IdentityInput, IdentityStop, View, Wake, apply_identity, defer, identity_page, invoke_on_window,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 
@@ -755,6 +755,9 @@ impl Onboarding {
 impl Onboarding {
     /// The flow without its window, for the next ([`window_ended`]).
     fn park(self) -> Parked {
+        // The control that had focus, for the next window to focus again:
+        // a recreation moves no focus (identity note section 6, The hold).
+        let focus = self.view.borrow().identity_stop();
         let Self {
             view: _,
             done: _,
@@ -773,6 +776,7 @@ impl Onboarding {
             finished,
         } = self;
         Parked {
+            focus,
             flow,
             creation,
             app_data_dir,
@@ -799,6 +803,10 @@ impl Onboarding {
 /// start's clock (the process's, [`now_ms`]) and the hub's count it
 /// waits past.
 struct Parked {
+    /// The identity page's focused stop when its window ended, a keypad
+    /// key or a chip included: the next window's page takes it in place
+    /// of its screen's opening focus (`View::keep_identity_stop`).
+    focus: Option<IdentityStop>,
     flow: IdentityFlow,
     creation: Option<Creation>,
     app_data_dir: PathBuf,
@@ -818,6 +826,7 @@ impl Parked {
     /// The flow shown over `view` again, handing over through `done`.
     fn rebind(self, view: &Rc<RefCell<View>>, done: Rc<dyn Fn()>) -> Onboarding {
         let Self {
+            focus,
             flow,
             creation,
             app_data_dir,
@@ -832,6 +841,9 @@ impl Parked {
             attached,
             finished,
         } = self;
+        if let Some(focus) = focus {
+            view.borrow().keep_identity_stop(focus);
+        }
         Onboarding {
             view: Rc::clone(view),
             flow,

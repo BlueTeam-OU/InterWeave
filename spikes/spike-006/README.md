@@ -46,7 +46,7 @@ this file's**, which is where these findings went to live:
 three findings have a test there, and until 2026-09-20 only two did —
 an earlier version of this paragraph named two tests and claimed the
 findings were covered, which is the coverage-that-does-not-exist shape
-`CLAUDE.md` §4 is written against (review, PR #110):
+`AGENTS.md` §4 is written against (review, PR #110):
 
 | finding | test |
 |---|---|

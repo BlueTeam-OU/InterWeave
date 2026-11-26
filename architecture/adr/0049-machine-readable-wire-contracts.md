@@ -6,7 +6,7 @@
 
 The nine contracts under `architecture/contracts/` are prose. Prose is the right medium for behaviour — routing order, what an acceptance proves, which failure stays coarse on the wire — and it will remain normative for all of that. It is the wrong medium for **shape**. A prose field list cannot be validated against an instance, cannot be diffed for compatibility when a version changes, and cannot generate the conformance vectors that independent implementations agree on.
 
-Two consequences are already visible. `fixtures/` contains nine README files and **zero vectors**, so `AGENTS.md` §9's requirement that "frozen fixture checks still pass where applicable" currently checks nothing — the goldens ADR-0047 re-froze live only in ADR prose, where nothing recomputes them. And ADR-0046 places `foundation/fixtures` and `neutral contracts/config` at the very bottom of the construction order, which means these are the next artifacts due, not a later concern.
+Two consequences were already visible when this was decided. `fixtures/` contained nine README files and **zero vectors**, so the instruction file's requirement, as it then stood, that "frozen fixture checks still pass where applicable" checked nothing — the goldens ADR-0047 re-froze lived only in ADR prose, where nothing recomputed them. And ADR-0046 places `foundation/fixtures` and `neutral contracts/config` at the very bottom of the construction order, which meant these were the next artifacts due, not a later concern.
 
 There is a second problem specific to this repository's state. Nothing is implemented. Every contract here describes what an implementation must do, not what any running code does. Prose cannot express that distinction, so a reader has no way to tell a specification of current behaviour from a specification of intended behaviour — and in a repository where *none* of it is current, that ambiguity is total.
 
@@ -96,7 +96,7 @@ The schemas describe shapes only. No key material, no capability grant, and no t
 
 ## Operational implications
 
-`tools/checks/validate_contracts.py` and `tools/checks/verify_fixture_vectors.py` run before pushing and are listed in `AGENTS.md` §9. Both take `--root` so they can be run against an extracted archive, which is how a handoff recipient confirms the vectors they received.
+`tools/checks/validate_contracts.py` and `tools/checks/verify_fixture_vectors.py` run before pushing: `cargo xtask checks` runs both with every other tree check (`AGENTS.md` §9), and CI invokes each by name. Both take `--root` so they can be run against an extracted archive, which is how a handoff recipient confirms the vectors they received.
 
 ## Implementation implications
 
@@ -107,3 +107,11 @@ The `endpoints` family is deliberately the first and only one populated. Remaini
 ## Revisit conditions
 
 Revisit if byte-level framing needs a schema language JSON Schema cannot express, in which case the direct v2 wire moves to Protobuf or CDDL while the JSON-shaped contracts stay; if generated schemas from implementation types become preferable once implementations are the source of truth for shape rather than its consumer; or if the prose and schema pair proves to drift in practice despite the provenance pointers, which would argue for generating one from the other rather than maintaining both.
+
+## Amendments
+
+Full notes: [`history/0049-amendments.md`](./history/0049-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-11-25 | The two checks run under `cargo xtask checks` | A reader looks for the two checks in `cargo xtask checks` and the CI workflow, not in a list in the instruction file |

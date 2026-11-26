@@ -177,7 +177,17 @@ fn strings(items: impl IntoIterator<Item = String>) -> ModelRc<SharedString> {
     ))
 }
 
-fn rows(flow: &IdentityFlow, rows: &[&str]) -> ModelRc<IdKeyRow> {
+/// `rows`' keys, each with its place in `other`, the other layout, for a
+/// key kept through a recreation into a window of that layout.
+fn rows(flow: &IdentityFlow, rows: &[&str], other: &[&str]) -> ModelRc<IdKeyRow> {
+    let other_place = |letter| {
+        other
+            .iter()
+            .flat_map(|row| row.chars())
+            .position(|l| l == letter)
+            .and_then(|i| i32::try_from(i).ok())
+            .unwrap_or(-1)
+    };
     let picker = flow.picker();
     let enabled = |letter| picker.is_some_and(|p| p.enabled(letter));
     // After `IdRestoreOther`'s Continue every key shows disabled until the
@@ -202,6 +212,7 @@ fn rows(flow: &IdentityFlow, rows: &[&str]) -> ModelRc<IdKeyRow> {
                                 letter: letter.to_string().into(),
                                 enabled: enabled(letter) && !held,
                                 index: index - 1,
+                                other: other_place(letter),
                                 first: first == Some(letter),
                             }
                         })
@@ -612,8 +623,8 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
                 page.chips = strings(words.iter().map(|w| (*w).to_owned()));
             }
         }
-        page.rows = rows(flow, &QWERTY);
-        page.alpha_rows = rows(flow, &ALPHABET);
+        page.rows = rows(flow, &QWERTY, &ALPHABET);
+        page.alpha_rows = rows(flow, &ALPHABET, &QWERTY);
         page.any_key = flow
             .picker()
             .is_some_and(|p| ('a'..='z').any(|l| p.enabled(l)));

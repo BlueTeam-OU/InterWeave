@@ -6,7 +6,7 @@ rust-libp2p direct request-response and concurrency/validation behavior. Authori
 
 Do not treat the experiment in [`harness/`](./harness) as production implementation. It is deliberately outside the workspace — an empty `[workspace]` table in its manifest — so it cannot be built by `cargo xtask ci`, cannot enter `Cargo.lock`, and cannot become a production dependency by a stray `path =`.
 
-**That isolation carries more weight here than it did for SPIKE-006.** This harness enables `request-response` and `gossipsub` on the same `libp2p` dependency the substrate uses, and Cargo unifies features across one build of one workspace. As a member it would have switched both protocols on inside `interweave-transport-libp2p` — undoing CLAUDE.md §3's "absent from the feature list rather than merely unused", and doing it with nothing in the production crate having changed.
+**That isolation carries more weight here than it did for SPIKE-006.** This harness enables `request-response` and `gossipsub` on the same `libp2p` dependency the substrate uses, and Cargo unifies features across one build of one workspace. As a member it would have switched both protocols on inside `interweave-transport-libp2p` — undoing the plan's Stage 4 rule that they are absent from the `libp2p` feature list rather than merely unused, and doing it with nothing in the production crate having changed.
 
 ## What was pinned
 
