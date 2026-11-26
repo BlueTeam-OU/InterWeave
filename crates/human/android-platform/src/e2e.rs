@@ -52,7 +52,7 @@ impl HubClient {
 
 impl AppClient for HubClient {
     fn command(&mut self, command: Command) -> bool {
-        self.hub.command(command).is_ok()
+        self.hub.command(None, command).is_ok()
     }
 
     fn updates(&mut self, wait: Duration) -> Result<Vec<Update>, String> {
@@ -74,6 +74,9 @@ impl AppClient for HubClient {
                 ToView::Running(false)
                 // Which start runs: the case waits on whether one does.
                 | ToView::Start(_)
+                // Whose the updates are: the case's client holds one
+                // identity and sends as the one in front.
+                | ToView::Held(_)
                 | ToView::NetworkAccess(true)
                 | ToView::AuthenticationNeeded(false)
                 // What the person's Trust page says of the unlock policy:
@@ -100,7 +103,8 @@ impl AppClient for HubClient {
                 ToView::AuthenticationNeeded(true) => {
                     return Err("the profile waits for the person's authentication".to_owned());
                 }
-                ToView::Update(update) => updates.push(*update),
+                // The facade holds one identity, so every update is its.
+                ToView::Update(_, update) => updates.push(*update),
                 // The service runs the network-denied posture: the case's
                 // exchange cannot happen, so it ends, saying why.
                 ToView::NetworkAccess(false) => {

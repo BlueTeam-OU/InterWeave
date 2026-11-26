@@ -10,6 +10,7 @@ use std::ffi::CString;
 use std::time::Duration;
 
 use interweave_human_android_platform::AvailabilityMode;
+use interweave_human_android_platform::facade::FacadeNote;
 use interweave_human_android_platform::{
     EmbeddedRefused, Ended, FirstRun, IdentityRefused, Link, NetworkReport, Resealed, ServiceHost,
     ServiceLaunch, StartRefused, Started, Told, Transports, UnlockStatus, addresses_from_wire,
@@ -316,7 +317,7 @@ fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
     match started {
         Ok(()) => {
             log("no network access: the store is open and no runtime runs");
-            log_key_refused(host);
+            log_start_notes(host);
             NETWORK_DENIED
         }
         Err(why) => refusal(&why),
@@ -324,10 +325,23 @@ fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
 }
 
 /// A start that ran with no identity key says why, by class, as the
-/// desktop prints it: the person-facing state is the card page's.
-fn log_key_refused(host: &ServiceHost) {
+/// desktop prints it: the person-facing state is the card page's. And
+/// what the facade said for the log, by class only, as the desktop's
+/// facade thread prints it: the last-front row names an identity
+/// (no `FacadeNote` variant carries a field, the build's check where it
+/// is declared; each class once, android-platform service
+/// `a_class_said_twice_is_taken_once`).
+fn log_start_notes(host: &ServiceHost) {
     if let Some(why) = host.identity_key_refused() {
         log(&format!("the identity's key is not usable: {why:?}"));
+    }
+    for note in host.take_facade_notes() {
+        log(match note {
+            FacadeNote::FrontUnread => {
+                "the identity last in front could not be read; the start went on without it"
+            }
+            FacadeNote::FrontUnremembered => "the identity in front could not be remembered",
+        });
     }
 }
 
@@ -431,7 +445,7 @@ fn start(env: &mut Env<'_>, app_data_dir: &str, expect: Option<&TransportIdentit
                 )),
                 None => log("the runtime started before any network was reported"),
             }
-            log_key_refused(host);
+            log_start_notes(host);
             match host.availability() {
                 Some(AvailabilityMode::StayReachable) => 1,
                 _ => 0,
