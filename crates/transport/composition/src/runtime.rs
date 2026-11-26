@@ -376,8 +376,10 @@ impl PublishHold {
     /// there.
     ///
     /// # Errors
-    /// `BackendUnavailable` when the hold was dropped unreached (the
-    /// driver ended). Asked again after it resolved, `Ok` at once.
+    /// `BackendUnavailable` when the hold was dropped unreached: the
+    /// driver ended, or a later `hold_next_endpoint_publish` replaced it.
+    /// Asked again after it resolved, `Ok` at once
+    /// (`a_hold_is_taken_by_the_first_write_that_reaches_its_publish`).
     pub async fn reached(&mut self) -> Result<(), TransportError> {
         let Some(reached) = self.reached.as_mut() else {
             return Ok(());
@@ -1015,7 +1017,10 @@ impl ComposedRuntime {
     /// its overlay is written and before its answer, until the returned
     /// [`PublishHold`] is released or dropped: how a test puts another
     /// request beside a write in flight. A move refused before its write
-    /// does not take the hold. TEST BUILDS ONLY.
+    /// does not take the hold
+    /// (`a_hold_is_taken_by_the_first_write_that_reaches_its_publish`); a
+    /// second call before the first hold is taken replaces it. TEST BUILDS
+    /// ONLY.
     ///
     /// # Errors
     /// `BackendUnavailable` once the runtime has stopped.

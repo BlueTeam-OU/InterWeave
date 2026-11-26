@@ -262,6 +262,13 @@ async fn a_remove_beside_a_held_endpoint_trust_set_answers_after_it() {
         !overlay.contains(peer.as_str()),
         "and the set's member with it"
     );
+    // The driver's own view, with no timer: a set answered beside the
+    // remove would adopt its overlay, the entry with it, after the
+    // remove's, and the endpoint would still be there to remove.
+    assert_eq!(
+        within(removing.remove_endpoint(work.clone())).await,
+        Err(TransportError::EndpointUnknown)
+    );
     drop((set, remove));
     drop((setting, removing));
     runtime.stop().await.expect("stops");
@@ -340,6 +347,34 @@ async fn a_hold_is_taken_by_the_first_write_that_reaches_its_publish() {
         "the add answered while held"
     );
     hold.release();
+    assert_eq!(within(&mut add).await, Ok(EndpointAddChange::Added(work)));
+    drop(add);
+    drop(port);
+    runtime.stop().await.expect("stops");
+}
+
+/// A second hold asked for before the first was taken replaces it: the
+/// first answers `BackendUnavailable` while the driver runs, and the
+/// second is the one the next write takes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_hold_replaces_an_untaken_first() {
+    let p = paths();
+    let runtime = start(&p).await;
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+
+    let mut first = runtime.hold_next_endpoint_publish().await.expect("held");
+    let mut second = runtime.hold_next_endpoint_publish().await.expect("held");
+    assert_eq!(
+        within(first.reached()).await,
+        Err(TransportError::BackendUnavailable)
+    );
+    let mut add = Box::pin(port.add_endpoint(key, "work".to_owned(), vec![]));
+    assert!(poll_once(&mut add).is_pending(), "the add is queued");
+    within(second.reached())
+        .await
+        .expect("the add took the second");
+    second.release();
     assert_eq!(within(&mut add).await, Ok(EndpointAddChange::Added(work)));
     drop(add);
     drop(port);
